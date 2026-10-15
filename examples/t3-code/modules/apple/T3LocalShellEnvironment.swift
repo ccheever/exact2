@@ -97,7 +97,7 @@ enum T3LocalShellEnvironment {
     }
 
     /// The server's environment: the app's, the login shell's values, without the envelope's
-    /// variables, and with telemetry off (spec; issue X39).
+    /// variables, and with telemetry off (spec).
     static func serverEnvironment(base: [String: String], run: Runner) -> [String: String] {
         var env = base
         install(into: &env, run: run)

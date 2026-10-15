@@ -1,4 +1,4 @@
-// context-menu-gaps: what the Files tree row, pull request number and chat file-link menus send to
+// What the Files tree row, pull request number and chat file-link menus send to
 // the module's `contextMenu` op and do with the pick (FileBrowserPanel showEntryContextMenu,
 // fileContextMenu.ts activate, pullRequestLinkContextMenu.ts, ChatMarkdown showFileContextMenu).
 import { afterEach, describe, expect, test } from 'bun:test';
@@ -86,7 +86,7 @@ describe('Files tree row menu', () => {
   });
 });
 
-// contract-keys-and-menu-bar X292: the menu is a Contract context popover (pages-prs.contract PrLinkMenu): Copy link, then
+// The menu is a Contract context popover (pages-prs.contract PrLinkMenu): Copy link, then
 // Open on the row's host (context-menus.ts openOnHostLabel, in the row's `linkOpenLabel`); its row names the pick here.
 describe('Pull request number menu', () => {
   test('Copy link and Open on the named host', async () => {

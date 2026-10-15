@@ -1,7 +1,7 @@
 #if os(macOS)
 import AppKit
 
-/// Lane r9-input: the composer's focus and composing (marked) text (MIT reference, see LICENSE-T3).
+/// The composer's focus and composing (marked) text (MIT reference, see LICENSE-T3).
 ///
 /// - Focus: AppKit posts a text view's begin-editing only with its first edit, so a
 ///   click (or ⌘-less focus) into an existing draft never told the window the
@@ -14,7 +14,7 @@ import AppKit
 ///   never spent committing a syllable.
 /// - The transcript's remembered position is Contract's: ChatColumn keeps the first visible
 ///   key and offset from the list's ScrollEvent and restores them with a keyed
-///   `scrollIntoView` (app-main.contract, timeline-and-window-hooks KW-12b).
+///   `scrollIntoView` (app-main.contract).
 /// - Diagnostics: R9_INPUT_LOG=<file> logs presses, ⌘ keys and focus.
 final class R9Input {
     init() {

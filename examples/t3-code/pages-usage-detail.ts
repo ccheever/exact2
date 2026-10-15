@@ -1,5 +1,5 @@
 // The Usage page's cost/token mixes, the reshaped Breakdown model table and the
-// model detail dialog (lane "pages", upstream e8545b293b). Sources: T3 Code
+// model detail dialog (upstream e8545b293b). Sources: T3 Code
 // (MIT, see LICENSE-T3) apps/web/src/components/usage/{UsageShareBar,
 // UsageModelDialog,usageBreakdown}.ts(x) and UsagePage.tsx.
 import { arr, type Obj } from './domain';
@@ -117,7 +117,7 @@ export function dialogPlotWidth(viewportWidth: number): number {
  * not zero, so its trend shows tokens.
  */
 export function modelDetail(model: ModelTotals, environment: { id: string; label: string; summary: Obj } | { id: string; label: string; summary: Obj }[], periods: string[], resolution: 'day' | 'hour', metric: string, viewportWidth: number): ModelDetailView {
-  // usage-pooled-view: the selected environments that answered (mergeAnsweredUsage with the model's buckets).
+  // The selected environments that answered (mergeAnsweredUsage with the model's buckets).
   const usage = mergeUsage((Array.isArray(environment) ? environment : [environment]).map(entry => ({ ...entry,
     summary: { ...entry.summary, buckets: arr(entry.summary.buckets).filter(bucket => bucket.provider === model.provider && bucket.model === model.model) } })));
   const meta = PROVIDERS[model.provider as ProviderKind];

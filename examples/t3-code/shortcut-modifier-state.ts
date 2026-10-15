@@ -1,4 +1,4 @@
-// The modifier state the Pull Requests page's Shift quick actions read (pr-handoffs-and-quick-actions),
+// The modifier state the Pull Requests page's Shift quick actions read,
 // ported with its names from T3 Code 1e2ecbd975 (MIT, see LICENSE-T3) apps/web/src/shortcutModifierState.ts:
 // areShortcutModifierStatesEqual and shortcutModifierStateAfterKeyboardEvent, and the route's
 // speedMode (routes/_chat.pull-requests.tsx: Shift alone). The hook's window listeners are the native

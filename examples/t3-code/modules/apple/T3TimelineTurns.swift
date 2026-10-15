@@ -1,13 +1,13 @@
 #if os(macOS)
 import AppKit
 
-/// An assistant citation's jump target (r5-composer: AssistantCitationSource): the
+/// An assistant citation's jump target (AssistantCitationSource): the
 /// transcript and its answers (`hatch="t3-turn"`, `data-turn="cite:<id>"`), the
 /// answer brought min(120pt, a third of the viewport) under the top edge and kept
 /// there while the rows around it settle. An answer the virtualized list has not
 /// mounted is first approached by its row position, then placed exactly once its
 /// row exists. The minimap's turns on screen and its jumps are Contract's
-/// (`intersect=` and keyed `scrollIntoView` in app-main.contract, timeline-and-window-hooks).
+/// (`intersect=` and keyed `scrollIntoView` in app-main.contract).
 final class T3TimelineTurns {
     private weak var transcript: ExactElement?
     private var rows: [String: Weak] = [:]
@@ -46,7 +46,7 @@ final class T3TimelineTurns {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { reply(["ok": true, "generation": generation, "value": ["slept": delay]]) }
     }
 
-    /// r5-composer: for two seconds after a jump lands, a relayout that moves the
+    /// For two seconds after a jump lands, a relayout that moves the
     /// target (rows above it measured as they mount, a page of history) places it
     /// again, as AssistantCitationSource re-checks on size and position changes.
     private var holding: [NSObjectProtocol] = []
@@ -80,7 +80,7 @@ final class T3TimelineTurns {
         guard let scroll = transcript?.scrollView, let document = scroll.documentView, !id.isEmpty else {
             return reply(["ok": false, "generation": generation, "error": ["kind": "Timeline", "message": "The transcript is not on screen.", "uncertain": false]])
         }
-        // r5-composer: a citation's source lands min(120pt, a third of the viewport) under the top edge
+        // A citation's source lands min(120pt, a third of the viewport) under the top edge
         // (AssistantCitationSource), its `inset` the distance from the hooked row to the cited content.
         let inset = CGFloat(request["inset"] as? Double ?? 0)
         let lead: (NSClipView) -> CGFloat = request["lead"] as? String == "citation" ? { clip in min(120, clip.bounds.height / 3) - inset } : { _ in 24 }
@@ -109,7 +109,7 @@ final class T3TimelineTurns {
             self?.place(id: id, index: index, count: count, scroll: scroll, document: document, attempt: attempt + 1, lead: lead, placement: placement)
         }
         if exact && attempt == 0 {
-            // r5-composer: rows the scroll brings into view are measured as they mount, which moves the
+            // Rows the scroll brings into view are measured as they mount, which moves the
             // target; once the animation ends the row is placed again until it holds (attempts 1–8).
             NSAnimationContext.runAnimationGroup({ context in
                 context.duration = 0.25

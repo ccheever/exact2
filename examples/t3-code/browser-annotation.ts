@@ -1,4 +1,4 @@
-// browser-surface part 3 (capture): Annotate's result in the composer (MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
+// Annotate's result in the composer (MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
 // apps/desktop/src/preview/PickedElementPayload.ts, apps/web/src/lib/elementContext.ts `normalizeElementContextSelection`,
 // apps/web/src/lib/composerContextRecords.ts `previewAnnotationContext*`, apps/web/src/lib/previewAnnotation.ts, and
 // composerDraftStore.ts `addPreviewAnnotation`).

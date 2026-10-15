@@ -416,7 +416,7 @@ describe('provider setup in the clone', () => {
     expect(arr(fake.calls.map(call => ({ method: call.method } as Obj)))).toContainEqual({ method: 'server.updateSettings' });
   });
 
-  // fix-provider-auth-state, bug 21 (#298): the Add provider dialog's Sign-in method select did not open. After
+  // #298: the Add provider dialog's Sign-in method select did not open. After
   // "Continue to sign-in" the page behind the dialog selects the created instance (commandCompleted:
   // providerSelected = providerCreated) and draws the same Account row, so the dialog's popovertarget named the
   // menu of the row behind it. Each surface now names its own ids.

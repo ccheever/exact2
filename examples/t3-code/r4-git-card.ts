@@ -1,4 +1,4 @@
-// ShellDetails.git (lane r4-git): the card's Version Control data, joined from
+// ShellDetails.git: the card's Version Control data, joined from
 // r4-git-actions.ts (quick action, menu, progress, dialogs) and r4-git-branch.ts
 // (the branch picker).
 import type { T3Client } from './client';

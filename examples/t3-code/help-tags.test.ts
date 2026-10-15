@@ -1,4 +1,4 @@
-// adopt-main-fixes-r7: main's LLP 1115 wave 1 (550aa871a) gives a custom button with a label, no `title` and no
+// Main's LLP 1115 wave 1 (550aa871a) gives a custom button with a label, no `title` and no
 // accessible text its label as AppKit's help tag (PresenterMac.propsChanged / settleTips). The reference is a web page:
 // `aria-label` never shows a native tooltip there, and the clone's own tips would show beside one. So every such
 // button says `title=""` (HTML's "no advisory text"). This guard applies the host's rule to the app's view tree:

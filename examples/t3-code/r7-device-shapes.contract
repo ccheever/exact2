@@ -1,4 +1,4 @@
-// Lane r7-device: the device workspace's 3D / Flat presentation, extra rail controls and the
+// The device workspace's 3D / Flat presentation, extra rail controls and the
 // Tools drawer (r7-device-tools.ts). No imports, so r6-device-shapes.contract can use it.
 shape R7DevOption
   value: string

@@ -1,4 +1,4 @@
-// Lane r7-handoff: the composer context strip's pull request badge (MIT reference, see
+// The composer context strip's pull request badge (MIT reference, see
 // LICENSE-T3, upstream f90b77d809): BranchToolbarBranchSelector in toolbar mode renders
 // ThreadPullRequestBadgeControl (ThreadStatusIndicators.tsx) as a ComposerControl size="xs"
 // just before the branch trigger. What it shows follows the selector:

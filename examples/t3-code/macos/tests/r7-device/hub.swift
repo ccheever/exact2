@@ -3,7 +3,7 @@ import CryptoKit
 import Network
 import VideoToolbox
 
-/// Lane r7-device: a loopback stand-in for the server's `/api/device-hub` proxy in front of
+/// A loopback stand-in for the server's `/api/device-hub` proxy in front of
 /// serve-sim and serve-emu. One TCP listener answers plain HTTP (the AVCC and MJPEG bodies, the
 /// accessibility tree, server-sent events) and upgrades `…/ws` requests to WebSockets by hand, so
 /// a client sees one origin as it does through the proxy. It speaks the wire formats

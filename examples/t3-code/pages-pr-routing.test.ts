@@ -1,4 +1,4 @@
-// Ported tests for pages-pr-routing.ts (task pr-links-previews-and-routing). Sources: T3 Code (MIT,
+// Ported tests for pages-pr-routing.ts. Sources: T3 Code (MIT,
 // see LICENSE-T3) at 1e2ecbd975 — apps/web/src/components/pullRequest/
 // {pullRequestProjectAssignment.logic,pullRequestList.logic}.test.ts and
 // packages/client-runtime/src/state/pullRequests.test.ts, original describe/it names kept.

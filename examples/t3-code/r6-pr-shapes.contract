@@ -1,4 +1,4 @@
-// Lane r6-pr: the details card's pull request row with the host's detail (the
+// The details card's pull request row with the host's detail (the
 // checks popover, the trailing action's measured width, the tooltip card) and the
 // Merge AlertDialog, as r6-pr-row.ts and r6-pr-actions.ts answer them.
 shape R6Check

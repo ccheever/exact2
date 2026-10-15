@@ -1,4 +1,4 @@
-// Settings → Connections: hosts too old for this client (lane r3-settings; upstream
+// Settings → Connections: hosts too old for this client (upstream
 // 22e9d35613 compatibility.ts, onboarding.ts, outdatedHostUpdate.ts,
 // ServerUpdateAction.tsx OutdatedServerUpdateAction and ConnectionsSettings.tsx).
 // A host whose orchestration protocol is older than this client's cannot open a

@@ -1,4 +1,4 @@
-// Settings navigation and search (lane settings-core). Reference: SettingsSidebarNav.tsx and
+// Settings navigation and search. Reference: SettingsSidebarNav.tsx and
 // settingsSearch.ts — the sidebar lists SETTINGS_SECTION_LABELS in order (Project only for a
 // project/checkout scope); a query replaces the list with ranked catalog results whose
 // availability and owning scope match this client.

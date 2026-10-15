@@ -6,7 +6,7 @@
 // (oniguruma-to-es with Shiki's options, target ES2018 for Hermes), so r12-render-textmate.ts can run
 // them with no Oniguruma and no regex conversion. generate.mjs writes the files (the app build runs it).
 //
-// code-highlighting-languages: every grammar of @shikijs/langs is here (the reference loads any
+// Every grammar of @shikijs/langs is here (the reference loads any
 // language of Shiki's bundle). They share one rule space, so an include of another language
 // resolves as a registry that has it loaded resolves it, and each grammar's rules, names and
 // regexes are one chunk the app parses only when a language first needs it. Output:
@@ -32,7 +32,7 @@ export const EMBEDDED_ONLY = ['angular-expression', 'angular-inline-style', 'ang
   'angular-template', 'angular-template-blocks', 'cpp-macro', 'es-tag-css', 'es-tag-glsl', 'es-tag-html', 'es-tag-sql', 'es-tag-xml',
   'jinja-html', 'markdown-nix', 'markdown-vue', 'vue-directives', 'vue-interpolations', 'vue-sfc-style-variable-injection'];
 
-/** code-highlighting-languages: grammars left out for their licences (the coordinator's decision of 2026-10-12; LICENSE-T3
+/** Grammars left out for their licences (LICENSE-T3
  *  lists each grammar's licence as its upstream states it): GPL-3.0 ada, gnuplot, nginx and racket, and dax, dream-maker,
  *  glsl and tcl, whose upstream grants no licence. A held language is no fence word or file language (it paints plain),
  *  and a held grammar is an empty grammar of its scope name: an include of it matches nothing, so the rule that embeds it
@@ -50,7 +50,7 @@ const ENGINE = {
   global: true, hasIndices: true, target: 'ES2018',
   rules: { allowOrphanBackrefs: true, asciiWordBoundaries: true, captureGroup: true, recursionLimit: 5, singleline: true },
 };
-// code-highlighting-languages: Shiki's JavaScript engine reads \b as ASCII; the reference runs
+// Shiki's JavaScript engine reads \b as ASCII; the reference runs
 // Oniguruma, whose \b is Unicode (`__밑줄__과` is no emphasis there, `2π` is one number). On a line
 // of ASCII characters the two agree, and the ASCII form is several times faster in Hermes, so a
 // regex whose Unicode form differs carries it as `u`, which the engine uses on lines with other characters.
@@ -108,7 +108,7 @@ function hermesRewrite(pattern) {
 }
 
 // ── ES2024 classes in ES2018 ────────────────────────────────────────────────────────────────
-// code-highlighting-languages: a few grammars (haskell, purescript, stata, julia, matlab, racket)
+// A few grammars (haskell, purescript, stata, julia, matlab, racket)
 // use Oniguruma class intersection (`[[\p{S}\p{P}]&&[^"'(),;]]`) or a class oniguruma-to-es can
 // write only with nested classes (`[[^\w\s]\d]`, `[^\W\d]`), which need the ES2024 `v` flag that
 // Hermes lacks. Such a class matches one character, so it is rewritten as lookarounds over plain

@@ -1,5 +1,5 @@
 // The server-update banner's, offline banner's and version card's client.command() ops
-// (task server-update-banner; T3 Code MIT, see LICENSE-T3; reference 1e2ecbd975
+// (T3 Code MIT, see LICENSE-T3; reference 1e2ecbd975
 // ChatView.tsx handleReconnectActiveEnvironment, handleDisconnectActiveEnvironment and
 // the server-version item's onDismiss; ServerUpdateAction.tsx handleUpdate).
 // A read group (client-ops.ts READ_OPS): they run offline and need no write scope.
@@ -17,7 +17,7 @@ import { runConnectionOp } from './connections';
 import { dismissServerUpdateFailure, dismissVersionMismatch } from './version-skew';
 import { nativeUpdateDeps, updateEnvironment, updateTargetFromConfig } from './server-update';
 import { canDisconnectEnvironment, confirms, dismissals, focusedKey, serverUpdateLabel, updateState, versionNotice } from './server-update-notices';
-import { settleHeldBatch } from './auto-balance-banner'; // auto-balance
+import { settleHeldBatch } from './auto-balance-banner';
 import { letGo } from './let-go';
 
 /** The banner's and card's ops (client-ops.ts READ_OPS: they run offline and need no write scope). */
@@ -25,7 +25,7 @@ export async function serverUpdateOps(this: T3Client, op: string, id: string, va
   void n;
   if (!op.startsWith('su:')) return false;
   if (op === 'su:update' || op === 'su:confirm') {
-    // auto-balance: Confirm runs a held desktop-app batch (auto-balance-banner.ts) when there is one.
+    // Confirm runs a held desktop-app batch (auto-balance-banner.ts) when there is one.
     if (op === 'su:confirm' && await settleHeldBatch(this, true, nativeUpdateDeps(native, this))) return true;
     const target = op === 'su:confirm' ? confirms.get(this) : updateTargetFromConfig(this.config, focusedKey(this), this.environmentId, serverUpdateLabel(this));
     confirms.delete(this);

@@ -1,4 +1,4 @@
-// Lane r4-polish: sidebar control tooltips the round-3 Tip did not cover
+// Sidebar control tooltips the shell's Tip does not cover
 // (MIT reference, see LICENSE-T3), drawn with shell-tip.contract's card style:
 // - SidebarHeaderIconButton's two-part tooltip (SidebarThreadHeader.tsx): the
 //   New thread label, then "New thread in current project: Shift+click" in the

@@ -294,7 +294,7 @@ final class ComposerTests: XCTestCase {
     }
 }
 
-// diff-cite-popover DC-1: a citation comment's Command/Ctrl+Enter presses Send as the composer's Return does (submitCitationAndSend).
+// A citation comment's Command/Ctrl+Enter presses Send as the composer's Return does (submitCitationAndSend).
 final class ComposerSendPressTests: XCTestCase {
     func testPressSendClicksTheLiveSendButtonOnly() {
         let fixture = ComposerFixture()

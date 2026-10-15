@@ -1,4 +1,4 @@
-// The composer's Attach files button (lane composer-controls), adapted from
+// The composer's Attach files button, adapted from
 // T3 Code (MIT); see LICENSE-T3. Sources: chat/ChatComposer.tsx
 // (showComposerAttachAction, addComposerAttachments), chat/composerAttachmentFiles.ts
 // (fileAttachmentStagingLimit) and packages/contracts/src/chatAttachment.ts.

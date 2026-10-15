@@ -1,4 +1,4 @@
-// Lane r9-connect: the branch picker's "Checkout pull request" item and the
+// The branch picker's "Checkout pull request" item and the
 // PullRequestThreadDialog it opens (r9-connect-checkout.ts serves both).
 
 // BranchToolbarBranchSelector's checkout item: shown while a local draft's ref

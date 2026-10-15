@@ -1,4 +1,4 @@
-// settings-appearance-and-skill-chip (S1-12): a skill chip's details popover, against T3 Code 1e2ecbd975
+// A skill chip's details popover, against T3 Code 1e2ecbd975
 // (MIT, LICENSE-T3) ComposerPromptEditorTiptap.tsx ComposerSkillNodeView: the label, the skill's
 // description or "No description is available for this skill.", and View instructions for a skill with a path.
 import { describe, expect, test } from 'bun:test';
@@ -12,7 +12,7 @@ const press = (extra: Obj = {}): Obj => ({ seq: 3, open: true, surface: 'compose
 const skills: Obj[] = [{ name: 'imagegen', displayName: 'Image Gen', description: 'Generate images.', path: '/Users/me/.codex/skills/imagegen/SKILL.md' },
   { name: 'frontend-design', description: 'Design web pages.', path: '/Users/me/.codex/skills/frontend-design/SKILL.md' }, { name: 'no-text' }];
 
-describe('a skill chip\'s details popover (S1-12)', () => {
+describe('a skill chip\'s details popover', () => {
   test('the composer\'s chip: its label, the skill\'s description and its instructions file, at the chip', () => {
     expect(chipPopover(press(), skills)).toEqual({ seq: 3, open: true, surface: 'composer', label: 'Frontend Design', title: 'Skill Frontend Design', description: 'Design web pages.',
       path: '/Users/me/.codex/skills/frontend-design/SKILL.md', x: 120, y: 640, width: 128, height: 19.5, kind: 'skill', comment: '', anchor: '', ax: 0, ay: 0, aw: 0, ah: 0, message: '', quote: '', at: -1, lines: '', rows: 0 });
@@ -95,7 +95,7 @@ describe('the popover\'s Contract (composer-chip-popover.contract, app-window.co
   // Base UI's Popover dismisses on Escape anywhere in the document. The native editor heard
   // Escape only while its text view had the focus (a real Escape after a click on the heading left the details open), and
   // Settings' Back took it first over the prompt sample (Escape left Settings too).
-  test('Escape closes the details from any focus, before Settings\' Back, and not while the palette or a menu owns it (RC-4)', async () => {
+  test('Escape closes the details from any focus, before Settings\' Back, and not while the palette or a menu owns it', async () => {
     const layer = await source('composer-chip-popover.contract');
     expect(layer).toContain('button press=dismiss aria-keyshortcuts=(held ? "Escape" : "") aria-hidden=true tabindex=-1 testId="chip-popover-escape"');
     // The host gives an Escape to the oldest shortcut button (the lowest node id), so the details' Escape is the window's
@@ -104,7 +104,7 @@ describe('the popover\'s Contract (composer-chip-popover.contract, app-window.co
     const view = window.slice(window.indexOf('\n  view\n    main testId="t3-code"'));
     const firstChild = view.split('\n').slice(3).find(row => !row.trimStart().startsWith('//')) ?? '';
     expect(firstChild).toBe('      ChipPopoverEscape(held=(chipShown and not (sshPrompt.open or paletteOpen or modelsOpen or optionsOpen != "" or projectsOpen or confirmOp != "")), dismiss=chipEscape)');
-    // diff-cite-popover DC-1: the same Escape ends a citation's comment (its textarea's Cancel, else escape-key's close: the native
+    // The same Escape ends a citation's comment (its textarea's Cancel, else escape-key's close: the native
     // editor tells which, citation-comment.ts `chip-cite-escape`), and closes a skill chip's details.
     expect(window).toContain('  action chipEscape\n    if chip.kind == "citation"\n      editorOp("chip-cite-escape", `${chip.seq}`, "")\n    else\n      chipClose(false)');
     expect(window).not.toContain('dismiss=chipClose(false), escape=');

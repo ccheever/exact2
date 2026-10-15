@@ -1,4 +1,4 @@
-// The pull request Summary tab's model (lane "pages"; MIT reference, see LICENSE-T3, T3 Code
+// The pull request Summary tab's model (MIT reference, see LICENSE-T3, T3 Code
 // 1e2ecbd975 apps/web/src/components/pullRequest/PullRequestSummaryTab.tsx): reviewers with the
 // verdict each last gave (a ring, the sr-only words and the "<name> — <outcome>" tooltip), the
 // checks with "Check details are out of date." when a newer rollup disagrees, and the
@@ -11,12 +11,12 @@ import { relativeLabel } from './pages-prs';
 import { currentTimestampLocale } from './timestamp-format';
 import { checkStatusLabel, checksRollup } from './r6-pr-logic';
 import { latestPullRequestReviewOutcomes, orderPullRequestComments, pullRequestReviewOutcome, pullRequestReviewOutcomeLabel, pullRequestReviewOutcomeStaleLabel, visibleBody } from './pages-pr-logic';
-import { pullRequestFindingKey, remarkFinding } from './pages-pr-handoffs-logic'; // pr-handoffs-and-quick-actions
+import { pullRequestFindingKey, remarkFinding } from './pages-pr-handoffs-logic';
 
 export const COMMENT_PAGE = 10;
 export type PrFace = { key: string; login: string; avatar: string; initial: string };
 /**
- * What a remark carries for the writes (pr-writing-and-metadata, pages-pr-writes.ts): whether this
+ * What a remark carries for the writes (pages-pr-writes.ts): whether this
  * reader may rewrite it (and its raw words and kind for the editor), whether a save is out and how
  * many have landed, and its reaction pills with this client's presses in flight laid over.
  */
@@ -27,7 +27,7 @@ export type PrCommentCard = {
   key: string; id: string; bodyId: string; author: string; avatar: string; initial: string; authorTip: string; age: string; ageTip: string; url: string;
   outcome: string; outcomeLabel: string; stateLabel: string; location: string; outdated: boolean; fromEnd: number; finishedLabel: string; preview: string;
   canEdit: boolean; raw: string; kind: string; saving: boolean; savedSerial: number; reactions: PrReactionPill[]; reacted: string[]; canReact: boolean;
-  /** pr-handoffs-and-quick-actions: the finding its Fix hands over (pullRequestFindingKey), '' for talk and verdicts. */
+  /** The finding its Fix hands over (pullRequestFindingKey), '' for talk and verdicts. */
   fix: string;
 };
 export type PrCommentGroup = { label: string; authorsText: string; filesText: string; latest: string; latestTip: string; faces: PrFace[]; more: number };

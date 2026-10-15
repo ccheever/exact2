@@ -1,4 +1,4 @@
-// Ported tests (pr-conversation-and-refresh): the names and cases of T3 Code 1e2ecbd975
+// Ported tests: the names and cases of T3 Code 1e2ecbd975
 // (MIT, see LICENSE-T3) apps/web/src/components/pullRequest/pullRequestDetail.logic.test.ts
 // ("pull request activity refresh", "review thread comment pages", "ordering comments", "review
 // verdicts", "pull request timeline", "cached pull request detail", "what to say when an action

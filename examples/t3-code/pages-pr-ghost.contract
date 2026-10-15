@@ -1,11 +1,11 @@
-// PullRequestDetailGhost (lane "pages"; pr-conversation-and-refresh), measured against T3 Code
+// PullRequestDetailGhost, measured against T3 Code
 // 1e2ecbd975 (MIT, see LICENSE-T3) components/pullRequest/PullRequestGhosts.tsx: the detail
 // panel's loaded shape while the detail is out — the list row's identity and summary where the
 // list has the pull request (`ghost.seeded`), bars for the rest, the tab bar inert with the
 // panel's tab, the Reviewers and Labels rows and the Description's opening — so the loaded
 // detail replaces placeholders in place instead of one layout with another. Without a seed the
 // whole ghost breathes (animate-skeleton, off under reduced motion).
-use noActOn from "./pages-pr-links.contract" // pr-links-previews-and-routing
+use noActOn from "./pages-pr-links.contract"
 use PgIcon from "./pages-icons.contract"
 use PrAvatar from "./pages-prs.contract"
 use PrChip from "./pages-prs.contract"
@@ -51,7 +51,7 @@ component PrdGhost
     checkout: string
     tab: string
     still: bool
-    // pr-handoffs-and-quick-actions: with the list's row in hand (handoffSummary), the header's Check out (the page's) and
+    // With the list's row in hand (handoffSummary), the header's Check out (the page's) and
     // Resolve conflicts take the actions' place before the detail lands.
     handoffs: PrHandoffsView
     surface: string

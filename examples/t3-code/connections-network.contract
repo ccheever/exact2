@@ -3,7 +3,7 @@ use PvIconButton from "./providers-kit.contract"
 use PvField from "./providers-kit.contract"
 use CnGlyph from "./settings-b-kit.contract"
 use CnTooltip from "./settings-b-kit.contract"
-use hoverTipAtFrame from "./hover-layer.contract" // fix-hover-cards
+use hoverTipAtFrame from "./hover-layer.contract"
 use R4Glyph from "./r4-git.contract"
 use QrCell from "./settings-core.contract"
 
@@ -13,7 +13,7 @@ use QrCell from "./settings-core.contract"
 // (renderNetworkAccessRow, NetworkAccessDescription, AdvertisedEndpointListRow "endpoint-rail",
 // renderTailscaleRow, FoldedSettingsSection, AuthorizedClientsHeaderAction, PairingLinkListRow,
 // ConnectedClientListRow, AccessScopeSummary). Changes persist before requesting an app
-// relaunch through Contract (decision U4). Dialogs open on the root's
+// relaunch through Contract. Dialogs open on the root's
 // `connectionRemove` with their serial (`network:on:3`) and close when the serial moves.
 
 keyframes netFadeIn
@@ -158,7 +158,7 @@ component NetQrGlyph
 
 // The rows under "This machine" (canManageLocalBackend && desktopBridge): Network access with
 // "Reachable at <url>" and its "+N"/"Hide" toggle, the endpoint rail when expanded, then
-// Tailscale HTTPS. The T3 Connect and WSL rows are not drawn (T3 Connect: issue X38; WSL: X41).
+// Tailscale HTTPS. The T3 Connect and WSL rows are not drawn.
 component NetworkAccessRows
   props
     net: NetworkView
@@ -188,7 +188,7 @@ component NetworkAccessRows
             row min-width=0 max-width="100%" gap="0.25rem" align-items="baseline"
               text "Reachable at" font-size="0.75rem" line-height="1.125rem" flex-shrink=0 color="light-dark(#70707acc, #818181cc)"
               if net.hidden > 0
-                // The reference's `border-b border-dotted` (ConnectionsSettings.tsx): dotted since main `ff2251b0c` (#287), adopted in round 12.
+                // The reference's `border-b border-dotted` (ConnectionsSettings.tsx): dotted since main `ff2251b0c` (#287).
                 button press=toggleList aria-expanded=expanded testId="network-access-endpoints-toggle" display="flex" flex-direction="row" align-items="baseline" gap="0.5rem" min-width=0 padding=0 border-width=0 border-bottom-width=1 border-bottom-style="dotted" border-color="light-dark(#71717b99, #81818199)" background-color="#00000000"
                   text net.summaryUrl font-size="0.75rem" line-height="1.125rem" min-width=0 line-clamp=1 color="light-dark(#70707acc, #818181cc)" testId="network-access-url"
                   text (expanded ? "Hide" : `+${net.hidden}`) font-size="0.75rem" line-height="1rem" font-weight=500 flex-shrink=0 color="light-dark(#70707acc, #818181cc)"

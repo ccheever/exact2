@@ -1,4 +1,4 @@
-// A skill chip's details popover (settings-appearance-and-skill-chip, desktop audit S1-12), adapted from
+// A skill chip's details popover, adapted from
 // T3 Code 1e2ecbd975 (MIT, see LICENSE-T3): ComposerPromptEditorTiptap.tsx ComposerSkillNodeView's
 // ContextChipPopover (contextChipParts.tsx) and ui/popover.tsx PopoverPopup (side top, align center,
 // sideOffset 4, width "lg": w-96 capped at the viewport less 2rem, padding "compact": py-2 px-3,
@@ -21,7 +21,7 @@ shape ChipPopover
   y: number
   width: number
   height: number
-  // diff-cite-popover DC-1: "skill", or "citation" (its comment, citation-comment.contract); a citation's saved comment,
+  // "skill", or "citation" (its comment, citation-comment.contract); a citation's saved comment,
   // its anchor ("chip": the comment button, "source": the cited text after Cite) and the anchor's window frame.
   kind: string
   comment: string
@@ -35,7 +35,7 @@ shape ChipPopover
   message: string
   quote: string
   at: number
-  // composer-chips-accessibility G1-8: a terminal excerpt's "Line N" / "Lines a–b" and its output's line count (the
+  // A terminal excerpt's "Line N" / "Lines a–b" and its output's line count (the
   // output is `description`, the terminal's name `label`).
   lines: string
   rows: number
@@ -61,7 +61,7 @@ component ChipPopoverLayer
   derive above = chip.y - 9 >= estimate or chip.y >= viewportHeight - chip.y - chip.height
   view
     column id="chip-popover" position="absolute" left=chipPopoverLeft(chip, width, viewportWidth) top=(above ? "auto" : chip.y + chip.height + 4) bottom=(above ? viewportHeight - chip.y + 4 : "auto") width=width padding-top="0.5rem" padding-bottom="0.5rem" padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 16px 40px -18px #0000008c" z-index=130 role="dialog" aria-label=chip.title testId="chip-popover"
-      // composer-chips-accessibility G1-8: TerminalContextInlineChip's details (rounded-md border, the header with its
+      // TerminalContextInlineChip's details (rounded-md border, the header with its
       // TerminalIcon in the success colour, the terminal's name and lines, then the captured output, max-h-80, scrolling).
       if chip.kind == "terminal"
         column width="100%" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" overflow="hidden" testId="chip-popover-terminal"

@@ -1,4 +1,4 @@
-// The Device surface (lane r4-surfaces; MIT reference, see LICENSE-T3:
+// The Device surface (MIT reference, see LICENSE-T3:
 // components/device/DeviceSetup.tsx, DevicePanel.tsx, DeviceHostUpdates.tsx,
 // state/device.ts): the environment's device hub state from `subscribeDeviceState`,
 // the "Set up devices" wizard (device.configure / device.list) and the panel's
@@ -7,7 +7,7 @@ import type { T3Client } from './client';
 import { arr, obj, str, type Obj } from './domain';
 import { ClientError, type Native } from './protocol';
 import { subscriptionSerial } from './shell-vcs';
-import { emptyR6Device, type R6DeviceView } from './r6-media-device'; // lane r6-media: opening a device and its workspace
+import { emptyR6Device, type R6DeviceView } from './r6-media-device'; // opening a device and its workspace
 
 export const DEVICE_STATE_KEY = 'r4-device-state';
 export const HUB_DESCRIPTION = 'Enable this environment to open simulators and emulators, whether they run here or on a remote device host.';
@@ -60,7 +60,7 @@ export async function watchDevice(client: T3Client, native: Native): Promise<voi
     if (serial > value.floor && (!value.id || serial > subscriptionSerial(value.id))) value.id = str(reply.id);
   } catch { value.tried = false; }
 }
-/** The newest device state this connection has read (lane r6-media). */
+/** The newest device state this connection has read. */
 export const deviceStateOf = (client: T3Client): Obj | null => store(client).state;
 export function deviceReady(client: T3Client): boolean {
   const state = store(client).state;

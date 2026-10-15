@@ -1,6 +1,5 @@
-// shell-sidebar-palette-keys: ⌘N on a focused row (SH-1), ⇧⌘S's undo notice (SH-2), the palette's
-// project picks by ⌘1–⌘9 (SH-3), the no-projects header (SH-4), the palette path's start (SH-5) and
-// Custom snooze's calendar (TH-8). This file tests the data side (the undo step, the numbering, the field's
+// ⌘N on a focused row, ⇧⌘S's undo notice, the palette's project picks by ⌘1–⌘9, the no-projects
+// header, the palette path's start and Custom snooze's calendar. This file tests the data side (the undo step, the numbering, the field's
 // chords, the header's facts, the month). The keys as a person presses them, through the Contract handlers, are
 // sidebar-palette-keys.test.contract, which the agent runs against the app (`agent.mjs macos --test`); the few
 // source reads below only pin the wiring between the two, as dialog-focus.test.ts does.
@@ -47,7 +46,7 @@ const native = { available: true, watch() {}, later: async () => ({}) } as unkno
 const helpers = { projectIdentity: (name: string) => ({ projectMark: name.slice(0, 2).toUpperCase(), projectInk: 'ink', projectSurface: 'surface' }),
   providerBadge: () => ({ providerBadge: '', providerBadgeColor: '' }) };
 
-describe('SH-1: ⌘N and ⇧⌘N while a sidebar row holds the focus', () => {
+describe('⌘N and ⇧⌘N while a sidebar row holds the focus', () => {
   test('a modifier\'s own press on a focused row sends nothing, so it leaves commandPending for the chord\'s button', async () => {
     const app = await source('app.contract');
     const run = app.split('\n').find(line => line.trim().startsWith('if not commandPending and ((op != "row-key"'))!;
@@ -59,7 +58,7 @@ describe('SH-1: ⌘N and ⇧⌘N while a sidebar row holds the focus', () => {
   });
 });
 
-describe('SH-2: ⇧⌘S settles with the sidebar\'s undo notice', () => {
+describe('⇧⌘S settles with the sidebar\'s undo notice', () => {
   test('the chord\'s chat:settle records the same undo step as the row\'s Settle, without moving on', async () => {
     const chord = fake([thread('a'), thread('b')], 'a');
     await chatCommand(chord.client, native, {} as Files, 'settle', 'a');
@@ -95,7 +94,7 @@ describe('SH-2: ⇧⌘S settles with the sidebar\'s undo notice', () => {
   });
 });
 
-describe('SH-3: the New thread in… picks by ⌘1–⌘9', () => {
+describe('The New thread in… picks by ⌘1–⌘9', () => {
   const desktop = { type: 'identifier', name: 'isDesktop' };
   function client(count: number, bindings: Obj[]): T3Client {
     const c = new T3Client();
@@ -146,7 +145,7 @@ describe('SH-3: the New thread in… picks by ⌘1–⌘9', () => {
   });
 });
 
-describe('SH-4 and SH-5: the header without projects, the palette row\'s start', () => {
+describe('The header without projects, the palette row\'s start', () => {
   test('without projects the sidebar has no project group and no project; with one it has both', () => {
     const none = fake([]);
     Object.assign(none.client, { shell: { projects: [], threads: [], sequence: 1 }, projectGroups: () => [] });
@@ -163,10 +162,11 @@ describe('SH-4 and SH-5: the header without projects, the palette row\'s start',
     expect(inside.some(line => line.includes('testId="new-thread"'))).toBe(false);
     expect(lines.find(line => line.includes('testId="new-thread"'))).toContain('disabled=(busy or not data.connected or not data.sidebar.hasProjects)');
   });
-  test('a palette option row starts its text at the left without an override (css-workaround-retirements KW-2)', async () => {
+  test('a palette option row starts its text at the left without an override', async () => {
     // The reference's row is Base UI's AutocompleteItem, a div (start). The clone's is a button, whose text centres, so
     // every text in it is sized by its words in a start-aligned column: a short line has no spare width to centre in, and
-    // an overflowing one is start-aligned by main 24083b9b9 (X57). Only the code-search line keeps its explicit left.
+    // an overflowing one is start-aligned by main 24083b9b9
+    // (issues/closed/20261009-apple-overflow-line-alignment.md). Only the code-search line keeps its explicit left.
     const palette = await source('palette.contract');
     const option = palette.split('\n').find(line => line.includes('testId=`palette-row-${row.key}` width="100%" min-height="2rem"'))!;
     expect(option).not.toContain('text-align=');
@@ -180,7 +180,7 @@ describe('SH-4 and SH-5: the header without projects, the palette row\'s start',
   });
 });
 
-describe('TH-8: Custom snooze\'s date button and calendar', () => {
+describe('Custom snooze\'s date button and calendar', () => {
   test('the trigger reads as the reference\'s toLocaleDateString (en-US, short month)', () => {
     expect(dateLabel('2026-10-09')).toBe('Oct 9, 2026');
     expect(dateLabel('2026-02-30')).toBe('2026-02-30');
@@ -244,7 +244,7 @@ describe('TH-8: Custom snooze\'s date button and calendar', () => {
     expect(overlays).toContain('testId="snooze-unit" width="100%"');
     const field = await source('snooze-calendar.contract');
     expect(field).toContain('button id="snooze-date" popovertarget="snooze-calendar" press=open');
-    // PopoverPopup align="start": below the date button's start, flipping near an edge (KW-6).
+    // PopoverPopup align="start": below the date button's start, flipping near an edge.
     expect(field).toContain('column id="snooze-calendar" popover="auto" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" role="dialog" aria-label="Choose snooze date" position="absolute" position-area="bottom span-right" margin-top="0.25rem"');
     expect(field).toContain('column aria-modal=true retainFocus=true tabindex=-1 width='); // Escape is the popover's while it shows
     // The keys are the grid's (DayPicker handleDayKeyDown: a day button's), out of the Tab order; a month button's

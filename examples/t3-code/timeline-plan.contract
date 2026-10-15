@@ -23,7 +23,7 @@ component PlanCard
     scheme: string
   state expanded = false
   state hovered = ""
-  // fix-keyboard-focus: the plan menu's keyboard (menu-keys.contract).
+  // The plan menu's keyboard (menu-keys.contract).
   action toggle
     expanded = not expanded
   derive menuItems = [KmItem(id=`plan-copy-${message.id}`, label="Copy to clipboard"), KmItem(id=`plan-download-${message.id}`, label="Download as markdown"), KmItem(id=`plan-save-${message.id}`, label="Save to workspace")]

@@ -2,7 +2,7 @@
 import AppKit
 import WebKit
 
-/// A Browser tab's annotation pick (browser-surface part 3). MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
+/// A Browser tab's annotation pick. MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
 /// apps/desktop/src/preview/Manager.ts (`pickElement`, `cancelPickElement`, `captureAnnotationScreenshot`,
 /// `normalizeCaptureRect`), PickPreload.ts (the overlay, here assets/browser-annotate.js) and react-grab's
 /// `getElementContext` (the component name, source and stack).

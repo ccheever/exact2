@@ -15,7 +15,7 @@ use DiffCommentCard, DiffDraftCard from "./diff-comments.contract"
 // A selected line's paint, read from T3's StyledDiffCodeView over @pierre/diffs (CDP, 1e2ecbd975; the same in the
 // Code tab and the Diff panel, stacked and split): the row and the number's cell mixed from the code surface and
 // Pierre's modified blue, the number in that blue, and a 4pt bar of it at the gutter's left in place of the change bar
-// (diff-gutter-visuals). The comment cards under a selected line take the row's colour and the bar (Pierre's
+// The comment cards under a selected line take the row's colour and the bar (Pierre's
 // renderSelection marks the annotation that follows a selected line).
 fn diffSel(role: string): string = role == "row" ? "light-dark(#eff7fd, #0f151a)" : role == "gutter" ? "light-dark(#f0f7fd, #10151a)" : role == "number" ? "light-dark(#20649e, #72b6ff)" : "#009fff"
 
@@ -47,7 +47,7 @@ component DiffRow
     wrap: bool
     command: action
     scheme: string
-    // r4-timeline: Settings → Appearance code size (--diffs-font-size; lines stay 20pt).
+    // Settings → Appearance code size (--diffs-font-size; lines stay 20pt).
     size: number
     commentOpen: bool
     draftText: string
@@ -155,7 +155,7 @@ component DiffFileHeader
 // "+" mounted (hidden when the selection moved it), as the pressed node holds the pointer. The "+" is Pierre's
 // [data-utility-button]: a 1lh (20pt) square in the modified blue with its 16pt plus in the code surface's colour,
 // from the number's right edge (the slot at the cell's right, `margin-right: calc(-1lh + 1ch)`), over the code's
-// first column (diff-gutter-visuals; CDP: the number cell's right minus 1ch + 2pt). The number itself is DiffNumber's,
+// first column (CDP: the number cell's right minus 1ch + 2pt). The number itself is DiffNumber's,
 // drawn over this cell's gutter after the row's code.
 component DiffCell
   props
@@ -181,7 +181,8 @@ component DiffCell
   action hover(over: bool)
     hovering = over
   // Any primary press on the gutter is an outside press for a skill chip's details, which the window's root never hears
-  // (X71): one that starts no drag reports itself as `press` (files-gutter-parity FG-4; diff-review.ts closes them).
+  // (issues/20261010-pointer-events-reach-ancestors.md): one that starts no drag reports itself as `press`
+  // (diff-review.ts closes them).
   action down(gutter: bool, e: PointerEvent)
     if not open and line > 0 and e.buttons == 1
       dragging = true
@@ -226,7 +227,7 @@ component DiffCell
           text segment.text color=synColor(segment.syntax) font-style=synSlant(segment.syntax)
       // The empty side of a split run: Pierre's [data-gutter-buffer] flat and its [data-content-buffer] hatched, 45° stripes
       // rising to the right in the buffer colour (CDP, 1e2ecbd975: #f8f8f8 / #131313; stripes #e6e6e6 / #1d1d1d over the
-      // code surface, files-gutter-parity FG-3). Pierre paints one repeating-linear-gradient over the whole run; Contract has
+      // code surface). Pierre paints one repeating-linear-gradient over the whole run; Contract has
       // none (the kernel refuses `repeating-linear-gradient`) and draws a row at a time, so the stripes are an SVG pattern
       // per row whose 10pt period divides the 20pt line height: Pierre's 8pt one would break at every row's edge.
       if tone == "empty"
@@ -245,7 +246,7 @@ component DiffCell
 // A line's number over its cell's gutter (the deletions side at 0%, in a split row the additions side at 50%), as
 // @pierre/diffs' [data-column-number], which is `user-select: none` (CDP, 1e2ecbd975): a drag that starts on a number
 // selects lines and no text, and a drag in the code selects the code's text and not the numbers it crosses
-// (diff-gutter-selection-followups GS-1). It takes no pointer, so a press on it is the cell's gutter's (DiffCell's
+// It takes no pointer, so a press on it is the cell's gutter's (DiffCell's
 // pointerdown). It comes after every cell's code in the row: a copy across a virtualized list's rows reads the runner's
 // list text, which counts every text of a row, while the Mac host places the selection by the row's selectable texts
 // alone, so a number before the code would move what ⌘C takes.

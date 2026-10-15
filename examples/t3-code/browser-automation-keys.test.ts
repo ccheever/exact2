@@ -1,4 +1,4 @@
-// browser-surface part 5. Ported from T3 Code 1e2ecbd975 (MIT, see LICENSE-T3), under its own names:
+// Ported from T3 Code 1e2ecbd975 (MIT, see LICENSE-T3), under its own names:
 // apps/desktop/src/preview/PreviewKeyboard.test.ts (16 with its \`it.each\` rows), whole. Then the clone's rows for
 // what the module sends: T3TerminalKeys' chord, the typed text, the editing expression and the DOM fallback.
 import { describe, expect, it } from "bun:test";

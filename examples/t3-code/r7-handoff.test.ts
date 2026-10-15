@@ -1,4 +1,4 @@
-// Lane r7-handoff: the hand-off's thread id (useHandleNewThread + startHandoff's threadId) and the
+// The hand-off's thread id (useHandleNewThread + startHandoff's threadId) and the
 // composer strip's pull request badge (BranchToolbarBranchSelector + ThreadPullRequestBadgeControl).
 import { describe, expect, test } from 'bun:test';
 import { obj, type Obj } from './domain';

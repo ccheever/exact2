@@ -1,4 +1,4 @@
-// media-actions: the menu, tooltip and byte actions every image and video carries (T3 Code
+// The menu, tooltip and byte actions every image and video carries (T3 Code
 // 1e2ecbd975, MIT; see LICENSE-T3): apps/web/src/components/media/MediaActions.tsx,
 // OpenMediaLink.tsx, mediaContent.ts and packages/client-runtime/src/mediaActions.ts.
 //

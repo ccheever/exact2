@@ -1,4 +1,4 @@
-// Lucide icons for the settings routes this lane owns, one component per icon
+// Lucide icons for the settings routes, one component per icon
 // so a use inlines only its own geometry (paths extracted from the reference
 // build: lucide-react, 24px grid, stroke 2, round caps and joins).
 component LucideActivity

@@ -313,7 +313,7 @@ component WorkEntry
                 text line.text margin-top=(line.id == "0" ? "0px" : line.cls == "q" ? "0.5rem" : "0.25rem") margin-left=(line.cls == "a" ? "0.75rem" : "0px") font-size="0.875rem" line-height="1.25rem" white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#71717b, #818181)"
         if expanded and not entry.reasoning and (entry.body != "" or entry.output != "" or entry.result != "" or entry.changePath != "" or entry.results.length > 0)
           column margin-left="1.75rem" margin-top="0.25rem" padding-top="0.25rem" padding-bottom="0.25rem" gap="0.5rem" box-sizing="border-box"
-            // V2ItemInspector file_change: the path, its +/- counts and, for a run's change, Open diff (timeline-work-rows TH-5).
+            // V2ItemInspector file_change: the path, its +/- counts and, for a run's change, Open diff.
             if entry.changePath != ""
               row width="100%" flex-wrap="wrap" align-items="center" gap="0.5rem"
                 text entry.changePath min-width=0 font-family="ui-monospace" font-size=codeSize line-height=1.625 overflow-wrap="anywhere" color="light-dark(#71717b, #818181)"
@@ -411,8 +411,7 @@ component SystemDivider
 fn elapsedLabel(seconds: number): string = seconds < 60 ? `${seconds}s` : seconds < 3600 ? `${floor(seconds / 60)}m ${seconds % 60 < 10 ? "0" : ""}${seconds % 60}s` : `${floor(seconds / 3600)}h ${floor(seconds % 3600 / 60) < 10 ? "0" : ""}${floor(seconds % 3600 / 60)}m`
 
 // SubagentTimelineLink: the agent's avatar and status dot, title, status or latest detail, elapsed
-// time and the way into its thread. With a child thread the row is a button; without one, a plain
-// row (timeline-work-rows TH-6).
+// time and the way into its thread. With a child thread the row is a button; without one, a plain row.
 component SubagentRow
   props
     agent: Activity

@@ -1,5 +1,5 @@
-// Settings › Providers shows the environment its scope selector chose (fix-providers-environment-scope,
-// found by #312): T3 Code 1e2ecbd975 routes/settings.providers.tsx:7-30. This Mac (the focused
+// Settings › Providers shows the environment its scope selector chose (found
+// by #312): T3 Code 1e2ecbd975 routes/settings.providers.tsx:7-30. This Mac (the focused
 // connection) has Codex signed in; a second, background environment has not. Before the fix the page
 // kept this Mac's providers whichever environment the menu ticked, and the second server got no
 // provider queries. These tests go through the app's own answer(), as the Contract asks it.

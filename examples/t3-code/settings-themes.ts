@@ -1,4 +1,4 @@
-// Custom themes (lane settings-core): the reference theme file (themePalette.ts parseThemeFile,
+// Custom themes: the reference theme file (themePalette.ts parseThemeFile,
 // THEME_FILE_VERSION 1) and duplicates of a library theme with their own canvas and accent.
 // Saved with this device's preferences; missing roles fall back to the appearance's default.
 import { ClientError } from './protocol';

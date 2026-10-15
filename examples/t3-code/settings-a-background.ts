@@ -1,4 +1,4 @@
-// General → Background activity, Advanced (lane settings-a).
+// General → Background activity, Advanced.
 // Reference: packages/shared/src/backgroundActivitySettings.ts (presets, resolve,
 // normalize), SettingsPanels.logic.ts (backgroundActivitySharedPolicySettings,
 // backgroundActivityOverrideSettings, normalizeIntervalSeconds) and

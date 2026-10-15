@@ -13,7 +13,7 @@ import { decodeClientPrefs, type ClientPrefs } from './settings-core';
 import { chordWinners, type DispatchContext } from './keyboard-dispatch';
 import { linkMode } from './palette-linkpr';
 import { scratchRoot, isScratchProject } from './pages-home';
-import { pickerProjects } from './r4-polish-palette-projects'; // r4-polish: Project order
+import { pickerProjects } from './r4-polish-palette-projects'; // Project order
 import { openPanelPullRequestUrl, threadReferenceTarget } from './thread-reference';
 
 export type PalettePart = { id: string; text: string; hit: boolean; cls: string };
@@ -211,7 +211,7 @@ export function rootActions(client: T3Client): Item[] {
   if (str(client.config.scratchWorkspaceRoot)) action('new-thread-without-project', ['new thread', 'no project', 'without project', 'none', 'chat'],
     { op: 'flow', arg: 'scratch', icon: 'message-square-dashed', title: 'New thread without a project', shortcut: commandShortcut(client, 'chat.newWithoutProject') });
   if (thread) {
-    const reference = threadReferenceTarget(client, openPanelPullRequestUrl(client)); // thread-commands-and-keys: Copy PR link or thread ID
+    const reference = threadReferenceTarget(client, openPanelPullRequestUrl(client)); // Copy PR link or thread ID
     if (reference) action('copy-thread-reference', ['copy', 'pull request', 'pr link', 'thread id', 'reference'], { op: 'copy-thread', icon: 'link', title: reference.kind === 'pull-request' ? 'Copy PR link' : 'Copy thread ID', description: reference.value, shortcut: commandShortcut(client, 'thread.copyReference') });
     if (linkMode(client.config) !== 'unsupported') action('link-pull-request', ['link', 'pull request', 'pr', 'attach', 'stack'], { op: 'page', arg: 'link-pr', icon: 'pull-request-link', title: 'Link pull request to thread' });
     if (capabilities(client).threadPullRequests === true) {
@@ -241,8 +241,8 @@ export function rootActions(client: T3Client): Item[] {
  * current project first (buildSidebarProjectPickerEntries), the Scratch project as a
  * trailing "No project". enumerateCommandPaletteItems numbers the first nine by
  * thread.jump.N, whose rules hold only `isDesktop`: this is the desktop build, so each shows
- * its ⌘N and the field runs it by that chord (CommandPalette.tsx handleKeyDown;
- * shell-sidebar-palette-keys SH-3). "No project" past the ninth row has no shortcut.
+ * its ⌘N and the field runs it by that chord (CommandPalette.tsx handleKeyDown).
+ * "No project" past the ninth row has no shortcut.
  */
 export function newThreadInItems(client: T3Client): Item[] {
   const root = scratchRoot(client.config);
@@ -291,7 +291,7 @@ export function settingsItems(client: T3Client, query: string): Item[] {
       icon: 'settings', title: item.title, description: `Settings · ${breadcrumbLabel(item.route)}` }) }));
 }
 
-/** `linkedThreads`: a pull request's linked threads, which take the thread results' place while the query is its URL (pr-links-previews-and-routing). */
+/** `linkedThreads`: a pull request's linked threads, which take the thread results' place while the query is its URL. */
 export type CommandContext = { page: string; query: string; now: number; scheme: string; matches: Map<string, Obj>; matchQuery: string; searching: boolean; linkedThreads?: Item[] | null };
 /** The command palette's root and its submenus (not the add-project flow). */
 export function commandView(client: T3Client, context: CommandContext): PaletteView {

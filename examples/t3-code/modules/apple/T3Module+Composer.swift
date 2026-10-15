@@ -16,7 +16,7 @@ extension T3Module {
             }
             return
         }
-        // diff-cite-popover DC-1: a citation's comment, opened under the cited text after Cite, and the app's Save (⌘↵: then
+        // A citation's comment, opened under the cited text after Cite, and the app's Save (⌘↵: then
         // Send, as the composer's Return presses it), Cancel, Escape and an outside press's commit (T3ComposerChipPress.swift).
         if let op = request["op"] as? String, op == "editorCiteOpen" || op == "editorChipFinish" {
             DispatchQueue.main.async { [weak self] in

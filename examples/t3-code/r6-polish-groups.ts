@@ -1,4 +1,4 @@
-// r6-polish: logical project names across the focused environment and the
+// Logical project names across the focused environment and the
 // fleet's background environments, adapted from T3 Code (MIT; see LICENSE-T3):
 // packages/client-runtime/src/state/projectGrouping.ts (deriveLogicalProjectKey,
 // deriveProjectGroupLabel, buildProjectGroups) and apps/web/src/components/Sidebar.tsx

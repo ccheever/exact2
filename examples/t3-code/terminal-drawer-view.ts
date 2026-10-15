@@ -1,5 +1,5 @@
 import { draftThreadId, ensureDraftThreadId } from './r7-handoff-thread';
-// The thread terminal drawer's client side (task terminal-drawer): T3 Code 1e2ecbd975's
+// The thread terminal drawer's client side: T3 Code 1e2ecbd975's
 // PersistentThreadTerminalDrawer and the ChatView terminal actions (MIT reference, see LICENSE-T3:
 // apps/web/src/components/ChatView.tsx toggleTerminalVisibility, createNewTerminal, closeTerminal, the
 // mounted-thread effect and the known-session reconcile; useThreadActions.ts thread delete cleanup;
@@ -14,7 +14,7 @@ import { draftThreadId, ensureDraftThreadId } from './r7-handoff-thread';
 // - Draft terminals reserve the same thread identity the first message launches; split groups and
 //   right-panel surfaces share that identity and session allocation.
 // - Every environment's drawers stay mounted, as the reference's `existingOpenTerminalThreadKeys` covers every
-//   environment's threads and every draft (task terminal-drawer-unthreaded): the clone opens a background
+//   environment's threads and every draft: the clone opens a background
 //   environment's thread by focusing it (settings-b-fleet.ts), so the drawers the focus leaves behind keep their
 //   sessions natively, each on its own environment's transport (T3TerminalSessions.swift).
 // - Command failures are kept as the view's `failure` (the agent's `state` shows it), as the reference's
@@ -392,7 +392,7 @@ export async function closeThreadTerminals(client: T3Client, native: Native, thr
   catch (error) { failed(client, 'terminal close', error); }
   terminalUiStore(client).getState().clearTerminalUiState({ environmentId: client.environmentId, threadId });
 }
-// The sidebar delete (sidebar-commands.ts `remove`, thread-commands-and-keys) closes terminals through this hook.
+// The sidebar delete (sidebar-commands.ts `remove`) closes terminals through this hook.
 setCloseThreadTerminals(closeThreadTerminals);
 
 /** `terminallocal:` ops: toggle (⌘J and the layout buttons), new, close (confirmed), exited, height. */

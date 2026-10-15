@@ -1,4 +1,4 @@
-// Lane r12-threads: the right panel's tabs scroll when they overflow (T3 Code, MIT, see
+// The right panel's tabs scroll when they overflow (T3 Code, MIT, see
 // LICENSE-T3: RightPanelTabs.tsx's ScrollArea with scrollFade, updateTabScrollState's
 // hasOverflow / canScrollLeft / canScrollRight with TAB_SCROLL_EDGE_TOLERANCE 1, scrollTabs'
 // max(120, 75% of the viewport) step, the "Scroll tabs left/right" buttons, and the active tab

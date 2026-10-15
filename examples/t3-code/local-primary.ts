@@ -14,7 +14,7 @@
 // before) is a duplicate: as the reference's `installPlatformRegistration` (registry.ts), its GitHub
 // sharing trust is forgotten, then the entry and its credential are removed without a word, and a
 // window focused on it moves to the primary (the reference replaces the entry in place). Pairing this
-// machine's own server saves nothing (`register` is a no-op for a platform id), decision U6.
+// machine's own server saves nothing (`register` is a no-op for a platform id).
 import { obj, str, type Obj } from './domain';
 import { bridgeReply, type Native } from './protocol';
 import { readLocalBackend, unknownLocalBackend, type LocalBackendStatus } from './local-backend';
@@ -88,7 +88,7 @@ export function primaryPhase(status: LocalBackendStatus, socket: { phase: Primar
 /** The app's one primary: what the backend reports and the switch this client keeps. */
 export class LocalPrimary {
   status: LocalBackendStatus = unknownLocalBackend();
-  /** The Local environment switch as saved (desktop-settings.json `localEnvironmentEnabled`, decision U7). */
+  /** The Local environment switch as saved (desktop-settings.json `localEnvironmentEnabled`). */
   setting = true;
   target: PrimaryTarget | null = null;
   /** A bootstrap the primary cannot be built from (one base URL only). */
@@ -129,7 +129,7 @@ export const sessionScopes = (environmentId: string, scopes: string[], source: L
 export const canManageLocalBackend = (source: LocalPrimary = primary) =>
   !source.disabled && source.status.state !== 'refused' && (AUTH_ADMINISTRATIVE_SCOPES as readonly string[]).includes('access:write');
 
-// ── The switch in desktop-settings.json (decision U7, 2026-10-08: the original app's file) ──
+// ── The switch in desktop-settings.json (the original app's file) ──
 type Holder = { localBackend: LocalBackendStatus };
 /** The saved switch (default on, as DesktopAppSettings), as the native side read or last wrote it. */
 export function localEnvironmentEnabled(owner: Holder): boolean { return owner.localBackend.settings.localEnvironmentEnabled; }
@@ -141,7 +141,7 @@ export async function refreshLocal(client: Holder, native: Native, source: Local
   source.update(client.localBackend, localEnvironmentEnabled(client));
   return changed;
 }
-/** The keys the clone kept in t3-code.json before decision U7; the native side carried them over once, so a load drops them. */
+/** The keys the clone kept in t3-code.json before they moved to desktop-settings.json; the native side carried them over once, so a load drops them. */
 export const LEGACY_DESKTOP_KEYS = ['localEnvironmentEnabled', 'serverExposureMode', 'tailscaleServeEnabled', 'tailscaleServePort'] as const;
 export const hasLegacyDesktopKeys = (saved: Obj) => LEGACY_DESKTOP_KEYS.some(key => saved[key] !== undefined);
 
@@ -175,7 +175,7 @@ export async function forgetGitHubRouting(native: Native, environmentId: string)
 }
 
 /**
- * Decision U6 (2026-10-08: as the reference, `installPlatformRegistration`): a saved environment with
+ * As the reference's `installPlatformRegistration`: a saved environment with
  * the primary's id is the same machine paired before. Its GitHub sharing trust goes first (a failure
  * keeps the entry), then the entry and every route's Keychain item (`forgetEnvironment`, which leaves
  * the primary connected), without a word. `focusDropped`: the window was focused on it, so the

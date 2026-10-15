@@ -1,8 +1,8 @@
 import type { PanelTerminal } from './terminal-panel';
-// Lane r11-device: the rest of the right panel's surfaces survive a relaunch (MIT reference, see
+// The rest of the right panel's surfaces survive a relaunch (MIT reference, see
 // LICENSE-T3: apps/web/src/rightPanelStore.ts persists every surface of `byThreadKey` and
-// migratePersistedRightPanelState reads them back). Lane r10-device kept the Files explorer, file
-// tabs and the linked pull requests list (r10-device-panels.ts); this adds the Diff (`{ id: "diff" }`),
+// migratePersistedRightPanelState reads them back). r10-device-panels.ts keeps the Files explorer, file
+// tabs and the linked pull requests list; this adds the Diff (`{ id: "diff" }`),
 // the Device surface with the device it shows (`{ kind: "device", target }`: DevicePanel streams it
 // again when the thread's device session is still open, else lists the devices), a pull request's
 // detail (`pullRequestSurface`: projectId, host, repository, number, url; a malformed one is dropped
@@ -42,7 +42,7 @@ function attachmentOf(value: unknown): AttachmentMeta | null {
   return { id: str(entry.id), name: str(entry.name), mimeType: str(entry.mimeType), sizeBytes: Math.max(0, num(entry.sizeBytes)) };
 }
 
-/** One of this lane's surfaces as saved, or null (not one of them, or malformed). */
+/** One of this module's surfaces as saved, or null (not one of them, or malformed). */
 export function keepR11(surface: R11Surface): R11SavedSurface | null {
   if (surface.kind === 'terminal') {
     const raw = obj(surface.terminal);

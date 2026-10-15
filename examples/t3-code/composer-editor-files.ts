@@ -24,7 +24,7 @@ export type DraftFile = {
   /** The server's upload id once the bytes are there (uploaded at send). */
   attachmentId: string;
   status: 'staged' | 'ready';
-  /** r5-composer: a video's first-frame size, saved with the draft so a relaunch keeps its preview's aspect. */
+  /** A video's first-frame size, saved with the draft so a relaunch keeps its preview's aspect. */
   videoWidth?: number; videoHeight?: number;
 };
 
@@ -232,7 +232,7 @@ export function composerFileRecords(client: T3Client, text: string): Obj[] {
 export function fileChipContexts(client: T3Client, text: string): Record<string, string> {
   const out: Record<string, string> = {};
   for (const file of referencedFiles(client.local, client.draftKey, text)) {
-    if (file.status === 'ready' || file.source === 'attached' || mapFor(texts, client).has(file.id)) out[`file/${file.contextId}`] = `${videoMimeType(file) ? 'video' : 'file'}\t${formatAttachmentSize(file.sizeBytes)}`; // r4-composer: a video's chip (FilmIcon, kind video)
+    if (file.status === 'ready' || file.source === 'attached' || mapFor(texts, client).has(file.id)) out[`file/${file.contextId}`] = `${videoMimeType(file) ? 'video' : 'file'}\t${formatAttachmentSize(file.sizeBytes)}`; // a video's chip (FilmIcon, kind video)
   }
   return out;
 }

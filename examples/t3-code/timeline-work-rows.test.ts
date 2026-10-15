@@ -1,6 +1,6 @@
-// Desktop audit 2026-10-09, task timeline-work-rows: the reference's own cases where it has them
+// The reference's own cases where it has them
 // (orchestrationV2.test.ts "background work kinds from older or newer servers", threadWorkflows.test.ts
-// "allows native, portable, and capability-unknown exact-run forks"), and the audit's fixture rows.
+// "allows native, portable, and capability-unknown exact-run forks"), and fixture rows.
 import { describe, expect, test } from 'bun:test';
 import type { T3Client } from './client';
 import type { Message, Obj } from './domain';
@@ -34,7 +34,7 @@ const native = { available: true } as unknown as Native;
 const key = (id: string) => JSON.stringify(['t1', id]);
 const notification = (source: unknown) => item('n', 'notification', 4, { outcome: 'completed', summary: 'Background build finished', detail: 'bun run build exited 0', source });
 
-describe('background work kinds from older or newer servers (TH-2)', () => {
+describe('background work kinds from older or newer servers', () => {
   test('decodes notification sources stored before specific kinds existed', () => {
     expect(decodeNotificationSource({ kind: 'background_task', nativeRef: { driver: 'claude', nativeId: 'task-1' } })).toEqual({ kind: 'background_task' });
     expect(decodeNotificationSource({ kind: 'background_command' })).toEqual({ kind: 'command' });
@@ -81,7 +81,7 @@ describe('background work kinds from older or newer servers (TH-2)', () => {
   });
 });
 
-describe('Fork from this response (TH-1)', () => {
+describe('Fork from this response', () => {
   const capabilities = (input: { nativeFork?: boolean; portableFork?: boolean } = {}) => ({
     threads: { canForkThread: input.nativeFork ?? false, canForkFromTurn: input.nativeFork ?? false },
     identity: { nativeThreadIds: input.nativeFork ? 'strong' : 'none' }, context: { supportsFullThreadHandoff: input.portableFork ?? false } });
@@ -121,7 +121,7 @@ describe('Fork from this response (TH-1)', () => {
   });
 });
 
-describe('the work group icon (TH-3)', () => {
+describe('the work group icon', () => {
   const themed = { _tag: 'themed-logo', logoUrl: 'data:image/png;base64,AAAA' };
   const website = { _tag: 'website', pageUrl: 'https://example.test/proof', faviconUrl: 'data:image/png;base64,BBBB' };
   const source = { key: 'browser-use', name: 'Browser', kind: 'browser', icon: { _tag: 'website', pageUrl: 'https://example.test/' } };
@@ -146,7 +146,7 @@ describe('the work group icon (TH-3)', () => {
   });
 });
 
-describe('the inspector’s search results and file changes (TH-5)', () => {
+describe('the inspector’s search results and file changes', () => {
   const relative = (path: string) => `project/${path}`;
   test('file_search lists each result’s path and line over its preview', () => {
     expect(inspectorExtras({ type: 'file_search', pattern: 'parse', results: [{ fileName: 'fixture.txt', line: 1, preview: 'Timeline verification fixture' }] }, relative).results)
@@ -184,7 +184,7 @@ describe('the inspector’s search results and file changes (TH-5)', () => {
   });
 });
 
-describe('the subagent card (TH-6)', () => {
+describe('the subagent card', () => {
   test('formatElapsedSeconds', () => {
     expect([0, 12, 65, 3_720, 59.9].map(formatElapsedSeconds)).toEqual(['0s', '12s', '1m 05s', '1h 02m', '59s']);
   });
@@ -218,7 +218,7 @@ describe('the subagent card (TH-6)', () => {
   });
 });
 
-// The Contract side of TH-4, TH-5, TH-6 and TH-10, read from the sources as hover-layer.test.ts reads them.
+// The Contract side, read from the sources as hover-layer.test.ts reads them.
 const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
 async function component(file: string, name: string): Promise<string> {
   const lines = (await source(file)).split('\n');
@@ -230,15 +230,15 @@ async function component(file: string, name: string): Promise<string> {
 /** A Contract expression of numbers, comparisons, ternaries, templates and field reads, as JavaScript (`floor`, `max` bound). */
 const evaluate = (expression: string, names: string[]) => new Function(...names, 'floor', 'max', `return (${expression});`) as (...values: unknown[]) => string;
 
-describe('the timeline clock and the work rows in Contract (TH-4, TH-5, TH-6, TH-10)', () => {
-  test('TH-6: the root ticks liveNow each second while a subagent is live, and the row passes it on', async () => {
+describe('the timeline clock and the work rows in Contract', () => {
+  test('The root ticks liveNow each second while a subagent is live, and the row passes it on', async () => {
     const app = await source('app.contract');
     expect(app).toMatch(/\n {4}if data\.running or data\.subagentsLive or [^\n]*\n {6}liveNow = performanceNow\(\)\n/);
     expect(app).toContain('task liveClock mount\n    every(1000, liveTick)');
     expect(await source('app-window.contract')).toContain('timelineNow=(wallTime.epochAtZero + max(liveNow, elapsed))');
     expect(await source('timeline.contract')).toContain('SubagentRow(agent=agent, command=command, now=now)');
   });
-  test('TH-6: the row’s elapsedLabel is formatElapsedSeconds, and a live row counts up from its start each second', async () => {
+  test('The row’s elapsedLabel is formatElapsedSeconds, and a live row counts up from its start each second', async () => {
     const work = await source('timeline-work.contract');
     const fn = /^fn elapsedLabel\(seconds: number\): string = (.+)$/m.exec(work)?.[1];
     expect(fn).toBeDefined();
@@ -254,7 +254,7 @@ describe('the timeline clock and the work rows in Contract (TH-4, TH-5, TH-6, TH
     expect(row(running, base)).toBe('0s'); // a clock behind the start reads 0s, as AgentElapsed's max(0, …)
     expect(row({ startedMs: 0, output: '1m 05s' }, base + 999_999)).toBe('1m 05s'); // settled: fixed
   });
-  test('TH-4: an expanded group’s cap grows by what its open rows add, each row reporting its own extra', async () => {
+  test('An expanded group’s cap grows by what its open rows add, each row reporting its own extra', async () => {
     const entries = await component('timeline.contract', 'WorkEntries');
     expect(entries).toContain('max-height=`calc(min(${18 * rem}px, 50dvh) + ${opened}px)`');
     expect(entries).toContain('WorkEntry(entry=entry, grouped=true, command=command, code=message.code, codeSize=message.md.codeSize, sized=entrySized)');
@@ -265,7 +265,7 @@ describe('the timeline clock and the work rows in Contract (TH-4, TH-5, TH-6, TH
     expect(entry).toContain('action rowSized(width: number, height: number)\n    sized(entry.id, expanded ? max(0, height - 1.5 * rem) : 0)');
     expect(entry).toMatch(/\n {4}column hover=setHover resize=rowSized /);
   });
-  test('TH-5: a web result presses link-open "external" and Open diff presses turn-diff with the change’s file and run', async () => {
+  test('A web result presses link-open "external" and Open diff presses turn-diff with the change’s file and run', async () => {
     // browser-links.test.ts and diff.test.ts take the two ops from here.
     const item = await component('timeline-work.contract', 'InspectorItem');
     expect(item).toContain('link href=item.href press=open("external", item.href)');
@@ -274,7 +274,7 @@ describe('the timeline clock and the work rows in Contract (TH-4, TH-5, TH-6, TH
     expect(entry).toContain('button press=command("turn-diff", entry.diffPath, entry.diffRunId, 0) testId=`work-open-diff-${entry.id}`');
     expect(await source('app-window.contract')).toContain('action linkOpen(kind: string, href: string, e: MouseEvent)\n    chatLocal("link-open", `${kind}|${heldModifiers(e.metaKey, e.ctrlKey, e.altKey, e.shiftKey)}`, href)');
   });
-  test('TH-10: every work-log image icon is muted but a live row’s highlight: opacity 0.7 here, brightness 0.6 in light in the hook', async () => {
+  test('Every work-log image icon is muted but a live row’s highlight: opacity 0.7 here, brightness 0.6 in light in the hook', async () => {
     const line = await component('timeline-work.contract', 'WorkLine');
     expect(line).toContain('label=label, muted=(not highlighted))');
     const icon = await component('timeline-icons.contract', 'ToolActivityIcon');

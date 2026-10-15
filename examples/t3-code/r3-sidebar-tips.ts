@@ -1,4 +1,4 @@
-// Lane r3-sidebar: where a sidebar row's control tooltips land (Sidebar.tsx
+// Where a sidebar row's control tooltips land (Sidebar.tsx
 // TooltipPopup side top, 4pt off, centered on the trigger; MIT, see
 // LICENSE-T3). The bubbles are drawn by the window overlay, never inside the
 // thread list's scroll view, so the top row's bubble is not clipped. Each
@@ -14,7 +14,7 @@ export const SETTLE_TEXT = 33.5, WOKE_TEXT = 30;
 const EDGE = 8 + 10;
 /** Base UI's collision padding: a bubble that would cross the window's left edge shifts to start 5pt in. */
 const COLLISION = 5;
-/** r6-polish: a laid-out text's width (r6-polish-measure.ts), null before its probe reports. */
+/** A laid-out text's width (r6-polish-measure.ts), null before its probe reports. */
 export type Measure = (text: string, size: number, weight: number) => number | null;
 /** A 12pt system label's bubble width (8pt insets and 1pt borders), for the left-edge shift only: the measured label; before its probe reports, an average advance. */
 export const bubbleWidth = (label: string, measure?: Measure) => (measure?.(label, 12, 400) ?? label.length * 6.2) + 18;

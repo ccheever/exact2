@@ -1,4 +1,4 @@
-// settings-model-picker: Settings → General's New threads › Model and Text generation model open
+// Settings → General's New threads › Model and Text generation model open
 // the composer's ProviderModelPicker (model-catalog.ts) over the settings scope, at T3 Code
 // 1e2ecbd975: ProjectDefaultsSettings.tsx, SettingsPanels.tsx, ModelPickerContent.tsx and
 // useScopedModelAvailability.ts.
@@ -168,7 +168,7 @@ describe('keyboard', () => {
   });
 });
 
-// fix-misc-batch (#298 bug 8), read from the Contract source as dialog-focus.test.ts reads its dialogs: what
+// #298 bug 8, read from the Contract source as dialog-focus.test.ts reads its dialogs: what
 // the real-input batch found missing on screen. A drive of the app on macOS shows it;
 // this guards the wiring.
 describe('the picker\'s empty state (model-picker.contract)', () => {

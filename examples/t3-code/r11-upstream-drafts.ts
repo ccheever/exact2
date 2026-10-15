@@ -1,4 +1,4 @@
-// Lane r11-upstream: the draft rows' context menu and discarding a draft behind
+// The draft rows' context menu and discarding a draft behind
 // the sidebar's undo notice (upstream 95edeb753b; T3 Code, MIT, see LICENSE-T3:
 // threadActionMenu.logic.ts buildDraftActionMenuItems, Sidebar.tsx
 // handleDraftContextMenu, lib/discardComposerDraft.ts, hooks/showThreadUndoNotice.ts).

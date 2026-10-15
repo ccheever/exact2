@@ -1,4 +1,4 @@
-// Lane r9-device: the iPhone Duo's stands and an Android foldable's fold buttons (r9-device-duo.ts).
+// The iPhone Duo's stands and an Android foldable's fold buttons (r9-device-duo.ts).
 // No imports, so r6-device-shapes.contract can use it.
 shape R9DevStand
   id: string

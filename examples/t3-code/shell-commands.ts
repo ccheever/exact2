@@ -4,7 +4,7 @@
 // main window's actions. `shell:` ops write to the server through the
 // client's generation-guarded access; `shelllocal:` ops never do.
 import { cloneCommand } from './project-clones-live';
-import { closeThreadTerminals } from './terminal-drawer-view'; // terminal-drawer
+import { closeThreadTerminals } from './terminal-drawer-view';
 import { automationCommand } from './scheduled-tasks-commands';
 import type { T3Client } from './client';
 import { pushToast } from './toast';
@@ -43,7 +43,7 @@ export async function shellCommand(client: T3Client, native: Native, storage: Fi
     if (await openInEditorHere(client, native, id, value)) rememberEditor(client, value);
     return '';
   }
-  // lane r4-git: the card's branch picker, Git actions and dialogs (r4-git-route.ts).
+  // The card's branch picker, Git actions and dialogs (r4-git-route.ts).
   if (op.startsWith('git-')) return gitShellCommand(client, native, storage, op.slice(4), id, value);
   const thread = threadOf(client, id);
   const title = str(thread.title, 'thread');
@@ -78,7 +78,7 @@ export async function shellCommand(client: T3Client, native: Native, storage: Fi
   if (op === 'archive' && (thread.activeRunId || ['preparing', 'starting', 'running', 'waiting'].includes(str(thread.status)))) {
     throw new ClientError('Stop the running turn before archiving this thread.');
   }
-  if (op === 'delete') await closeThreadTerminals(client, native, id); // terminal-drawer: useThreadActions closes the thread's terminals first
+  if (op === 'delete') await closeThreadTerminals(client, native, id); // useThreadActions closes the thread's terminals first
   await access.dispatch(storage, { ...entry[1], commandId, threadId: id }, `${entry[0]} ${title}`);
   return '';
 }
@@ -180,7 +180,7 @@ export function settingsFailure(client: T3Client, op: string, id: string, value:
   else if (op === 'unarchive-thread') title = 'Failed to unarchive thread';
   else if (op === 'delete-archived-thread') title = 'Failed to delete thread';
   else if (op === 'settings-core' && id.startsWith('textGenerationModelSelection:')) title = 'Text generation model not saved';
-  // settings-model-picker: General's model picks (ProjectDefaultsSettings setModel, SettingsPanels onInstanceModelChange).
+  // General's model picks (ProjectDefaultsSettings setModel, SettingsPanels onInstanceModelChange).
   else if (op === 'settings-core' && id.startsWith('default-model:|')) title = 'Default model not saved';
   else if (op === 'settings-core' && id.startsWith('text-generation-model:|')) title = 'Text generation model not saved';
   else if (op === 'settings-core' && id.startsWith('sourceControlWriterModelSelection:')) title = 'Source control writer model not saved';

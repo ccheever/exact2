@@ -1,13 +1,13 @@
-// T3Module's Browser ops (T3Module.swift routes them; browser-surface part 1): the data module's live sessions,
+// T3Module's Browser ops (T3Module.swift routes them): the data module's live sessions,
 // a tab's navigation and its chrome row's commands, answered by the page registry (T3BrowserSessions.swift).
-// Part 5: the previewAutomation host's plans (`browserAutomation`, T3BrowserAutomation.swift), which answer
+// The previewAutomation host's plans (`browserAutomation`, T3BrowserAutomation.swift), which answer
 // `previewAutomation.respond` on the focused connection, and a tab's Mute (`browserMute`). A recording the agent stops is
 // uploaded to its environment natively (`browserRecordingUpload`, T3BrowserAutomationRecording.swift).
 import Foundation
 
 extension T3Module: T3BrowserSessionOwner {
     func browserOps(_ request: [String: Any], reply: ExactReply, next: () -> Void) {
-        if browserSessions.performProfiles(request, reply: reply) { return } // part 4: clearing, the cookie import (T3BrowserSessions+Profiles.swift)
+        if browserSessions.performProfiles(request, reply: reply) { return } // clearing, the cookie import (T3BrowserSessions+Profiles.swift)
         let generation = request["generation"] as? Int ?? 0
         switch request["op"] as? String {
         case "browserAutomation":
@@ -21,8 +21,8 @@ extension T3Module: T3BrowserSessionOwner {
             let tab = request["tab"] as? String ?? "", muted = request["muted"] as? Bool == true
             return DispatchQueue.main.async { [browserAutomation] in reply.send(["ok": true, "generation": generation, "value": ["done": browserAutomation.setMuted(tab, muted)]]) }
         default:
-            if let answer = browserSessions.perform(request) ?? browserSessions.performNavigation(request) { return reply.send(answer) } // part 2: browserSet
-            if browserSessions.performCapture(request, reply: { reply.send($0) }) { return } // part 3 (T3BrowserCapture.swift)
+            if let answer = browserSessions.perform(request) ?? browserSessions.performNavigation(request) { return reply.send(answer) } // browserSet
+            if browserSessions.performCapture(request, reply: { reply.send($0) }) { return } // T3BrowserCapture.swift
             next()
         }
     }

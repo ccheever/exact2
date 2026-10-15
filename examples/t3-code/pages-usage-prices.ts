@@ -1,4 +1,4 @@
-// The Usage page's Model prices dialog (lane "pages"): UsagePriceOverrides,
+// The Usage page's Model prices dialog: UsagePriceOverrides,
 // "Custom model prices" with the Map to column (upstream b05adb70b0), opened
 // from the environment menu or the model dialog's Set price. Sources: T3 Code
 // (MIT, see LICENSE-T3) apps/web/src/components/usage/{UsagePriceOverrides.tsx,

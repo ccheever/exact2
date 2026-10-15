@@ -4,7 +4,7 @@
 //   give the shared picker lockedProvider null, the representative environment's instance entries (only
 //   those that support text generation, for that row), the setting's own selection and
 //   getModelDisabledReason (useScopedModelAvailability.ts). Its target is `<row>:|<machine>|<projectKey>|<checkout>`.
-// - Scheduled Tasks › New task › Model (model-picker-parity S2-4, ScheduledTasksSettings.tsx:798-811): the
+// - Scheduled Tasks › New task › Model (ScheduledTasksSettings.tsx:798-811): the
 //   editing environment's instances, the draft's `instance:model` (or the first instance), no disabled reasons and
 //   no provider setup. Its target is `task-model:|<environmentId>|<modelKey>`, both URI-encoded.
 // - Source Control › the writer model (SourceControlWritingSettings.tsx:302-310): the text generation instances,

@@ -1,4 +1,4 @@
-// Appearance → Add a theme (lane settings-a; settings-appearance-import.ts).
+// Appearance → Add a theme (settings-appearance-import.ts).
 // Reference ThemeImportDialog.tsx + ThemeSearchSection.tsx: a 768pt dialog with
 // Open VSX search (Popular, Sort, result cards with Install/Update), the
 // "or import a file" divider, the dashed Theme file zone with Choose files, the
@@ -109,7 +109,7 @@ component AddThemeDialog
             column width="100%" gap="0.5rem"
               text "Theme JSON" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text id="paint-AddThemeDialog-28" data-paint="text" data-pick="text"
               textarea value=shownJson input=editJson autocorrect="off" placeholder="{\n  \"version\": 1,\n  \"name\": \"Aurora\",\n  \"appearance\": \"light\",\n  \"colors\": { ... }\n}" aria-label="Theme JSON" spellcheck="false" width="100%" height="11.125rem" padding="1rem" box-sizing="border-box" border-radius="0.875rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field font-family="ui-monospace" font-size="0.75rem" line-height="1.25rem" color=pal.text testId="add-theme-json" id="add-theme-json" data-paint="input canvas text" data-pick="canvas" data-focus-stop="enabled"
-                // ThemeImportDialog's JSON textarea: placeholder:text-muted-foreground (KW-1).
+                // ThemeImportDialog's JSON textarea: placeholder:text-muted-foreground.
                 ::placeholder
                   color=pal.muted
             if error != ""

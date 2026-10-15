@@ -1,4 +1,4 @@
-// media-actions (T3 Code 1e2ecbd975, MIT; see LICENSE-T3): ChatMarkdown.tsx's media lines — the
+// T3 Code 1e2ecbd975 (MIT; see LICENSE-T3): ChatMarkdown.tsx's media lines — the
 // "Image unavailable · <alt>" label (ChatMarkdownImageFallback), ChatMarkdownImage's 16:9 loading
 // slot, ChatMarkdownAssetImage and ChatMarkdownVideo — each wrapped in MediaActions.
 use ShellIcon from "./shell-icons.contract"
@@ -15,7 +15,7 @@ component MediaUnavailableLabel
       ShellIcon(name="triangle-alert", size=14, color="light-dark(#71717b, #818181)")
       text (alt != "" ? `${video ? "Video unavailable" : "Image unavailable"} · ${alt}` : (video ? "Video unavailable" : "Image unavailable")) font-size="0.75rem" line-height="1rem" line-clamp=1 color="light-dark(#71717b, #818181)"
 
-// ChatMarkdownImage's standalone failure (media-signed-urls-and-attachment-markdown MD-1): the 16:9 frame the image
+// ChatMarkdownImage's standalone failure: the 16:9 frame the image
 // held while it loaded (CHAT_MARKDOWN_IMAGE_FRAME_CLASS_NAME), the label centred in it, where an image in a line of text
 // or one that can never load is ChatMarkdownImageFallback's chip.
 component MediaFailedFrame
@@ -30,7 +30,7 @@ component MediaFailedFrame
 // the access, `target` the URL or the signed URL's key, `detail` the actions' source) and the signed URLs (`media:<path>`,
 // `media-failed:<path>`). `standalone` (an image line, or an image that is the only content of its paragraph, list item
 // or quote: markStandaloneImages, markdown_media.rs) is ChatMarkdownImage's figure: the 16:9 slot while it loads, kept
-// with the label in it when it fails. An image inside a line of text (media-signed-urls-and-attachment-markdown MD-1)
+// with the label in it when it fails. An image inside a line of text
 // has a zero-size status span while it loads and ChatMarkdownImageFallback's chip when it fails. A video is
 // ChatMarkdownVideo (MediaVideoPlayer) either way: the 16:9 slot, the player, its failure slot with Retry video.
 component MarkdownMedia
@@ -46,7 +46,7 @@ component MarkdownMedia
     urls: AttachmentUrl[]
     local: action
     standalone: bool
-    // G4-05: the document the image belongs to (its chips' owner), whose images the expanded preview steps through, and the
+    // The document the image belongs to (its chips' owner), whose images the expanded preview steps through, and the
     // occurrence's node id (owner, block, run).
     owner: string
     nodeId: string
@@ -85,7 +85,7 @@ component MarkdownMediaBody
     original: bool
     local: action
     standalone: bool
-    // G4-05: opens the expanded image dialog on this image (timeline-attachments.ts `image-md-open`), and the button's id.
+    // Opens the expanded image dialog on this image (timeline-attachments.ts `image-md-open`), and the button's id.
     open: action
     nodeId: string
   state failed = false
@@ -119,7 +119,7 @@ component MarkdownMediaBody
           MediaFailedFrame(alt=alt)
         if kind != "video" and not standalone
           MediaUnavailableLabel(alt=alt, video=false)
-    // G4-05: the settled image is the button "Preview <alt>" (ChatMarkdownImage's <img> with expandableMarkdownImageProps).
+    // The settled image is the button "Preview <alt>" (ChatMarkdownImage's <img> with expandableMarkdownImageProps).
     if kind != "video" and not (brokenUrl != "" and brokenUrl == url)
       MediaPreviewActions(source=source, tip=tip, label=`Preview ${alt.trim() != "" ? alt.trim() : "image"}`, open=open, local=local, testId="markdown-image-actions", nodeId=nodeId)
         image url aria-label=alt error=imageBroke max-width="100%" max-height="30rem" object-fit="contain" border-radius="0.5rem" testId="markdown-media-image"

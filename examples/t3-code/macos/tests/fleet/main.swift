@@ -308,7 +308,7 @@ final class OutdatedHostTests: XCTestCase {
         XCTAssertTrue(waitFor(3) { self.jobs(fleet)[key]?["message"] as? String == "Update T3 Code on Old box manually; it cannot update itself." })
     }
 
-    /// Task server-update-banner: a connected server older than this client runs the same job
+    /// A connected server older than this client runs the same job
     /// (mode "connected"): its config's capabilities and continuation flag travel with the request,
     /// the restart ends when the descriptor reports the target version, and its switch stays on.
     func testConnectedServerUpdateWaitsForTargetVersionAndKeepsItsSwitch() throws {

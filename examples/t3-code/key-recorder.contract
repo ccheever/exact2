@@ -5,7 +5,7 @@
 // restores the row's binding, and leaving the field runs `cancel`. A modifier alone records nothing
 // (keybindingFromKeyboardEvent). The app's shortcut buttons outside the field do not hear the chord: the field sits
 // in an `aria-modal` row, the window's modal scope while it records (contract-grammar "Shortcuts"). Replaces the
-// native T3KeyRecorder view (contract-keys-and-menu-bar KW-11a).
+// native T3KeyRecorder view.
 //
 // The key (shortcutKeyFromEvent): the layout's a–z letter (AZERTY's "a" at KeyQ is "a"); else the punctuation or digit
 // at the physical key (Shift+2's "@" is "2"); else, for a key that types no a–z letter (Korean 2-Set's ㅠ, Option's

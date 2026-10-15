@@ -1,4 +1,4 @@
-// Appearance → Typography: FontFamilyPicker (lane settings-a). A SelectButton that
+// Appearance → Typography: FontFamilyPicker. A SelectButton that
 // opens a 288pt combobox: Search fonts…, the default family first with its
 // "default" tag, then the families this app can draw, each in its own face, a
 // check on the one in use, and "No fonts found." when the search misses.
@@ -28,7 +28,7 @@ component FontFamilyPicker
             CorePaintIcon(ownId=`paint-icon-FontFamilyPicker-1-${rowId}`, paint="text", name="chevron-down", size=12, color=pal.text)
       // ComboboxPopup align end: the popup's right edge meets the trigger's, 4 pt below, flipping near an edge. Escape
       // closes it (the host's light dismiss) and Settings stays: the popup is the window's modal scope while it shows, so
-      // Back's Escape shortcut does not take the key first (Base UI's dismissal prevents it; settings-escape-and-nav).
+      // Back's Escape shortcut does not take the key first (Base UI's dismissal prevents it).
       column id=`font-picker-${rowId}` popover="auto" position-area="bottom span-left" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" aria-modal=true position="absolute" margin-top="0.25rem" width="18rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover box-shadow="0 16px 40px -18px #0000008c" role="dialog" aria-label=label testId=`font-picker-${rowId}` data-paint="text surfaceOverlay" data-pick="surfaceOverlay"
         column padding-top="0.625rem" padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box" width="100%"
           row height="2.0625rem" align-items="center" gap="0.25rem" padding-bottom="0.375rem" box-sizing="border-box" border-bottom-width=1 border-bottom-style="solid" border-color=pal.border id=`paint-FontFamilyPicker-4-${rowId}` data-paint="border" data-pick="border"

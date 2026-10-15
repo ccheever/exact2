@@ -1,4 +1,4 @@
-// Lane r9-connect: checking a pull request out from the branch picker, after T3 Code (MIT; see
+// Checking a pull request out from the branch picker, after T3 Code (MIT; see
 // LICENSE-T3, upstream f90b77d809): BranchToolbarBranchSelector's checkout item (a ref search that
 // parses as a pull request reference, offered while the thread is a local draft:
 // ChatView canCheckoutPullRequestIntoThread) and PullRequestThreadDialog (resolve the reference with
@@ -8,7 +8,7 @@
 // (ChatView handlePreparedPullRequestThread → openOrReuseProjectDraftThread).
 //
 // The dialog's text is the field's own (the field is bound to the reference it opened with); each
-// edit reaches this file as `chatlocal:git-pr-text`. Lane r10-connect, as the HEAD dialog behaves
+// edit reaches this file as `chatlocal:git-pr-text`. As the HEAD dialog behaves
 // (measured against its served build): each edit looks its reference up at once (the dialog's
 // readCachedPullRequestResolution reads the lookup's atom, which starts it), but what the dialog
 // shows follows useDebouncedValue { wait: 450 }: "Resolving pull request..." from the edit until
@@ -24,14 +24,14 @@ import { ClientError, type Native } from './protocol';
 import { parsePullRequestReference } from './palette-linkpr';
 import { providerMark, terminology } from './r4-git-logic';
 import { ensureDraftThreadId } from './r7-handoff-thread';
-import { settle, wakeShell } from './r10-connect-timing'; // lane r10-connect: the 450 ms debounce
+import { settle, wakeShell } from './r10-connect-timing'; // the 450 ms debounce
 
 export type CheckoutItem = { reference: string; title: string; mark: string };
 type Resolution = { pullRequest: Obj } | { error: string };
 interface CheckoutState {
   open: boolean; serial: number; reference: string; text: string; dirty: boolean; cwd: string; draftKey: string;
   provider: Obj | null; preparing: string; prepareError: string; cache: Map<string, Resolution>; lastProvider: Obj | null;
-  /** r10-connect: edits so far, the reference the debounce last settled on (debouncedReference, parsed), whether
+  /** Edits so far, the reference the debounce last settled on (debouncedReference, parsed), whether
    *  an edit's 450 ms is still running, and the cached answer the edit found (cachedPullRequest, memoized per edit). */
   edits: number; debounced: string | null; waiting: boolean; memo: { parsed: string | null; pr: Obj | null };
 }

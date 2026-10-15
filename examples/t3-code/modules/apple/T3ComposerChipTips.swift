@@ -2,8 +2,8 @@
 import AppKit
 
 /// The composer chips' hover details (composerContextPresentation.tsx and
-/// ComposerPromptEditorTiptap.tsx, T3 Code, MIT; see LICENSE-T3), lane
-/// r4-timeline: a mention's path, an attached file's or image's name and size
+/// ComposerPromptEditorTiptap.tsx, T3 Code, MIT; see LICENSE-T3):
+/// a mention's path, an attached file's or image's name and size
 /// on two lines, a thread's "Open thread", and "This context is no longer
 /// available. Remove it or attach it again." for a reference whose record is
 /// gone. AppKit's tool-tip rects stand in for the reference's tooltip popup;
@@ -42,7 +42,7 @@ final class T3ComposerChipTips: NSObject, NSViewToolTipOwner {
         switch chip.kind {
         case "mention": return chip.detail.isEmpty ? nil : chip.detail
         case "context":
-            // composer-chips-accessibility G1-8: a terminal excerpt with text shows it in its details on a press
+            // A terminal excerpt with text shows it in its details on a press
             // (TerminalContextInlineChip's ContextChipPopover, no tooltip); an expired one says so.
             if let text = styler.terminalText(chip) {
                 return text.isEmpty ? "Terminal context expired. Remove and re-add \(chip.label) to include it in your message." : nil

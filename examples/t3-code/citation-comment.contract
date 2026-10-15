@@ -1,4 +1,4 @@
-// diff-cite-popover DC-1: an assistant citation's comment, measured against T3 Code 1e2ecbd975 (MIT, see LICENSE-T3):
+// An assistant citation's comment, measured against T3 Code 1e2ecbd975 (MIT, see LICENSE-T3):
 // AssistantCitationChip.tsx's PopoverPopup (aria-label "Edit citation comment", width "md": w-80 capped at the viewport less
 // 2rem, padding "compact": py-2 px-3, dropdown-glass drawn opaque as there is no backdrop blur here) placed `align="end"`
 // under the cited text after Cite (`side="bottom"`) or above its chip's comment button (`side="top"`), 4 pt off its anchor,
@@ -49,11 +49,11 @@ component CitationCommentLayer
         save(e.metaKey or e.ctrlKey)
   view
     column id="chip-popover" position="absolute" left=citationPopoverLeft(chip, width, viewportWidth) top=(below ? chip.ay + chip.ah + 4 : "auto") bottom=(below ? "auto" : viewportHeight - chip.ay + 4) width=width padding-top="0.5rem" padding-bottom="0.5rem" padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 16px 40px -18px #0000008c" z-index=130 role="dialog" aria-label="Edit citation comment" testId="citation-comment"
-      // The reference's `field-sizing-content min-h-16 max-h-40` textarea, straight in the popover: since main #496 (X86, adopted
-      // in round 11) a column's automatic height takes it clamped by its max-height, so an 8,000-character comment keeps the
-      // popover at the reference's 114 to 230 pt and scrolls inside the textarea (round 10 held it in a 4rem–10rem box).
+      // The reference's `field-sizing-content min-h-16 max-h-40` textarea, straight in the popover: since main #496
+      // a column's automatic height takes it clamped by its max-height, so an 8,000-character comment keeps the
+      // popover at the reference's 114 to 230 pt and scrolls inside the textarea.
       textarea id="citation-comment-text" value=draft input=edit key=keys blur=settle autofocus=true rows=2 placeholder="Add an optional comment..." aria-label="Comment on selected text" aria-description="Enter to save the citation comment; Command/Ctrl+Enter to save and send; Shift+Enter for a new line." aria-invalid=tooLong field-sizing="content" outline="none" width="100%" min-height="4rem" max-height="10rem" padding-left="0.25rem" padding-right="0.25rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off" testId="citation-comment-text"
-        // AssistantCitationCommentEditor's placeholder:text-muted-foreground (KW-1).
+        // AssistantCitationCommentEditor's placeholder:text-muted-foreground.
         ::placeholder
           color="light-dark(#71717b, #818181)"
       if tooLong

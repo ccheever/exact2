@@ -1,4 +1,4 @@
-// Lane r10-device: the Files surface's rendered HTML (MIT reference, see LICENSE-T3:
+// The Files surface's rendered HTML (MIT reference, see LICENSE-T3:
 // components/files/FilePreviewPanel.tsx RENDER_BROWSER_FILE_STORAGE_KEY "t3code.renderBrowserFile"
 // (default true), renderedToggleLabel, WorkspaceBrowserPreview; browser/openFileInPreview.ts
 // isBrowserPreviewFile; components/files/BrowserDocumentFrame.tsx). An `.html` / `.htm` file opens
@@ -7,7 +7,7 @@
 // is read from a signed asset URL (`assets.createUrl`: `workspace-file` for a thread,
 // `draft-workspace-file` for a draft's workspace), suffixed with the workspace revision so an edit
 // reloads it, and shown by the app module's sandboxed WebKit body (R6MediaPreview.swift,
-// as the attachment's HTML preview; siblings load only from the token directory, lane r11-misc), never in the app's own session.
+// as the attachment's HTML preview; siblings load only from the token directory), never in the app's own session.
 import type { T3Client } from './client';
 import { obj, str } from './domain';
 import type { Native } from './protocol';

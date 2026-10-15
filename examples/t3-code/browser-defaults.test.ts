@@ -1,4 +1,4 @@
-// browser-surface part 4: the Browser defaults group (clone rows, each named after the reference code it follows:
+// The Browser defaults group (clone rows, each named after the reference code it follows:
 // packages/contracts settings.ts's decoding defaults, browserDefaults.ts, IntegrationsSettings.tsx's
 // BrowserViewportSetting selectViewport / commitDimension / rotateViewport and the other rows' writes and resets).
 import { describe, expect, it } from 'bun:test';
@@ -21,7 +21,7 @@ describe('ClientSettingsSchema browser defaults', () => {
     const bad: Obj = {};
     adoptBrowserPrefs(bad, { browserDefaultViewport: { _tag: 'freeform', width: 100, height: 100 }, browserDefaultZoomFactor: 1.2, browserDefaultAppearance: 'sepia' });
     expect(bad).toMatchObject({ browserDefaultViewport: { _tag: 'fill' }, browserDefaultZoomFactor: 1, browserDefaultAppearance: 'system' });
-    // The recording rows and Auto-show are part 3's client settings (settings-core.ts CLIENT_DEFAULTS).
+    // The recording rows and Auto-show are client settings (settings-core.ts CLIENT_DEFAULTS).
     const settings = decodeClientPrefs({ browserRecordingFrameRate: 60, browserRecordingShowKeyPresses: true, browserRecordingShowMousePresses: 'yes', browserAutoShowFloatingPreview: false });
     expect([settings.browserRecordingFrameRate, settings.browserRecordingShowKeyPresses, settings.browserRecordingShowMousePresses, settings.browserAutoShowFloatingPreview]).toEqual([60, true, false, false]);
     expect(decodeClientPrefs({ browserRecordingFrameRate: 24 }).browserRecordingFrameRate).toBe(30);
@@ -38,7 +38,7 @@ describe('browserDefaults (a new tab is born at the configured state)', () => {
     client.preferencesLoaded = true;
     expect(resolveBrowserOpenDefaults(client)).toMatchObject({ profileId: 'work', viewport: { _tag: 'preset', presetId: 'ipad-mini', width: 768, height: 1024 }, zoomFactor: 1, appearance: 'system', autoShowFloatingPreview: true });
   });
-  it('starts a fresh home at part 2’s defaults, and Show device toolbar opens at a fixed configured viewport', () => {
+  it('starts a fresh home at the defaults, and Show device toolbar opens at a fixed configured viewport', () => {
     const fresh = owner();
     expect(browserOpenDefaults(fresh)).toMatchObject({ viewport: DEFAULT_BROWSER_DEFAULTS.viewport, zoomFactor: DEFAULT_BROWSER_DEFAULTS.zoomFactor, appearance: DEFAULT_BROWSER_DEFAULTS.appearance });
     const panelRect = { width: 900, height: 700 };

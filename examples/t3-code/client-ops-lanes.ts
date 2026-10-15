@@ -1,5 +1,5 @@
 // The prefixed client.command() ops (client-ops.ts): each prefix names the
-// lane module that owns its ops (settings-rest-commands.ts, chat-commands.ts,
+// module that owns its ops (settings-rest-commands.ts, chat-commands.ts,
 // pages-commands.ts, composer-editor.ts, shell-commands.ts,
 // composer-controls-commands.ts, sidebar-commands.ts, settings-b-commands.ts,
 // settings-appearance-editor.ts).
@@ -19,7 +19,7 @@ import { pagesLocal } from './pages-commands';
 import { themeLocal } from './settings-appearance-editor';
 import { type Native, type Files } from './protocol';
 
-/** Device-local ops by prefix, each handled by its lane's module. */
+/** Device-local ops by prefix, each handled by its module. */
 export async function laneOps(this: T3Client, op: string, id: string, value: string, n: number, native: Native, storage: Files, out: OpOut): Promise<boolean> {
   let resultMessage = '';
   try {
@@ -36,7 +36,7 @@ export async function laneOps(this: T3Client, op: string, id: string, value: str
     return true;
   } finally { Object.assign(out, { message: resultMessage, id, value }); }
 }
-/** Server writes by prefix, each handled by its lane's module. */
+/** Server writes by prefix, each handled by its module. */
 export async function laneWrites(this: T3Client, op: string, id: string, value: string, n: number, native: Native, storage: Files, out: OpOut): Promise<boolean> {
   let resultMessage = '';
   try {

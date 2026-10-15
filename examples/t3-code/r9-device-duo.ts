@@ -1,4 +1,4 @@
-// Lane r9-device: the iPhone Duo's stands and an Android foldable's fold buttons beside the device
+// The iPhone Duo's stands and an Android foldable's fold buttons beside the device
 // rail (MIT reference, see LICENSE-T3: components/device/DeviceDuoControls.tsx,
 // DeviceAndroidFoldControls.tsx, DeviceDuoGlyph.tsx, DeviceStreamView.tsx foldingControls;
 // packages/client-runtime/src/device/duoControl.ts DUO_POSES). The hinge itself, its command queue

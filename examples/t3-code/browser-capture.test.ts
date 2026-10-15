@@ -1,4 +1,4 @@
-// browser-surface part 3 (capture): the clone's own rows for the chrome row's Annotate, Capture and Float preview, the
+// The clone's own rows for the chrome row's Annotate, Capture and Float preview, the
 // More menu's separate window, their toasts and the floating player's browser source (browser-capture.ts), each named
 // after the reference code it follows (T3 Code 1e2ecbd975, MIT, see LICENSE-T3: PreviewView.tsx handlePickElement,
 // handleCapture, handlePictureInPicture, handleNativePictureInPicture; PreviewChromeRow.tsx; ThreadPreviewMiniPlayer.tsx;
@@ -373,7 +373,7 @@ describe('an annotation\'s ⌘↩ at the window (ChatView onSendAnnotation, onSe
   const line = (text: string, needle: string) => text.split('\n').find(candidate => candidate.includes(needle)) ?? '';
   const block = (text: string, start: string, lines: number) => { const all = text.split('\n'), at = all.findIndex(candidate => candidate.includes(start)); return at < 0 ? '' : all.slice(at, at + lines).join('\n'); };
 
-  /** A server thread's client and a module answering Annotate's take with `result` (audit-wave-followups' harness). */
+  /** A server thread's client and a module answering Annotate's take with `result` (audit-wave-followups.test.ts's harness). */
   function threadClient(result: Obj) {
     const client = new Client(), scoped = { environmentId: 'env', threadId: 't1' }, tab = previewRuntimeTabId(scoped, 'epoch-1', 'tab-1'), calls: Obj[] = [];
     Object.assign(client, { available: true, generation: 1, connection: 'connected', environmentId: 'env', projectId: 'p1', threadId: 't1', configLive: true, shellLive: true, threadLive: true,
@@ -423,7 +423,7 @@ describe('an annotation\'s ⌘↩ at the window (ChatView onSendAnnotation, onSe
     expect(app).not.toContain('capture.sendSerial');
     expect(line(app, 'task annotationSend when')).toBe('  task annotationSend when shell.panel.annotationSend > annotationSendHandled key=shell.panel.annotationSend');
     expect(block(app, 'action annotationSendNow', 6)).toBe(['  action annotationSendNow', '    annotationSendHandled = shell.panel.annotationSend',
-      '    if commandPending or not data.canSend or data.requestMode == "question"', '      chatLocal("surface-browser-annotation-held", "", "")', '    else', '      send("")'].join('\n')); // no press: no pointer modifiers (contract-keys-and-menu-bar)
+      '    if commandPending or not data.canSend or data.requestMode == "question"', '      chatLocal("surface-browser-annotation-held", "", "")', '    else', '      send("")'].join('\n')); // no press: no pointer modifiers
     expect(line(source('r4-surfaces-shapes.contract'), '  annotationSend: number')).not.toBe('');
     expect(block(source('browser-shapes.contract'), 'shape BrowserCapture', 12)).not.toContain('sendSerial');
   });
@@ -488,12 +488,12 @@ describe('a real Escape, the pill by a real pointer, the drag and the resize, th
 
   it('Escape while the shown tab annotates is the page\'s: the panel toggle declares it only otherwise (PickPreload cancels, the panel stays)', () => {
     // A real Escape met the toggle's aria-keyshortcuts before the page: the panel closed and floated the tab. Since
-    // right-panel-escape the toggle declares Escape only in a sheet (the reference's inline panel binds none); the pick holds it there.
+    // The toggle declares Escape only in a sheet (the reference's inline panel binds none); the pick holds it there.
     const toggle = line(source('r4-surfaces.contract'), 'testId="panel-toggle-right"');
     expect(toggle).toContain('aria-keyshortcuts=((sheet and not (panel.deviceSetup or panel.files.editorsOpen or panel.files.editing or searchFocused or panel.browser.capture.pickActive)) ? "Escape" : "")');
   });
 
-  it('the handle\'s box covers the pill while it shows, and the pill\'s buttons hear no hover of their own (X62)', () => {
+  it('the handle\'s box covers the pill while it shows, and the pill\'s buttons hear no hover of their own', () => {
     const contract = source('browser-capture.contract');
     const handle = line(contract, 'testId="browser-mini-handle"');
     expect(handle).toContain('width=(pill ? pillWidth : 0.75 * rem) height=(pill ? 2 * rem : 0.75 * rem) cursor=');

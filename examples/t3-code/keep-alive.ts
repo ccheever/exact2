@@ -14,7 +14,7 @@ import { arr, obj, str, num, applyThread, threadSnapshot, type Obj, type Shell, 
 import type { Native } from './protocol';
 import type { FleetEntry } from './settings-b-fleet';
 import { lifecycleEvent, lifecycleFleetEvent, lifecycleFleetPass, watchLifecycle } from './local-lifecycle';
-import { accessEvent, accessFleetEvent, accessFleetPass, watchAccess } from './auth-access'; // this-machine-network-access: Authorized clients
+import { accessEvent, accessFleetEvent, accessFleetPass, watchAccess } from './auth-access'; // Authorized clients
 import { letGo } from './let-go';
 
 export const KEEP_PREFIX = 'keep:';

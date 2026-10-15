@@ -66,7 +66,7 @@ describe('send gestures through the server keybindings', () => {
   });
 });
 
-// contract-keys-and-menu-bar KW-11a: a pointer press carries its own modifiers (its MouseEvent) to `send`, as
+// A pointer press carries its own modifiers (its MouseEvent) to `send`, as
 // `pointer:meta+alt`; any other press (a plain click, Return, a Send chord, an assistive press) reads the module's newest
 // Return gesture, which a click retires (T3ComposerIntent, the intent AppKit suite).
 describe('a Send press carries its own pointer modifiers', () => {

@@ -1,9 +1,9 @@
 import AppKit
 import XCTest
 
-// Lane r5-panels (T3PanelsNative.swift): PullRequestUnavailableError reads as the reference's
+// T3PanelsNative.swift: PullRequestUnavailableError reads as the reference's
 // sentence; a sent attachment's text preview and Save file over a stubbed
-// asset route (no network). Lane r13-panels: a press below the Files editor's last line, with the
+// asset route (no network). A press below the Files editor's last line, with the
 // composer holding the focus, gives the mounted editor the focus with the caret at the end, and
 // typed keys land in the file, not the draft.
 // Compiled without T3Module.swift, so the test supplies the module the facade names.

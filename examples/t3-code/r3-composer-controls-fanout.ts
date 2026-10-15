@@ -1,4 +1,4 @@
-// Several models for one new thread (lane composer-controls, round 3),
+// Several models for one new thread,
 // adapted from T3 Code (MIT); see LICENSE-T3. Sources: ChatComposer.tsx
 // (onToggleModel), ProviderModelPicker.tsx (selectedEntries, multipleLabel,
 // allModelNames), ModelPickerContent.tsx (Shift-click or Shift+Return adds a
@@ -11,7 +11,7 @@ import type { T3Client } from './client';
 import { triggerModelName } from './r3-composer-controls-model';
 import { dispatchSelection } from './composer-ultrathink';
 import { letGo } from './let-go';
-import { composerPair } from './composer-provider-selection'; // composer-provider-state-and-details: the seed is the shown model
+import { composerPair } from './composer-provider-selection'; // the seed is the shown model
 
 export type FanoutSelection = { instanceId: string; model: string; options: Obj[] };
 // draftFanoutStateAtom: per draft route, in memory.
@@ -103,7 +103,7 @@ export async function sendFanout(client: T3Client, native: Native, storage: File
   for (const selection of list) {
     try {
       const [commandId, messageId, threadId] = await access.ids(3);
-      const payload = launchPayload(commandId, threadId, messageId, projectId, input.text, dispatchSelection(client, selection.instanceId, selection.model, selection.options), // composer-fidelity: modelOptionsForDispatch per target
+      const payload = launchPayload(commandId, threadId, messageId, projectId, input.text, dispatchSelection(client, selection.instanceId, selection.model, selection.options), // modelOptionsForDispatch per target
         input.runtimeMode, input.interactionMode, input.attachments);
       payload.workspaceStrategy = { type: 'worktree', baseRef: input.branch, ...(input.startFromOrigin ? { startFromOrigin: true } : {}) };
       await access.write(storage, { method: 'orchestration.launchThread', payload, description: 'Create thread', threadId, text: '', uncertain: false });

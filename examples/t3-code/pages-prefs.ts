@@ -1,4 +1,4 @@
-// Lane "pages" preferences, kept inside the one versioned preference file the
+// The pages' preferences, kept inside the one versioned preference file the
 // client persists (app:/data/t3-code.json, the only path the native adapter
 // accepts) under `pages`: the Usage page's metric and period
 // (usagePagePreferences), the Pull Requests list controls
@@ -26,10 +26,10 @@ export function adoptPagesPrefs(next: object, saved: Obj): void {
   const prefs = emptyPrefs();
   if (typeof usage.metric === 'string' && typeof usage.windowDays === 'number') prefs.usage = { metric: str(usage.metric), windowDays: num(usage.windowDays) };
   if (value.pullRequests && typeof value.pullRequests === 'object' && !Array.isArray(value.pullRequests)) prefs.pullRequests = obj(value.pullRequests);
-  prefs.onboardingCompletedAt = storedCompletion(value.onboardingCompletedAt); // r9-connect: a 1970 value is unset
-  // pr-header-actions-and-stacks: the merge method last chosen on this device (useUiStateStore pullRequestMergeMethod).
+  prefs.onboardingCompletedAt = storedCompletion(value.onboardingCompletedAt); // a 1970 value is unset
+  // The merge method last chosen on this device (useUiStateStore pullRequestMergeMethod).
   if (value.mergeMethod === 'merge' || value.mergeMethod === 'squash' || value.mergeMethod === 'rebase') prefs.mergeMethod = value.mergeMethod;
-  // pr-code-tab: the Code tab's file tree, open or not (t3code.pullRequestFileTreeOpen).
+  // The Code tab's file tree, open or not (t3code.pullRequestFileTreeOpen).
   if (value.prFileTree === true) prefs.prFileTree = true;
   (next as { pages?: PagesPrefs }).pages = prefs;
 }

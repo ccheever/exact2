@@ -117,7 +117,7 @@ final class T3Composer {
 
     /// Internal so focused tests can exercise the actual window/focus guard.
     func handle(_ event: NSEvent) -> NSEvent? {
-        if queuedEditKey(event) { return nil } // thread-commands-and-keys: ⌥↑ with the caret at the start (T3ComposerQueueKey.swift)
+        if queuedEditKey(event) { return nil } // ⌥↑ with the caret at the start (T3ComposerQueueKey.swift)
         if let routed = editorKey(event) { return routed.event }
         switch action(for: event) {
         case .passThrough: return event
@@ -169,7 +169,7 @@ final class T3Composer {
               view.isHiddenOrHasHiddenAncestor == false else { return nil }
         let flags = event.modifierFlags.intersection([.command, .control, .option, .shift])
         let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
-        // ⌘B / ⌘I toggle bold and italic when the rich text composer is on (lane r9-input: by key code
+        // ⌘B / ⌘I toggle bold and italic when the rich text composer is on (by key code
         // under a non-Latin source, ending composition first, R9Input.swift).
         let chord = R9Input.chordKey(event)
         if flags == .command, chord == "b" || chord == "i", window.firstResponder === view, editor.styler.richText, R9Input.commitMarkedText(view) {

@@ -1,7 +1,7 @@
 #if os(macOS)
 import AppKit
 
-/// r5-composer: a ref list's "load the next page" signal (BranchPicker.tsx
+/// A ref list's "load the next page" signal (BranchPicker.tsx
 /// maybeFetchNextBranchPage, paginatedBranches.ts shouldLoadNextBranchPageAfterScroll):
 /// a scroll node hooked `t3-anchor` with `data-anchor="scroll:<name>"` counts each
 /// scroll toward its end that lands within 96pt of it. One count per content

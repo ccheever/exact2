@@ -1,4 +1,4 @@
-// Lane r9-input: ⌘W closes the active surface tab, moved sidebar rows get fresh hover keys.
+// ⌘W closes the active surface tab, moved sidebar rows get fresh hover keys.
 import { describe, test, expect } from 'bun:test';
 import { T3Client } from './client';
 import { obj, type Obj } from './domain';

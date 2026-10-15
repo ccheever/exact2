@@ -1,4 +1,4 @@
-// Settings → Diagnostics (lane settings-a; settings-a-telemetry.ts): the resource
+// Settings → Diagnostics (settings-a-telemetry.ts): the resource
 // telemetry sections of ResourceTelemetryDiagnostics.tsx, and the table, badge,
 // toggle group, tooltip and expandable text the whole Diagnostics page shares.
 use Card from "./settings-source-control.contract"

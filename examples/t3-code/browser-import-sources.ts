@@ -1,4 +1,4 @@
-// browser-surface part 4 (profiles): the browsers the cookie import can read (MIT reference, see LICENSE-T3, T3 Code
+// The browsers the cookie import can read (MIT reference, see LICENSE-T3, T3 Code
 // 1e2ecbd975: apps/desktop/src/preview/BrowserImport/Sources.ts), over the clone's ImportIO (browser-import-io.ts).
 //
 // Chromium-family browsers keep cookies in an encrypted SQLite database whose key lives in the Keychain; Firefox keeps

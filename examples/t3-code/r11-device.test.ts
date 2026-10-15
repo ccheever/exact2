@@ -3,7 +3,7 @@ import { adoptRightPanels, restoreRightPanel, savedPanel, syncRightPanels } from
 import { keepR11, prTargetOf, restoredEffects } from './r11-device-panels';
 import { prSurfaceId } from './r5-panels-pr';
 
-// Lane r11-device: every right-panel surface persists across launches, as rightPanelStore's
+// Every right-panel surface persists across launches, as rightPanelStore's
 // `byThreadKey` does (migratePersistedRightPanelState), not only Files, file tabs and the list.
 const pr = { projectId: 'p1', host: 'github.com', repository: 'acme/app', number: 101, url: 'https://github.com/acme/app/pull/101' };
 const meta = { id: 'att-1', name: 'notes.md', mimeType: 'text/markdown', sizeBytes: 120 };
@@ -16,7 +16,7 @@ const surfaces = () => [
   { id: 'attachment:att-1', kind: 'attachment' as const, path: 'notes.md', line: 0, reveal: 0, attachment: meta },
 ];
 
-describe('Right panels keep every surface across launches (lane r11-device)', () => {
+describe('Right panels keep every surface across launches', () => {
   test('the Diff, the device with its target, a pull request and an attachment are saved in order', () => {
     const saved = savedPanel({ visible: true, active: prSurfaceId(pr), surfaces: surfaces() });
     expect(saved).toEqual({ visible: true, active: 'pull-request:p1:github.com:acme%2Fapp:101', surfaces: [

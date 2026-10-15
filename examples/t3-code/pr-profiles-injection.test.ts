@@ -87,7 +87,7 @@ function fakeClient(replies: Record<string, Reply>) {
 }
 const native = { available: true } as unknown as Native;
 /**
- * The panel's resource as the runner asks it (pr-conversation-and-refresh): an answer that showed a new
+ * The panel's resource as the runner asks it: an answer that showed a new
  * state (the ghost, then the detail with the conversation ghost) wakes the resource, which is asked again.
  */
 async function settled(client: T3Client, input: Parameters<typeof pullRequestDetail>[2]) {
@@ -115,7 +115,7 @@ describe('host failures and delays (injected; real GitHub does not fail or stall
     const { client } = fakeClient({ 'pullRequests.detail': () => detail(PROFILES.maintainer!), 'pullRequests.activity': () => { throw operationError('rate-limited', 'GitHub rate limit'); } });
     const view = await settled(client, { selected, refresh: 2, now: 0 });
     expect([view.error, view.number, view.commentsLabel]).toEqual(['', 7, 'Comments (0)']);
-    // pr-conversation-and-refresh: the failure says so (PullRequestActivityUnavailableState), not "No comments yet."
+    // The failure says so (PullRequestActivityUnavailableState), not "No comments yet."
     expect([view.activityError, view.summary.activityError, view.timeline.comments]).toEqual(['GitHub rate limit', 'GitHub rate limit', '—']);
   });
   test('a refused write toasts the reference\'s title with GitHub\'s reason and returns it to the form', async () => {
@@ -123,7 +123,7 @@ describe('host failures and delays (injected; real GitHub does not fail or stall
     const message = await prCommand(client, native, 'action', selected, 'merge');
     expect(message).toBe('Pull request is not mergeable: the base branch policy prohibits the merge');
     expect(toasts(client).at(-1)).toMatchObject({ kind: 'error', title: 'Could not merge this pull request' });
-    // pr-writing-and-metadata: the comment form's own failure (PullRequestCommentForm), its words kept.
+    // The comment form's own failure (PullRequestCommentForm), its words kept.
     const failedComment = fakeClient({ 'pullRequests.comment': () => { throw new Error('HTTP 403: Resource not accessible by integration'); } });
     expect(await prCommand(failedComment.client, native, 'post-comment', selected, 'hello')).toBe('HTTP 403: Resource not accessible by integration');
     expect(toasts(failedComment.client).at(-1)).toMatchObject({ kind: 'error', title: 'Could not post the comment' });

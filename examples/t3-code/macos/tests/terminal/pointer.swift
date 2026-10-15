@@ -2,7 +2,7 @@ import AppKit
 import WebKit
 import XCTest
 
-// X8 (exact2 #107, main #186): the pointer the agent now sends — real mouse events through
+// exact2 #107 (main #186): the pointer the agent now sends — real mouse events through
 // `NSApplication.sendEvent`, a wheel placed in the window — reaches T3 Code's Ghostty surface in the
 // terminal's web view: a drag selects, a double click a word, a triple click a line, a wheel scrolls
 // the scrollback. Events are built the way `AgentMac.swift` / `AgentMouseMac.swift` build them.
@@ -59,11 +59,11 @@ final class TerminalPointerTests: XCTestCase {
         for x in stride(from: 20.0, through: 220.0, by: 40.0) { left(.leftMouseDragged, point(x, row)) }
         left(.leftMouseUp, point(220, row))
         let text = selection()
-        print("terminal X8 drag selection \(text.debugDescription)")
+        print("terminal drag selection \(text.debugDescription)")
         XCTAssertFalse(text.isEmpty, "a drag over the canvas selects text; bridge \(view.bridgeLog)")
         // The selection popup settles after the release; under the agent it is reported, not tracked.
         spin(until: { self.view.actions.status["open"] as? Bool == true }, timeout: 3)
-        print("terminal X8 selection popup \(view.actions.status)")
+        print("terminal selection popup \(view.actions.status)")
         XCTAssertEqual((view.actions.status["items"] as? [[String: Any]])?.compactMap { $0["label"] as? String }, ["Copy"])
     }
 
@@ -71,7 +71,7 @@ final class TerminalPointerTests: XCTestCase {
         let p = point(30, 8)
         for n in 1...2 { left(.leftMouseDown, p, clicks: n); left(.leftMouseUp, p, clicks: n) }
         let word = selection()
-        print("terminal X8 double click \(word.debugDescription)")
+        print("terminal double click \(word.debugDescription)")
         XCTAssertFalse(word.isEmpty)
         XCTAssertFalse(word.contains(" "), "a double click selects one word")
         // A pause ends the double click's run (the page's own click counter, surface.ts recordSelectionClick).
@@ -79,7 +79,7 @@ final class TerminalPointerTests: XCTestCase {
         for n in 1...3 { left(.leftMouseDown, p, clicks: n); left(.leftMouseUp, p, clicks: n) }
         spin(until: { self.view.selection != word }, timeout: 3)
         let line = view.selection
-        print("terminal X8 triple click \(line.debugDescription)")
+        print("terminal triple click \(line.debugDescription)")
         XCTAssertGreaterThan(line.count, word.count, "a triple click selects the line")
     }
 
@@ -88,11 +88,11 @@ final class TerminalPointerTests: XCTestCase {
         let up = CGEvent(mouseEventSource: nil, mouseType: .rightMouseUp, mouseCursorPosition: .zero, mouseButton: .right)!
         NSApp.sendEvent(placed(cg, point(60, 40))); NSApp.sendEvent(placed(up, point(60, 40)))
         spin(until: { self.view.actions.status["open"] as? Bool == true }, timeout: 3)
-        print("terminal X8 context menu \(view.actions.status)")
+        print("terminal context menu \(view.actions.status)")
         XCTAssertEqual((view.actions.status["items"] as? [[String: Any]])?.compactMap { $0["label"] as? String }, ["Copy", "Paste"])
     }
 
-    /// G1-3: a middle press takes the focus from the composer into the terminal (the
+    /// A middle press takes the focus from the composer into the terminal (the
     /// pane's focus-in activates it), as T3 Code's pane does for every button, and pastes nothing.
     func testMiddlePressFocusesTheTerminalWithoutPasting() {
         let composer = NSTextView(frame: NSRect(x: 0, y: 0, width: 160, height: 30))
@@ -107,7 +107,7 @@ final class TerminalPointerTests: XCTestCase {
         spin(until: { self.window.firstResponder === self.view.web && self.view.focused }, timeout: 3)
         RunLoop.main.run(until: Date().addingTimeInterval(0.3))
         let page = debug()
-        print("terminal G1-3 middle press: responder \(window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil") native focus \(view.focused) page focus \(page["focused"] ?? "") typed \(view.dataBytes - typed) composer \(composer.string.debugDescription)")
+        print("terminal middle press: responder \(window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil") native focus \(view.focused) page focus \(page["focused"] ?? "") typed \(view.dataBytes - typed) composer \(composer.string.debugDescription)")
         XCTAssertTrue(window.firstResponder === view.web, "the focus stayed in \(window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil")")
         XCTAssertTrue(view.focused, "the terminal did not report its focus (the pane's focus-in)")
         XCTAssertEqual(page["focused"] as? Bool, true, "the page's input is not focused")
@@ -124,7 +124,7 @@ final class TerminalPointerTests: XCTestCase {
         left(.leftMouseDown, url, flags: .command); left(.leftMouseUp, url, flags: .command)
         spin(until: { self.view.bridgeLog.filter { $0.hasPrefix("link ") }.count >= 2 }, timeout: 3)
         let links = view.bridgeLog.filter { $0.hasPrefix("link ") }
-        print("terminal X8 links \(links)")
+        print("terminal links \(links)")
         XCTAssertTrue(links.contains { $0.contains("a.ts:10:5") && $0.contains("\"metaKey\":false") }, "\(view.bridgeLog)")
         XCTAssertTrue(links.contains { $0.contains("example.com") && $0.contains("\"metaKey\":true") }, "\(view.bridgeLog)")
     }
@@ -132,7 +132,7 @@ final class TerminalPointerTests: XCTestCase {
     func testScrollbarThumbDragScrollsBack() {
         let before = debug()["text"] as? [String] ?? []
         let geometry = evaluate("const t = document.querySelector('[role=scrollbar]'); const b = t?.firstElementChild?.getBoundingClientRect(); return t ? JSON.stringify({hidden: t.hidden, x: b.x + b.width / 2, y: b.y + b.height / 2, h: b.height}) : 'none'")
-        print("terminal X8 scrollbar thumb \(geometry)")
+        print("terminal scrollbar thumb \(geometry)")
         guard let data = geometry.data(using: .utf8), let thumb = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let x = thumb["x"] as? Double, let y = thumb["y"] as? Double else { return XCTFail("no thumb: \(geometry)") }
         left(.leftMouseDown, point(x, y))
@@ -140,7 +140,7 @@ final class TerminalPointerTests: XCTestCase {
         left(.leftMouseUp, point(x, y - 240))
         spin(until: { (self.debug()["text"] as? [String] ?? []) != before }, timeout: 5)
         let after = debug()["text"] as? [String] ?? []
-        print("terminal X8 thumb drag first row before \(before.first ?? "") after \(after.first ?? "")")
+        print("terminal thumb drag first row before \(before.first ?? "") after \(after.first ?? "")")
         XCTAssertNotEqual(before, after, "dragging the scrollbar thumb up scrolls back")
     }
     private func evaluate(_ script: String) -> String {
@@ -158,7 +158,7 @@ final class TerminalPointerTests: XCTestCase {
         NSApp.sendEvent(placed(cg, point(200, 100)))
         spin(until: { (self.debug()["text"] as? [String] ?? []) != before }, timeout: 5)
         let after = debug()["text"] as? [String] ?? []
-        print("terminal X8 wheel first row before \(before.first ?? "") after \(after.first ?? "")")
+        print("terminal wheel first row before \(before.first ?? "") after \(after.first ?? "")")
         XCTAssertNotEqual(before, after, "a wheel at a point over the canvas scrolls back")
     }
 }

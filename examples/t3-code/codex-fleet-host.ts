@@ -1,4 +1,4 @@
-// A background environment as a provider-setup host (managed-codex-chatgpt): the welcome shows
+// A background environment as a provider-setup host: the welcome shows
 // every chosen computer's Codex rows (WelcomeWizard.tsx ConnectedAgentsStep, one
 // OnboardingCodexSetup per instance and environment), so a computer the app is not focused on
 // runs the same streams and commands through its T3Fleet transport. The fleet's drain hands this

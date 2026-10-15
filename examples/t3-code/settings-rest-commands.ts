@@ -1,4 +1,4 @@
-// Mutations for the settings routes the settings-rest lane owns: Projects,
+// Mutations for these settings routes: Projects,
 // Integrations, Keybindings, Source control, Storage, Archive, Scheduled
 // tasks, Diagnostics and licenses. Every write re-reads the server's current
 // state first and refuses a stale scope rather than broadening it.
@@ -16,11 +16,11 @@ import { devicePlatformsCommand } from './device-support';
 import { telemetryCommand, telemetryLocal } from './settings-a-telemetry';
 import { openLogsFolder } from './diagnostics-view';
 import { bitbucketCommand } from './settings-a-bitbucket';
-import { browserProfilesLocal } from './browser-profiles-settings'; // browser-surface part 4
+import { browserProfilesLocal } from './browser-profiles-settings';
 import { deviceHostsCommand } from './settings-a-hosts';
 import { deviceScopedCommand } from './settings-integrations-scope';
-import { applyDeviceSetting } from './settings-core'; // browser-surface part 5: "Open links in"
-import { copyThreadReference } from './thread-reference'; // thread-commands-and-keys: ⇧⌘C copies the PR link or the thread ID
+import { applyDeviceSetting } from './settings-core'; // "Open links in"
+import { copyThreadReference } from './thread-reference'; // ⇧⌘C copies the PR link or the thread ID
 
 /** Contract sends `a=encodeURIComponent(x)&b=…`; Hermes has no URLSearchParams. */
 export function params(value: string): Record<string, string> {
@@ -101,7 +101,7 @@ export function storagePatch(settings: Obj, projectId: string, key: string, raw:
 
 export async function restCommand(client: T3Client, native: Native, storage: Files, op: string, scope: string, value: string): Promise<string> {
   if (op.startsWith('archive-')) return archiveCommand(client, native, storage, op, scope, value);
-  if (op === 'browser-link-target') { if (!applyDeviceSetting(client.local, 'browserLinkTarget', value)) throw new ClientError('Unsupported setting.'); await client.savePreferences(storage); return ''; } // browser-surface part 5: "Open links in"
+  if (op === 'browser-link-target') { if (!applyDeviceSetting(client.local, 'browserLinkTarget', value)) throw new ClientError('Unsupported setting.'); await client.savePreferences(storage); return ''; } // "Open links in"
   if (op === 'device-tools') return deviceToolsCommand(client, native, params(value));
   if (op === 'device-platforms') return devicePlatformsCommand(client, native); // 5318d054a5: Simulator support Refresh
   if (op === 'diag-open-logs') return openLogsFolder(client, native);
@@ -223,6 +223,6 @@ export async function restLocal(client: T3Client, native: Native, storage: Files
   if (op === 'theme-pick') { const bar = value.lastIndexOf('|'); toggleRemovalPick(client, value.slice(0, bar), value.slice(bar + 1)); return ''; }
   // thread.copyReference: the PR link, else the thread ID, with the reference's toasts (thread-reference.ts).
   if (op === 'copy-thread') return copyThreadReference(client, native);
-  if (op.startsWith('browser-')) return browserProfilesLocal(client, native, storage, op, value); // browser-surface part 4: Browser profiles and the cookie import
+  if (op.startsWith('browser-')) return browserProfilesLocal(client, native, storage, op, value); // Browser profiles and the cookie import
   throw new ClientError(`Unknown settings action: ${op}`);
 }

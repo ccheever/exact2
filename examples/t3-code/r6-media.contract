@@ -1,4 +1,4 @@
-// Lane r6-media (MIT reference, see LICENSE-T3): AttachmentFilePreview's media bodies.
+// From the MIT reference (see LICENSE-T3): AttachmentFilePreview's media bodies.
 // - PDF and HTML: BrowserDocumentFrame ("min-h-0 flex-1 border-0 bg-white"), drawn by the
 //   app module's `t3-media` hook (R6MediaPreview.swift): PDFKit fitted to the width, and the
 //   page's own bytes in a sandboxed WebKit view (allow-scripts/forms/popups/modals) with no

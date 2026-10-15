@@ -1,10 +1,10 @@
-// context-menu-gaps: what the Files tree row and pull request number menus do (T3 Code
+// What the Files tree row and pull request number menus do (T3 Code
 // 1e2ecbd975, MIT; see LICENSE-T3): FileBrowserPanel.tsx showEntryContextMenu with
 // fileContextMenu.ts useFileContextMenu.activate, and pullRequestLinkContextMenu.ts
 // showPullRequestLinkContextMenu. Items come from context-menus.ts; the module's
 // `contextMenu` op (T3ContextMenu.swift) shows the Files menus at the pointer and names the
 // pick; the pull request number's menu is a Contract context popover (pages-prs.contract
-// PrLinkMenu, contract-keys-and-menu-bar X292), whose row names its pick here.
+// PrLinkMenu), whose row names its pick here.
 import type { T3Client } from './client';
 import { obj, str, type Obj } from './domain';
 import { bridgeReply, type Native } from './protocol';

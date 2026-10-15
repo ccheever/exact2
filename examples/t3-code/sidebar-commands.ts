@@ -22,12 +22,12 @@ import { resetSidebarWidth } from './r4-polish-sidebar-width';
 import { sweepRelease } from './r11-upstream-sweep';
 import { discardDraft, draftChoice, draftMenu } from './r11-upstream-drafts';
 import { menuAnchor, rowKeyMenu, withMenuAnchor } from './r12-sidebar-keys';
-import { legacyCommand, legacyLocal } from './legacy-sidebar-commands'; // legacy-sidebar: the "Sidebar (legacy)" gestures
+import { legacyCommand, legacyLocal } from './legacy-sidebar-commands'; // The "Sidebar (legacy)" gestures
 import { legacyEnabled, legacyProjectOrder, threadSortOrder } from './legacy-sidebar-view';
-import { backgroundWorktreePlan, isBackground, removeBackground } from './legacy-sidebar-fleet'; // legacy-sidebar-full LS-6
-import { openBranchDraft } from './legacy-sidebar-links'; // legacy-sidebar-full LS-5
-import { openPendingPort, watchRowPorts } from './legacy-sidebar-ports'; // legacy-sidebar-full LS-2
-import { closeThreadTerminals, detachThreadSessions, removeOrphanedWorktree, setWorktreePrompt, worktreePlan, worktreePrompt, type WorktreePrompt } from './worktree-cleanup'; // thread-commands-and-keys: G5
+import { backgroundWorktreePlan, isBackground, removeBackground } from './legacy-sidebar-fleet';
+import { openBranchDraft } from './legacy-sidebar-links';
+import { openPendingPort, watchRowPorts } from './legacy-sidebar-ports';
+import { closeThreadTerminals, detachThreadSessions, removeOrphanedWorktree, setWorktreePrompt, worktreePlan, worktreePrompt, type WorktreePrompt } from './worktree-cleanup';
 import { deleteSelectedThreadEntries, getFallbackThreadIdAfterDelete } from './sidebar-delete-logic';
 import { mostRecentProjectId } from './pages-home';
 import { letGo } from './let-go';
@@ -53,7 +53,7 @@ async function attempt(client: T3Client, title: string, run: () => Promise<void>
 // ── Undo notice (showThreadUndoNotice): consecutive actions of one kind merge; 5s life.
 type Undo = (native: Native) => Promise<void>;
 const undos = new WeakMap<T3Client, { action: UndoAction; threadId: string; undo: Undo; failureTitle: string; commit?: () => void }[]>();
-/** r11-upstream (95edeb753b): `commit` runs once the action can no longer be undone (expired or replaced). */
+/** Upstream 95edeb753b: `commit` runs once the action can no longer be undone (expired or replaced). */
 export function remember(client: T3Client, native: Native, action: UndoAction, threadId: string, failureTitle: string, undo: Undo, commit?: () => void): void {
   const now = wall(client), session = sidebarSession(client);
   const live = session.undo && now - session.undo.at < 5000 ? undos.get(client) ?? [] : [];
@@ -173,7 +173,7 @@ export async function archive(client: T3Client, native: Native, id: string): Pro
  * in place while the "Delete the worktree too?" dialog is open.
  */
 export async function remove(client: T3Client, native: Native, storage: Files, id: string, deleted: ReadonlySet<string> = new Set(), answer?: boolean): Promise<'deleted' | 'prompt' | 'missing'> {
-  if (isBackground(client, id)) return removeBackground(client, native, id, deleted, answer); // legacy-sidebar-full LS-6: a background environment's row
+  if (isBackground(client, id)) return removeBackground(client, native, id, deleted, answer); // A background environment's row
   const thread = threadOf(client, id);
   if (!thread) return 'missing';
   const plan = worktreePlan(client, id, deleted);
@@ -327,7 +327,7 @@ export async function sidebarSelecting(client: T3Client, _nativeHandle: Native, 
   const session = sidebarSession(client);
   if (value === 'click' || value.startsWith('click:')) {
     const flags = { command: value === 'click:meta', shift: value === 'click:shift' };
-    // legacy-sidebar: ⇧-click ranges over the row's project list (rangeSelectTo(threadKey, orderedProjectThreadKeys)).
+    // ⇧-click ranges over the row's project list (rangeSelectTo(threadKey, orderedProjectThreadKeys)).
     const rows = legacyEnabled(client) ? legacyProjectOrder(client, id) : renderedRows(client, partition(client, wall(client))).map(entry => str(entry.thread.id));
     if (flags.command === true) {
       const removing = session.selection.includes(id);
@@ -355,11 +355,11 @@ export async function sidebarSelecting(client: T3Client, _nativeHandle: Native, 
  * reply after its answer ended would be dropped).
  */
 export async function sidebarRefreshed(client: T3Client, nativeHandle: Native): Promise<void> {
-  commitExpiredUndos(client); // r11-upstream: the notice's expiry repaint commits what can no longer be undone
+  commitExpiredUndos(client); // The notice's expiry repaint commits what can no longer be undone
   scheduleProviderPill(client, wall(client), delay => { void nativeHandle.later({ op: 'sidebarNotify', delay }).catch(() => undefined); });
   await syncFavicons(client, nativeHandle);
-  await syncBranchPullRequests(client, nativeHandle, wall(client)); // sidebar-hover-archive-and-glyph B12: a linkless thread's branch pull request
-  await watchRowPorts(client, nativeHandle); // legacy-sidebar-full LS-2: the legacy rows' discovered ports
+  await syncBranchPullRequests(client, nativeHandle, wall(client)); // A linkless thread's branch pull request
+  await watchRowPorts(client, nativeHandle); // The legacy rows' discovered ports
   await openPendingPort(client, nativeHandle); // a background row's port, once its thread is open here
 }
 /** After a thread opens: the server visit lands at once for an unseen completion. */
@@ -385,7 +385,7 @@ export async function sidebarLocal(client: T3Client, _native: Native, op: string
   else if (op === 'scope-open') { session.scopeOpen = value === 'close' ? false : !session.scopeOpen; session.scopeQuery = ''; }
   else if (op === 'scope-query') session.scopeQuery = value;
   else if (op === 'scope-key') { if (value === 'Escape') { session.scopeOpen = false; session.scopeQuery = ''; } }
-  else if (op === 'width-reset') resetSidebarWidth(client); // r4-polish: forget the stored width
+  else if (op === 'width-reset') resetSidebarWidth(client); // Forget the stored width
   else if (op === 'search-hover') {
     const at = client.query.trim() ? searchRows(client, partition(client, wall(client))).findIndex(entry => entry.thread.id === id) : -1;
     if (at >= 0) session.searchIndex = at;
@@ -399,7 +399,7 @@ export async function sidebarLocal(client: T3Client, _native: Native, op: string
     if (thread && session.renameId !== id) { session.renameId = id; session.renameTitle = str(thread.title); }
   } else if (op === 'rename-key') { if (value === 'Escape' && session.renameId === id) { session.renameId = ''; session.renameTitle = ''; } }
   else if (op === 'dialog-close') closeDialog(session);
-  else if (op.startsWith('calendar-')) calendarLocal(session, op, id, value, localDate(new Date(wall(client)))); // TH-8: the date popover
+  else if (op.startsWith('calendar-')) calendarLocal(session, op, id, value, localDate(new Date(wall(client)))); // The date popover
   else if (op === 'dialog-field') {
     if (id === 'mode' && (value === 'date' || value === 'duration')) session.dialogMode = value;
     else if (id === 'date') session.dialogDate = value;
@@ -429,7 +429,7 @@ export async function sidebarCommand(client: T3Client, nativeHandle: Native, sto
   if (op === 'rename') { await rename(client, nativeHandle, id, value); return ''; }
   if (op === 'dialog-confirm') return confirmDialog(client, nativeHandle, storage, value);
   if (op === 'dialog-cancel') { if (session.dialog.kind === 'delete-worktree') await answerWorktree(client, nativeHandle, storage, false); else closeDialog(session); return ''; }
-  if (op === 'drop' && id.startsWith('sweep|')) return sweepRelease(client, nativeHandle, storage, id); // lane r11-upstream (1826fb55cc)
+  if (op === 'drop' && id.startsWith('sweep|')) return sweepRelease(client, nativeHandle, storage, id); // upstream 1826fb55cc
   if (op === 'drop') return sidebarDrop(client, nativeHandle, id, value);
   if (op === 'project-settings-group') {
     const group = client.projectGroups().find(entry => entry.key === value), member = group?.members[0];
@@ -442,10 +442,10 @@ export async function sidebarCommand(client: T3Client, nativeHandle: Native, sto
     catch (error) { toast(client, 'Could not open draft', error); return ''; }
     return 'sidebar:new-thread';
   }
-  if (op === 'discard-project-draft') { discardDraft(client, nativeHandle, `${client.environmentId}:new:${id}`, true); return ''; } // r11-upstream: behind the undo notice
+  if (op === 'discard-project-draft') { discardDraft(client, nativeHandle, `${client.environmentId}:new:${id}`, true); return ''; } // Behind the undo notice
   if (op === 'draft-choice') return draftChoice(client, nativeHandle, id, value); // the draft row's context popover (exact2 #223)
-  if (op === 'draft-menu') return value === 'key' ? withMenuAnchor(client, 'bottom-left', () => draftMenu(client, nativeHandle, id)) : draftMenu(client, nativeHandle, id); // r11-upstream (95edeb753b): a draft row's context menu; r12-sidebar: Shift+F10 anchors it to the row
-  if (op === 'row-key') { const key = rowKeyMenu(id, value); return key ? withMenuAnchor(client, key.anchor, () => sidebarCommand(client, nativeHandle, storage, key.op, key.id, key.value)) : ''; } // r12-sidebar: a focused row's ContextMenu key
+  if (op === 'draft-menu') return value === 'key' ? withMenuAnchor(client, 'bottom-left', () => draftMenu(client, nativeHandle, id)) : draftMenu(client, nativeHandle, id); // Upstream 95edeb753b: a draft row's context menu; Shift+F10 anchors it to the row
+  if (op === 'row-key') { const key = rowKeyMenu(id, value); return key ? withMenuAnchor(client, key.anchor, () => sidebarCommand(client, nativeHandle, storage, key.op, key.id, key.value)) : ''; } // A focused row's ContextMenu key
   if (op === 'new-thread-click') {
     // routes/_chat.tsx chat.new: the legacy sidebar keeps the immediate contextual create; ⇧-click (`value` "shift", the
     // press's own MouseEvent, app.contract sidebarNewThread) creates at once.
@@ -489,9 +489,9 @@ export async function sidebarCommand(client: T3Client, nativeHandle: Native, sto
     if (settings?.confirmThreadUnpin && value !== 'confirmed') session.dialog = { kind: 'unpin', threadIds: [id], title: str(thread.title) };
     else await attempt(client, 'Failed to unpin thread', () => unpin(client, nativeHandle, id));
   } else if (op === 'wake-dismiss') { const woke = wokeAt(thread, wall(client)); if (woke) await acknowledgeWoke(client, nativeHandle, id, woke); }
-  // title-custom-snooze: the chat header's Snooze › Custom… (useThreadActionMenu's requestCustomSnooze) for its own thread.
+  // The chat header's Snooze › Custom… (useThreadActionMenu's requestCustomSnooze) for its own thread.
   else if (op === 'snooze:custom' && value === 'title') openSnoozeDialog(session, [id], str(thread.title), wall(client), 'title');
-  else if (op === 'discard-draft') discardDraft(client, nativeHandle, `${client.environmentId}:${id}`, false); // r11-upstream: behind the undo notice
+  else if (op === 'discard-draft') discardDraft(client, nativeHandle, `${client.environmentId}:${id}`, false); // Behind the undo notice
   else return runChoice(client, nativeHandle, storage, thread, op, '');
   return '';
 }
@@ -526,7 +526,7 @@ async function runChoice(client: T3Client, nativeHandle: Native, storage: Files,
     case 'copy-branch': if (thread.branch) await copy(client, nativeHandle, str(thread.branch), 'Branch copied'); return '';
     case 'copy-thread-id': await copy(client, nativeHandle, id, 'Thread ID copied'); return '';
     case 'project-settings': return `sidebar:project-settings:${str(thread.projectId)}`;
-    case 'new-thread-on-branch': return openBranchDraft(client, nativeHandle, thread, str(thread.projectId)); // legacy-sidebar-full LS-5: Sidebar.tsx carries the branch the same way
+    case 'new-thread-on-branch': return openBranchDraft(client, nativeHandle, thread, str(thread.projectId)); // Sidebar.tsx carries the branch the same way
     case 'archive':
       if (settings?.confirmThreadArchive) { session.dialog = { kind: 'archive', threadIds: [id], title: str(thread.title) }; return ''; }
       await attempt(client, 'Failed to archive thread', () => archive(client, nativeHandle, id)); return '';

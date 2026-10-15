@@ -29,7 +29,7 @@ function client(calls: Obj[] = [], list: AttachmentMeta[] = files) {
 }
 const native = { available: true } as Native;
 
-describe('attachment media bodies (lane r6-media)', () => {
+describe('attachment media bodies', () => {
   test('filePreviewKind classifies the four media kinds by MIME type and by name', () => {
     expect(files.map(file => previewKind(file))).toEqual(['pdf', 'html', 'audio', 'video', 'unsupported']);
     expect(['x.pdf', 'x.htm', 'x.mp3', 'x.m4a', 'x.mov', 'x.webm'].map(name => previewKind({ name, mimeType: 'application/octet-stream' })))
@@ -94,7 +94,7 @@ describe('attachment media bodies (lane r6-media)', () => {
 });
 
 import { attachmentUrls, imagePreviewAction, imagePreviewView, messageAttachments } from './timeline-attachments';
-describe('sent videos in the transcript (lane r6-media)', () => {
+describe('sent videos in the transcript', () => {
   const item = { type: 'user_message', attachments: [
     { type: 'file', id: 'v1', name: 'clip.mp4', mimeType: 'application/octet-stream' },
     { type: 'image', id: 'i1', name: 'a.png', mimeType: 'image/png' },
@@ -132,7 +132,7 @@ describe('sent videos in the transcript (lane r6-media)', () => {
 });
 
 import { codeLines } from './r4-surfaces-files';
-describe('HTML source lines (lane r6-media)', () => {
+describe('HTML source lines', () => {
   test('every line keeps its own text: tags no longer swallow the text before them', () => {
     const text = '<!doctype html>\n<html><head><title>T</title></head>\n<body>\n<h1>Hi</h1>\n</body></html>';
     expect(codeLines('page.html', text).map(line => line.runs.map(run => run.text).join(''))).toEqual(text.split('\n'));

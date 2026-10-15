@@ -1,7 +1,7 @@
 #if os(macOS)
 import Foundation
 
-/// The drawer's terminal sessions (task terminal-drawer), on the main thread. T3 Code 1e2ecbd975 (MIT
+/// The drawer's terminal sessions, on the main thread. T3 Code 1e2ecbd975 (MIT
 /// reference, see LICENSE-T3) keeps one attach subscription per mounted terminal viewport and folds its
 /// events with `applyTerminalAttachStreamEvent` (packages/client-runtime/src/state/terminalSession.ts,
 /// terminal.ts `attach`); the viewport writes what is new since its cursor (ThreadTerminalDrawer.tsx
@@ -12,16 +12,16 @@ import Foundation
 ///   A chunk is acknowledged once the buffer holds it.
 /// - A session lives while a view shows it or while the drawer keeps its thread mounted (`retain`, the
 ///   reference's MAX_HIDDEN_MOUNTED_TERMINAL_THREADS hidden threads plus the active one), so a hidden
-///   thread keeps its stream and buffer without a web view (the S2 budget); its view replays the buffer
+///   thread keeps its stream and buffer without a web view; its view replays the buffer
 ///   when it shows again. An unretained session without views detaches after a short grace.
 /// - A lost socket ends every attach stream; the sessions attach again on the next socket (the
 ///   reference's durable subscription waits for the next session the same way). A stream that fails
 ///   (an authorization error, a bad cwd) is not retried until the drawer shows the terminal again.
 /// - Writes are one RPC per input, as in the reference: a paste over 65,536 characters is refused by
-///   the server and shown as `[terminal] <message>` (decision U19: match the reference).
+///   the server and shown as `[terminal] <message>`.
 /// - Resizes are latest-wins per session (the reference's `concurrency: latest` scheduler).
 /// - A session goes to its own environment's server, as the reference's terminal commands take the
-///   thread's `environmentId` (task terminal-drawer-unthreaded): the focused transport while that
+///   thread's `environmentId`: the focused transport while that
 ///   environment is the focus, otherwise the environment's background transport (T3Fleet). A session
 ///   whose environment has no connected transport waits for one, never attaching to another server.
 final class T3TerminalSession {
@@ -282,7 +282,7 @@ final class T3TerminalSessions {
 
     /// handleData: one `terminal.write` per input; a failure is written into the terminal that sent it.
     /// The reference's client encodes the input first, so data over the bound is refused before anything
-    /// is sent (terminal-links-and-close G1-7: a 70,000-character paste reads "Schema validation failed").
+    /// is sent (a 70,000-character paste reads "Schema validation failed").
     func write(_ data: String, to session: T3TerminalSession, from view: T3TerminalView) {
         guard !data.isEmpty else { return }
         session.writes += 1

@@ -1,4 +1,4 @@
-// Lane settings-b: ProviderAccentColorPicker (ProviderCustomColorPicker /
+// ProviderAccentColorPicker (ProviderCustomColorPicker /
 // ProviderCustomColorPanel): a popover with the saturation/brightness plane,
 // the hue slider and the hex field; "Clear color" once a color is set.
 // Dragging edits locally; releasing commits the color (`release`), as the
@@ -13,7 +13,7 @@
 // Keys, as the reference: on a stop the arrows step 2 % (10 % with Shift), Home and End go to the ends;
 // on the hue the arrows step 1° (10° with Shift) and wrap. Each key commits its colour, as the reference
 // commits each change; one the window drops while a command is pending (`busy`) is sent once it lands
-// (the tracker by the trigger, X22's pattern), so the last colour a key reached is the one saved.
+// (the tracker by the trigger, the pattern of issues/20261009-intersection-visibility-event-design.md), so the last colour a key reached is the one saved.
 use CnGlyph from "./settings-b-kit.contract"
 
 fn sbHexDigit(n: number): string = n < 1 ? "0" : n < 2 ? "1" : n < 3 ? "2" : n < 4 ? "3" : n < 5 ? "4" : n < 6 ? "5" : n < 7 ? "6" : n < 8 ? "7" : n < 9 ? "8" : n < 10 ? "9" : n < 11 ? "a" : n < 12 ? "b" : n < 13 ? "c" : n < 14 ? "d" : n < 15 ? "e" : "f"

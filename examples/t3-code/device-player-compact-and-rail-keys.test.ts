@@ -1,6 +1,6 @@
-// device-player-compact-and-rail-keys (T3 Code 1e2ecbd975, MIT, see LICENSE-T3): DP-1 the thread details card's
-// compact and essential rows (ThreadDetailsCard's density, ThreadDetailsPanel's rows per density), DP-2 the card as the
-// header's popover where the floating player leaves it no placement, DR-1 the device rail menus' keys at a focused row.
+// T3 Code 1e2ecbd975 (MIT, see LICENSE-T3): the thread details card's
+// compact and essential rows (ThreadDetailsCard's density, ThreadDetailsPanel's rows per density), the card as the
+// header's popover where the floating player leaves it no placement, the device rail menus' keys at a focused row.
 // The canvas cases run chat-canvas-view.ts; the rows and the wiring are read from the Contract sources, as
 // menu-keys.test.ts reads its menus. The behaviour is checked by driving the macOS bundle.
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
@@ -54,7 +54,7 @@ beforeEach(() => {
   client = { environmentId: 'env', threadId: 't1', draftKey: 'env:t1', generation: 1, diffOpen: false, presentation: { frames: fullLayout }, local: {}, shell: { projects: [], threads: [] } } as unknown as T3Client;
 });
 
-describe('DP-1: ThreadDetailsCard measures its content per density', () => {
+describe('ThreadDetailsCard measures its content per density', () => {
   test('a full layout gives the full height and the compact one without the parts only full shows; a compact layout the compact one', () => {
     expect(measureThreadDetailsCard(fullLayout)).toEqual({ full: FULL, compact: COMPACT });
     // Without Automations, Lineage, a resting Git group or a Version Control section, compact is full less the workspace rows.
@@ -107,7 +107,7 @@ describe('DP-1: ThreadDetailsCard measures its content per density', () => {
   });
 });
 
-describe('DP-2: the card becomes the header\'s popover where no placement is left', () => {
+describe('the card becomes the header\'s popover where no placement is left', () => {
   test('the canvas answers the mode and counts its switches; the inline mode coming back closes the popover', async () => {
     floatMiniDevice(client, 't1', iphone);
     const first = await chatCanvasView(client, native, args());
@@ -181,7 +181,7 @@ describe('DP-2: the card becomes the header\'s popover where no placement is lef
     expect(column.split('ThreadDetailsPanel(details=details, density=canvas.density, right=13, below=(canvas.ready ? max(0, viewport.height - 52 - canvas.containerHeight) : 0), maxHeight=(viewport.height - 104),').length - 1).toBe(1);
     expect(overlays.split('ThreadDetailsPanel(details=details, density=detailsDensity, right=13, below=0,').length - 1).toBe(1);
     expect(layer).toContain('box position="absolute" left=0 top=0 right=0 bottom=(0 - below) z-index=35 testId="thread-details-layer"');
-    const stack = under(window, 'column flex=1 min-width=0 height="100%" // terminal-drawer');
+    const stack = under(window, 'column flex=1 min-width=0 height="100%" // the drawer sits below the chat column');
     expect([stack.findIndex(line => line.includes('ChatColumn(')), stack.findIndex(line => line.includes('TerminalDrawer('))]).toEqual([0, 1]);
     // The header's button is pressed for the presentation it toggles (selectThreadPanelOpen).
     expect(column.split('detailsOpen=(detailsOpen or (details.inline and canvas.cardShown))').length - 1).toBe(1);
@@ -197,7 +197,7 @@ describe('DP-2: the card becomes the header\'s popover where no placement is lef
   });
 });
 
-describe('DP-2: the pull request rows place their cards for the presentation shown', () => {
+describe('the pull request rows place their cards for the presentation shown', () => {
   afterEach(resetPrimary);
   const URL104 = 'https://github.com/t3-fixture/pr-demo/pull/104';
   const github = { provider: 'github', canonicalKey: 'github.com/t3-fixture/pr-demo', displayName: 't3-fixture/pr-demo', owner: 't3-fixture', name: 'pr-demo', locator: { remoteUrl: 'https://github.com/t3-fixture/pr-demo.git' } };
@@ -234,14 +234,14 @@ describe('DP-2: the pull request rows place their cards for the presentation sho
     expect(root).toContain('  resource details = shellDetails(detailsShown, data.threadId,');
     expect(await source('shell-details.ts')).toContain('rightGap, inline: inline && !open }),');
     // detailsShown reads the canvas's mode, so a canvas that read `details` would close a cycle the runner refuses at the
-    // toggle ("press … (detailsAct#1) refused: Cycle", found in the round 2 drive); the docked card's state is its own.
+    // toggle ("press … (detailsAct#1) refused: Cycle", found in a drive); the docked card's state is its own.
     const canvas = root.split('\n').find(line => line.startsWith('  resource canvas = chatCanvas('))!;
     expect(canvas).not.toContain('details.');
     expect(canvas).toContain('chatCanvas(data.revision, conversationWidth, viewport.height, conversationWidth >= 984 and data.projectId != "", data.look.chatMax,');
   });
 });
 
-describe('DP-1: the rows each density shows (ThreadDetailsPanel)', () => {
+describe('the rows each density shows (ThreadDetailsPanel)', () => {
   test('full only: the Run on and workspace rows, Automations and Lineage; Open in leaves in essential', async () => {
     const body = await component('shell-details.contract', 'DetailsBody');
     const top = under(body, 'if density == "full"');
@@ -280,7 +280,7 @@ describe('found while driving: Float device over chat closes the right panel (De
   });
 });
 
-describe('DR-1: the device rail menus hear the keys at a focused row (Base UI Menu)', () => {
+describe('the device rail menus hear the keys at a focused row (Base UI Menu)', () => {
   test('each rail menu draws its rows inside its KeyMenu', async () => {
     const workspace = await component('r6-device.contract', 'R6DeviceWorkspaceView');
     for (const [menu, rows] of [['text', ['device-text-small', 'device-text-default', 'device-text-large', 'device-text-extra-large']],

@@ -1,4 +1,4 @@
-// r5-composer: an assistant citation's "View source" (T3 Code, MIT; see LICENSE-T3:
+// An assistant citation's "View source" (T3 Code, MIT; see LICENSE-T3:
 // components/chat/AssistantCitationChip.tsx assistantCitationNavigation, ChatView's
 // citationRequest and AssistantCitationSource.tsx). The cited thread opens and its
 // answer scrolls to min(120pt, a third of the viewport) under the transcript's top,

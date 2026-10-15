@@ -3,8 +3,8 @@ import WebKit
 import XCTest
 
 // The shell's context menu as a person's right-click found it (#407).
-// RG-1: the work group's tool icon sits two views below the node that takes its click, so Copy Image must look below
-// the hit view, not only at its own subviews. RG-3: the menu AppKit draws holds DesktopWindow's items only, read back
+// The work group's tool icon sits two views below the node that takes its click, so Copy Image must look below
+// the hit view, not only at its own subviews. The menu AppKit draws holds DesktopWindow's items only, read back
 // from the menu window while it is open (AppKit adds AutoFill and Services to the drawn menu, never to `menu.items`).
 
 /// T3ToolActivityIcon's view: draws the icon's bitmap and lets every press through.
@@ -68,7 +68,7 @@ final class DrawnMenuReader: NSObject, NSMenuDelegate {
 }
 
 final class RealInput1010gTests: ShellMenuCase {
-    /// RG-1: ToolActivityIcon (timeline-icons.contract) is a 1rem box › a `pointer-events="none"` hook box ›
+    /// ToolActivityIcon (timeline-icons.contract) is a 1rem box › a `pointer-events="none"` hook box ›
     /// T3ToolActivityIcon's view. The click lands on the outer box; Copy Image copies the icon's own bitmap, as the
     /// reference's `<img>` gives Copy Image (DesktopWindow.ts `mediaType === "image"`).
     func testTheToolIconUnderItsPassThroughHookGetsCopyImage() throws {
@@ -103,7 +103,7 @@ final class RealInput1010gTests: ShellMenuCase {
         XCTAssertEqual(popped.first?.titles.first, "Cut (disabled)", "a hidden icon is not under the pointer")
     }
 
-    /// RG-2: a typed word in a field is selected by the right-click and Cut cuts it (the reference's Settings search).
+    /// A typed word in a field is selected by the right-click and Cut cuts it (the reference's Settings search).
     func testCutTakesTheWordTheRightClickSelectedInAField() throws {
         let source = FieldEditorSource()
         source.editor.board = clipboard
@@ -129,7 +129,7 @@ final class RealInput1010gTests: ShellMenuCase {
         XCTAssertEqual(clipboard.string(forType: .string), "theme", "and holds it on the clipboard")
     }
 
-    /// RG-3: the drawn menu of the composer (a misspelling) and of a field holds the template's items only; AppKit's own
+    /// The drawn menu of the composer (a misspelling) and of a field holds the template's items only; AppKit's own
     /// pop-up for the same menu (6bac646cc's `present`) draws AutoFill and Services after them.
     func testTheDrawnShellMenuHasNoAutoFillServicesOrWritingTools() throws {
         let composer = NSTextView(frame: NSRect(x: 20, y: 120, width: 400, height: 60))
@@ -183,7 +183,7 @@ private final class ReadingWebView: T3ShellWebView {
     }
 }
 
-/// RG-3 in a Browser page (T3ShellWebView, #407 step 6 and 7): WebKit pops its menu through AppKit too, so the reshaped
+/// The same in a Browser page (T3ShellWebView, #407 step 6 and 7): WebKit pops its menu through AppKit too, so the reshaped
 /// menu is drawn without Services or AutoFill, as the reference's `<webview>` menu.
 final class RealInput1010gWebTests: XCTestCase {
     private var window: NSWindow!

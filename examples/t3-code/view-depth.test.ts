@@ -1,9 +1,8 @@
-// view-depth-under-test-stack: main's source sweep (contract/cli/tests/it/button_migration.rs) compiles this app on a
+// Main's source sweep (contract/cli/tests/it/button_migration.rs) compiles this app on a
 // 2 MiB test thread with the unoptimized compiler, whose lowering recursion costs 19,904 bytes per nested view site
 // (contract_lower::Lowerer::nodes + node) and 12,944 bytes per nested expression level (expr::compile), added together
 // at each node: a component's props and derives are substituted into its view, while a `fn` call binds its arguments
-// to locals. The base of this task (1b848a8be) needed 2,303 KiB and aborted the whole test binary (issue X67, GitHub
-// #320). This test is the guard the debug compile cannot be (it takes about 215 s): it rebuilds the compiler's site
+// to locals. At 1b848a8be this app needed 2,303 KiB and aborted the whole test binary (#320). This test is the guard the debug compile cannot be (it takes about 215 s): it rebuilds the compiler's site
 // tree from the sources and predicts that peak, so a new surface or a long lookup chain on a deep route fails here
 // instead of at main-adoption time.
 //
@@ -14,13 +13,13 @@
 // levels); on all 52 leaves the instrumented runs listed it is never under and at most two levels over. Re-measure the
 // three constants when an adoption round brings a new contract-lower; the ground truth stays
 // `(ulimit -s 2048; target/debug/contract build examples/t3-code/app.contract)`.
-// Re-measured in adopt-main-fixes-r7 on main bc357d03c's contract-lower (LLP 1115's heading styles grew the site frames):
+// Re-measured on main bc357d03c's contract-lower (LLP 1115's heading styles grew the site frames):
 // lldb at a forced overflow gives Lowerer::nodes 19,392 + node 512 and expr::compile 12,944 bytes (were 18,816 + 512 and
 // 12,720); the instrumented peak is 1,573 KiB at timeline-files.contract:39 (67 sites, 17 levels; 1,535 KiB on the old
 // compiler), which the old constants under-predicted by 37 KiB. With these, the model gives that peak exactly and is
 // 0 to 13 KiB over on the twelve deepest leaves; of the 200 leaves the instrumented run listed, 13 whose nodes carry
 // handlers (whose statement frames the model does not count) are under by up to 40 KiB, all at or below 1,320 KiB,
-// 470 KiB under the budget (record adopt-main-fixes-r7).
+// 470 KiB under the budget.
 import { describe, expect, test } from 'bun:test';
 import { readdirSync, readFileSync } from 'node:fs';
 
@@ -271,7 +270,7 @@ function measure(dir: string) {
       } else if (text === 'children') {
         if (fill) block(fill.lines, fill.file, depth, fill.env, fill.fill);
       } else if (text === '::placeholder') {
-        // A field's `::placeholder` part (KW-1): its declarations are the field's own values, at the field's site.
+        // A field's `::placeholder` part: its declarations are the field's own values, at the field's site.
         for (const line of body) site(depth, exprs(line.at, () => lineExprs(`part ${line.text}`)), env, line.at);
       } else if (/^[A-Z]/.test(text)) {
         const name = /^\w+/.exec(text)![0];

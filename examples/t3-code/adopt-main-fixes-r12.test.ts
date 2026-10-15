@@ -1,4 +1,4 @@
-// adopt-main-fixes-r12: what round 12 adapts to main and the workarounds its fixes end. Each reads the clone's sources;
+// What the clone adapts to main and the workarounds main's fixes end. Each reads the clone's sources;
 // the behaviour itself is covered by the AppKit tests and by driving the app on macOS.
 import { describe, expect, test } from 'bun:test';
 import { readdirSync } from 'node:fs';
@@ -9,7 +9,7 @@ const contracts = async () => Promise.all(readdirSync(dir).filter(name => name.e
 const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
 const code = (line: string) => !line.trimStart().startsWith('//');
 
-describe('AD-1: the Mac\'s own presentations main gives what the clone writes stay the reference\'s', () => {
+describe('the Mac\'s own presentations main gives what the clone writes stay the reference\'s', () => {
   test('every vertical list opts out of the Mac\'s table (LLP 1115.002 D5): the reference draws its rows as divs', async () => {
     const lists = (await contracts()).flatMap(({ name, lines }) => lines.filter(line => code(line) && /^\s*list\s/.test(line)).map(line => ({ name, line })));
     expect(lists.map(({ name }) => name).sort()).toEqual(['app-main.contract', 'connections-routes.contract', 'diff.contract', 'legacy-sidebar.contract', 'pages-pr-code.contract']);
@@ -18,7 +18,7 @@ describe('AD-1: the Mac\'s own presentations main gives what the clone writes st
 
   test('every popover keeps the painted layer (LLP 1115.002 D7.3): `popover="auto"` and an authored fallback row', async () => {
     const popovers = (await contracts()).flatMap(({ lines }) => lines.filter(line => code(line) && /\bpopover="/.test(line)));
-    expect(popovers.length).toBe(64); // contract-keys-and-menu-bar: the archived row's and the pull request number's context popovers
+    expect(popovers.length).toBe(64); // the archived row's and the pull request number's context popovers
     for (const line of popovers) {
       expect(line).toContain('popover="auto"');
       expect(line).toMatch(/\sposition-try-fallbacks=/);
@@ -26,9 +26,9 @@ describe('AD-1: the Mac\'s own presentations main gives what the clone writes st
   });
 });
 
-// css-workaround-retirements KW-6 (X17): each popover's `position-area` and `position-try-fallbacks` follow its
+// Each popover's `position-area` and `position-try-fallbacks` (issues/20261009-popover-css-flip-fallbacks.md) follow its
 // reference caller (apps/web/src/components at 1e2ecbd975). Base UI flips a popup's side near an edge and flips its
-// alignment by default (the ticket and the app's records; Base UI's source is not installed here). Its sideOffset is a
+// alignment by default (Base UI's source is not installed here). Its sideOffset is a
 // margin on the invoker side, which a flip exchanges. `none` stays where the reference does not place a Base UI popup.
 const FLIP = '"flip-block, flip-inline, flip-block flip-inline"';
 const q = (text: string) => `"${text}"`;
@@ -134,7 +134,7 @@ const reviewed: Record<string, Site[]> = {
   'timeline-plan.contract': [['PlanCard', 'id=`plan-menu-${message.id}`', q('bottom span-left'), FLIP, 'chat/ProposedPlanCard.tsx:163 end']],
 };
 
-describe('KW-6: collision placement follows each reference caller', () => {
+describe('collision placement follows each reference caller', () => {
   test('the reviewed table names every popover, in source order, with its area and fallback order', async () => {
     const found = (await contracts()).map(({ name, lines }) => ({ name, popovers: lines.filter(line => code(line) && /\bpopover="/.test(line)) }))
       .filter(({ popovers }) => popovers.length > 0);
@@ -219,8 +219,8 @@ describe('KW-6: collision placement follows each reference caller', () => {
   });
 });
 
-describe('RT-3: workarounds main\'s fixes end', () => {
-  test('X70 (main 9074a745b): the update pill is aria-disabled, as SidebarUpdatePill.tsx, so Tab reaches it', async () => {
+describe('workarounds main\'s fixes end', () => {
+  test('main 9074a745b: the update pill is aria-disabled, as SidebarUpdatePill.tsx, so Tab reaches it', async () => {
     const pill = (await source('sidebar-icons.contract')).split('\n').find(line => line.includes('aria-label="Check for updates"'))!;
     expect(pill).toContain('button aria-disabled=true aria-label="Check for updates" cursor="not-allowed"');
     expect(/(?<![-\w])disabled=/.test(pill)).toBe(false); // HTML disabled takes no focus
@@ -231,7 +231,7 @@ describe('RT-3: workarounds main\'s fixes end', () => {
     expect(toggle).toContain('border-bottom-width=1 border-bottom-style="dotted"');
   });
 
-  // Review round 1: the reference's other `border-dashed` boxes the clone draws (each was `solid`). The reference's
+  // The reference's other `border-dashed` boxes the clone draws (each was `solid`). The reference's
   // unresolved chip and pending review card keep the clone's stroked rects (exact2 #287).
   const dashed: [file: string, anchor: string, reference: string][] = [
     ['settings-appearance-import.contract', 'testId="add-theme-empty"', 'ThemeSearchSection.tsx:359'],
@@ -265,7 +265,7 @@ describe('Main\'s new warning lower-width-padding (LLP 1116.009 D5)', () => {
   });
 });
 
-describe('css-workaround-retirements KW-1: balanced tips and empty states, authored placeholder colours', () => {
+describe('balanced tips and empty states, authored placeholder colours', () => {
   const indent = (line: string) => line.length - line.trimStart().length;
   // The colour of the `::placeholder` part directly under the line at `at` (a style or a field), or ''.
   const partColour = (lines: string[], at: number) => {

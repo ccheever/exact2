@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { highlight, type Cls } from './timeline-highlight';
 import { scriptBodyEnd, styleBodyEnd } from './r9-device-html-end';
 
-// Lane r9-device: where Shiki 4.2's html grammar ends <script> and <style> bodies. Each case is
+// Where Shiki 4.2's html grammar ends <script> and <style> bodies. Each case is
 // [source, [non-space text, pierre-light colour] runs] recorded from Shiki itself
 // (target/t3-ref/src-f90b77d8 node_modules, the reference's highlighter and theme).
 const LIGHT: Record<Cls, string> = { '': '#0a0a0a', kw: '#d32a61', decl: '#a631be', type: '#a631be', fn: '#693acf', var: '#d47628', const: '#d5901c',

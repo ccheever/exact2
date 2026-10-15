@@ -1,4 +1,4 @@
-// Lane r12-render: the reference colours code with Shiki 4.2 (TextMate grammars run by
+// The reference colours code with Shiki 4.2 (TextMate grammars run by
 // vscode-textmate, the pierre-light / pierre-dark themes). This is that tokenizer, as small as it
 // can be: the grammars and themes are data (r12-render-grammar.ts, generated from the reference's
 // own packages, regexes converted ahead of time as Shiki's JavaScript engine converts them), and
@@ -6,7 +6,7 @@
 // the line's "\n", the earliest match wins (ties to the first pattern), begin/end and begin/while
 // rules stack, \A / \G variants, end back-references, nested captures, the loop guards that stop
 // a line when a rule does not advance, and the theme trie's specificity for colours and font styles.
-// code-highlighting-languages: every grammar of Shiki's bundle is here (but the eight its generator leaves out for
+// Every grammar of Shiki's bundle is here (but the eight its generator leaves out for
 // their licences, LICENSE-T3: each is an empty grammar, so what embeds one paints that part plain), in one rule space; each
 // grammar's rules, scope names and regexes are a chunk (r12-render-grammar-<n>.ts) parsed the first
 // time a rule of it is needed, so a language costs nothing until it is highlighted.
@@ -83,7 +83,7 @@ interface Match { start: number; end: number; indices: ([number, number] | undef
  *  regexes it has compiled, and how much one-time work it may do. */
 let lineWork = 0, lineCompiled = 0, workLimit = Infinity;
 const OVER_LIMIT = new Error('over the line\'s work limit');
-/** chat-markdown-media-and-code KD-code-cpp-perf: Shiki stops a line after 500 ms (`tokenizeTimeLimit`, @shikijs/primitive;
+/** Shiki stops a line after 500 ms (`tokenizeTimeLimit`, @shikijs/primitive;
  *  vscode-textmate's _tokenizeString checks the time before each scan, keeps the tokens made so far and gives the next line
  *  the stack where it stopped). A data module has no clock, so time is counted as regex work: a search costs the characters
  *  it scanned (from its start to its match, or to the line's end) times its pattern's length. Measured in the pinned Hermes
@@ -129,7 +129,7 @@ function variant(index: number, allowA: boolean, allowG: boolean): Rx {
   return rx.v ? rx.v[(allowA ? 2 : 0) + (allowG ? 1 : 0)]! : rx;
 }
 /** Whether the line being tokenized has a character outside ASCII: only there does Oniguruma's
- *  Unicode \b differ from the faster ASCII one (code-highlighting-languages). */
+ *  Unicode \b differ from the faster ASCII one. */
 let unicodeLine = false;
 function exec(given: Rx, line: string, from: number): Match | null {
   const rx = unicodeLine && given.u ? given.u : given;
@@ -215,7 +215,7 @@ interface Frame {
 const END = -1;
 /** A regex's last search on the current line: the leftmost match from `from` stays the answer for
  *  any later start up to that match (none in between matched), unless the regex is sticky.
- *  KD-code-cpp-perf: each line keeps its own (LineProgress.memo), which a capture's retokenizing (another string) no longer
+ *  Each line keeps its own (LineProgress.memo), which a capture's retokenizing (another string) no longer
  *  clears: when it did, cpp's function-definition regexes searched the rest of a template-dense line again at every
  *  template (2,960 characters: 6.2 s in Hermes; now 0.25 s, the same tokens). */
 let memoLine = '';
@@ -563,7 +563,7 @@ export const colorOf = (scopes: string[], name: 'light' | 'dark'): string => sty
 export type LineState = Frame | null;
 /** Whether a line has a character outside ASCII (its regexes then run in their Unicode \b forms). */
 export const unicodeText = (text: string): boolean => /[^\x00-\x7f]/.test(text);
-/** A line being tokenized (KD-code-cpp-perf): its text with "\n", where its scan stands, its output so far, the scan work it
+/** A line being tokenized: its text with "\n", where its scan stands, its output so far, the scan work it
  *  has done; opaque to callers, who hand it back to tokenizeLineWithin to go on. */
 export interface LineProgress { readonly text: string; readonly lang: string; readonly unicode: boolean; readonly cursor: Cursor; readonly out: Output; readonly memo: Memo; units: number; stopped: boolean }
 /** A tokenized line: its scoped pieces, the state after it, and whether it stopped at the time limit (the rest plain). */
@@ -625,8 +625,8 @@ export function tokenizeLine(text: string, lang: string, state: LineState): Line
   return resultOf(progress);
 }
 
-/** code-highlighting-languages: tokenizeLine within a turn. `limit` bounds the line's one-time work (regexes compiled on first
- *  use): a compile that would pass it stops the line, the regexes compiled so far stay compiled. KD-code-cpp-perf: `scanCap`
+/** tokenizeLine within a turn. `limit` bounds the line's one-time work (regexes compiled on first
+ *  use): a compile that would pass it stops the line, the regexes compiled so far stay compiled. `scanCap`
  *  bounds the turn's regex work (turnWork), a search allowed past it only as the turn's first (`fresh`). Either stop answers
  *  the line's progress, which a later call continues from (`progress`; `state` is then unused), or null when the line stopped
  *  before its first scan (a while check): it starts again from `state` (a line only reads its start state). So a line that

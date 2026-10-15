@@ -2,7 +2,7 @@
 // apps/web/src/previewMiniPlayerStore.ts). The reference's zustand store becomes one plain object
 // per client connection (r6-media-device.ts keeps it), keyed by thread. It lives in memory only,
 // as the reference's store does: nothing is persisted, so a relaunch forgets position and width.
-// browser-surface part 3 brings the browser source back (browserMiniPlayerSource,
+// The browser source is back (browserMiniPlayerSource,
 // selectThreadPreviewMiniPlayerTabId): a Browser tab floats as a device does.
 import type { DevicePlatform, PreviewMiniPlayerPosition } from './previewMiniPlayerLayout';
 

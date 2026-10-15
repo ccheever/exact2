@@ -1,4 +1,4 @@
-// The empty main view (lane "pages"): the draft hero and its project menu
+// The empty main view: the draft hero and its project menu
 // (DraftHeroHeadline.tsx), the index landings (routes/_chat.index.tsx:
 // NoProjectsHero, DraftStartError, HostedStaticOnboardingState) and the
 // project retargeting the hero menu performs. Sources: T3 Code (MIT, see
@@ -101,7 +101,7 @@ export function landingKind(input: { connected: boolean; ready: boolean; savedEn
   if (!input.connected) return input.savedEnvironments === 0 && !input.connecting ? 'no-environment' : 'offline';
   if (!input.ready) return 'offline';
   if (input.projects === 0) return 'no-projects';
-  // composer-fidelity G15: a route to a thread the environment does not hold (ChatView's NoActiveThreadState).
+  // A route to a thread the environment does not hold (ChatView's NoActiveThreadState).
   if (input.threadId && input.missingThread) return 'no-thread';
   if (!input.projectId && !input.threadId) return 'start-error';
   return '';
@@ -123,17 +123,17 @@ export async function savedEnvironmentCount(native: Native | null | undefined): 
 /** The resource behind the hero and the index landings. */
 export async function pagesHome(client: T3Client, native: Native | null | undefined, firstRunPending = welcomeShowing(client)): Promise<PagesHome> {
   // The primary (local-primary.ts) counts as an environment while one is or will be running here; while its server
-  // starts, the window shows the connecting state (decision U5, exact2 #117).
+  // starts, the window shows the connecting state (exact2 #117).
   const local = !primary.disabled && !primary.unavailable;
   const saved = await savedEnvironmentCount(native) + (local ? 1 : 0);
   const root = client.ready ? scratchRoot(client.config) : '';
   const project = client.shell.projects.find(candidate => candidate.id === client.projectId);
   const scratchDraft = isScratchProject(project, root);
-  const projects = client.ready ? heroGroups(client, heroProjects(client)) : []; // r6-polish: one row per logical project, by its group's name
+  const projects = client.ready ? heroGroups(client, heroProjects(client)) : []; // one row per logical project, by its group's name
   const resolved = !!project;
   const headline = heroHeadline({ scratchDraft, resolved, canChoose: projects.length > 0 });
   const connected = client.connection === 'connected';
-  // r6-polish: the logical project's name (r6-polish-groups.ts), as DraftHeroHeadline's activeProjectDisplayName.
+  // The logical project's name (r6-polish-groups.ts), as DraftHeroHeadline's activeProjectDisplayName.
   const projectName = scratchDraft ? 'No project' : (project && cachedDisplayNames(client).get(client.projectId)) || str(project?.title, 'Choose a project');
   return {
     // /welcome renders NoProjectsHero beneath the wizard.
@@ -219,5 +219,5 @@ export function heroLand(client: HeroHost, carry: HeroCarry): void {
 
 /** projects.ensureScratch, then the shell row it created (useScratchProject.openScratchProject). */
 export async function ensureScratchProject(client: T3Client, native: Native): Promise<string> {
-  return openScratchProject(client, native); // r11-upstream (845ddd9354): the shared opener
+  return openScratchProject(client, native); // the shared opener (upstream 845ddd9354)
 }

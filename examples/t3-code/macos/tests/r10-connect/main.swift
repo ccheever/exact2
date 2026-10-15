@@ -1,7 +1,7 @@
 import AppKit
 import XCTest
 
-// Lane r10-connect (R10Connect.swift): ⌘/⌃ chords under a non-Latin source match by physical key,
+// R10Connect.swift: ⌘/⌃ chords under a non-Latin source match by physical key,
 // and the wake answers only its topics; the pull request dialog's select on open is Contract's now
 // (dialog-trap.contract FieldOpenSelect). (A still pointer's hover after the
 // list re-renders is the host's own since exact2 #139.) Real AppKit views in a real window; compiled
@@ -66,7 +66,7 @@ final class R10ConnectTests: XCTestCase {
         XCTAssertEqual(topics, ["t3.notify"])
         XCTAssertEqual(replies.map { $0["ok"] as? Bool }, [false, true], "the refusal answers at once; the wake after it emits")
         XCTAssertEqual(replies.last?["generation"] as? Int, 3)
-        // pr-conversation-and-refresh: the pull request panel wakes its own resource.
+        // The pull request panel wakes its own resource.
         R10Connect.wake(["op": "r10Wake", "topic": "t3.pr", "generation": 4], changed: { topics.append($0) }) { replies.append($0) }
         tick()
         XCTAssertEqual(topics, ["t3.notify", "t3.pr"])

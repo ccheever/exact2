@@ -1,4 +1,4 @@
-// Detached requests on background environments (lane usage-pooled-view). The Usage page reads and
+// Detached requests on background environments. The Usage page reads and
 // refreshes every selected environment at once, as the reference's per-environment atoms do
 // (client-runtime state/usage.ts refreshUsage, UsagePage.tsx refreshLimits, UsageLimits.tsx
 // useResetCredit). The native data executor answers one request at a time, so no answer waits on

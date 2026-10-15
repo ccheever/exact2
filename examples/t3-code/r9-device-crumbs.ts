@@ -1,4 +1,4 @@
-// Lane r9-device: where the Files breadcrumbs settle (MIT reference, see LICENSE-T3:
+// Where the Files breadcrumbs settle (MIT reference, see LICENSE-T3:
 // FilePreviewPanel.tsx). The reference scrolls the current crumb into view (`inline: "end"`, with
 // the ScrollArea's 24pt scroll padding) once, when the file changes. Its word-wrap toggle appears
 // only once the file's contents have loaded (`showsRawText` needs `file.data`), so for a file whose
@@ -32,7 +32,7 @@ export function settleCrumbs(owner: object, path: string): boolean {
   return cold;
 }
 
-/** Lane r10-device: the preview mounted with `path` (r10-device-crumbs.ts): it settles at the end, read or not. */
+/** The preview mounted with `path` (r10-device-crumbs.ts): it settles at the end, read or not. */
 export function settleMounted(owner: object, path: string): void {
   firstReads.get(owner)?.delete(path);
   settles.set(owner, { path, cold: false });

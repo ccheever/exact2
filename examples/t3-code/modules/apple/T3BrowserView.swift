@@ -2,7 +2,7 @@
 import AppKit
 import WebKit
 
-/// The `t3-browser` native view (app.json `modules`; browser-surface part 1): the Browser tab's page under its
+/// The `t3-browser` native view (app.json `modules`): the Browser tab's page under its
 /// chrome row (MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975: apps/web/src/browser/BrowserSurfaceSlot.tsx,
 /// HostedBrowserWebview.tsx). The page lives in T3BrowserSessions for as long as its session does; the view
 /// shows it while mounted and gives it back when the panel hides or the tab changes, so the page survives both
@@ -17,7 +17,7 @@ import WebKit
 /// web view lays out at the full viewport (times its zoom) and is drawn scaled into the box, and the page measures
 /// the viewport it asked for. `page-size` (`<width>x<height>`, CSS px; empty in fill) is that viewport: the bounds
 /// are its `T3BrowserViewport.points` at the page's zoom, never the laid-out frame over the scale, whose rounding
-/// cost a pixel (browser-panel-parity G4-16). `keys` (`chord=command` words) are the preview's chords (`when: previewFocus`): while
+/// cost a pixel. `keys` (`chord=command` words) are the preview's chords (`when: previewFocus`): while
 /// the page has the focus, or the URL field does (`chrome-focus`), a key monitor answers them before the menus do and
 /// sends the command as the node's `key` event; with the page focused, ⌘R (or Control-R) always refreshes, as
 /// Manager.ts `isPreviewRefreshShortcut` does. The page swallows the keys it handles otherwise, as Electron's guest does.
@@ -113,7 +113,7 @@ final class T3BrowserView: ExactNativeInstance {
             next.web.frame = host.bounds // applyScale below gives it its exact size
             next.web.autoresizingMask = [.width, .height]
             host.addSubview(next.web)
-            sessions.parking.viewTook(next) // part 3: a page parked for a recording or the separate window comes back
+            sessions.parking.viewTook(next) // a page parked for a recording or the separate window comes back
         }
         host.applyScale() // a fixed viewport at this page's zoom (a zoom change arrives as new props)
         sessions.publish()
@@ -123,7 +123,7 @@ final class T3BrowserView: ExactNativeInstance {
     private func release() {
         if let session, session.web.superview === host {
             session.web.removeFromSuperview()
-            sessions.parking.viewReleased(session) // part 3: a held page keeps painting off screen
+            sessions.parking.viewReleased(session) // a held page keeps painting off screen
             sessions.publish()
         }
         session = nil
@@ -136,7 +136,7 @@ final class T3BrowserView: ExactNativeInstance {
         release()
     }
 
-    // MARK: Preview keys (part 2)
+    // MARK: Preview keys
 
     /// `page-size`: `<width>x<height>` in CSS px, both above 0; nil otherwise (fill).
     static func parseSize(_ value: String) -> NSSize? {

@@ -1,4 +1,4 @@
-// Lane r3-settings: Keybindings follow T3 f90b77d809's defaults (upstream 5c0429b157
+// Keybindings follow T3 f90b77d809's defaults (upstream 5c0429b157
 // mod+alt+enter sends and opens a new thread; 263097a8da mod+enter starts in the background).
 import { describe, expect, test } from 'bun:test';
 import { keybindingCommands, keybindingDefaults } from './keybinding-settings';
@@ -34,7 +34,7 @@ describe('composer send shortcuts', () => {
   });
 });
 
-// contract-keys-and-menu-bar KW-11a: the keybinding recorder is a Contract focus target (key-recorder.contract), not the
+// The keybinding recorder is a Contract focus target (key-recorder.contract), not the
 // native T3KeyRecorder view. Its chord is the reference's keybindingFromKeyboardEvent over the KeyboardEvent the host
 // sends (KeybindingsSettings.logic.test.ts's table, then the cases the native T3KeyChord normalized by hand).
 describe('the keybinding recorder (key-recorder.contract)', () => {

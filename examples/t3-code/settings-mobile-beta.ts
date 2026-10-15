@@ -1,4 +1,4 @@
-// General → About → Mobile app (lane r3-settings; upstream f1dcd93931
+// General → About → Mobile app (upstream f1dcd93931
 // NightlyMobileBeta.tsx NightlyMobileBetaRow). Orchestrator V2 ships to Nightly
 // first and the store apps cannot connect to it, so a Nightly build (or a desktop
 // whose update track is Nightly) links the beta apps: TestFlight for iPhone, and the

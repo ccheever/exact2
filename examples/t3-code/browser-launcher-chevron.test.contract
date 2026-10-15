@@ -1,9 +1,9 @@
-// browser-surface part 4: the launcher's Browser row chevron (browser-surface.contract BrowserLauncherProfiles) by keys,
+// The launcher's Browser row chevron (browser-surface.contract BrowserLauncherProfiles) by keys,
 // through the app's own Contract handlers, beside the launcher's own keys (#355, shell-panels.contract SurfaceLauncher):
 // the chevron is a menu trigger, so its Enter, ↑ and ↓ and its list's Enter never reach the launcher, which opens its lit
 // row on Enter and moves it on the arrows (RightPanelTabs.tsx `handleKeyDown` ignores a key from inside it). Each test
 // relaunches the app on a draft thread (its project "work"), served by the embedded server; Default and Incognito are
-// built in, so the chevron always shows. The task's lane runs it:
+// built in, so the chevron always shows. Run it with:
 //   target/lane/drive-test.sh <run> examples/t3-code/browser-launcher-chevron.test.contract
 // The `clock +N real` steps let the embedded server start and answer, as a person waits for it.
 

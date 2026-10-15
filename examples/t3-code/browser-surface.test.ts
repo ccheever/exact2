@@ -1,8 +1,8 @@
 // Ported from T3 Code 1e2ecbd975 (MIT, see LICENSE-T3), under their own names:
-// apps/web/src/components/preview/openPreviewSession.test.ts (4 of 4: part 4 ported the unread-settings retry's
-// "session" row; its "link" row is part 5's openUrlInPreview), addBrowserSurface.test.ts (2) and closePreviewSession.test.ts (2). The
+// apps/web/src/components/preview/openPreviewSession.test.ts (4 of 4, with the unread-settings retry's
+// "session" row; its "link" row is browser-links.ts's openUrlInPreview), addBrowserSurface.test.ts (2) and closePreviewSession.test.ts (2). The
 // reference's atom commands are the clone's `client.rpc`; its rightPanelStore is the panel state
-// (r4-surfaces-panel.ts). Then the clone's own rows for part 1, each named after the reference code it
+// (r4-surfaces-panel.ts). Then the clone's own rows, each named after the reference code it
 // follows: rightPanelStore.reconcileBrowserSurfaces, RightPanelTabs surfaceTitle / PreviewFavicon,
 // usePreviewBridge projectDesktopState / buildReportInput, ElectronBrowserHost's live set, PreviewView's
 // chrome state and handleSubmitUrl, the profile rules of RightPanelTabs and PreviewView, and the panel
@@ -78,7 +78,7 @@ describe('openPreviewSession', () => {
     expect(store.read(threadRef).recentlySeenUrls).toEqual([]);
   });
 
-  // Part 4: the reference's it.each over "session" and "link"; the clone's link entry point is part 5's.
+  // The reference's it.each over "session" and "link"; the clone's link entry point is browser-links.ts's.
   it('does not open a session with unread settings and uses the saved profile on retry', async () => {
     const store = new PreviewStateStore(), opened: Obj[] = [];
     const settings = { local: { browserProfiles: [{ id: 'work', name: 'Work', kind: 'persistent' }], browserDefaultProfileId: 'work' }, preferencesLoaded: false };
@@ -272,7 +272,7 @@ describe('a page made at its fixed size (#352: its first layout is the tab’s v
     ]);
   });
 
-  it('part 4: a page the module has not reported yet is made at the default zoom, so its first layout is at it; unread settings make it at 100%', async () => {
+  it('a page the module has not reported yet is made at the default zoom, so its first layout is at it; unread settings make it at 100%', async () => {
     const iphone = { _tag: 'preset', presetId: 'iphone-12-pro', width: 390, height: 844 } as const;
     const { client, native } = fakeClient(() => ({}), { local: { clientSettings: {}, deviceSettings: {}, composerControls: false, browserDefaultViewport: iphone, browserDefaultZoomFactor: 1.25, browserDefaultAppearance: 'dark' }, preferencesLoaded: true });
     const store = browserHost(client).store;
@@ -301,7 +301,7 @@ describe('a page made at its fixed size (#352: its first layout is the tab’s v
   });
 });
 
-describe('answers that are let go (review round 1)', () => {
+describe('answers that are let go', () => {
   const superseded = () => new ClientError('This operation was superseded.', 'superseded');
 
   it('closing a tab calls through the closing answer, not the first answer that installed the hook', async () => {
@@ -390,11 +390,11 @@ describe('the chrome row as a hand finds it', () => {
     expect(reveal).toContain('focus=focusOn(true) blur=focusOn(false) aria-label="Open in system browser" testId="browser-open-external"');
     expect(await component('browser-surface.contract', 'BrowserChrome')).toContain('BsRevealButton(shown=addressOver, press=local("surface-browser-external", view.tabId, ""))');
   });
-  it('a More row cuts its label before its part note, and a tab title keeps its start (X57)', async () => {
+  it('a More row cuts its label before its part note, and a tab title keeps its start', async () => {
     expect(await component('browser-surface.contract', 'BsMenuItem')).toContain('text label flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left"');
-    // css-workaround-retirements KW-2: RightPanelTabs.tsx's `<span className="truncate">` in a `flex min-w-0` button. The
+    // RightPanelTabs.tsx's `<span className="truncate">` in a `flex min-w-0` button. The
     // title is sized by its text, so a short one has no spare width to align, and a long one is start-aligned by main
-    // 24083b9b9 (X57): the override is gone.
+    // 24083b9b9 (issues/closed/20261009-apple-overflow-line-alignment.md): the override is gone.
     const chip = await component('r4-surfaces.contract', 'R4TabChip');
     expect(chip).toContain('text tab.title min-width=0 font-size="0.75rem" line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color=');
     expect(chip.split('\n').find(line => line.includes('text tab.title'))).not.toMatch(/flex=1|(?<![-\w])width=|text-align=/);

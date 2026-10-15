@@ -60,7 +60,7 @@ const expandable = (text: string) => text.length > 180 || text.includes('\n');
 // One fetch per visit and Refresh: the key is the environment, period and refresh count. Each read is kept
 // as it lands and is a shared read (T3Transport `share`): an answer Exact asked again before a reply (a
 // telemetry sample, data.telemetry) joins the read still pending instead of sending it again, and keeps
-// what the earlier answer never received (settings-diagnostics-and-scope, S2-2). The reads land before the
+// what the earlier answer never received. The reads land before the
 // telemetry stream opens (settings-a-telemetry.ts telemetryPage): its first sample comes at once, and a reply that reached the
 // transport after Exact forgot this answer is dropped, which no later answer can join.
 type Read = { value: Obj; error: string };

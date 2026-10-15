@@ -18,7 +18,7 @@ use ChatDocument from "./markdown.contract"
 use Look from "./settings-appearance-look.contract"
 use KmItem from "./menu-keys.contract"
 use KeyMenu from "./menu-keys.contract"
-use BrowserLauncherProfiles from "./browser-surface.contract" // browser-surface part 4
+use BrowserLauncherProfiles from "./browser-surface.contract"
 use BrowserProfileChoice from "./browser-shapes.contract"
 use DialogOpenFocus from "./dialog-trap.contract"
 
@@ -41,7 +41,7 @@ component SurfacePanel
     scheme: string
     prDetail: PrDetailView
     prDocuments: ChatDocument[]
-    // markdown-links-and-files-preview PA-3: the Files surface's rendered Markdown (app.contract filesMarkdown).
+    // The Files surface's rendered Markdown (app.contract filesMarkdown).
     filesDocuments: ChatDocument[]
     prTab: string
     prSetTab: action
@@ -51,28 +51,28 @@ component SurfacePanel
     look: Look
     confirm: action
     closePending: bool
-    // pr-header-actions-and-stacks: the panel's width (the pull request header's labels go below 30rem).
+    // The panel's width (the pull request header's labels go below 30rem).
     width: number
   state hovered = ""
   action hover(id: string, over: bool)
     hovered = over ? id : (hovered == id ? "" : hovered)
-  // browser-surface: the Browser tab whose URL field has the focus (the module answers the preview's chords then).
+  // The Browser tab whose URL field has the focus (the module answers the preview's chords then).
   // Kept by tab: a field that leaves without a blur (its tab switched away) never holds another tab's focus.
   state urlFocusTab = ""
   action urlFocus(tab: string, on: bool)
     urlFocusTab = on ? tab : (urlFocusTab == tab ? "" : urlFocusTab)
-  // right-panel-escape: the surface whose Files search has the focus; while it does, a sheet's toggle leaves Escape to it.
+  // The surface whose Files search has the focus; while it does, a sheet's toggle leaves Escape to it.
   // Kept by surface, as the URL field's is by tab.
   state filesSearchAt = ""
   action filesSearchFocus(on: bool)
     filesSearchAt = on ? shell.panel.active : (filesSearchAt == shell.panel.active ? "" : filesSearchAt)
   view
     column height="100%" width="100%" min-width=0 position="relative" box-sizing="border-box" background-color=(sheet ? "light-dark(#ffffff, #0a0a0a)" : "light-dark(#fcfcfc, #0a0a0a)") border-left-style="solid" border-left-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" box-shadow=(sheet ? "0 10px 15px -3px #0000000d, 0 4px 6px -4px #0000000d" : "none") role=(sheet ? "dialog" : "region") aria-label="Right panel" testId="right-panel"
-      // r4-surfaces: an open surface draws the tab bar and its body (r4-surfaces.contract); otherwise the launcher.
+      // An open surface draws the tab bar and its body (r4-surfaces.contract); otherwise the launcher.
       if shell.panel.open
         R4PanelHeader(panel=shell.panel, surfaces=shell.surfaces, sheet=sheet, maximized=maximized, detailsOpen=detailsOpen, keyThreadPanel=shell.keyThreadPanel, keyRightPanel=shell.keyRightPanel, terminalAvailable=shell.terminalAvailable, terminalOpen=shell.terminalOpen, keyTerminal=shell.keyTerminal, still=still, ui=ui, details=details, local=local, scheme=scheme, searchFocused=(filesSearchAt != "" and filesSearchAt == shell.panel.active and shell.panel.files.showExplorer))
         R4SurfaceBody(panel=shell.panel, scheme=scheme, sheet=sheet, local=local, command=command, paletteShow=paletteShow, look=look, confirm=confirm, closePending=closePending, urlFocus=urlFocus, filesDocuments=filesDocuments, urlFocused=(urlFocusTab != "" and shell.panel.kind == "browser" and urlFocusTab == shell.panel.browser.tabId), searchFocus=filesSearchFocus)
-        // lane r5-panels: the pull request beside the thread and a sent attachment (r5-panels.contract).
+        // The pull request beside the thread and a sent attachment (r5-panels.contract).
         if shell.panel.kind == "pull-request"
           R5PrSurfaceBody(pr=shell.panel.pr, detail=prDetail, documents=prDocuments, scheme=scheme, tab=prTab, setTab=prSetTab, reload=prReload, act=prAct, copy=prCopy, local=local, still=still, compact=(width < 480))
         if shell.panel.kind == "attachment"
@@ -106,7 +106,7 @@ component SurfacePanel
 // capture listener prevents it and stops it): each available row declares its letter as `aria-keyshortcuts`, which the host
 // hears before any key handler, never from a text field or a terminal (an input context), never behind a modal or while the
 // launcher is inert, once per press (a repeat is taken, not pressed), and by its physical key under a non-Latin layout
-// (contract-keys-and-menu-bar; the native R8KeysLauncher's repost is gone). The native type-to-focus leaves those letters to
+// (the native R8KeysLauncher's repost is gone). The native type-to-focus leaves those letters to
 // it (T3Composer.launcherLetter). It mounts afresh each time the panel has no surface, so the highlight starts with none (-1).
 component SurfaceLauncher
   inject
@@ -114,7 +114,7 @@ component SurfaceLauncher
   props
     surfaces: ShellSurface[]
     ui: action
-    profiles: BrowserProfileChoice[] // browser-surface part 4: the Browser row's profile chevron
+    profiles: BrowserProfileChoice[] // the Browser row's profile chevron
     local: action
   state hovered = ""
   state highlight = -1
@@ -161,7 +161,7 @@ component SurfaceRow
     tipped: bool
     hover: action
     choose: action
-    profiles: BrowserProfileChoice[] // browser-surface part 4: the Browser row's profile chevron
+    profiles: BrowserProfileChoice[] // the Browser row's profile chevron
     local: action
   // Enter on a focused row is the row's own press: the launcher hears Enter only on itself (`event.target !== event.currentTarget`).
   action rowKey(k: string)
@@ -199,7 +199,7 @@ component SurfaceKey
 // backdrop closes it; a second click there (a double-click on the title)
 // renames instead. Submenu state is keyed to this opening's serial. Pressing
 // a submenu's row (a click, Enter or Space) opens it with the focus on its
-// first enabled item, as the fallback's openSubmenu(true) does (title-custom-snooze).
+// first enabled item, as the fallback's openSubmenu(true) does.
 component TitleMenu
   props
     items: ShellMenuItem[]
@@ -213,7 +213,7 @@ component TitleMenu
   state subTop = 0
   state subSerial = -1
   state hoveredId = ""
-  // fix-keyboard-focus: the arrows, Home, End and a letter move through each list (menu-keys.contract); a
+  // The arrows, Home, End and a letter move through each list (menu-keys.contract); a
   // submenu's row opened from the keyboard hands the focus to the submenu's first item.
   state subKeyed = 0
   derive open = subSerial == serial ? sub : ""
@@ -269,7 +269,7 @@ component MenuRow
       expand(entry.id, entry.offset)
     else
       pick(entry.op, entry.target, entry.value, entry.confirmTitle, entry.confirmBody, entry.destructive)
-  // → opens a submenu's row as Enter does (fix-keyboard-focus).
+  // → opens a submenu's row as Enter does.
   action rowKey(k: string)
     if k == "ArrowRight" and entry.op == "ui:submenu" and not entry.disabled
       preventDefault()

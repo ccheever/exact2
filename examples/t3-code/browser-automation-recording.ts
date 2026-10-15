@@ -1,11 +1,11 @@
-// browser-recording-and-downloads BR-1: the agent's `preview_recording_start` and `preview_recording_stop` on the
+// The agent's `preview_recording_start` and `preview_recording_stop` on the
 // previewAutomation host (MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975: apps/web/src/components/preview/
 // PreviewAutomationHosts.tsx, the `recordingStart` and `recordingStop` cases; previewAutomationErrors.ts
 // `PreviewAutomationRecordingNotActiveError`, `PreviewAutomationOperationError.fromCause`; apps/web/src/browser/
 // browserRecording.ts, browserRecordingScope.ts, browserRecordingUpload.ts).
 //
 // The module's host waits for the tab and hands the request over (T3BrowserAutomationRecording.swift): it lists it in
-// `presentation.browserAutomation.recordings` until an answer comes back. Each listed request runs here once, on part 3's
+// `presentation.browserAutomation.recordings` until an answer comes back. Each listed request runs here once, on the
 // lifecycle (browser-recording.ts, the client's one `BrowserRecordings`: the Capture button's own recordings, so a tab
 // the agent records shows Stop recording and a person's stop ends the agent's recording, as in the reference), and its
 // outcome goes back to the module (`browserAutomation` with `answer`), which answers `previewAutomation.respond`. The
@@ -115,7 +115,7 @@ export function nativeDeps(client: T3Client, request: RecordingRequest): Recordi
 // (`serveRecordingRequests`), as the Capture button's send runs its own recording. There are four sends: a queued send
 // waits for the reply before it, and with one, a start listed during another thread's stop waited out that stop's
 // upload, where the reference handles each request on its own (`handleRequest`; review of 2026-10-12). Only a fifth
-// request in flight at once waits, behind one of the four (a Contract mutation's sends replace or queue: X75, LLP 1092; not an exact2 gap).
+// request in flight at once waits, behind one of the four (a Contract mutation's sends replace or queue: LLP 1092).
 export const RECORDING_SENDS = 4;
 type Served = { announced: Set<string>; serial: number; running: Map<string, Promise<void>>; done: Set<string>; busy: Set<number> };
 const served = new WeakMap<T3Client, Served>();

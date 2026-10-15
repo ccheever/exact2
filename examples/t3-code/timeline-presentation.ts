@@ -1,4 +1,4 @@
-import { notePreviewHover } from './pages-pr-links'; // pr-links-previews-and-routing
+import { notePreviewHover } from './pages-pr-links';
 import { runnableShellCommands } from './terminal-integrations';
 import { runTerminalCommand } from './terminal-drawer-view';
 import { toolActivityIconSources } from './timeline-tool-icons';
@@ -22,17 +22,17 @@ import { chippedAttachmentIds, markdownEnv, messageChips } from './r4-timeline-c
 import { hasQuestionAnswer, notificationChildThreadId, notificationSubagent, plainOutput, questionAnswerPreview, questionHistory, questionTextPreview, runlessWorkStartedAt, type InspectorCode } from './timeline-inspect';
 import { gitChatLocal } from './r4-git-route';
 import { openFileSurface, surfaceLocal } from './r4-surfaces-panel';
-import { mediaLocal } from './media-views'; // media-actions: the media menu, a video's error and Retry
-import { closeTableMenu, tableMenuAction } from './r8-keys-table-menu'; // lane r8-keys: the table Copy popup
-import { preparationFailureRunId, retryableActivities } from './r11-upstream-retry'; // lane r11-upstream: Retry a failed workspace preparation
-import { numericDateFormatter, timestampFormatter } from './timestamp-format'; // desktop-shell-details: the host's locale
+import { mediaLocal } from './media-views'; // the media menu, a video's error and Retry
+import { closeTableMenu, tableMenuAction } from './r8-keys-table-menu'; // the table Copy popup
+import { preparationFailureRunId, retryableActivities } from './r11-upstream-retry'; // Retry a failed workspace preparation
+import { numericDateFormatter, timestampFormatter } from './timestamp-format'; // the host's locale
 import { letGo } from './let-go';
-import { pullRequestLinkPick } from './context-menu-actions'; // context-menu-gaps
-import { prCodeLocalFor, prLocalWrite, prUiLocal } from './pages-pr-detail'; // pr-writing-and-metadata, pr-header-actions-and-stacks, pr-code-tab
+import { pullRequestLinkPick } from './context-menu-actions';
+import { prCodeLocalFor, prLocalWrite, prUiLocal } from './pages-pr-detail';
 import { stackLayerTarget } from './pages-pr-stack';
 import { openLinkFromUi } from './browser-links';
 import { chatExternalLinkMenu } from './external-link-menu';
-import { assistantCanFork, inspectorExtras, NO_INSPECTOR_EXTRAS } from './timeline-work-rows'; // timeline-work-rows: TH-1, TH-5
+import { assistantCanFork, inspectorExtras, NO_INSPECTOR_EXTRAS } from './timeline-work-rows';
 import { keptThread } from './keep-alive';
 
 /** formatShortTimestamp: the wall-clock time alone, in the selected format. */
@@ -84,17 +84,17 @@ const scoped = (client: T3Client, kind: string, id: string) => `${client.threadI
  */
 export async function chatLocal(client: T3Client, native: Native, op: string, id: string, value: string, storage?: Files): Promise<string> {
   if (op === 'run-terminal' && storage) { await runTerminalCommand(client, native, storage, value.trim()); return ''; }
-  if (op.startsWith('surface-')) return surfaceLocal(client, native, op.slice(8), id, value); // r4-surfaces: the right panel's surfaces (window chatLocal)
-  if (op === 'link-open') return openLinkFromUi(client, native, id, value); // browser-surface part 5: "Open links in" (browser-links.ts)
-  if (op === 'link-menu') return chatExternalLinkMenu(client, native, storage, value, id === 'page'); // shell-context-menu: a reply's web link menu (external-link-menu.ts)
-  if (op === 'pr-link-pick') { await pullRequestLinkPick(client, native, value); return ''; } // context-menu-gaps: the detail header's number's menu choice
-  if (op === 'pr-preview') { notePreviewHover(client, id, value === '1'); return ''; } // pr-links-previews-and-routing: a pull request link's hover card
-  if (op.startsWith('prw-')) return prLocalWrite(client, native, op.slice(4), id, value); // pr-writing-and-metadata: the composer's drafts (pages-pr-detail.ts)
-  if (op === 'pr-ui-select') return surfaceLocal(client, native, 'r5-pr-open', stackLayerTarget(value), ''); // pr-header-actions-and-stacks: a stack layer beside a thread
-  if (op.startsWith('pr-ui-')) return prUiLocal(client, op.slice(6), id, value); // pr-header-actions-and-stacks: the panel header's menu choices
-  if (op.startsWith('pr-code-')) return prCodeLocalFor(client, native, op.slice(8), id, value); // pr-code-tab: the Code tab's presses (pages-pr-code.ts)
-  if (op.startsWith('git-')) return gitChatLocal(client, native, op.slice(4), id, value); // lane r4-git (r4-git-route.ts)
-  if (op.startsWith('media-')) return mediaLocal(client, native, op.slice(6), id, value, { urlOf: attachmentId => cachedAttachmentUrl(client, attachmentId), // media-actions (media-views.ts)
+  if (op.startsWith('surface-')) return surfaceLocal(client, native, op.slice(8), id, value); // the right panel's surfaces (window chatLocal)
+  if (op === 'link-open') return openLinkFromUi(client, native, id, value); // "Open links in" (browser-links.ts)
+  if (op === 'link-menu') return chatExternalLinkMenu(client, native, storage, value, id === 'page'); // a reply's web link menu (external-link-menu.ts)
+  if (op === 'pr-link-pick') { await pullRequestLinkPick(client, native, value); return ''; } // the detail header's number's menu choice
+  if (op === 'pr-preview') { notePreviewHover(client, id, value === '1'); return ''; } // a pull request link's hover card
+  if (op.startsWith('prw-')) return prLocalWrite(client, native, op.slice(4), id, value); // the composer's drafts (pages-pr-detail.ts)
+  if (op === 'pr-ui-select') return surfaceLocal(client, native, 'r5-pr-open', stackLayerTarget(value), ''); // a stack layer beside a thread
+  if (op.startsWith('pr-ui-')) return prUiLocal(client, op.slice(6), id, value); // the panel header's menu choices
+  if (op.startsWith('pr-code-')) return prCodeLocalFor(client, native, op.slice(8), id, value); // the Code tab's presses (pages-pr-code.ts)
+  if (op.startsWith('git-')) return gitChatLocal(client, native, op.slice(4), id, value); // r4-git-route.ts
+  if (op.startsWith('media-')) return mediaLocal(client, native, op.slice(6), id, value, { urlOf: attachmentId => cachedAttachmentUrl(client, attachmentId),
     openFile: relativePath => openFileSurface(client, native, relativePath, 0), forgetAttachment: attachmentId => { if (!forgetMediaPreviewUrl(client, attachmentId)) forgetAttachmentUrl(client, attachmentId); } });
   const view = timelineView(client);
   if (op === 'item-detail') { setTurnItemOpen(client, id, value === 'open'); return ''; }
@@ -113,7 +113,7 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
   if (op === 'diagram-retry') return retryMermaid(value);
   if (op === 'setup-details' || op === 'setup-cancel' || op === 'setup-terminal') return worktreeSetupAction(client, native, op);
   if (op === 'diagram-open' || op === 'diagram-close') return diagramPreviewAction(client, op, value);
-  // r4-timeline: a table's Copy as Markdown / CSV (the check morph, no toast) and a thread chip's open.
+  // A table's Copy as Markdown / CSV (the check morph, no toast) and a thread chip's open.
   if (op === 'table-menu' || op === 'table-menu-close') return tableMenuAction(client, op, id, value, native);
   if (op === 'copy-table') {
     closeTableMenu(client);
@@ -121,8 +121,8 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
     await chatLocal(client, native, 'copy-code', id, value, storage);
     return '';
   }
-  // r5-composer: View source opens the cited thread and scrolls its answer into place (r5-composer-citation.ts).
-  // timeline-and-window-hooks: a minimap jump (Contract's scrollIntoView) ends the citation's native placement and hold.
+  // View source opens the cited thread and scrolls its answer into place (r5-composer-citation.ts).
+  // A minimap jump (Contract's scrollIntoView) ends the citation's native placement and hold.
   if (op === 'timeline-release') { await client.restAccess(native).call({ op: 'timelineRelease' }).catch(() => undefined); return ''; }
   if (op === 'chip-citation') {
     view.citing++;
@@ -254,7 +254,7 @@ function activity(entry: WorkEntry, root: string, client: T3Client, label?: stri
   const severe = failed && (entry.itemType === 'error' || !isToolLike(entry));
   const plain = plainOutput(entry, root);
   const inspect = plain === undefined ? inspectorDetail(entry, root) : { input: '', result: '', ok: true };
-  // V2ItemInspector draws search results and file changes as their own parts, not as tool output (TH-5).
+  // V2ItemInspector draws search results and file changes as their own parts, not as tool output.
   const extras = plain === undefined ? inspectorExtras(item, path => workspaceRelativePath(path, root)) : NO_INSPECTOR_EXTRAS;
   const structured = item.type === 'file_search' || item.type === 'web_search';
   const reasoning = entry.itemType === 'reasoning';
@@ -269,9 +269,9 @@ function activity(entry: WorkEntry, root: string, client: T3Client, label?: stri
     tone: failedError ? usage ? 'provider-warning' : 'provider-error' : warning ? 'warning' : severe ? 'error' : failed ? 'failed' : '',
     ok: inspect.ok, reasoning, expandable: !failedError && (!!entry.questionAnswer || (plain !== undefined ? !!plain || entry.item.outputOmitted === true || !!detail.text : turnItemHasDetail(entry.item))),
     detail: failedError && !usage ? str(obj(item.failure).message) : '', status: entry.status === 'inProgress' ? 'Thinking' : 'Thought',
-    // A created thread's Open chat; a subagent notification the parent has no record of keeps Open subagent (TH-2).
+    // A created thread's Open chat; a subagent notification the parent has no record of keeps Open subagent.
     targetId: entry.itemType === 'thread_created' ? str(item.targetThreadId) : notificationChildThreadId(item), targetLabel: entry.itemType === 'thread_created' ? 'Open chat' : 'Open subagent',
-    retryRunId: preparationFailureRunId(item), // lane r11-upstream (737993303d)
+    retryRunId: preparationFailureRunId(item), // upstream 737993303d
     answer: entry.questionAnswer && hasQuestionAnswer(entry.questionAnswer) ? questionAnswerPreview(entry.questionAnswer) : '' };
 }
 
@@ -294,7 +294,7 @@ export function transcriptRows(client: T3Client): Message[] {
 
 /**
  * useV2ItemSupport reads an item's own thread: this thread, or an inherited row's source while its
- * detail is live (a kept running thread); none, and the fork stays available (TH-1).
+ * detail is live (a kept running thread); none, and the fork stays available.
  */
 function forkable(client: T3Client, row: Obj, item: Obj): boolean {
   const source = str(row.sourceThreadId, client.threadId);
@@ -322,7 +322,7 @@ function present(row: Row, context: PresentContext): Message {
       groupId: row.groupId ?? '', expanded: row.expanded === true };
     case 'live': return { ...base, kind: 'live', title: row.label, icon: entryIcon(row.entry), failed: displayFailed(row.entry), live: row.active,
       expanded: row.expanded, groupId: row.groupId, continues: row.continues === true, runId: row.entry.runId, activities: [{ ...keyedLabel(row, row.label), ...toolActivityIconSources(context.client, row.entry.item) }] };
-    // The group's image icon (TH-3): the primary tool source's, else the last entry's.
+    // The group's image icon: the primary tool source's, else the last entry's.
     case 'group': return { ...base, kind: 'group', title: row.summary, icon: row.icon, failed: row.failed, expanded: row.expanded, groupId: row.groupId,
       runId: row.runId, continues: row.continues === true, activities: [{ ...keyedLabel(row, row.summary), ...(row.toolIcon ? toolActivityIconSources(context.client, { toolIcon: row.toolIcon }) : {}) }] };
     case 'details': {
@@ -401,7 +401,7 @@ export function timelineMessages(client: T3Client, transcript: Message[], now: n
       additions: files.reduce((sum, file) => sum + file.additions, 0), deletions: files.reduce((sum, file) => sum + file.deletions, 0),
       files: message.kind === 'checkpoint' ? treeRows(files, tree.all, tree.overrides) : [],
       runId: message.runId ?? '', sourceThreadId: message.sourceThreadId ?? '',
-      // AssistantForkButton: a completed answer of a run whose provider can fork (TH-1); never a row only this client shows.
+      // AssistantForkButton: a completed answer of a run whose provider can fork; never a row only this client shows.
       canFork: (message.kind === 'assistant' || message.kind === 'meta') && message.canFork === true && message.completed === true && message.streaming !== true && message.local !== true,
       completed: message.completed === true, createdAt: message.createdAt ?? '', timestamp: messageTime(message.createdAt, now, format),
       timeTip: timestampTooltip(message.createdAt, format), actionsTimeTip: '', ...codeCopy,

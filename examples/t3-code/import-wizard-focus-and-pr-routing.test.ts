@@ -1,7 +1,7 @@
 // What did not pass under a person's real input. The chip press is in macos/tests/composer (chippress.swift), the
 // permission helper in macos/tests/snapshot, the pull request diff's error text in macos/tests/transport; these check
-// the import wizard's focus return (RE-4) in the Contract sources (as model-picker-label-and-profile-keys.test.ts does)
-// and the Code tab's routing (RE-5) through its resource, with a focused server and a paired one: the diff, the Viewed read,
+// the import wizard's focus return in the Contract sources (as model-picker-label-and-profile-keys.test.ts does)
+// and the Code tab's routing through its resource, with a focused server and a paired one: the diff, the Viewed read,
 // a hidden range's contents, the Viewed write (detached, held while the server is away) and its routing with GitHub shared.
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import type { T3Client } from './client';
@@ -17,7 +17,7 @@ import { singleRouteKey } from './connection-routes';
 
 const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
 
-describe('RE-4: the import wizard gives the focus back to Add profile', () => {
+describe('the import wizard gives the focus back to Add profile', () => {
   test('however it closes, the focus goes to the Add profile button (Base UI Dialog\'s finalFocus)', async () => {
     const app = await source('app.contract'), profiles = await source('browser-profiles.contract');
     expect(app).toContain('  task importWizardFocus when integrations.browserProfiles.wizard.open != importWizardShown\n    after(1, importWizardFlip)\n  action importWizardFlip\n    if importWizardShown and not integrations.browserProfiles.wizard.open\n      focus("browser-profiles-add")\n    importWizardShown = integrations.browserProfiles.wizard.open\n');
@@ -27,7 +27,7 @@ describe('RE-4: the import wizard gives the focus back to Add profile', () => {
   });
 });
 
-// RE-5. The session's lane copy ran its embedded server (focused, "This machine", no GitHub project) and was paired with
+// Under real input, a lane copy ran its embedded server (focused, "This machine", no GitHub project) and was paired with
 // the GitHub lane's server, where #168 was listed. The detail came from the lane server; the diff and the Viewed reads
 // went to the embedded one, which answered 503 PullRequestUnavailableError (provider-unsupported).
 const B = 'http://127.0.0.1:16643';
@@ -86,7 +86,7 @@ function setup() {
 beforeEach(() => pullRequestRouter.reset());
 afterEach(() => { fleet.entries.delete(KEY_B); fleet.saved = []; });
 
-describe('RE-5: the Code tab reads the pull request on the server it was listed on', () => {
+describe('the Code tab reads the pull request on the server it was listed on', () => {
   test('the diff (POST /api/pull-requests/diff) and the Viewed read go to the paired server, none to the focused one', async () => {
     const { client, native, sent } = setup();
     let view = await pullRequestDetail(client, native, { selected, refresh: 0, now: NOW, tab: 'code' });
@@ -140,11 +140,11 @@ describe('RE-5: the Code tab reads the pull request on the server it was listed 
   });
 });
 
-// RE-5's review: `setFilesViewed` is one of the router's writes (pullRequestRouting.ts `writes`), so it is routed from the
+// `setFilesViewed` is one of the router's writes (pullRequestRouting.ts `writes`), so it is routed from the
 // listing server as the reference routes it, not sent to that server's transport as it is. Here the listing server is a
 // remote one and both servers share GitHub ("read and act"): the reference writes through the local server that holds
 // the same account (its guard `expectedAccountId`), and tells the readers it routed through once GitHub took the write.
-describe('RE-5: the Viewed write is routed as the reference routes it', () => {
+describe('the Viewed write is routed as the reference routes it', () => {
   const REMOTE = 'http://10.0.0.7:16643', KEY_R = `${REMOTE}\nenv-lane`, LOCAL = 'http://127.0.0.1:16642';
   const identity = { host: 'github.com', provider: 'github', accountId: 'acct-1', viewer: 'primary' };
   afterEach(() => { fleet.entries.delete(KEY_R); });

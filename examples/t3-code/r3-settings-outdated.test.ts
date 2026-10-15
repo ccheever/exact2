@@ -1,4 +1,4 @@
-// Lane r3-settings: outdated servers can be updated even when the client can't connect
+// Outdated servers can be updated even when the client can't connect
 // (upstream 22e9d35613). The fixture servers speak protocol 2, so these drive the
 // TypeScript half against T3Fleet's reply shapes; T3Fleet itself is covered by
 // macos/tests/fleet (a real local WebSocket).

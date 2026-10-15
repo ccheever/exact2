@@ -1,7 +1,7 @@
 import AppKit
 import XCTest
 
-// real-key-chords (search-key-and-timeline-commit-title SK-2): a real key reaches the window's commands only through
+// A real key reaches the window's commands only through
 // NSApplication.sendEvent, the window server's path: the app's local key monitors, the key window's
 // performKeyEquivalent (the composer's text view), then the main menu, where the host files every button that declares
 // a ⌘ chord as a hidden key equivalent (ShortcutsMac.swift ShortcutHost.sync). The session's own monitor presses the
@@ -17,8 +17,8 @@ import XCTest
 // ShortcutHost's items, filed after the clone's augment as each plan batch files them, with the chords they take from
 // other items (`claim`). Compiled with every file in modules/apple (T3Module included); it runs NSApplication's own
 // event loop, so the app is active and its window key, as under real keys, where the session allows it (`screenLocked`).
-// A coverage guard, not a reproduction: SK-1's ⇧⌘F was lost before the app, so this passed on the modules from before
-// the task too (search-key-and-timeline-commit-title's record); it fails when a later module or menu change takes one
+// A coverage guard, not a reproduction: ⇧⌘F was once lost before the app, so this passed on the modules from before
+// its fix too; it fails when a later module or menu change takes one
 // of these chords on the way.
 
 /// The reference's ⌘ chords (packages/shared/src/keybindings.ts DEFAULT_KEYBINDINGS; keybindingDefaults) whose

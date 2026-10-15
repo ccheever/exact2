@@ -1,8 +1,8 @@
-// dialog-shortcut-focus: what keyboard focus can reach while a dialog is open, read from the Contract
+// What keyboard focus can reach while a dialog is open, read from the Contract
 // sources as context-menu-hookup.test.ts reads its handlers. Sequential focus follows tree order on every
 // host and skips a node whose `tabindex` is negative (HTML's rule, LLP 1088 D7.3), so a component's
 // controls in source order, less those, are its reference Tab order. Time and select inputs are stops on
-// macOS too since main #327 (X52, adopted in round 11; Custom snooze's Time and Unit, driven in adopt-main-fixes-r11),
+// macOS too since main #327 (issues/closed/20261009-macos-controls-default-tab-order.md; driven on Custom snooze's Time and Unit),
 // with Keyboard navigation on as every control is (LLP 1115.000 D7.2). These checks guard the wiring; the behavior is
 // checked by driving the app on macOS: a source read cannot press Tab.
 import { describe, expect, test } from 'bun:test';
@@ -301,7 +301,7 @@ describe('a dialog keeps Tab and Shift+Tab inside, in the reference order', () =
   });
 
   test('Custom snooze: one stop for the schedule type, the fields, Cancel, Snooze, then Close (DialogPopup renders it last)', async () => {
-    // shell-sidebar-palette-keys (TH-8): the date is SnoozeDateField's button; its calendar popover is shut at open.
+    // The date is SnoozeDateField's button; its calendar popover is shut at open.
     const field = await component('snooze-calendar.contract', 'SnoozeDateField');
     const trigger = field.slice(0, field.findIndex(line => line.includes('column id="snooze-calendar"')));
     const lines = (await component('sidebar-overlays.contract', 'SidebarSnoozeDialog')).flatMap(line => line.trim().startsWith('SnoozeDateField(') ? trigger : [line]);
@@ -322,7 +322,7 @@ describe('a dialog keeps Tab and Shift+Tab inside, in the reference order', () =
     expect(body).toContain('focus("snooze-close")'); // Shift+Tab from the toggle
     expect(body).toContain('focus(toggleId)'); // Tab from Close
     expect(body).toContain('button id="snooze-close" press=dismiss key=closeKey');
-    // fix-keyboard-focus: Escape is the dialog's unless the command palette covers it (the palette's first).
+    // Escape is the dialog's unless the command palette covers it (the palette's first).
     expect(body).toContain('button press=dismiss disabled=busy aria-keyshortcuts=(covered ? "" : "Escape") testId="snooze-cancel"');
     expect(body).toContain('focus(data.sidebar.dialogReturn)');
   });
@@ -356,7 +356,7 @@ describe('a dialog keeps Tab and Shift+Tab inside, in the reference order', () =
     expect(app).toMatch(/confirmValue = ""\n\s+focus\("app-confirm-cancel"\)/); // the terminal's close asks with the focus in the confirm
     // The terminal's own close buttons keep the focus when pressed; they move it into the confirm themselves.
     const terminal = await source('terminal.contract');
-    // terminal-links-and-close G1-4: each asks as `ui:confirm:<its element>`, which Cancel gives the focus back to.
+    // Each asks as `ui:confirm:<its element>`, which Cancel gives the focus back to.
     expect(terminal.match(/action askClose[^\n]*\n\s+confirm\(`ui:confirm:[^\n]*\n\s+focus\("app-confirm-cancel"\)/g)?.length).toBe(2);
     expect(terminal).toContain('press=askClose(tab.target, tab.closeTitle, tab.closeBody, `terminal-tab-close-${view.surface}-${tab.id}`)');
     expect(terminal).toContain('id="terminal-close", elementId=`terminal-close-${view.surface}`, strip=strip, edge=true, press=askClose)');

@@ -1,10 +1,10 @@
 import { snapshotSettings } from './snapshot-settings';
 import { keyboardSettings, keybindingSettings } from './keybinding-settings';
-import { claimBoldChord, richTextComposer } from './r8-keys-chords'; // lane r8-keys: ⌘B bolds in the rich-text composer
+import { claimBoldChord, richTextComposer } from './r8-keys-chords'; // ⌘B bolds in the rich-text composer
 import { taskFromArguments } from './scheduled-settings';
 import { scheduledPage } from './scheduled-view';
 import { sourceControlPage, integrationsPage } from './source-control-view';
-import { browserProfilesView, emptyBrowserProfilesView } from './browser-profiles-settings'; // browser-surface part 4
+import { browserProfilesView, emptyBrowserProfilesView } from './browser-profiles-settings';
 import { viewState } from './settings-rest-commands';
 import { keyboardDispatchSource } from './keyboard-dispatch';
 import { projectsView } from './projects-view';
@@ -17,12 +17,12 @@ import { composerEditorView, composerWorkspaceView, refreshComposerWorkspace } f
 import { chipPopoverView } from './composer-chip-popover'; // a skill chip's details popover
 import { composerBranches } from './composer-controls-branch';
 import { providerFieldValues } from './providers';
-import { providersRoute, scopedAcpRegistry, scopedProviderPage, scopedProviderWizard, scopedSetupOp, scopedUpkeepOp } from './providers-scope'; // fix-providers-environment-scope
+import { providersRoute, scopedAcpRegistry, scopedProviderPage, scopedProviderWizard, scopedSetupOp, scopedUpkeepOp } from './providers-scope';
 import { connectionsPage } from './connections';
 import { iconPicker } from './settings-b-icons';
 import { sshHostsView } from './settings-b-ssh';
 import { sshPromptSource, sshPromptAnswer } from './ssh-auth'; // the SSH password dialog
-import { pairingFields } from './r10-connect-pairing'; // lane r10-connect
+import { pairingFields } from './r10-connect-pairing';
 import { pagesHome } from './pages-home';
 import { usagePage, usageKeys, plotWidth } from './pages-usage';
 import { pagesSource } from './pages-sources';
@@ -37,20 +37,20 @@ import { prepareTimeline, refreshTimelineReads } from './timeline-prepare';
 import { paletteCommand } from './palette-commands';
 import { shellView } from './shell';
 import { shellDetails } from './shell-details';
-import { chatCanvasView } from './chat-canvas-view'; // floating-device-player
+import { chatCanvasView } from './chat-canvas-view';
 import { sidebarLaunchWidth } from './r4-polish-sidebar-width';
 import { highlightSlice, startHighlightTurn } from './r12-render-highlight';
-import { noteServerUpdateClock } from './server-update-notices'; // server-update-banner
+import { noteServerUpdateClock } from './server-update-notices';
 import { terminalDrawerView, terminalOpen } from './terminal-drawer-view';
 import { terminalFocused } from './terminal-focus';
-import { codexContext, codexPrepare, codexTarget } from './codex-setup-host'; // managed-codex-chatgpt: ManagedCodexSetup's commands and effects
+import { codexContext, codexPrepare, codexTarget } from './codex-setup-host'; // ManagedCodexSetup's commands and effects
 import { codexSetupOp } from './codex-setup-ops';
 import { chatGptPlanSnapshot } from './chatgpt-plan-view';
-import { autoBalancePrepare } from './auto-balance'; // auto-balance: Settings › Load balancing, read for the composer
+import { autoBalancePrepare } from './auto-balance'; // Settings › Load balancing, read for the composer
 import { letGoAware } from './let-go';
-import { keepAlivePrepare } from './keep-alive'; // local-primary-environment: running threads' detail streams
+import { keepAlivePrepare } from './keep-alive'; // running threads' detail streams
 import { migrationToast } from './local-lifecycle'; // a let-go answer's native calls reject as 'superseded', never as an error
-import { activationPrepare } from './desktop-activation'; // app-activation
+import { activationPrepare } from './desktop-activation';
 
 export const appId = 'com.exact.t3code.macos';
 export const grants = '';
@@ -61,8 +61,8 @@ const client = new T3Client();
 export async function answer(source: string, args: unknown[], _store: unknown, _storage: Files, native: Native | null | undefined) {
   if (native?.available) native = letGoAware(native);
   const storage = native?.available ? nativeFiles(native) : _storage;
-  if (source === 'highlightSlice') return highlightSlice(); // shiki-residuals: a background highlight turn
-  startHighlightTurn(); // shiki-residuals: any other answer tokenizes code within one turn's budget
+  if (source === 'highlightSlice') return highlightSlice(); // a background highlight turn
+  startHighlightTurn(); // any other answer tokenizes code within one turn's budget
   if (source === 'snapshot') {
     noteNow(client, Number(args[0]) || 0);
     noteServerUpdateClock(client, String(args[1] ?? ''), String(args[2] ?? '')); // server-update-notices.ts: the 2 s and 20 s timers
@@ -95,7 +95,7 @@ export async function answer(source: string, args: unknown[], _store: unknown, _
   if (source === 'timelineAttachments') return attachmentUrls(client, native, Number(args[1]) || 0); // timeline-attachments.ts
   if (source === 'prList' || source === 'prDetail' || source === 'welcome') return pagesSource(client, native, source, args, storage);
   if (source === 'connectionsPage') return connectionsPage(client, native, args[0] === true, Number(args[5]) || 0); // args[5]: the clock, each second while Authorized clients show
-  if (source === 'pairingFields') return pairingFields(String(args[0] ?? '')); // lane r10-connect (r10-connect-pairing.ts)
+  if (source === 'pairingFields') return pairingFields(String(args[0] ?? '')); // r10-connect-pairing.ts
   if (source === 'sshPrompt') return sshPromptSource(native, Number(args[0]) || 0); // ssh-auth.ts: the password dialog's queue
   if (source === 'sshPromptAnswer') return sshPromptAnswer(native, String(args[0] || ''), String(args[1] || ''));
   if (source === 'settingsBSshHosts') return sshHostsView(client, native, args[0] === true, String(args[1] ?? '')); // settings-b-ssh.ts
@@ -104,7 +104,7 @@ export async function answer(source: string, args: unknown[], _store: unknown, _
   if (source === 'providerPage') return scopedProviderPage(client, native, args); // args[4..7]: the settings scope
   if (source === 'providerWizard') return scopedProviderWizard(client, native, args); // args[8..9]: the dialog and its target (the ChatGPT dialogs); args[10]: the page's environment
   if (source === 'acpRegistry') return scopedAcpRegistry(client, native, args);
-  // provider-settings-upkeep: updates, Update all, ACP management, the custom model editor (providers-upkeep.ts).
+  // Updates, Update all, ACP management, the custom model editor (providers-upkeep.ts).
   if (source === 'providerChange' && String(args[0] || '').startsWith('upkeep:')) { if (native?.available) await scopedUpkeepOp(client, native, args); return { revision: ++client.revision, message: '', relaunch: false, routeReorder: 0 }; }
   if (source === 'providerChange' && /^setup:(codex|chatgpt)-/.test(String(args[0] || ''))) { const target = native?.available ? (String(args[0]).startsWith('setup:chatgpt-') ? codexContext(client, native, '') : codexTarget(client, native, String(args[1] || ''))) : null; if (target) await codexSetupOp(target, String(args[0]), String(args[2] ?? ''), String(args[3] ?? ''), () => client.savePreferences(storage)); return { revision: ++client.revision, message: '', relaunch: false, routeReorder: 0 }; }
   if (source === 'providerChange' && String(args[0] || '').startsWith('setup:')) { if (native?.available) await scopedSetupOp(client, native, args); return { revision: ++client.revision, message: '', relaunch: false, routeReorder: 0 }; }
@@ -118,7 +118,7 @@ export async function answer(source: string, args: unknown[], _store: unknown, _
   if (source === 'keyboardDispatch') return keyboardDispatchSource(client, args);
   if (source === 'projectsView') { const legacy = String(args[2] || ''); const group = !args[0] && legacy ? client.projectGroups().find(candidate => candidate.members.some(member => member.id === legacy)) : undefined; return projectsView(client, group ? group.key : String(args[0] || ''), group ? '' : String(args[1] || ''), args[3] === true, native); } // a bare project id is its project on every environment (settingsScopeOf)
   if (source === 'integrationsPage') return { ...(await integrationsPage(client, native, String(args[0] || ''), String(args[1] || ''), args[2] === true, String(args[5] || ''), String(args[6] || ''), String(args[7] || ''))),
-    browserProfiles: args[2] === true ? await browserProfilesView(client, native) : emptyBrowserProfilesView() }; // browser-surface part 4: Browser profiles and the import wizard
+    browserProfiles: args[2] === true ? await browserProfilesView(client, native) : emptyBrowserProfilesView() }; // Browser profiles and the import wizard
   if (source === 'settingsNavigation') return settingsNavigation(String(args[0] || ''), searchContext(client.config, client.ready, String(args[1] || 'all')), Number(args[2]) || 0);
   if (source === 'settingsCore') return settingsCore(client, native, String(args[0] || ''), String(args[1] || ''), String(args[2] || ''), String(args[3] || ''), String(args[4] || ''), String(args[5] || ''), args[6] === true, String(args[9] || ''), String(args[10] || ''), String(args[11] || 'embedded'), args[12] === true, String(args[13] || 'light'));
   if (source === 'settings') {
@@ -134,10 +134,10 @@ export async function answer(source: string, args: unknown[], _store: unknown, _
   if (source === 'createProvider') return client.command('provider-create', String(args[0] || ''), JSON.stringify({ driver: args[1], name: args[2], binaryPath: args[3], homePath: args[4] }), 0, native, storage);
   if (source === 'paletteView') return paletteView(client, native, args);
   if (source === 'paletteCommand') return paletteCommand(client, native, storage, String(args[0] || ''), String(args[1] || ''), String(args[2] || ''));
-  if (source === 'shellDetails') return shellDetails(client, native, args[0] === true, String(args[1] || ''), args[3] === true, Number(args[4]) || 0, Number(args[5]) || 0, args[6] !== false); // args[3]: the card docks inline; args[4]: wall time; args[5]: the window right of the canvas (lane r6-pr); args[6]: the window has the focus and is visible (exact2 #219)
-  if (source === 'sidebarLaunchWidth') return sidebarLaunchWidth(client, Number(args[0]) || 0, !!native?.available); // r4-polish: the width fixed at load
-  if (source === 'chatCanvas') return chatCanvasView(client, native, { width: Number(args[1]) || 0, viewportHeight: Number(args[2]) || 0, detailsInline: args[3] === true, chatMax: Number(args[4]) || 0, overlaid: args[5] === true, gesture: String(args[6] || ''), wide: args[9] === true, popoverOpen: args[10] === true }); // floating-device-player: args[7..8] re-ask when the player changes
-  if (source === 'terminalDrawer') return terminalDrawerView(client, native, Number(args[1]) || 0, Number(args[2]) || 0); // terminal-drawer: args[0] re-asks on each revision
+  if (source === 'shellDetails') return shellDetails(client, native, args[0] === true, String(args[1] || ''), args[3] === true, Number(args[4]) || 0, Number(args[5]) || 0, args[6] !== false); // args[3]: the card docks inline; args[4]: wall time; args[5]: the window right of the canvas; args[6]: the window has the focus and is visible (exact2 #219)
+  if (source === 'sidebarLaunchWidth') return sidebarLaunchWidth(client, Number(args[0]) || 0, !!native?.available); // the width fixed at load
+  if (source === 'chatCanvas') return chatCanvasView(client, native, { width: Number(args[1]) || 0, viewportHeight: Number(args[2]) || 0, detailsInline: args[3] === true, chatMax: Number(args[4]) || 0, overlaid: args[5] === true, gesture: String(args[6] || ''), wide: args[9] === true, popoverOpen: args[10] === true }); // args[7..8] re-ask when the player changes
+  if (source === 'terminalDrawer') return terminalDrawerView(client, native, Number(args[1]) || 0, Number(args[2]) || 0); // args[0] re-asks on each revision
   if (source === 'shellView') return shellView(client, native, storage, Number(args[1]) || 0, String(args[2] || ''), args[3] === true, args[4] === true, { focused: args[5] !== false, visible: args[6] !== 'hidden' }); // args[5..6]: exactPage().hasFocus and visibilityState (exact2 #219)
   if (source === 'command') return client.command(String(args[0] || ''), String(args[1] || ''), String(args[2] || ''), Number(args[3]) || 0, native, storage);
   throw new Error(`Unknown T3 source: ${source}`);

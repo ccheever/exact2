@@ -10,21 +10,21 @@ import { queuedView } from './composer-controls-queue';
 import { subagentBar } from './composer-controls-subagent';
 import { attachOffered } from './composer-controls-attach';
 import { fanoutSelections, fanoutView } from './r3-composer-controls-fanout';
-import { composerSelection } from './composer-provider-selection'; // composer-provider-state-and-details: CO-6, CO-9, CO-10
+import { composerSelection } from './composer-provider-selection';
 import { chordGlyphs, optionValue, reportedSelection, resolvedCurrent, triggerModelName, type Selection } from './r3-composer-controls-model';
 import { sendChords } from './composer-editor-intent';
 import { draftHoldsCommandEnter } from './diff';
-import { fileDraftHoldsCommandEnter } from './r4-surfaces-files'; // audit-wave-followups FU-3: the Files preview's draft too
-import { activeRef, terminalOpen } from './terminal-drawer-view'; // terminal-layout: ChatComposer passes the real terminalOpen
-import { annotatingInThread, sendChordsWhileAnnotating } from './browser-annotation'; // browser-surface-capture: ⌘↩ in Annotate
+import { fileDraftHoldsCommandEnter } from './r4-surfaces-files'; // the Files preview's draft too
+import { activeRef, terminalOpen } from './terminal-drawer-view'; // ChatComposer passes the real terminalOpen
+import { annotatingInThread, sendChordsWhileAnnotating } from './browser-annotation'; // ⌘↩ in Annotate
 import { measuredLabels } from './r5-composer-measure';
 import { atRootFontSize, composerMenus, effortMenuWidth, measured, probe, traitsMenuHeight } from './r5-composer-menus';
 import { clampInterfaceFontSize } from './appearance-fonts';
 import { environmentView } from './r4-git-env';
-import { ULTRATHINK_LOCKED_MESSAGE, ultrathinkTraits, withImplicitFastModeDefault } from './composer-provider-state'; // composer-fidelity G9
+import { ULTRATHINK_LOCKED_MESSAGE, ultrathinkTraits, withImplicitFastModeDefault } from './composer-provider-state';
 import { ultrathinkFrame } from './composer-ultrathink';
-import { overflowMenu } from './composer-overflow'; // composer-fidelity G11
-import { usageConfirm } from './composer-controls-usage'; // usage-reset-and-feedback: the reset credit confirm
+import { overflowMenu } from './composer-overflow';
+import { usageConfirm } from './composer-controls-usage'; // the reset credit confirm
 import type { FooterSteps } from './composer-controls-view';
 
 /** runtimeModeConfig.ts: label, description and lucide icon per mode. */
@@ -92,7 +92,7 @@ export function traitsMenu(descriptors: Obj[], selections: Obj[], selection: Sel
   descriptors.filter(descriptor => descriptor.type === 'select').forEach((descriptor, group) => {
     const id = str(descriptor.id), options = arr(descriptor.options);
     // getDescriptorStringValue(descriptor, selection, reported): the checked radio follows the trigger's label.
-    // composer-fidelity G9: a prompt that controls the primary effort checks "ultrathink"; "ultrathink" in its body locks the rows.
+    // A prompt that controls the primary effort checks "ultrathink"; "ultrathink" in its body locks the rows.
     const primary = id === ultra.primaryId, locked = primary && ultra.inBody;
     const current = primary && ultra.controlled ? 'ultrathink' : optionValue(descriptor, resolvedCurrent(descriptor, selections), selection, reported);
     if (group > 0) items.push({ key: `divider:${id}`, kind: 'divider', descriptor: id, value: '', label: '', description: '', selected: false, isDefault: false, index: -1, disabled: false });
@@ -155,7 +155,7 @@ export function anchorsFrom(presentation: Obj) {
   return { traits: box('traits'), runtime: box('runtime'), controls: box('controls'), implement: box('implement'), meter: box('meter'), actions: box('actions'), more: box('more') };
 }
 
-// r5-composer: the last footer layout per client, for resolveRestingComposerControlsLayout's promotion slack.
+// The last footer layout per client, for resolveRestingComposerControlsLayout's promotion slack.
 const footerSteps = new WeakMap<object, FooterSteps>();
 export function composerView(client: ComposerSource, requests: { approval: boolean; question: boolean; choiceOnly: boolean; planReady?: boolean; terminalOpen?: boolean }) {
   const keyContext = { terminalOpen: requests.terminalOpen === true }; // ChatComposer: the real terminalOpen, terminalFocus false
@@ -169,7 +169,7 @@ export function composerView(client: ComposerSource, requests: { approval: boole
   // The composer's selection and what the active provider thread reports it runs (display only, never dispatched).
   const selection = provider && modelId ? { instanceId: str(provider.instanceId), model: modelId, options: client.modelOptions } : null;
   const reported = client.threadId ? reportedSelection(client.projection) : null;
-  // composer-fidelity G9: the traits show the implicit Fast default (Normal) and the prompt's ultrathink (composerProviderState.tsx).
+  // The traits show the implicit Fast default (Normal) and the prompt's ultrathink (composerProviderState.tsx).
   const shown = withImplicitFastModeDefault(descriptors, client.modelOptions) ?? [], prompt = client.draft ?? '';
   const ultra = ultrathinkTraits(descriptors, prompt);
   const traits = traitsMenu(descriptors, shown, selection, reported, ultra);
@@ -185,7 +185,7 @@ export function composerView(client: ComposerSource, requests: { approval: boole
     runtime: runtime.label, plan: planVisible ? (client.interactionMode === 'plan' ? 'Plan' : 'Build') : '', host: anchors.controls.width,
     measure: measuredLabels(client.presentation), previous: footerSteps.get(client) });
   footerSteps.set(client, steps);
-  // composer-fidelity G11: the "More composer controls" rows for the expanded and the resting footer.
+  // The "More composer controls" rows for the expanded and the resting footer.
   const runtimeRows = runtimes.map(option => ({ mode: option.mode, label: option.label, selected: option === runtime }));
   const more = overflowMenu({ traits: traits.items, traitsHidden: layout.traitsOverflow, modeHidden: layout.modeOverflow, planVisible, interactionMode: client.interactionMode, runtimes: runtimeRows });
   const restingMore = overflowMenu({ traits: traits.items, traitsHidden: layout.restingTraitsOverflow, modeHidden: layout.restingModeOverflow, planVisible, interactionMode: client.interactionMode, runtimes: runtimeRows });
@@ -202,7 +202,7 @@ export function composerView(client: ComposerSource, requests: { approval: boole
     planVisible, planActive: planVisible && client.interactionMode === 'plan',
     ultrathink: ultrathinkFrame(client, prompt),
     more: more.items, moreCount: more.count, restingMore: restingMore.items, restingMoreCount: restingMore.count,
-    moreMenuWidth: effortMenuWidth(client.presentation, more.items), restingMoreMenuWidth: effortMenuWidth(client.presentation, restingMore.items), moreMenuHeight: traitsMenuHeight(more.items), restingMoreMenuHeight: traitsMenuHeight(restingMore.items), // composer-fidelity G9: the spectrum ring and the model icon's chroma
+    moreMenuWidth: effortMenuWidth(client.presentation, more.items), restingMoreMenuWidth: effortMenuWidth(client.presentation, restingMore.items), moreMenuHeight: traitsMenuHeight(more.items), restingMoreMenuHeight: traitsMenuHeight(restingMore.items), // the spectrum ring and the model icon's chroma
     traitsX: anchors.traits.x, traitsWidth: anchors.traits.width, runtimeX: anchors.runtime.x, runtimeWidth: anchors.runtime.width, moreX: anchors.more.x, moreWidth: anchors.more.width,
     keyEffort: commandChords(client.config, 'composer.effort', 'Meta+Shift+E', false, keyContext), keyMode: commandChords(client.config, 'composer.mode', 'Meta+Shift+A', false, keyContext),
   };
@@ -248,7 +248,7 @@ export function composerSnapshot(client: T3Client, now = 0) {
     sendChords: draftHoldsCommandEnter(client) || fileDraftHoldsCommandEnter(client) ? '' : sendChordsWhileAnnotating(sendChords(client.config, phase === 'running', !client.threadId, terminalOpen(client)), annotatingOpenThread(client)),
     // TooltipPopup: 12pt text inset 8pt plus its 1pt border, for the window-edge shift.
     sendTipWidth: Math.ceil(measured(client.presentation, action.sendTooltip, 12, 400) + 18),
-    // r5-composer: menu widths from measured texts (r5-composer-menus.ts); Run on's labels join the probes.
+    // Menu widths from measured texts (r5-composer-menus.ts); Run on's labels join the probes.
     ...composerMenus(client.presentation, view, environmentView(client).envOptions.map(option => option.label), [probe(action.sendTooltip, 12, 400)]),
     syncStatus: bar.subagent ? '' : sync, activity: bar.subagent ? '' : activity, notices, resetConfirm: bar.subagent ? '' : usageConfirm(client), implementX: anchors.implement.x, implementWidth: anchors.implement.width }, rootFontSize);
 }

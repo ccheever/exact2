@@ -1,6 +1,6 @@
 // Ported from T3 Code 1e2ecbd975 (MIT, see LICENSE-T3): apps/web/src/components/settings/
 // AcpRegistryIcon.test.ts (:105, original name). The cache, blob and fetch-policy cases are the
-// host's image loading (X44), not app code. Clone cases for the instance icon follow.
+// host's image loading (#121), not app code. Clone cases for the instance icon follow.
 import { describe, expect, it, test } from 'bun:test';
 import { instanceIconUrl, officialAcpRegistryIconUrlForAgentId, resolveOfficialAcpRegistryIconUrl, resolveProviderInstanceAcpRegistryIconUrl } from './acp-icons';
 

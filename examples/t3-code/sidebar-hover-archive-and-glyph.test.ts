@@ -1,15 +1,15 @@
-// sidebar-hover-archive-and-glyph (T3 Code 1e2ecbd975, MIT; see LICENSE-T3): the rows of the main
+// T3 Code 1e2ecbd975 (MIT; see LICENSE-T3): the rows of the main
 // sidebar a real-input session found.
-// SW-2: a row whose control's tooltip ends with the pointer still in the row has its hover and card back (Sidebar.tsx:
+// A row whose control's tooltip ends with the pointer still in the row has its hover and card back (Sidebar.tsx:
 // the row is the details tooltip's trigger; the reference's card closes for a frame and reopens). Since main #327 the
 // macOS hover is the hit's ancestor path, so the row keeps the host's hover under its controls and hears no new enter;
 // the window's `sidebarHover` (app-window.contract) gives it back. The window's and the root's halves run here with
 // Contract's action semantics (contract-action-fixture.ts).
-// SW-3a: a press on Settle or Snooze (and Wake, Un-settle) closes its tooltip at once, as Base UI's do.
-// R11-X63: a pick from a row's menu lets go of the composer's focus, so ⌘Z after Archive is the app's thread undo.
-// G4-14b: Settings › Archive's delete confirm names "this thread" and Unarchive is named by its text.
-// B12-PR-GLYPH: a thread with no pull request link draws its branch's (useLinkedThreadPullRequest's fallback), read by
-// `pullRequests.summary`; the data is the B12 lane's "Studio branch" as its server holds it.
+// A press on Settle or Snooze (and Wake, Un-settle) closes its tooltip at once, as Base UI's do.
+// A pick from a row's menu lets go of the composer's focus, so ⌘Z after Archive is the app's thread undo.
+// Settings › Archive's delete confirm names "this thread" and Unarchive is named by its text.
+// A thread with no pull request link draws its branch's (useLinkedThreadPullRequest's fallback), read by
+// `pullRequests.summary`; the data is the GitHub lane's "Studio branch" as its server holds it.
 import { afterEach, describe, expect, test } from 'bun:test';
 import { T3Client } from './client';
 import type { Obj } from './domain';
@@ -25,7 +25,7 @@ import { sidebarCommand } from './sidebar-commands';
 
 const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
 
-// ---- SW-2, SW-3a: the window's hover over a row, its controls and their tips ----
+// ---- The window's hover over a row, its controls and their tips ----
 const windowHalf = contractComponent('app-window.contract', 'T3Window');
 const rootHalf = contractComponent('app.contract', 'T3Code');
 // Rows 78 pt tall at y 100 and 180; each control's tip anchor is a zero-size box at its row's top.
@@ -57,7 +57,7 @@ async function hoverRig() {
   };
 }
 
-describe('SW-2: a control\'s tooltip ending inside its row gives the row its hover and card back', () => {
+describe('A control\'s tooltip ending inside its row gives the row its hover and card back', () => {
   test('the row, onto its Settle, back onto the row: hovered with its card again', async () => {
     const r = await hoverRig();
     r.hover('a~active', true);
@@ -103,7 +103,7 @@ describe('SW-2: a control\'s tooltip ending inside its row gives the row its hov
   });
 });
 
-describe('SW-3a: a press on Settle or Snooze closes its tooltip at once', () => {
+describe('A press on Settle or Snooze closes its tooltip at once', () => {
   test('the press moves the tip and card away; the row stays hovered; leaving the control gives the row back, card still away', async () => {
     const r = await hoverRig();
     r.hover('a~active', true); r.hover('a~active#settle', true);
@@ -141,8 +141,8 @@ describe('SW-3a: a press on Settle or Snooze closes its tooltip at once', () => 
   });
 });
 
-// ---- R11-X63: the focus after a row menu's Archive ----
-describe('R11-X63: a row menu\'s pick lets go of the composer, so ⌘Z after Archive is the thread undo', () => {
+// ---- The focus after a row menu's Archive ----
+describe('A row menu\'s pick lets go of the composer, so ⌘Z after Archive is the thread undo', () => {
   const run = (op: string, composerFocused: boolean) => {
     const blurs: unknown[][] = [];
     // commandPending holds the send back: only the focus half runs here (the client's archive is sidebar-commands.ts').
@@ -158,8 +158,8 @@ describe('R11-X63: a row menu\'s pick lets go of the composer, so ⌘Z after Arc
   });
 });
 
-// ---- G4-14b: Settings › Archive ----
-describe('G4-14b: the archived thread\'s delete confirm and its Unarchive button', () => {
+// ---- Settings › Archive ----
+describe('The archived thread\'s delete confirm and its Unarchive button', () => {
   const client = (threads: Obj[] = []) => ({
     environmentId: 'env1', shell: { projects: [], threads, sequence: 1 },
     local: { clientSettings: { confirmThreadDelete: true } },
@@ -186,10 +186,10 @@ describe('G4-14b: the archived thread\'s delete confirm and its Unarchive button
   });
 });
 
-// ---- B12-PR-GLYPH: a linkless thread's branch pull request ----
+// ---- A linkless thread's branch pull request ----
 const LANE_PROJECT = 'e2aeeb89-3b84-4239-a7a8-cf91e2abb483';
 const PR_113 = 'https://github.com/octocat/playground/pull/113';
-/** The B12 lane's "Studio branch" as its server's shell holds it (the GitHub lane, 2026-10-14). */
+/** The GitHub lane's "Studio branch" as its server's shell holds it (2026-10-14). */
 const studio = (extra: Obj = {}): Obj => ({ id: 'studio', projectId: LANE_PROJECT, title: 'Studio branch', status: 'idle', latestRunId: null,
   activeProviderThreadId: null, pendingRuntimeRequest: null, createdAt: '2026-10-14T01:00:00.000Z', updatedAt: '2026-10-14T01:00:00.000Z', archivedAt: null,
   settledOverride: null, lineage: { relationshipToParent: null }, modelSelection: { instanceId: 'codex', model: 'gpt-5.4' }, branch: 'feature/release-notes', worktreePath: null,
@@ -220,7 +220,7 @@ const defaultRow = (client: T3Client, id = 'studio') => sidebarSnapshot(client, 
 const legacyRow = (client: T3Client, id = 'studio') => legacySidebarSnapshot(client, NOW, identity).projects.flatMap(project => project.threads).find(row => row.id === id)!;
 afterEach(() => { fleet.entries.clear(); });
 
-describe('B12-PR-GLYPH: a thread with no pull request link draws its branch\'s', () => {
+describe('A thread with no pull request link draws its branch\'s', () => {
   test('the reference that useLinkedThreadPullRequest reads: the branch\'s, only while no link is current', () => {
     const config = { environment: { capabilities: { threadPullRequests: true } } };
     expect(fallbackReference(studio(), config)).toEqual({ projectId: LANE_PROJECT, host: 'github.com', repository: 'octocat/playground', number: 113 });

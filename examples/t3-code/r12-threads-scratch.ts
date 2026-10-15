@@ -1,4 +1,4 @@
-// Lane r12-threads (driven in lane r13-threads): a No project draft can switch machine (upstream c47f4263f9 and 845ddd9354;
+// A No project draft can switch machine (upstream c47f4263f9 and 845ddd9354;
 // T3 Code, MIT, see LICENSE-T3: ChatView.tsx logicalProjectEnvironments for an active Scratch
 // project, onEnvironmentChange's openScratchProject(target, "Could not switch machine"),
 // isEnvironmentChanging's "Preparing machine"; client-runtime projectCommands.ts openScratch, which
@@ -67,7 +67,7 @@ export async function openRemoteScratch(client: T3Client, native: Native, entry:
     return obj(reply.value);
   };
   changing.set(client, (changing.get(client) ?? 0) + 1);
-  // Lane r13-threads: a command's state is drawn only when a source reads again. Wake the readers now, so Send
+  // A command's state is drawn only when a source reads again. Wake the readers now, so Send
   // reads "Preparing machine" while the machine is prepared, and again when it is done. The composer's status is
   // the snapshot's: it redraws on this wake only once the snapshot watches t3.notify (client.ts refresh).
   await wakeShell(native);

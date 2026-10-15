@@ -1,4 +1,4 @@
-// Settings → Connections → Add Environment → SSH (lane settings-b), after the
+// Settings → Connections → Add Environment → SSH, after the
 // desktop app's DesktopSshEnvironment and @t3tools/ssh: hosts come from
 // ~/.ssh/config (Host aliases, Include globs) and known_hosts; an alias resolves
 // through `ssh -G`; connecting reuses the remote T3 server (or starts `t3 serve`

@@ -1,4 +1,4 @@
-// settings-escape-and-nav (2026-10-09 desktop audit S1-1..S1-4, S2-1, S2-5), read from the Contract sources as
+// Settings' Escape and nav, read from the Contract sources as
 // theme-color-picker.test.ts and dialog-focus.test.ts read theirs; the keys and the drag are driven on macOS
 // (a source read cannot press them). The "Add custom model" field's block key is checked on the providers
 // page model in providers.test.ts ("an open "Add custom model" field survives other writes …"). Reference 1e2ecbd975: useEscapeToGoBack (hooks/useNavigateBack.ts)
@@ -34,7 +34,7 @@ describe('Escape belongs to its owner, then to Settings\' Back', () => {
     expect(line(core, 'testId="close-settings"')).toContain('aria-keyshortcuts=(menuOpen or query != "" ? "" : "Escape")');
   });
 
-  test('the keybinding and licence searches clear and close on Escape, preventing it (S1-1)', async () => {
+  test('the keybinding and licence searches clear and close on Escape, preventing it', async () => {
     const settings = await component('app-settings.contract', 'SettingsWindow');
     expect(settings).toContain('  action keybindingSearchKey(name: string)\n    if name == "Escape"\n      preventDefault()\n      keybindingSearch = false\n      escapeFocusSet("keybindings-filter", false)\n      editKeybindingQuery("")');
     expect(settings).toContain('  action licenseSearchKey(name: string)\n    if name == "Escape"\n      preventDefault()\n      licenseSearchOpen = false\n      escapeFocusSet("license-search", false)');
@@ -55,7 +55,7 @@ describe('Escape belongs to its owner, then to Settings\' Back', () => {
     expect(settings).toContain('  action closeLicenseSearch\n    if licenseQuery == ""\n      licenseSearchOpen = false\n    escapeFocusSet("license-search", false)');
   });
 
-  test('the When editor and the font list are modal scopes while they show, so the host\'s light dismiss gets Escape (S1-1)', async () => {
+  test('the When editor and the font list are modal scopes while they show, so the host\'s light dismiss gets Escape', async () => {
     const when = await component('settings-keybindings.contract', 'WhenEditor');
     for (const part of ['id="keybinding-when-editor"', 'popover="auto"', 'aria-modal=true']) expect(line(when, 'testId="keybinding-when-editor"')).toContain(part);
     const fonts = await component('settings-a-fonts.contract', 'FontFamilyPicker');
@@ -65,7 +65,7 @@ describe('Escape belongs to its owner, then to Settings\' Back', () => {
     expect(fonts.split('\n').filter(text => text.includes('aria-keyshortcuts'))).toEqual([]);
   });
 
-  test('"Add custom model" is held by its Models block\'s key, and its slug field takes Escape while it has the focus (S1-2)', async () => {
+  test('"Add custom model" is held by its Models block\'s key, and its slug field takes Escape while it has the focus', async () => {
     const models = await component('providers.contract', 'ProviderModels');
     expect(models).not.toContain('state adding');
     expect(models).toContain('    blockKey: string\n    adding: bool\n');
@@ -81,7 +81,7 @@ describe('Escape belongs to its owner, then to Settings\' Back', () => {
     // A successful add gives the block a new key (providers.ts modelRevisionsOf), so the field closes.
     expect(line(editor, 'ProviderModels(')).toContain('ui=ui, blockKey=block.key, adding=(modelAdding == block.key))');
     const settings = await component('app-settings.contract', 'SettingsWindow');
-    // audit-wave-followups FU-4: through the provider link visit it was opened on (audit-wave-followups.test.ts).
+    // Through the provider link visit it was opened on (audit-wave-followups.test.ts).
     expect(line(settings, 'ProvidersPanel(')).toContain('ui=providerUiWindow, modelAdding=modelAddingLive)');
     // The field counts only while its key is on the page (a removed instance or a successful add takes it away).
     expect(line(settings, 'derive modelAddingShown =')).toContain('modelAddingLive != "" and providerPage.editors.filter((shown) => shown.modelBlocks.map((models) => models.key).includes(modelAddingLive)).length > 0');
@@ -93,7 +93,7 @@ describe('Escape belongs to its owner, then to Settings\' Back', () => {
     expect(window).toContain('        if settingsOpen\n          SettingsWindow(settingsOpen=settingsOpen, ');
   });
 
-  test('a Settings dialog makes the page inert, so its own Escape closes only it (S2-1)', async () => {
+  test('a Settings dialog makes the page inert, so its own Escape closes only it', async () => {
     const settings = await component('app-settings.contract', 'SettingsWindow');
     expect(line(settings, 'derive dialogShown =')).toContain('restEditor != "" or settingsCore.saOpen or settingsCore.archiveConfirm.id != ""');
     expect(line(settings, 'testId="settings-dialog"')).toContain('inert=(connecting or dialogShown or ');
@@ -105,7 +105,7 @@ describe('Escape belongs to its owner, then to Settings\' Back', () => {
   });
 });
 
-describe('the keybinding recorder owns every key while it records (S1-3, S1-4)', () => {
+describe('the keybinding recorder owns every key while it records', () => {
   test('the recording field is the window\'s modal scope, and leaving it stops recording', async () => {
     const capture = await component('settings-keybindings.contract', 'CaptureField');
     expect(line(capture, 'testId="keybinding-recording"')).toContain('aria-modal=true');
@@ -132,7 +132,7 @@ describe('the keybinding recorder owns every key while it records (S1-3, S1-4)',
   });
 });
 
-describe('the Settings nav is the app sidebar: its width and its rail (S2-5)', () => {
+describe('the Settings nav is the app sidebar: its width and its rail', () => {
   test('the nav takes the shared sidebar width, clamped as the thread sidebar\'s, not a fifth of the window', async () => {
     const settings = await component('app-settings.contract', 'SettingsWindow');
     expect(settings).not.toContain('viewport.width / 5');

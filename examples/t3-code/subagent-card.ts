@@ -1,6 +1,6 @@
 // A subagent's hover card: provider glyph, model (with the account when several
 // accounts share the provider), status, elapsed time, the workspace rows that
-// differ from the parent, and a one-line preview (task composer-fidelity, A15).
+// differ from the parent, and a one-line preview.
 // Adapted from T3 Code 1e2ecbd975 (MIT); see LICENSE-T3. Sources:
 // apps/web/src/components/chat/SubagentTooltipContent.tsx (daa1d0ed94),
 // packages/client-runtime/src/state/subagentDisplay.ts (resolveSubagentMetadata,

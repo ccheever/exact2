@@ -3,7 +3,7 @@ import AppKit
 import CryptoKit
 import WebKit
 
-/// Every Browser tab's page, by runtime tab id (browser-surface part 1; MIT reference, see LICENSE-T3, T3 Code
+/// Every Browser tab's page, by runtime tab id (MIT reference, see LICENSE-T3, T3 Code
 /// 1e2ecbd975: apps/web/src/browser/ElectronBrowserHost.tsx, desktopTabLifetime.ts; apps/desktop/src/preview/
 /// BrowserSession.ts partitions). The reference mounts a `<webview>` for every live preview session at the app
 /// root, so a tab keeps its page while the panel is hidden or another thread is shown, and closes it when its
@@ -13,8 +13,8 @@ import WebKit
 ///
 /// Storage: each environment's profile has its own persistent WebKit data store (the reference's
 /// `persist:t3code-preview-<scope>` partition), identified by a UUID derived from the environment and the
-/// profile, apart from the app's other web views; Incognito's store is in memory (part 4, which adds the named
-/// profiles, clearing and the cookie import: T3BrowserSessions+Profiles.swift). Agent runs keep everything in memory.
+/// profile, apart from the app's other web views; Incognito's store is in memory (T3BrowserSessions+Profiles.swift adds the named
+/// profiles, clearing and the cookie import). Agent runs keep everything in memory.
 ///
 /// One registry per module, so per session: two sessions in one process (the sample host's) keep their own
 /// pages, and a session that ends closes only its own (T3Module `browserSessions`, `T3BrowserSessionOwner`).
@@ -34,7 +34,7 @@ final class T3BrowserSessions {
     lazy var artifactDirectory: URL = artifactDirectoryOverride ?? T3BrowserArtifacts.directory(dataRoot: dataRoot)
     var imageDirectory: URL? { dataRoot?.appendingPathComponent("snapshots", isDirectory: true).appendingPathComponent("drafts", isDirectory: true) }
     let parking = T3BrowserParking()
-    /// A page made or closed (browser-surface part 5: the automation host's scripts go in before the first load).
+    /// A page made or closed (the automation host's scripts go in before the first load).
     var created: ((T3BrowserSession) -> Void)?
     var ended: ((String) -> Void)?
 
@@ -44,7 +44,7 @@ final class T3BrowserSessions {
     }
     deinit { if let monitor = humanInputMonitor { NSEvent.removeMonitor(monitor) } }
 
-    /// Manager.ts handleHumanInput (browser-recording-and-downloads BR-2): a person's press or key on a page hands it back
+    /// Manager.ts handleHumanInput: a person's press or key on a page hands it back
     /// from the agent, so its next download asks where (T3BrowserDownloads). The application's event queue carries only
     /// the person's input: the agent's native events go straight to the page's view (T3BrowserAutomationInput).
     private var humanInputMonitor: Any?
@@ -100,7 +100,7 @@ final class T3BrowserSessions {
 
     /// The tab's page, made on first use (at its URL, if it has one). A page made for a known size (a fixed viewport's,
     /// at its zoom, from `browserSync`; or the stage's laid-out box, from `T3BrowserView`) is made at it before its
-    /// first load, so its first layout is that size (part 2, #352).
+    /// first load, so its first layout is that size (#352).
     @discardableResult
     func ensure(id: String, url: String, profile: String, environment: String, size: NSSize? = nil, zoom: Double? = nil) -> T3BrowserSession {
         if let existing = sessions[id] { return existing }
@@ -173,7 +173,7 @@ final class T3BrowserSessions {
 
     /// The module's status (`presentation.browserTabs`, `presentation.browserLog`).
     var status: [String: Any] {
-        ["browserTabs": sessions.mapValues { $0.report.merging($0.navigationReport) { first, _ in first } }, "browserLog": log] // part 2: zoom, appearance
+        ["browserTabs": sessions.mapValues { $0.report.merging($0.navigationReport) { first, _ in first } }, "browserLog": log] // zoom, appearance
     }
 
     /// The data module's ops (T3Module+Browser.swift); nil for any other op.

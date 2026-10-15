@@ -1,4 +1,4 @@
-// Lane r4-polish: the thread sidebar's width as the reference keeps it
+// The thread sidebar's width as the reference keeps it
 // (threadSidebarWidth.ts, AppSidebarLayout.tsx and ui/sidebar.tsx SidebarRail;
 // MIT, see LICENSE-T3). The rail stores a width (localStorage
 // `chat_thread_sidebar_width`) only when a drag ends, and a double-click reset
@@ -64,6 +64,6 @@ export function sidebarLaunchWidth(owner: Holder & { preferencesLoaded: boolean 
   if (sidebarWidthStored(owner)) { launched.delete(owner); return 0; }
   let width = launched.get(owner);
   if (width === undefined) { width = initialSidebarWidth(null, viewportWidth); launched.set(owner, width); }
-  // r12-sidebar: the layout clamps it to the live minimum (the brand at the Interface font size).
+  // The layout clamps it to the live minimum (the brand at the Interface font size).
   return clampSidebarWidth(width, viewportWidth, sidebarMinimumWidth((owner.local as { clientSettings?: { fontSizeInterface?: number } }).clientSettings?.fontSizeInterface));
 }

@@ -1,8 +1,8 @@
 import AppKit
 import XCTest
 
-// adopt-main-fixes-r11 RT-3: since main #487 (X85) a Control-click is the secondary click ExactKit takes as a right-click
-// where a node wrote `contextmenu` (`NodeView.contextClick`), and since main #486 (X84) VoiceOver's show menu runs the
+// Since main #487 a Control-click is the secondary click ExactKit takes as a right-click
+// where a node wrote `contextmenu` (`NodeView.contextClick`), and since main #486 VoiceOver's show menu runs the
 // node's `contextmenu` with no event at all. Chromium sends a Control-click as `contextmenu` (no `click`) and fires
 // `contextmenu` at the element for VoiceOver's AXShowMenu (Blink `ShowNonLocatedContextMenu`); Electron's `context-menu`
 // then pops the shell's menu (DesktopWindow.ts `installContextMenu`: its template with no position, so at the pointer).
@@ -87,7 +87,7 @@ final class SecondaryClickTests: ShellMenuCase {
         XCTAssertEqual(area.ownMenus, 0, "AppKit's own editing menu never shows")
     }
 
-    // X84: VoiceOver's show menu on a reply's mailto link. With no fresh click or ContextMenu key a `contextmenu` that asks
+    // VoiceOver's show menu on a reply's mailto link. With no fresh click or ContextMenu key a `contextmenu` that asks
     // for the shell's menu is an assistive technology's AXShowMenu (main #486); while one is on, the shell's menu opens for
     // the link the request names, at the pointer as Electron pops it.
     func testVoiceOversShowMenuOpensTheShellsMenuForTheLinkItNames() {

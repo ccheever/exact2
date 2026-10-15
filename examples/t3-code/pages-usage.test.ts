@@ -15,12 +15,12 @@ test('usage figures format as usageFormat.ts does', () => {
   expect([formatCount(1022), formatDayShort('2026-09-05')]).toEqual(['1,022', 'Sep 5']);
 });
 
-// usage-and-pr-pages PG-2: usageFormat.ts's CURRENCY is Intl.NumberFormat("en-US", USD, 2 digits), which rounds
+// usageFormat.ts's CURRENCY is Intl.NumberFormat("en-US", USD, 2 digits), which rounds
 // half away from zero on the shortest digits (0.825 → $0.83); Bun's Intl is ICU, as Chrome's is, so it is the oracle.
-// adopt-main-fixes-r10 RT-3: since main #447 (X72) the Apple hosts' Intl rounds the same, so `formatUsd` is that
+// Since main #447 (issues/closed/20261010-apple-intl-number-format-half-even.md) the Apple hosts' Intl rounds the same, so `formatUsd` is that
 // formatter, as the reference's; the fixed list is ICU's answers, and the macOS app's own Hermes was checked live
 // (the Usage page's Day table, USD 0.825 on Oct 9 is $0.83).
-test('USD amounts round as the reference currency format does (half-expand, PG-2)', async () => {
+test('USD amounts round as the reference currency format does (half-expand)', async () => {
   const source = await Bun.file(new URL('pages-usage.ts', import.meta.url)).text();
   expect(source).toContain("currency ??= new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 });");
   expect(source).not.toContain('function plainDigits');
@@ -136,9 +136,9 @@ test('usage shortcuts resolve with usagePageOpen and the last binding wins', () 
   ]);
 });
 
-// usage-and-pr-pages PG-4: each toggle's and select option's title is shortcutTitle(option), as the reference reads
+// Each toggle's and select option's title is shortcutTitle(option), as the reference reads
 // it from the served keybindings (the audit's reference: Cost (C) … 90 days (⇧⌘4)).
-test('the metric and period options carry their label and shortcut as their title (PG-4)', () => {
+test('the metric and period options carry their label and shortcut as their title', () => {
   const chord = (shortcut: Obj) => [shortcut.modKey ? 'Meta' : '', shortcut.shiftKey ? 'Shift' : '', String(shortcut.key)].filter(Boolean).join('+');
   const usage = keybindingDefaults.filter(entry => entry.command.startsWith('usage.'));
   const keybindings = [{ command: 'commandPalette.toggle', shortcut: { key: 'k', modKey: true }, whenAst: null }, ...usage.map(entry => {

@@ -1,4 +1,4 @@
-// The queued-messages control above the composer (lane composer-controls),
+// The queued-messages control above the composer,
 // adapted from T3 Code (MIT); see LICENSE-T3. Sources: chat/QueuedRunsControl.tsx,
 // packages/client-runtime/src/state/threadWorkflows.ts (deriveThreadQueueWorkflowState,
 // getUserQueuedThreadRuns) and ChatView.tsx (beginEditingQueuedRun,
@@ -9,7 +9,7 @@ import type { T3Client } from './client';
 import { editView, endLostEdit, removeExisting, restoreThreadDraft, saveEdit, startEdit, type QueuedEditing } from './queued-edit-attachments';
 
 export type QueuedRow = { runId: string; text: string; images: number; index: number; editing: boolean; last: boolean;
-  /** composer-fidelity G12a: the row's 16pt image thumbnails (ids the window matches to signed URLs) and a send still saving. */
+  /** The row's 16pt image thumbnails (ids the window matches to signed URLs) and a send still saving. */
   thumbnails: Array<{ id: string; name: string }>; pending: boolean };
 
 /** getUserQueuedThreadRuns in queue order; automatic completion/notification runs are not the user's queue. */
@@ -40,7 +40,7 @@ export function queueState(projection: Obj) {
 }
 
 // The edit draft borrows the thread's composer; the thread's own draft waits here
-// (composer-fidelity G12a: with its SnapShot images, and the message's attachments load; queued-edit-attachments.ts).
+// (with its SnapShot images, and the message's attachments load; queued-edit-attachments.ts).
 const editing = new WeakMap<T3Client, QueuedEditing>();
 const threadKey = (client: T3Client) => `${client.environmentId}:${client.threadId}`;
 export function queuedEdit(client: T3Client): QueuedEditing | undefined {
@@ -56,7 +56,7 @@ export function queuedView(client: T3Client) {
   const edit = queuedEdit(client);
   const rows: QueuedRow[] = state.queued.map((entry, index) => ({ runId: str(entry.run.id), text: entry.text.replace(/\s+/g, ' ').trim(), images: entry.images,
     index, editing: edit?.runId === entry.run.id, last: index === state.queued.length - 1, thumbnails: entry.thumbnails, pending: false }));
-  // composer-fidelity G12a: a queued send the projection has not acknowledged yet shows as a pending row (QueuedRunsControl optimisticQueued).
+  // A queued send the projection has not acknowledged yet shows as a pending row (QueuedRunsControl optimisticQueued).
   const pending = pendingQueued(client);
   if (pending) rows.push({ ...pending, index: rows.length, last: true }), rows.forEach((row, index) => { row.last = index === rows.length - 1; });
   return { queued: rows, queueReorder: state.canReorder, queueSteer: state.canSteer, queueSteerReason: state.activeRunId ? '' : 'There is no active run to steer',

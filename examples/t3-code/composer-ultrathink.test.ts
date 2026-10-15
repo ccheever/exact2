@@ -1,4 +1,4 @@
-// composer-fidelity G9: the ultrathink flow and the Fast default through the
+// The ultrathink flow and the Fast default through the
 // client (composer-ultrathink.ts), against the composer-controls fake backend.
 // Behavior per T3 Code 1e2ecbd975 TraitsPicker.tsx handleSelectChange and
 // ChatView.tsx formatOutgoingPrompt (MIT; see LICENSE-T3).
@@ -20,7 +20,7 @@ async function onClaude() {
   return context;
 }
 
-describe('ultrathink (G9)', () => {
+describe('ultrathink', () => {
   test('choosing the injected effort rewrites the draft and stores no option', async () => {
     const { client, command } = await onClaude();
     await command('draft', '', 'Fix the flaky test');
@@ -63,7 +63,7 @@ describe('ultrathink (G9)', () => {
   });
 });
 
-describe('Fast default (G9)', () => {
+describe('Fast default', () => {
   test('a model with fastMode sends fastMode:false until the user chooses Fast', async () => {
     const { client, native, command } = await connected();
     await command('select-thread', 't1');

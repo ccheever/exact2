@@ -191,7 +191,7 @@ describe('keyboard dispatch (resolveShortcutCommand)', () => {
     expect(target('rightPanel.close')).toBeUndefined();
     expect(keyboardDispatch(client, threads, '', '', { ...context, diffOpen: true }).some(item => item.command === 'rightPanel.close')).toBe(true);
     expect(keyboardDispatch(client, threads, '', '', { ...context, modalOpen: true })).toEqual([]);
-    // thread-commands-and-keys: the palette provider's chords (here appearance.cycle) stay live in Settings.
+    // The palette provider's chords (here appearance.cycle) stay live in Settings.
     expect(keyboardDispatch(client, threads, '', '', { ...context, modalOpen: true, settingsOpen: true }).map(item => item.command)).toEqual(['settings.open', 'navigation.back', 'appearance.cycle']);
   });
 });
@@ -220,7 +220,7 @@ describe('source control and integrations (scoped rows)', () => {
     const rows = sourceControlRows(settings, '', 'Mac', [], true);
     expect(rows.repositories.map(row => [row.title, row.reset])).toEqual([['Automatically pull', 'key=defaultAutoPull&value=__default__'], ['Default merge method', '']]);
     expect(rows.text.map(row => row.title)).toEqual(['Worktree branch naming', 'Branch prefix', 'Source control writing style', 'Follow change request templates', 'Source control writer model']);
-    // settings-rows-and-labels S2-10: the controls' accessible names and SettingResetButton labels of the reference.
+    // The controls' accessible names and SettingResetButton labels of the reference.
     expect(rows.repositories.map(row => [row.control, row.resetLabel])).toEqual([['Default automatic pull', 'default automatic pull'], ['Default pull request merge method', 'default merge method']]);
     expect(rows.text.map(row => row.resetLabel)).toEqual(['branch naming', 'branch prefix', 'source control writing style', 'change request templates', '']);
     expect(sourceControlRows({ ...settings, branchNamingMode: 'custom' }, '', 'Mac', [], true).text[1]).toMatchObject({ title: 'Branch naming instructions', resetLabel: 'branch naming instructions' });
@@ -231,7 +231,7 @@ describe('source control and integrations (scoped rows)', () => {
       sourceControlProviders: [{ kind: 'github', label: 'GitHub', status: 'available', version: { _tag: 'Some', value: 'gh 2' }, installHint: 'x', executable: 'gh', auth: { status: 'authenticated', account: { _tag: 'Some', value: 'secret-account' } } }] });
     expect(found.vcs[0]).toMatchObject({ comingSoon: true, summary: 'Support for Jujutsu is coming soon.', dot: 'muted' });
     expect(found.providers[0]).toMatchObject({ version: 'gh 2', summary: 'Authenticated', account: true, enabled: true });
-    // RedactedText draws the same-shape placeholder until this item's own reveal (provider-sign-in-and-install, D14).
+    // RedactedText draws the same-shape placeholder until this item's own reveal.
     expect(found.providers[0]).toMatchObject({ accountValue: 'secret-account', accountPlaceholder: redactedPlaceholder('secret-account') });
     expect(found.vcs[0]).toMatchObject({ accountValue: '', accountPlaceholder: '' });
     expect(toolVersion(undefined)).toBe('Version unknown');

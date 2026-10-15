@@ -51,7 +51,7 @@ async function diff(this: T3Client, native: Native, op: string, id: string, valu
   const epoch = this.threadEpoch, threadId = this.threadId, asked = JSON.stringify(request);
   this.diffLoading = true;
   try {
-    const result = await requestDiff(this.config, request, (method, payload) => this.request(native, method, payload)); // r11-device: DiffPanel's server-cwd retry
+    const result = await requestDiff(this.config, request, (method, payload) => this.request(native, method, payload)); // DiffPanel's server-cwd retry
     if (epoch === this.threadEpoch && threadId === this.threadId && this.diffOpen && JSON.stringify(diffRequest(this)) === asked) {
       // A named file stays collapsed, as in the reference (onOpenTurnDiff leaves 'Expand <file>' false).
       this.diffText = adoptDiff(this, request, result);

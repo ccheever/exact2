@@ -397,7 +397,7 @@ final class TransportTests: XCTestCase {
     }
 }
 
-// Lane r13-store (F5): an environment removed on this device leaves nothing that names it. Two loopback servers
+// An environment removed on this device leaves nothing that names it. Two loopback servers
 // (R3Socket, R3HTTP) are paired, one is focused, then removed; credentials and the saved list are in memory and the
 // remembered origin lives in a UserDefaults suite of this test's own, so no real Keychain item and no real preferences
 // domain is read or written.
@@ -547,7 +547,7 @@ final class ForgetOriginTests: XCTestCase {
     }
 }
 
-// R3TransportTests (r3.swift): reconnect policy, read gate, stream retries. ForgetOriginTests: F5, removal leaves no origin.
+// R3TransportTests (r3.swift): reconnect policy, read gate, stream retries. ForgetOriginTests: removal leaves no origin.
 // RemoteScopeTests (remote-scopes.swift): the exchange sends the scope TS names; a narrow link is refused.
 // RouteTests (routes.swift): one environment, several routes.
 // TerminalStreamTests (terminal-streams.swift): the drawer's attach streams beside the app's 16.

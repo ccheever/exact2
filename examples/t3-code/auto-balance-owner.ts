@@ -1,4 +1,4 @@
-// The composer's draft identity (task auto-balance; T3 Code MIT, see LICENSE-T3; reference
+// The composer's draft identity (T3 Code MIT, see LICENSE-T3; reference
 // 1e2ecbd975 apps/web/src/composerDraftStore.ts keys a draft by its draft id, so ChatView's
 // setDraftThreadContext moving the draft's projectRef to the machine Auto balance chose leaves
 // the composer's text, caret and focus alone).

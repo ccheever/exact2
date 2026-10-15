@@ -1,4 +1,4 @@
-// The queue and host key commands (task thread-commands-and-keys, G14/A14),
+// The queue and host key commands,
 // adapted from T3 Code 1e2ecbd975 (MIT); see LICENSE-T3. Sources:
 // apps/web/src/components/ChatView.tsx (the window keydown handler:
 // thread.steerQueuedMessage, thread.editQueuedMessage, composer.host,

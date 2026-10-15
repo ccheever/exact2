@@ -1,4 +1,4 @@
-// Lane r5-panels: the right panel's native needs.
+// The right panel's native needs.
 //
 // 1. The Files editor (hook `t3-file-editor`) takes the focus when a press in the
 //    file's body mounts it. It writes exactly what was typed through its
@@ -27,7 +27,7 @@ enum T3FileEditor {
     /// begins editing and mounts the editor, but the press left the focus where it was (the
     /// composer, which opening a thread focuses) and Exact's focus on the pressed view, which blocks
     /// the textarea's autofocus: typing then went to the composer. The editor mounts only from that
-    /// press, so it takes the focus as the reference's editor does (lane r13-panels, measured on the
+    /// press, so it takes the focus as the reference's editor does (measured on the
     /// f870c41 oracle with @pierre/diffs 1.3.0-beta.10: a click below the last line focuses the
     /// contenteditable with the caret at the end of the last line, whatever the click's x; a click on
     /// a line puts the caret under it). A real press's point is kept (`watchPresses`): below the

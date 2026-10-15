@@ -86,7 +86,7 @@ component PrdThreadCard
     replying = true
     seenReply = card.repliedSerial
     reply = ""
-  // usage-and-pr-pages PG-7: the reply field holds Escape while it has the focus (submitKeys' onCancel; PrPanel's
+  // The reply field holds Escape while it has the focus (submitKeys' onCancel; PrPanel's
   // "pr-escape-hold"), named with the reply serial it opened on, so PrPanel lets go once a sent reply closes it (its
   // field goes with no blur); abandoning it lets go here.
   action replyHold(on: bool)
@@ -191,7 +191,7 @@ component PrdThreadComment
             PrAvatar(avatar=comment.avatar, initial=comment.initial, size=16)
             text comment.author font-size="0.75rem" line-height="1rem" font-weight=500 color=ptInk() white-space="nowrap"
         // The age has no tip: ReviewThreadCard's `<span>{formatRelativeTimeLabel(comment.createdAt)}</span>` (the full date
-        // is the Summary tab's, PullRequestSummaryTab's CommentMeta). unverified-real-input-rows UV-1.
+        // is the Summary tab's, PullRequestSummaryTab's CommentMeta).
         text comment.age font-size="0.75rem" line-height="1rem" color=ptMuted() white-space="nowrap" testId=`pull-request-thread-age-${comment.id}`
         PrdReactionBar(pills=comment.reactions, reacted=comment.reacted, canReact=canReact, choices=choices, subject=comment.id, pickerId=`pr-code-react-${comment.id}`, act=act)
       column margin-top="0.25rem" min-width=0
@@ -230,7 +230,7 @@ component PrdCodeDraft
     cancel: action
     add: action
     agent: action
-    // usage-and-pr-pages PG-7: the field's hold on Escape (PrPanel's "pr-escape-hold").
+    // The field's hold on Escape (PrPanel's "pr-escape-hold").
     local: action
   // The field holds Escape while it has the focus (its onKeyDown cancels the draft); PrPanel lets go of it once no
   // draft is open (`codeTab.draftOpen`), as the draft's field goes with no blur.

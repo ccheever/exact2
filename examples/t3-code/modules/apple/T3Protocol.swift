@@ -88,7 +88,7 @@ enum T3Wire {
         if message.isEmpty, tag == "PullRequestOperationError", !text("detail").isEmpty {
             message = "Pull request operation \(text("operation")) failed: \(text("detail"))"
         }
-        // So is PullRequestUnavailableError's: a stable sentence from reason and host (lane r5-panels, T3PanelsNative.swift).
+        // So is PullRequestUnavailableError's: a stable sentence from reason and host (T3PanelsNative.swift).
         if message.isEmpty, tag == "PullRequestUnavailableError" { message = T3PullRequestErrors.unavailable(reason: text("reason"), provider: text("provider")) }
         if message.isEmpty, !text("detail").isEmpty { message = text("detail") }
         if message.isEmpty, let cause = error["cause"] { message = failure(cause).message }
@@ -196,8 +196,7 @@ enum T3Endpoint {
         // SUPPORTED_REMOTE_BACKEND_PROTOCOLS): a LAN pairing link, as This machine's network access
         // advertises it, is http, and so is every learned LAN or tailnet route (DirectEndpoints.ts).
         // Until 2026-10-08 the clone refused remote http ("A remote server requires HTTPS.");
-        // fix-provider-auth-state accepted it, and the user's decision of 2026-10-11 keeps the
-        // reference's rule (network-routes-followups NR-1). In the bundle, App Transport Security
+        // the clone now keeps the reference's rule. In the bundle, App Transport Security
         // passes plain http to IP literals, `.local` and unqualified names and refuses it to any other
         // host name (-1022; probed 2026-10-12 with the bundle's ATS keys).
         url.scheme = scheme; url.host = host.lowercased(); url.path = ""; url.query = nil; url.fragment = nil

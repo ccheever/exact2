@@ -1,4 +1,4 @@
-// The pull request panel's pure rules (lane "pages"), ported with their names from T3 Code
+// The pull request panel's pure rules, ported with their names from T3 Code
 // 1e2ecbd975 (MIT, see LICENSE-T3):
 // - apps/web/src/components/pullRequest/pullRequestDetail.logic.ts: shouldRefreshPullRequestActivity,
 //   mergePullRequestThreadComments, editPullRequestThreadComment, orderPullRequestComments,

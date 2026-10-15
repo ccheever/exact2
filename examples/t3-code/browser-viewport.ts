@@ -1,4 +1,4 @@
-// browser-surface part 2: a Browser tab's viewport and zoom (T3 Code 1e2ecbd975, MIT, see LICENSE-T3:
+// A Browser tab's viewport and zoom (T3 Code 1e2ecbd975, MIT, see LICENSE-T3:
 // packages/shared/src/previewViewport.ts, packages/contracts/src/preview.ts `PREVIEW_VIEWPORT_*`,
 // `PREVIEW_ZOOM_LEVELS`, apps/web/src/browser/{browserViewportLayout,browserViewportActions,
 // browserDeviceToolbarState,browserDefaults}.ts, apps/web/src/components/preview/{previewViewportReadiness,
@@ -10,7 +10,7 @@
 // (32 pt) with 10 pt resize rails. A fixed viewport larger than the panel is scaled down to fit (presentation
 // only: the page keeps its CSS viewport). Zoom steps along Chrome's ladder, 25% to 500%.
 //
-// WebKit (X1 path B): the zoom is the web view's `pageZoom` (the page's CSS pixels grow, as Chromium's zoom
+// WebKit: the zoom is the web view's `pageZoom` (the page's CSS pixels grow, as Chromium's zoom
 // does); a fixed viewport is a web view sized at `width × zoom` by `height × zoom` points inside a box whose
 // bounds scale it into the fitted footprint (T3BrowserView.swift), so the page measures the requested viewport.
 import type { PreviewViewportSetting } from './browser-state';
@@ -203,7 +203,7 @@ export async function commitViewportAndAspectRatio(setting: PreviewViewportSetti
   onAspectRatioChange(aspectRatio);
 }
 
-// ── Readiness and rollback (previewViewportReadiness.ts, previewViewportRollback.ts; part 5's automation reads them) ──
+// ── Readiness and rollback (previewViewportReadiness.ts, previewViewportRollback.ts; the automation reads them) ──
 export function isPreviewViewportReady(input: { setting: PreviewViewportSetting; appliedSettingKey: string | null; declaredViewport: PreviewViewportSize | null; renderedViewport: PreviewViewportSize | null }): boolean {
   const { setting, appliedSettingKey, declaredViewport, renderedViewport } = input;
   if (appliedSettingKey !== browserViewportSettingKey(setting) || declaredViewport === null || renderedViewport === null) return false;
@@ -243,8 +243,8 @@ export const zoomLabel = (zoomFactor: number): string => `${Math.round(zoomFacto
 export type PreviewAppearancePreference = 'system' | 'light' | 'dark';
 export type BrowserDefaults = { viewport: PreviewViewportSetting; zoomFactor: number; appearance: PreviewAppearancePreference };
 export const DEFAULT_BROWSER_DEFAULTS: BrowserDefaults = { viewport: FILL_PREVIEW_VIEWPORT, zoomFactor: DEFAULT_PREVIEW_ZOOM_FACTOR, appearance: 'system' };
-// The Settings rows that make these defaults configurable (browserDefaultTabState, browserDefaultOpenViewport) moved to
-// browser-surface-profiles (part 4); until then new tabs open at the reference's defaults (fill, 100%, System).
+// The Settings rows that make these defaults configurable (browserDefaultTabState, browserDefaultOpenViewport) are in
+// browser-defaults.ts; without one configured, new tabs open at the reference's defaults (fill, 100%, System).
 export const FALLBACK_RESPONSIVE_VIEWPORT_SIZE = { width: 1024, height: 768 } as const;
 /** Show device toolbar on a fill tab: a configured fixed default wins; else the panel's framed area, else 1024 × 768. */
 export function browserResponsiveViewportForToggle(input: { defaults: BrowserDefaults; panelRect: PreviewViewportSize | null; zoomFactor: number | undefined }): PreviewViewportSetting {

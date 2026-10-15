@@ -20,7 +20,7 @@ shape MessageImage
   appInitial: string
   windowTitle: string
   accessible: bool
-  // lane r6-media: a sent video's tile (UserVideoAttachment).
+  // A sent video's tile (UserVideoAttachment).
   video: bool
 shape MessageFile
   id: string
@@ -29,7 +29,7 @@ shape MessageFile
 shape AttachmentUrl
   id: string
   url: string
-  // r4-timeline: an image chip's tint from the picture's average colour ("" when unread).
+  // An image chip's tint from the picture's average colour ("" when unread).
   fill: string
   hover: string
   border: string
@@ -49,7 +49,7 @@ component MessageAttachments
       if images.length > 0
         row max-width="13.125rem" margin-bottom="0.5rem" flex-wrap="wrap" gap="0.5rem"
           for image in images key=image.id
-            // lane r6-media: a sent video's still tile opens it in the media dialog (UserVideoAttachment).
+            // A sent video's still tile opens it in the media dialog (UserVideoAttachment).
             if image.video
               if urls.filter((entry) => entry.id == image.id).length > 0
                 for entry in urls.filter((entry) => entry.id == image.id) key=entry.id
@@ -94,7 +94,7 @@ component AttachmentTile
 // ExpandedImageDialog: the image at its own size up to 92% of the window
 // (less 96pt for the arrows) and min(86vh, 100vh − 160pt) high, its close
 // button 40pt above the top-right corner, "name (1/2)" below it, and the
-// previous/next arrows at the dialog's edges. media-actions: the media and its caption sit in
+// previous/next arrows at the dialog's edges. The media and its caption sit in
 // MediaActions (Save, Copy image); an image with no URL says it is unavailable, and a video that
 // fails shows ExpandedMediaFailure's black panel with Retry video.
 component ImagePreviewHost
@@ -107,7 +107,7 @@ component ImagePreviewHost
     next: bool
     video: bool
     source: string
-    // MSU-1 / G4-05: the media's tooltip (MediaActions: its full path, URL or name), and the node the dialog gives the focus back to.
+    // The media's tooltip (MediaActions: its full path, URL or name), and the node the dialog gives the focus back to.
     tip: string
     returnFocus: string
     windowWidth: number
@@ -135,14 +135,14 @@ component ImagePreviewDialog
     previous: bool
     next: bool
     video: bool
-    // context-menu-gaps: the media's actions source (a sent attachment's `attachment:<id>`, or a file link's media JSON).
+    // The media's actions source (a sent attachment's `attachment:<id>`, or a file link's media JSON).
     source: string
     tip: string
     returnFocus: string
     windowWidth: number
     windowHeight: number
     local: action
-  // G4-05: closing gives the focus back to the Markdown image that opened it (Base UI Dialog's finalFocus).
+  // Closing gives the focus back to the Markdown image that opened it (Base UI Dialog's finalFocus).
   action closePreview
     local("image-close", "", "")
   // MediaVideoPlayer failedSrc / ExpandedImageDialog failedImageSrc: the URL the player or the picture
@@ -164,7 +164,7 @@ component ImagePreviewDialog
         MediaActions(source=source, tip=(tip != "" ? tip : name), local=local, elementId="image-preview-actions", testId="image-preview-actions")
           column min-width=0 align-items="center"
             box position="relative"
-              // lane r6-media: ExpandedVideo, the player with native controls, playing (r6-media.contract).
+              // ExpandedVideo, the player with native controls, playing (r6-media.contract).
               if video
                 if url != "" and not videoFailed
                   R6ExpandedVideo(url=url, name=name, maxWidth=(windowWidth * 0.92 - 96), maxHeight=min(windowHeight * 0.86, windowHeight - 160), broke=broke)
@@ -205,7 +205,7 @@ component PreviewStep
           box width="1.25rem" height="1.25rem" rotate=(flip ? 180 : 0)
             Icon(name="right", size=20, color="#ffffff")
 
-// lane r5-panels: an unreferenced sent file (MessagesTimeline unchippedFiles): "Preview {name}"
+// An unreferenced sent file (MessagesTimeline unchippedFiles): "Preview {name}"
 // opens it beside the thread (rightPanelStore.openAttachment), the muted download saves it.
 component SentFileRow
   props

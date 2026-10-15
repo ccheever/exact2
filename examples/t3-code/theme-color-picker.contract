@@ -58,7 +58,7 @@ component ThemeColorSwatch
     session: string
     pal: CorePalette
     live: action
-    // popover-escape-parity: the window's outside-press count (T3Window), which this control's own
+    // The window's outside-press count (T3Window), which this control's own
     // pointer handlers take from it (the innermost pointer node hears a press).
     outsideDown: action
     outsideUp: action
@@ -125,7 +125,7 @@ component ThemeColorSwatch
       sentHex = c
       live("color", `${session}|${row.role}`, c, t)
   // The op in flight landed (the tracker in the plane is 1 wide again): a drag that has moved since sends where it is.
-  // The tracker is a stand-in for a reply event (X22's pattern): its 1→2 change from this push lands in a later
+  // The tracker is a stand-in for a reply event (as in issues/20261009-intersection-visibility-event-design.md): its 1→2 change from this push lands in a later
   // resize round (the host journals "ResizeObserver loop completed with undelivered notifications"), and the
   // send relies on the reply arriving after that round, which the reply → data → settings chain gives in practice.
   // An op whose shared prelude fails (no native host) never echoes, so the gate stays shut until a forced send.

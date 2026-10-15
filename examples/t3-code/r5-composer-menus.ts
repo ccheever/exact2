@@ -1,4 +1,4 @@
-// r5-composer: the composer's content-sized menus at the width their measured
+// The composer's content-sized menus at the width their measured
 // texts give, adapted from T3 Code (MIT; see LICENSE-T3): ui/menu.tsx MenuPopup
 // (min-w-40, max-w calc(100vw - 2rem), p-1 inside a 1pt border, items px-2 with
 // gap-2) holds TraitsPicker's radio groups, the runtime Select and

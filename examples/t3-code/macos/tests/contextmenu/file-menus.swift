@@ -1,7 +1,7 @@
 import AppKit
 import XCTest
 
-// context-menu-gaps: the three menus as context-menus.ts builds them (the items below are what
+// The three menus as context-menus.ts builds them (the items below are what
 // its unit tests expect), laid out by T3ContextMenu as ElectronMenu.ts buildTemplate does.
 final class FileMenuTests: XCTestCase {
     private func titles(_ menu: NSMenu) -> [String] { menu.items.map { $0.isSeparatorItem ? "—" : $0.title } }

@@ -1,4 +1,4 @@
-// diff-cite-popover DC-1: an assistant citation's comment, adapted from T3 Code 1e2ecbd975 (MIT, see LICENSE-T3):
+// An assistant citation's comment, adapted from T3 Code 1e2ecbd975 (MIT, see LICENSE-T3):
 // AssistantCitationChip.tsx (the chip's PopoverTrigger "Add comment to citation" / "Edit citation comment" and its
 // popover "Edit citation comment"), AssistantCitationCommentEditor.tsx (Enter saves, Command/Ctrl+Enter saves and sends,
 // Escape and Cancel cancel), ComposerPromptEditorTiptap.tsx ComposerCitationNodeView (onSave rewrites the chip with

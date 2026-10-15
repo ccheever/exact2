@@ -1,4 +1,4 @@
-// composer-fidelity G12a. Ports of T3 Code 1e2ecbd975 (MIT; see LICENSE-T3)
+// Ports of T3 Code 1e2ecbd975 (MIT; see LICENSE-T3)
 // apps/web/src/components/chat/queuedMessageEdit.test.ts (6), the editQueuedRun
 // case of packages/client-runtime/src/operations/commands.test.ts, and agent-side
 // mirrors of QueuedRunsControl.test.tsx ("renders an attachment thumbnail on the

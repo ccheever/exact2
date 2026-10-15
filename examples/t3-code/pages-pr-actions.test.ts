@@ -1,4 +1,4 @@
-// The pull request panel's header actions and host stack (pr-header-actions-and-stacks). The first
+// The pull request panel's header actions and host stack. The first
 // half ports T3 Code 1e2ecbd975's tests with their original names (pullRequestDetail.logic.test.ts,
 // pullRequestStackSnapshot.test.ts, pullRequestList.logic.test.ts; "what to say when an action fails"
 // is in pages-pr-logic.test.ts). Not ported: "hands back the held object for a row a refresh did not
@@ -404,7 +404,7 @@ describe('the actions, their confirmations and their toasts', () => {
     await prCommand(silent.client, native, 'action', selected, 'enable-auto-merge:merge');
     expect(toasts(silent.client).at(-1)).toMatchObject({ title: 'Could not turn on auto-merge', description: 'The host refused it. Check that this repository allows auto-merge, that you have write access, and that there is something left for it to wait on.' });
   });
-  // fix-misc-batch (#298 bug 15): refreshFromHost invalidates once. Each invalidate announces a change, the
+  // #298 bug 15: refreshFromHost invalidates once. Each invalidate announces a change, the
   // announcement asks the panel again, and Exact lets the answer that sent it go (its call may already have been
   // sent). Before, the run that replaced it found the host refresh still owed and sent it again, which announced
   // again: 237 invalidates and detail reads in 40 s after one Update with rebase, the toast and the up-to-date

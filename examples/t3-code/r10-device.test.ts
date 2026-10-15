@@ -1,4 +1,4 @@
-// Lane r10-device: the Files surface's rendered HTML (FilePreviewPanel's eye toggle and
+// The Files surface's rendered HTML (FilePreviewPanel's eye toggle and
 // WorkspaceBrowserPreview), the Duo / fold stand tooltips' text, and regular expression literals and
 // ternaries in HTML scripts against runs recorded from Shiki 4.2 (pierre-light) on the HEAD source.
 import { describe, expect, test } from 'bun:test';
@@ -192,7 +192,7 @@ describe('HTML scripts: regular expression literals and ternaries as Shiki colou
 });
 
 describe('Right panels persist across launches (rightPanelStore byThreadKey)', () => {
-  test('files, file tabs and the pull requests list are kept (lane r11-device keeps the rest: r11-device.test.ts)', async () => {
+  test('files, file tabs and the pull requests list are kept (r11-device.test.ts keeps the rest)', async () => {
     const { savedPanel, adoptRightPanels, syncRightPanels, restoreRightPanel } = await import('./r10-device-panels');
     const s = (id: string, kind: string, path = '', line = 0) => ({ id, kind, path, line });
     expect(savedPanel({ visible: true, active: 'file:docs/a.md', surfaces: [s('terminal:1', 'terminal'), s('file:docs/a.md', 'file', 'docs/a.md', 3), s('device:x', 'device')] }))

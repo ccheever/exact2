@@ -1,4 +1,4 @@
-// shell-context-menu: a reply's web link menu (externalLinkContextMenu.test.ts's cases, ported) and its hookup: the
+// A reply's web link menu (externalLinkContextMenu.test.ts's cases, ported) and its hookup: the
 // Markdown link nodes carry `contextmenu`, the root action names `chatlocal:link-menu`, and that op reaches the native
 // `contextMenu` op with the reference's items.
 import { describe, expect, mock, test } from 'bun:test';
@@ -112,7 +112,7 @@ describe('the reply link menu hookup', () => {
     expect(links.length).toBe(4);
     expect(links.filter(line => line.includes('contextmenu=linkMenu(run.href)')).length).toBe(4);
     // ChatRuns (a table cell's runs, inline in one text node): every link run with a destination carries the link's press
-    // and menu, a mailto, irc, xmpp or fragment one too (reply-links-reference-behavior RL-5: a click on a cell's mailto
+    // and menu, a mailto, irc, xmpp or fragment one too (a click on a cell's mailto
     // link opens nothing, as the reference's anchor; before, the host's own link following handed it to the mail app),
     // in the branch the web link had, so no handler site is added; an emptied anchor has neither, nor an href.
     const chatRuns = markdown.slice(markdown.indexOf('component ChatRuns'), markdown.indexOf('fn webLink('));
@@ -121,16 +121,16 @@ describe('the reply link menu hookup', () => {
     expect(chatRuns).not.toContain('and not webLink(run.href)\n          text run.text href=run.href font-size');
     expect(chatRuns.match(/press=linkOpen/g)?.length).toBe(2); // the mono web link's and this one, as before
     // FlowRuns: a link's first run is the link node, named with the whole link; a web link's favicon is inside it
-    // (ChatMarkdown's `<a>` holds the favicon), and so is a code span the link starts with (reply-links RL-3). Any link
-    // that is not a pull request link has it: a mailto, irc, xmpp or fragment link too (RL-1, RL-2), whose press opens
+    // (ChatMarkdown's `<a>` holds the favicon), and so is a code span the link starts with. Any link
+    // that is not a pull request link has it: a mailto, irc, xmpp or fragment link too, whose press opens
     // nothing and whose menu is the shell's (the TS side, tested below).
     const start = lines.find(line => line.trimStart().startsWith('link href=run.href press=linkOpen("link", run.href)'));
     expect(start).toContain('contextmenu=linkMenu(run.href) aria-label=run.label');
     expect(markdown).toContain('if run.kind == "link-start" and linkRun(run, chips)\n          link href=run.href');
     expect(markdown).toMatch(/link href=run\.href press=linkOpen\("link", run\.href\)[^\n]*\n {12}if webLink\(run\.href\)\n {14}box [^\n]*\n {16}TimelineIcon\(name="globe"[^\n]*\n {12}if not run\.mono\n {14}text run\.text white-space="pre"[^\n]*\n {12}else\n {14}text run\.text margin-top="0\.153125rem" font-family="ui-monospace"/);
     // A web or fragment link's later word or code span: one pressable box with the link's menu, hidden from assistive
-    // tech when the link node names it (RG-4); a code span inside it is pressable too (RL-3). A fragment's click on any
-    // word leaves for the draft (reply-links-reference-behavior RL-4), and its box is no Tab stop (the `<a>` is one).
+    // tech when the link node names it; a code span inside it is pressable too. A fragment's click on any
+    // word leaves for the draft, and its box is no Tab stop (the `<a>` is one).
     expect(markdown).toContain('fn pressLink(href: string): bool = webLink(href) or href.startsWith("#")');
     expect(markdown).toMatch(/if run\.kind == "link" and linkRun\(run, chips\) and pressLink\(run\.href\)\n {10}box press=linkOpen\("link", run\.href\) contextmenu=linkMenu\(run\.href\) tabindex=\(webLink\(run\.href\) \? 0 : -1\) aria-hidden=\(run\.label != ""\)[^\n]*\n {12}if not run\.mono\n {14}text run\.text white-space="pre"[^\n]*\n {12}else\n {14}text run\.text font-family="ui-monospace"/);
     // Any other code span: plain; a mailto, irc or xmpp link's later one is hidden as its words are and shows the link's
@@ -143,7 +143,7 @@ describe('the reply link menu hookup', () => {
     // FlowRuns: prose, an emptied anchor's text and a mailto, irc or xmpp link's later words carry no href, so a click on
     // them follows nothing (the host would hand a mailto URL to the mail app), and no handler; a link's words keep its
     // pointer, which ExactKit gave them for their href before (an emptied anchor has no label and no pointer).
-    // diff-cite-popover: each word reports its part of a selection (Cite) and, while a citation comment is open, draws its
+    // Each word reports its part of a selection (Cite) and, while a citation comment is open, draws its
     // marked part (MarkedText); both arms carry no href and no menu.
     const word = 'selectionchange=cite(blockId, run.id) aria-hidden=(run.kind == "link" and run.label != "") cursor=(run.kind == "link" and run.label != "" ? "pointer" : "auto") white-space="pre"';
     const plain = lines.findIndex(line => line.includes(`text run.text id=\`cite-\${source}-\${blockId}-\${run.id}\` ${word}`));
@@ -183,7 +183,7 @@ describe('the reply link menu hookup', () => {
     calls.length = 0;
     await owner.command('chatlocal:link-menu', '', 'mailto:a@b.c', 0, native, files);
     expect(menus()).toEqual([]);
-    expect(calls.filter(call => call.op === 'shellMenu')).toEqual([{ op: 'shellMenu', href: 'mailto:a@b.c' }]); // reply-links: the shell's menu for the click (or the ContextMenu key), naming the link
+    expect(calls.filter(call => call.op === 'shellMenu')).toEqual([{ op: 'shellMenu', href: 'mailto:a@b.c' }]); // the shell's menu for the click (or the ContextMenu key), naming the link
     pick = null;
     await owner.command('chatlocal:link-menu', 'page', 'https://example.test', 0, native, files);
     expect(menus()).toEqual([['Open in system browser', 'Copy Link']]);

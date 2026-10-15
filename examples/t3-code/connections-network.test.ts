@@ -144,7 +144,7 @@ describe('Authorized clients', () => {
 
 // ── The commands, over a fake native module ───────────────────────────────
 type Answer = (request: Obj) => Obj | undefined | Promise<Obj | undefined>;
-/** The fake native module; `settings` is desktop-settings.json as T3DesktopSettings.swift keeps it (decision U7). */
+/** The fake native module; `settings` is desktop-settings.json as T3DesktopSettings.swift keeps it. */
 function fakeNative(answer: Answer): { native: Native; requests: Obj[]; settings: Obj } {
   const requests: Obj[] = [];
   const settings: Obj = { localEnvironmentEnabled: true, serverExposureMode: 'local-only', tailscaleServeEnabled: false, tailscaleServePort: 443 };
@@ -174,7 +174,7 @@ describe('Network access and Tailscale HTTPS commands persist before requesting 
     const client = new T3Client();
     const { native, requests, settings } = fakeNative(request => request.op === 'localNetworkFacts' ? facts({ lo0: [{ address: '127.0.0.1', family: 'IPv4', internal: true }] }) : undefined);
     await runNetworkOp(client, native, 'network-access', '', 'on');
-    // The reference's renderer reads DesktopServerExposure's error through the IPC (audit-wave-followups-2 FV-5).
+    // The reference's renderer reads DesktopServerExposure's error through the IPC.
     expect(networkUi.exposureError).toBe("Error invoking remote method 'desktop:set-server-exposure-mode': DesktopServerExposureNoNetworkAddressError: No reachable network address is available for desktop network access on port 16101.");
     expect(toasts(client).map(toast => [toast.kind, toast.title, toast.description])).toEqual([['error', 'Could not update network access', networkUi.exposureError]]);
     expect(settings.serverExposureMode).toBe('local-only'); // refused before the write, as DesktopServerExposure.setMode
@@ -342,7 +342,7 @@ describe('the Connections page carries the section', () => {
     expect(access.wanted).toBe(false);
   });
 
-  it('keeps its snapshot while the page stays open and revalidates on open once 30 s old (desktopNetworkAccessStateAtom, U9)', async () => {
+  it('keeps its snapshot while the page stays open and revalidates on open once 30 s old (desktopNetworkAccessStateAtom)', async () => {
     primary.update(ready(), true);
     const client = new T3Client();
     Object.assign(client.localBackend.settings, { tailscaleServeEnabled: true, tailscaleServePort: 443 });

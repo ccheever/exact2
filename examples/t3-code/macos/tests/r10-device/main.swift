@@ -4,7 +4,7 @@ import XCTest
 import simd
 import Network
 
-// Lane r10-device: the iPhone Duo's panel feeds under a loaded main thread (a feed that falls
+// The iPhone Duo's panel feeds under a loaded main thread (a feed that falls
 // behind must come back, not go dark), and the physical hand-off (one elected feed; an orbit to
 // the other display asks for facedown / faceup), against the loopback hub in hub.swift.
 // `T3_DEVICE_GLB_DIR` (a T3 server's built client assets) adds the served model the orbit needs.
@@ -55,7 +55,7 @@ final class R10DeviceTests: XCTestCase {
         R7DeviceClient(platform: "ios", deviceId: "DUO", hostId: "local", access: { done in done(hub.origin, "ticket-d") })
     }
 
-    /// The black cover after Closed (round 9, 3 of 6 drives): the inactive cover feed, decoded while
+    /// The black cover after Closed (3 of 6 live drives): the inactive cover feed, decoded while
     /// the inner display is active, fell behind once (a stalled main thread receives a burst over the
     /// soft queue), took the MJPEG fallback a fixed panel cannot have, and never painted again. It
     /// must reopen its video and keep going.
@@ -91,7 +91,7 @@ final class R10DeviceTests: XCTestCase {
         client.stop()
     }
 
-    /// The same, run many times under a busy main thread (as the parity drives load it): the cover
+    /// The same, run many times under a busy main thread (as live drives load it): the cover
     /// paints after Closed every time.
     func testCoverPaintsAfterClosedUnderLoad() throws {
         let inner = Encoded.make(width: 1125, height: 1600, colors: Array(repeating: .systemGreen, count: 12))

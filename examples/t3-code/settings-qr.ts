@@ -1,4 +1,4 @@
-// QR codes for General → About → Mobile app (lane r3-settings). A byte-mode port of
+// QR codes for General → About → Mobile app. A byte-mode port of
 // the reference's QR generator (packages/shared/src/qrCode.ts, Project Nayuki's
 // library, MIT): QrCode.encodeText for text outside the numeric and alphanumeric
 // sets (every link this app encodes has lowercase letters, so encodeText picks

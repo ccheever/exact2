@@ -5,8 +5,8 @@
 // right panel's surface chooser and the thread title's action menu.
 import { noteAutomationWindow } from './browser-automation';
 import type { T3Client } from './client';
-import { terminalAvailable, terminalOpen } from './terminal-drawer-view'; // terminal-drawer
-import type { DispatchContext } from './keyboard-dispatch'; // terminal-layout: terminal labels resolve with terminalFocus
+import { terminalAvailable, terminalOpen } from './terminal-drawer-view';
+import type { DispatchContext } from './keyboard-dispatch'; // terminal labels resolve with terminalFocus
 import { highlightPending } from './r12-render-highlight';
 import { toasts, dismissToast, type Toast, type ToastAction, type ToastKind } from './toast';
 import { arr, obj, str, type Obj } from './domain';
@@ -18,25 +18,25 @@ import { canSnooze, effectiveSnoozed } from './sidebar-model';
 import { diffNotGit } from './diff';
 import { threadNotifications, providerUpdates, nativeNotifyStatus, reportWindowFacts, type NotifyStatus } from './shell-notify';
 import { slowRequests, tracking } from './shell-slow';
-import { settleLiveTraces } from './r3-protocol-reader'; // r13-slow: answered requests whose answer was let go end on the next shell read
+import { settleLiveTraces } from './r3-protocol-reader'; // answered requests whose answer was let go end on the next shell read
 import { nightlyMobileBetaNotice } from './shell-nightly';
 import { pullRequestPanelTarget } from './shell-pr';
-import { availability, panelView, surfaceStore } from './r4-surfaces-panel'; // r4-surfaces: the tabbed Files / Linked pull requests / Device surfaces
-import { syncRightPanels } from './r10-device-panels'; // lane r10-device: the right panels persist across launches
-import { revealWaiting } from './r10-device-crumbs'; // lane r10-device: a Files reveal still missing a folder retries
-import { gitTicking } from './r4-git-actions'; // lane r4-git: a running action's clock
-import { refsPageWanted } from './r6-polish-refs'; // r6-polish: a ref list's next page
-import { effectiveShortcut } from './r4-polish-shortcuts'; // r4-polish: header shortcut labels
+import { availability, panelView, surfaceStore } from './r4-surfaces-panel'; // the tabbed Files / Linked pull requests / Device surfaces
+import { syncRightPanels } from './r10-device-panels'; // the right panels persist across launches
+import { revealWaiting } from './r10-device-crumbs'; // a Files reveal still missing a folder retries
+import { gitTicking } from './r4-git-actions'; // a running action's clock
+import { refsPageWanted } from './r6-polish-refs'; // a ref list's next page
+import { effectiveShortcut } from './r4-polish-shortcuts'; // header shortcut labels
 import { checkoutView } from './r9-connect-checkout';
 import { cloneToasts } from './project-clones-live';
-import { activationOpen } from './desktop-activation'; // app-activation: a `t3 app` request opens like a clicked notification
+import { activationOpen } from './desktop-activation'; // a `t3 app` request opens like a clicked notification
 
 export type ShellToastView = {
   id: number; kind: string; title: string; description: string; icon: string; iconColor: string; provider: string;
   actionLabel: string; actionOp: string; actionId: string; actionValue: string; actionOutline: boolean; actionDestructive: boolean;
   secondaryLabel: string; secondaryOp: string; secondaryId: string; secondaryValue: string; secondaryGhost: boolean;
   stacked: boolean; copyText: string; copied: boolean; index: number;
-  /** browser-surface part 3: the additional action, and each button's "Copied!" state (2 s after its copy). */
+  /** The additional action, and each button's "Copied!" state (2 s after its copy). */
   extraLabel: string; extraOp: string; extraId: string; extraValue: string; actionDone: boolean; secondaryDone: boolean; extraDone: boolean;
   details: { id: string; title: string; subtitle: string; last: boolean }[]; expandLabel: string; collapseLabel: string;
 };
@@ -175,11 +175,11 @@ export function surfaces(client: T3Client): ShellSurface[] {
   const row = (id: string, label: string, icon: string, shortcut: string, available: boolean, reason: string): ShellSurface =>
     ({ id, label, icon, shortcut, letter: shortcut.toLowerCase(), available, reason: available ? '' : reason });
   return [
-    row('browser', 'Browser', 'earth', 'B', client.available === true, 'Only available in the desktop app.'), // browser-surface: the module's WKWebView (isPreviewSupportedInRuntime)
+    row('browser', 'Browser', 'earth', 'B', client.available === true, 'Only available in the desktop app.'), // the module's WKWebView (isPreviewSupportedInRuntime)
     row('terminal', 'Terminal', 'square-terminal', 'T', terminalAvailable(client), 'Available when a project is open.'),
     row('files', 'Files', 'files', 'F', can.files, 'Available when a project is open.'),
     row('diff', 'Diff', 'file-diff', 'D', !!client.threadId && client.ready && !diffNotGit(client), 'Available for Git repositories.'),
-    // r5-panels: ChatView pullRequestSurfaceAvailable (supportsPullRequests and a panel target); the detail panel opens beside the thread.
+    // ChatView pullRequestSurfaceAvailable (supportsPullRequests and a panel target); the detail panel opens beside the thread.
     row('pull-request', 'Pull request', 'git-pull-request-arrow', 'P', can.pullRequest && !!target, 'No pull request on this branch yet.'),
     row('pull-requests', 'Linked pull requests', 'link-2', 'L', can.pullRequests, 'No linked pull requests available.'),
     row('device', 'Device', 'smartphone', 'M', can.device, 'Available from a thread.'),
@@ -252,7 +252,7 @@ function confirmable(entry: ShellMenuItem, ask: boolean, title: string, body: st
   return ask ? { ...entry, op: 'ui:confirm', value: entry.op, confirmTitle: title, confirmBody: body } : entry;
 }
 
-/** Lane r10-device: once the preferences were read, a changed right panel is written with them. */
+/** Once the preferences were read, a changed right panel is written with them. */
 async function panelSaved<T>(client: T3Client, storage: Files, view: T): Promise<T> {
   if (client.preferencesLoaded && syncRightPanels(client, surfaceStore(client).panels)) await client.savePreferences(storage);
   return view;
@@ -271,7 +271,7 @@ export async function shellView(client: T3Client, native: Native | null | undefi
   if (native?.available) {
     native.watch('t3.notify');
     state.status = await nativeNotifyStatus(native, state.status, page.focused);
-    await reportWindowFacts(client, native, page.visible, page.focused); // client-activity-reporting's visible and focused
+    await reportWindowFacts(client, native, page.visible, page.focused);
     noteAutomationWindow(client, page.focused && page.visible); // browser-automation.ts: previewAutomation.focusHost's `focused`
     await providerUpdates(client, storage);
     await cloneToasts(client, native); // project-clones-live.ts: a toast per tracked clone, every environment
@@ -288,13 +288,13 @@ export async function shellView(client: T3Client, native: Native | null | undefi
     ...(await activationOpen(client, native, state.status)), // openRequest, openThreadId: a clicked notification's thread or a `t3 app` request (desktop-activation.ts)
     keyRightPanel: commandShortcut(client.config, 'rightPanel.toggle'), keyThreadPanel: commandShortcut(client.config, 'threadPanel.toggle'),
     keyTerminal: commandShortcut(client.config, 'terminal.toggle'), keyNewThread: commandShortcut(client.config, 'chat.new'),
-    terminalAvailable: terminalAvailable(client), terminalOpen: terminalOpen(client), // terminal-drawer: the layout controls' toggle
+    terminalAvailable: terminalAvailable(client), terminalOpen: terminalOpen(client), // the layout controls' toggle
     keyNewThreadLocal: commandShortcut(client.config, 'chat.newLocal'), keySidebar: commandShortcut(client.config, 'sidebar.toggle'),
     serverThread: !!thread, projectPath: str(thread?.worktreePath) || str(project?.workspaceRoot),
     surfaces: surfaces(client), titleMenu: menu.filter(entry => entry.submenu === ''), titleSubmenu: menu.filter(entry => entry.submenu !== ''),
-    panel: await panelSaved(client, storage, await panelView(client, native, now, sheet)), // r12-threads: `sheet` (window ≤ 980)
-    prCheckout: checkoutView(client), // lane r9-connect
+    panel: await panelSaved(client, storage, await panelView(client, native, now, sheet)), // `sheet`: a window ≤ 980
+    prCheckout: checkoutView(client),
     notifications: `${state.status.authorization}${state.status.agent ? ' (agent)' : ''}${state.status.active ? '' : ' (window inactive)'}`,
-    highlightPending: highlightPending(), // shiki-residuals: after the panel's code texts asked for their tokens
+    highlightPending: highlightPending(), // after the panel's code texts asked for their tokens
   };
 }

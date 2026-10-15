@@ -1,12 +1,12 @@
-// pr-list-scroll-and-sidebar-sweep (T3 Code 1e2ecbd975, MIT; see LICENSE-T3).
-// PS-2 (X13), the sidebar's row-action sweep as Sidebar.tsx startActionSweep and Sidebar.pointer.ts
+// T3 Code 1e2ecbd975 (MIT; see LICENSE-T3).
+// The sidebar's row-action sweep as Sidebar.tsx startActionSweep and Sidebar.pointer.ts
 // SidebarPointerSensor run it: past 6 px the list takes `**:pointer-events-none`, so the row's card or a control's
 // tooltip goes as the sweep takes over; Escape cancels it; a cancelled release applies nothing (r12-sidebar.test.ts holds
 // the client's half); the rows then take the pointer again, so the row under it is the hovered one. The host keeps the
 // pressed row hovered through a pan and hovers nothing new at the release until the pointer moves, so the section keeps
 // that row as its rows' hover until the window's hover count moves on (`sweepRowHover`), and closes the card through the
 // root's half of the hover when the sweep arms. An agent drive of the app shows them.
-// PS-1 (X58): the Pull Requests list keeps its place across a window refocus; what moved it was the agent's first
+// The Pull Requests list keeps its place across a window refocus; what moved it was the agent's first
 // `prefer` re-telling the system appearance (a one-file repro showed it), which remounts the per-scheme subtrees. The
 // guard below keeps the list's mount free of the window's focus and visibility.
 import { describe, expect, test } from 'bun:test';
@@ -29,7 +29,7 @@ function action(text: string, name: string): string {
   return match[1];
 }
 
-describe('PS-2: the rows a sweep passes over, and after it (sweepRowHover)', () => {
+describe('The rows a sweep passes over, and after it (sweepRowHover)', () => {
   test('none while live; a cancelled sweep\'s resting row until the window\'s hover moves on; else the window\'s', async () => {
     const hover = await contractFn('sidebar.contract', 'sweepRowHover', ['live', 'rest', 'restSeq', 'seq', 'hoverId']);
     // Live: the list takes no pointer, so no row is hovered, the pressed one included.
@@ -54,7 +54,7 @@ describe('PS-2: the rows a sweep passes over, and after it (sweepRowHover)', () 
     // A new sweep forgets it. The pointer's first move (out of the section too) ends it through the window's hover
     // count: the host sends the leave of the control it kept hovered through the pan.
     expect(action(section, 'sweep')).toContain('sweepRest = ""');
-    // The section takes no hover of its own: the macOS host hovered one node at a time before main #327 (X62), so a hover on the
+    // The section takes no hover of its own: the macOS host hovered one node at a time before main #327, so a hover on the
     // section would trade it with the row under the pointer on every move.
     const view = section.slice(section.indexOf('\n  view\n'));
     expect(view).not.toMatch(/\n    column [^\n]*\bhover=/);
@@ -68,13 +68,13 @@ describe('PS-2: the rows a sweep passes over, and after it (sweepRowHover)', () 
     // (`armed` is the sweep's rows from before this move, "" on a fresh sweep: sidebar-sweep.test.ts runs it.)
     expect(sweep).toMatch(/if not cancelled and \(armed != "" or movedX \* movedX \+ movedY \* movedY >= 36\)\n(\s*\/\/[^\n]*\n)*\s*if armed == ""\n\s*hoverCard\(hoverId, false\)\n\s*sweepKeys = /);
     // `hoverCard` is the window's sidebarHover, which counts the hover and calls the root's half (it clears the hover it
-    // is told about), as a pointer leaving the row does. adopt-main-fixes-r11: since main #478 an action bound to `pan=`
+    // is told about), as a pointer leaving the row does. Since main #478 an action bound to `pan=`
     // may call it; #468's sweep called the root's half (`unhover`), handed down as it is, which is no prop now.
     const windowText = await source('app-window.contract');
     expect(windowText).not.toContain('unhover=');
     expect(windowText.match(/hoverCard=sidebarHover, [^\n]*hoverSeq=sidebarHoverSeq, /g)?.length).toBe(1);
     expect(action(windowText, 'sidebarHover').split('\n')[0]).toBe('    sidebarHoverSeq = sidebarHoverSeq + 1');
-    // sidebar-hover-archive-and-glyph SW-2: a control's tip that ends inside its still-hovered row gives the root that row.
+    // A control's tip that ends inside its still-hovered row gives the root that row.
     expect(action(windowText, 'sidebarHover').trimEnd().split('\n').at(-1)).toBe('    sidebarHoverRoot(back ? row : id, over or back)');
     const root = await source('app.contract');
     expect(root).toContain('sidebarHoverRoot=sidebarHover,');
@@ -94,7 +94,7 @@ describe('PS-2: the rows a sweep passes over, and after it (sweepRowHover)', () 
   });
 });
 
-describe('PS-1: the Pull Requests list across a window refocus', () => {
+describe('The Pull Requests list across a window refocus', () => {
   test('the list mounts on the page only: focus, visibility and appearance never remount it', async () => {
     const pages = await component('app-main.contract', 'PagesCover');
     const view = pages.slice(pages.indexOf('\n  view\n'));

@@ -187,7 +187,7 @@ export async function notificationPermission(client: T3Client, native: Native, m
 }
 
 // --- Provider update launch notification ---------------------------------
-// ProviderUpdatePrimaryNotification is provider-update-notify.ts (provider-settings-upkeep); the
+// ProviderUpdatePrimaryNotification is provider-update-notify.ts; the
 // dismissed update sets live in the client's one preference file (shell-prefs.ts), which
 // shellView saves after a dismissal.
 

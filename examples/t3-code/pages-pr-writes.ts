@@ -1,4 +1,4 @@
-// The pull request panel's writes (lane "pages"; pr-writing-and-metadata): the floating composer
+// The pull request panel's writes: the floating composer
 // (a comment, Close/Reopen with comment, a review with its verdict and the line comments the Code
 // tab collects), the title, description and comment editors, reactions on remarks, and the
 // reviewer and label pickers. Measured against T3 Code 1e2ecbd975 (MIT, see LICENSE-T3)

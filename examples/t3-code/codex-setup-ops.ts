@@ -9,7 +9,7 @@
 // let an answer go after the request left (let-go.ts). The desktop's receiveProviderAuthCallback
 // is the module's loopback listener (T3CodexAuth.swift): `codexAuthStart` binds and opens the
 // browser, the callback arrives as a `t3.codexAuth` change and is taken with `codexAuthTake`
-// (the parked-reply rule of X14). `returnUrl` is omitted from provider.auth.start (the server
+// (the parked-reply rule of #109). `returnUrl` is omitted from provider.auth.start (the server
 // does not use it in client mode; the clone registers no URL scheme) and is '' in the handoff.
 import { arr, obj, str, type Obj } from './domain';
 import { bridgeReply, ClientError, type Native } from './protocol';

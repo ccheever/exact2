@@ -86,7 +86,7 @@ component TipBubble
       row position="absolute" top=offset left=(align == "start" ? 0 - inset : (align == "end" ? -22.5 * rem : -10 * rem)) right=(align == "end" ? 0 - inset : (align == "start" ? -22.5 * rem : -10 * rem)) justify-content=(align == "start" ? "flex-start" : align == "end" ? "flex-end" : "center") pointer-events="none" z-index=140
         TipCard(label=label, shown=shown)
 
-// TooltipPopup's base `text-balance` (KW-1): the words inherit balanced breaks from the card.
+// TooltipPopup's base `text-balance`: the words inherit balanced breaks from the card.
 component TipCard
   props
     label: string

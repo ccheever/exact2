@@ -1,4 +1,4 @@
-// adopt-main-fixes-r10: the sidebar's row-action sweep (r11-upstream, 1826fb55cc) starts fresh each time, as the
+// The sidebar's row-action sweep (upstream 1826fb55cc) starts fresh each time, as the
 // reference's does: Sidebar.tsx `startActionSweep` (T3 Code 1e2ecbd975, MIT, see LICENSE-T3) makes a new closure per
 // press (`targetKey = null`, `sweptKeys = []`, the pressed row and action) and each move resolves the armed rows from
 // the pointer's current position (`sweepTo(sidebarThreadKeyAtY(list, y))`).
@@ -22,8 +22,8 @@ rows.forEach(({ id }, i) => { frames[`row-${id}`] = { y: 30 * i, height: 28 }; f
 function section() {
   const state = threadSection.state();
   const data = { sidebar: { sweepEpoch: 0 } };
-  // The window's hover (pr-list-scroll-and-sidebar-sweep): its id and count, and each call of the window's sidebarHover
-  // (`hoverCard`; adopt-main-fixes-r11: since main #478 the sweep calls it, #468's called the root's half).
+  // The window's hover: its id and count, and each call of the window's sidebarHover
+  // (`hoverCard`; since main #478 the sweep calls it, #468's called the root's half).
   const unhovered: [string, boolean][] = [];
   const hover = { hoverId: '|a|', hoverSeq: 0, hoverCard: (id: string, over: boolean) => { unhovered.push([id, over]); } };
   const scope = {
@@ -86,7 +86,7 @@ describe('a sidebar row-action sweep starts fresh (sidebar.contract ThreadSectio
   });
 
   test('each sweep\'s first arming closes the window\'s hover once, a fresh sweep after a release included', () => {
-    // pr-list-scroll-and-sidebar-sweep (X13): SidebarPointerSensor's onStart, as the list takes `**:pointer-events-none`.
+    // SidebarPointerSensor's onStart, as the list takes `**:pointer-events-none`.
     const s = section();
     s.move('a', 4);
     expect(s.unhovered).toEqual([]); // under the 6-pt distance: still the button's click

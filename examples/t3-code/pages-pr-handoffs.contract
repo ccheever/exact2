@@ -1,4 +1,4 @@
-// The pull request panel's hand-offs (pr-handoffs-and-quick-actions), drawn from pages-pr-handoffs.ts:
+// The pull request panel's hand-offs, drawn from pages-pr-handoffs.ts:
 // the header's Check out menu ("In a separate worktree", "In this repository"; the page's, or a pull
 // request that is not the thread's own beside it), the More menu's "Ask a question", "Explain this PR"
 // and "Fix findings", and a finding's own Fix on the Summary tab. A press says which surface it came
@@ -7,7 +7,7 @@
 // ui/{button,menu,tooltip}.tsx.
 use PgIcon from "./pages-icons.contract"
 use Tip from "./shell-tip.contract"
-use PrActOnItem, PrdActOnItems from "./pages-pr-links.contract" // pr-links-previews-and-routing
+use PrActOnItem, PrdActOnItems from "./pages-pr-links.contract"
 use KmItem from "./menu-keys.contract"
 use KeyMenu from "./menu-keys.contract"
 use kmTriggerKey, kmTriggerTarget from "./menu-keys.contract"
@@ -28,12 +28,12 @@ component PrdCheckoutMenu
     scheme: string
     narrow: bool
     act: action
-    // pr-links-previews-and-routing: "Act on" (the page, several servers), and what its radio sends.
+    // "Act on" (the page, several servers), and what its radio sends.
     actOn: PrActOnItem[]
   state over = false
   derive checking = handoffs.pending.startsWith("checkout")
   derive disabled = handoffs.pending != "" or not handoffs.canCheckout
-  // fix-keyboard-focus: the menu's keyboard (menu-keys.contract).
+  // The menu's keyboard (menu-keys.contract).
   action hover(value: bool)
     over = value
   derive menuItems = (handoffs.pending != "" ? [] : [KmItem(id="pr-checkout-worktree", label="In a separate worktree"), KmItem(id="pr-checkout-local", label="In this repository")].concat(actOn.map((item) => KmItem(id=`pr-act-on-${item.key}`, label=item.label))))

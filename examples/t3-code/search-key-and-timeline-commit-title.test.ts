@@ -1,12 +1,12 @@
-// search-key-and-timeline-commit-title (T3 Code 1e2ecbd975, MIT; see LICENSE-T3). SK-2's guard: a real key reaches the
+// T3 Code 1e2ecbd975 (MIT; see LICENSE-T3). The guard: a real key reaches the
 // clone's commands only through the hidden dispatch buttons `keyboardDispatch` makes (the session's key monitor presses
 // the button whose `aria-keyshortcuts` matches, and the host files it as a menu key equivalent), so a reference binding
 // without its button is a key a real keyboard loses. Every ⌘ binding of the reference's defaults (packages/shared/src/
 // keybindings.ts DEFAULT_KEYBINDINGS, keybindingDefaults here) that holds in an open thread keeps its button and chord,
 // from the composer and with nothing focused. The AppKit half, macos/tests/real-key-chords, sends each of them through
 // NSApplication.sendEvent (a real key's path) past the app's own monitors, text view and menu bar to the host's monitor
-// and menu item. SK-1's ⇧⌘F did reach its button that way; what took the real key is outside the app (the task
-// record). TC-1: below.
+// and menu item. ⇧⌘F did reach its button that way; what took the real key is outside the app. The Timeline commit
+// row: below.
 import { describe, expect, test } from 'bun:test';
 import { T3Client } from './client';
 import { keyboardDispatch, type DispatchContext } from './keyboard-dispatch';
@@ -67,7 +67,7 @@ const needsSurface = (when = '') => when.split(/\s*&&\s*/).some(token => surface
 const stateful = (command: string) => ['thread.undo', 'thread.previous', 'navigation.back', 'navigation.forward'].includes(command) || /^thread\.jump\.[3-9]$/.test(command);
 const main = keybindingDefaults.filter(rule => rule.key.includes('mod+') && !elsewhere.has(rule.command) && !rule.command.startsWith('composer.') && !needsSurface(rule.when));
 
-describe('SK-2: every reference ⌘ binding of an open thread keeps its dispatch button', () => {
+describe('Every reference ⌘ binding of an open thread keeps its dispatch button', () => {
   for (const [label, context] of [['nothing focused', thread], ['the composer focused', { ...thread, composerFocus: true, editableFocus: true }]] as const) {
     test(label, () => {
       const items = keyboardDispatch(client(), [{ id: 't1', section: 'active', selected: true }, { id: 't2', section: 'active' }], '', '', context);
@@ -91,20 +91,21 @@ describe('SK-2: every reference ⌘ binding of an open thread keeps its dispatch
     expect([aria({ key: 'mod++' }), aria({ key: 'mod+shift+[' }), aria({ key: 'mod+alt+shift+a' })]).toEqual(['Meta+Plus', 'Meta+Shift+[', 'Meta+Alt+Shift+a']);
     expect(swiftStrings('let xs = ["a]", "b\\"c", // "d"\n "e"] + ["f"]', 'let xs = [')).toEqual(['a]', 'b"c', 'e']);
   });
-  test('SK-1: ⇧⌘F is projectSearch.toggle\'s button from the composer, with nothing focused and with the palette open', () => {
+  test('⇧⌘F is projectSearch.toggle\'s button from the composer, with nothing focused and with the palette open', () => {
     for (const context of [thread, { ...thread, composerFocus: true, editableFocus: true }, { ...thread, paletteOpen: true, paletteMode: 'command' }]) {
       expect(keyboardDispatch(client(), [], '', '', context).filter(item => item.chord === 'Meta+Shift+f')).toEqual([expect.objectContaining({ command: 'projectSearch.toggle', kind: 'palette', target: 'content' })]);
     }
   });
 });
 
-// TC-1: CommitEvent (PullRequestTimelineTab.tsx) draws its title at rest. In the clone the macOS host presented a wide
-// text's raster made off screen only for a selectable text (X82's pump), and no text under a button is one, so the title
-// stayed blank until the hover colour redrew it; TC-1 laid the button over texts beside it, and followups-1012 FU-2 kept
-// the title selectable. Main #494 (X82, adopted in round 11) has the pump paint every shown text, so the row is the
-// reference's one button holding its marker and texts again (adopt-main-fixes-r11 RT-2): nothing over the row, no text
+// CommitEvent (PullRequestTimelineTab.tsx) draws its title at rest. In the clone the macOS host presented a wide
+// text's raster made off screen only for a selectable text (the pump of
+// issues/closed/20261011-macos-scheme-switch-stale-text-raster.md), and no text under a button is one, so the title
+// stayed blank until the hover colour redrew it; the clone laid the button over texts beside it,
+// then kept the title selectable. Main #494 has the pump paint every shown text, so the row is the
+// reference's one button holding its marker and texts again: nothing over the row, no text
 // selectable or `aria-hidden`, the button's label the row's name.
-describe('TC-1: the Timeline commit row is one button holding its texts, as the reference\'s CommitEvent', () => {
+describe('The Timeline commit row is one button holding its texts, as the reference\'s CommitEvent', () => {
   test('the button holds the marker, the title, the sha and age and the counts; the title keeps the reference tones', async () => {
     const lines = (await Bun.file(new URL('./pages-pr-timeline.contract', import.meta.url)).text()).split('\n');
     const start = lines.findIndex(line => line.trim() === 'if row.kind == "commit"');

@@ -22,7 +22,7 @@ export async function snapshotOps(this: T3Client, op: string, id: string, value:
       if (!image) throw new ClientError('That draft attachment is unavailable.');
       const key = this.draftKey, prompt = this.local.drafts[key];
       this.local.snapshotDrafts[key] = previous.filter(image => image.id !== id);
-      await removeAttachmentReferences(this, native, key, 'image', id); // r4-composer: every chip goes with it (composerDraftStore removeImage)
+      await removeAttachmentReferences(this, native, key, 'image', id); // every chip goes with it (composerDraftStore removeImage)
       try { await this.persist(storage); } catch (error) { this.local.snapshotDrafts[key] = previous; if (prompt !== undefined) this.local.drafts[key] = prompt; throw error; }
       this.local.snapshotReleases.push(id);
       await this.flushSnapshotReleases(native, storage);

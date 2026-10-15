@@ -1,4 +1,4 @@
-// browser-surface part 4 (profiles): Settings › Integrations › Browser › Browser profiles, its Add profile and row menus,
+// Settings › Integrations › Browser › Browser profiles, its Add profile and row menus,
 // "Remove “<name>”?" and the cookie import wizard (MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
 // apps/web/src/components/settings/IntegrationsSettings.tsx BrowserProfilesSetting, BrowserImportWizard.tsx,
 // permissions/PermissionChecklist.tsx). `view` is browser-profiles-settings.ts `browserProfilesView`; every action is a
@@ -252,8 +252,8 @@ component BrowserImportWizard
       // The focus trap (dialog-trap.contract) between the screen's first and last Tab stops (`wizardTabStops`). Its guards
       // lie beside the popup, before and after it, as Base UI's FloatingFocusManager renders them around the popup: from
       // the popup itself (Base UI's `restoreFocus: "popup"` leaves the focus there) Tab goes on to its first stop and
-      // Shift+Tab to the guard before it, which sends the focus round to its last. adopt-main-fixes-r11: the popup's own
-      // `key` handler did both while the Mac had no Tab from a box that is no stop (X79, fixed on main by #490).
+      // Shift+Tab to the guard before it, which sends the focus round to its last. The popup's own
+      // `key` handler did both while the Mac had no Tab from a box that is no stop (issues/closed/20261010-macos-tab-from-a-focused-box.md, fixed on main by #490).
       FocusGuard(guardId="browser-import-guard-start", targets=dialogTargets, popup="browser-import-popup")
       column id="browser-import-popup" tabindex=-1 focus=track("browser-import-popup", true) blur=track("browser-import-popup", false) class=BpPopup role="dialog" aria-modal=true aria-label=(wizard.step == "quit" ? `Quit ${wizard.sourceName} to import` : wizard.step == "configure" ? `Import from ${wizard.sourceName}` : wizard.step == "fullDiskAccess" ? `Let T3 Code read ${wizard.sourceName}’s cookies` : wizard.step == "importing" ? "Importing cookies" : wizard.step == "checking" ? `Checking ${wizard.sourceName}` : wizard.step == "done" ? wizard.doneTitle : `Couldn’t import from ${wizard.sourceName}`) testId=`browser-import-step-${wizard.step}` data-dialog-focus="open" focusin=dialogEntered("browser-import-popup") key=dialogFallback("browser-import-popup", dialogTargets)
         if wizard.step == "quit"

@@ -1,4 +1,4 @@
-// pr-handoffs-and-quick-actions: a folded pull request header does not carry over to another pull request.
+// A folded pull request header does not carry over to another pull request.
 // The fold (chromeStateByTab) is PrdBody's own state, so it lasts as long as the PrdBody instance does. The
 // reference keys PullRequestDetailPanel per pull request (`key={renderedPullRequestSurface.id}` on the page,
 // `key={host:repository#number}` beside a thread), so every PrdBody call site must sit in a block keyed by

@@ -1,4 +1,4 @@
-// Lane r5-panels: the details card's pull request rows, the Pull request (P)
+// The details card's pull request rows, the Pull request (P)
 // surface, sent attachment previews and the persisted Files preferences, against
 // the reference's rules (ThreadDetailsPrRows / ThreadDetailsPrRow, useOpenPrLink,
 // rightPanelStore openPullRequest / openAttachment, AttachmentFilePreview,
@@ -183,7 +183,7 @@ describe('sent attachment preview (AttachmentFilePreview)', () => {
     expect(view.tabs[0]).toMatchObject({ kind: 'attachment', title: 'notes.md', fileToken: 'markdown' });
     expect(view.attachment).toMatchObject({ name: 'notes.md', size: '1 KB', preview: 'markdown', canRender: true, rendered: true, renderLabel: 'Show markdown source', renderIcon: 'code',
       showWrap: false, canCopy: true, copyLabel: 'Copy contents', canSave: true });
-    // audit-wave-followups-3 FW-2: the chat renderer's source (app.contract filesMarkdown), kind "attachment" (no folder).
+    // The chat renderer's source (app.contract filesMarkdown), kind "attachment" (no folder).
     expect(view.attachment.markdownSource).toEqual([{ id: 'attachment:att-md', kind: 'attachment', title: '', body: '# Notes\n\n- one\n' }]);
     expect(calls.find(call => call.method === 'attachmentText')!.payload.url).toBe('http://127.0.0.1:14861/api/assets/inline/sig');
     await surfaceLocal(client, native, 'r5-att-render', 'att-md', '');
@@ -201,7 +201,7 @@ describe('sent attachment preview (AttachmentFilePreview)', () => {
     const save = calls.find(call => call.method === 'attachmentSave')!;
     expect(save.payload).toMatchObject({ url: 'http://127.0.0.1:14861/api/assets/attachment/sig', name: 'notes.md' });
   });
-  // audit-wave-followups-3 FW-2: AttachmentFilePreview's rendered Markdown is ChatMarkdown (cwd undefined), as Files' is.
+  // AttachmentFilePreview's rendered Markdown is ChatMarkdown (cwd undefined), as Files' is.
   test('a rendered attachment is the chat renderer: code colours, Mermaid diagrams and their expand', async () => {
     const { client, replies } = fakeClient();
     const flow = 'graph TD\n  Attachment --> Preview', text = `# Notes\n\n\`\`\`ts\nconst x = 1;\n\`\`\`\n\n\`\`\`mermaid\n${flow}\n\`\`\`\n`;

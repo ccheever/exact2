@@ -42,10 +42,10 @@ component AutomationGlyph
 
 // ThreadDetailsControl size="icon-xs" variant="ghost": 24pt, 8pt radius, hover fill. Its Tooltip (side top, Base UI's 600 ms,
 // no provider) is drawn by the window's hover layer (hover-layer.contract, kind "tooltip"), as the reference portals every
-// TooltipPopup, so the details panel's scroll never cuts it; pointer hover or keyboard focus shows it (scheduled-tasks-followups
-// ST-3). Agent mode hovers it with `tap <testKey> hover`; the popup's test id is `<testKey>-tooltip`. `align` is where Base UI's
-// collision shift lands it: the layer has no shift (X17, #112), and "Manage scheduled tasks", centred over the heading's
-// button at the panel's right edge, ran past the window (the ST-3 drive), so it ends at the button's right edge. A press
+// TooltipPopup, so the details panel's scroll never cuts it; pointer hover or keyboard focus shows it.
+// Agent mode hovers it with `tap <testKey> hover`; the popup's test id is `<testKey>-tooltip`. `align` is where Base UI's
+// collision shift lands it: the layer has no shift (#112), and "Manage scheduled tasks", centred over the heading's
+// button at the panel's right edge, ran past the window, so it ends at the button's right edge. A press
 // closes the tooltip, or stops one still waiting for its delay, as TooltipTrigger's closeOnClick (true by default) does; it
 // shows again when the pointer next enters, so Edit's and Manage's never linger over the Settings page they open.
 component AutomationButton

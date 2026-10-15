@@ -5,14 +5,14 @@
 import { highlight, type Token } from './timeline-highlight';
 import { fileLanguage, SHIKI_MAX_CHARS, TOKENIZE_MAX_LINE_LENGTH } from './r12-render-highlight';
 
-/** Token runs per line for one side of a hunk, highlighted as one text (up to the highlighter's limit, shiki-residuals). */
+/** Token runs per line for one side of a hunk, highlighted as one text (up to the highlighter's limit). */
 export function lineTokens(lines: readonly string[], path: string): Token[][] {
   const language = fileLanguage(path);
   const total = lines.reduce((sum, line) => sum + line.length + 1, 0);
   if (!language || !lines.length || total > SHIKI_MAX_CHARS) return lines.map(line => line ? [{ text: line, cls: '' }] : []);
   const out: Token[][] = [[]];
-  // lane r12-render: the path picks the grammar, as @pierre/diffs picks it from the file name (a root
-  // Dockerfile too); code-highlighting-languages: a line of 1,000 characters or more stays plain, as there.
+  // The path picks the grammar, as @pierre/diffs picks it from the file name (a root
+  // Dockerfile too); a line of 1,000 characters or more stays plain, as there.
   for (const token of highlight(lines.join('\n'), language, TOKENIZE_MAX_LINE_LENGTH)) {
     token.text.split('\n').forEach((part, index) => {
       if (index > 0) out.push([]);

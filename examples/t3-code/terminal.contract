@@ -1,7 +1,7 @@
 use Look from "./settings-appearance-look.contract"
 use ShellIcon from "./shell-icons.contract"
 use TipBubble from "./shell-tip.contract"
-// The thread terminal drawer (task terminal-drawer): T3 Code 1e2ecbd975's ThreadTerminalDrawer in its
+// The thread terminal drawer: T3 Code 1e2ecbd975's ThreadTerminalDrawer in its
 // drawer mode (MIT reference, see LICENSE-T3: apps/web/src/components/ThreadTerminalDrawer.tsx), below
 // the chat column so the composer stays above it. The toolbar opens, splits and closes sessions;
 // the empty state offers New Terminal. The `t3-terminal` view (T3TerminalView.swift) shows the server session named by
@@ -128,7 +128,7 @@ component TerminalContent
   action focused(target: string, active: bool)
     command(`${view.commandPrefix}:${active ? "focus-in" : "focus-out"}`, target, view.surface, 0)
   // A close that asks moves the focus into the confirm (Base UI's initialFocus); Cancel gives it back to the button
-  // that asked (its finalFocus: `ui:confirm:<id>`, terminal-links-and-close G1-4).
+  // that asked (its finalFocus: `ui:confirm:<id>`).
   action askClose(target: string, title: string, body: string, from: string)
     confirm(`ui:confirm:${from}`, target, `${view.commandPrefix}:close`, title, body, true)
     focus("app-confirm-cancel")
@@ -177,7 +177,7 @@ component TerminalToolbar
     command: action
     confirm: action
     strip: bool
-  action askClose // Cancel gives the focus back to this Close (Base UI's finalFocus; terminal-links-and-close G1-4)
+  action askClose // Cancel gives the focus back to this Close (Base UI's finalFocus)
     confirm(`ui:confirm:terminal-close-${view.surface}`, `${view.threadKey}|${view.terminalId}`, `${view.commandPrefix}:close`, view.closeTitle, view.closeBody, true)
     focus("app-confirm-cancel")
   view

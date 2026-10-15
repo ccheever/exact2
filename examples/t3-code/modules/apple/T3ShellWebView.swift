@@ -49,7 +49,7 @@ enum T3ShellWebMenu {
     /// WebKit's context menu items act through this action, each named by its WebCore `ContextMenuAction` tag.
     static let forward = NSSelectorFromString("forwardContextMenuAction:")
     /// WebCore ContextMenuItem.h: CopyLinkToClipboard 3, CopyImageToClipboard 6, Copy 8, Cut 13, Paste 14,
-    /// SpellingGuess 15, NoGuessesFound 16 (read back from WebKit's menus on macOS 26, shell-context-menu).
+    /// SpellingGuess 15, NoGuessesFound 16 (read back from WebKit's menus on macOS 26).
     enum Tag { static let copyLink = 3, copyImage = 6, copy = 8, cut = 13, paste = 14, guess = 15, noGuesses = 16 }
     /// Chromium's `canSelectAll` is false in an empty text control.
     static let emptyTextControl = "(() => { const e = document.activeElement; return !!e && (e instanceof HTMLInputElement || e instanceof HTMLTextAreaElement) && e.value === ''; })()"

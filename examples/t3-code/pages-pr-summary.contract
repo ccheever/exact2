@@ -1,4 +1,4 @@
-// The pull request Summary tab (lane "pages"; pr-conversation-and-refresh), measured against
+// The pull request Summary tab, measured against
 // T3 Code 1e2ecbd975 (MIT, see LICENSE-T3) components/pullRequest/PullRequestSummaryTab.tsx,
 // PullRequestActivityUnavailableState.tsx and PullRequestGhosts.tsx PullRequestConversationGhost:
 // reviewers with the verdict ring each last gave, labels, the sticky Description, Checks and
@@ -48,7 +48,7 @@ shape PrCommentCard
   fromEnd: number
   finishedLabel: string
   preview: string
-  // pr-writing-and-metadata: the pencil, the editor's seed, and the reactions.
+  // The pencil, the editor's seed, and the reactions.
   canEdit: bool
   raw: string
   kind: string
@@ -57,7 +57,7 @@ shape PrCommentCard
   reactions: PrReactionPill[]
   reacted: string[]
   canReact: bool
-  // pr-handoffs-and-quick-actions: the finding its Fix hands over ('' for talk and verdicts).
+  // The finding its Fix hands over ('' for talk and verdicts).
   fix: string
 shape PrCommentGroup
   label: string
@@ -140,7 +140,7 @@ component PrdSummary
     scrollId: string
     scrollTop: number
     anchor: action
-    // pr-handoffs-and-quick-actions: a finding's own Fix, and where its task lands (the surface).
+    // A finding's own Fix, and where its task lands (the surface).
     handoffs: PrHandoffsView
     surface: string
   state descriptionOpen = true
@@ -326,7 +326,7 @@ component PrdShowOlder
     PrdWideButton(label=`Show ${min(hidden, 10)} older ${bots ? "bot " : ""}comment${hidden == 1 ? "" : "s"} (${hidden} hidden)`, outline=true, press=press, testId=(bots ? "pull-request-bot-comments-older" : "pull-request-comments-older"))
 
 // A check row opens its details in the system browser where the host gave a URL; a failing one
-// offers its own Fix beside it (pr-handoffs-and-quick-actions).
+// offers its own Fix beside it.
 component PrdCheckRow
   inject
     linkOpen: action

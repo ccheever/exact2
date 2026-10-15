@@ -1,4 +1,4 @@
-// Appearance → an imported theme collection (lane settings-a). Reference ThemeSettings.tsx
+// Appearance → an imported theme collection. Reference ThemeSettings.tsx
 // ThemeLibraryCard's variantNavigation (the light and dark root orbs, each fanning out
 // its variants on hover or focus) and the "Remove themes from …" AlertDialog with a
 // checkbox tile per variant.

@@ -1,4 +1,4 @@
-// Lane r6-pr: the split pull request row of the details card with the host's
+// The split pull request row of the details card with the host's
 // detail (MIT reference, see LICENSE-T3, upstream f90b77d809:
 // chat/ThreadDetailsPrRow.tsx, pullRequest/PullRequestChecksPopover.tsx):
 // the checks segment (rollup glyph, "running/total" while runs are in flight)

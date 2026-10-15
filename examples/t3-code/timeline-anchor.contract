@@ -1,4 +1,4 @@
-// The transcript's remembered position per thread (timeline-and-window-hooks KW-12b), adapted from T3 Code
+// The transcript's remembered position per thread, adapted from T3 Code
 // (MIT, see LICENSE-T3): timelineScrollAnchoring.ts RememberedTimelinePosition and its scoped-thread session
 // cache of at most 100 entries, and MessagesTimeline.tsx's handleScroll / restoration. ChatColumn
 // (app-main.contract) keeps them from the list's ScrollEvent and restores with `scrollIntoView` (LLP 1070.000 §13).

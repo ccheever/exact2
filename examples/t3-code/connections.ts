@@ -3,15 +3,15 @@
 // The primary environment is the embedded server ("This machine", local-primary.ts,
 // this-machine.ts): it has its own section and no row under Environments, and it
 // leads Load balancing and GitHub sharing. Every server this client pairs with is a
-// saved environment, listed under Environments with its own switch and row menu
-// (lane r9-connect). Several stay connected at once: the focused one is T3Client's
+// saved environment, listed under Environments with its own switch and row menu.
+// Several stay connected at once: the focused one is T3Client's
 // connection, the rest are background transports (settings-b-fleet.ts / T3Fleet.swift).
 import { obj, str, arr, type Obj } from './domain';
 import { ClientError, bridgeReply, environmentFetchFailure, parsePairing, type Native } from './protocol';
 import { fleet, environmentKey, phaseOf, trimOrigin, EnvironmentFleet, type FleetPhase, type FleetEntry } from './settings-b-fleet';
 import { isPrimaryEnvironment, primary, primaryEntry, primaryPhase, sessionScopes, withoutPrimaryDuplicates } from './local-primary';
 import { applyLocalSetting, thisMachine } from './this-machine';
-import { closedNetworkView, networkPage, runNetworkOp, NETWORK_OPS } from './connections-network'; // this-machine-network-access
+import { closedNetworkView, networkPage, runNetworkOp, NETWORK_OPS } from './connections-network';
 import { pushToast } from './toast';
 import { runSshOp, sshTargets, formatSshTarget, SSH_OPS, type SshTarget } from './settings-b-ssh';
 import type { T3Client } from './client';
@@ -90,11 +90,11 @@ export function loadPreference(weight: number | undefined): number {
 const preferenceLabel = (value: number) => PREFERENCES.find(([weight]) => weight === value)![1];
 /** Trust belongs to the saved endpoint, not to an environment id alone (one route; several: gitHubRoutingConnectionKey). */
 export const routingKey = singleRouteKey;
-/** The GitHub sharing key of a saved environment: its routes' endpoints (lane environment-routes). */
+/** The GitHub sharing key of a saved environment: its routes' endpoints. */
 const sharingKey = (source: { origin: string; environmentId: string; routes?: ConnectionRoute[] }) =>
   source.routes?.length ? gitHubRoutingConnectionKey({ environmentId: source.environmentId, label: '', routes: source.routes }) ?? routingKey(source.origin, source.environmentId) : routingKey(source.origin, source.environmentId);
 /**
- * pr-links-previews-and-routing (githubRoutingPermissions.ts get): each environment's GitHub sharing as the
+ * githubRoutingPermissions.ts get: each environment's GitHub sharing as the
  * pull request routing reads it, over the key of its current saved endpoints (a changed address or SSH
  * profile no longer matches the stored key, so it reads "off"), with whether it is local (the primary, or a
  * loopback origin: pullRequestRouting.ts isLocal) and switched on.
@@ -124,7 +124,7 @@ export type Source = { key: string; origin: string; environmentId: string; label
 /** The primary first (once its server named itself), then every saved environment, with live facts: the focused one from T3Client, the rest from the fleet. */
 export function environmentSources(host: ConnectionHost, saved: Obj[], entries: Map<string, FleetEntry>, focusedFailure: Obj = {}): Source[] {
   // One saved entry per environment: the focus (whose origin is the route in use) is matched by id. A saved
-  // duplicate of the primary (decision U6) is left out; settings-b-fleet.ts removes it.
+  // duplicate of the primary is left out; settings-b-fleet.ts removes it.
   const local = primaryEntry();
   const list = [...(local ? [local] : []), ...withoutPrimaryDuplicates(saved).filter(entry => str(entry.origin) && str(entry.environmentId))];
   if (host.environmentId && host.connection !== 'disconnected' && !list.some(entry => str(entry.environmentId) === host.environmentId)) {
@@ -148,7 +148,7 @@ export function environmentSources(host: ConnectionHost, saved: Obj[], entries: 
 
 /** environmentTransportLabel: "SSH user@host" for a tunnelled environment, else its URL. */
 const transportLabel = (origin: string, ssh: Record<string, SshTarget>) => { const target = ssh[trimOrigin(origin)] ?? ssh[`${trimOrigin(origin)}/`]; return target ? `SSH ${formatSshTarget(target)}` : displayUrl(origin); };
-/** Lane environment-routes: with several routes, "via <route>" for the one in use, else the first route's label. */
+/** With several routes, "via <route>" for the one in use, else the first route's label. */
 const sourceTransport = (source: Source, ssh: Record<string, SshTarget>) =>
   routesTransportLabel(source.routes, source.activeRouteId, source.phase === 'connected') ?? transportLabel(source.routes[0]?.origin || source.origin, ssh);
 
@@ -190,7 +190,7 @@ export function savedRow(source: Source, index: number, ssh: Record<string, SshT
     updateVersion: mismatch?.clientVersion ?? '',
     iconLock: lock,
     icons: MACHINE_KINDS.map(([id, label]) => ({ kind: id, label, selected: id === kind, note: id === (detected || 'server') ? (detected ? 'detected' : 'default') : '' })),
-    // Lane environment-routes (EnvironmentRoutesList): the route count control and the list under the row.
+    // EnvironmentRoutesList: the route count control and the list under the row.
     routeCount: routeCountLabel(source.routes.length), routesLabel: `Routes to ${source.label}, preferred first`,
     routes: routeRows(source.environmentId, source.routes, source.activeRouteId, connected),
   };
@@ -204,7 +204,7 @@ export function connectionsProjection(host: ConnectionHost, saved: Obj[], entrie
   const sources = environmentSources(host, saved, entries, focusedFailure);
   const listed = sources.filter(source => source.primary || savedIds.has(source.environmentId) || source.phase === 'connected');
   const prefs = decodePrefs(prefsText);
-  // r11-misc: the reference's counting rule (the primary always counts, then switched-on saved ones).
+  // The reference's counting rule (the primary always counts, then switched-on saved ones).
   const machines = balanceSources(listed).map(({ source, primary }, index) => {
     const weight = loadPreference(prefs.loadBalancingWeights[source.environmentId]), routing = prefs.githubRouting[sharingKey(source)] ?? 'off';
     return { key: source.key, first: index === 0, environmentId: source.environmentId, label: source.label,
@@ -221,7 +221,7 @@ export function connectionsProjection(host: ConnectionHost, saved: Obj[], entrie
     activeLabel: str(obj(host.config.environment).label) || hostOf(host.origin),
     thisMachine: thisMachine(local, local ? savedRow(local, 0, ssh, probes) : null), // this-machine.ts: the "This machine" section
     // connections-network.ts: Network access, Tailscale HTTPS, Authorized clients (connectionsPage fills it). Closed, it
-    // keeps the dialogs' serials, so a dialog that closed stays closed on every other page (NR-2).
+    // keeps the dialogs' serials, so a dialog that closed stays closed on every other page.
     network: closedNetworkView(),
     environments: rows, updateCount: rows.filter(row => row.update === 'Update').length,
     machines: machines.length >= 2 ? machines : [],
@@ -290,7 +290,7 @@ async function writePrefs(native: Native, change: (prefs: ConnectionPrefs) => vo
 }
 
 /**
- * r9-connect: a pairing that failed while nothing was connected saves nothing (connectPairing
+ * A pairing that failed while nothing was connected saves nothing (connectPairing
  * registers only a validated connection). The transport tried the new origin as its focus, so
  * it goes back: to the saved environment it was focused on, else to no connection at all.
  */
@@ -300,7 +300,7 @@ async function abandonPairing(native: Native, before: { origin: string; environm
   // The reconnect completes when its socket opens; its progress arrives as t3.status changes.
   if (back) void native.later({ op: 'connect', origin: str(back.origin), credential: '' }).catch(() => undefined);
   else {
-    // r10-connect: nothing to go back to. The transport drops the failed origin (`abandon`), and the
+    // Nothing to go back to. The transport drops the failed origin (`abandon`), and the
     // client's origin returns to the one it named before, so no state names the failed host.
     await native.later({ op: 'disconnect', forget: false, abandon: true }).catch(() => undefined);
     if (client) client.origin = before.origin;
@@ -319,7 +319,7 @@ export async function runConnectionOp(native: Native, op: string, id: string, va
     if (connected) await fleet.sync(native, focusOf(client));
     return result;
   }
-  // lane r4-git: "Run on" moves a draft to another connected environment (r4-git-env.ts).
+  // "Run on" moves a draft to another connected environment (r4-git-env.ts).
   if (op === 'environment-run-on') { if (!client) throw new ClientError('Open a draft first.'); return runOnEnvironment(client, native, value); }
   if (op === 'environment-add' || op === 'welcome-pair') {
     const host = id.trim(), code = value.trim();
@@ -332,7 +332,7 @@ export async function runConnectionOp(native: Native, op: string, id: string, va
       if ('unreachable' in target && target.unreachable) throw new ClientError(environmentFetchFailure(target.origin), 'Network');
       if (connected) {
         // 22e9d35613 preparePairingRegistration: an outdated host that can update itself is still saved (switched off).
-        // U6: pairing this machine's own server saves nothing (the reference's register is a no-op for the primary's id).
+        // Pairing this machine's own server saves nothing (the reference's register is a no-op for the primary's id).
         const paired = await call(native, { op: 'pairEnvironment', ...withStandardScope(target), primaryEnvironmentId: primary.target?.environmentId ?? '' }).catch(async error => {
           if (!(error instanceof ClientError) || error.kind !== 'Protocol') throw error;
           try { await pairOutdated(native, target.origin, target.credential); }
@@ -342,7 +342,7 @@ export async function runConnectionOp(native: Native, op: string, id: string, va
             throw new ClientError(outdated instanceof Error ? outdated.message : String(outdated), 'Protocol');
           }
         });
-        // Lane environment-routes: pairing a saved machine at another address adds a route, placed by kind.
+        // Pairing a saved machine at another address adds a route, placed by kind.
         const added = obj(paired?.value);
         if (str(added.environmentId) && added.primary !== true) await placeRoute(native, str(added.environmentId), str(added.origin)).catch(() => {});
         if (client && !welcome) pushToast(client, { kind: 'success', title: 'Backend added', description: 'The environment is saved and will reconnect on app startup.' });
@@ -354,7 +354,7 @@ export async function runConnectionOp(native: Native, op: string, id: string, va
         const reply = await call(native, { op: 'connect', ...withStandardScope(target) });
         const opened = obj(reply.value);
         if (str(opened.environmentId)) await placeRoute(native, str(opened.environmentId), str(opened.origin)).catch(() => {});
-        // r10-connect: handleAddSavedBackend's success is the same with or without a connection: the dialog
+        // handleAddSavedBackend's success is the same with or without a connection: the dialog
         // closes over Settings › Connections and the toast says so (app.contract keeps Settings open).
         if (client && !welcome) pushToast(client, { kind: 'success', title: 'Backend added', description: 'The environment is saved and will reconnect on app startup.' });
         return { status: obj(reply.value), generation: reply.generation };
@@ -518,7 +518,7 @@ export async function runConnectionOp(native: Native, op: string, id: string, va
     if (value !== 'on' && value !== 'off') throw new ClientError("Couldn't change this setting.");
     return applyLocalSetting(client, native, { localEnvironmentEnabled: value === 'on' });
   }
-  // this-machine-network-access: Network access, Tailscale HTTPS, pairing links and clients (connections-network.ts).
+  // Network access, Tailscale HTTPS, pairing links and clients (connections-network.ts).
   if (NETWORK_OPS.includes(op)) { if (!client) throw new ClientError('Open this app on macOS to change this setting.'); return runNetworkOp(client, native, op, id, value); }
   if (op === 'load-balancing') {
     await writePrefs(native, prefs => { prefs.loadBalancingEnabled = value === 'true'; });

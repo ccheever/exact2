@@ -1,4 +1,4 @@
-// Task desktop-shell-details: the reference's timestampFormat.test.ts locale cases, the theme
+// The reference's timestampFormat.test.ts locale cases, the theme
 // import size guard (ThemeImportDialog.test.ts), ProjectFaviconPickerDialog.test.tsx's native
 // picker cases, and the full-screen title-row inset (1e2ecbd975).
 import { afterEach, describe, expect, test } from 'bun:test';
@@ -172,7 +172,7 @@ describe('full-screen title row', () => {
     expect([12, 16, 20].map(size => sidebarMinimumWidth(size))).toEqual([208, 208, 223]);
     expect([12, 16, 20].map(size => sidebarMinimumWidth(size, true))).toEqual([208, 208, 208]);
   });
-  // timeline-and-window-hooks KW-12c: the public display mode (exactViewport().displayMode) is the one source; the
+  // The public display mode (exactViewport().displayMode) is the one source; the
   // native full-screen fact (T3FullScreen.swift) and its t3.status field are gone.
   test('the viewport display mode drives the shared inset and sidebar minimum, and windowed restores them', () => {
     const client = new T3Client();

@@ -52,7 +52,7 @@ describe('ChatView clone banner and send block', () => {
 describe('ProjectCloneToastCoordinator', () => {
   test('each phase is its toast: loading with Cancel, 8 s success with Open project, error and info with Retry and Remove project', () => {
     expect(cloneToast(clone(), 'env')).toMatchObject({ kind: 'loading', title: 'Cloning pr-demo', timeoutMs: 0, hideCopy: true, action: { label: 'Cancel', op: 'shell:clone-cancel', id: 'p1', value: 'env' }, secondary: null });
-    // Open project names the project on its environment, focused or not (scheduled-tasks-followups ST-2).
+    // Open project names the project on its environment, focused or not.
     expect(cloneToast(clone({ phase: 'done' }), 'env')).toMatchObject({ kind: 'success', title: 'Cloned pr-demo', description: '/work/pr-demo', timeoutMs: 8000, action: { label: 'Open project', op: 'new-thread', id: 'fleet:env:p1' } });
     expect(cloneToast(clone({ phase: 'failed', error: 'boom' }), 'env')).toMatchObject({ kind: 'error', title: 'Failed to clone pr-demo', description: 'boom', timeoutMs: 0, hideCopy: false, action: { label: 'Retry' }, secondary: { label: 'Remove project', op: 'shell:clone-remove' } });
     expect(cloneToast(clone({ phase: 'cancelled' }), 'env')).toMatchObject({ kind: 'info', title: 'Cancelled cloning pr-demo', description: '/work/pr-demo', hideCopy: true });

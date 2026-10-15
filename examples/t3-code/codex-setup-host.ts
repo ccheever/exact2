@@ -1,4 +1,4 @@
-// Where a managed Codex setup runs (managed-codex-chatgpt): the focused connection, or a computer
+// Where a managed Codex setup runs: the focused connection, or a computer
 // the welcome shows in the background (codex-fleet-host.ts), and the primary that signs a remote
 // environment in (CodexSetupSection.tsx primaryAuthEnvironmentId :247-258: a non-loopback
 // environment signs in on the connected loopback primary and imports the profile). A command

@@ -1,8 +1,8 @@
-// diff-cite-popover: Cite's comment popover (DC-1) and the rest of Cite (DC-2), against T3 Code 1e2ecbd975 (MIT, LICENSE-T3):
+// Cite's comment popover and the rest of Cite, against T3 Code 1e2ecbd975 (MIT, LICENSE-T3):
 // AssistantCitationChip.tsx, AssistantCitationCommentEditor.tsx, assistantCitationCommentDismissal.ts,
 // ComposerPromptEditorTiptap.tsx ComposerCitationNodeView, ChatComposer.tsx citeAssistantText and submitCitationAndSend,
-// lib/assistantTextSelection.ts readAssistantText. The reference's numbers were read over CDP on the lane reference with the
-// lane's Cite fixture answer (a paragraph with inline code, a ```ts block, a closing paragraph), 1280×840.
+// lib/assistantTextSelection.ts readAssistantText. The reference's numbers were read over CDP on the reference with
+// its Cite fixture answer (a paragraph with inline code, a ```ts block, a closing paragraph), 1280×840.
 import { describe, expect, test } from 'bun:test';
 import type { Obj } from './domain';
 import type { Native } from './protocol';
@@ -33,7 +33,7 @@ function editor(state: Obj, applied = true) {
   return { native, calls, finishes: () => calls.filter(call => call.op === 'editorChipFinish') };
 }
 
-describe('DC-1: the citation chip\'s comment popover', () => {
+describe('the citation chip\'s comment popover', () => {
   test('a citation press is the comment\'s popover: its saved comment, its anchor and the cited answer', () => {
     const view = chipPopover(press(), []);
     expect(view).toMatchObject({ seq: 7, open: true, kind: 'citation', title: 'Edit citation comment', comment: '', anchor: 'chip', ax: 516.5, ay: 695.5, aw: 14, ah: 14,
@@ -194,8 +194,8 @@ describe('DC-1: the citation chip\'s comment popover', () => {
   });
 });
 
-describe('DC-2: the rest of Cite', () => {
-  // The lane's Cite fixture answer as the native parser lays it out: the paragraph flows word by word around its code span
+describe('the rest of Cite', () => {
+  // The Cite fixture answer as the native parser lays it out: the paragraph flows word by word around its code span
   // (markdown.rs flow_tokens: a word keeps its trailing spaces, a code span is whole, a space after it stands alone).
   const prose = 'Cite check: the parser keeps `parsePatch` pure, so a quote across inline code reads as written. Select across this paragraph and press Cite to quote it into the composer.';
   const words = (text: string) => text.match(/\S+\s*|\s+/g)!;

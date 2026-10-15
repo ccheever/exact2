@@ -1,4 +1,4 @@
-// settings-appearance-and-skill-chip (desktop audit 2026-10-09, S1-5 and S1-6), against T3 Code 1e2ecbd975
+// The theme editor and Open VSX results, against T3 Code 1e2ecbd975
 // (MIT, LICENSE-T3): ThemeEditorPanel.tsx:395-399 opens Advanced for any source theme the guided editor
 // did not make, and openVsxThemes.ts:195 names an Open VSX result's publisher by its namespace.
 import { describe, expect, test } from 'bun:test';
@@ -16,7 +16,7 @@ const as = (fake: ReturnType<typeof client>) => fake as unknown as T3Client;
 const prefs = (fake: ReturnType<typeof client>) => fake.local.clientSettings as { theme: string; themeLight: string; themeDark: string };
 const library = (fake: ReturnType<typeof client>) => fake.local.customThemes as CustomTheme[];
 
-describe('the theme editor opens Advanced for a theme the guided editor did not make (S1-5)', () => {
+describe('the theme editor opens Advanced for a theme the guided editor did not make', () => {
   test('Duplicate T3 Chat: "T3 Chat copy", Advanced, all 20 roles in their four groups with T3 Chat\'s colours', () => {
     const fake = client();
     const view = editorView(syncDraft(as(fake), 'duplicate', 't3-chat#1', prefs(fake), 'light'));
@@ -97,7 +97,7 @@ describe('the theme editor opens Advanced for a theme the guided editor did not 
   });
 });
 
-describe('Open VSX results name the extension\'s namespace as the publisher (S1-6)', () => {
+describe('Open VSX results name the extension\'s namespace as the publisher', () => {
   test('the namespace, not the uploader\'s login (the audit\'s Dracula results)', async () => {
     const extensions = [['dracula-theme', 'theme-dracula', 'open-vsx', 431500], ['Dracula-2', 'dracula-2', 'TimDeen', 104000], ['bceskavich', 'dracula-pro', 'open-vsx', 18000], ['MateuszDrewniak', 'dracula-dark', 'Verseth', 16900]] as const;
     const fake = { local: { customThemes: [] }, restAccess: () => ({ call: async (request: { url: string }) => {

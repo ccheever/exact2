@@ -82,7 +82,7 @@ export async function diffReview(client: T3Client, native: Native, op: string, v
   }
   if (action === 'to' || action === 'end') return lineDrag(client, state, scope, action, value);
   // A primary press on the gutter (`press`: one that starts no drag, while a draft is open or on an empty side) is an outside
-  // press for a skill chip's details, which the window's root never hears (files-gutter-parity FG-4).
+  // press for a skill chip's details, which the window's root never hears.
   if (action === 'press' || action === 'drag' || action === 'gutter') await closeChipFromPress(native);
   if (action === 'press') return '';
   if (state.draft && ['comment', 'drag', 'gutter'].includes(action)) return ''; // an open draft holds the gutter (enableLineSelection: false)
@@ -180,8 +180,8 @@ export function citedMessageId(rowId: string): string {
 /**
  * Cite (AssistantSelectionToolbar → ChatView insertAssistantCitation): the selected parts of an
  * answer's text stream ("start-end,…|x,y,width,height|stream", the frame the cited text's last part's, diff-cite.contract)
- * become a t3-citation:// chip at the composer caret, and its comment opens under the cited text (diff-cite-popover DC-1:
- * ChatComposer citeAssistantText's `citationCommentAnchor`, citation-comment.ts).
+ * become a t3-citation:// chip at the composer caret, and its comment opens under the cited text
+ * (ChatComposer citeAssistantText's `citationCommentAnchor`, citation-comment.ts).
  */
 export function parseCiteValue(value: string): { ranges: number[][]; source: number[]; stream: string } | null {
   const bar = value.indexOf('|'), second = bar < 0 ? -1 : value.indexOf('|', bar + 1);
@@ -201,7 +201,7 @@ async function citeSelection(client: T3Client, native: Native, rowId: string, va
   const citation = { version: 1 as const, environmentId: client.environmentId, threadId: client.threadId, messageId: citedMessageId(rowId), ...selector };
   const href = formatAssistantCitationHref(citation);
   if (!parseAssistantCitationHref(href)) throw new ClientError('Unable to cite this selection.');
-  // diff-cite-popover DC-1: where the quote starts in the answer's text stream, for its highlight while the comment is open.
+  // Where the quote starts in the answer's text stream, for its highlight while the comment is open.
   rememberCitedStart(client, citation, Math.min(...ranges.map(range => range[0]!)));
   try { await insertContext(client, native, 'citation', href); }
   catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'warning', title: 'The composer is not ready', description: 'Try citing the selection after the connection or pending input is resolved.', hideCopy: true }); return ''; }

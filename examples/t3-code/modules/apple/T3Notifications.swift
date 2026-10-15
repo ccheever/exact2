@@ -100,7 +100,7 @@ final class T3Notifications: NSObject, UNUserNotificationCenterDelegate {
         changed("t3.notify")
     }
 
-    /// The page posts only while its window has no focus (`exactPage().hasFocus`), as the coordinator does.
+    /// The page posts only while its window has no focus (`exactPage().hasFocus`).
     private func post(title: String, body: String, tag: String, threadId: String) -> Bool {
         guard let center else { return false }
         let content = UNMutableNotificationContent()

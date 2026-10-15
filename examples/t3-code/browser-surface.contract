@@ -1,12 +1,12 @@
-// browser-surface part 1: a Browser tab's body (MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
+// A Browser tab's body (MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
 // apps/web/src/components/preview/PreviewView.tsx, PreviewChromeRow.tsx, PreviewMoreMenu.tsx,
 // PreviewEmptyState.tsx, PreviewUnreachable.tsx; index.css `.preview-loading-progress`). The chrome row
 // over the page, which is the module's `t3-browser` view (T3BrowserView.swift); the empty state for an idle
 // tab; the load-failed page. `view` is browser-surface.ts `browserView`; `local` runs `surface-browser-<op>`.
-// Annotate, Capture and Float preview and the More menu's separate window are part 3's (browser-capture.contract).
-// Part 2 adds the page area (browser-stage.contract: the device toolbar, the fitted viewport, the rails, the zoom
+// Annotate, Capture and Float preview and the More menu's separate window are browser-capture.contract's.
+// It also draws the page area (browser-stage.contract: the device toolbar, the fitted viewport, the rails, the zoom
 // pill), the More menu's device toolbar, appearance and zoom rows, the empty state's Recently used and Local
-// servers, and the load-failed page's Details; part 4 made the More menu's Profile group's actions work.
+// servers, the load-failed page's Details and the More menu's Profile group.
 // The reference's "Open DevTools" item is absent: Safari's Web Inspector attaches to the page in a
 // development build instead, and cannot be opened from code (exact2 #100, #101).
 use TipBubble from "./shell-tip.contract"
@@ -102,7 +102,7 @@ component BrowserChrome
     addressOver = on
   // The field shows the page URL at rest and the draft while it has the focus; focusing it starts the draft
   // at the URL with all of it selected; Enter goes there; Escape puts the URL back and leaves the field.
-  // In a sheet the panel toggle's Escape closes the sheet first, as the reference's sheet does (right-panel-escape). The focus
+  // In a sheet the panel toggle's Escape closes the sheet first, as the reference's sheet does. The focus
   // is view state: a command sent on focus or blur would let go of the navigation Enter just sent through the
   // same mutation. Text that arrives before the focus does (the agent's `type`) is kept as the draft.
   action focusField(on: bool)
@@ -134,7 +134,7 @@ component BrowserChrome
           BsButton(icon="arrow-right", label="Forward", tip="Forward", disabled=(not view.canGoForward), pressed=false, spin=false, align="center", press=local("surface-browser-forward", view.tabId, ""), testId="browser-forward")
           // The reference names the button Stop while a page loads, and pressing it reloads (PreviewManager.refresh).
           BsButton(icon="refresh-cw", label=(view.loading ? "Stop" : "Refresh"), tip=(view.loading ? "Loading…" : "Refresh"), disabled=view.refreshDisabled, pressed=false, spin=(view.loading and not still), align="center", press=local("surface-browser-refresh", view.tabId, ""), testId="browser-refresh")
-        // leadingActions: the tab's profile, only when it is not the configured default (part 4), its name on hover.
+        // leadingActions: the tab's profile, only when it is not the configured default, its name on hover.
         if view.showProfile
           BsProfileBadge(name=view.profileName)
         // InputGroup ghost (h-7): transparent until hovered (muted/40) or focused (the background and a ring).
@@ -143,7 +143,7 @@ component BrowserChrome
           // Revealed on hover, so a resting address bar reads as plain text, and while it has the focus.
           if not focused
             BsRevealButton(shown=addressOver, press=local("surface-browser-external", view.tabId, ""))
-        // Part 3 (browser-surface-capture): Annotate, Capture (Shift-click records) and Float preview (browser-capture.contract).
+        // Annotate, Capture (Shift-click records) and Float preview (browser-capture.contract).
         BrowserCaptureButtons(view=view.capture, tabId=view.tabId, local=local)
         BrowserMore(view=view, local=local, pw=pw, ph=ph)
       // The loading bar: 2pt, the primary colour, from the left edge; it stops moving with reduced motion.
@@ -493,8 +493,8 @@ component BrowserTabIcon
         image source width=`${size / 16}rem` height=`${size / 16}rem` object-fit="contain" border-radius="0.125rem" aria-hidden=true load=didLoad error=didFail position=(loaded == source ? "relative" : "absolute") left=0 top=0 visibility=(loaded == source ? "visible" : "hidden")
 
 // The "+" menu's Browser row (RightPanelTabs MenuSubTrigger): the row opens a tab under the default profile;
-// its chevron opens the profile list (part 4 fills it beyond Default). The reference opens that list on hover;
-// a popover opened by hover has no Contract mechanism yet (X66, exact2 #319), so the chevron is pressed.
+// its chevron opens the profile list. The reference opens that list on hover;
+// a popover opened by hover has no Contract mechanism yet (issues/closed/20261009-popover-action-commands.md, exact2 #319), so the chevron is pressed.
 component BrowserAddItem
   props
     // The KeyMenu popup the row hands the focus to as the pointer leaves it holding the focus (menu-keys.contract).
@@ -545,7 +545,7 @@ component BrowserProfileItem
     button id=`browser-profile-${profile.id}` press=open popovertarget="r4-add-surface" popovertargetaction="hide" hover=hover role="menuitem" testId=`browser-profile-${profile.id}` display="flex" flex-direction="row" align-items="center" width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color=(hovered ? "light-dark(#27272914, #f5f5f514)" : "#00000000")
       text profile.name flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
 
-// browser-surface part 4: the chrome row's profile badge (Badge outline, max 7rem, truncated) with its name in a tooltip.
+// The chrome row's profile badge (Badge outline, max 7rem, truncated) with its name in a tooltip.
 component BsProfileBadge
   props
     name: string
@@ -557,7 +557,7 @@ component BsProfileBadge
       text name max-width="7rem" padding-left="0.375rem" padding-right="0.375rem" height="1.25rem" line-height="1.125rem" box-sizing="border-box" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" font-size="0.75rem" font-weight=500 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#27272a, #f5f5f5)" testId="browser-profile"
       TipBubble(label=name, side="top", align="start", offset=24, inset=0, shown=over)
 
-// browser-surface part 4: the launcher's Browser row chevron (RightPanelEmptyState), shown with more than one profile:
+// The launcher's Browser row chevron (RightPanelEmptyState), shown with more than one profile:
 // the row opens the default profile, the chevron the list (the same choice as the "+" menu's submenu).
 component BrowserLauncherProfiles
   props

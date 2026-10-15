@@ -36,7 +36,7 @@ shape CheckpointFile
 shape MarkdownSkill
   name: string
   displayName: string
-// timeline-work-rows TH-5: one V2ItemInspector list item: a file search result ("file": path and
+// One V2ItemInspector list item: a file search result ("file": path and
 // line over its preview), a web result ("web": its title, a link when href is set, over its snippet)
 // or one change of a file edit ("change").
 shape InspectorResult
@@ -66,11 +66,11 @@ shape Activity
   status: string
   targetId: string
   answer: string
-  // r4-timeline: the full date under the hover time (formatChatTimestampTooltip).
+  // The full date under the hover time (formatChatTimestampTooltip).
   timeTip: string
   // r11-upstream (737993303d): the failed run a workspace preparation Retry prepares again.
   retryRunId: string
-  // timeline-work-rows TH-5: the inspector's results, and a file change's path, +/- counts and Open diff.
+  // The inspector's results, and a file change's path, +/- counts and Open diff.
   results: InspectorResult[]
   changePath: string
   stats: bool
@@ -78,11 +78,11 @@ shape Activity
   deletions: number
   diffRunId: string
   diffPath: string
-  // timeline-work-rows TH-6: SubagentAvatar's driver mark (`detail` is the driver) and a live agent's start (ms; 0 when settled).
+  // SubagentAvatar's driver mark (`detail` is the driver) and a live agent's start (ms; 0 when settled).
   initials: string
   driverIcon: string
   startedMs: number
-  // timeline-work-rows TH-2: the trailing button's text for targetId ("Open chat" for a created thread, "Open subagent").
+  // The trailing button's text for targetId ("Open chat" for a created thread, "Open subagent").
   targetLabel: string
 shape Message
   id: string
@@ -139,7 +139,7 @@ shape Message
   fileCount: number
   images: MessageImage[]
   attachFiles: MessageFile[]
-  // r4-timeline: code font/size, word wrap and the message's chips (r4-timeline-chips.ts).
+  // Code font/size, word wrap and the message's chips (r4-timeline-chips.ts).
   md: MarkdownEnv
 shape Provider
   id: string
@@ -269,7 +269,7 @@ shape DiffItem
   expandable: bool
   entry: string
   text: string
-  // diff-panel-parity: a file header's counts (diff.ts headerStat): Pierre's "-d +a", or DiffStatLabel's aligned "+a -d" for a large source.
+  // A file header's counts (diff.ts headerStat): Pierre's "-d +a", or DiffStatLabel's aligned "+a -d" for a large source.
   statAligned: bool
   addText: string
   delText: string
@@ -309,9 +309,9 @@ shape SnapshotDraft
   letter: string
   included: bool
   contents: string
-  // r4-composer: its image chip is in the prompt, so Remove asks first (removeComposerImage).
+  // Its image chip is in the prompt, so Remove asks first (removeComposerImage).
   referenced: bool
-// server-update-banner (server-update-notices.ts serverUpdateView): the offline banner's timer episodes,
+// server-update-notices.ts serverUpdateView: the offline banner's timer episodes,
 // the details toggle's warning dot and the desktop-managed update's confirmation.
 shape ServerUpdateView
   reconnecting: string
@@ -322,14 +322,14 @@ shape ServerUpdateView
 shape Snapshot
   serverUpdate: ServerUpdateView
   timelineReadsNeeded: bool
-  highlightPending: bool // shiki-residuals: a code text waits for its Shiki tokens
+  highlightPending: bool // a code text waits for its Shiki tokens
   markdownSkills: MarkdownSkill[]
   composer: ComposerView
-  // r6-polish: the AlertStack wrapper's clip to its banners (r6-polish-measure.ts alertClip).
+  // The AlertStack wrapper's clip to its banners (r6-polish-measure.ts alertClip).
   alertClip: string
   snapshotDrafts: SnapshotDraft[]
   snapshotOwner: string
-  // managed-codex-chatgpt: ChatGptWelcomeCoordinator's next "Your ChatGPT plan is connected" (chatgpt-plan.ts).
+  // ChatGptWelcomeCoordinator's next "Your ChatGPT plan is connected" (chatgpt-plan.ts).
   chatgptPlan: ChatGptPlanNotice[]
   revision: number
   // Resource telemetry samples drained (client.ts drain): Diagnostics' live Resource monitor redraws on it alone.
@@ -344,19 +344,19 @@ shape Snapshot
   providerBannerTitle: string
   providerBannerMessage: string
   providerBannerWarning: bool
-  // provider-sign-in-and-install (provider-status-message.ts): role, dismiss label and the instance "Open provider setup" opens.
+  // provider-status-message.ts: role, dismiss label and the instance "Open provider setup" opens.
   providerBannerAlert: bool
   providerBannerDismiss: string
   providerBannerSetup: string
   serverUrl: string
-  // auto-balance (auto-balance-owner.ts): the open draft's identity; a draft Auto balance moved keeps its earlier one.
+  // auto-balance-owner.ts: the open draft's identity; a draft Auto balance moved keeps its earlier one.
   composerOwner: string
   uncertain: bool
   uncertainMessage: string
   sidebarWidth: number
-  // r12-sidebar: resolveThreadSidebarMinimumWidth at the Interface font size (r12-sidebar-width.ts).
+  // resolveThreadSidebarMinimumWidth at the Interface font size (r12-sidebar-width.ts).
   sidebarMinWidth: number
-  // desktop-shell-details: --workspace-controls-left, 90 beside the traffic lights, 0.75rem in full screen (r12-sidebar-width.ts).
+  // --workspace-controls-left, 90 beside the traffic lights, 0.75rem in full screen (r12-sidebar-width.ts).
   controlsLeft: number
   sidebarOpen: bool
   query: string
@@ -367,7 +367,7 @@ shape Snapshot
   threadHeading: CommandChoice[]
   draft: string
   running: bool
-  // timeline-work-rows TH-6: a live subagent's elapsed time ticks on the timeline clock (AgentElapsed).
+  // A live subagent's elapsed time ticks on the timeline clock (AgentElapsed).
   subagentsLive: bool
   canSend: bool
   canStop: bool
@@ -384,7 +384,7 @@ shape Snapshot
   // r4-composer-attachments.ts: the draft's attached videos on the shelf, and the one being previewed (0 or 1).
   composerVideos: ComposerVideo[]
   composerVideoPreview: ComposerVideoPreview[]
-  tableMenu: TableMenuView[] // lane r8-keys
+  tableMenu: TableMenuView[]
   providerDriver: string
   providerBadge: string
   providerBadgeColor: string
@@ -400,7 +400,7 @@ shape Snapshot
   interactionMode: string
   hasMore: bool
   historyLoading: bool
-  threadLoading: bool // audit-wave-followups FU-1: a server thread's detail is not in yet (ChatView threadDetailLoading)
+  threadLoading: bool // a server thread's detail is not in yet (ChatView threadDetailLoading)
   diffOpen: bool
   diffLoading: bool
   diffError: string
@@ -421,7 +421,7 @@ shape Snapshot
   diffDeletions: number
   diffAdditionsText: string
   diffDeletionsText: string
-  // diff-panel-parity: the Changes header's "<head> → <base>" and the comparison target picker (diff-base-ref.ts).
+  // The Changes header's "<head> → <base>" and the comparison target picker (diff-base-ref.ts).
   diffCompare: bool
   diffHead: string
   diffBase: string
@@ -442,13 +442,13 @@ shape Snapshot
   snoozePresets: SnoozePreset[]
   threads: Thread[]
   sidebar: SidebarView
-  // legacy-sidebar: General › Sidebar (legacy)'s per-project thread trees (legacy-sidebar-view.ts).
+  // General › Sidebar (legacy)'s per-project thread trees (legacy-sidebar-view.ts).
   legacy: LegacySidebarView
   messages: Message[]
   historyError: string
   revertPending: string
   minimap: MinimapItem[]
-  citing: bool // timeline-and-window-hooks: a citation is placing its answer (ChatColumn restores nothing meanwhile)
+  citing: bool // a citation is placing its answer (ChatColumn restores nothing meanwhile)
   imagePreviewId: string
   imagePreviewName: string
   imagePreviewPosition: string
@@ -456,11 +456,11 @@ shape Snapshot
   imagePreviewNext: bool
   imagePreviewVideo: bool
   imagePreviewSource: string
-  // chat-markdown-media-and-code G4-05: the shown media's tooltip (MediaActions: its full path, URL or name).
+  // The shown media's tooltip (MediaActions: its full path, URL or name).
   imagePreviewTip: string
-  // G4-05: the Markdown image's node the dialog gives the focus back to ("" for an attachment or a link's media).
+  // The Markdown image's node the dialog gives the focus back to ("" for an attachment or a link's media).
   imagePreviewReturn: string
-  // X18: the thread's last code copy (Copy code, Copy table); the root clears its check after 1.2 s.
+  // The thread's last code copy (Copy code, Copy table); the root clears its check after 1.2 s (#123).
   codeCopyNonce: number
   diagramPreview: MermaidDiagram[]
   planSaveOpen: bool
@@ -487,7 +487,7 @@ shape Viewport
   height: number
   prefersColorScheme: string
   prefersReducedMotion: bool
-  displayMode: string // "fullscreen" while the window is in full screen (LLP 1039; timeline-and-window-hooks KW-12c)
+  displayMode: string // "fullscreen" while the window is in full screen (LLP 1039)
 
 style Ink
   color="light-dark(#27272a, #ededed)"

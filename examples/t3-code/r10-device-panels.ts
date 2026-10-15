@@ -1,10 +1,10 @@
-// Lane r10-device: the right panel's surfaces survive a relaunch (MIT reference, see LICENSE-T3:
+// The right panel's surfaces survive a relaunch (MIT reference, see LICENSE-T3:
 // apps/web/src/rightPanelStore.ts persists `byThreadKey` — each thread's surfaces, active surface and
 // whether the panel is open — under "t3code:right-panel-state:v2", and migratePersistedRightPanelState
 // reads it back). The reference restores the panel with its file, so the Files breadcrumbs settle at
 // the trail's end after a relaunch (r10-device-crumbs.ts). Here the panels are kept in the client's one
 // preference file under `rightPanels`, keyed as the panel store keys them (the thread's draft key).
-// The Files explorer, file tabs and the linked pull requests list are restored; lane r11-device adds the
+// The Files explorer, file tabs and the linked pull requests list are restored, and so are the
 // Diff, the Device surface with its device, pull request details and attachments (r11-device-panels.ts).
 // As the migration does, an active surface that was not kept falls back to the first kept one while
 // the panel is open, and a panel with nothing kept stays closed.

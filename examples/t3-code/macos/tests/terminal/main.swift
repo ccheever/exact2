@@ -6,7 +6,7 @@ import XCTest
 // (T3TerminalView.swift) running T3 Code's Ghostty page from the app's assets.
 // Needs `bun examples/t3-code/terminal-host/build.mjs` first and `T3_APP_DIR` (the example
 // directory, whose `assets/` holds the page). `T3_TERMINAL_TEST_DIR` receives PNGs.
-// `T3_TERMINAL_SCALE=1` also runs the 1/4/11/44-view cost table (S2), which takes a minute.
+// `T3_TERMINAL_SCALE=1` also runs the 1/4/11/44-view cost table, which takes a minute.
 
 /// Records the key events WebKit hands back to the application (an unhandled key is resent
 /// through `NSApp.sendEvent`), without activating the app or taking the screen's focus.
@@ -122,8 +122,8 @@ final class TerminalSurfaceTests: XCTestCase {
         }.joined()
     }
 
-    /// S3: the page, script, WASM and font come from the assets through the scheme; nothing else loads.
-    /// S4: the snapshot shows the canvas and debug() returns the visible text.
+    /// The page, script, WASM and font come from the assets through the scheme; nothing else loads.
+    /// The snapshot shows the canvas and debug() returns the visible text.
     func testLoadsOfflineAndRendersHarnessBytes() throws {
         let view = mount(["terminal": "render", "fixture": "render"])
         waitReady(view)
@@ -157,7 +157,7 @@ final class TerminalSurfaceTests: XCTestCase {
         XCTAssertEqual(debug(view)["ready"] as? Bool, true)
     }
 
-    /// S1 and S5: a chord the page leaves to the app reaches the menu; an encoded key stays in
+    /// A chord the page leaves to the app reaches the menu; an encoded key stays in
     /// the terminal; agent text and keys arrive as the bytes Ghostty's encoder produces.
     func testKeysReachThePageOrTheApp() throws {
         let view = mount(["terminal": "keys", "chords": "Meta+K"])
@@ -230,7 +230,7 @@ final class TerminalSurfaceTests: XCTestCase {
         XCTAssertTrue((debug(view)["text"] as? [String] ?? []).contains { $0.contains("AFTER_PASTE") })
     }
 
-    /// S6 (host path): text the app read from the clipboard reaches the shell as one paste.
+    /// Text the app read from the clipboard reaches the shell as one paste (the host path).
     func testHostPaste() {
         let view = mount(["terminal": "paste"])
         waitReady(view)
@@ -244,7 +244,7 @@ final class TerminalSurfaceTests: XCTestCase {
         XCTAssertEqual(typed(view), "echo pasted\u{1b}[200~two\nlines\u{1b}[201~")
     }
 
-    /// S7 (partial): composition through the web view's text input client commits once.
+    /// Composition through the web view's text input client commits once (a partial check).
     func testCompositionCommitsOnce() throws {
         let view = mount(["terminal": "ime"])
         waitReady(view)
@@ -283,7 +283,7 @@ final class TerminalSurfaceTests: XCTestCase {
         return view
     }
 
-    /// G1-2: ⌃C with ㅎ composing commits ㅎ (it reaches the PTY once) and is then the
+    /// ⌃C with ㅎ composing commits ㅎ (it reaches the PTY once) and is then the
     /// composition's, as Chromium's composing keydown is: no ^C, nothing left composing. A ⌃ chord the
     /// terminal owns (⌃L, its clear) runs after the commit, in that order.
     func testControlChordCommitsTheCompositionFirst() throws {
@@ -301,7 +301,7 @@ final class TerminalSurfaceTests: XCTestCase {
         try view.agentInput(.key("Control+C", phase: nil))
         spin(until: { !self.typed(view).isEmpty && !self.marked(view) }, timeout: 5)
         RunLoop.main.run(until: Date().addingTimeInterval(0.3))
-        print("terminal G1-2 ⌃C while ㅎ composes: typed \(typed(view).unicodeScalars.map { String($0.value, radix: 16) }) composing \(marked(view))")
+        print("terminal ⌃C while ㅎ composes: typed \(typed(view).unicodeScalars.map { String($0.value, radix: 16) }) composing \(marked(view))")
         XCTAssertEqual(typed(view), "ㅎ", "⌃C did not commit ㅎ alone")
         XCTAssertFalse(marked(view), "ㅎ is still composing")
         try view.agentInput(.key("Control+C", phase: nil))
@@ -310,12 +310,12 @@ final class TerminalSurfaceTests: XCTestCase {
         try compose(view, "하")
         try view.agentInput(.key("Control+L", phase: nil))
         spin(until: { self.typed(view).hasSuffix("\u{c}") }, timeout: 5)
-        print("terminal G1-2 ⌃L while 하 composes: typed \(typed(view).unicodeScalars.map { String($0.value, radix: 16) }) composing \(marked(view))")
+        print("terminal ⌃L while 하 composes: typed \(typed(view).unicodeScalars.map { String($0.value, radix: 16) }) composing \(marked(view))")
         XCTAssertEqual(typed(view), "ㅎ\u{3}하\u{c}", "⌃L cleared ahead of the composition")
         XCTAssertFalse(marked(view))
     }
 
-    /// G1-1: while text composes, the terminal's key path does not act ahead of the
+    /// While text composes, the terminal's key path does not act ahead of the
     /// input method. ⌥Return (the Korean input method's Hanja list) is offered to the input context
     /// first, once, though this path can see a key three times; the terminal never encodes it itself.
     func testOptionReturnGoesToTheInputContextFirstWhileComposing() throws {
@@ -324,7 +324,7 @@ final class TerminalSurfaceTests: XCTestCase {
         let offers = view.inputMethodOffers
         try view.agentInput(.key("Alt+Enter", phase: nil))
         RunLoop.main.run(until: Date().addingTimeInterval(0.5))
-        print("terminal G1-1 ⌥Return while 한 composes: offers \(view.inputMethodOffers - offers) typed \(typed(view).unicodeScalars.map { String($0.value, radix: 16) }) composing \(marked(view))")
+        print("terminal ⌥Return while 한 composes: offers \(view.inputMethodOffers - offers) typed \(typed(view).unicodeScalars.map { String($0.value, radix: 16) }) composing \(marked(view))")
         XCTAssertEqual(view.inputMethodOffers, offers + 1)
         XCTAssertFalse(typed(view).contains("\u{1b}\r"), "⌥Return was encoded as the terminal's own key")
         // Without a composition ⌥Return is the terminal's again (Ghostty's encoding), with no offer.
@@ -451,7 +451,7 @@ final class TerminalSurfaceTests: XCTestCase {
         XCTAssertEqual((debug(view)["text"] as? [String])?.first, "while hidden")
     }
 
-    /// S2: a 5 MB flood arrives whole, and the main thread keeps turning.
+    /// A 5 MB flood arrives whole, and the main thread keeps turning.
     func testFloodArrivesWhole() {
         let view = mount(["terminal": "flood"])
         waitReady(view)
@@ -474,7 +474,7 @@ final class TerminalSurfaceTests: XCTestCase {
         XCTAssertLessThan(elapsed, 30)
     }
 
-    /// S2: process, memory and idle CPU cost of 1, 4, 11 and 44 views.
+    /// Process, memory and idle CPU cost of 1, 4, 11 and 44 views.
     func testCostByViewCount() throws {
         try XCTSkipUnless(ProcessInfo.processInfo.environment["T3_TERMINAL_SCALE"] == "1", "set T3_TERMINAL_SCALE=1")
         let baseline = Set(Self.webContent())
@@ -561,9 +561,9 @@ _ = TestApplication.shared
 NSApp.setActivationPolicy(.accessory)
 var suite = XCTestSuite(name: "terminal")
 suite.addTest(XCTestSuite(forTestCaseClass: TerminalSurfaceTests.self))
-suite.addTest(XCTestSuite(forTestCaseClass: TerminalDrawerTests.self)) // terminal-drawer (drawer.swift)
+suite.addTest(XCTestSuite(forTestCaseClass: TerminalDrawerTests.self)) // drawer.swift
 suite.addTest(XCTestSuite(forTestCaseClass: TerminalAuthTests.self))
-suite.addTest(XCTestSuite(forTestCaseClass: TerminalPointerTests.self)) // X8: the agent's pointer (pointer.swift)
+suite.addTest(XCTestSuite(forTestCaseClass: TerminalPointerTests.self)) // the agent's pointer (pointer.swift)
 if let only = ProcessInfo.processInfo.environment["T3_TERMINAL_ONLY"] {
     let picked = XCTestSuite(name: only)
     for case let group as XCTestSuite in suite.tests { for test in group.tests where test.name.contains(only) { picked.addTest(test) } }

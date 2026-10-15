@@ -1,7 +1,7 @@
 import AppKit
 import XCTest
 
-// settings-appearance-and-skill-chip (S1-12): a skill chip is ContextChipPopover's trigger in T3 Code
+// A skill chip is ContextChipPopover's trigger in T3 Code
 // (ComposerPromptEditorTiptap.tsx ComposerSkillNodeView). A press on the chip, by a real mouse event
 // through the window, reports it to the app with the chip's window frame (T3ComposerChipPress.swift),
 // in the composer and in Settings › Appearance's prompt sample; the chip is an accessibility button
@@ -205,7 +205,7 @@ final class ComposerChipPressTests: XCTestCase {
 
     func testTheChipIsAnAccessibilityButtonThatOpensItsDetails() {
         let fixture = ChipPreviewFixture()
-        // composer-chips-accessibility: every chip is an element in text order, named as the reference's node view; the
+        // Every chip is an element in text order, named as the reference's node view; the
         // skill chip is ContextChipPopover's trigger, which Chromium serves as a pop-up button.
         let elements = fixture.preview.styler.press.accessibilityElements
         XCTAssertEqual(elements.map { $0.accessibilityLabel() ?? "" }, ["Skill Frontend Design. Show details", "Preview apps/web/src/terminal/ghostty/surface.test.ts"])

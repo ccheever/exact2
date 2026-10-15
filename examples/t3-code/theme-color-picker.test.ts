@@ -296,13 +296,13 @@ describe('the picker in the theme editor', () => {
   });
 });
 
-// popover-escape-parity: Escape in the theme editor, read from the Contract sources (as dialog-focus.test.ts
+// Escape in the theme editor, read from the Contract sources (as dialog-focus.test.ts
 // reads its handlers); the keys themselves are driven on macOS, which a source read cannot do.
 // Reference: ThemeEditorPanel.tsx is a plain `role="dialog"` div with no Escape of its own (its only
 // keydown listener cancels Inspect), so an Escape in it reaches the page's
 // useEscapeToGoBack (Settings' navigateToMainApp) and the editor, above the router, stays; the colour
 // popover (Base UI Popover) closes on Escape, prevents it, and gives the focus back to its swatch.
-describe('Escape in the theme editor (popover-escape-parity)', () => {
+describe('Escape in the theme editor', () => {
   const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
 
   test('only Inspect owns Escape; the normal editor remains a non-modal panel', async () => {

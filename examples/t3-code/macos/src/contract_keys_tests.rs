@@ -1,4 +1,4 @@
-//! contract-keys-and-menu-bar: what moved from the module's native readers and menu
+//! What moved from the module's native readers and menu
 //! construction into the compiled plan, read from the plan as the host reads it.
 //! The window's root removes the standard tab items by `menuRemove`, the surface
 //! launcher's available rows declare their letters as `accessibilityKeyShortcuts`

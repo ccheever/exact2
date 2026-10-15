@@ -1,7 +1,7 @@
 import Foundation
 import XCTest
 
-// Lane environment-routes: one saved environment, several routes (T3Credentials.swift
+// One saved environment, several routes (T3Credentials.swift
 // T3SavedEnvironments, T3Routes.swift, T3Transport.swift). The fixture origin is one
 // loopback WebSocket peer (R3Socket) reached as 127.0.0.1 and as localhost, so the two
 // addresses are two routes to the same server; R3HTTP answers each host differently.
@@ -122,7 +122,7 @@ final class RouteTests: XCTestCase {
         XCTAssertEqual(saved.all.count, 1)
     }
 
-    /// NR-1 (network-routes-followups): a learned plain-HTTP LAN route, as the server reports it (directEndpoints: a
+    /// A learned plain-HTTP LAN route, as the server reports it (directEndpoints: a
     /// numeric private IPv4 over http), is walked like any direct route and connects with the token it borrows from the
     /// route it was learned over (routes.ts credentialConnectionId, resolver.ts), as the reference desktop does; the
     /// token goes out only after the address answered as this environment. The fixture socket listens on every
@@ -150,7 +150,7 @@ final class RouteTests: XCTestCase {
         XCTAssertNil(try credentials.read(origin: learned, environment: "fixture"), "A learned route owns no Keychain item")
     }
 
-    /// NR-1: learning a route that ranks above the one in use (a LAN address learned over a tailnet or public route)
+    /// Learning a route that ranks above the one in use (a LAN address learned over a tailnet or public route)
     /// checks it at once with the borrowed token and moves the session to it, as supervisor.ts learnRoutesFrom
     /// requests the better-route check; the 60 s timer is not what moves it.
     func testALearnedRouteAboveTheOneInUseTakesOverAtOnce() throws {

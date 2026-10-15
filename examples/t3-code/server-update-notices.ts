@@ -22,7 +22,7 @@ import { buildVersionMismatchDismissalKey, isServerUpdateFailureDismissed, isVer
   resolveServerConfigVersionMismatch, serverUpdateGuidance, type DismissalStore } from './version-skew';
 import { confirmDialogCopy, desktopUpdateConfirmMessage, manualDesktopOnly, serverUpdateActionLabel, serverUpdateStageLabel, serverUpdateStateFor,
   updateTargetFromConfig, type ServerUpdateState, type ServerUpdateTarget } from './server-update';
-import { heldBatchCopy } from './auto-balance-banner'; // auto-balance
+import { heldBatchCopy } from './auto-balance-banner';
 
 export const ENVIRONMENT_RECONNECT_WARNING_GRACE_MS = 2_000;
 export const ENVIRONMENT_DISCONNECT_DELAY_MS = 20_000;
@@ -32,7 +32,7 @@ export function hasEnvironmentReconnectWarningGraceElapsed(activeKey: string | n
   return activeKey !== null && activeKey !== '' && activeKey === elapsedKey;
 }
 
-// ── The clock (X19 workaround) ────────────────────────────────────────────
+// ── The clock (workaround for issues/closed/20261009-typescript-failure-parity.md) ──
 type Clock = { reconnecting: string; unavailable: string; serial: number; graceElapsed: string; delayElapsed: string };
 const clocks = new WeakMap<object, Clock>();
 const clockOf = (client: object): Clock => {
@@ -143,7 +143,7 @@ export function versionCard(client: T3Client): { versionClient: string; versionS
 export const confirms = new WeakMap<object, ServerUpdateTarget>();
 /** The snapshot's `serverUpdate` row: the episodes for the root tasks, the dot, the confirm dialog. */
 export function serverUpdateView(client: T3Client) {
-  // auto-balance: a held desktop-app batch asks with the same dialog (auto-balance-banner.ts).
+  // A held desktop-app batch asks with the same dialog (auto-balance-banner.ts).
   const clock = serverClock(client), confirm = confirms.get(client), copy = confirm ? confirmDialogCopy(desktopUpdateConfirmMessage(confirm.serverLabel)) : heldBatchCopy(client);
   return { reconnecting: clock.reconnecting, unavailable: clock.unavailable, attention: isUnavailable(client) || versionNotice(client).shown,
     confirmTitle: copy?.title ?? '', confirmBody: copy?.description ?? '' };

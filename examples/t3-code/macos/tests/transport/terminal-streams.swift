@@ -1,7 +1,7 @@
 import Foundation
 import XCTest
 
-// Task terminal-drawer: a terminal's attach stream rides the transport beside the app's streams
+// A terminal's attach stream rides the transport beside the app's streams
 // (T3Transport+Terminal.swift). Its chunks never reach the app's event inbox, each is acknowledged only
 // when the receiver says the buffer holds it, terminal streams do not count toward the 16 app streams,
 // and a lost socket ends them all. Served by R3Socket (r3.swift), a loopback WebSocket peer.
@@ -317,7 +317,7 @@ final class TerminalStreamTests: XCTestCase {
         XCTAssertEqual(socket.requests("terminal.resize").count, 3)
     }
 
-    /// Task terminal-drawer-unthreaded: a session goes to its own environment's server, as the reference's terminal
+    /// A session goes to its own environment's server, as the reference's terminal
     /// commands take the thread's `environmentId`. Two loopback servers are environments A and B; the focused
     /// transport reaches A, then B (the clone opens B's thread by moving the focus there), and each environment's
     /// background transport carries its sessions while another is the focus. A session is never attached, written

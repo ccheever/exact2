@@ -1,4 +1,4 @@
-// media-actions: what a piece of authored media is and how its bytes are reached (T3 Code
+// What a piece of authored media is and how its bytes are reached (T3 Code
 // 1e2ecbd975, MIT; see LICENSE-T3): packages/client-runtime/src/mediaSource.ts with the parts of
 // markdownImages.ts (classifyMarkdownImageSource, markdownImageSourceFragment), markdownLinks.ts
 // (normalizeMarkdownLinkDestination, splitMarkdownLinkSearchAndHash, parseFileUrlHref,

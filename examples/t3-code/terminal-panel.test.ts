@@ -65,7 +65,7 @@ test('single surface close queues all names once; confirmed and bulk closes dele
   await addTerminalSurface(client, native);
   await terminalPanelLocal(client, native, 'split', 'env:thread|term-1', '');
   await surfaceLocal(client, native, 'close', 'terminal:term-1', '');
-  // ChatView.closeRightPanelSurface: the active terminal (the split's new one) first (G1-3 e).
+  // ChatView.closeRightPanelSurface: the active terminal (the split's new one) first.
   expect(surfaceStore(client).terminalClose).toMatchObject({ serial: 1, title: 'Close 2 terminals?', body: 'This stops their running processes and clears their histories: "Terminal 2", "Terminal 1".' });
   expect(calls).toHaveLength(2);
   await surfaceLocal(client, native, 'close-confirmed', 'terminal:term-1', '');
@@ -167,7 +167,7 @@ test('panel split view shows the tab list and labels its actions with terminal-f
   expect(view.tabs.map(tab => [tab.id, tab.heading, tab.count, tab.closeLabel])).toEqual([
     ['term-1', 'Stacked', 2, 'Close Terminal 1'], ['term-2', '', 2, 'Close Terminal 2 (⌘W)']]);
 });
-test('the surface close confirm names its active terminal first, then the others in order (G1-3 e)', async () => {
+test('the surface close confirm names its active terminal first, then the others in order', async () => {
   const { client, native } = clientFixture();
   await addTerminalSurface(client, native);
   await terminalPanelLocal(client, native, 'split', 'env:thread|term-1', '');

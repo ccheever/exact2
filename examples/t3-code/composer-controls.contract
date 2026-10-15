@@ -12,14 +12,14 @@ use ComposerBranches from "./composer-shapes.contract"
 use KmItem, kmTarget from "./menu-keys.contract"
 use Tip from "./shell-tip.contract"
 use TipBubble from "./shell-tip.contract"
-use RowTip from "./r8-pointer-tips.contract" // lane r8-pointer
-use StripPrBadge from "./r7-handoff.contract" // lane r7-handoff
-use AttachmentUrl from "./timeline-attachments.contract" // composer-fidelity G12a
-use NoticeMachines from "./auto-balance.contract" // auto-balance
-use UsageLimitsBody, UsageAccountLabel from "./usage-bars.contract" // usage-reset-and-feedback
-use heldModifiers from "./press-modifiers.contract" // contract-keys-and-menu-bar: Send's ⌘-click is its own press's
+use RowTip from "./r8-pointer-tips.contract"
+use StripPrBadge from "./r7-handoff.contract"
+use AttachmentUrl from "./timeline-attachments.contract"
+use NoticeMachines from "./auto-balance.contract"
+use UsageLimitsBody, UsageAccountLabel from "./usage-bars.contract"
+use heldModifiers from "./press-modifiers.contract" // Send's ⌘-click is its own press's
 
-// The composer footer and its docked banners (lane composer-controls): the
+// The composer footer and its docked banners: the
 // toolbar controls (ComposerControl.tsx "sm"/"xs"), the primary actions
 // (ComposerPrimaryActions.tsx), the traits and runtime-mode menus
 // (TraitsPicker.tsx, ChatComposer.tsx footer) and the dock above the card
@@ -193,7 +193,7 @@ component ModelTrigger
   action hover(value: bool)
     over = value
   view
-    // model-picker-parity CO-11: named by its model names (allModelNames, or the label it shows), as ProviderModelPicker is.
+    // Named by its model names (allModelNames, or the label it shows), as ProviderModelPicker is.
     button press=press hover=hover class=Control aria-label=(data.composer.fanout ? data.composer.fanoutAria : data.modelLabel == "" ? "Choose model" : data.modelLabel) aria-expanded=open aria-keyshortcuts=keyModels testId="model-picker" disabled=disabled opacity=(disabled ? 0.64 : 1) min-width=(xs ? "2.5rem" : "3rem") max-width=(xs ? "10.5rem" : "624.9375rem") flex-shrink=1 height=(xs ? "1.5rem" : "1.75rem") padding-left=(xs ? "0.4375rem" : "0.6875rem") padding-right=(xs ? "0.4375rem" : "0.6875rem") padding-top=0 padding-bottom=0 margin-left="-0.625rem" gap=(xs ? "0.25rem" : "0.375rem") border-radius="0.5rem" background-color=(open or over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
       // Several models (a multi-model draft): up to three overlapping marks, then "+N".
       if data.composer.fanout
@@ -205,7 +205,7 @@ component ModelTrigger
             text `+${data.composer.fanoutMore}` font-size="0.5625rem" line-height="1rem" min-width="1rem" height="1rem" border-radius="0.5rem" text-align="center" border-width=2 border-style="solid" border-color="light-dark(#ffffff, #161616)" background-color="light-dark(#ffffff, #161616)" color="light-dark(#71717a, #818181)"
           box width="0.25rem"
       else
-        // composer-fidelity G9: ultrathink-chroma (saturate 1.2) on the model mark.
+        // ultrathink-chroma (saturate 1.2) on the model mark.
         box display="flex" flex-shrink=0 filter=(data.composer.ultrathink ? "saturate(1.2)" : "none") testId=(data.composer.ultrathink ? "model-picker-ultrathink" : "model-picker-mark")
           ProviderInstanceMark(driver=data.providerDriver, size=(xs ? 14 : 16), color=(xs ? "light-dark(#71717ab3, #818181b3)" : "light-dark(#71717a, #818181)"), badge=data.providerBadge, accent=data.providerBadgeColor)
       // The tooltip (label · ⇧⌘M) belongs to the label, 4pt above it (ProviderModelPicker TooltipTrigger).
@@ -305,7 +305,7 @@ component PlanToggle
           text (active ? "Plan" : "Build") font-size=(xs ? "0.75rem" : "0.875rem") font-weight=(xs ? 400 : 500) line-height=(xs ? "1rem" : "1.25rem") color=(active ? "light-dark(#18181b, #f5f5f5)" : over ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717a, #818181)")
       TipBubble(label=(active ? "Plan mode — click to return to normal build mode" : "Default mode — click to enter plan mode"), side="top", align="center", offset=(xs ? 28 : 32), inset=0, shown=over)
 
-// composer-fidelity G11: CompactComposerControlsMenu's trigger, an icon-only
+// CompactComposerControlsMenu's trigger, an icon-only
 // ComposerControl (Ellipsis) labelled "More composer controls".
 component OverflowTrigger
   props
@@ -373,7 +373,7 @@ component AttachButton
 component PrimaryActions
   inject
     rem: number
-    // diff-cite-popover DC-1: a citation comment's textarea owns ⌘↵ (save and send) while it shows, as the reference's editor
+    // A citation comment's textarea owns ⌘↵ (save and send) while it shows, as the reference's editor
     // stops the key: Send declares no chord then (app-window.contract `citeShown`).
     citeOpen: bool
   props
@@ -387,14 +387,14 @@ component PrimaryActions
     command: action
     openOptions: action
   state over = ""
-  // r8-pointer D11: the thread the hover began on. A control swapped out under the pointer (Send ↔ Stop) or a
+  // The thread the hover began on. A control swapped out under the pointer (Send ↔ Stop) or a
   // keyboard thread switch leaves `over` set with no hover-out; its tooltip waits for the pointer to move again.
   state overThread = ""
   action hover(name: string, value: bool)
     over = value ? name : (over == name ? "" : over)
     overThread = value ? data.threadId : overThread
   derive blocked = busy or not data.canSend
-  // contract-keys-and-menu-bar KW-11a: a pointer press's modifiers ride with it (⌘-click is the follow-up alternate);
+  // A pointer press's modifiers ride with it (⌘-click is the follow-up alternate);
   // a keyboard or shortcut press holds none, and the app reads the Return gesture natively (T3ComposerIntent).
   action sendPress(e: MouseEvent)
     send(heldModifiers(e.metaKey, e.ctrlKey, e.altKey, e.shiftKey))
@@ -445,7 +445,7 @@ component PrimaryActions
 component ComposerFooter
   inject
     rem: number
-    // diff-cite-popover DC-1: a citation comment's textarea owns ⌘↵ (save and send) while it shows, as the reference's editor
+    // A citation comment's textarea owns ⌘↵ (save and send) while it shows, as the reference's editor
     // stops the key: Send declares no chord then (app-window.contract `citeShown`).
     citeOpen: bool
   props
@@ -466,7 +466,7 @@ component ComposerFooter
     command: action
     openProviders: action
   state sendOver = false
-  state sendThread = "" // r8-pointer D11: as PrimaryActions' overThread
+  state sendThread = "" // as PrimaryActions' overThread
   action sendHover(value: bool)
     sendOver = value
     sendThread = value ? data.threadId : sendThread
@@ -480,16 +480,16 @@ component ComposerFooter
   derive tipShift = (data.composer.toolbarRight > 0 ? max(0, sendCenter + data.composer.sendTipWidth / 2 - (viewportWidth - 5)) : 0)
   derive runtimeIcon = (resting ? data.composer.restingRuntimeIconOnly : data.composer.runtimeIconOnly)
   derive traitsIcon = (resting ? data.composer.restingTraitsIconOnly : data.composer.traitsIconOnly)
-  // composer-fidelity G11: trailing blocks in the overflow menu, and the whole cluster hidden.
+  // Trailing blocks in the overflow menu, and the whole cluster hidden.
   derive modeOut = (resting ? data.composer.restingModeOverflow : data.composer.modeOverflow)
   derive traitsOut = (resting ? data.composer.restingTraitsOverflow : data.composer.traitsOverflow)
   derive clusterHidden = (resting ? data.composer.restingControlsHidden : data.composer.controlsHidden)
   view
     row width=(resting ? `calc(100% - ${2.5 * rem}px)` : "100%") height=(resting ? "2rem" : "3rem") padding-left=(resting ? "0.875rem" : "1rem") padding-right=(resting ? "0.875rem" : "1rem") padding-bottom=(resting ? "0px" : "1rem") box-sizing="border-box" align-items="center" gap="0.5rem" position=(resting ? "absolute" : "relative") left=(resting ? "1.25rem" : "0px") top=(resting ? "3.125rem" : "0px") border-radius=(resting ? "1rem" : "0px") background-color=(resting ? "light-dark(#fafafa, #101010)" : "#00000000") hatch="t3-frame" data-frame="toolbar" testId="composer-toolbar"
-      // r5-composer: the labels' natural widths (r5-composer.contract), read by footerLayout.
+      // The labels' natural widths (r5-composer.contract), read by footerLayout.
       R5TextProbes(probes=data.composer.menuProbes)
       R5ComposerLabelProbes(model=(data.composer.fanout ? data.composer.fanoutLabel : data.modelLabel == "" ? "Choose model" : data.modelLabel), traits=data.composer.traitsLabel, runtime=data.composer.runtimeLabel, plan=(data.composer.planVisible ? (data.composer.planActive ? "Plan" : "Build") : ""))
-      // r5-integrate: the model picker sits 10pt left of this row (-ms-2.5); main's macOS hit test reaches a
+      // The model picker sits 10pt left of this row (-ms-2.5); main's macOS hit test reaches a
       // child's visible overflow (652a6c865), so the part outside the row takes its press.
       row flex=1 min-width=0 gap=(resting ? "0px" : "0.25rem") align-items="center" height="2rem" box-sizing="border-box" hatch="t3-anchor" data-anchor="controls"
         if data.composer.noProvider != ""
@@ -543,7 +543,7 @@ component ComposerMenus
     branches: ComposerBranches
     branchQuery: string
     searchBranches: action
-    // lane r4-git: chatLocal, for the Start from origin switch (it keeps the picker open).
+    // chatLocal, for the Start from origin switch (it keeps the picker open).
     local: action
   // Child state outlives the menu (it is the root's slots), so each opening
   // is a session: focus and hover from an earlier one never highlight a row.
@@ -562,13 +562,13 @@ component ComposerMenus
   derive active = (focusSession == session ? focusIndex : -1)
   derive hovered = (hoverSession == session ? hoverIndex : -1)
   derive count = (which == "more" ? (resting ? data.composer.restingMoreCount : data.composer.moreCount) : which == "effort" ? data.composer.traitsCount : which == "implement" ? 1 : which == "context" ? (data.composer.contextCompact ? 1 : 0) : which == "workspace" ? workspaceItems.length : which == "branch" ? branches.refs.length + (branches.creatable != "" ? 1 : 0) : data.composer.runtimeCount)
-  // r5-composer: content-sized menus take their measured widths (r5-composer-menus.ts), within the window
+  // Content-sized menus take their measured widths (r5-composer-menus.ts), within the window
   // (max-w calc(100vw - 2rem)); a previous worktree fixes the workspace menu at min(21rem, 100vw - 2rem).
   derive width = (which == "more" ? min(resting ? data.composer.restingMoreMenuWidth : data.composer.moreMenuWidth, viewport.width - 32) : which == "effort" ? min(data.composer.effortMenuWidth, viewport.width - 32) : which == "implement" ? 200 : which == "context" ? 256 : which == "workspace" ? (branches.previous ? min(336, viewport.width - 32) : branches.envOptions.length > 0 ? min(branches.envMenuWidth, viewport.width - 32) : (wideWorkspace ? 154 : 160)) : which == "branch" ? 320 : min(data.composer.runtimeMenuWidth, viewport.width - 32))
   derive strip = which == "workspace" or which == "branch"
-  // r4-composer: a composer at least 768pt wide (its strip 44pt narrower) shows the workspace as the desktop
+  // A composer at least 768pt wide (its strip 44pt narrower) shows the workspace as the desktop
   // Select (BranchToolbarEnvModeSelector): a listbox 4pt below its trigger, as wide as its rows.
-  // lane r13-threads: the non-Git strip's "Run on" is that Select at every width (SelectPopup side bottom, 4pt).
+  // The non-Git strip's "Run on" is that Select at every width (SelectPopup side bottom, 4pt).
   derive wideWorkspace = which == "workspace" and (branches.gitless or data.composer.stripRight - data.composer.stripLeft >= 724)
   // Above the trigger (the flip, and the strip menus): 4pt over the toolbar's measured
   // window position, else the bottom-docked layout's fixed offsets.
@@ -583,7 +583,7 @@ component ComposerMenus
   derive actionsEnd = left + 1 + data.composer.actionsX + (which == "implement" ? data.composer.implementX + data.composer.implementWidth : data.composer.meterX + data.composer.meterWidth)
   derive anchor = left + 17 + (which == "effort" ? data.composer.traitsX : which == "more" ? data.composer.moreX : data.composer.runtimeX)
   derive anchorEnd = anchor + (which == "effort" ? data.composer.traitsWidth : which == "more" ? data.composer.moreWidth : data.composer.runtimeWidth)
-  // composer-fidelity G11: the overflow menu's rows; an open menu goes when its trigger hides (CompactComposerControlsMenu hidden).
+  // The overflow menu's rows; an open menu goes when its trigger hides (CompactComposerControlsMenu hidden).
   derive moreRows = (resting ? data.composer.restingMore : data.composer.more)
   derive gone = which == "more" and count == 0
   action pickMore(descriptor: string, value: string)
@@ -642,12 +642,12 @@ component ComposerMenus
       // A button, so Escape binds as its command (a box with a shortcut is not one).
       button position="absolute" left=0 right=0 top=0 bottom=0 z-index=19 padding=0 border-width=0 border-radius=0 background-color="#00000000" press=close aria-label="Close options" aria-keyshortcuts="Escape" testId="dismiss-composer-options" title=""
       column position="absolute" left=x top=(wideWorkspace ? data.composer.stripTop + 33 * rem / 16 : (below ? belowTop : "auto")) bottom=(wideWorkspace or below ? "auto" : menuBottom) width=width border-radius="0.625rem" box-shadow="0 16px 40px -18px #0000008c" z-index=30
-        // composer-chips-accessibility G5-D1: the meter's details are ContextWindowMeter's PopoverPopup, a dialog with no name
+        // The meter's details are ContextWindowMeter's PopoverPopup, a dialog with no name
         // of its own ("Context Window, and 4 more items, dialog" under VoiceOver). As a `menu` the column was no element, so
         // AppKit ordered its items with the composer by position and VoiceOver read "Message" between the note and the bar.
         column id="composer-menu" data-dialog-return=(which == "branch" ? "menu" : "") focusin=menuEntered key=move(-1) width="100%" padding=(which == "branch" ? "0px" : "0.25rem") gap=0 border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" box-sizing="border-box" role=(which == "context" ? "dialog" : which == "runtime" or which == "branch" or wideWorkspace ? "listbox" : "menu") aria-label=(which == "context" ? "" : which == "more" ? "More composer controls" : which == "effort" ? data.composer.traitsLabel : which == "implement" ? "Implementation actions" : which == "workspace" ? "Workspace" : which == "branch" ? "Refs" : "Runtime mode") testId="composer-options"
           if which == "workspace"
-            // lane r4-git: MobileRunContextSelector's "Run on" group, then a separator, when a draft can move machines.
+            // MobileRunContextSelector's "Run on" group, then a separator, when a draft can move machines.
             if branches.envOptions.length > 0
               text "Run on" font-size="0.75rem" font-weight=500 line-height="1rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" color="light-dark(#71717a, #818181)"
               for option in branches.envOptions key=option.id
@@ -689,7 +689,7 @@ component ComposerMenus
                   input id="branch-search" value=branchQuery input=searchBranches submit=command(branches.enterOp, "", branches.enterValue, 0) focus=searchFocus(true) blur=searchFocus(false) aria-label="Search refs" testId="branch-search" flex=1 min-width=0 height="1.625rem" padding-left="1.25rem" padding-right="0.5625rem" padding-top=0 padding-bottom=0 border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.625rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off" spellcheck="false"
               scroll max-height="14rem" width="100%" hatch="t3-anchor" data-anchor="scroll:strip-refs"
                 column width="100%" gap=0 padding-left="0.5rem" padding-right="0.625rem" padding-top="0.75rem" padding-bottom="0.5rem" box-sizing="border-box"
-                  // lane r9-connect: a local draft's pull request reference leads (r9-connect-checkout.ts).
+                  // A local draft's pull request reference leads (r9-connect-checkout.ts).
                   for item in branches.checkout key=item.reference
                     button press=command("chatlocal:git-pr-open", "", item.reference, 0) hover=hover(0) testId="branch-checkout-pr" role="option" aria-selected=false class=Control justify-content="flex-start" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" border-radius="0.375rem" background-color=(hovered <= 0 ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") id="branch-checkout-pr"
                       row min-width=0 gap="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" align-items="center"
@@ -707,7 +707,7 @@ component ComposerMenus
                       text `Create new ref "${branches.creatable}"` font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" line-clamp=1
                   if branches.refs.length == 0 and branches.creatable == "" and branches.checkout.length == 0
                     text (branches.loading ? "Loading refs..." : "No refs found.") font-size="0.875rem" line-height="1.25rem" padding="0.5rem" text-align="center" color="light-dark(#71717a, #818181)"
-              // BranchPicker's originControl while choosing a new worktree's base (lane r4-git).
+              // BranchPicker's originControl while choosing a new worktree's base.
               if branches.originShown
                 button press=local("git-origin", "", "") role="switch" aria-checked=branches.originOn aria-label="Start worktree from origin" testId="branch-origin" width="100%" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" gap="0.75rem" border-width=0 border-top-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="space-between"
                   row min-width=0 gap="0.375rem" align-items="center"
@@ -718,7 +718,7 @@ component ComposerMenus
               if branches.status != ""
                 text branches.status font-size="0.75rem" line-height="1rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" color="light-dark(#71717a, #818181)" role="status"
           if which == "context"
-            // ContextWindowMeter's PopoverPopup is tooltipStyle: its `text-balance` reaches every line (KW-1).
+            // ContextWindowMeter's PopoverPopup is tooltipStyle: its `text-balance` reaches every line.
             column width="100%" padding="0.5rem" gap="0.5rem" box-sizing="border-box" text-wrap="balance" testId="context-window-details"
               row width="100%" gap="0.75rem" align-items="center" justify-content="space-between"
                 text "Context Window" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717a, #818181)"
@@ -762,7 +762,7 @@ component ComposerMenus
                 text item.label font-size="0.75rem" font-weight=500 line-height="1rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.25rem" color="light-dark(#71717a, #818181)"
               if item.kind == "divider"
                 box height=1 margin-left="0.5rem" margin-right="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff0f)"
-              // composer-fidelity G9: "ultrathink" in the prompt's body keeps the primary effort's rows visible but inert.
+              // "ultrathink" in the prompt's body keeps the primary effort's rows visible but inert.
               if item.kind == "note"
                 text item.label font-size="0.75rem" line-height="1rem" max-width="14rem" padding-left="0.5rem" padding-right="0.5rem" padding-bottom="0.375rem" color="light-dark(#71717acc, #818181cc)" testId="effort-ultrathink-note"
               if item.kind == "option"
@@ -798,11 +798,11 @@ component StripControl
     disabled: bool
     press: action
     context: action
-    // r4-composer: the workspace label's tooltip, on the folder glyph in the compact strip
+    // The workspace label's tooltip, on the folder glyph in the compact strip
     // (MobileRunContextSelector) and on the whole Select trigger in the wide one (@3xl).
     tip: string
     tipIcon: bool
-    // lane r4-git: the machine the draft runs on, beside the workspace glyph ("" for none).
+    // The machine the draft runs on, beside the workspace glyph ("" for none).
     machine: string
   state over = false
   state iconOver = false
@@ -837,14 +837,14 @@ component ComposerStrip
     busy: bool
     openOptions: action
     command: action
-    // r4-composer: the composer is at least 768pt wide (@3xl/composer-surface): the workspace
+    // The composer is at least 768pt wide (@3xl/composer-surface): the workspace
     // control is the desktop Select (BranchToolbarEnvModeSelector) instead of the compact menu.
     wide: bool
   view
     // ps-1 pe-2 inside the drawer's pseudo-element border: the drawn 1pt border eats a point of each.
     row margin-left="1.375rem" margin-right="1.375rem" padding-left="0.1875rem" padding-right="0.4375rem" padding-top="0.25rem" padding-bottom="0.25rem" gap="0.25rem" box-sizing="border-box" align-items="center" border-bottom-left-radius="1rem" border-bottom-right-radius="1rem" border-style="solid" border-top-width=0 border-left-width=1 border-right-width=1 border-bottom-width=1 border-color="light-dark(#00000014, #ffffff12)" box-shadow="0 12px 28px -18px light-dark(#00000040, #00000000)" hatch="t3-frame" data-frame="strip" testId="composer-context-strip"
       if strip.gitless
-        // lane r12-threads: a non-Git project offers only where it runs (BranchToolbarEnvironmentSelector): the
+        // A non-Git project offers only where it runs (BranchToolbarEnvironmentSelector): the
         // "Run on" Select for a draft, the static machine row (h-6 px-1.75 gap-1, text-xs /70) for a started thread.
         if strip.envLocked
           row height="1.5rem" padding-left="0.5rem" padding-right="0.5rem" gap="0.25rem" align-items="center" min-width=0 max-width="100%" testId="run-on-locked" aria-label=strip.envMachineLabel
@@ -901,7 +901,7 @@ component QueuedRow
           CcIcon(name="grip", size=14, color=(over == "grip" ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"), weight=2)
       else
         box width="1.5rem" height="1.5rem" flex-shrink=0
-      // composer-fidelity G12a: a send still saving shows a clock; image attachments show as 16pt thumbnails (QueuedRunsControl).
+      // A send still saving shows a clock; image attachments show as 16pt thumbnails (QueuedRunsControl).
       if row.pending
         svg width="0.75rem" height="0.75rem" viewBox="0 0 24 24" color="light-dark(#71717b99, #81818199)" fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-label="Saving queued message" role="img" testId="queued-saving"
           circle cx=12 cy=12 r=10
@@ -951,7 +951,7 @@ component QueuedControl
     collapsed = collapsed == data.threadId ? "" : data.threadId
   // A press on another run's grip, or the first move after the last drop (queueDropSeq), starts a drag: fresh, as the
   // reference's dragstart sets a new dragState. An action reads the values from before it, so the move's offset is
-  // bound first (followups-1012 FU-1: the old body added the move to the dragDy its start branch had just reset, so a
+  // bound first (the old body added the move to the dragDy its start branch had just reset, so a
   // drag after an earlier one started at that drag's offset; queued-drag.test.ts).
   action drag(id: string, index: number, dx: number, dy: number)
     let fresh = dragRun != id or dragSeq != data.composer.queueDropSeq
@@ -973,7 +973,7 @@ component QueuedControl
         text `${count}` font-size="0.75rem" font-weight=500 line-height="1rem" min-width="1.5rem" text-align="center" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)" flex-shrink=0
         row width="1.5rem" height="1.5rem" align-items="center" justify-content="center" flex-shrink=0 aria-hidden=true
           CcIcon(name=(collapsed == data.threadId ? "chevron-up" : "chevron-down"), size=14, color="light-dark(#71717b, #818181)", weight=2)
-      // thread-commands-and-keys: ⌥↑ expands the queue as it starts the edit (QueuedRunsControl editLatest setExpanded).
+      // ⌥↑ expands the queue as it starts the edit (QueuedRunsControl editLatest setExpanded).
       if collapsed != data.threadId or data.composer.queueEditing != ""
         scroll max-height="8rem" width="100%"
           column width="100%" gap=1 role="list" testId="queued-list"
@@ -1011,7 +1011,7 @@ component NoticeRow
               else
                 CcIcon(name=notice.icon, size=12, color=(notice.iconTone == "error" ? "light-dark(#e7000b, #ff6467)" : "light-dark(#71717b, #818181)"), weight=2)
         if notice.machines.length > 0
-          // auto-balance: the multi-machine banner's title opens its machine list (auto-balance.contract).
+          // The multi-machine banner's title opens its machine list (auto-balance.contract).
           NoticeMachines(notice=notice, busy=busy, command=command, still=still)
         else
           if notice.tip != ""
@@ -1035,7 +1035,7 @@ component NoticeRow
                 text ", " font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" white-space="pre" flex-shrink=0
         else
           if notice.redact != ""
-            // usage-reset-and-feedback: an account address stays blurred until clicked (AccountSummary).
+            // An account address stays blurred until clicked (AccountSummary).
             row flex=1 min-width="2rem" align-items="center"
               UsageAccountLabel(label="", redact=notice.redact, redactMask=notice.redactMask, plan=notice.redactAfter, testId=`notice-label-${notice.id}`)
           else if notice.description != ""
@@ -1127,7 +1127,7 @@ component ComposerDock
     keyed: action
     drop: action
     urls: AttachmentUrl[]
-    // server-update-banner: the notice sliding out, reduced motion, and the root's delayed dismissal.
+    // The notice sliding out, reduced motion, and the root's delayed dismissal.
     exiting: string
     still: bool
     dismiss: action

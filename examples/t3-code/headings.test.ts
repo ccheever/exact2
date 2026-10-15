@@ -1,4 +1,4 @@
-// adopt-main-fixes-r8: main `f9dcdb1af` (LLP 1115) writes ARIA's default level, 2, on a `role="heading"` that has no
+// Main `f9dcdb1af` (LLP 1115) writes ARIA's default level, 2, on a `role="heading"` that has no
 // `aria-level`, and the Mac host now exposes it as AXHeading level 2 (TextInteraction.swift `headingLevel`; before,
 // such a text was AXStaticText). The reference's headings are `<h1>`–`<h6>`, so each clone heading says the level its
 // reference element has, and a reference label that is no heading says so: DeviceToolsPanel.tsx `Section`'s `<h3>` is
@@ -36,7 +36,7 @@ test('the device tools section title is an h3 and the import menu label is no he
   expect(line('settings-projects.contract', 'text "Import from t3.json"')).toContain('role="presentation"');
 });
 
-// settings-headings: settingsLayout.tsx's SettingsSection title is an `<h2>` (`sr-only` with hideTitle) and its
+// settingsLayout.tsx's SettingsSection title is an `<h2>` (`sr-only` with hideTitle) and its
 // SettingsRow title an `<h3>`; Legacy features' trigger, a button, holds an `<h2>`. The reference's lists, page by page,
 // follow from those two components; the tests below name the clone's views that draw them.
 test('Settings section titles are h2 and row titles h3, as the reference', () => {
@@ -44,8 +44,8 @@ test('Settings section titles are h2 and row titles h3, as the reference', () =>
   const sectionTitle = 'text section.title font-size="0.875rem" font-weight=400 line-height="1.25rem" color=pal.heading role="heading" aria-level=2';
   const rows = views().find(v => v.name === 'settings-rows.contract')!.lines;
   expect(rows.filter(l => l.includes(sectionTitle))).toHaveLength(2);
-  // adopt-main-fixes-r10 RT-2: Legacy features' `<h2>` is inside its trigger, button › heading [level=2], since main
-  // #451 (X74) keeps a heading inside a Mac button as its child; the sr-only heading beside the button is gone.
+  // Legacy features' `<h2>` is inside its trigger, button › heading [level=2], since main
+  // #451 (issues/closed/20261010-macos-a-heading-inside-a-button.md) keeps a heading inside a Mac button as its child; the sr-only heading beside the button is gone.
   const trigger = rows.findIndex(l => /^\s*button press=toggleLegacy .*aria-expanded=legacyOpen/.test(l));
   expect(trigger).toBeGreaterThan(0);
   expect(rows[trigger + 1]!.trim()).toStartWith(`${sectionTitle} `);
@@ -68,7 +68,7 @@ test('Settings section titles are h2 and row titles h3, as the reference', () =>
   expect(line('settings-kit.contract', 'text title role="heading" aria-level=level')).toContain('position="absolute" width=1 height=1 overflow="hidden" opacity=0');
 });
 
-// adopt-main-fixes-r9: main `a6a49a015` (LLP 1116 D7) gives a `text role="heading"` its text style's emphasized weight,
+// Main `a6a49a015` (LLP 1116 D7) gives a `text role="heading"` its text style's emphasized weight,
 // bold (700) for a title (levels 1-3), where until now an unwritten weight was the title's own regular (400); a written
 // `font-weight` still wins. The reference's headings say their weight (settingsLayout.tsx's SettingsSection title and
 // ThemeSettings.tsx's "Color scheme" / "Themes" are `font-normal`), so every drawn clone heading writes one, on its
@@ -102,7 +102,7 @@ test('every drawn text heading writes its font-weight (main\'s D7 bolds an unsai
     ['settings-scheduled.contract', 'text "Scheduled tasks" font-size="0.875rem" font-weight=400'],
     ['settings-licenses.contract', 'text "Third-party notices" font-size="0.875rem" font-weight=400'],
   ] as const) {
-    // settings-rows.contract draws two: a section's title and, inside its trigger, Legacy features' (RT-2, r10).
+    // settings-rows.contract draws two: a section's title and, inside its trigger, Legacy features'.
     const found = all.find(v => v.name === file)!.lines.filter(l => l.includes(needle));
     expect(found).toHaveLength(file === 'settings-rows.contract' ? 2 : 1);
     for (const l of found) expect(l).toContain('role="heading"');

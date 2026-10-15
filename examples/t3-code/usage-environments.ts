@@ -1,4 +1,4 @@
-// The Usage page across environments (lane usage-pooled-view), T3 Code 1e2ecbd975 (MIT, see
+// The Usage page across environments, T3 Code 1e2ecbd975 (MIT, see
 // LICENSE-T3): apps/web/src/state/usage.ts (EnvironmentUsageStatus, useUsage, mergeAnsweredUsage),
 // apps/web/src/components/usage/UsagePage.tsx (the environment filter, refreshWindow, refreshLimits,
 // the automatic limits refresh, the limits clock `limitsNow`, CursorEnableButton) and
@@ -7,7 +7,8 @@
 //   EnvironmentFleet; one that is not connected and synchronized is listed with its phase and
 //   contributes nothing (the reference's presentations atom);
 // - React state and effects are one per-client state stepped by each Usage page answer
-//   (`prepareUsage`): the time is the answer's `now` (X19), a press of refresh is a changed counter,
+//   (`prepareUsage`): the time is the answer's `now`
+//   (issues/closed/20261009-typescript-failure-parity.md), a press of refresh is a changed counter,
 //   the automatic limits check runs when Limits shows or the connected set changes;
 // - every per-environment request (summary, rates, provider check, redeem) is detached: it is queued,
 //   sent by the next answer on that environment's transport (composer-replies.ts for the focused

@@ -45,7 +45,7 @@ component SidebarOverlays
     finishResize: action
     resetWidth: action
     hoverCard: action
-    // fix-keyboard-focus: the command palette is open over the window, so Escape is its own first.
+    // The command palette is open over the window, so Escape is its own first.
     covered: bool
   // The card stays mounted for the last hovered row (else the open one), so
   // its 150 ms open delay has a starting opacity; moving straight to another
@@ -59,7 +59,7 @@ component SidebarOverlays
     if data.sidebar.dialogReturn != ""
       focus(data.sidebar.dialogReturn)
   view
-    // r5-shell: the 16pt full-height resize rail over the sidebar's edge (r5-shell.contract).
+    // The 16pt full-height resize rail over the sidebar's edge (r5-shell.contract).
     if open
       SidebarWindowRail(width=width, hovered=(hoverId == "sidebar-rail"), line=(data.look.themed ? data.look.sidebarBorder : "light-dark(#e4e4e7, #262626)"), fill=(data.look.themed ? data.look.sidebarBorder : "light-dark(#e4e4e7, #1d1d1d)"), resize=resize, finishResize=finishResize, resetWidth=resetWidth, hoverCard=hoverCard)
     // The lifted row rides above every shelf (the list keeps its empty slot).
@@ -79,10 +79,10 @@ component SidebarOverlays
           SidebarControlTip(label=tip.label, x=(tip.fromRight ? width - tip.x : tip.x), y=(hoverY + tip.top), start=tip.start, shown=(hoverId == `${t.hoverKey}#${tip.name}`))
       for d in data.sidebar.drafts key=d.id
         SidebarControlTip(label="Discard draft", x=(width - 28), y=(hoverY + 15), start=false, shown=(hoverId == `draft:${d.id}#discard`))
-    // r6-polish: the row tooltips' texts, measured (r3-sidebar-tips.ts).
+    // The row tooltips' texts, measured (r3-sidebar-tips.ts).
     if open
       R6TextProbes(probes=data.sidebar.probes)
-    // r4-polish: the sidebar chrome's tooltips (rail, search row, footer), above the page.
+    // The sidebar chrome's tooltips (rail, search row, footer), above the page.
     if open and dragId == ""
       SidebarEdgeTips(width=width, hoverId=hoverId, newThread=`New thread${shell.keyNewThread == "" ? "" : ` (${shell.keyNewThread})`}`, newThreadDetail=(data.sidebar.projectGroupCount > 1 ? `New thread in current project: Shift+click${shell.keyNewThreadLocal == "" ? "" : ` (${shell.keyNewThreadLocal})`}` : ""), pullRequests=pullRequests)
     if open and data.sidebar.scopeOpen
@@ -92,12 +92,12 @@ component SidebarOverlays
       SettingsConfirm(title=data.sidebar.dialogTitle, description=data.sidebar.dialogDescription, confirmLabel="Confirm", destructive=false, busy=busy, error="", dialogId=`sidebar-${data.sidebar.dialog}`, cancel=dismissDialog, confirm=run("dialog-confirm", "", ""))
     if data.sidebar.dialog == "delete" or data.sidebar.dialog == "delete-many"
       SettingsConfirm(title=data.sidebar.dialogTitle, description=data.sidebar.dialogDescription, confirmLabel="Confirm", destructive=true, busy=busy, error="", dialogId=`sidebar-${data.sidebar.dialog}`, cancel=dismissDialog, confirm=run("dialog-confirm", "", ""))
-    // thread-commands-and-keys G5: "Delete the worktree too?" (useThreadActions deleteThread); Cancel still deletes the thread.
+    // "Delete the worktree too?" (useThreadActions deleteThread); Cancel still deletes the thread.
     if data.sidebar.dialog == "delete-worktree"
       SettingsConfirm(title=data.sidebar.dialogTitle, description=data.sidebar.dialogDescription, confirmLabel="Confirm", destructive=true, busy=busy, error="", dialogId="sidebar-delete-worktree", cancel=run("dialog-cancel", "", ""), confirm=run("dialog-confirm", "", ""))
     if data.sidebar.dialog == "snooze"
       SidebarSnoozeDialog(data=data, busy=busy, covered=covered, local=local, run=run)
-    // legacy-sidebar: Rename project, Project grouping and the removal / archive confirms.
+    // Rename project, Project grouping and the removal / archive confirms.
     LegacyDialogs(data=data, busy=busy, local=local, run=run)
 
 // ComboboxPopup under the search field (align start, 4pt gap), at least as
@@ -151,7 +151,7 @@ component SidebarSnoozeDialog
     data: Snapshot
     busy: bool
     // The palette over it takes Escape first (Base UI dismisses the topmost layer): the dialog's own
-    // Escape waits, since a shortcut goes to the first button that declares it (fix-keyboard-focus).
+    // Escape waits, since a shortcut goes to the first button that declares it.
     covered: bool
     local: action
     run: action
@@ -191,7 +191,7 @@ component SidebarSnoozeDialog
             row gap="0.75rem"
               column flex=1 min-width=0 gap="0.375rem"
                 text "Date" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
-                // shell-sidebar-palette-keys (TH-8): the outline date button and its calendar popover, not a date field.
+                // The outline date button and its calendar popover, not a date field.
                 SnoozeDateField(cal=data.sidebar.calendar, local=local)
               column flex=1 min-width=0 gap="0.375rem"
                 text "Time" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
@@ -244,7 +244,7 @@ component SidebarControlTip
 // SidebarThreadTooltip in ThreadHoverCardPopup (glass, side right, align
 // start, 4pt off the row): the title, then project, machine, branch, model ·
 // instance, hand-offs and the last error, each behind its 12pt glyph.
-// r5-shell: where ThreadHoverCardPopup (side right, align start, offset 4)
+// Where ThreadHoverCardPopup (side right, align start, offset 4)
 // lands after Base UI's collision avoidance (flip alignment, then shift, 5pt
 // padding plus the 1pt flip bias): at the row's top when the card fits above
 // the window's bottom, else bottom-aligned with the row, as the HEAD oracle

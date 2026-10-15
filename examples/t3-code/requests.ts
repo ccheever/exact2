@@ -126,7 +126,7 @@ export function requestPresentation(client: T3Client) {
   })()] : [];
   const requestMode = approvals.length ? 'approval' : questions.length ? 'question' : '';
   const edit = queuedEdit(client);
-  return { approvals, questions, requestMode, requestKey: (questions[0]?.id ?? (edit ? `queued-edit:${edit.runId}` : '')) + promptRewriteKey(client), // composer-fidelity: a client-side prompt rewrite shows
+  return { approvals, questions, requestMode, requestKey: (questions[0]?.id ?? (edit ? `queued-edit:${edit.runId}` : '')) + promptRewriteKey(client), // a client-side prompt rewrite shows
     ...(questions.length ? { draft: active!.custom } : {}), ...threadErrors(client) };
 }
 

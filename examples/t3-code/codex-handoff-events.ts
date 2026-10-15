@@ -1,4 +1,4 @@
-// The handoff stream's inbox entries (managed-codex-chatgpt; CodexSetupSection.tsx :219-222,
+// The handoff stream's inbox entries (CodexSetupSection.tsx :219-222,
 // :366-387): `provider.chatgpt.handoff.subscribe` runs on the primary's connection, which is the
 // focused one or a background one, so both inboxes route its entries here (client.ts drain,
 // settings-b-fleet.ts drain). Kept small: the fleet imports it.
@@ -12,7 +12,7 @@ export const handoffHosts = new Set<object>();
 /**
  * One `provider.chatgpt.handoff.subscribe` inbox entry on the primary's connection. A stream
  * failure ends the handoff with its error; the stream is never subscribed again on its own
- * (a reconnect must not replay a sign-in, X21).
+ * (a reconnect must not replay a sign-in, issues/20261009-runner-owned-bidirectional-streams.md).
  */
 export function codexHandoffEvent(event: Obj): boolean {
   const key = str(event.key);

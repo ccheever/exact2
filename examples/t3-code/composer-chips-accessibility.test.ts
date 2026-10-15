@@ -1,4 +1,4 @@
-// composer-chips-accessibility (G1-8, G5-D1): a terminal excerpt's details and the context window popover's role, against
+// A terminal excerpt's details and the context window popover's role, against
 // T3 Code 1e2ecbd975 (MIT, LICENSE-T3). TerminalContextInlineChip.tsx: while the excerpt holds text its chip is
 // ContextChipPopover's trigger ("Terminal excerpt, <label>. Show details"), whose details are the terminal's name, "Line N" or
 // "Lines a–b", and the captured output ("Captured terminal output"). ContextWindowMeter.tsx: the meter is a PopoverTrigger
@@ -14,7 +14,7 @@ const press = (extra: Obj = {}): Obj => ({ seq: 7, open: true, surface: 'compose
 const record = (extra: Obj = {}): Obj => ({ version: 1, kind: 'terminal', contextId: 'terminal_abc', label: 'Terminal 2 lines 1-738', terminalId: 'term-2',
   terminalLabel: 'Terminal 2', lineStart: 1, lineEnd: 738, text: '$ ls\na.txt\nb.txt', ...extra });
 
-describe('a terminal excerpt\'s details (G1-8)', () => {
+describe('a terminal excerpt\'s details', () => {
   test('the terminal\'s name, its lines and the captured output, at the chip', () => {
     expect(chipPopover(press(), [], undefined, { terminal_abc: record() })).toEqual({ ...NO_CHIP, seq: 7, open: true, surface: 'composer', kind: 'terminal',
       label: 'Terminal 2', title: 'Terminal excerpt, Terminal 2 lines 1-738', description: '$ ls\na.txt\nb.txt', lines: 'Lines 1–738', rows: 3,
@@ -30,7 +30,7 @@ describe('a terminal excerpt\'s details (G1-8)', () => {
   });
 });
 
-describe('a terminal reference with no record is an unavailable context (G1-8)', () => {
+describe('a terminal reference with no record is an unavailable context', () => {
   test('only a reference the draft holds a record for draws as a terminal excerpt', async () => {
     const { chipContexts } = await import('./composer-editor');
     const text = '[Terminal 2 lines 1-738](t3-context://v1/terminal/terminal_abc) [Terminal 1 lines 1-2](t3-context://v1/terminal/terminal_lane1) now ';

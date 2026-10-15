@@ -1,4 +1,4 @@
-// Appearance → the theme library's cards (lane settings-a). Reference ThemeSettings.tsx
+// Appearance → the theme library's cards. Reference ThemeSettings.tsx
 // ThemeLibrary / CustomThemeCollectionCard / ThemeLibraryCard variantNavigation and the
 // removal AlertDialog, ThemePreviewCircles getThemeCardDefinition. An Open VSX extension
 // with several themes is one collection card: per appearance, the selected variant's

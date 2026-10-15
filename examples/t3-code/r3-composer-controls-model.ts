@@ -1,5 +1,5 @@
-// Model names and provider-reported option values (lane composer-controls,
-// round 3), adapted from T3 Code (MIT); see LICENSE-T3. Sources:
+// Model names and provider-reported option values,
+// adapted from T3 Code (MIT); see LICENSE-T3. Sources:
 // packages/shared/src/model.ts (resolveSelectableModel, formatModelSlugName,
 // normalizeModelSlug, getProviderOptionCurrentValue/Label),
 // packages/contracts/src/model.ts (MODEL_SLUG_ALIASES_BY_PROVIDER),
@@ -129,7 +129,7 @@ export function traitsDisplay(driver: string, descriptors: Obj[], selections: Ob
         fallback = str(options.find(option => option.id === value)?.label, 'Normal'); continue;
       }
     }
-    // composer-fidelity G9: the prompt-controlled primary effort reads "Ultrathink" (buildTraitsTriggerDisplay).
+    // The prompt-controlled primary effort reads "Ultrathink" (buildTraitsTriggerDisplay).
     if (ultra.controlled && descriptor.id === ultra.primaryId) { labels.push('Ultrathink'); continue; }
     if (descriptor.type === 'boolean') { labels.push(`${str(descriptor.label, str(descriptor.id))} ${current(descriptor) === true ? 'On' : 'Off'}`); continue; }
     if (descriptor.type !== 'select') continue;

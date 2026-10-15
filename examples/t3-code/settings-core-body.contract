@@ -1,4 +1,4 @@
-// The settings page body this lane owns (lane settings-core): the scope sentence on
+// The settings page body: the scope sentence on
 // every scoped route, the scope boundary messages, and the General and Appearance pages.
 use SettingsCore from "./settings-core.contract"
 use ScopeSentence from "./settings-rows.contract"

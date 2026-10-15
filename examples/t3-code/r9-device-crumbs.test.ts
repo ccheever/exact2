@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { crumbsOffset, noteFirstRead, settleCrumbs, sourceGutter, SOURCE_NUMBER_INSET } from './r9-device-crumbs';
 import { crumbsMask } from './r7-polish-crumbs';
 
-// Lane r9-device: HEAD oracle at 840 × 620, wt / docs / guide / intro.md: the trail is 203pt in a
+// HEAD oracle at 840 × 620, wt / docs / guide / intro.md: the trail is 203pt in a
 // 162pt viewport. A first open settles at scrollLeft 5 (its word-wrap toggle arrived after the
 // scroll), a re-open at 41.
 describe('Files breadcrumbs settle where the reference scroll left them', () => {

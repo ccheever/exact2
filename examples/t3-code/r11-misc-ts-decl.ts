@@ -1,4 +1,4 @@
-// Lane r11-misc: statement state for the shared JavaScript / TypeScript tokenizer (tsLike in
+// Statement state for the shared JavaScript / TypeScript tokenizer (tsLike in
 // timeline-highlight.ts), as Shiki 4.2's typescript and javascript grammars scope it (MIT
 // reference, see LICENSE-T3: the reference colours code with Shiki and the pierre themes).
 //   - var-expr: every declarator of a `const` / `let` / `var` list is a definition: after the

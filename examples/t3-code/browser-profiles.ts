@@ -1,4 +1,4 @@
-// browser-surface part 4 (profiles): the Browser's profiles (MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
+// The Browser's profiles (MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
 // packages/contracts/src/browserProfile.ts; apps/web/src/browser/browserDefaults.ts; the profile parts of
 // apps/web/src/components/preview/{PreviewView,PreviewMoreMenu,openPreviewSession}.tsx and RightPanelTabs.tsx).
 //
@@ -78,7 +78,7 @@ export function browserProfilePrefs(owner: Holder): BrowserProfilePrefs {
   return local as BrowserProfilePrefs;
 }
 
-// ── browserDefaults.ts (the profile half; the viewport is part 2's) ───────────────────────────────
+// ── browserDefaults.ts (the profile half) ───────────────────────────────
 export type BrowserDefaults = { profiles: readonly BrowserProfile[]; profileId: string };
 /**
  * toBrowserDefaults: a default pointing at a deleted profile falls back to Default, and Incognito is a per-tab choice,

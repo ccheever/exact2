@@ -1,4 +1,4 @@
-// Lane r7-handoff: the thread id a draft launches as (MIT reference, see LICENSE-T3,
+// The thread id a draft launches as (MIT reference, see LICENSE-T3,
 // upstream f90b77d809): useHandleNewThread gives every draft its own ThreadId up front
 // (newThreadId), and the first send launches the thread under that id. A pull request
 // hand-off (usePullRequestHandoffs.startHandoff) opens the thread before the checkout and

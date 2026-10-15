@@ -1,7 +1,7 @@
 import AppKit
 import XCTest
 
-// Lane r8-pointer (D14) with real AppKit: the window comes back where and as large as
+// With real AppKit: the window comes back where and as large as
 // it was left. The host restores its frame autosave once the window has its final
 // style (exact2 #113, main #164), so the app keeps no frame record of its own; what
 // is left to the app is that its own title row (T3WindowChrome's empty unified

@@ -367,7 +367,7 @@ describe('the gutter\'s drags (onLineSelectionEnd and onGutterUtilityClick are b
   });
 });
 
-describe('what sits under a selected line is painted selected (Pierre\'s renderSelection; diff-gutter-visuals)', () => {
+describe('what sits under a selected line is painted selected (Pierre\'s renderSelection)', () => {
   const row = (op: string, line: number, value: string) => `diffreview|${op}|${line}|${value}`;
   const notes = (view: Awaited<ReturnType<ReturnType<typeof fixture>['settle']>>) => view.codeTab.items.filter(item => item.path === 'src/catalog.js' && item.kind.startsWith('pr-') && item.kind !== 'pr-file')
     .map(item => `${item.kind === 'pr-thread' ? item.entry : item.kind}${item.selected ? '*' : ''}`);

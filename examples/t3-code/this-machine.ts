@@ -6,8 +6,8 @@
 //    be managed the Version row (`serverVersion · displayUrl`, "Loading…", "Up to date", the update's
 //    progress; a desktop-managed server that cannot update from here gets the sentence instead).
 //    Network access, its endpoints, Tailscale HTTPS and Authorized clients are connections-network.ts.
-//  - The switch persists desktop-settings.json (decision U7), then returns a relaunch request for
-//    Contract to dispatch (decision U4). A write failure stays under the dialog's description.
+//  - The switch persists desktop-settings.json, then returns a relaunch request for
+//    Contract to dispatch. A write failure stays under the dialog's description.
 // A refused development build (no T3_LOCAL_HOME / T3_LOCAL_PORT) draws no primary and shows the
 // refusal here only; a missing or failed runtime shows its reason here too.
 import { obj, str } from './domain';

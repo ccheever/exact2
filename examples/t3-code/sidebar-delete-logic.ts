@@ -1,4 +1,4 @@
-// Thread deletion order (task thread-commands-and-keys, G5), adapted from
+// Thread deletion order, adapted from
 // T3 Code 1e2ecbd975 (MIT); see LICENSE-T3. Source:
 // apps/web/src/components/Sidebar.logic.ts (deleteSelectedThreadEntries,
 // getFallbackThreadIdAfterDelete). Changes: results are plain objects instead

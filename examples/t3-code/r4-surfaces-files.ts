@@ -1,4 +1,4 @@
-// The Files surface (lane r4-surfaces; MIT reference, see LICENSE-T3:
+// The Files surface (MIT reference, see LICENSE-T3:
 // components/files/FilePreviewPanel.tsx, FileBrowserPanel.tsx, useDirectoryEntries.ts,
 // FileBreadcrumbs.tsx, fileSaveCoordinator.ts, filePreviewMode.ts and @pierre/trees'
 // compact tree): the workspace tree over `projects.listEntries` (one folder at a time,
@@ -14,25 +14,25 @@ import { lineTokens } from './timeline-diff-syntax';
 import { EDITORS, lastEditor, preferredEditor, rememberEditor } from './shell-details';
 import { workspaceOf, panelKey, panelState, type Surface, type PanelState } from './r4-surfaces-panel';
 import { tableRows } from './r4-surfaces-render';
-import { markdownEnv, messageChips, type MarkdownEnv } from './r4-timeline-chips'; // markdown-links-and-files-preview: the chat renderer's chips and settings
+import { markdownEnv, messageChips, type MarkdownEnv } from './r4-timeline-chips'; // the chat renderer's chips and settings
 import { messageCodeBlocks } from './timeline-highlight';
 import { filesMermaid, type MermaidDiagramView } from './timeline-mermaid';
 import { timelineView } from './timeline-presentation';
 import { textWidth } from './pages-text-width';
 import { filesPrefs, type FilesPrefs } from './r5-panels-prefs';
 import { anchorFrame } from './r6-polish-measure';
-import { crumbsMask, crumbsShift } from './r7-polish-crumbs'; // lane r7-polish: the trail scrolled to its end
-import { crumbsOffset, noteFirstRead, settleCrumbs, settleMounted, sourceGutter } from './r9-device-crumbs'; // lane r9-device: where the trail settles
-import { contentRevision, htmlPage, htmlToggleLabel, isBrowserPreviewFile, isHtmlPath, isPdfPath } from './r10-device-files-html'; // lane r10-device: rendered HTML
-import { openFileInPreview } from './browser-links'; // right-panel-launcher-and-files: "Open file in preview browser"
+import { crumbsMask, crumbsShift } from './r7-polish-crumbs'; // the trail scrolled to its end
+import { crumbsOffset, noteFirstRead, settleCrumbs, settleMounted, sourceGutter } from './r9-device-crumbs'; // where the trail settles
+import { contentRevision, htmlPage, htmlToggleLabel, isBrowserPreviewFile, isHtmlPath, isPdfPath } from './r10-device-files-html'; // rendered HTML
+import { openFileInPreview } from './browser-links'; // "Open file in preview browser"
 import { activeRef } from './terminal-drawer-view';
 import { ensureDraftThreadId } from './r7-handoff-thread';
-import { crumbsMounting, loadBegin, loadEnd, missingFolders, noteReveal, revealStale } from './r10-device-crumbs'; // lane r10-device: a mounting preview settles at the end
+import { crumbsMounting, loadBegin, loadEnd, missingFolders, noteReveal, revealStale } from './r10-device-crumbs'; // a mounting preview settles at the end
 import { canUseMarkdownFileShellActions, loadSshAliases, openInEditorHere, openInView, remoteOpenFor } from './remote-open'; // remote Open (OpenInPicker)
 import { fileComment, fileCommentLines, fileCommentOpen, focusedFileDraft, type FileLine } from './diff-file-comments'; // diff-review: line comments on the preview
-import { filesMediaView, markdownMediaChips, markdownMediaUrls, NO_MEDIA, type MediaView } from './media-views'; // media-actions: image and video files with their menu
+import { filesMediaView, markdownMediaChips, markdownMediaUrls, NO_MEDIA, type MediaView } from './media-views'; // image and video files with their menu
 import { letGo } from './let-go';
-import { filesTreeMenu, showContextMenu } from './context-menu-actions'; // context-menu-gaps
+import { filesTreeMenu, showContextMenu } from './context-menu-actions';
 import { availableEditorIds, markdownFileMenuItems, revealLabelFor } from './context-menus';
 import { isWorkspaceImagePreviewPath, isWorkspaceVideoPreviewPath, mediaMimeTypeFromExtension } from './media-source';
 import { openMarkdownMediaPreview } from './timeline-attachments';
@@ -50,7 +50,7 @@ export type FilesView = {
   path: string; preview: string; previewError: string; crumbs: Crumb[]; lines: FileLine[]; commentOpen: boolean; text: string; textKey: string;
   gutter: number; wrap: boolean; rawText: boolean; openInBrowser: boolean; truncatedNote: string; canRender: boolean; rendered: boolean; renderLabel: string; renderIcon: string;
   editable: boolean; pending: boolean; editorId: string; editorLabel: string; editorShow: boolean; editorHint: string; editorUnavailable: string; editors: EditorChoice[]; absolutePath: string;
-  // markdown-links-and-files-preview PA-3: FileMarkdownPreview is ChatMarkdown. `markdownSource` is renderMarkdown's one
+  // FileMarkdownPreview is ChatMarkdown. `markdownSource` is renderMarkdown's one
   // message (app.contract filesMarkdown; kind "file" when its task checkboxes may write the file), `md` its chips and
   // settings, `code` its fences' colours, `diagrams` its Mermaid fences, `mdUrls` its host-path media and `codeCopied` /
   // `codeCopyNonce` Copy code's check.
@@ -68,7 +68,7 @@ type FilesState = {
   reads: Map<string, Read>; edits: Map<string, Edit>; loading: number; editing: string; editorText: string; editorsOpen: boolean; crumb: { root: string; dir: string } | null;
 };
 // Preferences the reference keeps in localStorage (t3code.fileExplorerOpen, t3code.renderMarkdown, t3code.renderTable),
-// persisted in the client's preference file (lane r5-panels: r5-panels-prefs.ts).
+// persisted in the client's preference file (r5-panels-prefs.ts).
 const states = new WeakMap<T3Client, FilesState>();
 export const PATH_SEARCH_LIMIT = 200;
 const EXPAND_ALL_CAP = 200;
@@ -103,7 +103,7 @@ const toEntry = (value: Obj): Entry | null => {
 async function loadDirectory(client: T3Client, native: Native, path: string, refresh = false): Promise<void> {
   const state = filesState(client), { cwd } = workspaceOf(client);
   if (!cwd || (!refresh && state.dirs.has(path))) return;
-  state.requested.add(path); loadBegin(state, `dir:${path}`); // lane r10-device: counted by what is asked
+  state.requested.add(path); loadBegin(state, `dir:${path}`); // counted by what is asked
   try {
     const result = await client.restAccess(native).request('projects.listEntries', { cwd, directoryPath: path });
     if (filesState(client) !== state) return;
@@ -120,7 +120,7 @@ export async function ensureTree(client: T3Client, native: Native): Promise<void
 async function readFile(client: T3Client, native: Native, path: string): Promise<void> {
   const state = filesState(client), { cwd } = workspaceOf(client);
   if (!cwd) return;
-  if (!state.reads.has(path)) noteFirstRead(state, path); // lane r9-device: an uncached read settles the crumbs short
+  if (!state.reads.has(path)) noteFirstRead(state, path); // an uncached read settles the crumbs short
   loadBegin(state, `read:${path}`);
   try {
     const result = await client.restAccess(native).request('projects.readFile', { cwd, relativePath: path });
@@ -433,7 +433,7 @@ function runsKey(tokens: readonly { text: string; cls: string }[] | undefined, l
 export function codeLines(path: string, contents: string): CodeLine[] {
   const lines = contents.split(/\r\n|\r|\n/);
   const tokens = lineTokens(lines, path);
-  // lane r12-render: a line is keyed by its runs too, so a line whose text or colours change (another file, a
+  // A line is keyed by its runs too, so a line whose text or colours change (another file, a
   // retokenized one) remounts: a text flow repainted in place kept spans of the file shown before it.
   return lines.map((line, index) => ({ id: `${index + 1}:${runsKey(tokens[index], line)}`, number: String(index + 1),
     runs: (tokens[index]?.length ? tokens[index]! : line ? [{ text: line, cls: '' as const }] : []).map((token, at) => ({ id: String(at), text: token.text, syntax: token.cls })) }));
@@ -459,7 +459,7 @@ async function openInPreviewBrowser(client: T3Client, native: Native, path: stri
 /**
  * FileMarkdownPreview: ChatMarkdown over the file's text, relative links and images resolved against the file's own
  * folder (`imageBaseDir`), ```mermaid fences drawn as diagrams; its task checkboxes write the file unless it is
- * read-only (RenderedMarkdownSurface readOnly). Its media (media-signed-urls-and-attachment-markdown MD-1) sign through
+ * read-only (RenderedMarkdownSurface readOnly). Its media sign through
  * the thread, or a draft's own id (FilePreviewPanel's `threadRef` is the draft's), and their references are relative
  * to the workspace (`cwd`), not the folder.
  */
@@ -472,7 +472,7 @@ async function renderedMarkdown(client: T3Client, native: Native, path: string, 
   const diagrams = await filesMermaid(client, native, text);
   return {
     markdownSource: [{ id: `file:${path}`, kind: editable ? 'file' : 'assistant', title: '', body: text }],
-    md: { ...markdownEnv(client), chips: messageChips({ text }, folder, [], `files:${absolute}`, scope) }, // G4-05: the owner names the document
+    md: { ...markdownEnv(client), chips: messageChips({ text }, folder, [], `files:${absolute}`, scope) }, // the owner names the document
     code: messageCodeBlocks(text), diagrams, mdUrls: urls.map(entry => ({ ...entry, fill: '', hover: '', border: '', ink: '' })),
     codeCopied: copied ? copy.text : '', codeCopyNonce: copied ? copy.nonce : 0,
   };
@@ -487,7 +487,7 @@ function codePreviewLines(client: T3Client, path: string): number {
   return read.contents.split(/\r\n|\r|\n/).length;
 }
 /**
- * audit-wave-followups FU-3: a Files preview comment draft on show with the focus holds ⌘↩, as the Diff's does (diff.ts
+ * A Files preview comment draft on show with the focus holds ⌘↩, as the Diff's does (diff.ts
  * draftHoldsCommandEnter; composer-presentation.ts gives the Send button no chords then). The host sends no blur when a
  * focused view leaves the tree (LLP 1008), so it holds only on the panel it was taken on, while that panel shows the
  * draft's file as source with the draft's last line (fileCommentLines draws the card there).
@@ -510,22 +510,22 @@ export async function filesView(client: T3Client, native: Native, active: Surfac
   const state = filesState(client), preferences = prefsOf(client), { cwd, projectName } = workspaceOf(client);
   if (!state.dirs.has('') && !state.errors.has('')) await ensureTree(client, native);
   const path = active.kind === 'file' ? active.path : '';
-  if (crumbsMounting(client, client.threadId)) settleMounted(state, path); // lane r10-device
-  const cold = settleCrumbs(state, path); // lane r9-device: where the crumbs settle
+  if (crumbsMounting(client, client.threadId)) settleMounted(state, path);
+  const cold = settleCrumbs(state, path); // where the crumbs settle
   if (path && !state.reads.has(path)) await ensureFile(client, native, path, true);
-  else if (path && revealStale(state, path, now)) await ensureFile(client, native, path, true); // lane r10-device: a reveal whose answer was abandoned asks again
+  else if (path && revealStale(state, path, now)) await ensureFile(client, native, path, true); // a reveal whose answer was abandoned asks again
   noteReveal(client, !!path && missingFolders(state, path).length > 0);
   const read = path ? state.reads.get(path) : undefined;
   const folder = !!read?.notFile && !isAbsolute(path);
   const previewPath = folder ? '' : path;
   const markdown = isMarkdownPath(previewPath), table = isTablePath(previewPath), html = !isAbsolute(previewPath) && isHtmlPath(previewPath);
   const rendered = (markdown && preferences.renderMarkdown) || (table && preferences.renderTable) || (html && preferences.renderBrowserFile !== false);
-  // FilePreviewPanel renderBrowserFile: a PDF always shows as its document (BrowserDocumentFrame; here the module's PDFView, X29), a page when rendered.
+  // FilePreviewPanel renderBrowserFile: a PDF always shows as its document (BrowserDocumentFrame; here the module's PDFView, issues/closed/20261009-app-file-iframe-loading.md), a page when rendered.
   const pdf = !isAbsolute(previewPath) && isPdfPath(previewPath), frame = (html && rendered) || pdf;
   const absolute = path ? (isAbsolute(path) ? path : `${cwd.replace(/\/+$/, '')}/${path}`) : '';
-  // lane r10-device: a rendered page waits for its signed URL, not for the read.
+  // A rendered page waits for its signed URL, not for the read.
   const page = frame ? await htmlPage(client, native, cwd, absolute, previewPath, read && !read.error ? contentRevision(read.contents) : '', now) : { url: '', error: '' };
-  // media-actions: an image or video renders from its signed URL, never from the read (FilePreviewPanel isImage / isVideo).
+  // An image or video renders from its signed URL, never from the read (FilePreviewPanel isImage / isVideo).
   const media = previewPath ? await filesMediaView(client, native, previewPath, absolute, cwd, '', now) : NO_MEDIA;
   const text = read?.contents ?? '';
   const lines = previewPath && read && !read.error ? codeLines(previewPath, text) : [];

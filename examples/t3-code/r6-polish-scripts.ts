@@ -1,4 +1,4 @@
-// r6-polish: the workspace card's project script row, adapted from T3 Code (MIT;
+// The workspace card's project script row, adapted from T3 Code (MIT;
 // see LICENSE-T3): ProjectScriptsControl displayMode="panel" (the primary script
 // as a split row: its icon and name, a hairline and the chevron that opens every
 // script plus "Add project script") and projectScripts.ts primaryProjectScript
@@ -42,5 +42,5 @@ export async function runProjectTerminalScript(client: T3Client, native: Native,
   remembered.set(client.projectId, script.id);
   try { await runTerminalCommand(client, native, storage, script.command, script.name); }
   catch (error) { if (letGo(error)) throw error; throw new ClientError(error instanceof Error ? error.message : `Failed to run script "${script.name}".`); }
-  if (script.autoOpenPreview && str(script.previewUrl)) await openScriptPreview(client, native, str(script.previewUrl)); // browser-surface part 5 (browser-links.ts)
+  if (script.autoOpenPreview && str(script.previewUrl)) await openScriptPreview(client, native, str(script.previewUrl)); // browser-links.ts
 }

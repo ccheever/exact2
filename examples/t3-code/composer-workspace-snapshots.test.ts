@@ -90,7 +90,7 @@ describe('workspace provider discovery', () => {
     discovery.state('env', 1, provider, '/repo', { prompt: 'typed while out', config });
     resolve({ providers: [provider] }); expect(await pending).toEqual({ key, retry: true, wake: wake + 1 });
   });
-  // fix-provider-auth-state, bug 20 (#298): with Settings › Providers open, a pending snapshot kept the root's
+  // #298: with Settings › Providers open, a pending snapshot kept the root's
   // retry clock sending server.refreshProviders every ~11 s. The reference's ChatComposer is unmounted on the
   // settings, usage, pull request and welcome routes, and mounting it again starts its refs over.
   test('an unmounted composer asks for nothing; mounting it again refreshes at once with a fresh attempt', async () => {

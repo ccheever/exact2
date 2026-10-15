@@ -32,7 +32,7 @@ function fakeClient(tracking = true, listRefs = (_payload: Record<string, unknow
     async openProjectDraft(_native: Native, projectId: string) { calls.push({ method: 'openProjectDraft', payload: { projectId }, write: false }); this.projectId = projectId; this.threadId = ''; },
     restAccess: () => ({
       request: async (method: string, payload: Record<string, unknown>, write = false) => { calls.push({ method, payload, write }); return method === 'vcs.listRefs' ? listRefs(payload) : {}; },
-      // client.ts restAccess `read`: the focused environment's shared read (settings-pages-subscribed-config).
+      // client.ts restAccess `read`: the focused environment's shared read.
       read: async (method: string, payload: Record<string, unknown>) => { calls.push({ method, payload, write: false }); return method === 'vcs.listRefs' ? listRefs(payload) : {}; },
       call: async (request: Record<string, unknown>) => { calls.push({ method: String(request.op), payload: request, write: false }); const id = `3-${++serial}`; subs[String(request.method)] = id; return { id }; },
       ids: async (count: number) => Array.from({ length: count }, (_, index) => `id-${index}`),
@@ -110,7 +110,7 @@ describe('Settings › Scheduled tasks', () => {
     expect(taskSection({ ...base, connected: true, tasks: { value: [], error: 'boom', subscribes: 1 } }, scope, false, '', NOW)).toMatchObject({ state: 'error', title: 'Could not load scheduled tasks', description: 'boom' });
     expect(editTarget('env2|t9', 'env')).toEqual({ environmentId: 'env2', taskId: 't9', link: false });
   });
-  // settings-rows-and-labels S2-6: WorktreeBaseBranchPicker's selectedRefQuery finds the base past the first page by name.
+  // WorktreeBaseBranchPicker's selectedRefQuery finds the base past the first page by name.
   test('the editor looks up its base by name only when the chosen project\'s first page of refs does not list it', async () => {
     const page = (refs: Record<string, unknown>[], found: Record<string, unknown>[]) => fakeClient(true, payload => ({ refs: payload.query ? found : refs }));
     const local = { name: 'main', isRemote: false }, others = Array.from({ length: 100 }, (_, index) => ({ name: `feature-${index}`, isRemote: false }));
@@ -123,7 +123,7 @@ describe('Settings › Scheduled tasks', () => {
     let { view, group, reads } = await open(page(others, [{ name: 'main-old', isRemote: false }, local]));
     expect(reads).toEqual([{ cwd: '/repo', limit: 100 }, { cwd: '/repo', query: 'main', limit: 10 }]);
     expect([group.refs.length, group.selected]).toEqual([100, [{ value: 'main', label: 'main', search: 'main', badge: '', remote: false }]]);
-    expect(view.editors[0]!.key).toBe('new'); // a new task's dialog keeps its key across Runs on (scheduled-tasks-followups ST-1)
+    expect(view.editors[0]!.key).toBe('new'); // a new task's dialog keeps its key across Runs on
     // On the first page: no lookup.
     ({ group, reads } = await open(page([local], [])));
     expect([reads.length, group.selected]).toEqual([1, []]);

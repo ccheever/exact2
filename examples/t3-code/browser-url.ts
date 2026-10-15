@@ -1,4 +1,4 @@
-// browser-surface: the preview URL rules (T3 Code 1e2ecbd975, MIT, see LICENSE-T3:
+// The preview URL rules (T3 Code 1e2ecbd975, MIT, see LICENSE-T3:
 // packages/shared/src/preview.ts `isLoopbackHost`, `normalizePreviewUrl`,
 // `PreviewUrlNormalizationError`; apps/web/src/components/preview/errorCodeMessages.ts and
 // previewConstants.ts `PREVIEW_ERROR_CODE_MESSAGES`). The URL field ("Search or enter URL") takes

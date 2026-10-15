@@ -2,10 +2,10 @@ import AppKit
 import Network
 import XCTest
 
-// Lane r6-media: the device screen (R6DeviceStream.swift) against loopback stand-ins for the
+// The device screen (R6DeviceStream.swift) against loopback stand-ins for the
 // server's /api/device-hub proxy: an HTTP peer that serves serve-sim's multipart MJPEG feed and a
 // WebSocket peer that plays the helper input socket. A real hub needs the server's device tools
-// installed, which this lane does not do; these peers speak the same wire format the reference's
+// installed, which this test does not do; these peers speak the same wire format the reference's
 // stream.ts does. `T3_DEVICE_TEST_DIR` receives the rendered screen.
 final class Peer {
     let listener: NWListener
@@ -107,7 +107,7 @@ final class DeviceStreamTests: XCTestCase {
         XCTAssertEqual(buffer, a.prefix(10))
     }
 
-    // Lane r7-device: iOS video is serve-sim's AVCC body now, with this MJPEG feed as its fallback,
+    // iOS video is serve-sim's AVCC body now, with this MJPEG feed as its fallback,
     // and Android streams over H.264; both are covered against a full loopback hub (HTTP and
     // WebSocket on one origin) in macos/tests/r7-device (testIosUndecodableDescriptionFallsBackToMjpeg,
     // testAndroidStreamDecodesAndForwardsInput).

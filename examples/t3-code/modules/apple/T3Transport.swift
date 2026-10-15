@@ -39,7 +39,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
     private var restoredFocus = ""
     private let preferencesURL: URL?
     var session: URLSession!
-    /// pr-code-tab (T3Transport+PullRequests.swift): the pull request diff's session (60 s), made on first use,
+    /// T3Transport+PullRequests.swift: the pull request diff's session (60 s), made on first use,
     /// and the diff reads in flight by body, which an identical read joins.
     var longSession: URLSession?
     var pendingPullRequestDiffs: [String: [Completion]] = [:]
@@ -52,7 +52,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
     private let activityID = UUID()
     private var activityScopes: [String: UUID] = [:]
     private var streams: [String: String] = [:] // request id -> app subscription key
-    /// terminal-drawer: attach streams by request id, outside the 16-stream cap and the app's inbox (T3Transport+Terminal.swift).
+    /// Attach streams by request id, outside the 16-stream cap and the app's inbox (T3Transport+Terminal.swift).
     var terminalStreams: [String: T3TerminalStream] = [:]
     /// On this queue: the socket opened (true, with the environment it reached) or went away (false, "").
     var terminalConnection: ((Bool, String) -> Void)?
@@ -96,7 +96,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
     private var failureKind = ""
     private var failureTrace = ""
     private var lastHTTPTrace = ""
-    /// The saved environment's routes and the walk over them (T3Routes.swift, lane environment-routes).
+    /// The saved environment's routes and the walk over them (T3Routes.swift).
     lazy var routes = T3RouteState(queue: queue, session: { [unowned self] in self.session })
     private var walkExhausted = false
 
@@ -160,7 +160,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
                         for owner in T3SavedEnvironments.credentialOrigins(gone) + [origin.absoluteString] { try credentials.forget(origin: owner, environment: environment) }
                         forgotten((try? T3Endpoint.origin(gone?["origin"] as? String ?? "")) ?? origin, wasFocused: true)
                     }
-                    // r10-connect: a pairing that failed with nothing to go back to leaves no origin behind.
+                    // A pairing that failed with nothing to go back to leaves no origin behind.
                     if request["abandon"] as? Bool == true { origin = nil; descriptor = [:]; primary = false }
                     setStatus("disconnected", "Disconnected.")
                     finish(completion, value: status())
@@ -322,7 +322,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
         // The primary walks no saved routes: one loopback address, its bearer from the embedded server.
         if primary { routes.stop() } else { routes.load(origin: newOrigin.absoluteString, saved: savedEnvironments) }
         wantsConnection = true; failures = 0; everConnected = false; opening = completion
-        // r9-connect: the origin is remembered once its socket opens; a failed pairing leaves nothing behind.
+        // The origin is remembered once its socket opens; a failed pairing leaves nothing behind.
         start(credential: credential)
     }
 
@@ -530,7 +530,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
         }
     }
 
-    /// Lane r6-media: the device hub's media credentials (resolveDeviceHubAccess): the server origin
+    /// The device hub's media credentials (resolveDeviceHubAccess): the server origin
     /// and a short-lived WebSocket ticket for requests that cannot carry the bearer header
     /// (R6DeviceStream.swift). nil when not connected or the server issued no ticket.
     func deviceHubAccess(_ completion: @escaping (URL?, String?) -> Void) {
@@ -557,7 +557,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
         // queued behind other reads still goes out), and each pending request ends at its deadline.
         // A shared read (`share`, a data source's kept read) joins an identical one still pending, as
         // the reference's query atoms share one request per input: an answer Exact asked again before
-        // the reply sends nothing new (round 5: vcs.refreshStatus four times a second).
+        // the reply sends nothing new (vcs.refreshStatus four times a second).
         let shareKey = request["share"] as? Bool == true ? Self.shareKey(method, request["payload"]) : nil
         // A request that is not shared may write (a branch switch): no later read of its workspace joins one sent before it.
         let cwd = (request["payload"] as? [String: Any])?["cwd"] as? String
@@ -569,12 +569,12 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
         }
         let id = nextID(), wire = T3Wire.request(id: id, method: method, payload: request["payload"] ?? [:])
         let text = try T3Wire.encode(wire)
-        // auto-balance: a request may ask for a shorter deadline (server.getHostResources waits 5 s).
+        // A request may ask for a shorter deadline (server.getHostResources waits 5 s).
         // A delivered request may wait longer (up to five minutes): an upload has no deadline in the reference.
-        // provider-settings-upkeep: server.updateProvider runs the provider's installer and asks for up to
+        // server.updateProvider runs the provider's installer and asks for up to
         // 15 minutes (a deadline sends Interrupt, which would stop the update on the server).
         let wait = min(request["deliver"] is String ? 300 : 900, max(1, (request["timeout"] as? NSNumber)?.doubleValue ?? 30))
-        // usage-reset-and-feedback (composer-replies.ts): a request whose reply joins the inbox under
+        // composer-replies.ts: a request whose reply joins the inbox under
         // `deliver`, so no data-source answer waits on a long write (a /feedback upload, a redeem).
         if let deliver = request["deliver"] as? String, !deliver.isEmpty, shareKey == nil {
             let epoch = generation
@@ -685,7 +685,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
         guard let id = T3Wire.identifier(frame["requestId"]) else { throw T3Failure(kind: "Protocol", message: "The server RPC response has no request ID.") }
         if tag == "Chunk" {
             guard let values = frame["values"] as? [Any] else { throw T3Failure(kind: "Protocol", message: "An RPC chunk has no values.") }
-            if terminalChunk(id: id, requestId: frame["requestId"]!, values: values, epoch: epoch) { return } // terminal-drawer: acknowledged once buffered
+            if terminalChunk(id: id, requestId: frame["requestId"]!, values: values, epoch: epoch) { return } // acknowledged once buffered
             if let key = streams[id] {
                 streamRetries[key] = nil // the first value resets the retry ladder
                 var notify = false
@@ -705,7 +705,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
             throw T3Failure(kind: "Protocol", message: "The server sent an unsupported RPC response.")
         }
         let success = exit["_tag"] as? String == "Success"
-        if terminalEnded(id: id, failure: success ? nil : failure(T3Wire.failure(exit))) { return } // terminal-drawer
+        if terminalEnded(id: id, failure: success ? nil : failure(T3Wire.failure(exit))) { return }
         if let call = pending.removeValue(forKey: id) {
             if success { finish(call, value: exit["value"] ?? NSNull()) }
             else { finish(call, failure: T3Wire.failure(exit)) }
@@ -770,7 +770,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
         let calls = Array(pending.values); pending.removeAll()
         for call in calls { finish(call, failure: reason) }
         streams.removeAll(); streamRetries.removeAll(); failedStreams.removeAll()
-        terminalRetired() // terminal-drawer: attach streams end with the socket; sessions attach again on the next one
+        terminalRetired() // attach streams end with the socket; sessions attach again on the next one
         if let waiting = opening { opening = nil; finish(waiting, failure: reason) }
     }
 
@@ -943,7 +943,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
                 self.routes.schedule { [weak self] in self?.lookForBetterRoute() }
             }
             self.runTimer()
-            self.terminalConnection?(true, self.descriptor["environmentId"] as? String ?? "") // terminal-drawer: that environment's sessions attach on the new socket
+            self.terminalConnection?(true, self.descriptor["environmentId"] as? String ?? "") // that environment's sessions attach on the new socket
             if let completion = self.opening { self.opening = nil; self.finish(completion, value: self.status()) }
         }
     }

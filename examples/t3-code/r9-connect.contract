@@ -1,4 +1,4 @@
-// Lane r9-connect: PullRequestThreadDialog (T3 Code, MIT; see LICENSE-T3), opened
+// PullRequestThreadDialog (T3 Code, MIT; see LICENSE-T3), opened
 // from the branch pickers' "Checkout pull request" item (drawn in each picker:
 // composer-controls.contract, r4-git.contract). r9-connect-checkout.ts serves it: the item
 // opens the dialog (`chatlocal:git-pr-open`), each edit of the field resolves its

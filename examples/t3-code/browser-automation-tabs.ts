@@ -1,7 +1,7 @@
-// browser-surface part 5: a Browser tab's Mute / Unmute row and its audible indicator (MIT reference, see
+// A Browser tab's Mute / Unmute row and its audible indicator (MIT reference, see
 // LICENSE-T3, T3 Code 1e2ecbd975: apps/web/src/components/RightPanelTabs.tsx `tabMuteMenuItem`, `tabAudioState`,
 // the tab's Volume2 / VolumeOff button; previewBridge.setAudioMuted). WebKit has no public page mute: the module
-// mutes the page's media elements and hears their playback (T3BrowserAutomation.swift `setMuted`, X1 path B).
+// mutes the page's media elements and hears their playback (T3BrowserAutomation.swift `setMuted`).
 import type { T3Client } from './client';
 import type { Surface } from './r4-surfaces-panel';
 import { parseScopedThreadKey } from './terminal-ui-state';

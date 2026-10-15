@@ -1,5 +1,5 @@
 // Shapes of the Usage page's mixes, model detail and Model prices dialog
-// (lane "pages", pages-usage-detail.ts and pages-usage-prices.ts), and the
+// (pages-usage-detail.ts and pages-usage-prices.ts), and the
 // one share bar both the page and the model dialog draw (UsageShareBar.tsx).
 // T3 Code, MIT (LICENSE-T3).
 use TipBubble from "./shell-tip.contract"

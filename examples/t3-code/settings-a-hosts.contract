@@ -1,4 +1,4 @@
-// Integrations → Device hosts (lane settings-a; settings-a-hosts.ts): the row with
+// Integrations → Device hosts (settings-a-hosts.ts): the row with
 // its host list (DeviceHostsSettings.tsx) and the Add/Edit device host dialog
 // (DeviceHostEditor.tsx), mounted at the window root by SettingsADialogs.
 use SkPopup from "./settings-kit.contract"

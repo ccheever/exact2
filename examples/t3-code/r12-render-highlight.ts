@@ -1,12 +1,12 @@
-// Lane r12-render: the shared highlighter's Shiki path. For every language the reference's Shiki 4.2
-// bundle has (code-highlighting-languages: all 235, with their aliases, but the eight left out for their
+// The shared highlighter's Shiki path. For every language the reference's Shiki 4.2
+// bundle has (all 235, with their aliases, but the eight left out for their
 // licences, which paint plain, LICENSE-T3; r12-render-grammar.ts and its chunks) the tokens are what the reference paints: r12-render-textmate.ts runs the grammar, and each
 // run's pierre-light / pierre-dark colour pair names the synColor class that paints it
 // (markdown.contract), with "+i" when the theme sets italic (synSlant). Chat code blocks, the diff
 // panel, the Files panel, the attachment code preview and content-search lines all reach this
 // through timeline-highlight.ts's highlight().
 //
-// shiki-residuals, cost: Hermes runs the slowest grammars here at about 70,000 characters a second,
+// Cost: Hermes runs the slowest grammars here at about 70,000 characters a second,
 // so once the app turns slicing on (startHighlightTurn), one answer tokenizes at most
 // SLICE_BUDGET_CHARS (at most about 50 ms; a data source has no clock, so the budget is counted in
 // characters). A text that does not finish keeps the heuristic tokenizer's colours (shikiTokens
@@ -19,13 +19,13 @@ import { colorOf, grammarId, grammarWork, SCAN_UNITS_PER_MS, styleOf, tokenizeLi
 import { FILE_TYPES } from './r12-render-filetypes';
 import type { Cls, Token } from './timeline-highlight';
 
-/** A longer text gets no Shiki tokens (decision U15: the reference has no limit): highlight() paints it as
+/** A longer text gets no Shiki tokens (the reference has no limit): highlight() paints it as
  *  plain text, since it is over HEURISTIC_MAX_CHARS too. */
 export const SHIKI_MAX_CHARS = 1_000_000;
 /** The characters one data-module turn tokenizes: at most about 50 ms in the pinned Hermes for the slowest
  *  grammars here (typescript, html; measured in that Hermes). */
 export const SLICE_BUDGET_CHARS = 2_500;
-/** KD-code-cpp-perf: the regex work one turn may do (r12-render-textmate.ts turnWork, checked before each search): a line
+/** The regex work one turn may do (r12-render-textmate.ts turnWork, checked before each search): a line
  *  that costs more (a template-dense cpp line: its function-definition regexes traverse the rest of the line once per
  *  template) goes on next turn from the scan it was in, so a turn stays inside the runner's 100 ms answer budget while the
  *  line runs to Shiki's 500 ms limit (LINE_SCAN_LIMIT). */
@@ -34,7 +34,7 @@ export const SLICE_SCAN_UNITS = 33 * SCAN_UNITS_PER_MS;
 export const FIRST_LINE_WORK = 0.5;
 /** A text nobody asked for again within this many turns is dropped (about five seconds of slices). */
 const STALE_TURNS = 300;
-/** code-highlighting-languages: grammars Hermes runs well under TypeScript's 70,000 characters a second,
+/** Grammars Hermes runs well under TypeScript's 70,000 characters a second,
  *  with the weight each of their characters takes in the slice budget. Measured over the grammar samples
  *  and real files: cpp 37,000 a second; every other grammar
  *  52,000 (javascript) or more. */
@@ -95,7 +95,7 @@ interface Document { lang: string; max: number; lines: string[]; states: LineSta
 const documents: Document[] = [];
 const results = new Map<string, Token[]>();
 /** A text still being tokenized: its lines, the states and runs so far, the turn it was last asked in, and its next line's
- *  progress when a turn's budget stopped that line part way (KD-code-cpp-perf). */
+ *  progress when a turn's budget stopped that line part way. */
 interface Job extends Document { key: string; asked: number; progress: LineProgress | null }
 const jobs = new Map<string, Job>();
 
@@ -159,7 +159,7 @@ function advance(job: Job, budget: Budget): boolean {
       budget.left -= 1;
       continue;
     }
-    // code-highlighting-languages: a slow grammar's characters, and a line outside ASCII (Unicode \b
+    // A slow grammar's characters, and a line outside ASCII (Unicode \b
     // forms), count more; the line's one-time work (chunks parsed, regexes compiled on first use) is
     // charged too, and a line whose compiles would pass what is left stops and goes on next turn.
     const cost = (line.length + 1) * (unicodeText(line) ? UNICODE_SLOW_LANGUAGES[job.lang] ?? 2 : SLOW_LANGUAGES[job.lang] ?? 1);

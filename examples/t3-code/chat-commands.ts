@@ -10,11 +10,10 @@ import { adoptCommandTime } from './sidebar-state';
  * the row's own thread, never the selected one, and is refused when that thread
  * left the shell or the server cannot settle threads. Settle is useThreadActions'
  * settleThread, as ⇧⌘S (ChatView thread.settle) and the title menu call it: the
- * sidebar's settle, whose "Settled 1 thread" notice ⌘Z undoes
- * (shell-sidebar-palette-keys SH-2).
+ * sidebar's settle, whose "Settled 1 thread" notice ⌘Z undoes.
  */
 export async function chatCommand(client: T3Client, native: Native, storage: Files, op: string, threadId: string, value = '', at = 0): Promise<string> {
-  if (op === 'retry-preparation') return retryWorkspacePreparation(client, native, storage, value); // lane r11-upstream (737993303d)
+  if (op === 'retry-preparation') return retryWorkspacePreparation(client, native, storage, value); // upstream 737993303d
   const thread = client.shell.threads.find(candidate => candidate.id === threadId);
   if (!thread) throw new ClientError('That thread is no longer available.');
   const capabilities = obj(obj(client.config.environment).capabilities);

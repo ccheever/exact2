@@ -1,4 +1,4 @@
-// The workspace card's branch picker (lane r4-git), adapted from T3 Code (MIT; see
+// The workspace card's branch picker, adapted from T3 Code (MIT; see
 // LICENSE-T3): components/BranchToolbarBranchSelector.tsx in its panel display mode
 // (the whole Version Control branch row is the combobox trigger; the popup hangs
 // below it at the row's width), BranchPicker.tsx (search, refs with their badges,
@@ -14,7 +14,7 @@ import { ClientError, type Files, type Native } from './protocol';
 import { canOverrideServerEnv, composerBranches, draftContext, refBadge, sanitizeNewRefName, selectBranch, serverEnvBranch, serverEnvMode, serverOrigin, toggleServerOrigin } from './composer-controls-branch';
 import { fanoutSelections } from './r3-composer-controls-fanout';
 import { REF_PAGE, firstPage, morePages, refsStatus, scrollEnds } from './r5-composer-paging';
-import { checkoutItems, type CheckoutItem } from './r9-connect-checkout'; // lane r9-connect: the picker's checkout item
+import { checkoutItems, type CheckoutItem } from './r9-connect-checkout'; // the picker's checkout item
 import { peekVcsStatus } from './shell-vcs';
 
 type Refs = { cwd: string; query: string; refs: Obj[]; total: number; nextCursor: number | null; loaded: boolean; generation: number; stale: boolean; ends: number; loadingMore?: boolean };
@@ -61,7 +61,7 @@ async function loadRefs(client: T3Client, native: Native, cwd: string, query: st
   const search = sanitizeNewRefName(query).slice(0, 256);
   // A shared read (activeBranchRefQuery is one query per input): the card asked again before the reply joins it.
   const list = (cursor?: number) => client.restAccess(native).read('vcs.listRefs', { cwd, limit: REF_PAGE, ...(search ? { query: search } : {}), ...(cursor === undefined ? {} : { cursor }) });
-  // r5-composer: a scroll toward the list's end loads the next page (r5-composer-paging.ts).
+  // A scroll toward the list's end loads the next page (r5-composer-paging.ts).
   if (current && current.cwd === cwd && current.query === query && current.generation === client.generation && !current.stale)
     return Object.assign(current, await morePages(current, client.presentation, 'details-refs', list));
   const result = await list();
@@ -111,7 +111,7 @@ export async function cardBranchView(client: T3Client, native: Native, cwd: stri
   const creatable = !selectingBase && created && !list.some(ref => ref.name === created) ? created : '';
   const first = str(list[0]?.name);
   const loading = !refs;
-  // r9-connect: a local draft's search that parses as a pull request reference leads with "Checkout pull request".
+  // A local draft's search that parses as a pull request reference leads with "Checkout pull request".
   const checkout = state.open === 'branch' ? checkoutItems(client, query, peekVcsStatus(client, cwd)) : [];
   return {
     show: true, open: state.open === 'branch', label, value, disabled: loading, query: state.query,
@@ -156,5 +156,5 @@ export async function branchCommand(client: T3Client, native: Native, storage: F
   return '';
 }
 
-/** r6-polish: the card picker's pages (r6-polish-refs.ts asks whether a scroll still wants its page). */
+/** The card picker's pages (r6-polish-refs.ts asks whether a scroll still wants its page). */
 export function cardPages(client: T3Client): Refs | null { return states.get(client)?.refs ?? null; }

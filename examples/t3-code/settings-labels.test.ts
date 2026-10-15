@@ -1,6 +1,6 @@
-// settings-rows-and-labels (2026-10-09 desktop audit S1-8, S2-6, S2-9, S2-10): Settings texts and accessible names that
+// Settings texts and accessible names that
 // live in the Contract views, read from the sources as hover-layer.test.ts reads them. The data each one reads is tested
-// beside its view model (settings-rest.test.ts, settings-a.test.ts); the rendered result is the task's macOS drive.
+// beside its view model (settings-rest.test.ts, settings-a.test.ts).
 import { describe, expect, test } from 'bun:test';
 
 const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
@@ -13,7 +13,7 @@ async function component(file: string, name: string): Promise<string> {
   return lines.slice(start, end < 0 ? undefined : end).join('\n');
 }
 
-describe('S1-8: Restore defaults confirms with ConfirmDialogHost buttons', () => {
+describe('Restore defaults confirms with ConfirmDialogHost buttons', () => {
   test('Cancel and Confirm', async () => {
     const dialog = await component('settings-core-body.contract', 'SettingsRestoreDialog');
     expect(dialog).toContain('text "Cancel"');
@@ -22,16 +22,16 @@ describe('S1-8: Restore defaults confirms with ConfirmDialogHost buttons', () =>
   });
 });
 
-describe('S2-6: the base branch trigger says origin/ only for a listed local branch', () => {
+describe('The base branch trigger says origin/ only for a listed local branch', () => {
   test('resolveBranchTriggerLabel over the chosen project refs', async () => {
     const page = await source('settings-scheduled.contract');
     expect(page).toContain('fn taskBaseLabel(baseRef: string, startFromOrigin: bool, local: bool): string = baseRef == "" ? "Select ref" : (startFromOrigin and local ? `From origin/${baseRef}` : `From ${baseRef}`)');
     const editor = await component('settings-scheduled.contract', 'ScheduledEditor');
     // The loaded page first, then the lookup by name (scheduled-view.ts `selected`; live-automations.test.ts).
     expect(editor).toContain('derive baseLocal = data.branches.filter((group) => group.projectId == chosenProject and (group.refs.filter((ref) => ref.value == baseRef and not ref.remote).length > 0 or group.selected.filter((ref) => ref.value == baseRef and not ref.remote).length > 0)).length > 0');
-    expect(editor).toContain('                  text taskBaseLabel(baseRef, startFromOrigin, baseLocal) font-size'); // a plain text since round 11 (X64, X82)
+    expect(editor).toContain('                  text taskBaseLabel(baseRef, startFromOrigin, baseLocal) font-size'); // a plain text (issues/closed/20261009-macos-small-text-stale-raster.md, issues/closed/20261011-macos-scheme-switch-stale-text-raster.md)
     // Another project asks again (selectedRefQuery is keyed by project): the root's page looks the base up when that
-    // project's list lacks it (audit-wave-followups-2: the picker's project, base and search travel as `taskPicker`).
+    // project's list lacks it (the picker's project, base and search travel as `taskPicker`).
     expect(page).toContain('fn taskPicker(key: string, project: string, ref: string, query: string): string = `key=${encodeURIComponent(key)}&project=${encodeURIComponent(project)}&ref=${encodeURIComponent(ref)}&query=${encodeURIComponent(query)}`');
     expect(editor).toContain('    lookupBase(taskPicker(draft.key, value, baseRef, ""))');
     expect(editor).toContain('options=data.projects, choose=chooseProject)');
@@ -39,7 +39,7 @@ describe('S2-6: the base branch trigger says origin/ only for a listed local bra
   });
 });
 
-describe('S2-10: Source Control names its controls and resets as the reference does', () => {
+describe('Source Control names its controls and resets as the reference does', () => {
   test('ScopedSettingRow reads the row control and reset labels, the title when they are empty', async () => {
     const row = await component('settings-source-control.contract', 'ScopedSettingRow');
     expect(row).toContain('aria-label=`Reset ${row.resetLabel != "" ? row.resetLabel : row.title} to default`');
@@ -48,7 +48,7 @@ describe('S2-10: Source Control names its controls and resets as the reference d
   });
 });
 
-describe('S2-9, S2-10: the Icon submenu', () => {
+describe('The Icon submenu', () => {
   test('its kinds are radio items, the current one checked; every menu row label starts at the left', async () => {
     const item = await component('settings-b-kit.contract', 'CnMenuItem');
     expect(item).toContain('role=(radio ? "menuitemradio" : "menuitem") aria-checked=(radio and highlighted)');

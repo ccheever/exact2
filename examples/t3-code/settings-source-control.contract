@@ -36,7 +36,7 @@ use BrowserProfilesView from "./browser-profiles.contract"
 use BrowserProfilesSetting from "./browser-profiles.contract"
 use BrowserTabDefaultRows from "./browser-defaults.contract"
 use BrowserAutoShowRow from "./browser-defaults.contract"
-use SettingsPickerTrigger from "./model-picker.contract" // model-picker-parity S2-4
+use SettingsPickerTrigger from "./model-picker.contract"
 
 shape InheritLayer
   key: string
@@ -66,7 +66,7 @@ shape ScopedRow
   // The control's accessible name and the reset's "Reset <resetLabel> to default", as the reference names them; "" uses the title.
   control: string
   resetLabel: string
-  // model-picker-parity S2-4: a model row's picker trigger mark.
+  // A model row's picker trigger mark.
   driver: string
   badge: string
   accent: string
@@ -132,9 +132,9 @@ shape IntegrationsPage
   hostsRow: ScopedRow
   deviceHosts: DeviceHostsView
   simulatorSupport: SimulatorSupportRow[]
-  // browser-surface part 4: Browser profiles and the import wizard (browser-profiles-settings.ts).
+  // Browser profiles and the import wizard (browser-profiles-settings.ts).
   browserProfiles: BrowserProfilesView
-  // browser-surface part 5: "Open links in" ("system" or "app", the client setting browserLinkTarget).
+  // "Open links in" ("system" or "app", the client setting browserLinkTarget).
   linkTarget: string
 
 component SectionTitle
@@ -206,7 +206,7 @@ component ScopedSettingRow
             if row.kind == "text"
               ScopedTextField(value=row.value, placeholder=row.placeholder, label=row.title, fieldKey=row.key, busy=(busy or row.disabled), restInput=restInput)
             if row.kind == "model"
-              // ProviderModelPicker (model-picker-parity S2-4): the window's picker under this trigger, while a provider can write.
+              // ProviderModelPicker: the window's picker under this trigger, while a provider can write.
               if row.checked and row.status == ""
                 SettingsPickerTrigger(rowId="source-control-writer-model", label=row.valueLabel, name="Source control writer model", driver=row.driver, badge=row.badge, accent=row.accent, disabled=(busy or row.disabled), press=pickModel("source-control-writer-model", scope))
               SettingsSwitch(checked=row.checked, label="Use a separate source control writer model", disabled=(busy or row.disabled), switchId="scoped-writer-model-enabled", toggle=rest("scoped", `key=sourceControlWriterModelSelection&value=${row.checked ? "off" : "default"}`))
@@ -407,7 +407,7 @@ component IntegrationsPanel
     error: string
     rest: action
     restInput: action
-    local: action // browser-surface part 4: the profiles row's `restlocal:` ops
+    local: action // the profiles row's `restlocal:` ops
   view
     column width="100%" gap="2rem" testId="integrations-settings"
       if error != ""
@@ -423,8 +423,8 @@ component IntegrationsPanel
             for item in data.browser key=`${data.scope}:${item.key}:${item.checked}`
               ScopedSettingRow(row=item, scope=data.scope, busy=busy, rest=rest, restInput=restInput)
       // IntegrationsSettingsPanel: the Browser section's rows are device-local ("ignore the header selection"), so they show
-      // with no connected environment too. Part 4: BrowserProfilesSetting, the tab defaults, the recording rows, Auto-show;
-      // "Open links in" is part 5's.
+      // with no connected environment too: BrowserProfilesSetting, the tab defaults, the recording rows, "Open links in"
+      // and Auto-show.
       column width="100%" gap="0.625rem" testId="integrations-browser"
         row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center"
           SectionTitle(title="Browser")
@@ -467,7 +467,7 @@ component DeviceRow
         DeviceVersions(tool=tool, busy=busy, rest=rest)
         ScopedSwitch(checked=row.checked, mixed=row.mixed, label=row.title, disabled=(busy or row.disabled), faded=(busy or row.disabled), on="light-dark(#1b4ed8, #346bf1)", off="light-dark(#d4d4d8, #ffffff14)", thumb="light-dark(#fcfcfc, #0a0a0a)", reduced=false, switchId=`device-${row.key}`, press=rest("device", `key=${row.key}&value=${row.mixed or not row.checked ? "true" : "false"}&scope=${scope}`))
 
-// "Open links in" (part 5, BrowserLinkTargetRow) between part 4's tab defaults and Auto-show.
+// "Open links in" (BrowserLinkTargetRow) between the tab defaults and Auto-show.
 component BrowserDefaults
   props
     linkTarget: string
@@ -476,7 +476,7 @@ component BrowserDefaults
     column width="100%" testId="browser-defaults-links"
       BrowserLinkTargetRow(value=linkTarget, restInput=restInput)
 
-// browser-surface part 5: IntegrationsSettings `BrowserLinkTargetSetting`, live (the client setting, written by
+// IntegrationsSettings `BrowserLinkTargetSetting`, live (the client setting, written by
 // `rest:browser-link-target`); its reset shows while it is not the default.
 component BrowserLinkTargetRow
   inject

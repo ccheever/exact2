@@ -1,4 +1,4 @@
-// Lane settings-b: the Providers route's single-environment scope
+// The Providers route's single-environment scope
 // (routes/settings.tsx singleEnvironment, SettingsScopeContext
 // selectSingleEnvironmentScope, SettingsScopeSentence EnvironmentScopeMenu).
 // The machine axis never offers "All environments" there: it defaults to the

@@ -1,5 +1,5 @@
 use kmTriggerKey, kmTriggerTarget from "./menu-keys.contract"
-// Lane r7-device (MIT reference, see LICENSE-T3): DeviceToolsPanel's drawer and the glyphs the
+// MIT reference, see LICENSE-T3: DeviceToolsPanel's drawer and the glyphs the
 // rail gained (DeviceControlsRail: Back, Recents, Rotate menu, Device tools, 3D view, Flat view,
 // Magic Keyboard, Restore 3D view). Sizes are the reference's desktop (`sm:`) values: buttons and
 // selects xs (24pt), compact inputs 28pt, the small switch 26 × 16, the drawer 288pt wide; colours

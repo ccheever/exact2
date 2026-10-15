@@ -1,12 +1,12 @@
 #if os(macOS)
 import AppKit
 
-/// The agent's recording tools on the previewAutomation host (browser-recording-and-downloads BR-1; MIT reference, see
+/// The agent's recording tools on the previewAutomation host (MIT reference, see
 /// LICENSE-T3, T3 Code 1e2ecbd975: apps/web/src/components/preview/PreviewAutomationHosts.tsx, the `recordingStart` and
 /// `recordingStop` cases; apps/web/src/browser/browserRecordingUpload.ts; packages/client-runtime/src/state/attachments.ts
 /// `runAttachmentUploadCycle`).
 ///
-/// A recording's lifecycle is part 3's, in the data module (browser-recording.ts: one recording per tab, the one the
+/// A recording's lifecycle is in the data module (browser-recording.ts: one recording per tab, the one the
 /// Browser row's Capture button starts and stops), so the agent's and the person's recordings are the same. This host
 /// keeps the request: it waits for the tab as for every other operation (`requireReadyTab`), lists the request in its
 /// status (`presentation.browserAutomation.recordings`), and answers `previewAutomation.respond` with the outcome the

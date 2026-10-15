@@ -1,7 +1,7 @@
 import AppKit
 import XCTest
 
-// fullscreen-title-row: in real full screen AppKit drew T3WindowChrome's 52-pt toolbar as an opaque
+// In real full screen AppKit drew T3WindowChrome's 52-pt toolbar as an opaque
 // band over the title row, as a person's real full screen showed. The toolbar leaves as the window enters full screen and
 // comes back when it is windowed again; the window's own notifications drive it.
 final class WindowChromeFullScreenTests: XCTestCase {

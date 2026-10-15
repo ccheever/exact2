@@ -1,4 +1,4 @@
-// Lane r3-sidebar: the project glyph on sidebar surfaces (ProjectFavicon.tsx,
+// The project glyph on sidebar surfaces (ProjectFavicon.tsx,
 // ProjectMonogram.tsx; MIT, see LICENSE-T3). An icon override wins (monogram
 // with its own letters and color, emoji, Lucide icon); otherwise the server's
 // favicon image, else the automatic monogram. Favicon URLs are asked for once

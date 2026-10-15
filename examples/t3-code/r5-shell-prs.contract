@@ -1,4 +1,4 @@
-// Lane r5-shell: the Pull Requests list's states with no rows (routes/
+// The Pull Requests list's states with no rows (routes/
 // _chat.pull-requests.tsx listBody; MIT, see LICENSE-T3), as the HEAD oracle
 // draws them:
 // - PullRequestsUnavailableState: a failed list read ("Could not load pull

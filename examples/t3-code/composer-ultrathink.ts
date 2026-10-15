@@ -1,5 +1,5 @@
-// The composer's ultrathink prompt rewrite and the options a send dispatches
-// (task composer-fidelity, G9), adapted from T3 Code 1e2ecbd975 (MIT); see
+// The composer's ultrathink prompt rewrite and the options a send dispatches,
+// adapted from T3 Code 1e2ecbd975 (MIT); see
 // LICENSE-T3. Sources: apps/web/src/components/chat/TraitsPicker.tsx
 // (TraitsMenuContent handleSelectChange), ChatView.tsx (formatOutgoingPrompt and
 // the send path's createModelSelection(..., modelOptionsForDispatch)) and

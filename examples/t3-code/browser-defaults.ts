@@ -1,4 +1,4 @@
-// browser-surface part 4 (profiles, and the Browser defaults group the coordinator added on 2026-10-09): the client
+// The client
 // settings a new Browser tab opens with and Settings › Integrations › Browser's rows for them (MIT reference, see
 // LICENSE-T3, T3 Code 1e2ecbd975: packages/contracts/src/settings.ts `browserDefault*`, `browserRecording*`,
 // `browserAutoShowFloatingPreview`; apps/web/src/browser/browserDefaults.ts; apps/web/src/components/settings/
@@ -7,9 +7,9 @@
 //
 // They are client-local, as the reference's are (its Chromium guest is desktop-local). The viewport, zoom and appearance
 // are kept beside the profiles in the preference file (t3-code.json); a new tab is born at them (`preview.open`, and
-// part 2's `browserSet`). The recording rows and Auto-show write the client settings part 3 reads
+// `browserSet`). The recording rows and Auto-show write the client settings browser-capture.ts reads
 // (settings-core.ts `CLIENT_DEFAULTS`: browserRecordingFrameRate, browserRecordingShowKeyPresses,
-// browserRecordingShowMousePresses, browserAutoShowFloatingPreview). "Open links in" is part 5's row (`browserLinkTarget`).
+// browserRecordingShowMousePresses, browserAutoShowFloatingPreview). "Open links in" is browser-links.ts's row (`browserLinkTarget`).
 import { obj, type Obj } from './domain';
 import { applyDeviceSetting, decodeClientPrefs, type ClientPrefs } from './settings-core';
 import type { PreviewViewportSetting } from './browser-state';

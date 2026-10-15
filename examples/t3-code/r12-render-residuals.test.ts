@@ -4,7 +4,7 @@ import { CLASS_OF_PAIR, HEURISTIC_MAX_CHARS, highlightPending, highlightSlice, r
 import { lineTokens } from './timeline-diff-syntax';
 import { codeLines } from './r4-surfaces-files';
 
-// shiki-residuals: more grammars, italics, and long texts in slices. Each expectation is the
+// More grammars, italics, and long texts in slices. Each expectation is the
 // pierre-light / pierre-dark colour pair (and "+i" for italic) real Shiki 4.2 with the Oniguruma
 // engine gives every non-blank character (tools/shiki-compare/node_modules, the reference's pins).
 const PAIR_OF = Object.fromEntries(Object.entries(CLASS_OF_PAIR).map(([pair, cls]) => [cls, pair]));
@@ -24,11 +24,11 @@ const SHIKI: [string, string, string, string][] = [
   ["ruby as Shiki paints it", "rb", "class A < B\n  def go(x = 1) = puts \"#{x}\" if x\nend", "c#d32a61/#ff678d l#d32a61/#ff678d a#d32a61/#ff678d s#d32a61/#ff678d s#d32a61/#ff678d A#a631be/#d568ea <#636363/#636363 B#a631be/#d568ea d#d32a61/#ff678d e#d32a61/#ff678d f#d32a61/#ff678d g#693acf/#9d6afb o#693acf/#9d6afb (#636363/#636363 x#636363/#a3a3a3 =#08c0ef/#08c0ef 1#1ca1c7/#68cdf2 )#636363/#636363 =#08c0ef/#08c0ef p#693acf/#9d6afb u#693acf/#9d6afb t#693acf/#9d6afb s#693acf/#9d6afb \"#199f43/#5ecc71 ##d32a61/#ff678d {#d32a61/#ff678d x#199f43/#5ecc71 }#d32a61/#ff678d \"#199f43/#5ecc71 i#d32a61/#ff678d f#d32a61/#ff678d x#0a0a0a/#fafafa e#d32a61/#ff678d n#d32a61/#ff678d d#d32a61/#ff678d"],
   ["markdown as Shiki paints it", "md", "Some *soft* and **loud** words, _here_ too.", "S#0a0a0a/#fafafa o#0a0a0a/#fafafa m#0a0a0a/#fafafa e#0a0a0a/#fafafa *#d32a61/#ff678d+i s#d32a61/#ff678d+i o#d32a61/#ff678d+i f#d32a61/#ff678d+i t#d32a61/#ff678d+i *#d32a61/#ff678d+i a#0a0a0a/#fafafa n#0a0a0a/#fafafa d#0a0a0a/#fafafa *#d5a910/#ffd452 *#d5a910/#ffd452 l#d5a910/#ffd452 o#d5a910/#ffd452 u#d5a910/#ffd452 d#d5a910/#ffd452 *#d5a910/#ffd452 *#d5a910/#ffd452 w#0a0a0a/#fafafa o#0a0a0a/#fafafa r#0a0a0a/#fafafa d#0a0a0a/#fafafa s#0a0a0a/#fafafa ,#0a0a0a/#fafafa _#d32a61/#ff678d+i h#d32a61/#ff678d+i e#d32a61/#ff678d+i r#d32a61/#ff678d+i e#d32a61/#ff678d+i _#d32a61/#ff678d+i t#0a0a0a/#fafafa o#0a0a0a/#fafafa o#0a0a0a/#fafafa .#0a0a0a/#fafafa"]];
 
-// code-highlighting-languages: an app test may leave slicing on, and a language's first use then defers its tokens.
+// An app test may leave slicing on, and a language's first use then defers its tokens.
 beforeEach(() => resetHighlightSlicing());
 afterEach(() => resetHighlightSlicing());
 
-describe('the added grammars and italics against Shiki 4.2 (shiki-residuals)', () => {
+describe('the added grammars and italics against Shiki 4.2', () => {
   for (const [name, lang, code, expected] of SHIKI) test(name, () => {
     const tokens = highlight(code, lang);
     expect(tokens.map(token => token.text).join('')).toBe(code);
@@ -41,14 +41,14 @@ describe('the added grammars and italics against Shiki 4.2 (shiki-residuals)', (
     expect(codeLines('a.md', 'Some *soft* words')[0]!.runs.some(run => run.syntax === 'kw+i')).toBe(true);
   });
   test('a fence language with no grammar paints as one plain run, as the reference falls back to text', () => {
-    // code-highlighting-languages: every Shiki language has its grammar now; a word Shiki does not know stays plain.
+    // Every Shiki language has its grammar; a word Shiki does not know stays plain.
     expect(messageCodeBlocks('```klingon\nDISPLAY "HI".\n```')[0]!.tokens).toEqual([{ id: '0', text: 'DISPLAY "HI".', cls: '' }]);
     // An empty fence paints nothing.
     expect(messageCodeBlocks('```ts\n\n```')[0]!.tokens.map(token => token.text).join('')).toBe('');
   });
 });
 
-describe('long texts are tokenized in slices (shiki-residuals)', () => {
+describe('long texts are tokenized in slices', () => {
   const long = Array.from({ length: 600 }, (_, at) => `export const v${at}: Map<string, number> = new Map([["k${at}", ${at}]]); // ${at}`).join('\n');
   test('an answer over its budget paints heuristic or plain colours, slices finish it, and the result equals an unsliced run', () => {
     const whole = shikiTokens(long, 'ts')!;

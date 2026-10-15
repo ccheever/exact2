@@ -152,7 +152,7 @@ component SnapshotPanel
         let openingTarget = kmTriggerTarget(menuItems, k)
         if openingTarget != ""
           focus(openingTarget)
-  // audit-wave-followups-4 FX-2 (menu-keys.contract): the sound menu's rows are MenuItems, highlighted by their focus alone; the
+  // The sound menu's rows are MenuItems (menu-keys.contract), highlighted by their focus alone; the
   // pointer entering one focuses it, and leaving the one that holds the focus hands it to the popup.
   state soundLit = ""
   action soundFocus(id: string, on: bool)
@@ -224,7 +224,7 @@ component SnapshotTile
     image: SnapshotDraft
     disabled: bool
     remove: action
-    // r4-composer: removing an image whose chip is in the prompt asks first (app.contract titleMenuPick's "ui:confirm").
+    // Removing an image whose chip is in the prompt asks first (app.contract titleMenuPick's "ui:confirm").
     ask: action
   state hovering = false
   action setHover(over: bool)
@@ -262,7 +262,7 @@ component SnapshotDrafts
     disabled: bool
     remove: action
     ask: action
-    // r4-composer: the draft's attached videos follow the images (composerVideos, r4-composer.contract).
+    // The draft's attached videos follow the images (composerVideos, r4-composer.contract).
     videos: ComposerVideo[]
     command: action
   view

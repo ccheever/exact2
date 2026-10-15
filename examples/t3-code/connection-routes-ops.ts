@@ -1,4 +1,4 @@
-// Lane environment-routes: the routes of a saved environment in Settings → Connections
+// The routes of a saved environment in Settings → Connections
 // (T3 Code 1e2ecbd975 apps/web/src/components/settings/EnvironmentRoutesList.tsx,
 // EnvironmentRow.tsx environmentTransportLabel, ConnectionsSettings.tsx "Add a route to";
 // client-runtime registry.ts registerRoute / reorderRoutes / removeRoute and supervisor.ts
@@ -50,7 +50,7 @@ type FocusLike = { environmentId: string; connection?: string; config?: Obj };
  * environment and every connected background one; writes only when the routes change. The
  * write goes to that environment's own transport, which checks at once whether a learned route
  * now ranks above the one in use and moves to it with the borrowed credential (supervisor.ts
- * requestBetterRouteCheck after learnRoutesFrom; network-routes-followups NR-1).
+ * requestBetterRouteCheck after learnRoutesFrom).
  */
 export async function learnRoutes(native: Native, fleet: Learner, focused: FocusLike): Promise<void> {
   const connected: { environmentId: string; config: Obj; activeRouteId: string; fleet?: string }[] = [];

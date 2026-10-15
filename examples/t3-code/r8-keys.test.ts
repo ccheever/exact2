@@ -1,4 +1,4 @@
-// Lane r8-keys: keyboard and menu fixes from the real-keyboard pass (D1, D2, D4, D6).
+// Keyboard and menu fixes from a real-keyboard pass.
 import { describe, test, expect } from 'bun:test';
 import { T3Client } from './client';
 import { obj, type Obj } from './domain';
@@ -73,7 +73,7 @@ describe('D2/D3/D12: one button per chord, ⌘D toggles the diff', () => {
     c.diffOpen = true;
     expect(keyboardDispatch(c, [], '', '', context).find(item => item.command === 'diff.toggle')).toMatchObject({ kind: 'diff' });
     expect(keyboardDispatch(c, [], '', '', { ...context, draftThreadRoute: true }).find(item => item.command === 'diff.toggle')).toBeUndefined();
-    // ⌘W closes a draft's open panel before the window (lane r9-input: its active tab, here the Diff).
+    // ⌘W closes a draft's open panel before the window (its active tab, here the Diff).
     expect(keyboardDispatch(c, [], '', '', { ...context, draftThreadRoute: true, diffOpen: true }).find(item => item.command === 'rightPanel.close')).toMatchObject({ kind: 'close-surface', target: 'diff' });
   });
   test('chat.new is the window\'s, not the sidebar button\'s (it works with the sidebar closed)', () => {
@@ -121,7 +121,7 @@ describe('D6: the table Copy menu is a window-level popup', () => {
     expect(placeTableMenu({ ...trigger, x: 40 }, 1280, 840).x).toBe(5);
     expect(placeTableMenu({ ...trigger, x: 1270 }, 1280, 840).x).toBe(1280 - 160 - 5);
   });
-  test('the menu keeps the table\'s Markdown and CSV apart as the Copy button sends them (fix-keyboard-focus: Copy as CSV copied nothing)', async () => {
+  test('the menu keeps the table\'s Markdown and CSV apart as the Copy button sends them (Copy as CSV copied nothing)', async () => {
     // markdown.contract sends `${block.markdown}\t${block.csv}`, and Contract's `\t` is a real tab (contract/syntax lexer).
     // Neither text holds a tab: r4_timeline_tables.rs collapses every cell's whitespace, and rows join with newlines.
     const c = client(), native = new Fake();
@@ -130,7 +130,7 @@ describe('D6: the table Copy menu is a window-level popup', () => {
     await chatLocal(c, native, 'copy-table', 'tbl-1', tableMenuSnapshot(c).tableMenu[0]?.csv ?? '');
     expect(native.calls.some(call => call.op === 'copyText' && call.text === 'a,b\n1,2')).toBe(true);
   });
-  test('↓ or ↑ on the Copy button opens the menu at its first or last item (fix-keyboard-focus)', async () => {
+  test('↓ or ↑ on the Copy button opens the menu at its first or last item', async () => {
     const c = client(), native = new Fake();
     const table = '| a | b |\n|---|---|\ta,b';
     await chatLocal(c, native, 'table-menu', 'tbl-1', `900|200|24|24|1280|840|keys:first\t${table}`);
@@ -169,11 +169,11 @@ describe('D6: the table Copy menu is a window-level popup', () => {
   });
 });
 
-// contract-keys-and-menu-bar KW-11b: the window's root removes the standard tab items through `-exact-menu-remove` (the host
+// The window's root removes the standard tab items through `-exact-menu-remove` (the host
 // already disallows tabbing for a one-window app; R8KeysMenus no longer removes them itself). The rest of the bar stays native,
 // item by item (T3Menus.swift, R8KeysMenus.swift; the menus and r8-keys AppKit suites): Check for Updates... among them, since an `-exact-menu` item is enabled only
 // while its window is key and has no sheet (ShortcutsMac validateMenuItem), and the reference's is always enabled.
-describe('KW-11b: the menu bar\'s Contract policy', () => {
+describe('The menu bar\'s Contract policy', () => {
   // The compiled root carries the policy (macos/src/contract_keys_tests.rs reads its `menuRemove`).
   test('the window\'s root names the standard tab items it removes, and only the accepted ids', async () => {
     const window = await Bun.file(new URL('./app-window.contract', import.meta.url)).text();

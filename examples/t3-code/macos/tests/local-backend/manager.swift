@@ -7,7 +7,7 @@ import XCTest
 // (T3LocalBackendManager.swift), so they are XCTest cases with the original names, and Effect's
 // Deferred/Queue/TestClock become the doubles in harness.swift. Assertions on the WSL runtime
 // pruning and the telemetry control source are dropped with those features (no WSL; telemetry
-// excluded, issue X39).
+// excluded).
 final class LocalBackendManagerTests: XCTestCase {
     func test_retries_HTTP_readiness_before_reporting_the_backend_ready() {
         let t = TestInstance()

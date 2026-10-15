@@ -25,7 +25,7 @@ extension T3Module {
                 if let failure { reply.send(["ok": false, "generation": generation, "error": T3Failure(kind: "LocalEnvironment", message: failure).json]) }
                 else { reply.send(["ok": true, "generation": generation, "value": T3LocalBackend.shared.statusValue()]) }
             }
-        // Decision U7: the desktop settings file (T3DesktopSettings.swift); a write failure is the reference's
+        // The desktop settings file (T3DesktopSettings.swift); a write failure is the reference's
         // DesktopSettingsWriteError message.
         case "desktopSettingsSet":
             do { reply.send(["ok": true, "generation": generation, "value": try T3LocalBackend.shared.setDesktopSettings(request)]) }

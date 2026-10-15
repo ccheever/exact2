@@ -1,14 +1,14 @@
-// terminal-links-and-close (T3 Code 1e2ecbd975, MIT; see LICENSE-T3), the B1 rows of a real-input session:
-// G1-10, the welcome wizard's setup terminal is the drawer's TerminalViewport (WelcomeWizard.tsx AgentInstallTerminal), so its
+// T3 Code 1e2ecbd975 (MIT; see LICENSE-T3):
+// - the welcome wizard's setup terminal is the drawer's TerminalViewport (WelcomeWizard.tsx AgentInstallTerminal), so its
 //   links take the drawer's handleLinkActivate: an http(s) click or ⌘-click opens the system browser once, a path the
 //   preferred editor once, resolved against the setup's cwd.
-// G1-5, "Open links in" = T3 Code set at runtime reaches a drawer link: a Browser tab (openTerminalLinkInPreview), and an
+// - "Open links in" = T3 Code set at runtime reaches a drawer link: a Browser tab (openTerminalLinkInPreview), and an
 //   in-app open that fails is kept as the drawer's failure (the reference logs TerminalLinkPreviewOpenError) before the
 //   system-browser fallback.
-// G1-4, while a terminal close confirm is open, ChatView's window key handler refuses the terminal close chord
+// - while a terminal close confirm is open, ChatView's window key handler refuses the terminal close chord
 //   (isTerminalCloseConfirmPending && preventTerminalCloseShortcut): neither rightPanel.close nor the same close again.
-// G1-11, ProviderAuthTerminal creates its surface without focusing it; the wizard's setup terminal keeps autoFocus.
-// G1-7's refusal text and CRLF system lines are Swift (macos/tests/terminal, drawer.swift).
+// - ProviderAuthTerminal creates its surface without focusing it; the wizard's setup terminal keeps autoFocus.
+// An oversized write's refusal text and CRLF system lines are Swift (macos/tests/terminal, drawer.swift).
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { T3Client } from './client';
@@ -29,8 +29,8 @@ import { environmentKey, fleet, type FleetEntry } from './settings-b-fleet';
 const storage: Files = { fs: { async mkdir() {}, async atomicWriteFile() {}, async readFile() { return new ArrayBuffer(0); } } };
 const out = () => ({ message: '', id: '', value: '' });
 
-// ── G1-10 ─────────────────────────────────────────────────────────────────────────────────────────
-describe('G1-10: the welcome wizard setup terminal\'s links are the drawer\'s', () => {
+// ── The welcome wizard's setup terminal ───────────────────────────────────────────────────────────
+describe('The welcome wizard setup terminal\'s links are the drawer\'s', () => {
   /** A focused environment with Cursor available; its native module records the ops a link sends. */
   function wizardClient() {
     const rpcs: { method: string; payload: Obj }[] = [], ops: Obj[] = [];
@@ -130,8 +130,8 @@ describe('G1-10: the welcome wizard setup terminal\'s links are the drawer\'s', 
   });
 });
 
-// ── G1-5 ──────────────────────────────────────────────────────────────────────────────────────────
-describe('G1-5: "Open links in" = T3 Code, set at runtime, reaches a drawer link', () => {
+// ── Open links in, set at runtime ─────────────────────────────────────────────────────────────────
+describe('"Open links in" = T3 Code, set at runtime, reaches a drawer link', () => {
   function drawerClient(options: { failOpen?: boolean } = {}) {
     const client = new T3Client(), rpcs: { method: string; payload: Obj }[] = [], ops: Obj[] = [];
     client.environmentId = 'local'; client.threadId = 'thread-1'; client.projectId = 'p';
@@ -176,8 +176,8 @@ describe('G1-5: "Open links in" = T3 Code, set at runtime, reaches a drawer link
   });
 });
 
-// ── G1-4 ──────────────────────────────────────────────────────────────────────────────────────────
-describe('G1-4: a terminal close confirm that is open refuses the close chord app-wide', () => {
+// ── A close confirm refuses the close chord ───────────────────────────────────────────────────────
+describe('A terminal close confirm that is open refuses the close chord app-wide', () => {
   function resolved(rule: { key: string; command: string; when?: string }) {
     const tokens = rule.key.split('+'), key = tokens.pop() || '+';
     return { command: rule.command, shortcut: { key, modKey: tokens.includes('mod'), shiftKey: tokens.includes('shift'), altKey: tokens.includes('alt'), ctrlKey: tokens.includes('ctrl'), metaKey: false }, ...(rule.when ? { whenAst: parseWhen(rule.when) } : {}) };
@@ -231,8 +231,8 @@ describe('G1-4: a terminal close confirm that is open refuses the close chord ap
   });
 });
 
-// ── G1-11 ─────────────────────────────────────────────────────────────────────────────────────────
-test('G1-11: the provider sign-in terminal opens without the focus; the wizard\'s setup terminal keeps autoFocus', () => {
+// ── The provider sign-in terminal ─────────────────────────────────────────────────────────────────
+test('The provider sign-in terminal opens without the focus; the wizard\'s setup terminal keeps autoFocus', () => {
   const providers = readFileSync(new URL('./providers-setup.contract', import.meta.url), 'utf8');
   const signIn = providers.split('\n').find(line => line.includes('testId="provider-auth-terminal"'))!;
   expect(signIn).toContain('focus-request=0');

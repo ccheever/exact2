@@ -1,4 +1,4 @@
-// Lane r6-pr: the pure half of the details card's pull request row (MIT
+// The pure half of the details card's pull request row (MIT
 // reference, see LICENSE-T3, upstream f90b77d809):
 // - components/pullRequest/pullRequestDetail.logic.ts: allowedPullRequestMergeMethods,
 //   resolveSelectedMergeMethod, classifyPullRequestChecks, describePullRequestChecks,
@@ -8,7 +8,7 @@
 //   CHECKS_STATE_PRESENTATION headlines, summarizePullRequestChecks,
 //   pullRequestCheckStatusLabel, PullRequestDiffStat;
 // - usePullRequestActions.ts / PullRequestDetailPanel.tsx: the action toasts' titles and hints for all
-//   ten actions; and (pr-header-actions-and-stacks) PULL_REQUEST_MERGE_METHOD_LABELS,
+//   ten actions; and PULL_REQUEST_MERGE_METHOD_LABELS,
 //   resolvePullRequestMergeMethod, allowsSinglePullRequestMerge, resolvePullRequestPrimaryControl,
 //   pullRequestActionMenuHasGroup, isStackedPullRequestBase, resolveBaseFreshness,
 //   pullRequestActionNeedsHostRefresh;
@@ -236,7 +236,7 @@ const TOOL_NOISE = [/^(github|gitlab|bitbucket|azure devops)?\s*(cli|api)?\s*(co
 /** How much of a host's own message a toast can carry before it stops being read. */
 const FAILURE_DETAIL_MAX_LENGTH = 320;
 /**
- * readableFailure (pullRequestDetail.logic.ts, completed by pr-conversation-and-refresh): the host's
+ * readableFailure (pullRequestDetail.logic.ts): the host's
  * own sentence when it said one — without the operation it arrived wrapped in — and otherwise what
  * to go and check; an Error, a string, or anything else (which says nothing, so the hint).
  */

@@ -1,14 +1,14 @@
 use SnapshotPanel from "./snapshot.contract"
 use SnapshotSetup from "./snapshot.contract"
 use SnapshotSettings from "./shapes.contract"
-use R10PairFields from "./r10-connect-shapes.contract" // lane r10-connect
+use R10PairFields from "./r10-connect-shapes.contract"
 use KeybindingsPanel from "./settings-keybindings.contract"
 use KeybindingPage from "./settings-keybindings.contract"
 use ScheduledPanel from "./settings-scheduled.contract"
 use ScheduledPage from "./settings-scheduled.contract"
 use SourceControlPanel from "./settings-source-control.contract"
 use IntegrationsPanel from "./settings-source-control.contract"
-use BrowserProfileDialogs from "./browser-profiles.contract" // browser-surface part 4
+use BrowserProfileDialogs from "./browser-profiles.contract"
 use SourceControlPage from "./settings-source-control.contract"
 use IntegrationsPage from "./settings-source-control.contract"
 use StoragePanel from "./settings-storage.contract"
@@ -30,7 +30,7 @@ use SettingsADialogs from "./settings-a-dialogs.contract"
 use ProvidersPanel from "./providers.contract"
 use ProviderPage from "./providers.contract"
 use ProviderSetupConfirm from "./providers-setup.contract"
-use AcpConfirm from "./providers-upkeep.contract" // provider-settings-upkeep
+use AcpConfirm from "./providers-upkeep.contract"
 use AddProviderDialog from "./providers-wizard.contract"
 use ProviderWizard from "./providers-wizard.contract"
 use AcpRegistry from "./providers-wizard.contract"
@@ -43,8 +43,8 @@ use ConnectionsPanel from "./connections.contract"
 use ConnectionsPage from "./connections.contract"
 use AddEnvironmentDialog from "./connections.contract"
 use EnvironmentRemoveDialog from "./connections.contract"
-use LocalEnvironmentDialog from "./this-machine.contract" // local-primary-environment
-use NetworkDialogs from "./connections-network-dialogs.contract" // this-machine-network-access
+use LocalEnvironmentDialog from "./this-machine.contract"
+use NetworkDialogs from "./connections-network-dialogs.contract"
 use RouteRemoveDialog from "./connections-routes.contract"
 use RouteKeyboard from "./connections-routes.contract"
 use ProjectsPanel from "./settings-projects.contract"
@@ -65,7 +65,7 @@ use TipCard from "./shell-tip.contract"
 // The T3Code window's Settings view and dialogs, moved out of app.contract, which keeps the state,
 // resources and actions: each component takes the root names it reads as props of the same names.
 
-// audit-wave-followups FU-4: a root-level provider link while Settings stays open. The reference keys
+// A root-level provider link while Settings stays open. The reference keys
 // ProviderSettingsPanelContent by the link's environment and instance (ProviderSettingsPanel.tsx), so a link to another
 // target (A → B → A too) remounts the page and an open "Add custom model" field (ProviderModelsSection isAdding)
 // closes; a link to the Providers page's own target keeps it. The target is the route's (the root's
@@ -94,9 +94,9 @@ component SettingsWindow
     viewport: Viewport
     scheme: string
     settingsMenu: string
-    modelsOpen: bool // settings-model-picker: Escape closes a General model picker, not Settings
-    providerVisit: number // audit-wave-followups FU-4: counts the root's provider links that changed the page's target
-    paletteOpen: bool // audit-wave-followups FU-5: the command palette over Settings owns Escape (its Dialog prevents it)
+    modelsOpen: bool // Escape closes a General model picker, not Settings
+    providerVisit: number // counts the root's provider links that changed the page's target
+    paletteOpen: bool // the command palette over Settings owns Escape (its Dialog prevents it)
     chipOpen: bool // a skill chip's details over Settings own Escape (Base UI's Popover dismisses on it)
     editSettingsQueryRoot: action
     coreSearchKeyRoot: action
@@ -180,7 +180,7 @@ component SettingsWindow
     settingsThemeSubject: string
     coreThemeChange: action
     settingsCommand: action
-    // settings-escape-and-nav: the app sidebar's width and its rail's drag (AppSidebarLayout: Settings renders inside
+    // The app sidebar's width and its rail's drag (AppSidebarLayout: Settings renders inside
     // the app Sidebar, whose SidebarRail resizes the one width both navs share).
     resizeSidebar: action
     finishResize: action
@@ -193,23 +193,23 @@ component SettingsWindow
   state settingsRestoreOpen = false
   state keybindingSearch = false
   state licenseSearchOpen = false
-  // settings-escape-and-nav: the "Models" block whose "Add custom model" field is open (ProviderModelsSection
+  // The "Models" block whose "Add custom model" field is open (ProviderModelsSection
   // isAdding, by the block's key: a successful add gives the block a new one), the field whose onKeyDown would take
   // Escape and that has the focus ("keybindings-filter", "license-search", "custom-model-slug"), and whether the
   // pointer is over the sidebar rail ("Drag to resize sidebar"). T3Window mounts this view only while Settings is
   // open, so all of it starts over each time, as the reference's settings route remounts.
   state modelAdding = ""
-  // FU-4: the provider link visit the field was opened on (providerLinkVisit above).
+  // The provider link visit the field was opened on (providerLinkVisit above).
   state modelAddingVisit = 0
   derive modelAddingLive = modelAddingOn(modelAdding, modelAddingVisit, providerVisit)
   state escapeFocus = ""
   state railHover = false
   state updateTipHover = false // the Settings nav's SidebarUpdatePill (its tooltip is drawn below, past the nav)
   derive modelAddingShown = modelAddingLive != "" and providerPage.editors.filter((shown) => shown.modelBlocks.map((models) => models.key).includes(modelAddingLive)).length > 0
-  // settings-escape-and-nav: Escape belongs to the innermost thing that owns it (useEscapeToGoBack runs only for an
+  // Escape belongs to the innermost thing that owns it (useEscapeToGoBack runs only for an
   // Escape nothing prevented): a popup or menu, an inline editor, a recording shortcut, or a field whose onKeyDown
   // takes it, which hears it only while it has the focus. The command palette opened over Settings is a Dialog whose
-  // Escape closes only itself (FU-5). While one owns it, Back gives up its Escape shortcut; with
+  // Escape closes only itself. While one owns it, Back gives up its Escape shortcut; with
   // none (a search left open with a query, the focus elsewhere), Escape leaves Settings. The When editor's and the
   // font list's popovers and the recorder are `aria-modal` too, and the dialogs make this view inert (below).
   derive escapeOwned = routeKeyboard.phase != "" or settingsMenu != "" or modelsOpen or paletteOpen or chipOpen or themeInspecting or settingsRestoreOpen or settingsEscapeHeld or snapshotSetupOpen or (settingsRoute == "keybindings" and (keybindingRecording or (keybindingSearch and escapeFocus == "keybindings-filter"))) or (settingsRoute == "open-source-licenses" and licenseSearchOpen and escapeFocus == "license-search") or (settingsRoute == "providers" and (providerPage.escapeOwned or (modelAddingShown and escapeFocus == "custom-model-slug")))
@@ -293,7 +293,7 @@ component SettingsWindow
   view
     if settingsOpen
       // Settings is a route in the reference (its sidebar is navigation "Settings"), no dialog: the row writes no
-      // `role="dialog"`, which the Mac exposes as AXApplicationDialog since main #457 (adopt-main-fixes-r10 RT-6).
+      // `role="dialog"`, which the Mac exposes as AXApplicationDialog since main #457.
       row position="absolute" left=0 top=0 width="100%" height="100%" background-color=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #0a0a0a)" : settingsCore.palette.canvas) inert=(connecting or dialogShown or (settingsThemeDialog != "" and settingsThemeDialog != "create" and settingsThemeDialog != "edit" and settingsThemeDialog != "duplicate") or settingsRestoreOpen or providerDialog != "") testId="settings-dialog" id="settings-dialog" data-paint="canvas" data-pick=(("canvas" == "" ? "" : "canvas") != "" ? ("canvas" == "" ? "" : "canvas") : "")
         if data.sidebarOpen
           SettingsNav(controlsLeft=data.controlsLeft, nav=settingsNavigation, route=settingsRoute, query=settingsQuery, width=sidebarWidth, pal=settingsCore.palette, active=0, artwork=data.look.artwork, menuOpen=escapeOwned, edit=editSettingsQuery, onKey=coreSearchKey, pick=corePick, clear=coreClearSearch, back=closeModal, toggle=toggleSidebar, updateTip=hoverUpdateTip)
@@ -333,7 +333,7 @@ component SettingsWindow
                     CoreRowView(reduced=viewport.prefersReducedMotion, row=row, section="project-defaults", pal=settingsCore.palette, codePreview=settingsCore.codePreview, busy=commandPending, menu=settingsMenu, openMenu=coreMenu, closeMenu=coreMenuClose, change=coreChange, slide=coreSlide, navigate=coreNavigate)
               if modalError != "" and settingsRoute != "projects" and settingsRoute != "scheduled-tasks" and settingsRoute != "source-control" and settingsRoute != "integrations" and settingsRoute != "keybindings" and settingsRoute != "storage" and settingsRoute != "archived" and not snapshotSetupOpen
                 text modalError font-size="0.75rem" color="light-dark(#b91c1c, #fca5a5)" role="alert" testId="settings-error"
-        // settings-escape-and-nav: the app Sidebar's SidebarRail over the settings nav's edge (r5-shell.contract), and
+        // The app Sidebar's SidebarRail over the settings nav's edge (r5-shell.contract), and
         // its "Drag to resize sidebar" (side right, as SidebarEdgeTips draws the thread sidebar's).
         if data.sidebarOpen
           SidebarWindowRail(width=sidebarWidth, hovered=railHover, line=(data.look.themed ? data.look.sidebarBorder : "light-dark(#e4e4e7, #262626)"), fill=(data.look.themed ? data.look.sidebarBorder : "light-dark(#e4e4e7, #1d1d1d)"), resize=resizeSidebar, finishResize=finishResize, resetWidth=resetSidebarWidth, hoverCard=hoverRail)
@@ -356,7 +356,7 @@ component SettingsWindow
       SettingsADialogs(core=settingsCore, kind=settingsThemeDialog, subject=settingsThemeSubject, viewportHeight=viewport.height, busy=commandPending, error=modalError, menu=settingsMenu, openMenu=coreMenu, close=coreThemeDialog("", ""), commit=coreChange, change=coreThemeChange, raw=restRaw, rest=rest, local=restLocal)
     if settingsOpen and settingsRestoreOpen
       SettingsRestoreDialog(core=settingsCore, busy=commandPending, cancel=coreRestoreClose, confirm=coreRestoreConfirm)
-    // browser-surface part 4: "Remove “<name>”?" and the cookie import wizard (browser-profiles.contract), over the window.
+    // "Remove “<name>”?" and the cookie import wizard (browser-profiles.contract), over the window.
     if settingsOpen and settingsRoute == "integrations"
       BrowserProfileDialogs(view=integrations.browserProfiles, local=restLocal, track=importWizardFocusMoved, still=viewport.prefersReducedMotion)
 
@@ -457,7 +457,7 @@ component SettingsModals
     connectionAskRemove: action
     routeTarget: string
     routeLabel: string
-    // local-primary-environment: the Local environment switch's command (settingsCommand: the dialog stays open while it runs).
+    // The Local environment switch's command (settingsCommand: the dialog stays open while it runs).
     localCommand: action
   view
     // Each dialog gives the focus back to the control that opened it as it closes (dialog-trap.contract DialogFinalFocus).
@@ -476,7 +476,7 @@ component SettingsModals
     if providerDialog == "chatgpt"
       for session in providerWizard.sessions key=session.key
         ChatGptAccountDialog(wizard=providerWizard, busy=commandPending, setupBusy=setupBusy, error=modalError, close=providerUi("close", ""), create=providerOp("provider-chatgpt", ""), op=providerOp, ui=providerUi)
-    // managed-codex-chatgpt: Reconnect ChatGPT (ChatGptAccountPicker) for the instance that opened it.
+    // Reconnect ChatGPT (ChatGptAccountPicker) for the instance that opened it.
     if providerDialog == "codex-picker"
       for picker in providerWizard.codexPicker key=picker.key
         ChatGptAccountPicker(picker=picker, busy=setupBusy, op=providerOp, ui=providerUi)
@@ -487,7 +487,7 @@ component SettingsModals
       for hub in providerPage.hubs key=hub.id
         if hub.id == providerTarget
           HubRemoveDialog(hub=hub, busy=commandPending, cancel=providerUi("close", ""), confirm=providerOp("provider-hub-remove", "", hub.id, "", true))
-    // provider-sign-in-and-install: Sign out (the Account row) and Remove (the Antigravity runtime) ask first.
+    // Sign out (the Account row) and Remove (the Antigravity runtime) ask first.
     if providerDialog == "setup-logout" or providerDialog == "setup-remove"
       for editor in providerPage.editors key=editor.key
         if editor.id == providerTarget
@@ -495,7 +495,7 @@ component SettingsModals
             ProviderSetupConfirm(what=providerDialog, instanceId=editor.id, title=account.signOutTitle, body=account.signOutBody, busy=setupBusy, op=providerOp, ui=providerUi)
           for runtime in (providerDialog == "setup-remove" ? editor.setup.runtime : []) key=runtime.key
             ProviderSetupConfirm(what=providerDialog, instanceId=editor.id, title=runtime.removeTitle, body=runtime.removeBody, busy=setupBusy, op=providerOp, ui=providerUi)
-    // provider-settings-upkeep: an ACP session's Delete and an ACP provider's Disable ask first (dialogs.confirm, destructive).
+    // An ACP session's Delete and an ACP provider's Disable ask first (dialogs.confirm, destructive).
     if providerDialog == "acp-delete" or providerDialog == "acp-disable"
       for editor in providerPage.editors key=editor.key
         for acp in editor.upkeep.acp key=acp.key
@@ -516,11 +516,11 @@ component SettingsModals
       for environment in connectionsPage.environments key=environment.key
         if environment.key == connectionRemove
           EnvironmentRemoveDialog(environment=environment, busy=commandPending, cancel=connectionAskRemove(""), confirm=connectionOp("environment-forget", environment.origin, environment.environmentId))
-        // Lane environment-routes: "Remove <label> route?" for one of its routes.
+        // "Remove <label> route?" for one of its routes.
         for route in environment.routes key=route.id
           if route.target == connectionRemove
             RouteRemoveDialog(route=route, busy=commandPending, cancel=connectionAskRemove(""), confirm=connectionOp("environment-route-remove", environment.key, route.id))
-    // managed-codex-chatgpt: ChatGptWelcomeCoordinator's "Your ChatGPT plan is connected", once per profile.
+    // ChatGptWelcomeCoordinator's "Your ChatGPT plan is connected", once per profile.
     DialogFinalFocus(open=(data.chatgptPlan.length > 0), owner="chatgpt-plan-dialog")
     for notice in data.chatgptPlan key=notice.key
       ChatGptPlanDialog(notice=notice, busy=setupBusy, op=providerOp)

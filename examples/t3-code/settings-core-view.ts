@@ -1,4 +1,4 @@
-// The settingsCore resource (lane settings-core): scope sentence, General/Appearance
+// The settingsCore resource: scope sentence, General/Appearance
 // sections, palette and restore state for the Contract shell in settings-core.contract.
 import { obj, type Obj } from './domain';
 import type { Native } from './protocol';
@@ -76,7 +76,7 @@ export async function settingsCore(client: T3Client, native: Native | null | und
   const context = serverContext(client, scope, files);
   const device = client.local.deviceSettings;
   const custom = (client.local as unknown as { customThemes?: CustomTheme[] }).customThemes || [];
-  // The theme editor's session (D16): the window's create/edit/duplicate dialog names it whether
+  // The theme editor's session: the window's create/edit/duplicate dialog names it whether
   // or not Settings is open, and its draft paints the whole app (settings-appearance-editor.ts).
   // It opens on the app's resolved scheme (app.contract `scheme`; SettingsPanels.tsx and CommandPalette.tsx pass
   // useTheme's resolvedTheme), so mode System on a dark Mac opens the Dark appearance.
@@ -90,7 +90,7 @@ export async function settingsCore(client: T3Client, native: Native | null | und
   sections = sections.map(section => ({ ...section, rows: section.rows.map((row, index) => ({ ...row, divider: index > 0 })) }));
   // ProjectSettingsPanel renders ProjectDefaultsSettings' modelRow: the Project page's Model row is General's, in the project scope.
   const projectModel = active && route === 'projects' && project ? generalSections(client, context).flatMap(section => section.rows).filter(row => row.id === 'default-model').map(row => ({ ...row, divider: false })) : [];
-  // useSettingsRestore over useScopedSettings: the scope's representative target, not the focused environment (audit-wave-followups-4 FX-1).
+  // useSettingsRestore over useScopedSettings: the scope's representative target, not the focused environment.
   const scoped = scopeTarget(client, context);
   const labels = restoreLabels(client.local as never, scoped ? scoped.settings : null);
   // SettingsScopeBoundary: a search target outside the selected scope explains its owning scope.

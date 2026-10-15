@@ -1,4 +1,4 @@
-// Timestamps in the Mac's locale (task desktop-shell-details). Reference apps/web/src/timestampFormat.ts
+// Timestamps in the Mac's locale. Reference apps/web/src/timestampFormat.ts
 // (1e2ecbd975; MIT, see LICENSE-T3): resolveTimestampLocale, resolveWeekStartsOn and the cached
 // wall-clock formatters. The desktop host reports the system locale (Electron's
 // app.getSystemLocale() with `_` → `-`; here the native module's `systemLocale`, T3Locale.swift,

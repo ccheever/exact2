@@ -1,4 +1,4 @@
-// Lane settings-a: General/Appearance/Integrations/Diagnostics follow-ups.
+// General/Appearance/Integrations/Diagnostics follow-ups.
 import { describe, expect, test } from 'bun:test';
 import type { T3Client } from './client';
 import type { Obj } from './domain';
@@ -72,7 +72,7 @@ describe('background activity, advanced', () => {
     const gone = backgroundRow({ ...client, environmentId: '' } as Fake);
     expect(gone.options.find(entry => entry.id === 'advanced')!.disabled).toBe(true);
   });
-  test("the inheritance popover reads Custom for the policy, as SettingInheritance's formatValue has no profile labels (S1-9)", () => {
+  test("the inheritance popover reads Custom for the policy, as SettingInheritance's formatValue has no profile labels", () => {
     const client = fakeClient();
     expect(backgroundRow(client).layers.map(layer => [layer.label, layer.detail])).toEqual([['Environment', 'Inherits'], ['Default', 'Custom']]);
     client.config.settings = { ...(client.config.settings as Obj), backgroundActivity: { schemaVersion: 1, profile: 'performance', overrides: {} } };
@@ -148,24 +148,24 @@ describe('device tools, refs, archive menu, look', () => {
     expect([hub.label, hub.aria, hub.running, hub.installed, hub.update]).toEqual(['Not installed', 'Device hub: not installed. Show details', 'Not running', 'None', 'Update to v0.12.0']);
     expect([agent.label, agent.update]).toEqual(['v1.0.0', '']);
     expect(deviceTool('hub', null).label).toBe('Version unknown');
-    // KW-6: the popover is end-aligned by its `position-area`; no estimated label width offsets it.
+    // The popover is end-aligned by its `position-area`; no estimated label width offsets it.
     expect('offset' in hub).toBe(false);
   });
   test('base branch refs carry their tag', () => {
     expect(branchRef({ name: 'main', current: true }, '/a')).toEqual({ value: 'main', label: 'main', search: 'main', badge: 'current', remote: false });
     expect(branchRef({ name: 'origin/Feature', isRemote: true }, '/a')).toMatchObject({ badge: 'remote', remote: true });
-    // A current branch keeps its tag and still says it is remote or not: the trigger reads `remote` (S2-6).
+    // A current branch keeps its tag and still says it is remote or not: the trigger reads `remote`.
     expect(branchRef({ name: 'origin/main', current: true, isRemote: true }, '/a')).toMatchObject({ badge: 'current', remote: true });
     expect(branchRef({ name: 'wt', worktreePath: '/b' }, '/a').badge).toBe('worktree');
   });
   test('the archive context menu unarchives, or confirms a delete only while Delete confirmation is on', async () => {
-    // contract-keys-and-menu-bar X292: the menu is the panel's Contract popover (settings-archive.contract ArchiveMenu);
+    // #292: the menu is the panel's Contract popover (settings-archive.contract ArchiveMenu);
     // its choice arrives as `archive-pick` with the row's scope, and no native menu is asked for.
     const client = fakeClient();
     const calls: string[] = [], native: Obj[] = [];
     Object.assign(client, { restAccess: () => ({ call: async (request: Obj) => { native.push(request); return {}; } }), manageArchivedThread: async (_n: unknown, _s: unknown, op: string, scope: string) => { calls.push(`${op} ${scope}`); } });
     await archiveCommand(as(client), fakeNative, {} as never, 'archive-pick', 'env1:p1:t1', 'delete');
-    // sidebar-hover-archive-and-glyph G4-14b: the live store holds no archived thread, so the confirm says "this thread".
+    // The live store holds no archived thread, so the confirm says "this thread".
     expect(archiveConfirmation(as(client))).toEqual({ id: 'env1:p1:t1', title: 'this thread' });
     await archiveCommand(as(client), fakeNative, {} as never, 'archive-delete', 'env1:p1:t1', '');
     expect(calls).toEqual(['delete-archived-thread env1:p1:t1']);

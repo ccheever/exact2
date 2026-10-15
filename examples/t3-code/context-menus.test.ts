@@ -131,7 +131,7 @@ describe('pull request link menu', () => {
   });
 });
 
-// ChatMarkdown MarkdownFileLink showFileContextMenu (without "Open in integrated browser", X1).
+// ChatMarkdown MarkdownFileLink showFileContextMenu (without "Open in integrated browser", #100).
 describe('chat file link menu', () => {
   it('previews media, opens in the generic editor and reveals with the server wording', () => {
     expect(markdownFileMenuItems({ canPreviewMedia: true, canOpen: true, preferredEditor: null, revealLabel: 'Reveal in Files' }).map(item => item.label))

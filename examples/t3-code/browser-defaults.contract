@@ -1,8 +1,8 @@
-// browser-surface part 4: Settings › Integrations › Browser's default rows (MIT reference, see LICENSE-T3, T3 Code
+// Settings › Integrations › Browser's default rows (MIT reference, see LICENSE-T3, T3 Code
 // 1e2ecbd975: apps/web/src/components/settings/IntegrationsSettings.tsx BrowserViewportSetting, BrowserZoomSetting,
 // BrowserAppearanceSetting, BrowserRecordingFrameRateSetting, BrowserRecordingInputSettings,
 // BrowserAutoShowFloatingPreviewSetting). `view` is browser-defaults.ts `browserDefaultsView`; each write is
-// `restlocal:browser-defaults` with `key=…&value=…`. "Open links in" is part 5's row, between these two groups.
+// `restlocal:browser-defaults` with `key=…&value=…`. "Open links in" is browser-links.ts's row, between these two groups.
 use SelectOption from "./settings-kit.contract"
 use SettingsSelect from "./settings-kit.contract"
 use SettingsSwitch from "./settings-kit.contract"

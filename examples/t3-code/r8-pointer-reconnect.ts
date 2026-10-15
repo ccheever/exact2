@@ -1,4 +1,4 @@
-// Lane r8-pointer (D14): a relaunch reconnects, as the reference does ("The environment is saved
+// A relaunch reconnects, as the reference does ("The environment is saved
 // and will reconnect on app startup."). The transport restores the last focus but opens nothing
 // until asked, and the fleet (settings-b-fleet.ts) would open every switched-on saved environment
 // as a background transport while the focused one sat disconnected. On the first refresh of a
@@ -10,8 +10,8 @@
 //    opens its primary environment);
 //  - else the first switched-on saved environment.
 // The primary is connected once its server is ready with its bearer. Until
-// then the window shows the connecting state, decision U5 (2026-10-08: kept until
-// exact2 lets an app hold its first window; the host opens it before the server is ready, #117 / X31). When the
+// then the window shows the connecting state (kept until
+// exact2 lets an app hold its first window; the host opens it before the server is ready, #117). When the
 // primary cannot come (switched off, a refused development build, no runtime), the launch falls
 // back to the saved rule. Until the server names its environment, the fleet treats the one being
 // opened as the focus, so it is not opened twice.
@@ -72,7 +72,7 @@ export async function reconnectOnLaunch(client: Focus, native: Native, status: O
 }
 
 /**
- * Decision U6: the fleet just dropped a saved duplicate of the primary that was the focus (Swift
+ * The fleet just dropped a saved duplicate of the primary that was the focus (Swift
  * disconnected it). The reference replaces that entry in place with the primary, so the window moves
  * to the primary: the launch's wait runs again, and the next refresh (the focus is disconnected by
  * then) connects the primary once it is ready.

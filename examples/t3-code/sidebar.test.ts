@@ -427,7 +427,7 @@ describe('sidebar navigation, drafts and the hover card', () => {
     expect(sidebarSnapshot(client, NOW, helpers).sidebar.drafts.map(draft => draft.id)).toEqual(['p1']);
     await sidebarCommand(client, native, files, 'discard-project-draft', 'p1', '');
     expect(sidebarSnapshot(client, NOW, helpers).sidebar.drafts).toEqual([]);
-    // r11-upstream (95edeb753b): the discard waits behind the undo notice; its uploads go when Undo can no longer bring them back.
+    // Upstream 95edeb753b: the discard waits behind the undo notice; its uploads go when Undo can no longer bring them back.
     expect(sidebarSnapshot(client, NOW, helpers).sidebar.undoText).toBe('Discarded 1 draft,');
     expect((client.local as unknown as { snapshotReleases: string[] }).snapshotReleases).toEqual([]);
   });
@@ -457,7 +457,7 @@ describe('sidebar navigation, drafts and the hover card', () => {
     expect(sidebarSnapshot(client, NOW, helpers).sidebar.dialog).toBe('');
   });
 
-  // dialog-shortcut-focus: Base UI's finalFocus gives the focus back to the trigger; the clone's row
+  // Base UI's finalFocus gives the focus back to the trigger; the clone's row
   // triggers collapse once the pointer leaves, so a one-thread dialog names its row (sidebar-row.contract's
   // `id=thread-…`) and a selection's names none.
   test('a dialog for one thread gives the focus back to its row; a selection and a closed dialog name none', async () => {
@@ -477,10 +477,10 @@ describe('sidebar navigation, drafts and the hover card', () => {
 });
 
 
-// title-custom-snooze: Thread title › Snooze › Custom… (useThreadActionMenu: `await requestCustomSnooze()`, then
+// Thread title › Snooze › Custom… (useThreadActionMenu: `await requestCustomSnooze()`, then
 // snoozeThread alone) opens the sidebar's Custom snooze for the title's thread. app.contract's titleMenuPick sends
 // the item's `ui:custom-snooze` as `sidebar:snooze:custom` with the value "title" and the window's wall time.
-describe('Custom snooze from the thread title menu (title-custom-snooze)', () => {
+describe('Custom snooze from the thread title menu', () => {
   const titleCustom = (client: T3Client) => titleMenu(client, NOW).find(item => item.id === 'snooze:custom')!;
   const fixed = () => setRuntimeClock(() => 5_000); // the wall is then the window's instant exactly (sidebar-state.ts `wall`)
   const opened = (client: T3Client) => { const { dialog, dialogMode, dialogDate, dialogTime, dialogAmount, dialogUnit, dialogError } = sidebarSnapshot(client, NOW, helpers).sidebar; return { dialog, dialogMode, dialogDate, dialogTime, dialogAmount, dialogUnit, dialogError }; };
@@ -558,7 +558,7 @@ describe('Custom snooze from the thread title menu (title-custom-snooze)', () =>
   });
 });
 
-describe('terminal activity in thread lists (B10)', () => {
+describe('terminal activity in thread lists', () => {
   test('only subprocesses count, updates clear the indicator across sidebar, legacy and palette', () => {
     const { client } = fake([shell('a'), shell('b')], { settings: { legacySidebarEnabled: true } });
     const summary = (threadId: string, terminalId: string, busy: boolean) => ({ threadId, terminalId, cwd: '/fixture', worktreePath: null,
@@ -591,7 +591,7 @@ describe('terminal activity in thread lists (B10)', () => {
   });
 });
 
-// r8-pointer D8, contract-keys-and-menu-bar KW-11a: a row press's ⌘/⇧ come from its own MouseEvent (a keyboard or
+// A row press's ⌘/⇧ come from its own MouseEvent (a keyboard or
 // assistive press has none), so the native click monitor (T3Sidebar `sidebarModifiers`) is gone. Ported from the AppKit
 // sidebar suite's testRowPressReadsTheClickEventsModifiers: the flags are the click's, whatever the keyboard holds later.
 describe('a row press carries its own click modifiers', () => {

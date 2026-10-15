@@ -2,7 +2,7 @@
 import Foundation
 import simd
 
-/// Lane r7-device: the 3D phone's rotation and camera dynamics (MIT reference, see LICENSE-T3:
+/// The 3D phone's rotation and camera dynamics (MIT reference, see LICENSE-T3:
 /// packages/client-runtime/src/device/deviceMotion.ts, deviceFraming.ts, deviceViewSnap.ts),
 /// ported with three.js's quaternion conventions (`a.multiply(b)` = a·b, `premultiply` = b·a).
 enum R7Quat {

@@ -10,19 +10,19 @@ import { lineageView } from './shell-lineage';
 import { inlineOpen, shellPrefs } from './shell-prefs';
 import { refreshVcsOnFocus, watchVcsStatus } from './shell-vcs';
 import { canOverrideServerEnv, draftContext, previousWorktree, serverEnvMode, stripWorkspace } from './composer-controls-branch';
-import { fanoutSelections } from './r3-composer-controls-fanout'; // composer-provider-state-and-details: CO-8
+import { fanoutSelections } from './r3-composer-controls-fanout';
 import { focusedOnPrimary } from './local-primary';
 import { machineKind } from './connections';
 import { commandShortcut } from './shell';
 import { NO_SCRIPTS, cardScripts } from './r6-polish-scripts';
-import { gitDetails, EMPTY_GIT } from './r4-git-card'; // lane r4-git: branch picker, Git actions and dialogs
-import { environmentOptions } from './r4-git-env'; // lane r4-git: the environments that hold this project
-import { prRowsView, emptyPrRows } from './r5-panels-pr'; // lane r5-panels: the pull request rows under the branch
+import { gitDetails, EMPTY_GIT } from './r4-git-card'; // branch picker, Git actions and dialogs
+import { environmentOptions } from './r4-git-env'; // the environments that hold this project
+import { prRowsView, emptyPrRows } from './r5-panels-pr'; // the pull request rows under the branch
 import { EDITOR_DEFINITIONS } from './editors';
 import { openInView } from './remote-open'; // OpenInPicker's remote Open: deep links for environments on other machines
 import { threadAutomations, NO_AUTOMATIONS } from './thread-automations'; // ThreadAutomationsPanel
-import { versionCard } from './server-update-notices'; // server-update-banner: the version-differ card
-import { autoBalanceState } from './auto-balance'; // auto-balance
+import { versionCard } from './server-update-notices'; // the version-differ card
+import { autoBalanceState } from './auto-balance';
 
 /** EDITORS in contracts/editor.ts order; `file-manager` is Finder on macOS (editorLabelForPlatform). */
 export const EDITORS: [string, string][] = EDITOR_DEFINITIONS.map(editor => [editor.id, editor.label]);
@@ -85,7 +85,7 @@ const empty = { versionClient: '', versionServer: '', versionLabel: '', ready: f
   isGit: false, branch: '', actionLabel: 'Commit', actionKind: 'show_hint', actionDisabled: true, actionHint: '', insertions: 0, deletions: 0,
   envModeSelect: false, envMode: 'local', envIcon: 'folder', previousLabel: '', actionIcon: 'git-commit', changesEnabled: false, diffScheme: 'red-green',
   envShow: false, envLabel: '', envKind: 'server', automations: NO_AUTOMATIONS, git: EMPTY_GIT, prRows: emptyPrRows(), ...NO_SCRIPTS, ...noLineage };
-/** usePreferredEditor's stored choice (thread-commands-and-keys: persisted in t3-code.json, shell-prefs.ts). */
+/** usePreferredEditor's stored choice (persisted in t3-code.json, shell-prefs.ts). */
 export function rememberEditor(client: T3Client, editor: string): void { shellPrefs(client).lastEditor = editor; }
 export const lastEditor = (client: T3Client): string => shellPrefs(client).lastEditor;
 
@@ -138,7 +138,7 @@ export async function shellDetails(client: T3Client, native: Native | null | und
   const environment = obj(client.config.environment);
   const env = environmentIndicator({ isPrimary: focusedOnPrimary(client), available: environmentOptions(client).length, environmentId: client.environmentId,
     runtimeLabel: str(environment.label), savedLabel: '', machine: machineKind(client.config) });
-  const balance = autoBalanceState(client); // auto-balance: the Run on row reads "Auto balance" (a scale) while the draft is automatic
+  const balance = autoBalanceState(client); // the Run on row reads "Auto balance" (a scale) while the draft is automatic
   if (balance.automatic) Object.assign(env, { envLabel: balance.label, envKind: 'scale' });
   return {
     ...versionCard(client), // server-update-notices.ts: the version-differ card
@@ -152,12 +152,12 @@ export async function shellDetails(client: T3Client, native: Native | null | und
     editorId: editor, editorLabel: `Open in ${editor ? label(editor) : 'editor'}`, editors: openIn.unavailable ? [] : openIn.editors.map(id => ({ id, label: label(id), selected: id === editor })),
     editorShow: openIn.show, editorHint: openIn.hint, editorUnavailable: openIn.unavailable, editorEmpty: openIn.empty,
     editorShortcut: commandShortcut(client.config, 'editor.openFavorite'),
-    ...cardScripts(obj(client.config.settings), project), // r6-polish: the project script row (r6-polish-scripts.ts)
+    ...cardScripts(obj(client.config.settings), project), // the project script row (r6-polish-scripts.ts)
     isGit: status?.isRepo === true, branch: str(status?.refName), actionLabel: action.label, actionKind: action.kind === 'run_action' ? action.action : action.kind,
     actionDisabled: action.disabled, actionHint: action.hint, insertions: num(totals.insertions), deletions: num(totals.deletions), ...env,
     diffScheme: client.local.clientSettings?.diffColorScheme === 'blue-orange' ? 'blue-orange' : 'red-green',
     git: await gitDetails(client, native, { status, error, cwd, root: str(project?.workspaceRoot), now, editor, envRow: env.envShow }),
-    // lane r6-pr: the row's place in the window, in the presentation shown: the popover's while it is open, also where the
+    // The row's place in the window, in the presentation shown: the popover's while it is open, also where the
     // floating player left the docked card no placement (ThreadDetailsCard's mode).
     prRows: await prRowsView(client, native, { status, threadId, now, projectId: str(project?.id), rightGap, inline: inline && !open }),
     automations: await threadAutomations(client, native, thread ? threadId : '', now), // thread-automations.ts: ThreadAutomationsPanel

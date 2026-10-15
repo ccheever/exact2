@@ -1,6 +1,6 @@
-// The workspace card's Git data (lane r4-git): r4-git-actions.ts gitCardView and
+// The workspace card's Git data: r4-git-actions.ts gitCardView and
 // r4-git-branch.ts cardBranchView, carried on ShellDetails.git.
-use R9CheckoutItem from "./r9-connect-shapes.contract" // lane r9-connect
+use R9CheckoutItem from "./r9-connect-shapes.contract"
 shape R4GitRef
   name: string
   badge: string
@@ -22,7 +22,7 @@ shape R4GitBranch
   originShown: bool
   originOn: bool
   count: number
-  // lane r9-connect: "Checkout pull request" before the refs (0 or 1).
+  // "Checkout pull request" before the refs (0 or 1).
   checkout: R9CheckoutItem[]
 shape R4GitMenuItem
   id: string

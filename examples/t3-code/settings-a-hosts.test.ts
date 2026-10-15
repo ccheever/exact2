@@ -1,4 +1,4 @@
-// Lane settings-a: Integrations → Device hosts.
+// Integrations → Device hosts.
 import { describe, expect, test } from 'bun:test';
 import type { T3Client } from './client';
 import type { Obj } from './domain';

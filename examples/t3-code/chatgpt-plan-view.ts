@@ -1,4 +1,4 @@
-// ChatGptWelcomeCoordinator's input (managed-codex-chatgpt): every connected environment's
+// ChatGptWelcomeCoordinator's input: every connected environment's
 // providers, the focused connection and each background one (environmentPresentations' connected
 // entries), labelled as the reference labels them (the environment's own label).
 import { arr, obj, str } from './domain';

@@ -66,20 +66,20 @@ component ComposerCard
     openModels: action
     openOptions: action
     removeSnapshot: action
-    // r4-composer: app.contract titleMenuPick, for the shelf's "ui:confirm" before removing a referenced image.
+    // app.contract titleMenuPick, for the shelf's "ui:confirm" before removing a referenced image.
     askRemove: action
     interaction: action
     command: action
     openProviders: action
     // A sidebar thread dragged over the composer (threadContextDrag.ts data-thread-context-over).
     contextOver: bool
-    // composer-fidelity G12a: signed URLs for the queued edit's kept images.
+    // Signed URLs for the queued edit's kept images.
     urls: AttachmentUrl[]
   derive sendable = data.canSend and (text != "" or data.snapshotDrafts.length > 0)
   view
     column width="100%" border-radius="1.375rem" border-style="solid" border-width=1 border-color=(contextOver ? "light-dark(#1b4ed8b3, #346bf1b3)" : (data.look.themed ? data.look.border : "light-dark(#00000014, #ffffff0d)")) background-color=(data.look.themed ? data.look.popover : "light-dark(#fefefe, #101010)") box-shadow="0 12px 28px -18px light-dark(#00000066, #00000000), inset 0 1px 0 0 light-dark(#00000000, #ffffff08)" box-sizing="border-box" testId="composer-surface" position="relative" hatch="t3-frame" data-frame="card" id="composer-surface" data-paint=`${(contextOver ? "" : (data.look.themed ? "border" : ""))} ${(data.look.themed ? "surfaceOverlay" : "")}` data-pick=((data.look.themed ? "surfaceOverlay" : "") != "" ? (data.look.themed ? "surfaceOverlay" : "") : ((contextOver ? "" : (data.look.themed ? "border" : "")) != "" ? (contextOver ? "" : (data.look.themed ? "border" : "")) : ""))
       // bg-accent/45 and ring-primary/70 while a thread is held over the composer.
-      // composer-fidelity G9: ultrathink-frame, a static 2pt spectrum ring over the card's edge (index.css .ultrathink-frame::before:
+      // ultrathink-frame, a static 2pt spectrum ring over the card's edge (index.css .ultrathink-frame::before:
       // the 120deg six-stop spectrum at 220% size shows its first 45%; saturate(.82) brightness(.92) baked into the stops). An SVG
       // stroke 4pt wide on the card's outline, clipped to the card, leaves the inner 2pt; SVG takes no presses.
       if data.composer.ultrathink
@@ -94,24 +94,24 @@ component ComposerCard
       if contextOver
         box position="absolute" left=0 top=0 right=0 bottom=0 border-radius="1.3125rem" background-color="light-dark(#f4f4f573, #ffffff05)" aria-hidden=true testId="composer-context-over"
       column padding-top=(resting ? "0.4375rem" : "1rem") padding-bottom=(resting ? "0.4375rem" : "0.5rem") padding-left="1rem" padding-right=(resting ? "3.5rem" : "1rem") gap="0.5rem" box-sizing="border-box" width="100%"
-        // SnapShot attachment frames are the snapshot lane's (snapshot.contract).
+        // SnapShot attachment frames are snapshot.contract's.
         SnapshotDrafts(images=data.snapshotDrafts, disabled=(busy or data.uncertain), remove=removeSnapshot, ask=askRemove, videos=data.composerVideos, command=command)
-        // composer-fidelity G12a: the queued message's own attachments while it is edited (removable; new ones attach as usual).
+        // The queued message's own attachments while it is edited (removable; new ones attach as usual).
         if data.composer.queueEditing != "" and data.composer.queueEditAttachments.length > 0
           row width="100%" gap="0.5rem" flex-wrap="wrap" align-items="center" testId="queued-edit-attachments"
             for item in data.composer.queueEditAttachments key=item.id
               QueuedEditChip(item=item, urls=urls, disabled=busy, remove=command("cclocal:queued-attachment-remove", item.id, "", 0))
         // The reference paints this placeholder as its own element (ComposerPromptEditorTiptap, text-placeholder/75),
-        // so it stays text, not a ::placeholder part (KW-1): it sits behind the transparent field, which still takes every press.
+        // so it stays text, not a ::placeholder part: it sits behind the transparent field, which still takes every press.
         // The field checks spelling, as the reference's editor does (its spellCheck={false} is on the chips only), so a
-        // misspelled word is underlined and the shell's menu suggests (T3TextContextMenu.swift, shell-context-menu).
+        // misspelled word is underlined and the shell's menu suggests (T3TextContextMenu.swift).
         // The reference editor is focus:outline-none (ComposerPromptEditorTiptap.tsx), so no ring shows while it has the
-        // focus: `outline="none"` (main #459, X61; adopt-main-fixes-r10 RT-1).
+        // focus: `outline="none"` (main #459, issues/closed/20261009-field-outline-none.md).
         box position="relative" width="100%"
           if text == ""
             text data.composer.placeholder font-family=data.look.promptFont position="absolute" left=0 top=0 right=0 font-size="0.875rem" line-height=(resting ? "2rem" : "1.421875rem") line-clamp=(resting ? 1 : 3) color="light-dark(#71717abf, #818181bf)" aria-hidden=true testId="composer-placeholder"
           textarea id="composer" testId="composer" hatch="t3-composer" data-snapshot-owner=data.snapshotOwner value=text input=write focus=onFocus blur=onBlur aria-label="Message" aria-description=data.composer.placeholder width="100%" margin-top=(resting ? "0px" : "-0.25rem") margin-bottom=(resting ? "0px" : "0.25rem") field-sizing=(resting ? "fixed" : "content") height=(resting ? "2rem" : "auto") min-height=(resting ? "2rem" : "4.375rem") max-height=(resting ? "2rem" : "12.5rem") font-family=data.look.promptFont font-size=data.look.promptSize line-height=(resting ? "2rem" : `${data.look.promptSize * 1.625}px`) padding=0 border-width=0 box-sizing="border-box" background-color="#00000000" color="light-dark(#27272a, #f5f5f5)" caret-color="light-dark(#27272a, #f5f5f5)" autocorrect="off" outline="none"
-      // The prompt editor's lane (composer-editor.contract): the length line,
+      // The prompt editor (composer-editor.contract): the length line,
       // and ⇧⇥'s plan toggle as a key button the native editor presses.
       if editor.promptLimit != "" and not resting
         PromptLengthValidation(message=editor.promptLimit)
@@ -124,7 +124,7 @@ component ComposerCard
           text "composer-mode-default-key" font-size=1
       ComposerFooter(data=data, viewportWidth=viewportWidth, text=text, resting=resting, busy=busy, narrow=narrow, keyModels=keyModels, modelsOpen=modelsOpen, optionsOpen=optionsOpen, send=send, stop=stop, openModels=openModels, openOptions=openOptions, interaction=interaction, command=command, openProviders=openProviders)
 
-// composer-fidelity G12a: one attachment the queued edit keeps (ChatView composerEditingQueuedAttachments):
+// One attachment the queued edit keeps (ChatView composerEditingQueuedAttachments):
 // an image's 56pt thumbnail or a file's name, with its remove button.
 component QueuedEditChip
   props

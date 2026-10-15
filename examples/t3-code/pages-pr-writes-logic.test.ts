@@ -1,4 +1,4 @@
-// Ported tests (pr-writing-and-metadata): the names and cases of T3 Code 1e2ecbd975 (MIT, see
+// Ported tests: the names and cases of T3 Code 1e2ecbd975 (MIT, see
 // LICENSE-T3) apps/web/src/components/pullRequest/pullRequestEditing.logic.test.ts
 // ("canEditPullRequestChangeRequest", "canEditPullRequestComment"), pullRequestReactions.logic.test.ts
 // ("reaction presentation", "reaction tooltip", "reaction tooltip, with a reaction in flight",

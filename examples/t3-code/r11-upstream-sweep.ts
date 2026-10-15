@@ -1,4 +1,4 @@
-// Lane r11-upstream: sweep a row's Settle, Un-settle or Wake button across its
+// Sweep a row's Settle, Un-settle or Wake button across its
 // section (upstream 1826fb55cc; T3 Code, MIT, see LICENSE-T3: Sidebar.tsx
 // startActionSweep / settleThreads, Sidebar.logic.ts resolveSidebarSweepKeys).
 // The section's view (sidebar.contract ThreadSection) arms the rows between the
@@ -35,7 +35,7 @@ export async function sweepRelease(client: T3Client, native: Native, storage: Fi
   session.sweepEpoch++;
   const sweep = parseSweep(id);
   if (!sweep) return '';
-  // r12-sidebar: Escape cancelled the sweep (sidebar.contract ThreadSection): the release applies nothing, not even the click.
+  // Escape cancelled the sweep (sidebar.contract ThreadSection): the release applies nothing, not even the click.
   if (sweep.keys.includes('cancel')) return '';
   // A pan that never armed a row took the press from the button: apply it as its click would.
   if (!sweep.keys.length) {

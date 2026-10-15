@@ -1,4 +1,4 @@
-// Lane r10-connect: wall-clock waits for a command in flight. A command's own
+// Wall-clock waits for a command in flight. A command's own
 // native requests are in flight, so their replies arrive; a detached promise's
 // may not. `settle` waits inside the command (the native module's sleep), and
 // `wakeShell` asks the shell resource to read again now (R10ConnectWake.swift

@@ -2,7 +2,7 @@ import AppKit
 import SceneKit
 import XCTest
 
-// Lane r7-device: Android's H.264 socket, iOS's AVCC body (and its MJPEG fallback), keyboard
+// Android's H.264 socket, iOS's AVCC body (and its MJPEG fallback), keyboard
 // forwarding, the 3D phone and the Tools drawer's hub feeds, against the loopback hub in hub.swift
 // with frames VideoToolbox encodes here (no emulator, simulator or device tools are involved).
 // `T3_DEVICE_TEST_DIR` receives the rendered screens; `T3_DEVICE_GLB_DIR` (a directory holding a
@@ -154,7 +154,7 @@ final class R7DeviceTests: XCTestCase {
         window.orderOut(nil)
     }
 
-    /// X8 (exact2 #186): the agent's mouse drag — real events through `NSApplication.sendEvent`, in a
+    /// exact2 #107 and #186: the agent's mouse drag — real events through `NSApplication.sendEvent`, in a
     /// window that is never key — reaches the stream as touches, begin, moves and end, in order.
     func testAgentMouseDragOverTheStreamSendsTouches() throws {
         let hub = try Hub()
@@ -181,7 +181,7 @@ final class R7DeviceTests: XCTestCase {
         }
         spin(until: { hub.texts("/ws?").filter { $0.contains("touch") }.count >= 5 })
         let touches = hub.texts("/ws?").map { json(Data($0.utf8)) }.filter { $0["type"] as? String == "touch" }
-        print("r7 X8 agent drag touches \(touches.map { "\($0["action"] ?? "") \(String(format: "%.2f", $0["x"] as? Double ?? -1))" })")
+        print("agent drag touches \(touches.map { "\($0["action"] ?? "") \(String(format: "%.2f", $0["x"] as? Double ?? -1))" })")
         XCTAssertEqual(touches.map { $0["action"] as? String ?? "" }, ["down", "move", "move", "move", "up"])
         XCTAssertEqual(touches.first?["x"] as? Double ?? 0, 0.8, accuracy: 0.01)
         XCTAssertEqual(touches.last?["x"] as? Double ?? 0, 0.2, accuracy: 0.01)

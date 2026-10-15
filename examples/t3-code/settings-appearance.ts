@@ -1,4 +1,4 @@
-// Appearance route data and the theme palette (lane settings-core).
+// Appearance route data and the theme palette.
 // Reference: apps/web/src/components/settings/{ThemeSettings,ThemePreviewCircles,ThemeWireframe}.tsx,
 // SettingsPanels.tsx AppearanceSettingsPanel/TypographySection, appearanceContrast.ts, index.css tokens,
 // packages/shared/src/{themePalettes,themePreview}.ts. Palette roles were converted from the
@@ -27,7 +27,7 @@ const THEMES: Record<string, [string, string, string]> = {
 export const THEME_IDS = Object.keys(THEMES);
 /**
  * A theme's roles for one appearance. A custom theme without a palette for it is the default theme there
- * (audit-wave-followups-2 FV-3: getThemeColorsForMode is null, so nothing of the theme paints that appearance).
+ * (getThemeColorsForMode is null, so nothing of the theme paints that appearance).
  */
 export function themeRoles(id: string, mode: 'light' | 'dark', custom: CustomTheme[] = []): Record<Role, string> {
   const own = custom.find(theme => theme.id === id);
@@ -73,7 +73,7 @@ export function mix(a: string, weight: number, b: string): string {
 }
 export const alpha = (color: string, amount: number) => { const [r, g, b, a] = parse(color); return hex([r, g, b, a * amount]); };
 
-/** The tokens this lane paints, in the stock index.css vocabulary, per appearance. */
+/** The tokens this module paints, in the stock index.css vocabulary, per appearance. */
 type Tokens = Record<'canvas' | 'sidebar' | 'sidebarBorder' | 'rowActive' | 'sidebarText' | 'sidebarMuted' | 'sidebarIcon' | 'text' | 'muted' | 'heading' | 'description'
   | 'card' | 'cardBorder' | 'divider' | 'input' | 'field' | 'accent' | 'accentText' | 'switchOff' | 'thumb' | 'popover' | 'popoverBorder' | 'highlight' | 'kbd' | 'output' | 'line' | 'rowHover' | 'sectionMuted' | 'tileActive'
   | 'border' | 'backdrop' | 'footer' | 'surface', string>;

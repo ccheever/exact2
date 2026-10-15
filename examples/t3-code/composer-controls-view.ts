@@ -1,4 +1,4 @@
-// What the composer footer and its docked banners show (lane composer-controls),
+// What the composer footer and its docked banners show,
 // adapted from T3 Code (MIT); see LICENSE-T3. Sources: ComposerPrimaryActions.tsx,
 // ChatComposer.tsx (footer blocks, provider-unavailable control, activity row),
 // composerFooterLayout.ts (icon-only before overflow), TraitsPicker.tsx
@@ -7,26 +7,26 @@
 import { branchMismatchNotice } from './composer-controls-branch';
 import { projectCloneBlock, projectCloneNotice } from './project-clones-live';
 import { systemComposerNotices } from './server-update-notices';
-import { autoBalanceState } from './auto-balance'; // auto-balance
-import { autoBalanceNotices, type MachineRow } from './auto-balance-banner'; // auto-balance
+import { autoBalanceState } from './auto-balance';
+import { autoBalanceNotices, type MachineRow } from './auto-balance-banner';
 import { arr, obj, str, num, type Obj } from './domain';
 import { activeRun } from './protocol';
-import { composerSelection } from './composer-provider-selection'; // composer-provider-state-and-details: one provider rule
+import { composerSelection } from './composer-provider-selection'; // one provider rule
 import { fanoutSelections } from './r3-composer-controls-fanout';
 import type { T3Client } from './client';
 import { followUpBehavior, planFollowUp, resolveDispatchMode, resumeState } from './composer-controls';
 import { wokeAt, wokeWatermark } from './composer-controls-commands';
 import { usageNotices, type UsageAccountView } from './composer-controls-usage';
-import { feedbackNotices, feedbackUploading } from './composer-feedback'; // usage-reset-and-feedback: Codex /feedback
+import { feedbackNotices, feedbackUploading } from './composer-feedback'; // Codex /feedback
 import { subagentTitle } from './timeline-events';
 import { compactBlocked, resumeCompaction } from './r3-composer-controls-resume';
 import { chordGlyphs } from './r3-composer-controls-model';
 import { commandChords } from './composer-presentation';
 import { threadWorktreeSetup } from './timeline-worktree';
-import { machineChanging } from './r12-threads-scratch'; // r12-threads: isEnvironmentChanging (c47f4263f9)
+import { machineChanging } from './r12-threads-scratch'; // isEnvironmentChanging (c47f4263f9)
 import { labelWidth, type Measure, type ProbeKind } from './r5-composer-measure';
-import { resolveRestingComposerControlsLayout } from './composer-resting-layout'; // composer-fidelity G11
-import { terminalOpen } from './terminal-drawer-view'; // terminal-layout: the real terminalOpen
+import { resolveRestingComposerControlsLayout } from './composer-resting-layout';
+import { terminalOpen } from './terminal-drawer-view'; // the real terminalOpen
 
 // SF Pro advances (AppKit, ASCII 32–126) for the toolbar's two label styles:
 // 14pt medium ("sm" controls) and 12pt regular (the resting "xs" controls).
@@ -51,10 +51,10 @@ export function textWidth(text: string, small = false): number {
  */
 export type FooterSteps = { sm: number; xs: number; smHidden?: boolean; xsHidden?: boolean };
 export function footerLayout(input: { model: string; traits: string; traitsIcon: boolean; runtime: string; plan: string; host: number; measure?: Measure; previous?: FooterSteps }) {
-  // r5-composer: label widths come from laid-out probes (r5-composer-measure.ts); the estimate stands in until then.
+  // Label widths come from laid-out probes (r5-composer-measure.ts); the estimate stands in until then.
   const width = (text: string, small: boolean, kind: ProbeKind) => labelWidth(text, small, kind, input.measure, textWidth);
   const steps = (small: boolean) => {
-    // r5-composer: block widths from the toolbar's own geometry (composer-controls.contract), matching the
+    // Block widths from the toolbar's own geometry (composer-controls.contract), matching the
     // reference's measured blocks: a block is its separator (1pt + 2pt margins, then the row gap: 9 at "sm",
     // 5 in the resting row, which has no gap) and its trigger. "sm" triggers pad 11+11 with 6pt gaps, 16pt
     // icons and a 10pt chevron; "xs" ones pad 7+7 with 4pt gaps, 12pt icons and an 8pt chevron.
@@ -86,7 +86,7 @@ export function footerLayout(input: { model: string; traits: string; traitsIcon:
   };
   const sm = steps(false), xs = steps(true);
   return { runtimeIconOnly: sm.iconMode, traitsIconOnly: sm.iconTraits, restingRuntimeIconOnly: xs.iconMode, restingTraitsIconOnly: xs.iconTraits,
-    // composer-fidelity G11: blocks in the overflow menu, and the cluster hidden below the picker's minimum.
+    // Blocks in the overflow menu, and the cluster hidden below the picker's minimum.
     modeOverflow: sm.modeHidden, traitsOverflow: sm.traitsHidden, restingModeOverflow: xs.modeHidden, restingTraitsOverflow: xs.traitsHidden,
     controlsHidden: sm.hidden, restingControlsHidden: xs.hidden, steps: { sm: sm.step, xs: xs.step, smHidden: sm.hidden, xsHidden: xs.hidden } as FooterSteps };
 }
@@ -105,7 +105,7 @@ export function primaryAction(client: T3Client, phase: string) {
   const resume = client.threadId ? resumeState(client.projection) : { runId: '', heldQueue: false };
   const unavailable = client.connection !== 'connected';
   const sending = client.busy && !!client.pending && str(client.pending.payload.type) === 'message.dispatch';
-  // worktreeSetupBlocksSend (ChatView): a new worktree thread holds sends until its agent starts (lane r4-git).
+  // worktreeSetupBlocksSend (ChatView): a new worktree thread holds sends until its agent starts.
   const preparing = !!client.threadId && threadWorktreeSetup(client).preparing;
   const status = unavailable ? 'Environment disconnected' : machineChanging(client) ? 'Preparing machine' : feedbackUploading(client) ? 'Sending feedback' : preparing ? 'Preparing worktree' : projectCloneBlock(client) || (connecting ? 'Connecting' : sending ? 'Submitting message' : '');
   const plan = planFollowUp(client);
@@ -129,11 +129,11 @@ export type ComposerNotice = { id: string; variant: string; icon: string; title:
   action: string; actionLabel: string; action2: string; action2Label: string; dismiss: string; dismissLabel: string; priority: number; lines: string[];
   /** Why the action is disabled (its tooltip), '' when it is enabled; the id the dismiss command receives. */
   actionReason: string; dismissId: string; segments: NoticeSegment[];
-  /** server-update-banner: the title's and the actions' tooltips, a red icon, a "·" before the description, the title's live role. */
+  /** The server-update banner: the title's and the actions' tooltips, a red icon, a "·" before the description, the title's live role. */
   tip: string; actionTip: string; action2Tip: string; iconTone: string; sep: boolean; liveRole: string;
-  /** auto-balance: the multi-machine banner's popover rows and its title's accessible name. */
+  /** Auto balance: the multi-machine banner's popover rows and its title's accessible name. */
   machines: MachineRow[]; menuLabel: string;
-  /** usage-reset-and-feedback: a description that is an account address (RedactedSensitiveText, then `redactAfter`), and the /usage-limits body. */
+  /** A description that is an account address (RedactedSensitiveText, then `redactAfter`), and the /usage-limits body. */
   redact: string; redactMask: string; redactAfter: string; usage: UsageAccountView[] };
 const notice = (value: Partial<ComposerNotice> & { id: string; title: string }): ComposerNotice => ({ variant: 'info', icon: '', description: '',
   action: '', actionLabel: '', action2: '', action2Label: '', dismiss: '', dismissLabel: '', priority: 2, lines: [], actionReason: '', dismissId: '', segments: [],
@@ -186,7 +186,7 @@ export function composerNotices(client: T3Client, now: number): ComposerNotice[]
   const clone = projectCloneNotice(client);
   const cloneItem = clone ? [notice({ ...clone, icon: 'download', priority: clone.variant === 'info' ? 0 : 2 })] : [];
   // systemComposerBannerItems (server-update-notices.ts): the environment's offline and server-version notices.
-  // auto-balance: an Auto draft shows one banner for every machine's update instead of the single-machine notice.
+  // An Auto draft shows one banner for every machine's update instead of the single-machine notice.
   const system = [...systemComposerNotices(client, { automaticEnvironment: autoBalanceState(client).automatic }), ...autoBalanceNotices(client)].map(item => notice(item));
   if (!client.threadId) return rankNotices([...usageNotices(client, now).map(item => notice(item)), ...cloneItem, ...system]);
   const shell = client.shell.threads.find(thread => thread.id === client.threadId) ?? {};

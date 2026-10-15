@@ -129,7 +129,7 @@ test('agent setup buttons open a terminal without Enter and leaving the agents s
   expect(calls[2]).toEqual({ method: 'terminal.close', payload: { threadId: 'onboarding-agent-setup', terminalId: 'onboarding-codex-fixture-id', deleteHistory: true } });
 });
 
-// fix-provider-auth-state, bug 18 (#298): after a ChatGPT sign-in on the welcome, the projects step re-subscribed
+// #298: after a ChatGPT sign-in on the welcome, the projects step re-subscribed
 // the Codex row's sign-in streams on every answer (~224 provider.auth.subscribe in 20 s). The reference mounts
 // OnboardingCodexSetup on the agents step only (WelcomeWizard.tsx:269-281).
 test('the agents step holds one sign-in subscription per stream, and the projects step holds none', async () => {

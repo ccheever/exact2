@@ -1,4 +1,4 @@
-// The workspace card's Git actions (lane r4-git), adapted from T3 Code (MIT; see
+// The workspace card's Git actions, adapted from T3 Code (MIT; see
 // LICENSE-T3): apps/web/src/components/GitActionsControl.tsx (panel display mode:
 // the split quick action, its options menu, the commit, default-branch and publish
 // dialogs, the inline progress and success rows) and

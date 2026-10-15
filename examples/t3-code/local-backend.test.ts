@@ -44,7 +44,7 @@ describe('local backend status', () => {
   });
 });
 
-describe('desktop-settings.json (decision U7, T3DesktopSettings.swift)', () => {
+describe('desktop-settings.json (T3DesktopSettings.swift)', () => {
   test('the native side picks the default update channel from the version this client mirrors', async () => {
     const swift = await Bun.file(new URL('./modules/apple/T3DesktopSettings.swift', import.meta.url)).text();
     expect(/static let appVersion = "([^"]+)"/.exec(swift)?.[1]).toBe(CLIENT_VERSION);

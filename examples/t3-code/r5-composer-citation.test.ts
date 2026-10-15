@@ -35,7 +35,7 @@ describe('citation View source (AssistantCitationSource)', () => {
     expect(calls.filter(call => call.op === 'timelineJump')).toEqual([{ ...citationJump(rows, 1), generation: -1 }]);
     await expect(revealCitation(client, native, 'gone', 'a1', () => rows)).rejects.toThrow('Thread no longer available');
   });
-  // timeline-and-window-hooks KW-12b: while View source places its answer the snapshot says so, and ChatColumn restores
+  // While View source places its answer the snapshot says so, and ChatColumn restores
   // no remembered position over it (timeline-anchor.test.ts); the flag clears once it lands or fails.
   test('the snapshot reports a citation in flight, and only then', async () => {
     const client = new T3Client();

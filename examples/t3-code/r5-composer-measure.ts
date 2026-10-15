@@ -1,4 +1,4 @@
-// r5-composer: label widths measured from laid-out text (r5-composer.contract's
+// Label widths measured from laid-out text (r5-composer.contract's
 // probes, reported by T3Composer.swift's t3-anchor hook as [x, width]), adapted
 // from T3 Code (MIT; see LICENSE-T3): chat/restingComposerControlsMeasurement.ts
 // reads the same natural widths from labels kept mounted while icons replace them.

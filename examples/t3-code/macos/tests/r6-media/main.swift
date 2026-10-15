@@ -4,8 +4,8 @@ import PDFKit
 import WebKit
 import XCTest
 
-// Lane r6-media: the attachment preview's PDF and HTML bodies (R6MediaPreview.swift) against a
-// loopback asset server. Lane r12-render: the HTML page runs in the reference's sandboxed iframe
+// The attachment preview's PDF and HTML bodies (R6MediaPreview.swift) against a
+// loopback asset server. The HTML page runs in the reference's sandboxed iframe
 // (an opaque origin with no storage, no top navigation) and, as there, may load from any host and
 // navigate its frame in place; a second loopback server stands in for another host.
 // `T3_MEDIA_TEST_DIR` receives the rendered PNGs.
@@ -145,8 +145,8 @@ final class MediaPreviewTests: XCTestCase {
         XCTAssertEqual(web.appearance?.name, .aqua)
     }
 
-    /// Lane r11-misc: the reference's frame loads its siblings through the signed URL's token
-    /// directory; lane r12-render: and, as there, anything else the page names.
+    /// The reference's frame loads its siblings through the signed URL's token
+    /// directory and, as there, anything else the page names.
     func testSiblingAssetsLoadThroughTheTokenDirectory() throws {
         let base = "http://127.0.0.1:\(assets.port)", dir = "/api/assets/tok.sig"
         assets.bodies["\(dir)/page.html"] = ("text/html", Data("""
@@ -266,7 +266,7 @@ _ = NSApplication.shared
 NSApp.setActivationPolicy(.accessory)
 let suite = XCTestSuite(name: "r6-media")
 suite.addTest(XCTestSuite(forTestCaseClass: MediaPreviewTests.self))
-suite.addTest(XCTestSuite(forTestCaseClass: WebInspectionTests.self)) // app-developer-tools (inspection.swift)
+suite.addTest(XCTestSuite(forTestCaseClass: WebInspectionTests.self))
 suite.run()
 let run = suite.testRun!
 print("Executed \(run.executionCount) tests, with \(run.totalFailureCount) failures")

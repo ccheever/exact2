@@ -1,5 +1,5 @@
 // T3Module's media ops (T3Module.swift routes them): the media menu, copying a path, URL or
-// image, and saving media (T3MediaActions.swift, task media-actions).
+// image, and saving media (T3MediaActions.swift).
 import Foundation
 import AppKit
 

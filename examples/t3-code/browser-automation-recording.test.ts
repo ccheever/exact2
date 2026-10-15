@@ -1,7 +1,7 @@
-// browser-recording-and-downloads BR-1: the previewAutomation host's `recordingStart` and `recordingStop` (T3 Code
+// The previewAutomation host's `recordingStart` and `recordingStop` (T3 Code
 // 1e2ecbd975, MIT, see LICENSE-T3: apps/web/src/components/preview/PreviewAutomationHosts.tsx, previewAutomationErrors.ts,
 // apps/web/src/browser/browserRecordingUpload.ts; the server's claimPreviewRecording for what the answer must carry).
-// The clone's own rows: the reference has no host tests for these cases. The lifecycle is part 3's BrowserRecordings
+// The clone's own rows: the reference has no host tests for these cases. The lifecycle is BrowserRecordings
 // (browser-recording.test.ts ports its tests) over a fake RecordingHost; the module's hand-off and the native upload are
 // the AppKit binary `macos/tests/browser-automation` (recording.swift).
 import { describe, expect, it } from 'bun:test';

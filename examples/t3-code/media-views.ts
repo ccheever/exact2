@@ -1,4 +1,4 @@
-// media-actions: what each media surface hands the Contract `MediaActions` wrapper and its
+// What each media surface hands the Contract `MediaActions` wrapper and its
 // failure states (T3 Code 1e2ecbd975, MIT; see LICENSE-T3):
 // - Files: FilePreviewPanel.tsx WorkspaceImagePreview (a `workspace-file` asset, "Unable to load
 //   workspace image." with the menu) and WorkspaceVideoPreview (a `media-file` asset in
@@ -103,7 +103,7 @@ export function markdownLinkHref(href: string): string {
   const scheme = urlScheme(href);
   if (!lower.startsWith('file:') && !windowsDrive(href) && scheme !== null && !SAFE_SCHEMES.test(scheme)) return NO_HREF;
   if (lower.startsWith('file:') || windowsDrive(href) || (!!href && !href.startsWith('#') && !href.startsWith('//') && scheme === null)) return `t3-file:${href}`;
-  return href; // a fragment (`#notes`) stays the anchor's href (reply-links RL-2)
+  return href; // a fragment (`#notes`) stays the anchor's href
 }
 /** markdown.rs's resolver for an image's src: as a link, but an emptied source or a fragment loads nothing. */
 export function markdownImageHref(src: string): string {
@@ -165,7 +165,7 @@ function tableLines(lines: string[]): boolean[] {
 /** The run href of an image inside a line of text (markdown_media.rs IMAGE_MARK). */
 export const INLINE_IMAGE = 't3-image:';
 /**
- * media-signed-urls-and-attachment-markdown MD-1: the images inside a line of text, which markdown_media.rs makes media
+ * The images inside a line of text, which markdown_media.rs makes media
  * runs (ChatMarkdownImage; standalone when alone in its paragraph, list item or quote): outside fences, code spans and
  * table lines (their cells draw text), not inside a link's text, not one whose alt text holds a `[`. An image line may be
  * either (a block, or inline where it continues a paragraph), so it is listed here too.
@@ -244,7 +244,7 @@ export function markdownMedia(alt: string, src: string, href: string, root: stri
   return { href, kind, alt, access: 'blocked', key: '', fragment: '', originalUrl: '', source: null };
 }
 
-/** G4-05 (chat-markdown-media-and-code): the Markdown documents on screen whose images open the expanded preview, by the owner
+/** The Markdown documents on screen whose images open the expanded preview, by the owner
  *  their chips carry (a message row's id, `files:<path>`, `attachment:<id>`): ChatMarkdown's markdownImageGallery scope. */
 export type MarkdownDocument = { text: string; root: string; scope: MediaScope };
 const documents = new Map<string, MarkdownDocument>();
@@ -287,7 +287,7 @@ export async function markdownMediaUrls(client: T3Client, native: Native, root: 
   const threadId = scope.threadId ?? client.threadId;
   if (!threadId) return out;
   const wanted = new Map<string, MarkdownMedia>();
-  // markdown-links-and-files-preview: a rendered Markdown file passes its own text (FileMarkdownPreview's images).
+  // A rendered Markdown file passes its own text (FileMarkdownPreview's images).
   for (const text of texts ?? arr(client.projection.visibleTurnItems).map(row => str(obj(row.item).text))) {
     for (const image of allImages(text)) {
       const media = markdownMedia(image.alt, image.src, image.href, root, scope);

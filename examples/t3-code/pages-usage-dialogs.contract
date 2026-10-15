@@ -1,4 +1,4 @@
-// The Usage page's dialogs (lane "pages", upstream e8545b293b and b05adb70b0):
+// The Usage page's dialogs (upstream e8545b293b and b05adb70b0):
 // UsageModelDialog, opened from a Breakdown row, and UsagePriceOverrides
 // ("Custom model prices"), opened from the environment menu's Model prices or
 // the model dialog's Set price. Measured against the served reference at

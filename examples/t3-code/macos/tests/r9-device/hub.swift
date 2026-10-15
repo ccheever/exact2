@@ -3,7 +3,7 @@ import CryptoKit
 import Network
 import VideoToolbox
 
-/// Lane r9-device (a copy of r7-device's test hub): a loopback stand-in for the server's `/api/device-hub` proxy in front of
+/// A copy of macos/tests/r7-device/hub.swift: a loopback stand-in for the server's `/api/device-hub` proxy in front of
 /// serve-sim and serve-emu. One TCP listener answers plain HTTP (the AVCC and MJPEG bodies, the
 /// accessibility tree, server-sent events) and upgrades `…/ws` requests to WebSockets by hand, so
 /// a client sees one origin as it does through the proxy. It speaks the wire formats
@@ -21,7 +21,7 @@ final class Hub {
     var onSocket: ((String, NWConnection) -> Void)?
     /// Answer upgrades with 401, as the proxy does for a spent ticket.
     var refuseSockets = false
-    /// Live feeds' pacing timers (lane r9-device), cancelled with the hub.
+    /// Live feeds' pacing timers, cancelled with the hub.
     var timers: [DispatchSourceTimer] = []
 
     init() throws {

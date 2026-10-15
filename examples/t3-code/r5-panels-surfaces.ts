@@ -1,4 +1,4 @@
-// Lane r5-panels: the right panel's "pull-request" and attachment surfaces,
+// The right panel's "pull-request" and attachment surfaces,
 // joined to r4-surfaces-panel.ts's tab model (MIT reference, see LICENSE-T3:
 // rightPanelStore.ts openPullRequest / openAttachment, RightPanelTabs.tsx
 // surfaceTitle and SurfaceIcon, ChatView.tsx addPullRequestSurface and the
@@ -60,7 +60,7 @@ export async function r5Local(client: T3Client, native: Native, state: PanelStat
     return '';
   }
   if (op === 'pr-more') { togglePrRows(client); return ''; }
-  if (op.startsWith('pr-') && prRowLocal(client, op.slice(3), id, value)) return ''; // lane r6-pr: Merge dialog, checks "Show all"
+  if (op.startsWith('pr-') && prRowLocal(client, op.slice(3), id, value)) return ''; // Merge dialog, checks "Show all"
   if (op.startsWith('att-')) return attachmentLocal(client, native, op.slice(4), id, 0);
   throw new ClientError(`Unknown surface action: ${op}`);
 }
@@ -77,7 +77,7 @@ export function r5Tab(client: T3Client, surface: R5Surface): { title: string; ic
   return null;
 }
 
-/** Lane r6-pr: the pull request tabs' detail, read before their icons are drawn. */
+/** The pull request tabs' detail, read before their icons are drawn. */
 export async function r5Prefetch(client: T3Client, native: Native | null, surfaces: R5Surface[], now: number): Promise<void> {
   if (native) await prefetchPrTabs(client, native, surfaces.flatMap(surface => (surface.kind === 'pull-request' && surface.pr ? [surface.pr] : [])), now);
 }

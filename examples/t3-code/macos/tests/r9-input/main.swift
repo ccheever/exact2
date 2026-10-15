@@ -1,10 +1,10 @@
 import AppKit
 import XCTest
 
-// Lane r9-input (R9Input.swift): the composer's focus reaches its node on a click, not only on
+// R9Input.swift: the composer's focus reaches its node on a click, not only on
 // typing; ⌘B bolds under a non-Latin source and while a syllable is composing; a press elsewhere
 // ends composition first. The transcript's remembered position moved to Contract (ChatColumn in
-// app-main.contract, timeline-and-window-hooks KW-12b); its cases are in timeline-anchor.test.ts.
+// app-main.contract); its cases are in timeline-anchor.test.ts.
 // Real AppKit views in a real window; compiled with every file in modules/apple.
 
 private let r9Resolve: ExactHatches.ResolveFn = { _, _, _, _, _ in 0 }

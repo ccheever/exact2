@@ -12,23 +12,23 @@ import { adjacentPickerProvider } from './model-catalog';
 import type { T3Client } from './client';
 import { undoLive } from './sidebar-state';
 import { addStripShortcuts } from './composer-controls-branch';
-import { diffShown } from './r8-keys-chords'; // lane r8-keys: ⌘D
+import { diffShown } from './r8-keys-chords'; // ⌘D
 import { openFavoriteEnabled } from './remote-open'; // the open-favorite key works only where the Open picker shows
-import { closeChordTarget } from './r9-input-panel'; // lane r9-input: ⌘W closes the active surface tab
-import { legacyTraversal } from './legacy-sidebar-view'; // legacy-sidebar: ⌘1-9 and ⇧⌘[ / ⇧⌘] follow its visible order
+import { closeChordTarget } from './r9-input-panel'; // ⌘W closes the active surface tab
+import { legacyTraversal } from './legacy-sidebar-view'; // the legacy sidebar: ⌘1-9 and ⇧⌘[ / ⇧⌘] follow its visible order
 import { resolveAdjacentThreadId } from './legacy-sidebar-model';
-import { threadCommandRows } from './thread-keys'; // thread-commands-and-keys: queue and host keys
+import { threadCommandRows } from './thread-keys'; // queue and host keys
 import { terminalRows, terminalOpen } from './terminal-drawer-view';
-import { terminalFocused } from './terminal-focus'; // terminal-drawer: ⌘J
-import { previewToggleRow } from './browser-navigation'; // browser-surface part 2: ⇧⌘J
+import { terminalFocused } from './terminal-focus'; // ⌘J
+import { previewToggleRow } from './browser-navigation'; // ⇧⌘J
 
 export type DispatchContext = { composerFocus: boolean; editableFocus: boolean; turnRunning: boolean; modelPickerOpen: boolean; draftThreadRoute: boolean; modalOpen: boolean; settingsOpen: boolean; diffOpen: boolean;
   terminalFocus?: boolean; terminalOpen?: boolean; paletteOpen?: boolean; paletteMode?: string; prNumber?: string; undoShown?: boolean; settingsRoute?: string; page?: string;
   /** The open picker's Settings row (settings-model-picker.ts); '' for the composer's. */
   modelTarget?: string;
-  /** browser-surface part 2: the preview's chords, which the module answers while the preview has the focus. */
+  /** The preview's chords, which the module answers while the preview has the focus. */
   previewFocus?: boolean;
-  /** terminal-links-and-close G1-4: a terminal close confirm is open (the window's confirmOp is a terminal close). */
+  /** A terminal close confirm is open (the window's confirmOp is a terminal close). */
   terminalClosePending?: boolean };
 type Rule = { command: string; chord: string; whenAst: unknown };
 
@@ -68,7 +68,7 @@ export function chordWinners(bindings: Obj[], context: DispatchContext): Map<str
 
 // ── navigation.back / navigation.forward ─────────────────────────────────
 // The main view's visited locations, newest last: a thread, a project's
-// new-thread draft, or a page over them (Usage, Pull Requests; thread-commands-and-keys:
+// new-thread draft, or a page over them (Usage, Pull Requests;
 // the reference's history covers every route). Arriving at the entry beside the cursor moves the cursor
 // (that is what Back and Forward do); anywhere else is a new visit.
 type History = { entries: string[]; cursor: number };
@@ -110,7 +110,7 @@ export function keyboardDispatch(client: T3Client, threads: Obj[], browseProvide
   const winners = chordWinners(arr(client.config.keybindings), context);
   const chords = (command: string) => [...winners].filter(([, winner]) => winner === command).map(([chord]) => chord).join(' ');
   const out: Dispatch[] = [];
-  // One button per chord (lane r8-keys): the host files a button's first ⌘ chord as its menu key
+  // One button per chord: the host files a button's first ⌘ chord as its menu key
   // equivalent, so chat.new's ⇧⌘O and ⌘N each need their own to work while no view holds the focus.
   const add = (command: string, kind: string, target: string, label: string, extra = '') => chords(command).split(' ').filter(Boolean).forEach((chord, index) =>
     out.push({ id: `${command}:${target}:${extra}${index ? `:${chord}` : ''}`, command, chord, kind, target, extra, label }));
@@ -128,9 +128,9 @@ export function keyboardDispatch(client: T3Client, threads: Obj[], browseProvide
   if (context.settingsOpen) {
     // The settings page is the router's other location; Back leaves it.
     add('navigation.back', 'back', '', 'Back');
-    settingsForward(client, true, context.settingsRoute); // r8-pointer: ⌘] comes back here (r8-pointer-forward.ts)
+    settingsForward(client, true, context.settingsRoute); // ⌘] comes back here (r8-pointer-forward.ts)
     add('themeEditor.toggle', 'palette-run', 'theme-editor', 'Toggle Theme Editor');
-    // thread-commands-and-keys: the palette provider's chords are app-wide (CommandPalette.tsx), so they work in Settings too.
+    // The palette provider's chords are app-wide (CommandPalette.tsx), so they work in Settings too.
     overlays(); add('theme.select', 'palette', 'command', 'Change Theme', 'theme'); add('usage.open', 'palette-run', 'usage', 'Open Usage'); appearanceRow(add, client, threads, browseProvider, modelQuery, context);
     modelPickerRows(add, client, threads, browseProvider, modelQuery, context); // a General model row's picker (ModelPickerContent's own keys)
     return out;
@@ -145,7 +145,7 @@ export const TERMINAL_CLOSE_CONFIRMS = ['terminallocal:close', 'terminalpanelloc
 /** ChatView's window key handler while a terminal close confirm is pending (`isTerminalCloseConfirmPending() &&
  *  preventTerminalCloseShortcut`): a chord `terminal.close` wins with a terminal focused runs nothing, whatever it would
  *  run now (`rightPanel.close`, or the same close asked again). It stays a button ("refuse"), so the chord never falls
- *  through to the window's Close (terminal-links-and-close G1-4). */
+ *  through to the window's Close. */
 function refuseTerminalClose(client: T3Client, rows: Dispatch[]): Dispatch[] {
   const winners = chordWinners(arr(client.config.keybindings), { composerFocus: false, editableFocus: false, turnRunning: false, modelPickerOpen: false, draftThreadRoute: false,
     modalOpen: false, settingsOpen: false, diffOpen: false, terminalFocus: true, terminalOpen: true });
@@ -169,7 +169,7 @@ function paletteRows(add: DispatchAdd, client: T3Client, threads: Obj[], browseP
   add('theme.select', 'palette', 'command', 'Change Theme', 'theme');
   add('usage.open', 'palette-run', 'usage', 'Open Usage');
   add('themeEditor.toggle', 'palette-run', 'theme-editor', 'Toggle Theme Editor');
-  add('chat.new', 'chat-new', '', 'New Thread'); // lane r8-keys: with or without the sidebar's button (routes/_chat.tsx)
+  add('chat.new', 'chat-new', '', 'New Thread'); // with or without the sidebar's button (routes/_chat.tsx)
   add('chat.newLocal', 'new-thread', '', 'New Local Thread');
 }
 /** appearance.cycle: System → Light → Dark. */
@@ -186,7 +186,7 @@ function threadOrderRows(add: DispatchAdd, client: T3Client, threads: Obj[], bro
   const ordered = legacy?.ordered ?? order.flatMap(section => threads.filter(thread => str(thread.section) === section));
   if (legacy) { if (legacy.previous) add('thread.previous', 'thread', legacy.previous, 'Previous Thread'); if (legacy.next) add('thread.next', 'thread', legacy.next, 'Next Thread'); }
   else if (ordered.length && !context.modelPickerOpen) {
-    // resolveAdjacentThreadId (thread-commands-and-keys): stops at the ends; no current thread starts from the last/first; an unlisted one goes nowhere.
+    // resolveAdjacentThreadId: stops at the ends; no current thread starts from the last/first; an unlisted one goes nowhere.
     const ids = ordered.map(thread => str(thread.id)), selected = ordered.find(thread => thread.selected === true);
     const current = selected ? str(selected.id) : client.threadId ? undefined : null;
     const previous = current === undefined ? null : resolveAdjacentThreadId({ threadIds: ids, currentThreadId: current, direction: 'previous' });
@@ -203,7 +203,7 @@ function navigationRows(add: DispatchAdd, client: T3Client, threads: Obj[], brow
   const back = history.entries[history.cursor - 1], forward = history.entries[history.cursor + 1];
   const route = (entry: string) => entry.startsWith('thread:') ? { kind: 'thread', target: entry.slice(7) } : entry.startsWith('page:') ? { kind: 'palette-run', target: entry.slice(5) } : { kind: 'new-thread-in', target: entry.slice(6) };
   if (back && liveEntry(client, back)) add('navigation.back', route(back).kind, route(back).target, 'Back');
-  const settingsRoute = settingsForward(client, false); // r8-pointer: Settings left by Back is Forward's target
+  const settingsRoute = settingsForward(client, false); // Settings left by Back is Forward's target
   if (settingsRoute) add('navigation.forward', 'palette-run', 'settings', 'Forward', settingsRoute);
   else if (forward && liveEntry(client, forward)) add('navigation.forward', route(forward).kind, route(forward).target, 'Forward');
 }
@@ -216,7 +216,7 @@ function threadRows(add: DispatchAdd, client: T3Client, threads: Obj[], browsePr
   const thread = client.threadId ? (client.shell?.threads ?? []).find(candidate => candidate.id === client.threadId) : undefined;
   if (thread) {
     // ChatView activeThreadSettled: only an explicit settle makes ⇧⌘S un-settle; an automatic one is settled explicitly
-    // (shell-sidebar-palette-keys SH-2: a thread whose settledAt outlived its un-settle took Un-settle, a no-op).
+    // (a thread whose settledAt outlived its un-settle took Un-settle, a no-op).
     const settled = thread.settledOverride === 'settled';
     add('thread.settle', 'command', settled ? 'chat:unsettle' : 'chat:settle', settled ? 'Un-settle Thread' : 'Settle Thread', str(thread.id));
     // thread.pin: pin, or unpin through the sidebar's Unpin confirmation when that setting asks.
@@ -234,10 +234,10 @@ function threadRows(add: DispatchAdd, client: T3Client, threads: Obj[], browsePr
 }
 /** The right panel: close, toggle, Diff, and Copy Thread ID. */
 function panelRows(add: DispatchAdd, client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): void {
-  // rightPanel.close: an open panel closes before ⌘W reaches the window, a draft's panel too (lane r8-keys).
-  const closing = closeChordTarget(client, context.diffOpen, context.prNumber ?? ''); // lane r9-input: the active surface tab first
+  // rightPanel.close: an open panel closes before ⌘W reaches the window, a draft's panel too.
+  const closing = closeChordTarget(client, context.diffOpen, context.prNumber ?? ''); // the active surface tab first
   if (closing) add('rightPanel.close', closing[0], closing[1], 'Close Right Panel');
-  add('rightPanel.toggle', 'diff', '', 'Toggle Right Panel'); // thread-commands-and-keys: a draft's panel toggles too (ChatView toggleRightPanel)
+  add('rightPanel.toggle', 'diff', '', 'Toggle Right Panel'); // a draft's panel toggles too (ChatView toggleRightPanel)
   if (!context.draftThreadRoute) {
     add('diff.toggle', diffShown(client) ? 'diff' : 'diff-open', '', 'Toggle Diff');
     add('thread.copyReference', 'copy-thread', '', 'Copy Thread ID');
@@ -252,7 +252,7 @@ function turnRows(add: DispatchAdd, client: T3Client, threads: Obj[], browseProv
 function modelPickerRows(add: DispatchAdd, client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): void {
   if (context.modelPickerOpen) {
     const catalog = modelCatalog(client, browseProvider, modelQuery, context.modelTarget ?? '');
-    // adjacentModelPickerProvider (model-picker-parity CO-4): a rail button that cannot be chosen is skipped.
+    // adjacentModelPickerProvider: a rail button that cannot be chosen is skipped.
     add('modelPicker.previousProvider', 'provider', adjacentPickerProvider(catalog, -1), 'Previous Provider');
     add('modelPicker.nextProvider', 'provider', adjacentPickerProvider(catalog, 1), 'Next Provider');
     // modelJumpCommandByKey: a disabled model (getModelDisabledReason) takes no jump number.

@@ -82,7 +82,7 @@ const markup = node => node.map(([tag, a]) => `<${tag}${Object.entries(a).map(([
 // ── Contract lookups ─────────────────────────────────────────────────────────────────────────
 const q = JSON.stringify;
 /** A value lookup as a fn body: `includes` groups of ⌈√n⌉ keys, each a ternary chain, so a call's
- *  expression stays shallow (view-depth-under-test-stack). */
+ *  expression stays shallow. */
 function lookup(entries, fallback, key = 'token') {
   const size = Math.ceil(Math.sqrt(entries.length));
   const groups = [];
@@ -249,7 +249,7 @@ function fileTypeIcon(symbols, tints) {
 // colours it per scheme.
 
 // FileTypeIcon's lookups are fns: a call reads its argument once, so a caller's deep expression is not
-// nested under every comparison (view-depth-under-test-stack).
+// nested under every comparison.
 ${fns.join('\n')}
 
 component FileTypeIcon

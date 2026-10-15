@@ -39,7 +39,7 @@ type Choice = { value: string; label: string; selected: boolean };
 type TaskModelMark = { value: string; name: string; driver: string; badge: string; accent: string };
 
 /**
- * The Model trigger's label and mark for any `instance:model` the editor holds (model-picker-parity S2-4, ProviderModelPicker's
+ * The Model trigger's label and mark for any `instance:model` the editor holds (ProviderModelPicker's
  * trigger over getCustomModelOptionsByInstance): every instance's models, the draft's own key when no instance lists it (its
  * slug), and "" for no model: the first instance's first model, or "Choose model" (activeInstanceId falls back to the first).
  */
@@ -111,7 +111,7 @@ export function taskSection(environment: LiveEnvironment, scope: TaskScope, head
 // search, the picker's search sent to the server (sanitizeNewRefName), a scroll toward the list's end loading the next
 // page (r5-composer-paging.ts), and the selectedRefQuery lookups by name. Read when the editor opens and kept while it
 // stays open, as the picker's query atoms are, never again on a wake or the minute tick; Refresh, a new connection and
-// another environment, task or project list read again. (audit-wave-followups-2 FV-2)
+// another environment, task or project list read again.
 // The list the picker shows (its project and search, usePaginatedBranches' targetKey) starts again from its first page
 // whenever it changes (`cursors = INITIAL_BRANCH_CURSORS`): a kept list shows its first page, and scrolls of another list
 // are not its own. A search not read yet shows "Loading refs..." (its first page pending, `data === null`) over no refs,
@@ -185,7 +185,7 @@ export async function scheduledPage(client: T3Client, native: Native | null | un
     // the draft's in its project, and the editor's (`taskBase`, settings-scheduled.contract taskPicker). A failed lookup
     // leaves it unknown.
     // The dialog's identity (the reference keys it by the environment it opened on and the task): a new task keeps its
-    // dialog, and the fields typed into it, when Runs on moves it to another environment (scheduled-tasks-followups ST-1).
+    // dialog, and the fields typed into it, when Runs on moves it to another environment.
     const key = target?.taskId ? `${editing.environmentId}:${target.taskId}` : 'new';
     const picker = pickerOf(taskBase, key);
     const shown = picker?.project || draft.projectId;

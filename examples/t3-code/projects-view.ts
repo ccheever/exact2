@@ -75,7 +75,7 @@ export function confirmCopy(message: string): { title: string; description: stri
 }
 
 const blankAction = { id: '', first: false, name: '', command: '', icon: 'play', setup: false, wait: false, preview: false, previewUrl: '', autoOpen: false, keybinding: '', shortcut: '' };
-/** The Actions section (lane settings-b): ProjectActionsSettings for the scope's checkouts. */
+/** The Actions section: ProjectActionsSettings for the scope's checkouts. */
 async function actionsSection(client: T3Client, native: Native | null | undefined, projectKey: string, checkout: string, page: ReturnType<typeof projectsPage>) {
   const group = page.selected ? client.projectGroups().find(candidate => candidate.key === projectKey) : undefined;
   const members = group ? group.members.filter(member => !checkout || member.id === checkout) : [];

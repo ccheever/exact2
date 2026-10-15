@@ -1,4 +1,4 @@
-// "Act on" (pr-links-previews-and-routing): on the Pull Requests page, when two connected servers hold the pull
+// "Act on": on the Pull Requests page, when two connected servers hold the pull
 // request's repository, its hand-offs act on the chosen server (PullRequestDetailPanel.tsx pickableEnvironments,
 // ActOnEnvironmentPicker, startAsk/startHandoff with the acting environment), driven through pages-pr-detail.ts with a
 // background server in the fleet and injected replies.

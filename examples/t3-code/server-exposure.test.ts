@@ -162,7 +162,7 @@ describe('DesktopServerExposure', () => {
   });
 });
 
-describe('exposure keys (DesktopAppSettings decoding; desktop-settings.json, decision U7)', () => {
+describe('exposure keys (DesktopAppSettings decoding; desktop-settings.json)', () => {
   it('decodes the three keys with the reference defaults; t3-code.json carries only the default endpoint', () => {
     expect(decodeExposureSettings({})).toEqual({ serverExposureMode: 'local-only', tailscaleServeEnabled: false, tailscaleServePort: 443 });
     expect(decodeExposureSettings({ serverExposureMode: 'network-accessible', tailscaleServeEnabled: true, tailscaleServePort: 8443 }))
@@ -173,7 +173,7 @@ describe('exposure keys (DesktopAppSettings decoding; desktop-settings.json, dec
     expect(parseDesktopSettings({ serverExposureMode: 'network-accessible', tailscaleServeEnabled: true, tailscaleServePort: 8443, localEnvironmentEnabled: false }))
       .toEqual({ localEnvironmentEnabled: false, serverExposureMode: 'network-accessible', tailscaleServeEnabled: true, tailscaleServePort: 8443, updateChannel: 'nightly' });
     expect(parseDesktopSettings(undefined)).toEqual({ localEnvironmentEnabled: true, serverExposureMode: 'local-only', tailscaleServeEnabled: false, tailscaleServePort: 443, updateChannel: 'nightly' });
-    // A saved t3-code.json from before U7: only the default endpoint stays (uiStateStore's key); the rest moved.
+    // A saved t3-code.json from before the move to desktop-settings.json: only the default endpoint stays (uiStateStore's key); the rest moved.
     const next: Record<string, unknown> = {};
     adoptNetworkPrefs(next, { serverExposureMode: 'network-accessible', tailscaleServePort: 8443, defaultAdvertisedEndpointKey: 'tailscale:ip:http' });
     expect(next).toEqual({ defaultAdvertisedEndpointKey: 'tailscale:ip:http' });

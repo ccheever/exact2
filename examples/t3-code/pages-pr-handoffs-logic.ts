@@ -1,4 +1,4 @@
-// The pull request hand-offs' pure half (pr-handoffs-and-quick-actions), ported with their names from
+// The pull request hand-offs' pure half, ported with their names from
 // T3 Code 1e2ecbd975 (MIT, see LICENSE-T3) apps/web/src/components/pullRequest/pullRequestDetail.logic.ts:
 // pullRequestHandoffLabels, pullRequestPanelContext, stripPullRequestHandoffReferences,
 // handoffReviewComments, buildFixFindingsHandoff, pullRequestFindingKey, buildFixFindingHandoff,

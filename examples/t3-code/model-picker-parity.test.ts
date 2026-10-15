@@ -1,8 +1,8 @@
-// model-picker-parity: the provider model picker as T3 Code 1e2ecbd975's ModelPickerContent, ModelPickerSidebar,
-// ModelListRow and ProviderModelPicker draw it (MIT, see LICENSE-T3): ⇧⌘↓/⇧⌘↑ skip a provider that cannot be chosen
-// (CO-4), rows show ⌘1–⌘9 (CO-1), a rail button names its state and reason (CO-2), a search highlights its first row
-// (CO-3), Shift adds a model to a draft's several (CO-7), and Scheduled Tasks' Model and Source Control's writer model
-// open the same picker (S2-4).
+// The provider model picker as T3 Code 1e2ecbd975's ModelPickerContent, ModelPickerSidebar,
+// ModelListRow and ProviderModelPicker draw it (MIT, see LICENSE-T3): ⇧⌘↓/⇧⌘↑ skip a provider that cannot be chosen,
+// rows show ⌘1–⌘9, a rail button names its state and reason, a search highlights its first row,
+// Shift adds a model to a draft's several, and Scheduled Tasks' Model and Source Control's writer model
+// open the same picker.
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { T3Client } from './client';
 import { applyShell, initialShell, obj, type Obj } from './domain';
@@ -62,7 +62,7 @@ async function draft() {
 beforeEach(() => { fleet.entries.clear(); fleet.saved = []; });
 afterEach(() => { fleet.entries.clear(); fleet.saved = []; });
 
-describe('CO-4: the next and previous provider skip what cannot be chosen', () => {
+describe('the next and previous provider skip what cannot be chosen', () => {
   test('adjacentModelPickerProvider over Favorites and the selectable instances, wrapping', () => {
     const providers = [{ id: 'codex', selectable: false }, { id: 'claudeAgent', selectable: true }, { id: 'cursor', selectable: true }];
     expect(adjacentPickerProvider({ provider: 'favorites', providers }, 1)).toBe('claudeAgent');
@@ -87,7 +87,7 @@ describe('CO-4: the next and previous provider skip what cannot be chosen', () =
   });
 });
 
-describe('CO-1: the first nine rows a person can choose show their jump shortcut', () => {
+describe('the first nine rows a person can choose show their jump shortcut', () => {
   test('⌘1… on the provider list, the search results and Favorites; the legacy header takes none, its rows follow', () => {
     const c = client();
     const rows = (catalog: ReturnType<typeof modelCatalog>) => catalog.models.map(row => [row.kind, row.id, row.jump, row.jumpKey]);
@@ -111,7 +111,7 @@ describe('CO-1: the first nine rows a person can choose show their jump shortcut
   });
 });
 
-describe('CO-2: a rail button names its state and the provider\'s message', () => {
+describe('a rail button names its state and the provider\'s message', () => {
   test('describeUnavailableInstance and the locked-thread tooltip', () => {
     expect(railLabel(codexError, false)).toBe('Codex — Unavailable. Codex CLI is not authenticated. Run `codex login` and try again.');
     expect(railLabel(claude, false)).toBe('Claude');
@@ -123,7 +123,7 @@ describe('CO-2: a rail button names its state and the provider\'s message', () =
   });
 });
 
-describe('CO-3: a search highlights its first row a person can choose', () => {
+describe('a search highlights its first row a person can choose', () => {
   test('firstEnabled is the first model row', () => {
     const c = client();
     expect(modelCatalog(c, 'claudeAgent', 'opus').firstEnabled).toBe(0);
@@ -157,7 +157,7 @@ describe('CO-3: a search highlights its first row a person can choose', () => {
   });
 });
 
-describe('CO-7: Shift adds a model to a draft\'s several and keeps the picker open', () => {
+describe('Shift adds a model to a draft\'s several and keeps the picker open', () => {
   test('the picker\'s own Shift (n 1) adds and removes without the native gesture; `multiple` says the picker stays open', async () => {
     const { client: c, native, disk, command } = await connected();
     obj(obj(native.config.environment).capabilities).requiredWorktreeBootstrap = true;
@@ -223,7 +223,7 @@ describe('CO-7: Shift adds a model to a draft\'s several and keeps the picker op
   });
 });
 
-describe('CO-11: the trigger is named by its model names; the Plan toggle reports pressed', () => {
+describe('the trigger is named by its model names; the Plan toggle reports pressed', () => {
   test('the names: the model the trigger shows, or every chosen model of a draft\'s several', async () => {
     const { client: c, command, shiftPress } = await draft();
     expect(snapshot(c).modelLabel).toBe('Model A');
@@ -240,7 +240,7 @@ describe('CO-11: the trigger is named by its model names; the Plan toggle report
   });
 });
 
-describe('S2-4: Scheduled Tasks\' Model and the writer model open the provider picker', () => {
+describe('Scheduled Tasks\' Model and the writer model open the provider picker', () => {
   test('the scheduled task picker lists the editing environment\'s instances, checks the draft\'s model and offers no setup', () => {
     const setupCodex = { ...codexError, setup: { canAuthenticate: true } };
     const c = client([setupCodex, claude]);
@@ -283,8 +283,8 @@ describe('S2-4: Scheduled Tasks\' Model and the writer model open the provider p
 });
 
 // Read from the Contract source, as dialog-focus.test.ts reads its dialogs: z-index orders siblings, and the window's picker
-// and the scheduled task editor's overlay are siblings, so a Settings row's picker must stack above that dialog (S2-4, live drive).
-describe('the Settings picker stacks above the scheduled task editor (model-picker-parity.contract wiring)', () => {
+// and the scheduled task editor's overlay are siblings, so a Settings row's picker must stack above that dialog.
+describe('the Settings picker stacks above the scheduled task editor (the Contract wiring)', () => {
   test('anchored z-index beats the editor overlay', async () => {
     const picker = await Bun.file(new URL('model-picker.contract', import.meta.url)).text();
     const editor = await Bun.file(new URL('settings-scheduled.contract', import.meta.url)).text();

@@ -9,13 +9,13 @@
 // exact2 #314), the legacy sidebar's menus, thread-jump hints while ⌘ alone is
 // held for 200 ms (THREAD_JUMP_HINT_SHOW_DELAY_MS), and the Pull Requests page's
 // speed mode while ⇧ alone is held and no text is being edited
-// (pr-handoffs-and-quick-actions: the route's useShortcutModifierState(true) —
+// (the route's useShortcutModifierState(true) —
 // its window listeners are this monitor here). A row press's ⌘/⇧ is its own
-// MouseEvent's (sidebar-row.contract `openPress`; contract-keys-and-menu-bar).
+// MouseEvent's (sidebar-row.contract `openPress`).
 // The held-key state stays native: Exact hears a key only at a focused node
 // (KeyEvents.swift keyTarget: none for the window itself or a module's web
 // view), and a Contract key event names no editable focus; the reference's
-// window listeners hear every key (contract-keys-and-menu-bar KW-11a).
+// window listeners hear every key.
 import AppKit
 
 final class T3Sidebar: NSObject {
@@ -100,7 +100,7 @@ final class T3Sidebar: NSObject {
             answer([:])
         case "sidebarMenu":
             let template = request["items"] as? [[String: Any]] ?? []
-            // r12-sidebar: a keyboard menu (`anchor`) opens at the focused row, not the pointer.
+            // A keyboard menu (`anchor`) opens at the focused row, not the pointer.
             // The agent's window is never key or main: take the one whose first responder is a view.
             let window = NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first { ($0.firstResponder as? NSView).map { $0 !== $0.window?.contentView } ?? false }
             let anchored = (request["anchor"] as? String).flatMap { anchor in
@@ -121,7 +121,7 @@ final class T3Sidebar: NSObject {
         }
     }
 
-    /// r12-sidebar: where a keyboard-opened menu's top-left corner goes, for the
+    /// Where a keyboard-opened menu's top-left corner goes, for the
     /// focused row view: its centre (Chromium's keyboard contextmenu on a thread row,
     /// truncated to whole points) or its bottom-left corner (the draft row's handler).
     /// `point` is in `view`'s coordinates; `topLeft` in the window content's top-left space.

@@ -4,7 +4,7 @@ import Foundation
 import ImageIO
 import SceneKit
 
-/// Lane r7-device: the device models of the reference's 3D view (MIT reference, see LICENSE-T3:
+/// The device models of the reference's 3D view (MIT reference, see LICENSE-T3:
 /// apps/web/src/components/device/deviceModels.ts, packages/client-runtime/src/device/model.ts,
 /// modelScene.ts). The models are Apple's and carry no redistribution license, so this client
 /// never bundles them: it finds the connected server's own copies (`assets/<id>-<hash>.glb`,

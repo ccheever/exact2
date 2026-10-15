@@ -1,4 +1,4 @@
-// Lane r8-pointer, reworked by r13-store (F3): a wall time that is a real epoch.
+// A wall time that is a real epoch.
 //
 // What a data source can know. The window's time is exactTime's `epochAtZero`
 // plus its own clock (app.contract passes `wallTime.epochAtZero + performanceNow()`).

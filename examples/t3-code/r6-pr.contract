@@ -1,4 +1,4 @@
-// Lane r6-pr, measured on the served HEAD reference (MIT, see LICENSE-T3;
+// Measured on the served HEAD reference (MIT, see LICENSE-T3;
 // chat/ThreadDetailsPrRow.tsx, pullRequest/PullRequestChecksPopover.tsx,
 // pullRequestPresentation.tsx, ui/popover.tsx, ui/tooltip.tsx variant "glass",
 // ui/alert-dialog.tsx):

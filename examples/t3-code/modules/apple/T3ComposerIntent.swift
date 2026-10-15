@@ -3,7 +3,7 @@ import AppKit
 
 /// The Return gesture that pressed Send, and the ⌘/Ctrl state the send button follows
 /// (T3's useShortcutModifierState). A pointer press carries its own modifiers in its
-/// MouseEvent (app.contract `send`, press-modifiers.contract; contract-keys-and-menu-bar),
+/// MouseEvent (app.contract `send`, press-modifiers.contract),
 /// so the client asks here only for the newest Return key-down when a press came with
 /// none, and resolves it through the server's keybindings (composer-editor-intent.ts):
 /// ⌘↩ while a turn runs is the follow-up alternate (queue ↔ steer), ⌘↩ or ⌥⌘↩ in a draft

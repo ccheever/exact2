@@ -203,7 +203,7 @@ test('custom models add and remove with T3 validation (a new bare entry is store
   expect(stored()).toEqual([{ slug: 'gpt-5.6-luna', name: 'GPT-5.6-Luna' }]);
 });
 
-// settings-escape-and-nav (review): SettingsWindow holds an open "Add custom model" field by its Models block's key
+// SettingsWindow holds an open "Add custom model" field by its Models block's key
 // (`startAdd` records `blockKey`), shows it while `modelAdding == block.key` and counts it as an Escape owner only
 // while that key is on the page (`modelAddingShown`). ProviderModelsSection keeps isAdding through unrelated writes,
 // keeps it after a refused add (its error shows) and clears it after a successful one (handleAdd's setIsAdding(false)).
@@ -299,11 +299,12 @@ test('a ChatGPT account becomes one managed Codex instance with a uuid id (AddCo
   expect(creates.map(mutation => mutation.instanceId)).toEqual(['codex_5f0c7d2e-1111-4a5b-9c3d-000000000001', 'codex_5f0c7d2e-2222-4a5b-9c3d-000000000002']);
 });
 
-// fix-provider-auth-state, bug 19 (#298): after Reconnect the list row kept painting "Not authenticated" while the
-// page said "Authenticated · ChatGPT" (X64: macOS kept a wrapped paragraph's raster once it shrank below the raster size).
-// The page answer was right; round 10 made the row's status and the editor's status line new nodes per status. Main #327
-// retires the old ink (X64 fixed), so since adopt-main-fixes-r11 they are plain texts again, as the reference's.
-test('the list row and the editor read the same status, each one text the host repaints (X64, fixed on main by #327)', async () => {
+// #298: after Reconnect the list row kept painting "Not authenticated" while the
+// page said "Authenticated · ChatGPT" (issues/closed/20261009-macos-small-text-stale-raster.md: macOS kept a wrapped
+// paragraph's raster once it shrank below the raster size). The page answer was right; a workaround made the row's
+// status and the editor's status line new nodes per status. Main #327 retires the old ink, so they are plain texts
+// again, as the reference's.
+test('the list row and the editor read the same status, each one text the host repaints (fixed on main by #327)', async () => {
   const instances = { codex: { driver: 'codex', enabled: true, config: { setupMode: 'managed' } } };
   const live = (auth: Obj) => [{ instanceId: 'codex', driver: 'codex', displayName: 'Codex', enabled: true, installed: true, status: auth.status === 'authenticated' ? 'ready' : 'warning',
     message: auth.status === 'authenticated' ? '' : 'Sign in with ChatGPT to use Codex.', auth }];

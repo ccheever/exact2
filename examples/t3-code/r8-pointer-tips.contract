@@ -1,4 +1,4 @@
-// Lane r8-pointer (D9, D10): tooltips inside a hover-revealed transcript row.
+// Tooltips inside a hover-revealed transcript row.
 // Natively one view is hovered at a time: a Tip's own hover box inside the row
 // takes the hover from the row, so the row's actions (opacity 0 until the row is
 // hovered) hid the very tooltip being opened. RowTip reports its hover to the

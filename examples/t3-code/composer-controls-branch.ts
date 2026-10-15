@@ -1,5 +1,5 @@
-// The workspace / branch context strip under the draft composer (lane
-// composer-controls), adapted from T3 Code (MIT); see LICENSE-T3. Sources:
+// The workspace / branch context strip under the draft composer,
+// adapted from T3 Code (MIT); see LICENSE-T3. Sources:
 // components/BranchToolbar.tsx, BranchToolbarEnvModeSelector.tsx,
 // BranchToolbarBranchSelector.tsx, BranchPicker.tsx, BranchToolbar.logic.ts
 // (shouldShowComposerContextStrip, resolveBranchTriggerLabel) and
@@ -10,13 +10,13 @@ import { ClientError, type Files, type Native } from './protocol';
 import { pushToast } from './toast';
 import type { T3Client } from './client';
 import { fanoutSelections } from './r3-composer-controls-fanout';
-import { defaultRefName, originDefault, originLabel, resetOrigin, startFromOrigin } from './r4-git-branch'; // lane r4-git: Start from origin, the default base ref
+import { defaultRefName, originDefault, originLabel, resetOrigin, startFromOrigin } from './r4-git-branch'; // Start from origin, the default base ref
 import { REF_PAGE, firstPage, morePages, refsStatus, scrollEnds } from './r5-composer-paging';
-import { NO_STRIP_PR, stripPr } from './r7-handoff-strip'; // lane r7-handoff: the strip's pull request badge
-import { checkoutItems, type CheckoutItem } from './r9-connect-checkout'; // lane r9-connect: the picker's checkout item
-import { NO_RUN_ON, stripRunOn } from './r4-git-env'; // lane r4-git: MobileRunContextSelector's "Run on"
-import { gitlessStrip } from './r12-threads-strip'; // lane r12-threads: the non-Git strip (BranchToolbar.logic.ts)
-import { autoBalanceState } from './auto-balance'; // auto-balance: the Run on menu's "Auto balance"
+import { NO_STRIP_PR, stripPr } from './r7-handoff-strip'; // the strip's pull request badge
+import { checkoutItems, type CheckoutItem } from './r9-connect-checkout'; // the picker's checkout item
+import { NO_RUN_ON, stripRunOn } from './r4-git-env'; // MobileRunContextSelector's "Run on"
+import { gitlessStrip } from './r12-threads-strip'; // the non-Git strip (BranchToolbar.logic.ts)
+import { autoBalanceState } from './auto-balance'; // the Run on menu's "Auto balance"
 import { letGo } from './let-go';
 import { draftFiles } from './composer-editor-files';
 import { peekVcsStatus, restartVcsStatus, vcsStreamFollows } from './shell-vcs'; // the workspace status the card's stream holds
@@ -160,11 +160,11 @@ async function load(client: T3Client, native: Native, cwd: string, open: boolean
     entry.refName = entry.switched.name; // the stream has not reported since the switch
   } else if (streamed) {
     entry.switched = undefined;
-    entry.isRepo = streamed.isRepo === true; entry.refName = str(streamed.refName); entry.status = streamed; entry.error = ''; entry.checked = true; // r7-handoff: its pr feeds the strip's badge
+    entry.isRepo = streamed.isRepo === true; entry.refName = str(streamed.refName); entry.status = streamed; entry.error = ''; entry.checked = true; // its pr feeds the strip's badge
   } else if (!entry.checked && !vcsStreamFollows(client, cwd)) {
     // No stream follows this workspace yet: one read, shared with an identical one still pending, so an
     // answer let go before the reply (the reply can wait on a remote fetch) does not make the next one,
-    // 500 ms later, send another (round 5: four a second).
+    // 500 ms later, send another (unshared: four a second).
     try {
       const status = await access.read('vcs.refreshStatus', { cwd });
       entry.isRepo = status.isRepo === true; entry.refName = str(status.refName); entry.status = status; entry.error = '';
@@ -178,10 +178,10 @@ async function load(client: T3Client, native: Native, cwd: string, open: boolean
   if (open && isRepo && entry.refsQuery !== query) {
     Object.assign(entry, firstPage(await list(), scrollEnds(client.presentation, 'strip-refs'))); entry.refsQuery = query;
   } else if (open && isRepo) {
-    // r5-composer: a scroll toward the list's end loads the next page (r5-composer-paging.ts).
+    // A scroll toward the list's end loads the next page (r5-composer-paging.ts).
     Object.assign(entry, await morePages({ refs: entry.refs, total: entry.total, nextCursor: entry.nextCursor ?? null, ends: entry.ends ?? 0, loadingMore: entry.loadingMore }, client.presentation, 'strip-refs', list));
   }
-  // r5-composer: the workspace card's read (card) leaves the strip picker's open pages alone.
+  // The workspace card's read (card) leaves the strip picker's open pages alone.
   if (!open && !card) entry.refsQuery = null;
   return entry;
 }
@@ -212,7 +212,7 @@ async function stripView(client: T3Client, native: Native | null | undefined, op
   if (!cwd) return hidden;
   let entry: Repo;
   try { entry = await load(client, native, cwd, open, query, card); } catch { return hidden; }
-  // shouldShowComposerContextStrip without Git controls: only the machine selector, when it shows (lanes r12/r13-threads).
+  // shouldShowComposerContextStrip without Git controls: only the machine selector, when it shows.
   // ChatView: before a checkout's status arrives, a never-seen checkout assumes Git.
   if (!(entry.checked ? entry.isRepo : true)) return card ? hidden : gitlessStrip(client, hidden, persist);
   const thread = obj(client.projection.thread), context = draftContext(client);
@@ -227,7 +227,7 @@ async function stripView(client: T3Client, native: Native | null | undefined, op
   const created = sanitizeNewRefName(query);
   const creatable = created && !entry.refs.some(ref => ref.name === created) && !(envMode === 'worktree' && !worktreePath) ? created : '';
   const first = str(entry.refs[0]?.name);
-  const checkout = open ? checkoutItems(client, query, entry.status ?? null) : []; // r9-connect: unshifted before the refs
+  const checkout = open ? checkoutItems(client, query, entry.status ?? null) : []; // unshifted before the refs
   const previous = locked ? null : previousWorktree(client);
   return { show: true, envMode, forceWorktree,
     envLabel: locked ? (worktreePath ? 'Worktree' : envMode === 'worktree' ? 'New worktree' : 'Local checkout')
@@ -240,7 +240,7 @@ async function stripView(client: T3Client, native: Native | null | undefined, op
     // Return picks the auto-highlighted first item (Combobox autoHighlight): the first ref, else "Create new ref".
     creatable, enterOp: checkout.length ? 'chatlocal:git-pr-open' : first ? 'cc:branch' : creatable ? 'cc:branch-create' : '', enterValue: checkout[0]?.reference ?? (first || creatable), checkout, ...stripRunOn(client, !!worktreePath),
     // BranchPicker's originControl: a draft choosing its new worktree's base (r4-git-branch.ts).
-    ...stripPr(client, { cwd, threadBranch, branch, status: entry.status ?? null }), // r7-handoff: ThreadPullRequestBadgeControl before the branch trigger
+    ...stripPr(client, { cwd, threadBranch, branch, status: entry.status ?? null }), // ThreadPullRequestBadgeControl before the branch trigger
     originShown: envMode === 'worktree' && !worktreePath && !locked, originOn: envMode === 'worktree' && !worktreePath && !locked && (forceWorktree || startFromOrigin(client)), gitless: false };
 }
 
@@ -279,7 +279,7 @@ export function setEnvMode(client: T3Client, mode: string): void {
     return;
   }
   if (mode !== 'local' && mode !== 'worktree') throw new ClientError('Choose Current checkout or New worktree.');
-  // onEnvModeChange keeps the draft's branch (the new worktree's base); only New worktree leaves an existing tree (lane r4-git).
+  // onEnvModeChange keeps the draft's branch (the new worktree's base); only New worktree leaves an existing tree.
   contexts(client)[key] = { envMode: mode, branch: current.branch, worktreePath: mode === 'worktree' ? '' : current.worktreePath };
   resetOrigin(client, key); // resolveNewDraftStartFromOrigin: each mode change starts from the project setting
 }
@@ -379,7 +379,7 @@ export function workspaceStrategy(client: T3Client): Obj {
   return { type: 'root', ...(context.branch ? { branch: context.branch } : {}) };
 }
 
-/** r6-polish: the open strip picker's pages (r6-polish-refs.ts asks whether a scroll still wants its page). */
+/** The open strip picker's pages (r6-polish-refs.ts asks whether a scroll still wants its page). */
 export function stripPages(client: T3Client): Repo[] { return [...repositoryCache(client).values()].filter(entry => entry.refsQuery !== null); }
 
 // Branch-notice-and-navigation: ported from BranchToolbar.logic.ts and ChatView.tsx at

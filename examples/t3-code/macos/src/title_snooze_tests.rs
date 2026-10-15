@@ -1,4 +1,4 @@
-//! title-custom-snooze: the compiled plan's root actions, run as the window runs
+//! The compiled plan's root actions, run as the window runs
 //! them. Thread title › Snooze › Custom… (`ui:custom-snooze`, shell.ts) reaches
 //! the sidebar's Custom snooze command for the item's own thread, with the
 //! window's wall time and "title" as its origin, as the row's Custom does with
@@ -325,7 +325,7 @@ fn snooze_toggle_pins_the_trigger_across_row_focus_and_releases_on_close() {
     assert!(runner.take_commands().is_empty());
 }
 
-/// Repair round 2 (AFTER drive 11-snooze-pointer-out-escape): with the
+/// With the
 /// pointer outside, Escape returned the focus to the trigger and the closed
 /// toggle then hid the actions under it (`aria-hidden`), where the macOS host
 /// dropped the focus. As the reference's `has-[:focus-visible]` does, the

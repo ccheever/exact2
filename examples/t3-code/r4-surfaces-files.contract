@@ -1,4 +1,4 @@
-// The Files surface (lane r4-surfaces, r4-surfaces-files.ts), measured on the
+// The Files surface (r4-surfaces-files.ts), measured on the
 // served reference (MIT, see LICENSE-T3: components/files/FilePreviewPanel.tsx,
 // FileBrowserPanel.tsx, FileBreadcrumbs.tsx, fileSurfaceChrome.tsx and the
 // compact @pierre/trees tree): the explorer alone, or a file's subheader
@@ -32,7 +32,7 @@ component R4FilesBody
   props
     family: string
     files: R4Files
-    // markdown-links-and-files-preview PA-3: app.contract's filesMarkdown, the rendered file as ChatMarkdown parses it.
+    // app.contract's filesMarkdown, the rendered file as ChatMarkdown parses it.
     documents: ChatDocument[]
     scheme: string
     sheet: bool
@@ -53,12 +53,12 @@ component R4FilesSurface
   action closeEditors
     local("surface-files-editors", "", "")
     focus("file-choose-editor")
-  // fix-keyboard-focus: the end of the folder or "Open in" menu a key on its trigger asked for (Enter, Space
+  // The end of the folder or "Open in" menu a key on its trigger asked for (Enter, Space
   // or ↓ the first item, ↑ the last; a pointer press none), for the menu that mounts next (menu-keys.contract).
   state menuEnd = ""
   action setMenuEnd(end: string)
     menuEnd = end
-  // audit-wave-followups-4 FX-2 (menu-keys.contract): the "Open in" rows are MenuItems, highlighted by their focus alone; the
+  // The "Open in" rows are MenuItems (menu-keys.contract), highlighted by their focus alone; the
   // pointer entering one focuses it, and leaving the one that holds the focus hands it to the popup.
   state editorLit = ""
   action editorFocus(id: string, on: bool)
@@ -115,7 +115,7 @@ component R4FileHeader
   state hovered = ""
   action hover(id: string, over: bool)
     hovered = over ? id : (hovered == id ? "" : hovered)
-  // fix-keyboard-focus: the "Open in" menu opens from the data module (see R4CrumbView's), on ↓ and ↑ too.
+  // The "Open in" menu opens from the data module (see R4CrumbView's), on ↓ and ↑ too.
   action openEditors
     blur()
     local("surface-files-editors", "", "")
@@ -127,7 +127,7 @@ component R4FileHeader
       local("surface-files-editors", "", "")
   view
     row height=(sheet ? "2.5rem" : "1.75rem") flex-shrink=0 margin-bottom=(sheet ? "0px" : "0.75rem") padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box" gap="0.5rem" align-items="center" position="relative" z-index=5 border-bottom-width=(sheet ? 1 : 0) border-bottom-style="solid" border-color="light-dark(#0000001b, #ffffff1f)" background-color=(sheet ? "light-dark(#ffffff, #0a0a0a)" : "#00000000") testId="file-subheader"
-      // lane r7-polish: a clip whose `w-max min-w-full` trail is end-justified (r7-polish-crumbs.ts), faded on its left while it overflows.
+      // A clip whose `w-max min-w-full` trail is end-justified (r7-polish-crumbs.ts), faded on its left while it overflows.
       row hatch="t3-anchor" data-anchor="crumbs-clip" flex=1 min-width=0 align-items="center" justify-content=(files.crumbsOffset >= 0 ? "flex-start" : "flex-end") overflow="hidden" mask-image=files.crumbsMask aria-label="Breadcrumbs" testId="file-breadcrumbs"
         row hatch="t3-anchor" data-anchor="crumbs" flex-shrink=0 min-width="100%" margin-left=(files.crumbsOffset > 0 ? 0 - files.crumbsOffset : 0) align-items="center"
           for crumb in files.crumbs key=crumb.id
@@ -152,7 +152,7 @@ component R4FileHeader
         R4Toggle(id="explorer", label=(files.explorer ? "Hide file explorer" : "Show file explorer"), icon="folder-tree", pressed=files.explorer, hovered=hovered, hover=hover, press=local("surface-files-explorer", "", ""))
 
 // One row of a folder crumb's menu: its Pierre glyph, label and a chevron for a folder; the open file is the checked
-// radio item (MenuRadioItem: `data-checked:bg-foreground/[0.08]`, no indicator; icons `-mx-0.5`). lane r7-polish.
+// radio item (MenuRadioItem: `data-checked:bg-foreground/[0.08]`, no indicator; icons `-mx-0.5`).
 component R4CrumbItem
   props
     // The KeyMenu popup the row hands the focus to as the pointer leaves it holding the focus (menu-keys.contract).
@@ -214,7 +214,7 @@ component R4CrumbView
   state over = false
   action hover(value: bool)
     over = value
-  // fix-keyboard-focus: the folder menu opens from the data module; the crumb lets go of the focus and the
+  // The folder menu opens from the data module; the crumb lets go of the focus and the
   // menu's popup takes it as it mounts (`autofocus`, menu-keys.contract), on ↓ and ↑ too.
   action openMenu
     blur()
@@ -226,7 +226,7 @@ component R4CrumbView
       blur()
       local("surface-files-crumb", crumb.path, "")
   view
-    // r6-polish: hooked so the folder menu opens under the crumb as laid out (r4-surfaces-files.ts crumbMenu).
+    // Hooked so the folder menu opens under the crumb as laid out (r4-surfaces-files.ts crumbMenu).
     box hatch="t3-anchor" data-anchor=`crumb:${crumb.id}` display="flex" flex-direction="row" flex-shrink=0 min-width=0 align-items="center"
       if crumb.id != "."
         box margin-left="0.25rem" margin-right="0.25rem" flex-shrink=0 display="flex"
@@ -263,7 +263,7 @@ component R4FilePreview
   action saveComment
     local("surface-files-comment-save", files.path, draftText)
     draftText = ""
-  // right-panel-escape: Escape leaves the editor and keeps the panel (installFileEditorDismissal blurs it); the blur ends the
+  // Escape leaves the editor and keeps the panel (installFileEditorDismissal blurs it); the blur ends the
   // editing. It had no Escape of its own while the panel toggle took the key.
   action editorKey(k: string)
     if k == "Escape"
@@ -289,16 +289,16 @@ component R4FilePreview
             row min-width="100%" background-color=(row.header ? "light-dark(#f4f4f599, #ffffff0a)" : "#00000000")
               for cell in row.cells key=cell.id
                 text cell.text flex=1 max-width="20rem" min-width="4rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-bottom-width=1 border-bottom-style="solid" border-color=(row.header ? "light-dark(#e4e4e7, #ffffff0f)" : "light-dark(#e4e4e799, #ffffff0a)") white-space="pre-wrap" font-size="0.75rem" line-height="1rem" font-weight=(row.header ? 500 : 400) font-variant-numeric="tabular-nums" color="light-dark(#27272a, #f5f5f5)"
-    // media-actions: an image or video file with its menu, tooltip and failure states (FilesMedia).
+    // An image or video file with its menu, tooltip and failure states (FilesMedia).
     if files.preview == "media"
       FilesMedia(media=files.media, local=local)
-    // lane r10-device: a rendered HTML page in the app module's sandboxed, network-less web view (BrowserDocumentFrame);
-    // a PDF, always rendered, in the module's PDFView (X29), as an attachment's.
+    // A rendered HTML page in the app module's sandboxed, network-less web view (BrowserDocumentFrame);
+    // a PDF, always rendered, in the module's PDFView (issues/closed/20261009-app-file-iframe-loading.md), as an attachment's.
     if files.preview == "html" or files.preview == "pdf"
       box hatch="t3-media" data-media-url=files.url data-media-kind=files.preview data-media-name=files.path flex=1 min-height=0 width="100%" background-color="#ffffff" aria-label=files.path testId=`file-${files.preview}`
     if files.preview == "code"
       scroll flex=1 min-height=0 width="100%" testId="file-code"
-        // r8-pointer: the editor fills the pane, so a click below the last line lands in it (focus, caret at the end).
+        // The editor fills the pane, so a click below the last line lands in it (focus, caret at the end).
         column position="relative" width=(files.wrap ? "100%" : "auto") min-width="100%" min-height="100%" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" background-color="light-dark(#ffffff, #111111)" press=local("surface-files-begin-edit", files.path, "") role="code" aria-label=files.path testId="file-lines"
           for line in files.lines key=line.id
             if line.kind == "line"
@@ -307,13 +307,13 @@ component R4FilePreview
               DiffCommentCard(text=line.text, remove=local("surface-files-comment-delete", files.path, line.entry))
             if line.kind == "draft"
               // The focus ops are the Diff panel's ⌘↩ hand-off (diff-review.ts): while the draft holds the focus the composer's Send
-              // declares no chord, so ⌘↩ reaches DiffDraftCard's `keys` (diff-file-comments.ts, audit-wave-followups FU-3).
+              // declares no chord, so ⌘↩ reaches DiffDraftCard's `keys` (diff-file-comments.ts).
               DiffDraftCard(rangeLabel=line.label, text=draftText, selected=false, edit=editDraft, cancel=cancelComment, save=saveComment, focusIn=local("surface-files-comment-focus", files.path, ""), focusOut=local("surface-files-comment-blur", files.path, ""))
           // Editing keeps the coloured, numbered lines: the editor's own text is clear over them, its caret and selection visible.
           if files.editing
             textarea id="file-editor" hatch="t3-file-editor" value=files.editorText input=local("surface-files-edit", files.path) key=editorKey blur=local("surface-files-end-edit", files.path, "") autofocus=true aria-label=files.path testId="file-editor" position="absolute" left=files.gutter top="0.4375rem" right=0 bottom="0.5625rem" padding-left=7.8 padding-right=7.8 padding-top=0 padding-bottom=0 box-sizing="border-box" border-width=0 background-color="#00000000" font-family=family font-size=13 line-height="20px" color="#00000000" caret-color="light-dark(#0a0a0a, #fafafa)" white-space=(files.wrap ? "pre-wrap" : "pre") overflow-wrap=(files.wrap ? "break-word" : "normal") autocorrect="off" spellcheck="false"
 
-// FilePreviewPanel's File over @pierre/diffs (CDP, 1e2ecbd975; files-gutter-parity FG-1, FG-2). A press on the number starts
+// FilePreviewPanel's File over @pierre/diffs (CDP, 1e2ecbd975). A press on the number starts
 // a selection that follows the pointer over the file's lines (Shift extends it), a press on the gutter's "+" a range from the
 // selection's top, as the diff's gutter (DiffCell, diff-line-drag.ts); the release opens the draft on what it ended on
 // (onLineSelectionEnd → beginComment), so a click on a number opens one too (diff-file-comments.ts). The gutter cell holds
@@ -325,7 +325,7 @@ component R4FilePreview
 // line. The number is [data-column-number], `user-select: none`: drawn over the cell after the code, it takes no pointer,
 // so a press on it is the cell's and a gutter drag selects no text. A selected line paints its number's cell and its
 // number only (#d5e6ff / #254566, the number #20649e / #72b6ff, which is the diff's; the code row and the comment card
-// under it stay the surface's, and there is no bar; diff-gutter-selection-followups GS-2).
+// under it stay the surface's, and there is no bar).
 component R4CodeRow
   props
     family: string
@@ -341,8 +341,8 @@ component R4CodeRow
   state overId = ""
   action hover(over: bool)
     hovering = over
-  // Any primary press is an outside press for a skill chip's details, which the window's root never hears (X71): one that
-  // starts no drag reports itself as `press` (files-gutter-parity FG-4).
+  // Any primary press is an outside press for a skill chip's details, which the window's root never hears
+  // (issues/20261010-pointer-events-reach-ancestors.md): one that starts no drag reports itself as `press`.
   action down(plus: bool, e: PointerEvent)
     if not open and e.buttons == 1
       dragging = true
@@ -396,7 +396,7 @@ component R4Explorer
   state hovered = ""
   action hover(id: string, over: bool)
     hovered = over ? id : (hovered == id ? "" : hovered)
-  // right-panel-escape: FileSearchField's Escape runs closeSearch (the query and the tree's search) and blurs the field;
+  // FileSearchField's Escape runs closeSearch (the query and the tree's search) and blurs the field;
   // inline the panel stays. In a sheet the key then reaches the Base UI dialog, which closes, so the sheet's toggle
   // leaves Escape to the field while it has the focus (SurfacePanel filesSearchAt) and the field's "sheet" closes it
   // too (r4-surfaces-panel.ts, app.contract chatLocal). The focus is kept in the window, not sent: a second send on
@@ -440,7 +440,7 @@ component R4TreeRowView
   action hover(value: bool)
     over = value
   view
-    // context-menu-gaps: FileBrowserPanel's right-click menu (Open, reveal, Open with ▸, Copy mention, Add to chat).
+    // FileBrowserPanel's right-click menu (Open, reveal, Open with ▸, Copy mention, Add to chat).
     button press=local(row.directory ? "surface-files-toggle" : "surface-file", row.path, "tree") contextmenu=local("surface-files-row-menu", row.path, "") hover=hover role="treeitem" aria-label=row.name aria-expanded=row.expanded aria-selected=row.selected testId=`tree-${row.path}` width="100%" height=24 padding-left=(6.8 + row.depth * 18.7) padding-right=6 box-sizing="border-box" gap=4.4 border-radius=5 border-width=0 position="relative" display="flex" flex-direction="row" align-items="center" background-color=(row.selected ? "light-dark(#27272a1f, #f5f5f51f)" : over ? "light-dark(#27272a0d, #f5f5f50d)" : "#00000000") opacity=(row.ignored ? 0.5 : 1)
       for guide in row.guides key=guide.id
         box position="absolute" left=guide.left top=0 bottom=0 width=1 background-color="light-dark(#71717b40, #81818140)"

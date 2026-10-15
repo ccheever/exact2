@@ -1,4 +1,4 @@
-// The first-run gate and the "Set up T3 Code" wizard (lane "pages"): which
+// The first-run gate and the "Set up T3 Code" wizard: which
 // computers to set up, each one's agents, and the projects to import from
 // Claude Code and Codex history. With a primary environment (the embedded
 // server, local-primary.ts) the gate decides as the desktop's FirstRunGate:
@@ -27,7 +27,7 @@ import { isFirstRunWorkspaceProvenanceAuthoritative, isFreshFirstRunWorkspace, r
 import { focusedOnPrimary, isPrimaryEnvironment, primary, withoutPrimaryDuplicates } from './local-primary';
 import { primaryWelcome } from './local-lifecycle';
 import type { Shell } from './domain';
-import { codexSetupView, readCodexSetupMode, codexFlow, codexInstance, type CodexSetupView } from './codex-setup'; // managed-codex-chatgpt: OnboardingCodexSetup
+import { codexSetupView, readCodexSetupMode, codexFlow, codexInstance, type CodexSetupView } from './codex-setup'; // OnboardingCodexSetup
 import { watchProviderSetup } from './provider-setup';
 import { setChatGptCreatedHandler } from './providers';
 import { fleetSetupHost } from './codex-fleet-host';
@@ -233,7 +233,7 @@ const relative = (iso: string, now: number) => {
 
 export async function welcomeView(client: T3Client, native: Native | null | undefined, input: { step: string; now: number }) {
   const state = stateOf(client);
-  // r13-store: `state.now` only ever holds an instant. Before exactTime resolves the window's time counts from
+  // `state.now` only ever holds an instant. Before exactTime resolves the window's time counts from
   // zero (1970) and stands for none, so it is not taken (the last known instant stays).
   const instant = input.now > 0 ? wallEpoch(input.now) : null;
   if (instant !== null) state.now = instant;
@@ -253,7 +253,7 @@ export async function welcomeView(client: T3Client, native: Native | null | unde
     saved = reply.ok ? withoutPrimaryDuplicates(arr(obj(reply.value).saved)).filter(entry => str(entry.origin) && str(entry.environmentId)) : [];
   } catch { /* the catalog stays unknown */ }
   const prefs = pagesPrefs(client);
-  // r4-polish: the settings store is hydrated once the saved preferences are read (useClientSettingsHydrationStatus);
+  // The settings store is hydrated once the saved preferences are read (useClientSettingsHydrationStatus);
   // before that a relaunch would see no completion and lock into the wizard.
   const hydrated = (client as { preferencesLoaded?: boolean }).preferencesLoaded !== false;
   // The desktop has a primary unless its Local environment is off or no server can run here (hosted rules then).
@@ -346,7 +346,7 @@ export async function welcomeLocal(client: T3Client, native: Native, op: string,
   const state = stateOf(client);
   if (op.startsWith('terminal-')) {
     const terminal = setupTerminal(client, native, id);
-    if (op === 'terminal-exited') { // every message of the setup terminal: its exit, and its links (G1-10)
+    if (op === 'terminal-exited') { // every message of the setup terminal: its exit, and its links
       let event: Obj = {}; try { event = obj(JSON.parse(value)); } catch { return ''; }
       if (terminal.state.kind === 'closed' || str(event.terminalId) !== terminal.state.session.terminalId) return '';
       if (event.type === 'link') await setupTerminalLink(client, native, terminal.state.session, event);

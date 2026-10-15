@@ -1,4 +1,4 @@
-// The pull request panel's host stack (lane "pages", pr-header-actions-and-stacks): the
+// The pull request panel's host stack: the
 // `pullRequests.stack` read once the detail says the host keeps stacks, the saved membership the
 // thread links carry while it is out, the header's stack menu (n/m, layers top-down, "↳ base",
 // Merge stack, Rebase stack) and its confirmation. Sources: T3 Code (MIT, see LICENSE-T3)

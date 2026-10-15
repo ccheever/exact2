@@ -1,4 +1,4 @@
-// Lane r5-panels: the thread's pull request beside the thread (MIT reference,
+// The thread's pull request beside the thread (MIT reference,
 // see LICENSE-T3, upstream f90b77d809):
 // - the details card's rows under the branch select (components/chat/
 //   ThreadDetailsPrRows.tsx, ThreadDetailsPrRow.tsx, BranchToolbarBranchSelector
@@ -18,15 +18,15 @@ import { currentPullRequestLink, visiblePullRequests, pullRequestPanelTarget } f
 import { listLines, resolveChains } from './r4-surfaces-prs';
 import { parseChangeRequestUrl, findProjectForChangeRequest, findProjectOnChangeRequestHost } from './palette-linkpr';
 import { repositorySelector } from './composer-editor-menu';
-import { readDetail, peekDetail, forgetDetails, mergeAsk, askMerge, confirmMerge, performAction, startHandoff, closeMerge, toggleShowAll } from './r6-pr-actions'; // lane r6-pr
-import { rowExtra, emptyExtra, type RowExtra } from './r6-pr-row'; // lane r6-pr
+import { readDetail, peekDetail, forgetDetails, mergeAsk, askMerge, confirmMerge, performAction, startHandoff, closeMerge, toggleShowAll } from './r6-pr-actions';
+import { rowExtra, emptyExtra, type RowExtra } from './r6-pr-row';
 import type { MergeAsk } from './r6-pr-actions';
 
 export type PrTarget = { projectId: string; host: string; repository: string; number: number; url: string };
 export type PrRow = {
   key: string; label: string; tooltip: string; icon: string; state: string; tinted: boolean; target: string; url: string; aria: string;
   split: boolean; checks: string; checksCount: string; checksAria: string; action: string; actionTarget: string; actionLabel: string; actionTooltip: string; actionDisabled: boolean;
-  r6: RowExtra; // lane r6-pr: the hand-offs, Merge, the checks popover and the tooltip card
+  r6: RowExtra; // The hand-offs, Merge, the checks popover and the tooltip card
 };
 export type PrRowsView = { show: boolean; rows: PrRow[]; rest: PrRow[]; moreLabel: string; expanded: boolean; merge: MergeAsk };
 /** ThreadDetailsPrRows' expanded state, per thread so a scheme rebuild of the card keeps it. */
@@ -104,7 +104,7 @@ export function prTabIcon(client: T3Client, target: PrTarget): { icon: string; s
     const snapshot = newest ? snapshotOf(newest) : null;
     if (snapshot) { const key = lifecycle(str(snapshot.state, 'open'), snapshot.isDraft === true); return { icon: lifecycleIcon(key), state: key }; }
   }
-  // lane r6-pr: without a linked snapshot the tab follows the loaded detail (newestPullRequestSummary(detail, …)).
+  // Without a linked snapshot the tab follows the loaded detail (newestPullRequestSummary(detail, …)).
   const detail = caps(client).pullRequests === true ? peekDetail(client, tabReference(client, target)) : null;
   if (detail) { const key = lifecycle(str(detail.state, 'open'), detail.isDraft === true); return { icon: lifecycleIcon(key), state: key }; }
   return { icon: 'git-pull-request-arrow', state: '' };
@@ -117,7 +117,7 @@ export async function prefetchPrTabs(client: T3Client, native: Native, targets: 
   for (const target of targets) if (prTabIcon(client, target).state === '') await readDetail(client, native, tabReference(client, target), now);
 }
 
-// ── The host's detail behind the card's row (ThreadDetailsPrRow detailQuery + checksQuery): lane r6-pr's shared reads ──
+// ── The host's detail behind the card's row (ThreadDetailsPrRow detailQuery + checksQuery): the shared reads ──
 export function forgetRowDetail(client: T3Client): void { forgetDetails(client); }
 
 // classifyPullRequestChecks, pullRequestChecksState and resolveThreadPanelPullRequestAction live in r6-pr-logic.ts.
@@ -146,7 +146,7 @@ export async function prRowsView(client: T3Client, native: Native, input: { stat
   const current = many ? currentPullRequestLink(links) : null;
   const linkedPr = current ? snapshotPr(current) : null;
   // branchPr: the status read's pull request when it reports the thread's own branch.
-  // lane r6-pr: a draft reads its own branch (a hand-off's checkout) the way a thread reads its own.
+  // A draft reads its own branch (a hand-off's checkout) the way a thread reads its own.
   const branch = thread ? str(thread.branch) : str(client.local.composerControls?.contexts?.[client.draftKey]?.branch);
   const branchPr = branch && input.status && str(input.status.refName) === branch ? vcsPr(input.status.pr, input.status.sourceControlProvider) : null;
   const displayed = linkedPr ?? (current === null ? branchPr : null);
@@ -164,7 +164,7 @@ export async function prRowsView(client: T3Client, native: Native, input: { stat
   const detail = native?.available ? await readDetail(client, native, reference, input.now) : null;
   if (detail && reference) {
     const key = lifecycle(str(detail.state, 'open'), detail.isDraft === true);
-    // lane r6-pr: the split row's checks, trailing action and tooltip card (r6-pr-row.ts).
+    // The split row's checks, trailing action and tooltip card (r6-pr-row.ts).
     Object.assign(main, { icon: lifecycleIcon(key), state: key, tinted: true, split: true },
       rowExtra(client, detail, reference, { key: main.key, lifecycleKey: key, rightGap: input.rightGap ?? 0, inline: input.inline === true }));
   }
@@ -178,7 +178,7 @@ export async function prRowsView(client: T3Client, native: Native, input: { stat
 export function emptyPrRows(): PrRowsView { return { show: false, rows: [], rest: [], moreLabel: '', expanded: false, merge: { open: false, number: 0, description: '', target: '', pending: false } }; }
 
 /**
- * `shell:surface-r5-pr-*` (lane r6-pr): Ready and the confirmed Merge run against the host; Resolve
+ * `shell:surface-r5-pr-*`: Ready and the confirmed Merge run against the host; Resolve
  * and Fix hand the pull request to a new thread. `id` is the row's reference (Merge adds its method).
  */
 export async function prRowCommand(client: T3Client, native: Native, op: string, id: string): Promise<string> {
@@ -192,7 +192,7 @@ export async function prRowCommand(client: T3Client, native: Native, op: string,
   }
   return '';
 }
-/** `surface-r5-pr-*` without the command gate (lane r6-pr): the Merge dialog and the checks popover's "Show all". */
+/** `surface-r5-pr-*` without the command gate: the Merge dialog and the checks popover's "Show all". */
 export function prRowLocal(client: T3Client, op: string, id: string, value: string): boolean {
   if (op === 'merge-ask') { const target = obj(JSON.parse(id || '{}')); askMerge(client, target, num(target.number), (value || 'merge') as 'merge'); return true; }
   if (op === 'merge-cancel') { closeMerge(client); return true; }

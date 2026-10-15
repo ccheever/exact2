@@ -1,4 +1,4 @@
-// Lane composer-controls, round 3: "Resume with less context" and sending past
+// "Resume with less context" and sending past
 // it (a976f8c74c), and the Woke dismissal that syncs through thread.visit (c5a929e1ac).
 import { describe, expect, test } from 'bun:test';
 import { arr, obj } from './domain';

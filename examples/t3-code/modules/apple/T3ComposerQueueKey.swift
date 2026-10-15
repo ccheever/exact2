@@ -1,7 +1,7 @@
 #if os(macOS)
 import AppKit
 
-/// thread.editQueuedMessage (⌥↑ by default; task thread-commands-and-keys), after
+/// thread.editQueuedMessage (⌥↑ by default), after
 /// T3 Code 1e2ecbd975 ChatView.tsx: the key edits the last queued message only
 /// while the composer's caret sits collapsed before everything (isCaretAtStart);
 /// anywhere else it keeps moving the caret, so a second press from the first

@@ -1,4 +1,4 @@
-// Lane r8-keys: chords the window's buttons must not declare in some contexts.
+// Chords the window's buttons must not declare in some contexts.
 //
 // AppSidebarLayout.tsx (MIT, see LICENSE-T3): the rich-text composer claims
 // Mod+B for bold (isRichTextBoldShortcut: Meta or Control with B, no Alt or

@@ -261,7 +261,7 @@ describe('managed Codex setup (CodexSetupSection)', () => {
     expect(providerWizard(fake, true, 4, 'codex', false, '', false, '', 'chatgpt').chatgpt).toEqual([]);
   });
 
-  // fix-provider-auth-state (#312 review): bug 21's cause was a dialog drawing the Account row the page behind it
+  // #312's review found a dialog drawing the Account row the page behind it
   // draws, under the same ids. The Add ChatGPT account dialog draws CodexSetupRow for the account it created; the
   // Settings editor behind it keeps the instance it had selected (only "provider-add" selects the created one), and
   // every element id CodexSetupRow draws is made from its instance id, so the two never share an id.

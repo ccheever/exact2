@@ -1,9 +1,9 @@
-// reply-links-reference-behavior (the user's decision of 2026-10-11: match the reference on the reply-link rows
-// reply-links kept). RL-4: a Markdown `#fragment` link's click leaves the thread for the new-thread draft, as Electron's
+// The reply-link rows match the reference (the user's decision of 2026-10-11). A Markdown `#fragment`
+// link's click leaves the thread for the new-thread draft, as Electron's
 // hash router does with the hash the click sets (T3 Code 1e2ecbd975, MIT, see LICENSE-T3: ChatMarkdown.tsx
 // `handleMarkdownFragmentClick`, main.tsx `createHashHistory`, routes/_chat.index.tsx `IndexDraftLanding`). The
 // navigation itself is browser-links.test.ts; the link branches are external-link-menu.test.ts; the shell's menu for the
-// ContextMenu key (RL-6) is the AppKit `contextmenu` binary (reply-links.swift).
+// ContextMenu key is the AppKit `contextmenu` binary (reply-links.swift).
 import { describe, expect, test } from 'bun:test';
 import { T3Client } from './client';
 import type { Files, Native } from './protocol';
@@ -12,7 +12,7 @@ import type { Obj } from './domain';
 const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
 const files: Files = { fs: { mkdir: async () => undefined, readFile: async () => { throw new Error('none'); }, atomicWriteFile: async () => undefined } } as unknown as Files;
 
-describe('a fragment link leaves the thread (RL-4)', () => {
+describe('a fragment link leaves the thread', () => {
   test('the window sends a fragment open on its own mutation and shows the draft as a new thread\'s, the composer focused', async () => {
     const app = await source('app.contract');
     // Every other link open stays on localChanged (it shows nothing new); a fragment's reply names `sidebar:new-thread`.
@@ -35,10 +35,10 @@ describe('a fragment link leaves the thread (RL-4)', () => {
     const result = await owner.command('chatlocal:link-open', 'link|', '#notes', 0, native, files);
     expect(result.message).toBe('sidebar:new-thread');
     expect([owner.threadId, owner.projectId]).toEqual(['', 'work']);
-    // The click's modifiers ride with its press (contract-keys-and-menu-bar); nothing goes to the system browser, the
+    // The click's modifiers ride with its press; nothing goes to the system browser, the
     // module's opener or its gesture recorder.
     expect(calls.map(call => call.op).filter(op => op !== 'devicePresentation')).toEqual([]);
-    // A mailto link (in prose or a table cell) answers nothing and keeps the thread (RL-1, RL-5).
+    // A mailto link (in prose or a table cell) answers nothing and keeps the thread.
     owner.threadId = 'verify-timeline'; owner.projectId = 'fixture';
     expect((await owner.command('chatlocal:link-open', 'link', 'mailto:list@example.test', 0, native, files)).message).toBe('');
     expect([owner.threadId, owner.projectId]).toEqual(['verify-timeline', 'fixture']);

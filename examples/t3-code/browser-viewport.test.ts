@@ -248,7 +248,7 @@ describe('the device toolbar toggle and bounds (clone)', () => {
   });
 });
 
-// Clone row, browser-panel-parity G4-16: BrowserStage hands the module the requested CSS size (`page-size`) beside the
+// BrowserStage hands the module the requested CSS size (`page-size`) beside the
 // fitted box, so the module sizes the page from the fields at its zoom, not from the box over its scale.
 describe('BrowserStage page size (clone)', () => {
   it('passes the requested size, held or dragged, beside a fractional fit scale; fill passes none', async () => {

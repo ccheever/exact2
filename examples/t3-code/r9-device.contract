@@ -1,4 +1,4 @@
-// Lane r9-device (MIT reference, see LICENSE-T3): DeviceStreamView's foldingControls under the device
+// From the MIT reference (see LICENSE-T3): DeviceStreamView's foldingControls under the device
 // rail. DeviceDuoControls: an iPhone Duo's "Fold shape" (Closed, Book, Open) and "Device stance"
 // (Laptop, Tent) groups; DeviceAndroidFoldControls: a foldable emulator's Fold / Unfold. Each group is
 // a pill like the rail's (4pt inset and gap), its buttons the `icon` size (32pt, 8pt radius), ghost or,
@@ -34,7 +34,7 @@ component R9DevStandButton
   action hover(value: bool)
     over = value
   view
-    // lane r10-device: the stand's TooltipPopup side="left" (r10-device.contract); a disabled button still shows it, as Base UI's trigger does.
+    // The stand's TooltipPopup side="left" (r10-device.contract); a disabled button still shows it, as Base UI's trigger does.
     box position="relative" flex-shrink=0
       button press=press hover=hover disabled=(not enabled) aria-label=stand.label aria-checked=stand.selected testId=`device-stand-${stand.id}` width="2rem" height="2rem" padding=0 border-radius="0.5rem" border-width=0 opacity=(enabled ? 1 : 0.64) display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(stand.selected ? "light-dark(#fafafae6, #ffffff07)" : over and enabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
         R9DevDuoGlyph(pose=stand.glyph, color=(stand.selected ? r9devInk() : r9devMuted()))

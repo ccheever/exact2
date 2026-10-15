@@ -1,4 +1,4 @@
-// "Run on" (lane r4-git), adapted from T3 Code (MIT; see LICENSE-T3):
+// "Run on", adapted from T3 Code (MIT; see LICENSE-T3):
 // components/BranchToolbarEnvironmentSelector.tsx (the panel Select and its static
 // label), ChatView.tsx logicalProjectEnvironments / onEnvironmentChange, and
 // packages/client-runtime/src/state/projectGrouping.ts (deriveLogicalProjectKey).
@@ -15,10 +15,10 @@ import { focusedOnPrimary, isPrimaryEnvironment } from './local-primary';
 import { machineKind } from './connections';
 import { environmentIndicator } from './shell-details';
 import { runOnMenuWidth, workspaceLabels } from './r5-composer-menus';
-import { isScratch, openRemoteScratch, scratchChoices, scratchRootOf } from './r12-threads-scratch'; // r12-threads: No project drafts switch machine (c47f4263f9)
+import { isScratch, openRemoteScratch, scratchChoices, scratchRootOf } from './r12-threads-scratch'; // No project drafts switch machine (c47f4263f9)
 import { pushToast } from './toast';
 import { AUTO_ENVIRONMENT, autoBalanceState, autoIndicator, chooseAutoEnvironment, draftSelection, moveDraftSelection, setDraftSelection, withAutoOption,
-  type BalanceSelection } from './auto-balance'; // auto-balance
+  type BalanceSelection } from './auto-balance';
 import { letGo } from './let-go';
 
 const normalize = (value: unknown) => str(value).trim().replace(/\\/g, '/').replace(/\/+$/, '');
@@ -39,7 +39,7 @@ const groupingMode = (client: T3Client, project: Obj, environmentId: string): st
 export type EnvironmentOption = { id: string; label: string; machine: string; primary: boolean; projectId: string; selected: boolean };
 /**
  * logicalProjectEnvironments: the focused environment first among the primaries, then by label.
- * `offline` (auto-balance's update banner) keeps a switched-on machine that is not connected now, by its last config and shell.
+ * `offline` (Auto balance's update banner) keeps a switched-on machine that is not connected now, by its last config and shell.
  */
 export function environmentOptions(client: T3Client, source: EnvironmentFleet = fleet, offline = false): EnvironmentOption[] {
   const project = client.shell.projects.find(entry => entry.id === client.projectId);
@@ -48,7 +48,7 @@ export function environmentOptions(client: T3Client, source: EnvironmentFleet = 
   const focused = environmentIndicator({ isPrimary: focusedOnPrimary(client), available: 1, environmentId: client.environmentId,
     runtimeLabel: str(obj(client.config.environment).label), savedLabel: '', machine: machineKind(client.config) });
   const options: EnvironmentOption[] = [{ id: client.environmentId, label: focused.envLabel, machine: focused.envKind, primary: focusedOnPrimary(client), projectId: client.projectId, selected: true }];
-  // r12-threads (c47f4263f9): a No project draft offers every machine with a "No project" folder, created when picked.
+  // Upstream c47f4263f9: a No project draft offers every machine with a "No project" folder, created when picked.
   const scratch = !client.threadId && isScratch(project, scratchRootOf(client.connection === 'connected', client.config))
     ? new Map(scratchChoices(client, source.entries.values()).map(choice => [choice.environmentId, choice.projectId])) : null;
   for (const entry of source.entries.values()) {
@@ -80,7 +80,7 @@ export function environmentView(client: T3Client) {
 export async function runOnEnvironment(client: T3Client, native: Native, environmentId: string, source: EnvironmentFleet = fleet,
   selection: BalanceSelection = { selection: 'manual', choice: '' }): Promise<{ status: Obj | null; generation: number }> {
   if (client.threadId) throw new ClientError('A started thread keeps its environment.');
-  // auto-balance: "Auto balance" asks every machine again; picking a machine is a manual choice that clears it.
+  // "Auto balance" asks every machine again; picking a machine is a manual choice that clears it.
   if (environmentId === AUTO_ENVIRONMENT) { chooseAutoEnvironment(client, source); return { status: null, generation: -1 }; }
   if (environmentId === client.environmentId) { setDraftSelection(client, { selection: 'manual', choice: '' }); return { status: null, generation: -1 }; }
   const target = environmentOptions(client, source).find(option => option.id === environmentId);
@@ -89,7 +89,7 @@ export async function runOnEnvironment(client: T3Client, native: Native, environ
   let projectId = target.projectId;
   if (!projectId) {
     const original = client.draftKey;
-    // r12-threads (845ddd9354): the machine's "No project" folder is created now; a failure keeps the draft where it is.
+    // Upstream 845ddd9354: the machine's "No project" folder is created now; a failure keeps the draft where it is.
     try { projectId = await openRemoteScratch(client, native, entry); }
     catch (error) {
       if (letGo(error)) throw error;
@@ -103,7 +103,7 @@ export async function runOnEnvironment(client: T3Client, native: Native, environ
   if (text) { client.local.drafts[to] = text; delete client.local.drafts[from]; }
   const contexts = (client.local.composerControls as { contexts?: Record<string, Obj> }).contexts ??= {};
   if (contexts[from]) { contexts[to] = { ...contexts[from], worktreePath: '' }; delete contexts[from]; }
-  // auto-balance: a picked machine is manual; Auto balance's resolution moves the draft with its auto selection.
+  // A picked machine is manual; Auto balance's resolution moves the draft with its auto selection.
   const previous = draftSelection(client, from);
   moveDraftSelection(client, from, to, selection);
   const before = client.local.selections[environmentId];
@@ -134,9 +134,9 @@ export function stripRunOn(client: T3Client, worktree = false): typeof NO_RUN_ON
   const options = environmentOptions(client), shown = options.find(option => option.selected);
   const pick = !client.threadId && options.length > 1;
   if (!shown || !(pick || !shown.primary)) return NO_RUN_ON;
-  // auto-balance: "Auto balance" leads the group, and names the trigger while the draft is automatic.
+  // "Auto balance" leads the group, and names the trigger while the draft is automatic.
   const balance = autoBalanceState(client), listed = pick ? withAutoOption(client, options, balance) : [], focused = autoIndicator(client, shown, balance);
-  // r5-composer: the menu's width from its measured labels (r5-composer-menus.ts); the window caps it in the view.
+  // The menu's width from its measured labels (r5-composer-menus.ts); the window caps it in the view.
   return { ...NO_RUN_ON, envShow: true, envMachine: focused.machine, envMachineLabel: focused.label, envOptions: listed,
     envMenuWidth: runOnMenuWidth(client.presentation, (listed.length ? listed : options).map(option => option.label), workspaceLabels(worktree)) };
 }

@@ -64,7 +64,7 @@ final class T3Credentials: @unchecked Sendable {
 /// Environments this client has paired with, in the order they were added
 /// (rows never jump when one reconnects): one entry per environment id with its
 /// identity, display facts, whether this device keeps it switched on, and its
-/// ordered routes (lane environment-routes; T3 Code 1e2ecbd975 catalog.ts
+/// ordered routes (T3 Code 1e2ecbd975 catalog.ts
 /// alternateRoutes). A route is `{ id, origin, kind, learned, credential,
 /// authorization?, ssh? }`: `credential` names the origin whose Keychain account
 /// (`T3Credentials`, origin + environment) holds its token, so a learned route

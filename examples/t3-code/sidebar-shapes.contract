@@ -1,6 +1,6 @@
 use R5Probe from "./r5-composer.contract"
 // The sidebar's projected rows and view state (sidebar-view.ts).
-// shell-sidebar-palette-keys (TH-8): Custom snooze's calendar month (snooze-calendar.ts, drawn by snooze-calendar.contract).
+// Custom snooze's calendar month (snooze-calendar.ts, drawn by snooze-calendar.contract).
 shape CalendarDay
   id: string
   label: string
@@ -69,7 +69,7 @@ shape Thread
   terminalCount: number
   terminalLabel: string
   id: string
-  // r6-polish: Working's start (epoch ms; the label ticks from the root clock) and a background environment's machine glyph.
+  // Working's start (epoch ms; the label ticks from the root clock) and a background environment's machine glyph.
   workingSince: number
   remoteMachine: string
   title: string
@@ -153,7 +153,7 @@ shape SidebarDraft
   menu: SidebarMenuRow[]
 shape SidebarView
   drafts: SidebarDraft[]
-  // r6-polish: a row shows Working (the root's one-second clock runs); the texts its tooltips are placed by (r6-polish.contract).
+  // A row shows Working (the root's one-second clock runs); the texts its tooltips are placed by (r6-polish.contract).
   ticking: bool
   probes: R5Probe[]
   searching: bool
@@ -197,9 +197,9 @@ shape SidebarView
   dialogUnit: string
   dialogTime: string
   dialogError: string
-  // dialog-shortcut-focus: the `id` a closed dialog gives the focus back to (its thread's row), "" for none.
+  // The `id` a closed dialog gives the focus back to (its thread's row), "" for none.
   dialogReturn: string
-  // shell-sidebar-palette-keys (TH-8): Custom snooze's date button and its calendar popover (snooze-calendar.ts).
+  // Custom snooze's date button and its calendar popover (snooze-calendar.ts).
   calendar: SnoozeCalendar
   jumpHints: bool
   pillKey: string
@@ -207,5 +207,5 @@ shape SidebarView
   pillTitle: string
   pillDescription: string
   pillDismissible: bool
-  // r11-upstream (1826fb55cc): a released row-action sweep bumps it, ending the section's sweep.
+  // Upstream 1826fb55cc: a released row-action sweep bumps it, ending the section's sweep.
   sweepEpoch: number

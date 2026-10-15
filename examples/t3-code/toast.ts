@@ -14,7 +14,7 @@ export type Toast = { id: number; kind: ToastKind; title: string; description: s
   onClose?: () => void; closeOnAction?: boolean; key?: string;
   /** ThreadToastData.expandableContent as rows, behind a description that discloses them. */
   details?: ToastDetail[]; expandLabels?: { expand: string; collapse: string };
-  /** ThreadToastData.additionalActions (one): drawn before the second button, in its variant (browser-surface part 3). */
+  /** ThreadToastData.additionalActions (one): drawn before the second button, in its variant. */
   extra?: ToastAction | null };
 export type ToastDetail = { id: string; title: string; subtitle: string };
 

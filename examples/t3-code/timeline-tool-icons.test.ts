@@ -115,7 +115,7 @@ describe('syncToolActivityIcons', () => {
     await request;
     expect(toolActivityIconSources(client, appIcon)).toEqual({ iconLight: '', iconDark: '' });
   });
-  it('a work group draws the native icon its entry loaded, whatever the raw app carried (timeline-work-rows review)', async () => {
+  it('a work group draws the native icon its entry loaded, whatever the raw app carried', async () => {
     // The group row reads groupToolPresentation's decoded icon; the entries and the request read the raw item.
     const raw = { toolIcon: { _tag: 'native-app', app: { _tag: 'app-id', appId: ' com.apple.Safari ', bundlePath: '/Applications/Safari.app' } } };
     const calls: Obj[] = [];

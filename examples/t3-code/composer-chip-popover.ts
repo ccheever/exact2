@@ -1,4 +1,4 @@
-// A skill chip's details popover (settings-appearance-and-skill-chip, desktop audit S1-12), adapted
+// A skill chip's details popover, adapted
 // from T3 Code 1e2ecbd975 (MIT, LICENSE-T3): ComposerPromptEditorTiptap.tsx ComposerSkillNodeView
 // wraps each skill chip in a ContextChipPopover (contextChipParts.tsx): a press opens a popover above
 // the chip with its label, the skill's description or "No description is available for this skill.",
@@ -8,7 +8,7 @@
 // (composer-chip-popover.contract). The composer's chips name the selected provider's skills for the
 // thread's workspace (ChatComposer selectedProviderSkills); the Settings prompt sample passes none
 // (SettingsFontPreviews EMPTY_SKILLS), so its chip always has no description.
-// composer-chips-accessibility G1-8: a terminal excerpt's chip is the same kind of trigger (TerminalContextInlineChip.tsx's
+// A terminal excerpt's chip is the same kind of trigger (TerminalContextInlineChip.tsx's
 // ContextChipPopover, while the excerpt holds text): its details are the terminal's name, "Line N" or "Lines a–b", and the
 // captured output, from the draft's terminal context record.
 import type { T3Client } from './client';
@@ -36,7 +36,7 @@ export type ChipPopover = {
   y: number;
   width: number;
   height: number;
-  /** "skill", or "citation" (diff-cite-popover DC-1: its comment, citation-comment.ts). */
+  /** "skill", or "citation" (its comment, citation-comment.ts). */
   kind: string;
   /** A citation's saved comment. */
   comment: string;
@@ -117,9 +117,9 @@ export async function chipPopoverLocal(client: T3Client, native: Native, op: str
 }
 
 /**
- * A press on a diff's or the Files preview's gutter (files-gutter-parity FG-4): Base UI's outside press closes the details
+ * A press on a diff's or the Files preview's gutter: Base UI's outside press closes the details
  * there too, but the window's root never hears it, as a node that hears `pointerdown` keeps the press from its ancestors
- * (X71). The gutters report their primary presses (diff-review.ts, pages-pr-code.ts, diff-file-comments.ts), and the
+ * (issues/20261010-pointer-events-reach-ancestors.md). The gutters report their primary presses (diff-review.ts, pages-pr-code.ts, diff-file-comments.ts), and the
  * newest open press closes as the root's `chip-close` closes it; the window's `chip` resource follows the module's `t3.chip`.
  */
 export async function closeChipFromPress(native: Native): Promise<void> {

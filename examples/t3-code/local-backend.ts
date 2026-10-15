@@ -5,7 +5,7 @@
 // is ready. Once the server answers, the status also carries its descriptor's environment id,
 // label and version, and `enabled` is the Local environment switch the backend started with.
 // `desktopSettings` are the five keys of `<T3 home>/userdata/desktop-settings.json` this app changes
-// (decision U7: the original app's file, owned by the native side as by Electron's main process;
+// (the original app's file, owned by the native side as by Electron's main process;
 // T3DesktopSettings.swift); `writeDesktopSettings` is the renderer's IPC setter.
 import { obj, str, num, type Obj } from './domain';
 import { bridgeReply, ClientError, type Native } from './protocol';
@@ -54,7 +54,7 @@ export interface LocalBackendStatus {
   lastExit: string;
   /** While installing: the phase and its fraction; when missing or failed: the reason. */
   install: { phase: string; fraction: number; reason: string } | null;
-  /** Why a development build starts nothing (item 8 of the ticket). */
+  /** Why a development build starts nothing. */
   refused: string;
   /** Port selection and other start failures. */
   failure: string;
@@ -62,7 +62,7 @@ export interface LocalBackendStatus {
   pid: number | null;
   /** The Local environment switch the backend runs with (false: no server runs). */
   enabled: boolean;
-  /** desktop-settings.json's Local environment switch, Network access, Tailscale Serve and Update track (decision U7). */
+  /** desktop-settings.json's Local environment switch, Network access, Tailscale Serve and Update track. */
   settings: DesktopSettingsFacts;
   /** The running server's descriptor (`/.well-known/t3/environment`), once it answered. */
   environmentId: string;

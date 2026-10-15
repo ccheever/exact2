@@ -18,9 +18,9 @@ import { diffOps } from './client-ops-diff';
 import { laneOps, laneWrites } from './client-ops-lanes';
 import { serverUpdateOps } from './client-ops-server-update';
 import { terminalPanelOps } from './terminal-panel';
-import { terminalOps } from './terminal-drawer-view'; // terminal-drawer
+import { terminalOps } from './terminal-drawer-view';
 import { autoBalanceOps } from './client-ops-auto-balance';
-import { activationOps } from './desktop-activation'; // app-activation: `t3 app <dir>`
+import { activationOps } from './desktop-activation'; // `t3 app <dir>`
 
 /** A provider write on the environment Settings › Providers shows, when that is not the focused one (providers-scope.ts). */
 export type ProvidersRoute = { host: ProviderHost; native(native: Native): Native; requireWrite(): void };

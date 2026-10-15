@@ -1,8 +1,8 @@
-// scheduled-tasks-followups: the three items live-automations-and-clones left, against T3 Code 1e2ecbd975 (MIT, see
-// LICENSE-T3). ST-1: ScheduledTaskEditorDialog's "Runs on" switches a new task's environment (the scope's connected
-// environments; project, model, base branch, Start from origin and checkout path start over, the rest is kept). ST-2:
+// Scheduled tasks against T3 Code 1e2ecbd975 (MIT, see
+// LICENSE-T3): ScheduledTaskEditorDialog's "Runs on" switches a new task's environment (the scope's connected
+// environments; project, model, base branch, Start from origin and checkout path start over, the rest is kept);
 // ProjectCloneToastCoordinator's "Open project" on every environment's success toast (handleNewThread with that
-// environment's project ref). ST-3: ThreadAutomationsPanel's three TooltipPopups.
+// environment's project ref); ThreadAutomationsPanel's three TooltipPopups.
 import { afterEach, describe, expect, test } from 'bun:test';
 import type { T3Client } from './client';
 import type { OpOut } from './client-ops';
@@ -76,7 +76,7 @@ async function studio(): Promise<FleetEntry> {
 }
 afterEach(() => { for (const key of [...fleet.entries.keys()]) if (key.endsWith('\nenv2')) fleet.entries.delete(key); });
 
-describe('ST-1: Runs on switches a new task to another environment', () => {
+describe('Runs on switches a new task to another environment', () => {
   test('`new|<environment>` is a new task on that environment', () => {
     expect(editTarget('new|env2', 'env')).toEqual({ environmentId: 'env2', taskId: '', link: false });
     expect(editTarget('new|', 'env')).toEqual({ environmentId: 'env', taskId: '', link: false });
@@ -131,9 +131,9 @@ describe('ST-1: Runs on switches a new task to another environment', () => {
     expect(dialogs).toContain('DialogFinalFocus(open=(restEditor == "task"), owner="scheduled-task-dialog")');
     expect(await source('app-window.contract')).toContain('restClose=restClose, restOpen=restOpen, sbPicker=sbPicker,');
   });
-  test('the labels a Runs on change rewrites are plain texts the host repaints (X64 #327 and X82 #494, fixed on main; round 11)', async () => {
-    // Round 10 keyed them by their words (a new node per label): a rastered label under a button kept its old words on
-    // macOS. Main #327 (a shrunk raster) and #494 (the pump repaints an unselectable text) retire that (adopt-main-fixes-r11).
+  test('the labels a Runs on change rewrites are plain texts the host repaints (#327 and #494, fixed on main)', async () => {
+    // The editor keyed them by their words (a new node per label): a rastered label under a button kept its old words on
+    // macOS. Main #327 (a shrunk raster) and #494 (the pump repaints an unselectable text) retire that.
     const editor = await component('settings-scheduled.contract', 'ScheduledEditor');
     expect(editor).not.toContain('key=shown');
     expect(editor).toContain('                  text data.environment font-size="0.875rem"');
@@ -148,7 +148,7 @@ describe('ST-1: Runs on switches a new task to another environment', () => {
   });
 });
 
-describe("ST-2: Open project on another environment's clone toast", () => {
+describe("Open project on another environment's clone toast", () => {
   const done = { projectId: 'q7', destinationPath: '/work/widgets', repository: null, phase: 'done', stage: 'checkout', percent: 100, detail: null, error: null };
   test('every success toast offers Open project, naming its environment', async () => {
     expect(cloneToast(done, 'env2').action).toEqual({ label: 'Open project', op: 'new-thread', id: 'fleet:env2:q7', value: '' });
@@ -183,7 +183,7 @@ describe("ST-2: Open project on another environment's clone toast", () => {
   });
 });
 
-describe('ST-3: the Automations icon buttons show the reference tooltips', () => {
+describe('The Automations icon buttons show the reference tooltips', () => {
   test('each button hands its frame to the window layer as a 600 ms top tooltip on hover and keyboard focus', async () => {
     const button = await component('thread-automations.contract', 'AutomationButton');
     expect(button).toContain('  inject\n    rem: number\n    hoverTipAt: action');
@@ -212,7 +212,7 @@ describe('ST-3: the Automations icon buttons show the reference tooltips', () =>
     const section = await component('thread-automations.contract', 'ThreadAutomationsSection');
     const tips = [...section.matchAll(/AutomationButton\(icon="([\w-]+)", label=[^,]+, tip="([^"]+)", align="(\w+)"/g)].map(match => [match[1], match[2], match[3]]);
     // Manage sits at the panel's right edge: its tooltip ends at the button's right edge, where Base UI's shift keeps it
-    // inside the window (the layer has no shift, X17 #112); the row buttons' tooltips fit centred.
+    // inside the window (the layer has no shift, #112); the row buttons' tooltips fit centred.
     expect(tips).toEqual([['settings-2', 'Manage scheduled tasks', 'end'], ['pencil', 'Edit automation', 'center'], ['play', 'Run now', 'center']]);
     // The layer's end placement: a 22.5rem row (a "code" tip's 32.5rem) ending at the trigger's right edge, its bubble at the row's end.
     const layer = await component('hover-layer.contract', 'HoverLayer');

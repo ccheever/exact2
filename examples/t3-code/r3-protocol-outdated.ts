@@ -1,4 +1,4 @@
-// Orchestration protocol compatibility (lane r3-protocol; MIT reference f90b77d,
+// Orchestration protocol compatibility (MIT reference f90b77d,
 // commit 22e9d35: client-runtime connection/compatibility.ts). The message names
 // the direction: an older server is updated on its host, a newer one needs a newer
 // client. T3Transport.swift refuses both with the same text; the outdated-host

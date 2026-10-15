@@ -4,7 +4,7 @@
 // (resolveProviderInstanceAcpRegistryIconUrl). Changes: the URL is drawn by Contract's `image`
 // (provider-icons.contract `AcpRegistryAgentIcon`), which shows the ACP glyph until the image
 // loads and keeps it when the load fails; AcpRegistryIcon.tsx's validating fetch, size cap and
-// CacheStorage are the host's image loading (X44, main #177), so only the allow-list is ported.
+// CacheStorage are the host's image loading (#121, main #177), so only the allow-list is ported.
 import { obj, str, type Obj } from './domain';
 
 const ACP_REGISTRY_CDN_HOSTNAME = 'cdn.agentclientprotocol.com';

@@ -2,11 +2,11 @@ import AppKit
 import Foundation
 import XCTest
 
-// The Local environment switch's stopgap (decision U4; exact2
-// cannot relaunch, issue X45 / #122), the primary's descriptor in the status, the switch read at
-// launch (desktop-settings.json since decision U7: settings.swift; the failed-start test starts from an
+// The Local environment switch's stopgap (exact2
+// cannot relaunch, issues/closed/20261009-native-process-relaunch.md, #122), the primary's descriptor in the status, the switch read at
+// launch (desktop-settings.json: settings.swift; the failed-start test starts from an
 // old t3-code.json, which the attach carries over), and `handleFatalStartupError` (T3LocalFatal.swift). Each test runs its own
-// T3LocalBackend over a real child (a fake `t3` shell script on a lane port) with an HTTP double for
+// T3LocalBackend over a real child (a fake `t3` shell script on a fixed T3_LOCAL_PORT) with an HTTP double for
 // the token exchange and the descriptor; readiness answers at once (FakeProber).
 private final class LocalServer: URLProtocol, @unchecked Sendable {
     override class func canInit(with request: URLRequest) -> Bool { true }

@@ -16,10 +16,10 @@ import { applyDeviceSetting } from './settings-core';
 import { archive, deleteThreads, markUnread, remember, rename } from './sidebar-commands';
 import { buildMultiSelectThreadContextMenuItems, clampSidebarThreadPreviewCount, legacyProjectMenuItems, legacyThreadMenuItems, memberActionLabel, resolveProjectExpanded } from './legacy-sidebar-model';
 import { emptyDialog, expansionKeys, legacyGroups, legacySession, previewCount, sortedGroups, type LegacyGroup } from './legacy-sidebar-view';
-import { openBranchDraft, openRowPullRequest, rowThread } from './legacy-sidebar-links'; // legacy-sidebar-full LS-1, LS-5
-import { openRowPort } from './legacy-sidebar-ports'; // legacy-sidebar-full LS-2
+import { openBranchDraft, openRowPullRequest, rowThread } from './legacy-sidebar-links';
+import { openRowPort } from './legacy-sidebar-ports';
 import { archiveBackground, backgroundProjectThreads, backgroundRef, backgroundThreadPath, focusBackground, forgetBackgroundDrafts, isBackground, markUnreadBackground,
-  openBackgroundDraft, renameBackground, writeBackgroundProject } from './legacy-sidebar-fleet'; // legacy-sidebar-full LS-6
+  openBackgroundDraft, renameBackground, writeBackgroundProject } from './legacy-sidebar-fleet';
 import { letGo } from './let-go';
 
 type Local = Parameters<typeof applyDeviceSetting>[0];
@@ -92,7 +92,7 @@ async function attempt(client: T3Client, title: string, run: () => Promise<void>
   try { await run(); return true; } catch (error) { toast(client, title, error); return false; }
 }
 async function projectWrite(client: T3Client, native: Native, storage: Files, payload: Obj, description: string): Promise<void> {
-  if (isBackground(client, str(payload.projectId))) return writeBackgroundProject(client, native, str(payload.projectId), payload); // LS-6: the member's own environment
+  if (isBackground(client, str(payload.projectId))) return writeBackgroundProject(client, native, str(payload.projectId), payload); // the member's own environment
   if (!client.writable) throw new ClientError(client.connection !== 'connected' ? 'Reconnect before making changes.' : 'Wait for synchronization and check your connection permissions.');
   const access = client.restAccess(native), [commandId] = await access.ids(1);
   await access.write(storage, { method: 'projects.mutate', description, threadId: '', text: '', uncertain: false, payload: { ...payload, commandId } });
@@ -105,8 +105,8 @@ export async function legacyCommand(client: T3Client, native: Native, storage: F
   if (op === 'thread-menu') return threadMenu(client, native, storage, id);
   if (op === 'project-menu') return projectMenu(client, native, id);
   if (op === 'new-thread') return newThread(client, native, id);
-  if (op === 'pr') return openRowPullRequest(client, native, id, value); // LS-1
-  if (op === 'port') return openRowPort(client, native, id); // LS-2
+  if (op === 'pr') return openRowPullRequest(client, native, id, value);
+  if (op === 'port') return openRowPort(client, native, id);
   if (op === 'archive') { await attempt(client, 'Failed to archive thread', () => archiveRow(client, native, id)); return ''; }
   if (op === 'rename') {
     // commitRename on any row: a background environment's goes to its own server (rename() reads the focused shell).
@@ -170,7 +170,7 @@ async function threadMenu(client: T3Client, native: Native, storage: Files, id: 
       return legacyCommand(client, native, storage, 'archive-many', '', ids.join(','));
     } else if (choice === 'delete') {
       if (settings?.confirmThreadDelete !== false) { selection.dialog = { kind: 'delete-many', threadIds: ids, title: '' }; return ''; }
-      await deleteThreads(client, native, storage, ids, true); // thread-commands-and-keys G5: the worktree question
+      await deleteThreads(client, native, storage, ids, true); // the worktree question
     }
     return '';
   }
@@ -181,7 +181,7 @@ async function threadMenu(client: T3Client, native: Native, storage: Files, id: 
   const background = backgroundRef(client, id);
   switch (choice) {
     case 'new-thread-on-branch': {
-      // LS-5: the explicit branch carry-over (its worktree, or its branch on the local checkout); LS-6 on its own environment.
+      // The explicit branch carry-over (its worktree, or its branch on the local checkout); a background thread's on its own environment.
       if (!background) return openBranchDraft(client, native, thread, str(thread.projectId));
       const worktreePath = str(thread.worktreePath);
       try { await openBackgroundDraft(client, native, `fleet:${background.environmentId}:${str(thread.projectId)}`, { branch: str(thread.branch), worktreePath, envMode: worktreePath ? 'worktree' : 'local' }); }
@@ -215,7 +215,7 @@ async function projectMenu(client: T3Client, native: Native, key: string): Promi
   const member = group.members.find(candidate => candidate.physicalKey === physical);
   if (!member) return '';
   const session = legacySession(client);
-  // LS-6: every action targets the member's own environment, a background one's included.
+  // Every action targets the member's own environment, a background one's included.
   if (action === 'rename') session.dialog = { ...emptyDialog(), kind: 'rename-project', memberId: member.id, title: member.title, root: member.workspaceRoot, environment: member.environmentLabel };
   else if (action === 'grouping') session.dialog = { ...emptyDialog(), kind: 'grouping', memberId: member.id, title: member.title, root: member.workspaceRoot, grouping: client.local.groupingOverrides[member.physicalKey] ?? 'inherit' };
   else if (action === 'copy-path') await copy(client, native, member.workspaceRoot, 'Path copied');
@@ -256,7 +256,7 @@ async function newThread(client: T3Client, native: Native, key: string): Promise
     member = group.members.find(candidate => candidate.physicalKey === choice);
   }
   if (!member) return '';
-  // createThreadForProjectMember: a background member's draft on its own environment (LS-6).
+  // createThreadForProjectMember: a background member's draft on its own environment.
   try { if (member.remote) await openBackgroundDraft(client, native, member.id); else await (client as unknown as Navigator).openDraft?.(native, member.id); }
   catch (error) { toast(client, 'Could not create thread', error); return ''; }
   return 'sidebar:new-thread';

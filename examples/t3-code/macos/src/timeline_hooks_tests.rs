@@ -1,4 +1,4 @@
-//! timeline-and-window-hooks KW-12c: the compiled plan asks for its snapshot with
+//! The compiled plan asks for its snapshot with
 //! `exactViewport().displayMode`, so the title rows' inset and the sidebar minimum
 //! (presentation.ts, r12-sidebar-width.ts) follow the window into full screen and
 //! back, with no native full-screen fact (T3FullScreen.swift is gone). The data

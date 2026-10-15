@@ -2,7 +2,7 @@ import AppKit
 import WebKit
 import XCTest
 
-// Task app-developer-tools (exact2 #101): every web view the module creates is
+// exact2 #101: every web view the module creates is
 // inspectable from Safari in a development build and never in a release build: the clone's packaged
 // build (`distribution.json`, T3LocalPolicy.packaged), a production-trust bake or a distributed bundle
 // (its receipt), as main #309 decides for the iframe arm. This binary has neither file beside it, so
@@ -54,7 +54,7 @@ final class WebInspectionTests: XCTestCase {
 
     /// The three creation paths: the terminal, the rendered-HTML preview and the Mermaid renderer.
     /// The terminal was inspectable only with EXACT_ASSETS or T3_TERMINAL_INSPECTABLE before; now
-    /// the build decides, so a development build launched without either (a lane copy opened with
+    /// the build decides, so a development build launched without either (a copied bundle opened with
     /// `open`) is inspectable too.
     func testEveryWebViewTheModuleCreatesFollowsTheBuild() throws {
         unsetenv("EXACT_ASSETS"); unsetenv("T3_TERMINAL_INSPECTABLE")

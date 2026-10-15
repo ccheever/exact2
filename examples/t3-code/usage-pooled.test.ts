@@ -422,13 +422,13 @@ describe('UsagePage refresh (UsagePage.refresh.test.tsx)', () => {
 });
 
 
-// popover-escape-parity: light dismiss, read from the Contract sources as dialog-focus.test.ts reads
+// Light dismiss, read from the Contract sources as dialog-focus.test.ts reads
 // its handlers (the page's popover state is Contract state). The behavior is checked by driving the app
 // on macOS, which a source read cannot do. Reference: UsageLimitsPooled.tsx PoolSegment is a Base UI
 // Popover (non-modal); its useDismiss closes it on a press outside the popup and the popover's own
 // triggers (the segment and its LegendRow), on the click for a mouse ("intentional"), and a press on
 // another segment is outside it.
-describe('light dismiss of a pinned segment popover (popover-escape-parity)', () => {
+describe('light dismiss of a pinned segment popover', () => {
   const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
   /** The lines of `component name` in `file`, up to the next top-level declaration. */
   const component = async (file: string, name: string) => {
@@ -455,8 +455,8 @@ describe('light dismiss of a pinned segment popover (popover-escape-parity)', ()
   test('a primary press that starts outside the pinned popover and both its triggers closes it as it ends', async () => {
     const page = await component('pages-usage.contract', 'UsagePage');
     // The page's root takes every press on the page but a segment's (below), the scroll port's empty ground
-    // included: main 3998e650e (X65) passes it on to the scroll node and its ancestors, so the centred content is
-    // the scroll's own child, with no full-height ground under it (css-workaround-retirements KW-4), and nothing
+    // included: main 3998e650e (issues/closed/20261009-macos-empty-scroll-pointer.md) passes it on to the scroll node
+    // and its ancestors, so the centred content is the scroll's own child, with no full-height ground under it, and nothing
     // between the root and the scroll hears the press twice.
     expect(page).toMatch(/\n {4}column [^\n]*pointerdown=pressDown pointerup=pressUp testId="usage-page"/);
     expect(page).toMatch(/\n {6}scroll flex=1 min-height=0 width="100%" testId="usage-scroll"\n( {8}\/\/[^\n]*\n)* {8}column id="usage-content" position="relative" width="100%" max-width="64rem" margin-left="auto" margin-right="auto"/);
@@ -473,7 +473,7 @@ describe('light dismiss of a pinned segment popover (popover-escape-parity)', ()
     // Up (DOM's order: down, up, then the press): a press that does not end in the card closes it before the
     // press runs, so a press on another segment then pins that one and a press on the pinned segment (inside)
     // toggles it closed; one that ends in the card does not (Base UI's insideReactTree). Base UI closes it
-    // however it opened, so the dismissal also drops the hover helper's state (fix-hover-cards).
+    // however it opened, so the dismissal also drops the hover helper's state.
     expect(page).toContain('action pressUp(e: PointerEvent)\n'
       + '    let id = held\n'
       + '    let pop = frame(`usage-seg-pop-${id}`)\n'
@@ -511,7 +511,7 @@ describe('light dismiss of a pinned segment popover (popover-escape-parity)', ()
     for (const name of ['triggerDown', 'planeDown', 'hueDown']) expect(picker).toMatch(new RegExp(`action ${name}\\(e: PointerEvent\\)\\n(    .*\\n)*?    outsideDown\\(e\\)`));
     for (const name of ['triggerUp', 'planeUp', 'hueUp']) expect(picker).toMatch(new RegExp(`action ${name}(\\(e: PointerEvent\\))?\\n    outsideUp\\(\\)`));
     expect(picker).toContain('pointerdown=triggerDown pointerup=triggerUp');
-    // cite-selection-anchor: an answer's box hears its presses for Cite's place and hands each on to the window's.
+    // An answer's box hears its presses for Cite's place and hands each on to the window's.
     const md = await component('markdown.contract', 'AnswerMarkdown');
     expect(md).toContain('  action down(e: PointerEvent)\n    outsidePressDown(e)');
     expect(md).toContain('  action up(e: PointerEvent)\n    let bounds = frame("transcript")\n    outsidePressUp()');
@@ -537,12 +537,12 @@ describe('light dismiss of a pinned segment popover (popover-escape-parity)', ()
       (await source(file)).split('\n').forEach(line => { if (/^\s*[a-z][\w-]*\b[^\n]*\spointer(down|up|move)=/.test(line)) takers.push(`${file} ${/testId=(?:"([^"]+)"|`([^`]+)`)/.exec(line)?.slice(1).find(Boolean) ?? ''}`); });
     }
     // The floating player hears `pointermove` for its pill and the
-    // pill's tooltips (its buttons hear no hover, X62); a press there is the page's, the player's drag or resize, or a pill
+    // pill's tooltips (its buttons hear no hover, issues/closed/20261009-macos-subtree-hover.md); a press there is the page's, the player's drag or resize, or a pill
     // button's, and the Usage page's popover is never on screen with the chat's floating player. The
     // diff gutter's number and "+" hear the pointer for their drags; the gutter is in a thread's Diff panel or a pull
-    // request's Code tab, which the Usage page covers, so its popover is never on screen with them either. files-gutter-parity
-    // FG-2: so do the Files preview's number and "+", a right-panel surface the Usage page covers too (a skill chip's details
-    // beside them close from the gutter's own press, FG-4). device-player-compact-and-rail-keys (review round 2): the floating
+    // request's Code tab, which the Usage page covers, so its popover is never on screen with them either.
+    // So do the Files preview's number and "+", a right-panel surface the Usage page covers too (a skill chip's details
+    // beside them close from the gutter's own press). The floating
     // device hears its press (app-window.contract detailsPlayerPointer closes the thread details popover and a skill chip's
     // details as it ends); it is in the chat, which the Usage page covers.
     expect(takers).toEqual([
@@ -567,7 +567,7 @@ describe('light dismiss of a pinned segment popover (popover-escape-parity)', ()
   });
 });
 
-// popover-escape-parity, the real-input batch's #263 row 12 (PR #298): after Escape (or Cancel, or Use credit) in the
+// #263 row 12 (PR #298): after Escape (or Cancel, or Use credit) in the
 // "Use a reset credit?" confirm the focus did not go back to the segment under real time. The command's answer asks
 // for it (`focus:usage-seg-…`, usage-environments.ts), but UsagePage was still inert then: the usage answer that drops
 // the confirm comes after the command's, so the host refused the focus (the agent clock settles both together).
@@ -600,7 +600,7 @@ describe('the reset confirm gives the segment the focus back (#298 item 12)', ()
   });
 });
 
-// dialog-initial-focus-and-model-prices MP-1: UsagePage renders its price dialog whatever the metric, so the environment
+// UsagePage renders its price dialog whatever the metric, so the environment
 // menu's Model prices opens it on Limits too (the clone presented the prices only on Cost and Tokens).
 describe('Model prices on every metric', () => {
   it('opens on Limits as on Cost and Tokens, and closes on each', async () => {

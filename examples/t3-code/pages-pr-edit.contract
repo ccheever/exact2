@@ -1,4 +1,4 @@
-// Rewriting a pull request's words (lane "pages"; pr-writing-and-metadata), measured against T3 Code
+// Rewriting a pull request's words, measured against T3 Code
 // 1e2ecbd975 (MIT, see LICENSE-T3) components/pullRequest/PullRequestEditButton.tsx (the pencil
 // revealed on hover or focus), PullRequestMarkdownEditor.tsx (Write/Preview, ⌘↵ saves, Escape
 // cancels unless saving), PullRequestCommentBody.tsx (a remark taller than 240pt collapses behind
@@ -133,9 +133,9 @@ component PrdWords
     if expanded
       scrollIntoView(frameId, block="nearest")
     expanded = not expanded
-  // usage-and-pr-pages PG-7: PullRequestMarkdownEditor's onKeyDown hears the keys of everything in it, so the editor
+  // PullRequestMarkdownEditor's onKeyDown hears the keys of everything in it, so the editor
   // holds Escape (PrPanel's "pr-escape-hold") while its field or its Write/Preview toggle has the focus (`inside`
-  // counts their focus and blur, in either order; no focus-within, X54), and lets go as it closes or saves (the
+  // counts their focus and blur, in either order; no focus-within, issues/closed/20261009-bubbling-focus-events.md), and lets go as it closes or saves (the
   // reference leaves Escape to the page while a save is out): a field the view removes sends no blur. Save's press
   // takes the focus from the field; ⌘↵ lets go as its key comes up (`keyup`: the save's own action sends its write, so
   // the hold's report waits for the next event). Typing takes it again after a failed save.
@@ -225,7 +225,7 @@ component PrdTitle
     serial: number
     still: bool
     act: action
-    // usage-and-pr-pages PG-7: the field's hold on Escape (PrPanel's "pr-escape-hold"), so the page's Back gives it up.
+    // The field's hold on Escape (PrPanel's "pr-escape-hold"), so the page's Back gives it up.
     local: action
   state editing = false
   state seen = 0

@@ -1,14 +1,14 @@
-// General → About: the Version row's update button and the Update track row
-// (lane settings-a). Reference SettingsPanels.tsx AboutVersionSection and
+// General → About: the Version row's update button and the Update track row.
+// Reference SettingsPanels.tsx AboutVersionSection and
 // desktopUpdate.logic.ts. The app's own delivery facts (LLP 1030 D7, the
 // `exactDelivery` resource) stand in for the Electron updater's state: a binary
 // with no update store linked answers the `embedded` stream, which is the
 // reference's disabled updater (Check for Updates, disabled, "Up to date"); a
 // staged entry is a downloaded update ("Install", after a confirmation). With no
-// store, the Update track is the reference's no-feed select (blocked-desktop-update-
-// controls, option a): enabled, it saves desktop-settings.json's `updateChannel`
+// store, the Update track is the reference's no-feed select:
+// enabled, it saves desktop-settings.json's `updateChannel`
 // (DesktopUpdates.setChannel: persist, then a base state that checks nothing) and
-// shows what it saved; nothing is checked, downloaded or installed (X40 stays closed).
+// shows what it saved; nothing is checked, downloaded or installed.
 import type { T3Client } from './client';
 import { coreRow, type CoreRow } from './settings-core';
 import { ClientError, type Native } from './protocol';

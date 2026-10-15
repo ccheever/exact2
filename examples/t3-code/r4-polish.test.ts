@@ -1,4 +1,4 @@
-// Lane r4-polish: relaunch persistence through the preference file, the
+// Relaunch persistence through the preference file, the
 // palette's project order, the sidebar width fixed at load, the welcome gate's
 // hydration, and the SnapShot shortcut-conflict label.
 import { afterEach, beforeEach, describe, test, expect } from 'bun:test';
@@ -129,7 +129,7 @@ describe('sidebar width (threadSidebarWidth.ts)', () => {
     await sidebarLocal(client, null as unknown as Native, 'width-reset', '', '');
     expect([client.local.sidebarWidth, sidebarWidthStored(client)]).toEqual([256, false]);
     expect(sidebarLaunchWidth(client, 1280, true)).toBe(256); // the reset sizes it again from the window
-    expect(sidebarLaunchWidth(client, 840, true)).toBe(208); // r12-sidebar: f870c41 clamps the fixed size to the live window (refresize.mjs: 256 → 208 at 840)
+    expect(sidebarLaunchWidth(client, 840, true)).toBe(208); // f870c41 clamps the fixed size to the live window (refresize.mjs: 256 → 208 at 840)
   });
   test('only a finished drag stores the width; toggles send 0; older files count a non-default width as stored', async () => {
     const legacy = disk(JSON.stringify({ version: 1, sidebarWidth: 256, sidebarOpen: false }));

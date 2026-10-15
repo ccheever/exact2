@@ -1,7 +1,7 @@
 use SidebarIcon from "./sidebar-icons.contract"
 use SnoozeCalendar, CalendarDay from "./sidebar-shapes.contract"
 
-// Custom snooze's date (shell-sidebar-palette-keys TH-8; MIT reference, see LICENSE-T3):
+// Custom snooze's date (MIT reference, see LICENSE-T3):
 // CustomSnoozeDialog.tsx's outline Button (the date, "Oct 9, 2026", and a calendar glyph,
 // justify-between) opens a Popover (align start, 4pt below) holding ui/calendar.tsx's DayPicker:
 // p-2 in a rounded-xl glass card, a 36pt cell, the caption between the month buttons, the

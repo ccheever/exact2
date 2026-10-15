@@ -1,4 +1,4 @@
-// Settings › Integrations reads (fix-settings-integrations-loop, #346): while the
+// Settings › Integrations reads (#346): while the
 // page was open the app asked server.getConfig, server.getSettings and device.list 26 times a second. Each answer sent
 // `device.list { inspectOnly: true }`; the server's DeviceService.inspect publishes every host's summary to each
 // subscribeDeviceState stream (T3 Code 1e2ecbd975 apps/server/src/device/DeviceService.ts:473-503), the app holds one
@@ -92,7 +92,7 @@ describe('Settings › Integrations reads its config, settings and device state 
     // page was asked on every turn until the limit (12 asks, 36 reads, never idle).
     expect({ asks: opened.asks, idle: opened.idle, reads: native.reads(before) }).toEqual({ asks: 1, idle: true, reads: [] });
     expect(opened.page).toMatchObject({ available: true, error: '', hubStatus: 'v0.3.0', agentStatus: 'v1.2.0' });
-    // browser-surface part 4: the page's Browser rows (profiles and the tab defaults) come from the client's own
+    // The page's Browser rows (profiles and the tab defaults) come from the client's own
     // preferences and add no server read to the answer.
     expect(obj(opened.page.browserProfiles)).toMatchObject({ hydrated: true, rows: [{ id: 'default', name: 'Default', isDefault: true }], defaults: { viewportValue: 'fill' } });
     expect(native.calls.slice(before).some(call => call.op === 'subscribe')).toBe(false); // the shell's stream serves the page

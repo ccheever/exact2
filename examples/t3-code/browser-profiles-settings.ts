@@ -1,4 +1,4 @@
-// browser-surface part 4 (profiles): Settings › Integrations › Browser › Browser profiles and the cookie import wizard
+// Settings › Integrations › Browser › Browser profiles and the cookie import wizard
 // (MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975: apps/web/src/components/settings/IntegrationsSettings.tsx
 // `BrowserProfilesSetting`, BrowserImportWizard.tsx; apps/web/src/components/permissions/PermissionChecklist.tsx).
 //
@@ -167,7 +167,7 @@ const listedProfiles = (client: T3Client) => resolveBrowserProfiles(browserProfi
 const targetProfiles = (client: T3Client) => listedProfiles(client).map(profile => ({ id: profile.id, name: profile.name }));
 const canCreateProfile = (client: T3Client) => hydrated(client) && browserProfilePrefs(client).browserProfiles.length < BROWSER_PROFILE_MAX_COUNT;
 
-// import-wizard-initial-focus: when the wizard opened, when its screen last changed, and when each of its focusable
+// When the wizard opened, when its screen last changed, and when each of its focusable
 // elements was last mounted, on one clock that every opening, change of screen (a step of another kind) and grant flip
 // ticks. React mounts a step's buttons and tiles with the step (a step of another kind swaps the step component), Allow
 // with the step or with a grant taken back (a grant replaces it with "Allowed"), and the close X whenever a step that can
@@ -361,7 +361,7 @@ export const emptyBrowserProfilesView = (): BrowserProfilesView => ({ hydrated: 
   canImport: false, removalAvailable: false, removalNote: '', removalOpen: false, removalId: '', removalName: '', removalError: '', removalBusy: false, wizard: closedWizard(),
   defaults: browserDefaultsView({ local: {} }) });
 
-/** import-wizard-initial-focus: the wizard's focusable elements in tree order, as Base UI's focus trap walks them: the
+/** The wizard's focusable elements in tree order, as Base UI's focus trap walks them: the
  *  screen's tiles and buttons, then the close X (ui/dialog DialogPopup renders it after the step), each with whether it
  *  is enabled (a Tab stop) and since when it is mounted (`wizardMounts`). The first stop takes the focus as the wizard
  *  opens (initialFocus); from the popup itself, which a step change that removed the focused element leaves focused

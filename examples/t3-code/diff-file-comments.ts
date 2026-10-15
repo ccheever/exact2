@@ -125,13 +125,13 @@ function openDraft(state: FileComments, path: string, range: Range, panel: strin
  * the "+"; value = the line), `to` (value = the row id under the pointer), `end` (the release) and `press` (a primary press
  * while the gutter is off); `begin` (the "+"'s or a number's press with no pointer gesture: a keyboard or accessibility
  * press; value = the line), `cancel`, `save` (value = the text), `delete` (value = the context id), and the draft textarea's
- * `focus` / `blur` (audit-wave-followups FU-3, `panel` = its panel key).
+ * `focus` / `blur` (`panel` = its panel key).
  */
 export async function fileComment(client: T3Client, native: Native, op: string, path: string, value: string, contents: string, panel = ''): Promise<string> {
   const state = stateOf(client), line = Number(value) || 0;
   if (op === 'focus' || op === 'blur') { state.focus = op === 'focus' && state.draft?.path === path ? panel : ''; return ''; }
   if (op === 'drag' || op === 'drag-shift' || op === 'gutter' || op === 'press') {
-    // A press on the gutter is an outside press for a skill chip's details, which the window's root never hears (FG-4).
+    // A press on the gutter is an outside press for a skill chip's details, which the window's root never hears.
     if (op !== 'press' && !state.draft && line > 0) take(state, op === 'gutter' ? pressGutter(selectionOf(state), path, { line, side: 'additions' }, ROW) : pressLine(selectionOf(state), path, { line, side: 'additions' }, op === 'drag-shift', ROW));
     await closeChipFromPress(native);
     return '';

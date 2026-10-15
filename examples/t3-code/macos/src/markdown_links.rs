@@ -1,4 +1,4 @@
-// markdown-links-and-files-preview (T3 Code 1e2ecbd975, MIT, see LICENSE-T3):
+// T3 Code 1e2ecbd975 (MIT, see LICENSE-T3):
 // ChatMarkdown.tsx's `markdownUrlTransform` over react-markdown's `defaultUrlTransform`
 // and its sanitize schema, which decide which link destinations survive to the anchor,
 // and GFM task-list items (MarkdownListItem's `findTaskListMarkerOffset`, MarkdownInput).
@@ -70,7 +70,7 @@ fn link_href(href: &str) -> String {
     } else if is_file_link(href) {
         format!("{FILE_LINK}{href}")
     } else {
-        // A fragment (`#notes`) stays the anchor's href, a link like a mailto one (reply-links RL-2).
+        // A fragment (`#notes`) stays the anchor's href, a link like a mailto one.
         href.to_string()
     }
 }
@@ -202,7 +202,7 @@ fn task_items(blocks: &mut [markdown_parse::Block], text: &str) -> Vec<(&'static
 /// `link`) carries the whole link's text, as the reference's one `<a>` reads; every other run has "". FlowRuns draws a
 /// link word by word: the first word is the link node named with this text, and its other words, which carry the same
 /// label, are hidden from assistive tech. A link that starts with a code span is no different: its
-/// link node holds the code span (after a web link's favicon; reply-links RL-3).
+/// link node holds the code span (after a web link's favicon).
 fn link_labels(runs: Vec<Value>) -> Vec<Value> {
     let field = |run: &Value, index: usize| match run {
         Value::Record(fields) => fields
@@ -276,7 +276,7 @@ mod link_tests {
             .collect()
     }
 
-    // markdown-links-and-files-preview TH-9: react-markdown's defaultUrlTransform empties a
+    // react-markdown's defaultUrlTransform empties a
     // destination whose first colon comes before any `/`, `?` or `#` unless its scheme is safe.
     #[test]
     fn relative_name_line_links_lose_their_target() {
@@ -353,7 +353,7 @@ mod link_tests {
 
     #[test]
     fn an_attachment_has_no_folder_for_relative_links() {
-        // audit-wave-followups-3 FW-2: AttachmentFilePreview's ChatMarkdown (no `cwd`): a relative
+        // AttachmentFilePreview's ChatMarkdown (no `cwd`): a relative
         // destination is targetless link text, an absolute one or a `file:` URL a chip; its tasks are disabled.
         let source = Value::list(vec![Value::record(vec![
             Value::str("attachment:a1"),
@@ -528,7 +528,7 @@ mod link_tests {
             ]
         );
         // A code span after the link's first word is one of its runs, and a web link that starts with one is labelled too
-        // (its link node holds the favicon; reply-links RL-3).
+        // (its link node holds the favicon).
         assert_eq!(
             labelled("Was [linked `$verify`](https://example.test/) and [`x` docs](https://example.com/c) today."),
             vec![
@@ -540,7 +540,7 @@ mod link_tests {
                 row("today.", "", false, ""),
             ]
         );
-        // reply-links RL-1, RL-2: a mailto, irc, xmpp or fragment link is a link with its href and label, one that starts
+        // A mailto, irc, xmpp or fragment link is a link with its href and label, one that starts
         // with a code span too.
         assert_eq!(
             labelled("Write [the team](mailto:t@example.test), [the channel](irc://irc.example.test/t3), [chat](xmpp:t@example.test), [the notes](#notes) or [`y` mail](mailto:y@example.test) today."),
@@ -588,7 +588,7 @@ mod link_tests {
     fn a_table_cell_copies_only_a_web_link_as_a_link() {
         // serializeAnchor keeps only an http(s) link; a fragment, mailto or xmpp link in a cell copies its text. The
         // fragment keeps its href (link_href), so the cell draws it as a link (ChatRuns' inline run), as the reference's
-        // `<a href="#notes">`; its click opens nothing, as a fragment link's in prose (reply-links review).
+        // `<a href="#notes">`; its click opens nothing, as a fragment link's in prose.
         let doc = document(
             Value::str("t"),
             "| a | b |\n|-|-|\n| [the notes](#notes) | [mail](mailto:t@example.test) |\n| [web](https://example.com/w) | [chat](xmpp:t@example.test) |",

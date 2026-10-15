@@ -14,7 +14,7 @@ final class ActivityTests: XCTestCase {
         XCTAssertTrue(T3ActivityScopes.recentlyInteracted(0, at: 45_000))
         XCTAssertFalse(T3ActivityScopes.recentlyInteracted(0, at: 45_001))
     }
-    // pr-conversation-and-refresh: the pull request panel's idle rule reads the reporter's last interaction (Unix ms).
+    // The pull request panel's idle rule reads the reporter's last interaction (Unix ms).
     func testLastInteractionIsAWallClockInstantFromLaunch() {
         let before = Date().timeIntervalSince1970 * 1000
         let reporter = T3ActivityReporter(persistent: false, dataDirectory: nil, observeWindows: false)

@@ -1,4 +1,4 @@
-// Lane r8-pointer: ⌘] (navigation.forward) returns to Settings after ⌘[ left
+// ⌘] (navigation.forward) returns to Settings after ⌘[ left
 // it. The reference's Settings is a router location (/settings/<route>): Back
 // from it pops to the thread, and Forward pushes the settings route again until
 // another location is visited. The clone's own history (keyboard-dispatch.ts

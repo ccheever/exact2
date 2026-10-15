@@ -1,10 +1,10 @@
-// UV-1 (T3 Code 1e2ecbd975, MIT; see LICENSE-T3): the age tip that never showed under a real pointer in the pull
+// T3 Code 1e2ecbd975 (MIT; see LICENSE-T3): the age tip that never showed under a real pointer in the pull
 // request Code tab. The reference has none there: PullRequestReviewAnnotation.tsx's
 // ReviewThreadCard draws the author as PullRequestActorLabel (a tooltip with the login) and the age as a bare
 // `<span>{formatRelativeTimeLabel(comment.createdAt)}</span>`; PullRequestTimelineTab.tsx draws every age the same way.
-// Only the Summary tab's comment age (PullRequestSummaryTab.tsx CommentMeta) has the full date as a tooltip. UV-3: a commit
+// Only the Summary tab's comment age (PullRequestSummaryTab.tsx CommentMeta) has the full date as a tooltip. A commit
 // link's tip (its URL, one long word) ran past its bubble and the window; the reference's TooltipPopup is `max-w-80
-// wrap-anywhere`. UV-2 and UV-4 needed no code change, so no test here covers them.
+// wrap-anywhere`.
 import { describe, expect, test } from 'bun:test';
 import type { Obj } from './domain';
 import { presentTimeline } from './pages-pr-timeline';
@@ -19,7 +19,7 @@ async function component(file: string, name: string): Promise<string[]> {
   return lines.slice(start, end === -1 ? undefined : end);
 }
 
-describe('UV-1: the Code tab thread card has the author tip only, as ReviewThreadCard', () => {
+describe('The Code tab thread card has the author tip only, as ReviewThreadCard', () => {
   test('the author keeps its LayerTip; the age is plain text with a test id and no tip', async () => {
     const card = await component('pages-pr-threads.contract', 'PrdThreadComment');
     expect(card.some(line => line.includes('LayerTip(label=comment.authorTip') && line.includes('pull-request-thread-author-tip-'))).toBe(true);
@@ -49,7 +49,7 @@ const activity: Obj = {
   commits: [{ oid: 'aaaaaaa1', messageHeadline: 'Add the catalog', committedDate: at(500) }],
 };
 
-describe('UV-1: no age on the Timeline has a tip, as PullRequestTimelineTab', () => {
+describe('No age on the Timeline has a tip, as PullRequestTimelineTab', () => {
   test('the comment cards, commits, lifecycle and verdict rows draw their age bare', async () => {
     const file = await source('pages-pr-timeline.contract');
     expect(file.includes('ageTip')).toBe(false);
@@ -75,7 +75,7 @@ describe('UV-1: no age on the Timeline has a tip, as PullRequestTimelineTab', ()
   });
 });
 
-describe('UV-3: a tip on the hover layer breaks a long word inside its bubble, as TooltipPopup (wrap-anywhere)', () => {
+describe('A tip on the hover layer breaks a long word inside its bubble, as TooltipPopup (wrap-anywhere)', () => {
   test('HoverText wraps anywhere within its 20rem bubble', async () => {
     const tip = await component('hover-layer.contract', 'HoverText');
     expect(tip.some(line => line.includes('max-width="20rem"'))).toBe(true);

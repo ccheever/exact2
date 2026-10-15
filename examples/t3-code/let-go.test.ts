@@ -66,7 +66,7 @@ describe('let go', () => {
     expect(client.ready).toBe(true);
   });
 
-  test('a refresh let go inside a read it tolerates watches nothing outside its answer (round 5 follow-up)', async () => {
+  test('a refresh let go inside a read it tolerates watches nothing outside its answer', async () => {
     // fleet.sync swallows a failed `environments` read; the refresh then reads the embedded
     // server, whose `native.watch` the prelude refuses once the answer was let go
     // (js/src/prelude.js: "native.watch outside an answer"), which became the transcript banner.

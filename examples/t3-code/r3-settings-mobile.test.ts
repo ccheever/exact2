@@ -1,4 +1,4 @@
-// Lane r3-settings: General → About → Mobile app (upstream f1dcd93931 NightlyMobileBeta.tsx).
+// General → About → Mobile app (upstream f1dcd93931 NightlyMobileBeta.tsx).
 import { describe, expect, test } from 'bun:test';
 import type { T3Client } from './client';
 import type { Native } from './protocol';

@@ -6,7 +6,7 @@
 // card's content (`details-content`) with `t3-frame` hooks; this runs resolveChatCanvasLayout and
 // answers the chat lane, the card's fold and the floating player's frame, which Contract draws. It also answers
 // ThreadDetailsCard's presentation (inline where a placement is left, else the header's popover) and its density,
-// from the content heights it keeps per thread and preferred width (device-player-compact-and-rail-keys).
+// from the content heights it keeps per thread and preferred width.
 // A pointer gesture on the player is a resource argument (`serial|sourceKey|direction|dx|dy`, the
 // pan's total since it began): the first answer of a serial takes the frame on screen as the
 // gesture's start, every answer moves or resizes the store from that start, so asking again with
@@ -25,7 +25,7 @@ import {
 import { previewMiniPlayerSourceKey, type PreviewMiniPlayerState } from './previewMiniPlayerStore';
 import { deviceKey, deviceThreadId, miniStoreOf } from './r6-media-device';
 import { shownBrowserTab, shownDevice } from './r4-surfaces-panel';
-import { floatingBrowserSize } from './browser-capture'; // browser-surface part 3: a floating Browser tab
+import { floatingBrowserSize } from './browser-capture'; // a floating Browser tab
 import { inlineOpen } from './shell-prefs';
 import { detailsKey } from './shell-details';
 
@@ -101,7 +101,7 @@ function visiblePlayer(client: T3Client): PreviewMiniPlayerState | null {
   if (!thread) return null;
   const player = miniStoreOf(client).get(thread);
   if (!player) return null;
-  if (player.source.kind === 'browser') return shownBrowserTab(client) === player.source.tabId ? null : player; // part 3
+  if (player.source.kind === 'browser') return shownBrowserTab(client) === player.source.tabId ? null : player;
   const shown = shownDevice(client);
   return shown && shown.hostId === player.source.hostId && shown.deviceId === player.source.deviceId ? null : player;
 }

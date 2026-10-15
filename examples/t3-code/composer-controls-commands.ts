@@ -1,4 +1,4 @@
-// Composer commands the footer and banners issue (lane composer-controls),
+// Composer commands the footer and banners issue,
 // adapted from T3 Code (MIT); see LICENSE-T3. Sources: ChatView.tsx (onResume,
 // onImplementPlanInNewThread, handleUnsnoozeActiveThread, acknowledgeActiveThreadWoke,
 // onProviderModelSelect's provider lock), ChatView.logic.ts (deriveLockedProvider,
@@ -14,10 +14,10 @@ import { openUsageLimits, closeUsageLimits, changeLimitRecovery, usageLocal } fr
 import { feedbackLocal } from './composer-feedback';
 import type { T3Client } from './client';
 import { dismissResumeCompaction } from './r3-composer-controls-resume';
-import { dispatchSelection } from './composer-ultrathink'; // composer-fidelity: modelOptionsForDispatch
+import { dispatchSelection } from './composer-ultrathink'; // modelOptionsForDispatch
 import { composerNow, clearStaged, nextTurnCommands, planFollowUp, proposedPlanTitle, requireProvider, resumeState, stagedFor,
   PLAN_IMPLEMENTATION_PROMPT_PREFIX, type ComposerControlsPrefs } from './composer-controls';
-import { loadHostResources } from './auto-balance'; // auto-balance
+import { loadHostResources } from './auto-balance';
 
 /** A select row picks one of its options; a boolean row is On or Off (buildProviderOptionSelectionsFromDescriptors). */
 export function applyOptionChoice(descriptors: Obj[], current: Obj[], id: string, value: string): Obj[] {
@@ -240,15 +240,15 @@ export async function composerLocal(client: T3Client, _native: Native, _storage:
   if (op === 'branch-menu') return branchMenu(client, _native, value);
   // The compact strip's workspace trigger has no context menu (BranchToolbar's MobileRunContextSelector).
   if (op === 'noop') return '';
-  if (op === 'balance-load') return loadHostResources(client, _native, id, Number(value) || 0); // auto-balance: the machines' host resources
+  if (op === 'balance-load') return loadHostResources(client, _native, id, Number(value) || 0); // the machines' host resources
   if (op === 'usage-limits') { openUsageLimits(client, composerNow(client)); return ''; }
   if (op === 'usage-limits-dismiss') { closeUsageLimits(client); return ''; }
-  // usage-reset-and-feedback: Manage usage and the reset credit confirm (composer-controls-usage.ts), the /feedback banner's
+  // Manage usage and the reset credit confirm (composer-controls-usage.ts), the /feedback banner's
   // Copy ID and dismiss (composer-feedback.ts).
   if (op.startsWith('usage-')) return usageLocal(client, _native, op, id);
   if (op.startsWith('feedback-')) return feedbackLocal(client, _native, op, id);
   if (op === 'queued-cancel') { cancelQueuedEdit(client); return ''; }
-  if (op === 'queued-attachment-remove') { removeQueuedEditAttachment(client, id); return ''; } // composer-fidelity G12a
+  if (op === 'queued-attachment-remove') { removeQueuedEditAttachment(client, id); return ''; }
   if (op === 'resume-compaction-dismiss') { dismissResumeCompaction(client, id); return ''; }
   if (op === 'dismiss-woke') { await acknowledgeWoke(client, id || client.threadId, _native, value); return ''; }
   throw new ClientError(`Unknown composer action: ${op}`);

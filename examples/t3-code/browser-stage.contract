@@ -1,4 +1,4 @@
-// browser-surface part 2: a Browser tab's page area (MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
+// A Browser tab's page area (MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
 // apps/web/src/browser/HostedBrowserWebview.tsx, BrowserDeviceToolbar.tsx, BrowserViewportResizeHandles.tsx,
 // useBrowserViewportResize.ts, browserViewportLayout.ts, ScreenRotationIcon.tsx; apps/web/src/components/
 // preview/ZoomIndicator.tsx). Fill puts the page over the whole area. A fixed viewport (the device toolbar is
@@ -83,7 +83,7 @@ component BrowserStage
   derive vx = fixed ? 10 + max(0, round((aw - vw) / 2)) : 0
   derive vy = fixed ? 32 + max(0, round((ah - vh) / 2)) : 0
   // The viewport the page lays out at (CSS px): the module sizes the web view from it at the page's zoom, so the
-  // page's innerWidth × innerHeight are these fields whatever the fitted frame rounds to (G4-16). Empty in fill.
+  // page's innerWidth × innerHeight are these fields whatever the fitted frame rounds to. Empty in fill.
   derive pageSize = fixed and liveW > 0 and liveH > 0 ? `${liveW}x${liveH}` : ""
   action drag(direction: string, dx: number, dy: number)
     dragX = dragDir == direction ? dragX + dx : dx

@@ -80,7 +80,7 @@ export function terminalInputShortcutData(
 }
 
 /** The composing state of the terminal's input, for the native view (`composition` messages): its key
- * path runs before the input method and must leave a composing key to it (G1-1, G1-2).
+ * path runs before the input method and must leave a composing key to it.
  * WebKit's own marked-text answer (`hasMarkedText`) waits on an editor state the page sends late, or,
  * in a window that is not key, never. Updates in between change nothing: the input method's text stays
  * in the input until it commits, and the surface sends what it commits (surface.ts onCompositionEnd). */

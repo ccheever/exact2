@@ -1,6 +1,6 @@
 // The composer's provider state: the Claude "ultrathink" prompt flow, the
-// implicit Fast-mode default and the options a send dispatches (task
-// composer-fidelity, G9), adapted from T3 Code 1e2ecbd975 (MIT); see LICENSE-T3.
+// implicit Fast-mode default and the options a send dispatches,
+// adapted from T3 Code 1e2ecbd975 (MIT); see LICENSE-T3.
 // Sources: apps/web/src/components/chat/composerProviderState.tsx
 // (getComposerPromptInjectionState, withImplicitFastModeDefault,
 // getComposerProviderState), packages/shared/src/model.ts

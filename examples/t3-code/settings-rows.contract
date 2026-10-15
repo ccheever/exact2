@@ -1,4 +1,4 @@
-// Setting sections, rows and their controls (lane settings-core): SettingsSection,
+// Setting sections, rows and their controls: SettingsSection,
 // SettingsGroup, SettingsRow, ui/switch, ui/select (trigger + popup), DraftInput,
 // NumberField, the composer model/traits pickers and the scope sentence menus.
 use CoreIcon, CorePaintIcon from "./settings-core.contract"
@@ -105,7 +105,7 @@ component ScopeMenu
     choose: action
   state lit = ""
   derive scope = project ? "project" : "environment"
-  // audit-wave-followups-4 FX-2 (menu-keys.contract): the pointer entering a row focuses it; leaving the row that holds the
+  // After menu-keys.contract: the pointer entering a row focuses it; leaving the row that holds the
   // focus hands it to the popup. A row is highlighted by its focus alone; the chosen one keeps its wash beside the highlight
   // (MenuRadioItem data-checked, SelectItem data-selected: bg-foreground/8).
   action hover(id: string, rowId: string, over: bool)
@@ -162,14 +162,14 @@ component CoreSections
         column gap="0.625rem" width="100%" position="relative" z-index=(menu.startsWith(`${section.id}/`) ? 50 : 1) id=section.id testId=`settings-section-${section.id}`
           if section.collapsible
             // LegacyFeaturesSection's trigger (CollapsibleTrigger, a button) holds `<h2>Legacy features</h2>` and the
-            // chevron: button › heading [level=2] (main #451, X74; adopt-main-fixes-r10 RT-2).
+            // chevron: button › heading [level=2] (main #451).
             button press=toggleLegacy class=SettingsGhost justify-content="flex-start" gap="0.5rem" min-height="2rem" padding-left="1rem" padding-right="1rem" width="100%" aria-expanded=legacyOpen testId=`settings-section-toggle-${section.id}`
               text section.title font-size="0.875rem" font-weight=400 line-height="1.25rem" color=pal.heading role="heading" aria-level=2 id=`paint-CoreSections-1-${section.id}` data-paint="text" data-pick="text"
               box rotate=(legacyOpen ? "90deg" : "0deg")
                 CorePaintIcon(ownId=`paint-icon-CoreSections-1-${section.id}`, paint="mutedForeground", name="chevron-right", size=16, color=pal.muted)
           else
             row min-height="1.75rem" align-items="center" justify-content="space-between" padding-left="1rem" padding-right="1rem"
-              // settings-headings: SettingsSection's title is an `<h2>`, SettingsRow's an `<h3>` (settingsLayout.tsx).
+              // SettingsSection's title is an `<h2>`, SettingsRow's an `<h3>` (settingsLayout.tsx).
               text section.title font-size="0.875rem" font-weight=400 line-height="1.25rem" color=pal.heading role="heading" aria-level=2 id=`paint-CoreSections-2-${section.id}` data-paint="text" data-pick="text"
               if section.id == "typography"
                 row gap="0.5rem" align-items="center"
@@ -256,7 +256,7 @@ component CoreRowView
                 button press=change(row.id, row.target, "advanced") disabled=(busy or row.inert) aria-label="Configure advanced background activity" class=SettingsGhost width="1.75rem" height="1.75rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" testId=`setting-${row.id}-configure` title="" id=`setting-${row.id}-configure` data-paint="input canvas" data-pick="canvas"
                   CorePaintIcon(ownId=`paint-icon-CoreRowView-6-${row.id}`, paint="text", name="settings", size=16, color=pal.text)
             if row.kind == "model"
-              // ProviderModelPicker: the composer's picker (model-picker.contract) opens under this trigger (settings-model-picker);
+              // ProviderModelPicker: the composer's picker (model-picker.contract) opens under this trigger;
               // a Mixed value shows its neutral label without a provider mark.
               box position="relative"
                 button press=change(row.id, "picker", "") class=SettingsGhost gap="0.375rem" height="1.75rem" padding-left="0.625rem" padding-right="0.625rem" border-radius="0.5rem" disabled=(busy or row.inert) aria-label=row.label aria-haspopup="dialog" id=`setting-${row.id}` testId=`setting-${row.id}-model`
@@ -362,7 +362,7 @@ component CoreMenu
     choose: action
     testId: string
   state lit = ""
-  // audit-wave-followups-4 FX-2 (menu-keys.contract): the pointer entering a row focuses it; leaving the row that holds the
+  // After menu-keys.contract: the pointer entering a row focuses it; leaving the row that holds the
   // focus hands it to the popup. A row is highlighted by its focus alone; the chosen one keeps its wash beside the highlight
   // (MenuRadioItem data-checked, SelectItem data-selected: bg-foreground/8).
   action hover(id: string, rowId: string, disabled: bool, over: bool)
@@ -401,7 +401,7 @@ component TraitsMenu
     choose: action
     testId: string
   state lit = ""
-  // audit-wave-followups-4 FX-2 (menu-keys.contract): the pointer entering a row focuses it; leaving the row that holds the
+  // After menu-keys.contract: the pointer entering a row focuses it; leaving the row that holds the
   // focus hands it to the popup. A row is highlighted by its focus alone; the chosen one keeps its wash beside the highlight
   // (MenuRadioItem data-checked, SelectItem data-selected: bg-foreground/8).
   action hover(id: string, rowId: string, over: bool)

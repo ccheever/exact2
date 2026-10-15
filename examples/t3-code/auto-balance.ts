@@ -10,8 +10,8 @@
 //   (`composerControls.balance`), beside its workspace context, so no other writer of
 //   that context drops them.
 // - Host resources load in a command (`cclocal:balance-load`) the root's `balanceLoad`
-//   task sends when `branches.balanceFetch` changes (X19: no timers in a data module;
-//   X21: each machine's request goes over its own transport, the focused connection or
+//   task sends when `branches.balanceFetch` changes (issues/closed/20261009-typescript-failure-parity.md: no timers in a data module;
+//   issues/20261009-runner-owned-bidirectional-streams.md: each machine's request goes over its own transport, the focused connection or
 //   its T3Fleet transport, with a 5 s deadline). The task hands the window's wall time
 //   in; it stands for the client receipt time of that load's samples.
 // - The reference retargets the draft's project reference when the choice resolves
@@ -126,7 +126,7 @@ export type AutoBalanceState = {
 
 /**
  * The load the root task is running, while it runs: its fetch key holds, so the task keeps its
- * command (a changed key would let the command's answer go mid-move, X19: the load is a task's command).
+ * command (a changed key would let the command's answer go mid-move, issues/closed/20261009-typescript-failure-parity.md: the load is a task's command).
  */
 const loading = new WeakMap<T3Client, string>();
 

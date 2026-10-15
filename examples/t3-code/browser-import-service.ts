@@ -1,4 +1,4 @@
-// browser-surface part 4 (profiles): listing the importable browsers and writing one profile's cookies into a T3 Code
+// Listing the importable browsers and writing one profile's cookies into a T3 Code
 // profile (MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975: apps/desktop/src/preview/BrowserImport/BrowserImport.ts).
 //
 // The reference writes into the target profile's Electron partition with `session.cookies.set`; the clone's module writes

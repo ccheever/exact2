@@ -165,7 +165,7 @@ describe('the shared menu keyboard (Base UI Menu)', () => {
   });
 
   test('a menu opened by the data module: its trigger lets go of the focus, so the popup can take it', async () => {
-    // Diff scope no longer waits for this (repair round 2): its panel shows the menu for the opening turn and focuses it.
+    // Diff scope no longer waits for this: its panel shows the menu for the opening turn and focuses it.
     for (const [file, comp, call] of [['r6-device.contract', 'R6DeviceWorkspaceView', 'local("surface-r6dev-menu", "", menu)'],
       ['r4-surfaces-files.contract', 'R4CrumbView', 'local("surface-files-crumb", crumb.path, "")'], ['r4-surfaces.contract', 'R4LinkedRowView', 'local("surface-pr-menu", row.key, "")'],
       ['markdown.contract', 'TableCopyButton', 'press()']] as const)
@@ -229,7 +229,7 @@ describe('public popover triggers execute one ordered command sequence', () => {
     expect(trigger).toContain(` popovertarget=${command[1]} `);
     // The same eligible rows drive the public opening and the menu's subsequent navigation.
     expect(body).toContain(`items=${itemName},`);
-    // LegacyOptions measures nothing first (KW-6: its menu is end-aligned by `position-area`, not a measured tail).
+    // LegacyOptions measures nothing first (its menu is end-aligned by `position-area`, not a measured tail).
     const prep: unknown[][] = name === 'BrowserProfilesSetting' ? [['local', 'browser-profiles-sources', '']]
       : name === 'PrFiltersMenu' ? [['openMenu']]
       : name === 'PrRowStack' ? [['control', 'quick-stack', 'repo:42']]
@@ -259,7 +259,7 @@ describe('public popover triggers execute one ordered command sequence', () => {
   });
 });
 
-describe('↓ and ↑ on a closed trigger open its menu at the first or the last item (Base UI Menu, coordinator ruling 2026-10-08)', () => {
+describe('↓ and ↑ on a closed trigger open its menu at the first or the last item (Base UI Menu)', () => {
   test('state-owned menus retain root/first/last entry and mount-time endpoint selection', async () => {
     const h = await helpers, menu = contractComponent('menu-keys.contract', 'KeyMenu');
     for (const [key, end, keyed] of [['ArrowDown', 'first', 1], ['ArrowUp', 'last', -1], ['Enter', 'first', 1], [' ', 'first', 1], ['Space', 'first', 1], ['Escape', '', 0]] as const) {
@@ -352,7 +352,7 @@ describe('#298 bug 4: Custom snooze from the sidebar row by the real pointer and
   });
 });
 
-describe('menu-keys repair round 2: Escape from the snooze menu with the pointer outside', () => {
+describe('Escape from the snooze menu with the pointer outside', () => {
   test('the trigger the focus returns to keeps the actions shown after the closed toggle releases the pin', async () => {
     // AFTER drive 11-snooze-pointer-out-escape: the closed toggle hid the actions (aria-hidden) under the
     // returned focus and the macOS host dropped it. has-[:focus-visible] (Sidebar.tsx) keeps them shown.
@@ -394,7 +394,7 @@ describe('the snooze menu sizes to its rows', () => {
     // A fixed 10.8rem cut the widest time at the menu's edge; the reference's menu is 192 px wide on a weekday.
     const row = await component('sidebar-row.contract', 'ThreadRow');
     const menu = row.split('\n').find(line => line.includes('aria-label="Snooze thread" position="absolute"')) ?? '';
-    // KW-6: placed by `position-area` (MenuPopup side="bottom" align="end", flipping), no inset.
+    // Placed by `position-area` (MenuPopup side="bottom" align="end", flipping), no inset.
     expect(menu).toContain('position="absolute" margin-top="0.25rem" min-width="10rem" padding="0.25rem"');
     expect(menu).not.toMatch(/\swidth=/);
     const item = await component('sidebar-row.contract', 'SnoozeMenuItem');
@@ -457,9 +457,9 @@ describe('#298 bugs 13 and 16: the pull request More menu and its Close dialog b
   });
 });
 
-// audit-wave-followups-3: the Pull Requests Filters submenus, as PullRequestListFilters' Base UI Menu draws and keys them.
-describe('the Pull Requests Filters submenus (audit-wave-followups-3)', () => {
-  test('FW-3: submenu Escape returns to its row until the pointer leaves; outer close restores Filters', async () => {
+// The Pull Requests Filters submenus, as PullRequestListFilters' Base UI Menu draws and keys them.
+describe('the Pull Requests Filters submenus', () => {
+  test('submenu Escape returns to its row until the pointer leaves; outer close restores Filters', async () => {
     const body = await component('pages-prs.contract', 'PrFiltersMenu');
     const menu = contractComponent('pages-prs.contract', 'PrFiltersMenu');
     for (const left of [false, true]) {
@@ -504,7 +504,7 @@ describe('the Pull Requests Filters submenus (audit-wave-followups-3)', () => {
     const searchBody = await component('pages-prs.contract', 'PrFilterSub');
     expect(searchBody).toContain('if k == "Escape"\n      preventDefault()\n      stopPropagation()\n      searchEscape()\n    else if k != "ArrowDown"\n      stopPropagation()');
   });
-  test('FW-4: the Author submenu tints its chosen row and ticks none; the radio submenus keep their tick', async () => {
+  test('the Author submenu tints its chosen row and ticks none; the radio submenus keep their tick', async () => {
     const sub = await component('pages-prs.contract', 'PrFilterSub');
     expect(sub).toContain('label="Anyone", detail="", selected=(page.author == ""), tick=false,');
     expect(sub).toContain('label="Open", detail="", selected=(page.state == "open"), tick=true,');
@@ -516,7 +516,7 @@ describe('the Pull Requests Filters submenus (audit-wave-followups-3)', () => {
 
 // The behaviour (a hovered row takes the focus, ↓ goes on from it, leaving hands the keys back) is
 // menu-one-highlight.test.contract, which the agent runs against the app on a KeyMenu (Sort) and an owner-drawn menu (scope).
-describe('one highlight: the pointer and the keys move one focus (audit-wave-followups-4 FX-2; Base UI highlightedIndex)', () => {
+describe('one highlight: the pointer and the keys move one focus (Base UI highlightedIndex)', () => {
   // [file, row component, the row's own id]: every painted menu row in a KeyMenu (the title menu keeps ContextMenu's DOM
   // fallback, whose rows highlight on hover or focus).
   const rows: [string, string, string][] = [
@@ -553,7 +553,7 @@ describe('one highlight: the pointer and the keys move one focus (audit-wave-fol
     expect(hover).toBeDefined();
     expect(line).toContain('focus=focused(true) blur=focused(false)');
     row.call(hover!, state, scope, [true]);
-    // The More menu's rows close its Appearance submenu on entry, and Appearance opens it (browser-panel-parity G4-19).
+    // The More menu's rows close its Appearance submenu on entry, and Appearance opens it.
     expect(calls).toEqual(name === 'BsMenuItem' ? [['hidePopover', 'browser-appearance-menu'], ['focus', realId]]
       : name === 'BrowserAppearanceItem' ? [['focus', realId], ['showPopover', 'browser-appearance-menu', { source: realId }]] : [['focus', realId]]);
     row.call('focused', state, scope, [true]);
@@ -626,9 +626,9 @@ describe('one highlight: the pointer and the keys move one focus (audit-wave-fol
       for (const entry of popups) if (entry.beside) besides.add(file);
     });
     expect(wrong).toEqual([]);
-    // A floor, so a pattern that stops matching the uses fails here (146 at audit-wave-followups-4).
+    // A floor, so a pattern that stops matching the uses fails here (146 when it was set).
     expect(checked).toBeGreaterThan(140);
-    // No menu draws its rows beside its KeyMenu (device-player-compact-and-rail-keys DR-1: the device rail's were, so a
+    // No menu draws its rows beside its KeyMenu (the device rail's were, so a
     // key at a focused row reached no menu).
     expect([...besides]).toEqual([]);
   });
@@ -664,7 +664,7 @@ describe('one highlight: the pointer and the keys move one focus (audit-wave-fol
         if (!/^\s*(button|link) id=/.test(line) || !/role=(?:"(menuitem|option)|\(.*(menuitem|option))/.test(line)) return;
         // The title menu draws ContextMenu's DOM fallback (its own hover or focus); the sidebar's and a panel tab's context
         // menus are AppKit menus on macOS.
-        // The "+" menu's profile list opens from its chevron and has no keyboard (X66), so it has one highlight already.
+        // The "+" menu's profile list opens from its chevron and has no keyboard (issues/closed/20261009-popover-action-commands.md), so it has one highlight already.
         if (/testId=`title-menu-|testId=`(thread|draft|tab)-menu-|testId=`browser-profile-/.test(line)) return;
         if (/background-color=\([^"]*\b(over|hovered|hovering)\b/.test(line)) offenders.push(`${file}:${index + 1}`);
       });
@@ -673,10 +673,10 @@ describe('one highlight: the pointer and the keys move one focus (audit-wave-fol
   });
 });
 
-// browser-panel-parity G4-19: More › Appearance is MenuSubTrigger + MenuSubPopup (PreviewMoreMenu.tsx, ui/menu.tsx):
+// More › Appearance is MenuSubTrigger + MenuSubPopup (PreviewMoreMenu.tsx, ui/menu.tsx):
 // hover opens it beside its row through the public popover command, the pointer can travel into it, and a sibling
 // row (or the Zoom row) closes only it, so Zoom − is never covered.
-describe('G4-19: the Browser More menu\'s Appearance submenu', () => {
+describe('the Browser More menu\'s Appearance submenu', () => {
   const child = 'browser-appearance-menu';
   const run = (component: string, action: string, scope: Env, args: unknown[]) => {
     const calls: unknown[][] = [], row = contractComponent('browser-surface.contract', component), state = row.state();
