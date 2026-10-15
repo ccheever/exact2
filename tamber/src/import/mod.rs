@@ -11,7 +11,9 @@
 use crate::edit::{Op, WhenLine};
 use crate::{Design, Diagnostic};
 
+mod engine;
 pub mod shadcn;
+pub mod tailwind;
 
 /// An import, ready to propose.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -185,6 +187,19 @@ fn same(a: &str, b: &str) -> bool {
 
 fn same_conds(a: &[(String, String)], b: &[(String, String)]) -> bool {
     a.len() == b.len() && a.iter().all(|c| b.contains(c))
+}
+
+/// Why a colour the CSS parser reads is no Tamber value yet (`none`
+/// components, say), or `None` when it folds.
+pub fn unfolded(value: &str) -> Option<String> {
+    let design = format!("tamber probe\n\ntheme\n  probe = {value}\n");
+    match crate::check(&design, &crate::Vocab { roles: Vec::new() }) {
+        Ok(_) => None,
+        Err(all) => Some(
+            all.first()
+                .map_or_else(|| "it does not fold".to_string(), |d| d.message.clone()),
+        ),
+    }
 }
 
 /// The counted check: every source value mapped or reported, exactly.

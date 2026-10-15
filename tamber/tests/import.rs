@@ -320,7 +320,7 @@ fn shadcn_winners_nesting_and_recovery() {
     assert_eq!(why("--y"), ["`--x` is no colour where this block reads it"]);
     assert_eq!(
         why("--cc"),
-        ["not a colour, and no other kind is built yet (stage 6)"]
+        ["a colour Tamber does not fold yet: `currentcolor` is the element's own colour, which no token can hold"]
     );
     assert_eq!(
         why("--config"),
@@ -456,4 +456,111 @@ fn a_theme_axis_past_the_tuples_refuses_the_import() {
     let css = ".theme-blue { --background: #0000ff; }";
     let refused = shadcn::import(css, "shadcn", &parse(&design).unwrap(), &vocab()).unwrap_err();
     assert_eq!(refused[0].id, "tamber-import-tuples");
+}
+
+#[test]
+fn tailwinds_default_theme_imports_counted_and_again_proposes_nothing() {
+    use exact_tamber::import::tailwind;
+    let css = fixture("tailwind-theme.css");
+    let first = tailwind::import(&css, "tw", &parse(EMPTY).unwrap()).unwrap();
+    // 419 variables: 288 colours, 275 mapped and 13 with a `none` component
+    // Tamber does not fold yet; every other kind pending or reported.
+    assert_eq!((first.counted.source, first.counted.mapped), (419, 275));
+    assert_eq!(first.counted.reported, 144);
+    assert_eq!(
+        first
+            .unmapped
+            .iter()
+            .filter(|u| u.why.starts_with("a colour Tamber does not fold yet"))
+            .count(),
+        13
+    );
+    let why = |name: &str| {
+        first
+            .unmapped
+            .iter()
+            .find(|u| u.name == name)
+            .map(|u| (u.why.clone(), u.token.clone()))
+            .unwrap()
+    };
+    assert_eq!(
+        why("--spacing"),
+        (
+            "kind pending (stage 6): length".into(),
+            Some("tw.space.base".into())
+        )
+    );
+    assert_eq!(
+        why("--text-xs--line-height"),
+        (
+            "kind pending (stage 6): type".into(),
+            Some("tw.type.xs".into())
+        )
+    );
+    assert_eq!(
+        why("--font-weight-bold"),
+        (
+            "kind pending (stage 6): number".into(),
+            Some("tw.weight.bold".into())
+        )
+    );
+    assert_eq!(
+        why("--ease-in-out"),
+        (
+            "kind pending (stage 6): easing".into(),
+            Some("tw.ease.in-out".into())
+        )
+    );
+    assert_eq!(
+        why("--breakpoint-sm").0,
+        "no Tamber kind: a breakpoint is layout, CSS's own"
+    );
+    assert_eq!(
+        why("--inset-shadow-xs").0,
+        "kind pending (stage 6): box-shadow (inset)"
+    );
+    let text = accepted(EMPTY, &first);
+    assert_eq!(
+        token_value(&text, "tw.red.s500"),
+        "oklch(63.7% 0.237 25.331)"
+    );
+    assert_eq!(token_value(&text, "tw.black"), "#000");
+    let again = tailwind::import(&css, "tw", &parse(&text).unwrap()).unwrap();
+    assert_eq!(again.ops, []);
+}
+
+#[test]
+fn a_tailwind_project_maps_its_dark_block_to_light_dark_and_honours_its_reset() {
+    use exact_tamber::import::tailwind;
+    let theme = fixture("tailwind-theme.css");
+    let project = fixture("tailwind-project.css");
+    // The default theme first, then the project, as `@import "tailwindcss"` reads them.
+    let css = format!("{theme}\n{project}");
+    let import = tailwind::import(&css, "tw", &parse(EMPTY).unwrap()).unwrap();
+    assert_eq!(
+        import.counted.mapped + import.counted.reported,
+        import.counted.source
+    );
+    // The reset takes every default colour out.
+    assert_eq!(
+        import
+            .unmapped
+            .iter()
+            .filter(|u| u.why == "reset by a later `initial` in its namespace")
+            .count(),
+        288
+    );
+    let text = accepted(EMPTY, &import);
+    assert!(!text.contains("tw.red.s500"), "{text}");
+    assert_eq!(
+        token_value(&text, "tw.brand.s500"),
+        "light-dark(oklch(0.62 0.19 255), oklch(0.7 0.17 255))"
+    );
+    assert_eq!(
+        token_value(&text, "tw.surface"),
+        "light-dark(#ffffff, #0b0f14)"
+    );
+    assert_eq!(token_value(&text, "tw.ink"), "tw.brand.s600");
+    let again = tailwind::import(&css, "tw", &parse(&text).unwrap()).unwrap();
+    assert_eq!(again.ops, []);
 }

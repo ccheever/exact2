@@ -602,7 +602,7 @@ const USAGE = `exact — run an Exact app from the command line (macOS)
                                its IR, tamber.json (ir -o <file>), or its layout (fmt)
   exact tamber serve <app>     the design server alone (development only): /__tamber
   exact tamber op <url> <request JSON>|subscribe  its scripted client
-  exact tamber import shadcn <source> <url> --app <app>  a theme as held proposals
+  exact tamber import shadcn|tailwind <source> <url> --app <app>  a theme as held proposals
 
 An app is a directory under apps/ (or EXACT_APP_DIR for one outside this repo).
 EXACT_BIN_DIR names where a shim goes; the default is the first of ~/.local/bin,

@@ -22,13 +22,10 @@
 //! - Tailwind's own blocks (`@theme`, `@theme inline`), which map these
 //!   variables to utilities, are not the source and are not read.
 
+use super::engine::{self, Decl, Fate, Target};
 use super::{counted, css_blocks, reconcile, tamber_name, Import, Mapped, Offer, Unmapped};
 use crate::edit::Op;
 use crate::{Design, Diagnostic, Vocab};
-use std::collections::{BTreeMap, BTreeSet};
-
-/// A theme block: its theme (`None` the default) and whether it is dark.
-type Target = (Option<String>, bool);
 
 /// Where a block's declarations go: each target its selector list names,
 /// or why none. `dark` is an enclosing `prefers-color-scheme: dark`.
@@ -170,8 +167,10 @@ fn split_compound(w: &str) -> Vec<&str> {
 /// none.
 fn literal(value: &str) -> Option<String> {
     let v = value.split_whitespace().collect::<Vec<_>>().join(" ");
-    let ok =
-        |c: &str| exact_color::parse(c).is_some_and(|p| !matches!(p, exact_color::Parsed::Current));
+    let ok = |c: &str| {
+        exact_color::parse(c).is_some_and(|p| !matches!(p, exact_color::Parsed::Current))
+            && super::unfolded(c).is_none()
+    };
     if ok(&v) {
         return Some(v);
     }
@@ -180,16 +179,6 @@ fn literal(value: &str) -> Option<String> {
     }
     let hsl = format!("hsl({v})");
     ok(&hsl).then_some(hsl)
-}
-
-/// `var(--x)`'s name.
-fn reference(value: &str) -> Option<&str> {
-    value
-        .trim()
-        .strip_prefix("var(")?
-        .strip_suffix(')')
-        .map(str::trim)
-        .filter(|n| n.starts_with("--") && !n.contains(','))
 }
 
 /// The name a variable becomes: `--chart-1` → `chart.s1`, `--sidebar-x` →
@@ -203,42 +192,6 @@ fn segments(var: &str) -> Vec<String> {
     }
     vec![bare.to_string()]
 }
-
-/// Where a block reads a variable it does not set, nearest first, as CSS
-/// does: a dark theme block from the theme, then the default dark side.
-fn chain(at: &Target) -> Vec<Target> {
-    match at {
-        (Some(t), true) => vec![
-            (Some(t.clone()), true),
-            (Some(t.clone()), false),
-            (None, true),
-            (None, false),
-        ],
-        (Some(t), false) => vec![(Some(t.clone()), false), (None, false)],
-        (None, true) => vec![(None, true), (None, false)],
-        (None, false) => vec![(None, false)],
-    }
-}
-
-/// Whether `to` is reachable from `from` in `graph` by one step or more.
-fn reaches(graph: &BTreeMap<String, BTreeSet<String>>, from: &str, to: &str) -> bool {
-    let mut seen = BTreeSet::new();
-    let mut stack: Vec<&str> = graph
-        .get(from)
-        .map_or(Vec::new(), |n| n.iter().map(String::as_str).collect());
-    while let Some(n) = stack.pop() {
-        if n == to {
-            return true;
-        }
-        if seen.insert(n) {
-            stack.extend(graph.get(n).into_iter().flatten().map(String::as_str));
-        }
-    }
-    false
-}
-
-/// One declaration as read: its block, variable, value and targets.
-type Decl = (String, String, String, Vec<Target>);
 
 /// Import `css` under `prefix` (`shadcn` by default), planned against
 /// `design`; `vocab` names the roles an override may already spell.
@@ -354,201 +307,47 @@ pub fn import(
             1,
         )]);
     }
-    // Names, first seen first; of two variables that would be one token,
-    // the later one's declarations are reported.
-    let mut names: BTreeMap<String, String> = BTreeMap::new();
-    let mut taken: BTreeMap<String, String> = BTreeMap::new();
-    let mut order: Vec<String> = Vec::new();
-    let mut collided: BTreeMap<String, String> = BTreeMap::new();
-    for (_, var, _, _) in &decls {
-        if names.contains_key(var) || collided.contains_key(var) {
-            continue;
-        }
+    let named = engine::name(&decls, |var| {
         let segs = segments(var);
         let refs: Vec<&str> = segs.iter().map(String::as_str).collect();
-        let token = tamber_name(prefix, &refs);
-        match taken.get(&token) {
-            Some(first) => {
-                collided.insert(var.clone(), first.clone());
-            }
-            None => {
-                taken.insert(token.clone(), var.clone());
-                names.insert(var.clone(), token);
-                order.push(var.clone());
-            }
-        }
-    }
-    // The declaration that wins each block for each variable: the last, as
-    // in CSS, whatever its value.
-    let mut winners: BTreeMap<(Target, String), usize> = BTreeMap::new();
-    for (k, (_, var, _, targets)) in decls.iter().enumerate() {
-        if collided.contains_key(var) {
-            continue;
-        }
-        for t in targets {
-            winners.insert((t.clone(), var.clone()), k);
-        }
-    }
-    // A colour as a block sees it: a literal, or a reference to a variable
-    // that is a colour where the block reads it (its own block, the theme's
-    // light side, the default's: CSS's nearest), never through a cycle.
-    // Each as written (a reference stays a token's name) and resolved.
-    fn seen(
-        at: &Target,
-        var: &str,
-        decls: &[Decl],
-        winners: &BTreeMap<(Target, String), usize>,
-        names: &BTreeMap<String, String>,
-        visiting: &mut Vec<String>,
-    ) -> Option<(String, String)> {
-        let k = chain(at)
-            .iter()
-            .find_map(|c| winners.get(&(c.clone(), var.to_string())))?;
-        colour_of(&decls[*k].2, at, decls, winners, names, visiting)
-    }
-    fn colour_of(
-        value: &str,
-        at: &Target,
-        decls: &[Decl],
-        winners: &BTreeMap<(Target, String), usize>,
-        names: &BTreeMap<String, String>,
-        visiting: &mut Vec<String>,
-    ) -> Option<(String, String)> {
-        if let Some(c) = literal(value) {
-            return Some((c.clone(), c));
-        }
-        let r = reference(value)?;
-        if visiting.iter().any(|v| v == r) || !names.contains_key(r) {
-            return None;
-        }
-        visiting.push(r.to_string());
-        let found = seen(at, r, decls, winners, names, visiting);
-        visiting.pop();
-        found.map(|(_, resolved)| (names[r].clone(), resolved))
-    }
-    // Each block's own colour for each variable, where its winner is one:
-    // as written, resolved, and the variable a reference names.
-    let mut sides: BTreeMap<(Target, String), (String, String, Option<String>)> = BTreeMap::new();
-    for ((t, var), k) in &winners {
-        let mut visiting = vec![var.clone()];
-        let value = &decls[*k].2;
-        if let Some((written, resolved)) =
-            colour_of(value, t, &decls, &winners, &names, &mut visiting)
-        {
-            let names_var = reference(value)
-                .filter(|_| literal(value).is_none())
-                .map(str::to_string);
-            sides.insert((t.clone(), var.clone()), (written, resolved, names_var));
-        }
-    }
-    // A reference round a cycle of tokens (each side fine alone, the
-    // tokens' `light-dark()`s each other's) is written as the colour it
-    // resolves to. The tokens fold a missing side as CSS reads it (see the
-    // `when` lines below), so a reference elsewhere folds to what it read.
-    let mut graph: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-    for ((_, var), (_, _, r)) in &sides {
-        if let Some(r) = r {
-            graph.entry(var.clone()).or_default().insert(r.clone());
-        }
-    }
-    let cyclic: BTreeSet<String> = graph
-        .keys()
-        .filter(|v| reaches(&graph, v, v))
-        .cloned()
-        .collect();
-    let keys: Vec<(Target, String)> = sides.keys().cloned().collect();
-    for key in keys {
-        let (_, var) = &key;
-        let entry = &sides[&key];
-        if entry.2.is_some() && cyclic.contains(var) {
-            let resolved = entry.1.clone();
-            sides.insert(key, (resolved.clone(), resolved, None));
-        }
-    }
-    // Each declaration mapped (it wins a block, and is a colour there) or
-    // reported, once.
+        tamber_name(prefix, &refs)
+    });
+    let names = &named.names;
+    let (tokens, fates) = engine::assemble(&decls, &named, &themes, &literal);
+    // Each declaration mapped, or reported once with why.
     let mut mapped = 0;
-    for (k, (label, var, value, targets)) in decls.iter().enumerate() {
-        if let Some(first) = collided.get(var) {
-            let why = format!("its name is `{first}`'s ({})", names[first]);
-            report(&mut unmapped, label, var, value, why, None);
-            continue;
-        }
-        let won: Vec<&Target> = targets
-            .iter()
-            .filter(|t| winners.get(&((*t).clone(), var.clone())) == Some(&k))
-            .collect();
-        if won.is_empty() {
-            let why = "declared again later for the same theme block, which wins".to_string();
-            report(&mut unmapped, label, var, value, why, None);
-            continue;
-        }
-        if won
-            .iter()
-            .any(|t| sides.contains_key(&((*t).clone(), var.clone())))
-        {
-            mapped += 1;
-            continue;
-        }
-        let token = Some(names[var].clone());
-        let (why, token) = if value.trim().is_empty() {
-            ("an empty value".to_string(), None)
-        } else if let Some(r) = reference(value) {
-            (
-                format!("`{r}` is no colour where this block reads it"),
-                token,
-            )
-        } else if looks_like_length(value) {
-            ("kind pending (stage 6): length".to_string(), token)
-        } else {
-            let why = "not a colour, and no other kind is built yet (stage 6)";
-            (why.to_string(), token)
-        };
-        report(&mut unmapped, label, var, value, why, token);
-    }
-    let pair = |l: Option<&String>, d: Option<&String>| match (l, d) {
-        (Some(l), Some(d)) if l == d => Some(l.clone()),
-        (Some(l), Some(d)) => Some(format!("light-dark({l}, {d})")),
-        (Some(x), None) | (None, Some(x)) => Some(x.clone()),
-        (None, None) => None,
-    };
-    let mut tokens = Vec::new();
-    for var in &order {
-        let get = |theme: &Option<String>, dark: bool| {
-            sides
-                .get(&((theme.clone(), dark), var.clone()))
-                .map(|(written, _, _)| written)
-        };
-        let mut whens = Vec::new();
-        for t in &themes {
-            let theme = Some(t.clone());
-            if get(&theme, false).is_none() && get(&theme, true).is_none() {
+    for ((label, var, value, _), fate) in decls.iter().zip(&fates) {
+        let token = names.get(var).cloned();
+        let (why, token) = match fate {
+            Fate::Mapped => {
+                mapped += 1;
                 continue;
             }
-            // A theme's missing side reads as CSS does: its dark side the
-            // theme's light, then the default's dark; its light the default's.
-            let value = pair(
-                get(&theme, false).or_else(|| get(&None, false)),
-                get(&theme, true)
-                    .or_else(|| get(&theme, false))
-                    .or_else(|| get(&None, true)),
-            );
-            if let Some(v) = value {
-                whens.push((vec![("theme".to_string(), t.clone())], v));
-            }
-        }
-        // A variable only a theme sets takes that theme's value as its
-        // default; a `when` equal to the default is none.
-        let default = pair(get(&None, false), get(&None, true));
-        let Some(value) = default.or_else(|| whens.first().map(|(_, v)| v.clone())) else {
-            continue;
+            Fate::Collided(first) => (format!("its name is `{first}`'s ({})", names[first]), None),
+            Fate::Superseded => (
+                "declared again later for the same theme block, which wins".to_string(),
+                None,
+            ),
+            Fate::NotColour if value.trim().is_empty() => ("an empty value".to_string(), None),
+            Fate::NotColour => match engine::reference(value) {
+                Some(r) => (
+                    format!("`{r}` is no colour where this block reads it"),
+                    token,
+                ),
+                None if exact_color::parse(value).is_some() && super::unfolded(value).is_some() => {
+                    let why = super::unfolded(value).unwrap_or_default();
+                    (format!("a colour Tamber does not fold yet: {why}"), token)
+                }
+                None if looks_like_length(value) => {
+                    ("kind pending (stage 6): length".to_string(), token)
+                }
+                None => (
+                    "not a colour, and no other kind is built yet (stage 6)".to_string(),
+                    token,
+                ),
+            },
         };
-        whens.retain(|(_, v)| *v != value);
-        tokens.push(Mapped {
-            name: names[var].clone(),
-            value,
-            whens,
-        });
+        report(&mut unmapped, label, var, value, why, token);
     }
     // `--radius`'s derived sizes, as shadcn computes them: reported with it.
     if names.contains_key("--radius") {

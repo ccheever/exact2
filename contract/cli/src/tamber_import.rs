@@ -6,14 +6,14 @@
 //! against. Planned against the app's design as it is, so an unchanged
 //! source proposes nothing.
 
-use exact_tamber::import::{shadcn, Import};
+use exact_tamber::import::{shadcn, tailwind, Import};
 use exact_tamber::Op;
 use serde_json::{json, Value};
 use std::path::Path;
 use std::process::ExitCode;
 
 const USAGE: &str =
-    "usage: contract tamber import shadcn <globals.css> [--app <app dir>] [--prefix <prefix>]";
+    "usage: contract tamber import shadcn|tailwind <stylesheet> [--app <app dir>] [--prefix <prefix>]";
 
 pub fn run(args: &[String]) -> ExitCode {
     let (mut kind, mut source, mut app, mut prefix) = (None, None, None, None);
@@ -83,8 +83,9 @@ pub fn run(args: &[String]) -> ExitCode {
             &design,
             &contract_lower::tamber_vocab(),
         ),
+        "tailwind" => tailwind::import(&text, prefix.as_deref().unwrap_or("tw"), &design),
         other => {
-            eprintln!("contract tamber import: no importer `{other}` (shadcn)");
+            eprintln!("contract tamber import: no importer `{other}` (shadcn, tailwind)");
             return ExitCode::from(2);
         }
     };
