@@ -2,9 +2,15 @@
 
 A local executable that speaks enough of the Agent Client Protocol (v1: newline-delimited
 JSON-RPC on stdio) for Settings › Providers › Add provider to list it under "Or choose from ACP
-Registry", add it, and walk its Sign in step: signed out, signing in, signed in, sign out. It
-signs in to no account, runs no turns and sends nothing anywhere; its only state is
-`state.json` beside it.
+Registry", add it, and walk its Sign in step: signed out, signing in, signed in, sign out; and
+for a thread on it to hold a completed turn. It signs in to no account and sends nothing
+anywhere; its only state is `state.json` beside it.
+
+A turn (`session/prompt`) is answered at once: one `agent_message_chunk` update, "Stand-in
+reply: " and the first line of the user's words, then the stop reason `end_turn`. It reads no
+file, runs no tool and asks for no permission. It advertises `loadSession`, and `session/load`
+brings a session back with no history (it keeps none), so a later turn on the same thread runs
+after the server restarts too.
 
 ## How the server finds it
 
@@ -31,6 +37,13 @@ bun ../second-environment/env.mjs drive --pair second --storage p1 -- "prefer ke
   "tap create-provider" "clock +8000 real" "clock data" "tree add-provider-dialog"
 bun ../second-environment/env.mjs stop second && bun install.mjs forget --home $H   # undo the Add provider
 ```
+
+A thread with a completed turn comes from `../second-environment/`: `bun env.mjs seed second
+--turns` installs the stand-in into that environment (mode `none` when it is not installed yet),
+adds it as the provider instance `acpRegistry_fixture-acp-standin`, and gives "Background thread
+(completed turn)" one turn, visited at its completion so it starts read (that README has the Mark
+unread recipe). In another mode the stand-in must be signed in first, or the seed stops with the
+provider's status.
 
 Modes: `agent` (default) advertises one sign-in method the server completes with `authenticate`;
 `terminal` a login command (`--fixture-login`, Return signs in) the server runs in a terminal;
