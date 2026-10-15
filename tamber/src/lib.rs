@@ -26,7 +26,7 @@ pub use edit::{apply, apply_all, undo, Edited, Op, WhenLine};
 pub use fmt::format;
 pub use fold::{Folded, Half, Host};
 pub use ir::FORMAT;
-pub use session::{plan, Class, Planned, Refused};
+pub use session::{plan, Class, Planned, Refused, Synthetic};
 pub use syntax::{parse, At, Axis, Design, Dial, DialKind, Token, When};
 
 /// A refusal, at a line and column of the source.

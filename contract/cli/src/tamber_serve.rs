@@ -32,7 +32,11 @@
 //!   client never sends a restore.
 //! - **`propose`** plans without writing: the diff, the tokens it changes
 //!   (by file), `live` or `rebuild`, and the digests it planned against; a
-//!   digest it carries is checked as a transaction's is.
+//!   digest it carries is checked as a transaction's is. `live` is the
+//!   edit's closure (LLP 1121 D13, stage 4): no structure, no role override
+//!   reached, and the app's synthetic tokens (its rows' expressions over
+//!   tokens, read from the plan the compiler builds) re-folded, those that
+//!   change listed in `synthetic` with their new value per app tuple.
 //! - **`requires`** (`tamber/1.1`), on a transaction or a propose: digests
 //!   of files it does not edit but was planned on, checked with the rest.
 //! - **Reads:** `hello`, `describe`, `resolve`, `explain`, each of the
@@ -183,6 +187,9 @@ struct Server {
     next: u64,
     /// The client a `hello` named.
     client: Option<String>,
+    /// The app's synthetic tokens (LLP 1121 D3), by the digest of the
+    /// Contract sources they were read from.
+    synthetic: Option<(String, Vec<String>)>,
 }
 
 /// Open without following a symbolic link at the last component.
@@ -310,6 +317,7 @@ impl Server {
             session: format!("{}-{started:x}", std::process::id()),
             next: 0,
             client: None,
+            synthetic: None,
         };
         server.same_state()?;
         server.recover()?;
@@ -319,6 +327,46 @@ impl Server {
             server.sweep();
         }
         Ok(server)
+    }
+
+    /// The app's synthetic tokens: the expressions the compiler folded with
+    /// the design, read from the plan it builds, again only when a Contract
+    /// source changed. None when the app does not build.
+    fn synthetic(&mut self) -> Vec<String> {
+        let root = self.dir.join("app.contract");
+        let graph = contract::source_graph(&root);
+        let mut key = String::new();
+        for s in &graph.sources {
+            if s.path.extension().is_some_and(|e| e == "tamber") {
+                continue;
+            }
+            key.push_str(&s.path.to_string_lossy());
+            key.push('\0');
+            key.push_str(
+                &std::fs::read(&s.path)
+                    .map(|b| digest(&b))
+                    .unwrap_or_default(),
+            );
+            key.push('\n');
+        }
+        if let Some((k, exprs)) = &self.synthetic {
+            if *k == key {
+                return exprs.clone();
+            }
+        }
+        // A synthetic token is named by its whole expression; a design's
+        // token or a role by a name, which holds no parenthesis.
+        let exprs: Vec<String> = contract::compile_path(&root)
+            .map(|plan| {
+                plan.theme
+                    .iter()
+                    .map(|t| plan.str(t.name).to_string())
+                    .filter(|n| n.contains('('))
+                    .collect()
+            })
+            .unwrap_or_default();
+        self.synthetic = Some((key, exprs.clone()));
+        exprs
     }
 
     fn state(&self) -> PathBuf {
@@ -780,7 +828,12 @@ impl Server {
             .iter()
             .map(|(f, t, _)| (f.clone(), t.clone()))
             .collect();
-        let planned = exact_tamber::plan(&texts, ops, &self.vocab, undo).map_err(|all| {
+        let exprs = self.synthetic();
+        let synthetic = exact_tamber::Synthetic {
+            file: &self.design,
+            exprs: &exprs,
+        };
+        let planned = exact_tamber::plan(&texts, ops, &self.vocab, undo, synthetic).map_err(|all| {
             json!({"message": "refused", "diagnostics": all.iter().map(|(f, d)| diagnostic(f, d)).collect::<Vec<_>>()})
         })?;
         let mut out = json!({
@@ -788,6 +841,7 @@ impl Server {
             "changed": planned.changed.iter().map(|(f, t)| json!({"file": f, "token": t})).collect::<Vec<_>>(),
             "class": planned.class.name(),
             "diff": planned.diff,
+            "synthetic": planned.synthetic.iter().map(|(expr, values)| json!({"expr": expr, "values": values.iter().map(|v| v.css()).collect::<Vec<_>>()})).collect::<Vec<_>>(),
         });
         let Some(client) = client else {
             return Ok(out);

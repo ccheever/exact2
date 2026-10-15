@@ -5,12 +5,12 @@
 //! (`contract tamber serve`) owns the digests, the lock, the journal and
 //! every write; this owns none.
 //!
-//! `live` here is judged on the design alone: its shape (axes, dials, the
-//! tokens with their kinds and roles) unchanged. D13's closure through the
-//! compiler (Contract's synthetic consumers, a `color-mix()` over a token
-//! that becomes a role) waits for running builds to report what they
-//! consume (stage 4), and kinds substituted at build (durations, easings)
-//! for stage 6.
+//! `live` is judged by the edit's closure (D13, stage 4): the design's shape
+//! (axes, dials, the tokens with their kinds and roles) unchanged, no role
+//! override's value changed (the hosts take their role tables at boot), and
+//! the app's synthetic tokens (Contract rows' expressions over tokens,
+//! folded with the design) re-folded with it, their new values in the
+//! answer. Kinds substituted at build (durations, easings) wait for stage 6.
 
 use crate::edit::{self, Op};
 use crate::{Diagnostic, Folding, Vocab};
@@ -49,6 +49,19 @@ pub struct Planned {
     pub class: Class,
     /// A diff per edited file, the lines removed (`-`) and added (`+`).
     pub diff: String,
+    /// The app's synthetic tokens whose values change, each its expression
+    /// and its new value per full app tuple.
+    pub synthetic: Vec<(String, Vec<crate::Folded>)>,
+}
+
+/// The app's synthetic tokens (D3): Contract rows' expressions over tokens,
+/// folded with the design file `file`.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Synthetic<'a> {
+    /// The design file they fold with.
+    pub file: &'a str,
+    /// Each one's expression.
+    pub exprs: &'a [String],
 }
 
 /// A refusal: the file it is in, and the checker's or the edit's
@@ -58,15 +71,18 @@ pub type Refused = Vec<(String, Diagnostic)>;
 /// Plan `ops` (each with the file it edits) over `files` (each path with
 /// its text). Every file's operations are applied in order and the file
 /// checked whole; a refusal changes nothing. `undo` marks an inverse the
-/// server issued: its restores, and nothing else.
+/// server issued: its restores, and nothing else. `synthetic` is the app's
+/// synthetic tokens, re-folded with their file.
 pub fn plan(
     files: &[(String, String)],
     ops: &[(String, Op)],
     vocab: &Vocab,
     undo: bool,
+    synthetic: Synthetic,
 ) -> Result<Planned, Refused> {
     let mut out = Vec::new();
     let mut changed = Vec::new();
+    let mut moved = Vec::new();
     let mut structure = false;
     let mut diff = String::new();
     for (path, text) in files {
@@ -90,15 +106,36 @@ pub fn plan(
         if edited.text == *text {
             continue;
         }
-        let (before, after) = (
-            crate::check(text, vocab).ok(),
-            crate::check(&edited.text, vocab).ok(),
-        );
-        changed.extend(
-            changed_tokens(before.as_ref(), after.as_ref())
-                .into_iter()
-                .map(|t| (path.clone(), t)),
-        );
+        let exprs: &[String] = if *path == synthetic.file {
+            synthetic.exprs
+        } else {
+            &[]
+        };
+        let (before, after, lost) = folded(text, &edited.text, exprs, vocab);
+        structure |= lost;
+        let tokens = changed_tokens(before.as_ref(), after.as_ref());
+        // A role override's value is the hosts' at boot: a change reaches
+        // it, directly or through what it names, only by a rebuild.
+        structure |= tokens.iter().any(|t| {
+            [&before, &after].iter().any(|f| {
+                f.as_ref()
+                    .and_then(|f| f.tokens.iter().find(|c| c.name == *t))
+                    .is_some_and(|c| c.role.is_some())
+            })
+        });
+        for t in tokens {
+            match t.strip_prefix('~').and_then(|i| i.parse::<usize>().ok()) {
+                Some(i) => {
+                    let values = after
+                        .as_ref()
+                        .and_then(|f| f.tokens.iter().find(|c| c.name == t))
+                        .map(|c| c.values.clone())
+                        .unwrap_or_default();
+                    moved.push((exprs[i].clone(), values));
+                }
+                None => changed.push((path.clone(), t)),
+            }
+        }
         structure |= match (&before, &after) {
             (Some(b), Some(a)) => shape(b) != shape(a),
             _ => true,
@@ -130,8 +167,77 @@ pub fn plan(
             Class::Live
         },
         diff,
+        synthetic: moved,
     })
 }
+
+/// A file's fold before and after, each with the synthetic tokens appended
+/// as `~<index>` (as the compiler folds them). One that does not fold on a
+/// side is left out of both, so the two stay comparable; `lost` says one
+/// folded before and no longer does (the build would refuse it).
+fn folded(
+    before: &str,
+    after: &str,
+    exprs: &[String],
+    vocab: &Vocab,
+) -> (Option<Folding>, Option<Folding>, bool) {
+    let mut lost = false;
+    let with = |text: &str, kept: &[usize]| -> Result<Folding, Vec<usize>> {
+        let mut design = crate::parse(text).map_err(|_| Vec::new())?;
+        for &i in kept {
+            let at = |value: String| crate::At {
+                value,
+                line: SYNTHETIC + i as u32,
+                col: 1,
+            };
+            design.tokens.push(crate::Token {
+                name: at(format!("~{i}")),
+                kind: None,
+                value: at(exprs[i].clone()),
+                whens: Vec::new(),
+                meta: Vec::new(),
+            });
+        }
+        crate::check_design(design, vocab).map_err(|all| {
+            all.iter()
+                .filter(|d| d.line >= SYNTHETIC)
+                .map(|d| (d.line - SYNTHETIC) as usize)
+                .collect()
+        })
+    };
+    let mut kept: Vec<usize> = (0..exprs.len()).collect();
+    loop {
+        match (with(before, &kept), with(after, &kept)) {
+            (Ok(b), Ok(a)) => return (Some(b), Some(a), lost),
+            (b, a) => {
+                let empty = Vec::new();
+                let before_bad = b.as_ref().err().unwrap_or(&empty);
+                lost |= a
+                    .as_ref()
+                    .err()
+                    .is_some_and(|bad| bad.iter().any(|i| !before_bad.contains(i)));
+                let bad: Vec<usize> = [&b, &a]
+                    .iter()
+                    .filter_map(|r| r.as_ref().err())
+                    .flatten()
+                    .copied()
+                    .collect();
+                if bad.is_empty() || kept.is_empty() {
+                    // The file itself does not fold on a side: no synthetic.
+                    return (
+                        crate::check(before, vocab).ok(),
+                        crate::check(after, vocab).ok(),
+                        lost,
+                    );
+                }
+                kept.retain(|i| !bad.contains(i));
+            }
+        }
+    }
+}
+
+/// A synthetic token's line, past any file's (as the compiler numbers it).
+const SYNTHETIC: u32 = 1 << 30;
 
 /// The tokens whose values differ between two folds, or that one has and
 /// the other lacks.
