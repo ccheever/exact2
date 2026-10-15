@@ -89,13 +89,15 @@ test "the token grid: every mode tuple light and dark, swatches, residuals, what
   tap "save-name"
   clock data
   expect text "column-0-light" == "Light"
-  expect text "column-1-light" == "Light · compact"
+  expect text "column-1-light" == "Light · density=compact"
   expect tree missing "column-2-light"
-  expect text "column-3-dark" == "Dark · dim · compact"
+  expect text "column-3-dark" == "Dark · dark-style=dim · density=compact"
   expect text "cell-text-surface.page-2-dark" == "#15202bff"
   expect text "cell-text-surface.page-0-dark" == "#000000ff"
   expect text "cell-text-surface.inset-1-light" == "#eef0f2ff"
-  expect text "cell-text-text.system-0-light" == "-exact-secondary-label · fallback"
+  expect text "cell-text-text.system-0-light" == "-exact-secondary-label"
+  expect tree has "cell-fallback-text.system-0-light"
+  expect tree missing "cell-fallback-surface.page-0-light"
   expect text "follows-accent.soft" == "follows accent, lift"
   expect tree missing "follows-surface.page"
   expect tree has "token-group-roles"
@@ -110,6 +112,13 @@ test "contrast between two tokens, per column, on the stored values"
   expect text "ratio-0-light" == "18.51:1"
   expect text "ratio-0-dark" == "17.24:1"
   expect text "ratio-2-dark" == "13.54:1"
+  type "pick-a" "text.system"
+  clock data
+  expect text "ratio-0-light" == "3.44:1 (fallback)"
+  type "pick-a" "surface.page"
+  type "pick-b" "text.system"
+  clock data
+  expect text "ratio-0-light" == "translucent background"
 
 test "an edit is proposed with its chip and diff before it is written, then undone and redone"
   type "name" "Ada"
@@ -139,7 +148,7 @@ test "a cell shows the branch that won for its mode; an expression offers its in
   clock data
   tap "cell-surface.page-2-dark"
   clock data
-  expect text "branch-label" == "surface.page · dark-style=dim (Dark · dim)"
+  expect text "branch-label" == "surface.page · dark-style=dim (Dark · dark-style=dim)"
   tap "cell-accent.soft-0-light"
   clock data
   expect text "branch-inputs" == "Follows accent, lift: edit those, or pin a value here."
@@ -147,3 +156,17 @@ test "a cell shows the branch that won for its mode; an expression offers its in
   tap "pin"
   expect text "pinned" == "Pinned here: no longer follows accent, lift."
   expect tree has "branch-value"
+
+test "another design file is read when chosen, and a refused one shows its error and a retry"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  type "file" "brand.tamber"
+  clock data
+  expect text "design-error" == "the stub has no design in brand.tamber"
+  expect tree has "reload-design"
+  expect tree missing "no-dials"
+  type "file" ""
+  clock data
+  expect tree missing "design-error"
+  expect tree has "dial-accent-color"

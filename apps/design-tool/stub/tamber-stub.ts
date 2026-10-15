@@ -39,6 +39,9 @@ Bun.serve({ hostname, port: Number(port), routes: {
       if (request.method === 'hello') return send({ ok: { protocol: 'tamber/1.1', format: 1, builds: [], app: '/stub/theme-fixture', files: FILES } });
       // stub/dials.tamber as the real server read it (stub/dials.json;
       // scripts/design-tool.test.mjs checks the two still agree).
+      // Only app.tamber has a canned design; another file is refused, as a
+      // server refuses a design that does not check.
+      if (['describe', 'resolve', 'explain', 'propose'].includes(request.method) && (request.file ?? 'app.tamber') !== 'app.tamber') return send({ error: { message: `the stub has no design in ${request.file}` } }, 400);
       if (request.method === 'describe') return send({ ok: DIALS.describe });
       if (request.method === 'resolve') return DIALS.resolve[request.token] ? send({ ok: DIALS.resolve[request.token] }) : send({ error: { message: `no token \`${request.token}\`` } }, 400);
       if (request.method === 'explain') return DIALS.explain[request.token] ? send({ ok: DIALS.explain[request.token] }) : send({ error: { message: `no token \`${request.token}\`` } }, 400);

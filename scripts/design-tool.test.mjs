@@ -141,13 +141,25 @@ test('every control on the dials panel comes from the design as describe gives i
     expect(drive.status, drive.stderr).toBe(0);
     const replies = drive.stdout.split('\n').filter(l => l.startsWith('{')).map(l => JSON.parse(l));
     const panel = replies.find(r => r.groups);
-    // What each dial declares, read here from the IR on its own terms.
-    const expected = described.ir.dials.filter(d => d.meta.control !== 'none').map(d => ({
-      name: d.name, group: d.meta.group ?? '', label: d.meta.label ?? d.name,
-      control: d.meta.control ?? (d.kind === 'color' ? 'color' : 'slider'), more: d.meta.priority === '3',
-    }));
-    const shown = panel.groups.flatMap(g => [...g.dials.map(c => ({ c, more: false })), ...g.more.map(c => ({ c, more: true }))].map(({ c, more }) => ({ name: c.name, group: g.name, label: c.label, control: c.control, more })));
-    expect(shown.sort((a, b) => a.name.localeCompare(b.name))).toEqual(expected.sort((a, b) => a.name.localeCompare(b.name)));
+    // The panel for stub/dials.tamber, as its metadata declares it: groups
+    // in the order they first appear, each by priority, 3 behind "More",
+    // `none` not drawn, and each control's range, step and value.
+    const pick = c => ({ name: c.name, control: c.control, label: c.label, value: c.value, min: c.min, max: c.max, step: c.step });
+    expect(panel.groups.map(g => ({ name: g.name, dials: g.dials.map(pick), more: g.more.map(pick) }))).toEqual([
+      { name: 'Colour', dials: [
+        { name: 'accent', control: 'color', label: 'Accent', value: '#1083feff', min: 0, max: 1, step: 1 },
+        { name: 'lift', control: 'slider', label: 'Lift', value: '0.1', min: 0, max: 0.5, step: 0.01 },
+      ], more: [] },
+      { name: 'Tone', dials: [
+        { name: 'hue', control: 'stepper', label: 'hue', value: '200', min: 0, max: 360, step: 5 },
+        { name: 'chroma', control: 'slider', label: 'chroma', value: '0.1', min: 0, max: 0.3, step: 0.01 },
+      ], more: [
+        { name: 'warmth', control: 'slider', label: 'Warmth', value: '20', min: 0, max: 60, step: 1 },
+      ] },
+    ]);
+    // Every dial describe gives, but `none`, is on it.
+    const expected = described.ir.dials.filter(d => d.meta.control !== 'none').map(d => ({ name: d.name, control: d.meta.control ?? (d.kind === 'color' ? 'color' : 'slider'), more: d.meta.priority === '3' }));
+    expect(panel.groups.flatMap(g => [...g.dials, ...g.more]).map(c => c.name).sort()).toEqual(expected.map(e => e.name).sort());
     // And on screen: each first-rank dial's control, by its testId, and no other.
     const tree = JSON.stringify(replies.at(-1));
     for (const e of expected) expect(tree.includes(`dial-${e.name}-${e.control}`)).toBe(!e.more);
@@ -270,3 +282,28 @@ test('expressions are kept unless pinned, "only this mode" adds a when, and toke
     rmSync(app, { recursive: true, force: true });
   }
 }, 900_000);
+
+test('controls from metadata that does not fit, steps, select values, column labels and contrast over a background', async () => {
+  const { controlOf, columnsOf, contrast } = await import('../apps/design-tool/app.ts');
+  const dial = (kind, meta, value = kind === 'color' ? '#1083feff' : '0.001', range = kind === 'color' ? null : ['0', '0.005']) => controlOf({ name: 'd', kind, value, range, meta });
+  // A control that does not fit its kind is the kind's own, said so.
+  expect(dial('color', { control: 'stepper' })).toMatchObject({ control: 'color', help: 'control=stepper does not fit this color dial; its own control is shown.' });
+  expect(dial('number', { control: 'slider' }, '1', null)).toMatchObject({ control: 'stepper' });
+  expect(dial('number', { control: 'select' })).toMatchObject({ control: 'slider' });
+  expect(dial('number', { control: 'none' })).toBeNull();
+  // No step: one fine enough for the value; a bad step or priority is ignored.
+  expect(dial('number', {}).step).toBe(0.001);
+  expect(dial('number', { step: '-1', priority: '1.5' })).toMatchObject({ step: 0.001, priority: 2 });
+  expect(dial('number', { step: '2px' }).step).toBe(0.001);
+  // A select's value matched by meaning, else listed first.
+  expect(dial('color', { control: 'select', options: '#ff0000|#1083fe' })).toMatchObject({ control: 'select', value: '#1083fe', options: ['#ff0000', '#1083fe'] });
+  expect(dial('color', { control: 'select', options: '#ff0000' })).toMatchObject({ value: '#1083feff', options: ['#1083feff', '#ff0000'] });
+  // Two axes with like-named values make two labels.
+  const cols = columnsOf([{ name: 'a', values: ['normal', 'compact'], under: null }, { name: 'b', values: ['normal', 'compact'], under: null }]);
+  expect(new Set(cols.map(c => c.label)).size).toBe(cols.length);
+  // Text over a background, composited; a translucent background has no one ratio.
+  expect(contrast('#00000000', '#ffffffff')).toBe(1);
+  expect(contrast('#000000', '#ffffff')).toBe(21);
+  expect(contrast('#000000', '#ffffff80')).toBe('translucent background');
+  expect(contrast('oklch(0.5 0 0)', '#ffffff')).toBe('not a colour');
+});

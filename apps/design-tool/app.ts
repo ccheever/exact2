@@ -84,24 +84,46 @@ function change(e: any): Change | null {
 
 type Design = Result<'loadDesign'>;
 type Control = Design['groups'][number]['dials'][number];
-const noDesign = (error: string): Design => ({ ok: false, error, file: '', groups: [], columns: [], tokenGroups: [], names: [] });
+const noDesign = (error: string): Design => ({ ok: false, error, file: '', answer: ++designs, groups: [], columns: [], tokenGroups: [], names: [] });
+let designs = 0;
 
 /** A dial's control from its declared metadata (LLP 1121 D4, D15): its
  * `control`, else its kind's own (a colour's field, a ranged number's
- * slider); `none` is not drawn. `token` names a picker of tokens, which a
- * dial (a literal) has none of, so it is its kind's too. */
+ * slider, else a stepper); `none` is not drawn. Metadata is kept, not
+ * checked, by Tamber, so a control that does not fit the kind (a stepper
+ * for a colour, a slider with no range, a select with no options) is the
+ * kind's own, said in its help; a step or priority that is no number is
+ * left at its default. `token` names a picker of tokens, which a dial (a
+ * literal) has none of. */
 export function controlOf(d: { name: string; kind: string; value: string; range: [string, string] | null; meta: Record<string, string> }): Control | null {
   const m = d.meta ?? {};
   const own = d.kind === 'color' ? 'color' : d.range ? 'slider' : 'stepper';
   const declared = m.control;
   if (declared === 'none') return null;
-  const control = ['color', 'slider', 'stepper', 'select'].includes(declared) && (declared !== 'color' || d.kind === 'color') && (declared !== 'slider' || d.range) ? declared : own;
-  const num = (v: string | undefined, or: number) => (v !== undefined && Number.isFinite(parseFloat(v)) ? parseFloat(v) : or);
-  const priority = Math.round(num(m.priority, 2));
+  const options = (m.options ?? '').split('|').map(o => o.trim()).filter(Boolean);
+  const fits = declared === 'color' ? d.kind === 'color'
+    : declared === 'slider' ? d.kind !== 'color' && !!d.range
+    : declared === 'stepper' ? d.kind !== 'color'
+    : declared === 'select' ? options.length > 0
+    : false;
+  const control = fits ? declared : own;
+  const strict = (v: string | undefined) => (v !== undefined && v.trim() !== '' && Number.isFinite(Number(v)) ? Number(v) : null);
+  // With no step, the finest the value and the range are written in, so
+  // every declared value is a step (at least 0.01).
+  const decimals = (v: string | undefined) => (v?.split('.')[1] ?? '').replace(/[^0-9].*$/, '').length;
+  const finest = 10 ** -Math.max(2, decimals(d.value), decimals(d.range?.[0]), decimals(d.range?.[1]));
+  const step = strict(m.step) !== null && strict(m.step)! > 0 ? strict(m.step)! : d.kind === 'number' ? finest : 1;
+  const priority = [1, 2, 3].includes(strict(m.priority) ?? 0) ? strict(m.priority)! : 2;
+  const said = declared && declared !== 'token' && !fits ? `control=${declared} does not fit this ${d.kind} dial; its own control is shown.` : '';
+  // A select's options as given, the current value matched by meaning (a
+  // colour's folded `#rrggbbaa` is its `#rrggbb`), else listed first.
+  const same = (o: string) => (d.kind === 'color' ? o.toLowerCase().replace(/^(#[0-9a-f]{6})$/, '$1ff') === d.value.toLowerCase() : Number(o) === Number(d.value) || o === d.value);
+  const matched = options.find(same);
   return {
-    name: d.name, kind: d.kind, control, label: m.label ?? d.name, help: m.help ?? '', value: d.value,
-    number: num(d.value, 0), min: num(d.range?.[0], 0), max: num(d.range?.[1], 1), step: num(m.step, d.kind === 'number' ? 0.01 : 1),
-    priority: Math.min(3, Math.max(1, priority)), options: (m.options ?? '').split('|').filter(Boolean),
+    name: d.name, kind: d.kind, control, label: m.label ?? d.name, help: [m.help ?? '', said].filter(Boolean).join(' '),
+    value: control === 'select' ? matched ?? d.value : d.value,
+    number: strict(d.value) ?? 0, min: strict(d.range?.[0]) ?? 0, max: strict(d.range?.[1]) ?? 1, step, priority,
+    options: control === 'select' && !matched ? [d.value, ...options] : options,
   };
 }
 
@@ -133,18 +155,21 @@ export function columnsOf(axes: Axis[]): { id: string; label: string; tuple: num
   for (const dark of [false, true]) {
     tuples.forEach((values, tuple) => {
       if (!dark && axes.some((a, i) => a.under === 'dark' && values[i] !== a.values[0])) return;
-      const modes = values.filter((v, i) => !(axes[i].under === 'dark' && !dark) && v !== axes[i].values[0]);
+      // Each mode off its default, by axis, so two axes' like-named values
+      // never make one label.
+      const modes = values.flatMap((v, i) => (!(axes[i].under === 'dark' && !dark) && v !== axes[i].values[0] ? [`${axes[i].name}=${v}`] : []));
       out.push({ id: `${tuple}-${dark ? 'dark' : 'light'}`, label: [dark ? 'Dark' : 'Light', ...modes].join(' · '), tuple, dark, values });
     });
   }
   return out;
 }
 
-// Each token's stored values, per tuple, as the last design read gave them.
+// Each design read, by its answer's number: its axes, its columns and each
+// token's stored values per tuple. A read builds its own and never touches
+// another's, and what follows one (a cell's branch, contrast) names it.
 type Stored = { css: string; srgb: string; residual: boolean; note: string };
-let stored = new Map<string, Stored[][]>();
-let columns: ReturnType<typeof columnsOf> = [];
-let axes: Axis[] = [];
+type Snapshot = { file: string; axes: Axis[]; columns: ReturnType<typeof columnsOf>; stored: Map<string, Stored[][]> };
+const snapshots = new Map<number, Snapshot>();
 // Whether running apps take a value edit with no reload: a server says so
 // in its hello once it has the live table (LLP 1121 stage 4). Until then
 // every edit reaches them through the dev loop's reload.
@@ -196,19 +221,19 @@ const sources: Sources = {
     const described = await call('/__tamber', { method: 'describe', ...which });
     if (described.error) return noDesign(described.error);
     const ir = described.reply.ok.ir;
-    axes = ir.axes ?? [];
-    columns = columnsOf(axes);
+    const axes: Axis[] = ir.axes ?? [];
+    const columns = columnsOf(axes);
     // Each token's stored value per tuple and scheme, a residual as its
     // fallback (no running app reports it until T2).
     const resolved = await Promise.all((ir.tokens ?? []).map((t: { name: string }) => call('/__tamber', { method: 'resolve', token: t.name, ...which })));
     const failed = resolved.find(r => r.error);
     if (failed) return noDesign(failed.error);
-    stored = new Map();
+    const stored = new Map<string, Stored[][]>();
     const tokens = (ir.tokens ?? []).map((t: { name: string; kind: string; dials: string[]; role: string | null }, i: number) => {
       const tuples = resolved[i].reply.ok.tuples as any[];
       const sides = tuples.map(r => [false, true].map(dark => {
         const side = dark ? 'dark' : 'light';
-        if (r.residual) return { css: r.value, srgb: r.fallback?.[side] ?? '', residual: true, note: `${r.value} · fallback` };
+        if (r.residual) return { css: r.value, srgb: r.fallback?.[side] ?? '', residual: true, note: r.value };
         return { css: r[side], srgb: r.srgb?.[side] ?? r[side], residual: false, note: '' };
       }));
       stored.set(t.name, sides);
@@ -221,22 +246,29 @@ const sources: Sources = {
     // Rows grouped by their dotted prefix (an undotted name's before its
     // first `_`, as `contrast_0`'s); a role override among the roles.
     const groups = new Map<string, typeof tokens>();
+    // A role override, as the IR marks it (`role`), whatever its name.
+    const roles = new Set((ir.tokens ?? []).filter((t: { role: string | null }) => t.role).map((t: { name: string }) => t.name));
     for (const t of tokens) {
-      const g = t.name.startsWith('-') || /^[A-Z]/.test(t.name) ? 'roles' : t.name.split(t.name.includes('.') ? '.' : '_')[0];
+      const g = roles.has(t.name) ? 'roles' : t.name.split(t.name.includes('.') ? '.' : '_')[0];
       if (!groups.has(g)) groups.set(g, []);
       groups.get(g)!.push(t);
     }
+    const answer = ++designs;
+    snapshots.set(answer, { file, axes, columns, stored });
+    for (const old of snapshots.keys()) if (old < answer - 8) snapshots.delete(old);
     return {
-      ok: true, error: '', file: file || '', groups: panelOf(ir.dials ?? []),
+      ok: true, error: '', file: file || '', answer, groups: panelOf(ir.dials ?? []),
       columns: columns.map(({ id, label }) => ({ id, label })),
       tokenGroups: [...groups].map(([name, rows]) => ({ name, tokens: rows })),
       names: tokens.map((t: { name: string }) => t.name),
     };
   },
-  loadBranch: async ([file, token, column]) => {
+  loadBranch: async ([file, token, column, answer]) => {
     const none = { ok: true, error: '', token: '', column: '', label: '', when: '', value: '', expression: false, inputs: [], exact: true, own: '' };
-    const col = columns.find(c => c.id === column);
-    if (!token || !col) return none;
+    const snap = snapshots.get(answer);
+    const col = snap?.columns.find(c => c.id === column);
+    if (!token || !col || !snap || snap.file !== file) return none;
+    const axes = snap.axes;
     const { error, reply } = await call('/__tamber', { method: 'explain', token, ...(file ? { file } : {}) });
     if (error) return { ...none, ok: false, error };
     const x = reply.ok as { value: string; whens: { when: When[]; value: string }[]; dials: string[]; names: string[] };
@@ -299,14 +331,16 @@ const sources: Sources = {
     if (inverse) undoStack.push({ ...top, inverse });
     return stacks(true, '', 'redo');
   },
-  loadContrast: async ([a, b]) => {
+  loadContrast: async ([a, b, answer]) => {
     if (!a || !b) return { ok: true, error: '', ratios: [] };
-    const x = stored.get(a), y = stored.get(b);
+    const snap = snapshots.get(answer);
+    if (!snap) return { ok: true, error: '', ratios: [] };
+    const x = snap.stored.get(a), y = snap.stored.get(b);
     if (!x || !y) return { ok: false, error: `${!x ? a : b} is not in this design.`, ratios: [] };
-    return { ok: true, error: '', ratios: columns.map(c => {
+    return { ok: true, error: '', ratios: snap.columns.map(c => {
       const p = x[c.tuple]?.[c.dark ? 1 : 0], q = y[c.tuple]?.[c.dark ? 1 : 0];
-      const r = p && q ? contrast(p.srgb, q.srgb) : null;
-      return { column: c.id, label: c.label, ratio: r === null ? 'not a colour' : `${r.toFixed(2)}:1${p!.residual || q!.residual ? ' (fallback)' : ''}` };
+      const r = p && q ? contrast(p.srgb, q.srgb) : 'not a colour';
+      return { column: c.id, label: c.label, ratio: typeof r === 'string' ? r : `${r.toFixed(2)}:1${p!.residual || q!.residual ? ' (fallback)' : ''}` };
     }) };
   },
   waitChanges: async ([since, epoch]) => {
@@ -328,16 +362,23 @@ const sources: Sources = {
 };
 export const answer: Answer = (source, args, store, storage, native) => sources[source](args, store, storage, native);
 
-/** WCAG 2's contrast ratio between two `#rrggbb[aa]` colours, alpha
- * ignored; null for anything else. */
-export function contrast(a: string, b: string): number | null {
-  const lum = (hex: string) => {
+/** WCAG 2's contrast ratio of a text colour `fg` over a background `bg`,
+ * each `#rrggbb[aa]`: the text composited over the background first. A
+ * background that is not opaque has no one ratio until what is behind it
+ * is known: said, as is anything that is not such a colour. */
+export function contrast(fg: string, bg: string): number | string {
+  const rgba = (hex: string) => {
     const m = /^#([0-9a-f]{6})([0-9a-f]{2})?$/i.exec(hex.trim());
-    if (!m) return null;
-    const [r, g, bl] = [0, 2, 4].map(i => parseInt(m[1].slice(i, i + 2), 16) / 255).map(c => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    return m ? [0, 2, 4].map(i => parseInt(m[1].slice(i, i + 2), 16) / 255).concat(m[2] ? parseInt(m[2], 16) / 255 : 1) : null;
+  };
+  const [f, b] = [rgba(fg), rgba(bg)];
+  if (!f || !b) return 'not a colour';
+  if (b[3] < 1) return 'translucent background';
+  const over = f.slice(0, 3).map((c, i) => c * f[3] + b[i] * (1 - f[3]));
+  const lum = (c: number[]) => {
+    const [r, g, bl] = c.map(v => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
     return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
   };
-  const [x, y] = [lum(a), lum(b)];
-  if (x === null || y === null) return null;
+  const [x, y] = [lum(over), lum(b.slice(0, 3))];
   return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
 }

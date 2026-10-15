@@ -77,6 +77,7 @@ shape Design
   ok: bool
   error: string
   file: string
+  answer: number
   groups: DialGroup[]
   columns: Column[]
   tokenGroups: TokenGroup[]
@@ -143,7 +144,8 @@ component DesignTool
   state pickA = ""
   state pickB = ""
   resource design = loadDesign(file, since, epoch) as shape Design else empty(ok=true)
-  resource contrast = loadContrast(pickA, pickB, since, epoch) as shape Contrast else empty(ok=true)
+  // Contrast and a cell's branch follow the design read they are of.
+  resource contrast = loadContrast(pickA, pickB, design.answer) as shape Contrast else empty(ok=true)
   // The cell chosen in the grid, and the edit being considered: an
   // operation, the token or dial, the `when` (`axis=value …`, "" for the
   // default) and the value. Nothing is written until Apply.
@@ -157,7 +159,7 @@ component DesignTool
   state newName = ""
   state newValue = ""
   state renameTo = ""
-  resource branch = loadBranch(file, selToken, selColumn, since, epoch) as shape Branch else empty(ok=true)
+  resource branch = loadBranch(file, selToken, selColumn, design.answer) as shape Branch else empty(ok=true)
   resource proposal = proposeEdit(file, editKind, editTarget, editWhen, editValue, since, epoch) as shape Proposal else empty(ok=true)
   // One slot for a write, an undo or a redo: its reply holds the stacks.
   mutation written as shape Written refreshes design then afterWrite
@@ -174,6 +176,8 @@ component DesignTool
     // the server keeps, or no answer: read the files again.
     if changes.missed or not hello.ok or not changes.ok or changes.seq != since
       refresh hello
+    if not design.ok
+      refresh design
     since = changes.seq
     epoch = changes.epoch
     asks = asks + 1
@@ -262,6 +266,8 @@ component DesignTool
   action redo
     if not pending(written)
       send written = redoLast(client)
+  action reloadDesign
+    refresh design
   action toggleMore(group: string)
     opened = opened.includes(group) ? opened.filter(g => g != group) : opened.concat([group])
   action chooseFile(f: string)
@@ -308,10 +314,13 @@ component DesignTool
                 for f in hello.files key=f.path
                   option f.path value=f.path
             if not design.ok
-              text design.error color="-exact-system-red" testId="design-error"
+              row gap=8 align-items="center"
+                text design.error color="-exact-system-red" flex=1 testId="design-error"
+                button press=reloadDesign buttonStyle="bordered" testId="reload-design"
+                  text "Try Again"
             column gap=12 testId="dials"
               text "Dials" role="heading" aria-level=2
-              if design.groups.length == 0
+              if design.ok and design.groups.length == 0
                 text "This design has no dials." color="-exact-secondary-label" testId="no-dials"
               for g in design.groups key=g.name
                 column gap=8 padding=12 border-radius=10 background-color="-exact-secondary-background" testId=`group-${g.name}`
@@ -343,6 +352,8 @@ component DesignTool
                         for cell in t.cells key=cell.column
                           column width=96 flex-shrink=0 gap=2 press=selectCell(t.name, cell.column) role="button" aria-label=`${t.name} ${cell.column}` testId=`cell-${t.name}-${cell.column}`
                             view height=24 border-radius=4 background-color=cell.swatch border="1px solid -exact-separator"
+                            if cell.residual
+                              text "fallback" font="-exact-caption2" color="-exact-system-orange" testId=`cell-fallback-${t.name}-${cell.column}`
                             text (cell.residual ? cell.note : cell.css) font="-exact-caption2" color="-exact-secondary-label" line-clamp=1 testId=`cell-text-${t.name}-${cell.column}`
             if selToken != "" and branch.ok and branch.token != ""
               column gap=8 padding=12 border-radius=10 background-color="-exact-secondary-background" testId="branch"
@@ -404,14 +415,14 @@ component DesignTool
                 text stack.error color="-exact-system-red" flex=1 testId="write-error"
             column gap=8 testId="contrast"
               text "Contrast" role="heading" aria-level=2
-              text "Between the stored values: a role or platform colour is its fallback until a running app reports it." color="-exact-secondary-label" font="-exact-footnote"
+              text "Text over background, between the stored values: a role or platform colour is its fallback until a running app reports it." color="-exact-secondary-label" font="-exact-footnote"
               row gap=8
-                select value=pickA change=chooseA aria-label="First token" testId="pick-a"
-                  option "Choose a token" value=""
+                select value=pickA change=chooseA aria-label="Text" testId="pick-a"
+                  option "Text…" value=""
                   for n in design.names key=n
                     option n value=n
-                select value=pickB change=chooseB aria-label="Second token" testId="pick-b"
-                  option "Choose a token" value=""
+                select value=pickB change=chooseB aria-label="Background" testId="pick-b"
+                  option "Background…" value=""
                   for n in design.names key=n
                     option n value=n
               if not contrast.ok
