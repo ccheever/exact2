@@ -404,11 +404,6 @@ someone using the app runs into are in the section above.
   do. A host change for a focused `menuitem` or `option` in an open popover would cover every
   menu ([`issues/20261015-macos-return-on-a-focused-menu.md`](../../issues/20261015-macos-return-on-a-focused-menu.md)).
 
-**Not built:**
-
-- A file chip's press in the composer: the reference previews a draft's file
-  (AttachmentFilePreview); the app previews only sent attachments.
-
 **Fixed, not checked with real input or VoiceOver.** The fixes of 2026-10-14 and 2026-10-15
 passed in-process and agent-drive checks only. VoiceOver was last turned on before them; it
 then misread the theme editor's sliders and the accent picker as percentages, did not reach the
@@ -421,6 +416,8 @@ or chat media. To check with real input, VoiceOver, or both:
 - Return on a row of the + menu, a Settings select and a Connections machine menu.
 - The surface launcher's letter after the launcher is mounted again (⌘⌥B twice, then a letter).
 - Composer chips: each press and its popover, by pointer and by VoiceOver; a video chip.
+- The composer's file chip: its preview by pointer and by VoiceOver, Save file, a draft's audio,
+  and a draft HTML page's links (in place; `_blank` opens the browser; `_top` does nothing).
 - In full screen, one accessibility press on "Toggle thread details panel" (an agent's press
   toggled it twice; `issues/20261013-macos-axpress-on-a-button-whose.md` may be why).
 - Terminal: Korean 2-Set composition, middle-click paste, link opening, closing a terminal.
