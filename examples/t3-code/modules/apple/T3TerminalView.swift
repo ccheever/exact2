@@ -48,8 +48,11 @@ final class T3TerminalView: ExactNativeInstance {
             if routeKey?(event) == true { return true }
             return super.performKeyEquivalent(with: event)
         }
+        var offeringKey: ((NSEvent) -> Void)?
         override func keyDown(with event: NSEvent) {
-            if routeKey?(event) != true { super.keyDown(with: event) }
+            guard routeKey?(event) != true else { return }
+            offeringKey?(event)
+            super.keyDown(with: event)
         }
         override func keyUp(with event: NSEvent) {
             if routeKey?(event) != true { super.keyUp(with: event) }
@@ -163,6 +166,7 @@ final class T3TerminalView: ExactNativeInstance {
         }
         web.mounted = { [weak self] in self?.windowChanged() }
         web.routeKey = { [weak self] event in self?.routeTerminalKey(event) ?? false }
+        web.offeringKey = { [weak self] event in self?.offerKey(event) }
         web.middlePressed = { [weak self] in self?.focusTerminal() }
         web.setAccessibilityLabel("Terminal")
         // Under the agent the window is often behind others or on another Space; WebKit then
@@ -227,20 +231,23 @@ final class T3TerminalView: ExactNativeInstance {
     /// (entry.ts observeComposition) or WebKit's marked text, whichever knows first.
     var composing: Bool { pageComposing || (web as AnyObject as? NSTextInputClient)?.hasMarkedText() == true }
     private var pageComposing = false
-    private(set) var inputMethodOffers = 0
-    private var offeredKey: NSEvent?
+    /// The last key marked for the page as the input method's (`compositionKey`): AppKit can hand it
+    /// to `keyDown` again (WebKit resends a key the page left unhandled).
+    private weak var markedKey: NSEvent?
 
     /// One event owner before AppKit's menu equivalents. The page has the same policy as a
     /// fallback for DOM input; consumed native events never reach it a second time.
     ///
     /// This path runs before the input method (a local monitor, then the key equivalents, both ahead
     /// of WebKit's keyDown), where Chromium's page sees a key only after it.
-    /// So while text is composing, a key without ⌘ is the input method's first: the terminal's
-    /// bindings and readline keys never act on it ahead of the composition; ⌥Return (Hanja, a candidate
-    /// list) is offered to the input context here, synchronously, as Chromium's `interpretKeyEvents`;
-    /// a ⌃ chord is offered to the input context too, so conversion and candidate keys stay with
-    /// the input method. Only a declined chord commits and then reaches the terminal's key path.
-    /// The sign-in terminal's Escape commits too, then goes to its PTY (AppKit would dismiss the form).
+    /// So while text is composing, a key without ⌘ is the input method's: the terminal's bindings and
+    /// readline keys never act on it ahead of the composition, and it goes on to WebKit's keyDown, which
+    /// offers it to the input method once. The view never asks the input context itself: WKWebView is
+    /// an asynchronous text input client, so `NSTextInputContext.handleEvent(_:)` returns false before
+    /// an input method process has answered, while that input method still acts on the key (and the
+    /// keyboard layout's command follows a key it declines). A ⌃ chord or ⌥Return is marked for the
+    /// page on its way to WebKit (`offerKey`), so the page never encodes it (entry.ts `CompositionKeys`).
+    /// The sign-in terminal's Escape commits, then goes to its PTY (AppKit would dismiss the form).
     func routeTerminalKey(_ event: NSEvent) -> Bool {
         guard !disposed, event.window === web.window, event.type == .keyDown || event.type == .keyUp else { return false }
         if event.type == .keyUp { return suppressedKeys.remove(event.keyCode) != nil }
@@ -248,10 +255,9 @@ final class T3TerminalView: ExactNativeInstance {
         guard composing else { return routeKeyDown(event) }
         switch T3TerminalKeys.composing(event) {
         case .chord: return routeKeyDown(event)
-        case .inputContextFirst: return offerToInputMethod(event)
+        case .compositionKey: return false
         case .inputMethod where !(authMode && event.keyCode == 53): return false
-        case .inputMethod, .commitFirst:
-            if T3TerminalKeys.composing(event) == .commitFirst, offerToInputMethod(event) { return true }
+        case .inputMethod:
             suppressedKeys.insert(event.keyCode)
             commitComposition { [weak self] in
                 guard let self, !self.disposed else { return }
@@ -263,23 +269,24 @@ final class T3TerminalView: ExactNativeInstance {
         }
     }
 
+    /// A key on its way to WebKit's keyDown: one that began while text composed and that the terminal
+    /// would otherwise encode is marked as the input method's first. The mark goes to the page ahead of
+    /// the keydown, which WebKit sends only after the input method has answered.
+    private func offerKey(_ event: NSEvent) {
+        guard !disposed, event !== markedKey, ownsNativeFocus, composing, T3TerminalKeys.composing(event) == .compositionKey else { return }
+        markedKey = event
+        let flags = event.modifierFlags
+        send(["type": "compositionKey", "metaKey": flags.contains(.command), "ctrlKey": flags.contains(.control),
+              "altKey": flags.contains(.option), "shiftKey": flags.contains(.shift)])
+    }
+
     /// Commits the marked text as it stands, as WebKit does when a page ends a composition: confirm
     /// it in the page, then tell the input method to drop it. `next` runs once the page's
     /// `compositionend` has sent the text (its message comes back before the script's answer).
-    private func commitComposition(then next: @escaping () -> Void) {
+    private func commitComposition(then next: @escaping () -> Void = {}) {
         (web as AnyObject as? NSTextInputClient)?.unmarkText()
         web.inputContext?.discardMarkedText()
         web.evaluateJavaScript("0") { _, _ in next() }
-    }
-
-    /// The input context's turn before WebKit's, once per key (this path can see a key three times).
-    private func offerToInputMethod(_ event: NSEvent) -> Bool {
-        if let offeredKey, offeredKey === event || (offeredKey.timestamp == event.timestamp && offeredKey.keyCode == event.keyCode) { return false }
-        offeredKey = event
-        inputMethodOffers += 1
-        guard web.inputContext?.handleEvent(event) == true else { return false }
-        suppressedKeys.insert(event.keyCode)
-        return true
     }
 
     private func routeKeyDown(_ event: NSEvent) -> Bool {
@@ -586,6 +593,9 @@ final class T3TerminalView: ExactNativeInstance {
             return
         case "composition":
             pageComposing = body["composing"] as? Bool == true
+            return
+        case "commitComposition":
+            commitComposition()
             return
         case "command":
             guard ownsNativeFocus, let command = body["command"] as? String else { return }

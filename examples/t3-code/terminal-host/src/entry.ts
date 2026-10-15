@@ -4,9 +4,9 @@
 // with a JSON bridge:
 //
 // - page → native (`webkit.messageHandlers.t3terminal`): ready, data, resize, selection, link, composition,
-//   contextmenu, chord, focus, error.
+//   commitComposition, contextmenu, chord, focus, error.
 // - native → page (`t3Terminal.receive(message)`): write, resetAndWrite, theme, font, visible,
-//   focus, chords, clearSelection, readSelection, paste, dispose; `t3Terminal.debug()` answers
+//   focus, chords, compositionKey, clearSelection, readSelection, paste, dispose; `t3Terminal.debug()` answers
 //   the agent's status (ready, grid, visible text, selection, last error).
 //
 // Mounting, the setup failure text and the theme fallbacks follow ThreadTerminalDrawer.tsx
@@ -100,6 +100,40 @@ export function observeComposition(input: EventTarget, send: (composing: boolean
     input.removeEventListener("compositionend", end);
     input.removeEventListener("blur", end);
   };
+}
+
+type KeyModifiers = Pick<KeyboardEvent, "metaKey" | "ctrlKey" | "altKey" | "shiftKey">;
+
+/** How long a mark waits for its keydown; WebKit sends it as soon as the input method answers. */
+const COMPOSITION_KEY_LIFETIME_MS = 1000;
+
+/** Keys that began while an input method composed text, which the native view marks on their way to
+ * WebKit's keyDown (a ⌃ chord, ⌥Return). Chromium sends a keydown that begins while text is marked
+ * as "Process" (keyCode 229), so the reference's surface never encodes it (surface.ts
+ * isTerminalCompositionKey) while its shortcuts (ThreadTerminalDrawer.handleBeforeKey) still run.
+ * WebKit sends the key's own code when the input method declines it, after any text the input method
+ * committed for it, so the composition can be over by then: unmarked, ⌃C while ㅎ composes would
+ * reach the shell as ^C.
+ * A mark is taken by the next keydown with its modifiers; marks before it, and a mark whose keydown
+ * never came (a menu took the key), lapse. */
+export class CompositionKeys {
+  private marks: { readonly modifiers: KeyModifiers; readonly at: number }[] = [];
+
+  constructor(private readonly now: () => number = () => performance.now()) {}
+
+  mark(modifiers: KeyModifiers): void {
+    this.marks.push({ modifiers, at: this.now() });
+  }
+
+  take(event: KeyModifiers): boolean {
+    const now = this.now();
+    this.marks = this.marks.filter(({ at }) => now - at < COMPOSITION_KEY_LIFETIME_MS);
+    const index = this.marks.findIndex(({ modifiers }) => modifiers.metaKey === event.metaKey && modifiers.ctrlKey === event.ctrlKey &&
+      modifiers.altKey === event.altKey && modifiers.shiftKey === event.shiftKey);
+    if (index < 0) return false;
+    this.marks.splice(0, index + 1);
+    return true;
+  }
 }
 
 const LIGHT: GhosttyTheme = {
@@ -212,6 +246,7 @@ class TerminalPage {
   private readonly pending: Message[] = [];
   private chords: Chord[] = [];
   private bindings: CommandBinding[] = [];
+  private readonly compositionKeys = new CompositionKeys();
   private auth = false;
   private readOnly = false;
   private closePending = false;
@@ -288,7 +323,17 @@ class TerminalPage {
   }
 
   private beforeKey(event: KeyboardEvent): boolean {
-    if (this.auth) return event.key !== "Tab";
+    // The input method's key: its shortcuts below still run, as on the reference's "Process" key, and
+    // the surface never encodes it. One the input method declined does nothing else: no keyboard
+    // layout command (⌥Return's line break) and no resend to the app. Chromium's input method ends a
+    // composition on a key it declines; when WebKit's keeps composing (the Korean one on ⌃C), the
+    // native view commits it as it stands.
+    const composed = this.compositionKeys.take(event);
+    if (composed && event.keyCode !== 229) {
+      event.preventDefault();
+      post({ type: "commitComposition" });
+    }
+    if (this.auth) return !composed && event.key !== "Tab";
     // A held ⌘W, or one while the close dialog is pending, is swallowed without another close.
     if (preventRepeatedTerminalCloseShortcut(event, this.bindings) || (this.closePending && preventTerminalCloseShortcut(event, this.bindings))) {
       event.stopPropagation();
@@ -313,7 +358,7 @@ class TerminalPage {
       if (!this.readOnly) post({ type: "data", data });
       return false;
     }
-    return true;
+    return !composed;
   }
 
   private selection() {
@@ -337,6 +382,11 @@ class TerminalPage {
     const surface = this.surface;
     if (message.type === "chords") {
       this.chords = parseChords(message.chords);
+      return null;
+    }
+    if (message.type === "compositionKey") {
+      this.compositionKeys.mark({ metaKey: message.metaKey === true, ctrlKey: message.ctrlKey === true,
+        altKey: message.altKey === true, shiftKey: message.shiftKey === true });
       return null;
     }
     if (message.type === "keyPolicy") {
