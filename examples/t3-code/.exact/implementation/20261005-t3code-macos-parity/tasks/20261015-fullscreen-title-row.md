@@ -3,11 +3,11 @@ name: 20261015-fullscreen-title-row
 plan: 20261005-t3code-macos-parity
 implementation: complete
 verification: verified
-delivery: none
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-fullscreen-title-row
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/594
 verified_commit: c3f3b793d
 ---
 
@@ -90,5 +90,5 @@ Cleanup: the lane quit by AppleScript `quit`; no lane process stayed; port 16917
 
 ## Next action
 
-None for this fix. Open: the top-edge hover in full screen (needs a pointer-move tool) and why an
+Merged as [#594](https://github.com/ccheever/exact2/pull/594), feature commit `1dcd641a5` (squash). Open: the top-edge hover in full screen (needs a pointer-move tool) and why an
 accessibility press on "Toggle thread details panel" did nothing in that session.
