@@ -520,5 +520,17 @@
     "--color-data-gray-3": "#B2B8BE",
     "--color-data-gray-2": "#D0D3D6",
     "--color-data-gray-1": "#F2F4F6"
+  },
+  "local": {
+    "--astryx-theme-neutral-color-status-fill-accent": "light-dark(#0074e2, #6d9cfe)",
+    "--astryx-theme-neutral-color-status-fill-success": "light-dark(#198100, #64af4c)",
+    "--astryx-theme-neutral-color-status-fill-warning": "#ffce2f",
+    "--astryx-theme-neutral-color-status-fill-error": "light-dark(#c9303a, #ff705d)",
+    "--astryx-theme-neutral-color-status-muted-accent": "light-dark(#b9d7ff, #88bcff3D)",
+    "--astryx-theme-neutral-color-on-tint-neutral": "light-dark(#fafafa4D, #0a0a0a4D)",
+    "--astryx-theme-neutral-color-on-tint-overlay-hover": "light-dark(#fafafa1A, #0a0a0a1A)",
+    "--astryx-theme-neutral-color-on-tint-overlay-pressed": "light-dark(#fafafa33, #0a0a0a33)",
+    "--astryx-theme-neutral-color-destructive-overlay-hover": "light-dark(#ff7f770D, #ee736c0D)",
+    "--astryx-theme-neutral-color-destructive-overlay-pressed": "light-dark(#ff7f771A, #ee736c1A)"
   }
 }

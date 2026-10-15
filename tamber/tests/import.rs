@@ -1232,13 +1232,14 @@ fn astryx_neutral_imports_counted_and_reports_its_kinds_probe() {
     use exact_tamber::import::astryx;
     let json = fixture("astryx-neutral.json");
     let first = astryx::import(&json, "astryx", &parse(EMPTY).unwrap(), &vocab()).unwrap();
+    // 258 Astryx tokens and the theme's 10 own: 160 colours, 108 reported.
     assert_eq!(
         (
             first.counted.source,
             first.counted.mapped,
             first.counted.reported
         ),
-        (258, 150, 108)
+        (268, 160, 108)
     );
     // The probe: what Tamber's kinds cannot hold yet.
     let tiers: Vec<&str> = first
@@ -1283,6 +1284,10 @@ fn astryx_neutral_imports_counted_and_reports_its_kinds_probe() {
     assert_eq!(
         token_value(&text, "-exact-background"),
         "astryx.surface.body"
+    );
+    assert_eq!(
+        token_value(&text, "astryx.local.status-fill-accent"),
+        "light-dark(#0074e2, #6d9cfe)"
     );
     let again = astryx::import(&json, "astryx", &parse(&text).unwrap(), &vocab()).unwrap();
     assert_eq!(again.ops, []);

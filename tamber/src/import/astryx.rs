@@ -16,6 +16,9 @@
 //!   `kind pending (stage 6)`, each with its token.
 //! - A duration's `-min` and `-max` tiers are reported: Tamber has one value
 //!   per duration token.
+//! - The theme's own tokens (`localTokens`, which `resolveThemeTokens()`
+//!   leaves out), a colour each as written (often a `light-dark()`), go under
+//!   `local.*`.
 
 use super::{colour_literal, counted, reconcile, tamber_name, Import, Mapped, Offer, Unmapped};
 use crate::edit::Op;
@@ -195,9 +198,50 @@ pub fn import(
             Kind::Reported(why) => unmapped.push(report(why, None)),
         }
     }
+    // The theme's own tokens: `--astryx-theme-<name>-color-status-fill-accent`
+    // as `local.status-fill-accent`.
+    let local = doc
+        .get("local")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    for (var, value) in &local {
+        let shown = value.as_str().unwrap_or_default().to_string();
+        let rest = var
+            .strip_prefix("--astryx-theme-")
+            .and_then(|r| r.split_once('-').map(|(_, r)| r))
+            .unwrap_or(var.trim_start_matches('-'));
+        let rest = rest.strip_prefix("color-").unwrap_or(rest);
+        let name = tamber_name(prefix, &["local", rest]);
+        let report = |why: String, token: Option<String>| Unmapped {
+            block: "localTokens".into(),
+            name: var.clone(),
+            value: shown.clone(),
+            why,
+            token,
+        };
+        if let Some(first) = made.get(&name) {
+            unmapped.push(report(format!("its token is `{first}`'s ({name})"), None));
+            continue;
+        }
+        let folds =
+            !shown.is_empty() && super::unfolded(&shown).is_none() && !shown.contains("var(");
+        match folds {
+            true => {
+                mapped += 1;
+                made.insert(name.clone(), var.clone());
+                tokens.push(Mapped {
+                    name,
+                    value: shown.split_whitespace().collect::<Vec<_>>().join(" "),
+                    whens: Vec::new(),
+                });
+            }
+            false => unmapped.push(report("not a colour Tamber folds".into(), Some(name))),
+        }
+    }
     let ops = reconcile(design, &[], &[], &tokens);
     let offers = offers(prefix, design, vocab, &tokens);
-    let counted = counted(names.len(), mapped, unmapped.len())?;
+    let counted = counted(names.len() + local.len(), mapped, unmapped.len())?;
     Ok(Import {
         ops,
         offers,

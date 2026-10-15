@@ -37,7 +37,8 @@ import * as pkg from ${JSON.stringify(name)};
 const themes = Object.values(pkg).filter(v => v && typeof v === 'object' && 'tokens' in v);
 if (themes.length !== 1) throw new Error(\`${name} exports \${themes.length} themes; one is needed\`);
 const [theme] = themes;
-const out = { source: ${JSON.stringify(theme)}, core: '@astryxdesign/core@${wanted}', light: resolveThemeTokens(theme, { mode: 'light' }), dark: resolveThemeTokens(theme, { mode: 'dark' }) };
+// The theme's own tokens beside Astryx's, which resolveThemeTokens() leaves out.
+const out = { source: ${JSON.stringify(theme)}, core: '@astryxdesign/core@${wanted}', light: resolveThemeTokens(theme, { mode: 'light' }), dark: resolveThemeTokens(theme, { mode: 'dark' }), local: theme.localTokens ?? {} };
 process.stdout.write(JSON.stringify(out, null, 2) + '\\n');
 `);
   const resolved = spawnSync(process.execPath, ['resolve.mjs'], { cwd: dir, encoding: 'utf8', maxBuffer: 64 << 20 });
