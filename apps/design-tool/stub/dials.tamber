@@ -1,6 +1,8 @@
 // The design tool's fixture design (LLP 1122 D7): dials of each kind a
-// colour can follow, each with its metadata or none, groups and priorities,
-// two axes, a role override and a fixed-scheme token.
+// colour can follow, each with its metadata or none, groups and priorities
+// (declared out of priority order), a select with an option that is no
+// literal, a range in scientific notation, two axes, a role override and a
+// fixed-scheme token.
 tamber dials
 
 axes
@@ -10,8 +12,10 @@ axes
 dials
   accent: color = #1083fe  control=color group=Colour priority=1 label="Accent"
   lift: number = 0.1  in 0..0.5  step=0.01 control=slider group=Colour priority=2 label="Lift"
-  hue: number = 200  in 0..360  step=5 control=stepper group=Tone priority=1
   chroma: number = 0.1  in 0..0.3  group=Tone
+  hue: number = 200  in 0..360  step=5 control=stepper group=Tone priority=1
+  fine: number = 0.001  in 0..5e-3  group=Tone priority=3
+  paint: color = #f00  control=select options="#1083fe|#f00|brand.red" group=Colour priority=3
   warmth: number = 20  in 0..60  step=1 group=Tone priority=3 label="Warmth"
   shade: number = 0.2  in 0..0.5  control=none
 
@@ -26,6 +30,8 @@ theme
   accent.soft = oklch(from accent calc(l + lift) c h)
   tone.base = oklch(0.6 chroma hue)
   tone.warm = oklch(0.7 0.1 warmth)
+  tone.fine = oklch(0.6 fine 200)
+  paint.pick = paint
   tone.deep = oklch(from accent calc(l - shade) c h)
   text.primary = light-dark(#0f1419, #e7e9ea)
   text.system = -exact-secondary-label

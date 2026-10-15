@@ -68,7 +68,9 @@ test "a restarted server starts the list again"
   expect text "change-1" == "brand.tamber · design-tool:Grace"
 
 // stub/dials.tamber: dials of each kind a colour follows, with and without
-// metadata, two groups, the three priorities, two axes and a residual.
+// metadata, two groups, the three priorities (declared out of order), a
+// select with an option that is no literal, a range in scientific
+// notation, two axes and a residual.
 test "the dials panel is drawn from each dial's declared metadata"
   type "name" "Ada"
   tap "save-name"
@@ -83,6 +85,11 @@ test "the dials panel is drawn from each dial's declared metadata"
   expect tree missing "dial-warmth"
   tap "more-Tone"
   expect tree has "dial-warmth-slider"
+  expect tree has "dial-fine-slider"
+  tap "more-Colour"
+  expect tree has "dial-paint-select"
+  expect text "dial-paint-value" == "#f00"
+  expect text "dial-paint-help" == "brand.red is not a value a dial can take (a dial is a literal), so it is not offered."
 
 test "the token grid: every mode tuple light and dark, swatches, residuals, what each follows"
   type "name" "Ada"
@@ -141,6 +148,13 @@ test "an edit is proposed with its chip and diff before it is written, then undo
   tap "redo"
   clock data
   expect text "undo" == "Undo (1)"
+  // Another run of the server has none of these inverses: undo and redo
+  // start again.
+  request POST "/__stub/restart" {} as ada
+  clock +1
+  clock data
+  expect text "undo" == "Undo (0)"
+  expect disabled "undo"
 
 test "a cell shows the branch that won for its mode; an expression offers its inputs until pinned"
   type "name" "Ada"
@@ -156,6 +170,22 @@ test "a cell shows the branch that won for its mode; an expression offers its in
   tap "pin"
   expect text "pinned" == "Pinned here: no longer follows accent, lift."
   expect tree has "branch-value"
+  // A cell is named by its column's label, a fallback said.
+  tap "text.system, Light, fallback"
+  clock data
+  expect text "branch-label" == "text.system · default (Light)"
+
+test "a dial an expression follows opens its control, not a token"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  tap "cell-paint.pick-0-light"
+  clock data
+  expect tree missing "dial-paint-select"
+  tap "input-paint"
+  expect tree has "dial-paint-select"
+  expect tree missing "branch-error"
+  expect text "branch-label" == "paint.pick · default (Light)"
 
 test "another design file is read when chosen, and a refused one shows its error and a retry"
   type "name" "Ada"
@@ -166,6 +196,8 @@ test "another design file is read when chosen, and a refused one shows its error
   expect text "design-error" == "the stub has no design in brand.tamber"
   expect tree has "reload-design"
   expect tree missing "no-dials"
+  expect tree missing "dials"
+  expect tree missing "contrast"
   type "file" ""
   clock data
   expect tree missing "design-error"

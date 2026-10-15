@@ -42,7 +42,8 @@ Bun.serve({ hostname, port: Number(port), routes: {
       // Only app.tamber has a canned design; another file is refused, as a
       // server refuses a design that does not check.
       if (['describe', 'resolve', 'explain', 'propose'].includes(request.method) && (request.file ?? 'app.tamber') !== 'app.tamber') return send({ error: { message: `the stub has no design in ${request.file}` } }, 400);
-      if (request.method === 'describe') return send({ ok: DIALS.describe });
+      // Its digests are the stub's own, which hello and the events carry.
+      if (request.method === 'describe') return send({ ok: { ...DIALS.describe, files: FILES } });
       if (request.method === 'resolve') return DIALS.resolve[request.token] ? send({ ok: DIALS.resolve[request.token] }) : send({ error: { message: `no token \`${request.token}\`` } }, 400);
       if (request.method === 'explain') return DIALS.explain[request.token] ? send({ ok: DIALS.explain[request.token] }) : send({ error: { message: `no token \`${request.token}\`` } }, 400);
       // A write is not applied: canned answers in its shape, enough for the

@@ -1,7 +1,7 @@
 {
  "describe": {
   "files": {
-   "app.tamber": "d918194d8395ce8caa8670ea963d21ce1e1a3ef2a60b03de581a70957248f7f1"
+   "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
   },
   "ir": {
    "axes": [
@@ -54,6 +54,18 @@
     {
      "kind": "number",
      "meta": {
+      "group": "Tone"
+     },
+     "name": "chroma",
+     "range": [
+      "0",
+      "0.3"
+     ],
+     "value": "0.1"
+    },
+    {
+     "kind": "number",
+     "meta": {
       "control": "stepper",
       "group": "Tone",
       "priority": "1",
@@ -69,14 +81,27 @@
     {
      "kind": "number",
      "meta": {
-      "group": "Tone"
+      "group": "Tone",
+      "priority": "3"
      },
-     "name": "chroma",
+     "name": "fine",
      "range": [
       "0",
-      "0.3"
+      "5e-3"
      ],
-     "value": "0.1"
+     "value": "0.001"
+    },
+    {
+     "kind": "color",
+     "meta": {
+      "control": "select",
+      "group": "Colour",
+      "options": "#1083fe|#f00|brand.red",
+      "priority": "3"
+     },
+     "name": "paint",
+     "range": null,
+     "value": "#ff0000ff"
     },
     {
      "kind": "number",
@@ -106,7 +131,7 @@
      "value": "0.2"
     }
    ],
-   "digest": "24e216e8625ab0ad",
+   "digest": "a9139e10e4933287",
    "exports": null,
    "format": 1,
    "name": "dials",
@@ -206,8 +231,8 @@
     },
     {
      "dials": [
-      "hue",
-      "chroma"
+      "chroma",
+      "hue"
      ],
      "entries": null,
      "fallback": [
@@ -235,6 +260,38 @@
      "role": null,
      "values": [
       "oklch(0.7 0.1 20)"
+     ]
+    },
+    {
+     "dials": [
+      "fine"
+     ],
+     "entries": null,
+     "fallback": [
+      "#7f8080ff",
+      "#7f8080ff"
+     ],
+     "kind": "color",
+     "name": "tone.fine",
+     "role": null,
+     "values": [
+      "oklch(0.6 0.001 200)"
+     ]
+    },
+    {
+     "dials": [
+      "paint"
+     ],
+     "entries": null,
+     "fallback": [
+      "#ff0000ff",
+      "#ff0000ff"
+     ],
+     "kind": "color",
+     "name": "paint.pick",
+     "role": null,
+     "values": [
+      "#ff0000ff"
      ]
     },
     {
@@ -340,6 +397,16 @@
       "Tone"
      ]
     ],
+    "fine": [
+     [
+      "group",
+      "Tone"
+     ],
+     [
+      "priority",
+      "3"
+     ]
+    ],
     "hue": [
      [
       "step",
@@ -380,6 +447,24 @@
       "Lift"
      ]
     ],
+    "paint": [
+     [
+      "control",
+      "select"
+     ],
+     [
+      "options",
+      "#1083fe|#f00|brand.red"
+     ],
+     [
+      "group",
+      "Colour"
+     ],
+     [
+      "priority",
+      "3"
+     ]
+    ],
     "shade": [
      [
       "control",
@@ -415,6 +500,7 @@
       "fixed"
      ]
     ],
+    "paint.pick": [],
     "surface.card": [],
     "surface.inset": [],
     "surface.page": [],
@@ -422,179 +508,66 @@
     "text.system": [],
     "tone.base": [],
     "tone.deep": [],
+    "tone.fine": [],
     "tone.warm": []
    }
   }
  },
  "resolve": {
-  "surface.page": {
-   "token": "surface.page",
+  "-exact-label": {
+   "token": "-exact-label",
    "tuples": [
     {
-     "dark": "#000000ff",
-     "light": "#ffffffff",
+     "dark": "#e7e9eaff",
+     "light": "#0f1419ff",
      "modes": {
       "dark-style": "black",
       "density": "regular"
      },
      "srgb": {
-      "dark": "#000000ff",
-      "light": "#ffffffff"
+      "dark": "#e7e9eaff",
+      "light": "#0f1419ff"
      },
-     "value": "light-dark(#ffffffff, #000000ff)"
+     "value": "light-dark(#0f1419ff, #e7e9eaff)"
     },
     {
-     "dark": "#000000ff",
-     "light": "#ffffffff",
+     "dark": "#e7e9eaff",
+     "light": "#0f1419ff",
      "modes": {
       "dark-style": "black",
       "density": "compact"
      },
      "srgb": {
-      "dark": "#000000ff",
-      "light": "#ffffffff"
+      "dark": "#e7e9eaff",
+      "light": "#0f1419ff"
      },
-     "value": "light-dark(#ffffffff, #000000ff)"
+     "value": "light-dark(#0f1419ff, #e7e9eaff)"
     },
     {
-     "dark": "#15202bff",
-     "light": "#ffffffff",
+     "dark": "#e7e9eaff",
+     "light": "#0f1419ff",
      "modes": {
       "dark-style": "dim",
       "density": "regular"
      },
      "srgb": {
-      "dark": "#15202bff",
-      "light": "#ffffffff"
+      "dark": "#e7e9eaff",
+      "light": "#0f1419ff"
      },
-     "value": "light-dark(#ffffffff, #15202bff)"
+     "value": "light-dark(#0f1419ff, #e7e9eaff)"
     },
     {
-     "dark": "#15202bff",
-     "light": "#ffffffff",
+     "dark": "#e7e9eaff",
+     "light": "#0f1419ff",
      "modes": {
       "dark-style": "dim",
       "density": "compact"
      },
      "srgb": {
-      "dark": "#15202bff",
-      "light": "#ffffffff"
+      "dark": "#e7e9eaff",
+      "light": "#0f1419ff"
      },
-     "value": "light-dark(#ffffffff, #15202bff)"
-    }
-   ]
-  },
-  "surface.card": {
-   "token": "surface.card",
-   "tuples": [
-    {
-     "dark": "#16181cff",
-     "light": "#f1f3f5ff",
-     "modes": {
-      "dark-style": "black",
-      "density": "regular"
-     },
-     "srgb": {
-      "dark": "#16181cff",
-      "light": "#f1f3f5ff"
-     },
-     "value": "light-dark(#f1f3f5ff, #16181cff)"
-    },
-    {
-     "dark": "#16181cff",
-     "light": "#f1f3f5ff",
-     "modes": {
-      "dark-style": "black",
-      "density": "compact"
-     },
-     "srgb": {
-      "dark": "#16181cff",
-      "light": "#f1f3f5ff"
-     },
-     "value": "light-dark(#f1f3f5ff, #16181cff)"
-    },
-    {
-     "dark": "#1e2732ff",
-     "light": "#f1f3f5ff",
-     "modes": {
-      "dark-style": "dim",
-      "density": "regular"
-     },
-     "srgb": {
-      "dark": "#1e2732ff",
-      "light": "#f1f3f5ff"
-     },
-     "value": "light-dark(#f1f3f5ff, #1e2732ff)"
-    },
-    {
-     "dark": "#1e2732ff",
-     "light": "#f1f3f5ff",
-     "modes": {
-      "dark-style": "dim",
-      "density": "compact"
-     },
-     "srgb": {
-      "dark": "#1e2732ff",
-      "light": "#f1f3f5ff"
-     },
-     "value": "light-dark(#f1f3f5ff, #1e2732ff)"
-    }
-   ]
-  },
-  "surface.inset": {
-   "token": "surface.inset",
-   "tuples": [
-    {
-     "dark": "#101214ff",
-     "light": "#f8f9faff",
-     "modes": {
-      "dark-style": "black",
-      "density": "regular"
-     },
-     "srgb": {
-      "dark": "#101214ff",
-      "light": "#f8f9faff"
-     },
-     "value": "light-dark(#f8f9faff, #101214ff)"
-    },
-    {
-     "dark": "#0c0e10ff",
-     "light": "#eef0f2ff",
-     "modes": {
-      "dark-style": "black",
-      "density": "compact"
-     },
-     "srgb": {
-      "dark": "#0c0e10ff",
-      "light": "#eef0f2ff"
-     },
-     "value": "light-dark(#eef0f2ff, #0c0e10ff)"
-    },
-    {
-     "dark": "#101214ff",
-     "light": "#f8f9faff",
-     "modes": {
-      "dark-style": "dim",
-      "density": "regular"
-     },
-     "srgb": {
-      "dark": "#101214ff",
-      "light": "#f8f9faff"
-     },
-     "value": "light-dark(#f8f9faff, #101214ff)"
-    },
-    {
-     "dark": "#0c0e10ff",
-     "light": "#eef0f2ff",
-     "modes": {
-      "dark-style": "dim",
-      "density": "compact"
-     },
-     "srgb": {
-      "dark": "#0c0e10ff",
-      "light": "#eef0f2ff"
-     },
-     "value": "light-dark(#eef0f2ff, #0c0e10ff)"
+     "value": "light-dark(#0f1419ff, #e7e9eaff)"
     }
    ]
   },
@@ -712,174 +685,288 @@
     }
    ]
   },
-  "tone.base": {
-   "token": "tone.base",
+  "ink.on-brand": {
+   "token": "ink.on-brand",
    "tuples": [
     {
-     "dark": "oklch(0.6 0.1 200)",
-     "light": "oklch(0.6 0.1 200)",
+     "dark": "#ffffffff",
+     "light": "#ffffffff",
      "modes": {
       "dark-style": "black",
       "density": "regular"
      },
      "srgb": {
-      "dark": "#0d9298ff",
-      "light": "#0d9298ff"
+      "dark": "#ffffffff",
+      "light": "#ffffffff"
      },
-     "value": "oklch(0.6 0.1 200)"
+     "value": "#ffffffff"
     },
     {
-     "dark": "oklch(0.6 0.1 200)",
-     "light": "oklch(0.6 0.1 200)",
+     "dark": "#ffffffff",
+     "light": "#ffffffff",
      "modes": {
       "dark-style": "black",
       "density": "compact"
      },
      "srgb": {
-      "dark": "#0d9298ff",
-      "light": "#0d9298ff"
+      "dark": "#ffffffff",
+      "light": "#ffffffff"
      },
-     "value": "oklch(0.6 0.1 200)"
+     "value": "#ffffffff"
     },
     {
-     "dark": "oklch(0.6 0.1 200)",
-     "light": "oklch(0.6 0.1 200)",
+     "dark": "#ffffffff",
+     "light": "#ffffffff",
      "modes": {
       "dark-style": "dim",
       "density": "regular"
      },
      "srgb": {
-      "dark": "#0d9298ff",
-      "light": "#0d9298ff"
+      "dark": "#ffffffff",
+      "light": "#ffffffff"
      },
-     "value": "oklch(0.6 0.1 200)"
+     "value": "#ffffffff"
     },
     {
-     "dark": "oklch(0.6 0.1 200)",
-     "light": "oklch(0.6 0.1 200)",
+     "dark": "#ffffffff",
+     "light": "#ffffffff",
      "modes": {
       "dark-style": "dim",
       "density": "compact"
      },
      "srgb": {
-      "dark": "#0d9298ff",
-      "light": "#0d9298ff"
+      "dark": "#ffffffff",
+      "light": "#ffffffff"
      },
-     "value": "oklch(0.6 0.1 200)"
+     "value": "#ffffffff"
     }
    ]
   },
-  "tone.warm": {
-   "token": "tone.warm",
+  "paint.pick": {
+   "token": "paint.pick",
    "tuples": [
     {
-     "dark": "oklch(0.7 0.1 20)",
-     "light": "oklch(0.7 0.1 20)",
+     "dark": "#ff0000ff",
+     "light": "#ff0000ff",
      "modes": {
       "dark-style": "black",
       "density": "regular"
      },
      "srgb": {
-      "dark": "#d68585ff",
-      "light": "#d68585ff"
+      "dark": "#ff0000ff",
+      "light": "#ff0000ff"
      },
-     "value": "oklch(0.7 0.1 20)"
+     "value": "#ff0000ff"
     },
     {
-     "dark": "oklch(0.7 0.1 20)",
-     "light": "oklch(0.7 0.1 20)",
+     "dark": "#ff0000ff",
+     "light": "#ff0000ff",
      "modes": {
       "dark-style": "black",
       "density": "compact"
      },
      "srgb": {
-      "dark": "#d68585ff",
-      "light": "#d68585ff"
+      "dark": "#ff0000ff",
+      "light": "#ff0000ff"
      },
-     "value": "oklch(0.7 0.1 20)"
+     "value": "#ff0000ff"
     },
     {
-     "dark": "oklch(0.7 0.1 20)",
-     "light": "oklch(0.7 0.1 20)",
+     "dark": "#ff0000ff",
+     "light": "#ff0000ff",
      "modes": {
       "dark-style": "dim",
       "density": "regular"
      },
      "srgb": {
-      "dark": "#d68585ff",
-      "light": "#d68585ff"
+      "dark": "#ff0000ff",
+      "light": "#ff0000ff"
      },
-     "value": "oklch(0.7 0.1 20)"
+     "value": "#ff0000ff"
     },
     {
-     "dark": "oklch(0.7 0.1 20)",
-     "light": "oklch(0.7 0.1 20)",
+     "dark": "#ff0000ff",
+     "light": "#ff0000ff",
      "modes": {
       "dark-style": "dim",
       "density": "compact"
      },
      "srgb": {
-      "dark": "#d68585ff",
-      "light": "#d68585ff"
+      "dark": "#ff0000ff",
+      "light": "#ff0000ff"
      },
-     "value": "oklch(0.7 0.1 20)"
+     "value": "#ff0000ff"
     }
    ]
   },
-  "tone.deep": {
-   "token": "tone.deep",
+  "surface.card": {
+   "token": "surface.card",
    "tuples": [
     {
-     "dark": "oklch(0.42193229104741764 0.20498756752551014 255.8600088970723)",
-     "light": "oklch(0.42193229104741764 0.20498756752551014 255.8600088970723)",
+     "dark": "#16181cff",
+     "light": "#f1f3f5ff",
      "modes": {
       "dark-style": "black",
       "density": "regular"
      },
      "srgb": {
-      "dark": "#0042b9ff",
-      "light": "#0042b9ff"
+      "dark": "#16181cff",
+      "light": "#f1f3f5ff"
      },
-     "value": "oklch(0.42193229104741764 0.20498756752551014 255.8600088970723)"
+     "value": "light-dark(#f1f3f5ff, #16181cff)"
     },
     {
-     "dark": "oklch(0.42193229104741764 0.20498756752551014 255.8600088970723)",
-     "light": "oklch(0.42193229104741764 0.20498756752551014 255.8600088970723)",
+     "dark": "#16181cff",
+     "light": "#f1f3f5ff",
      "modes": {
       "dark-style": "black",
       "density": "compact"
      },
      "srgb": {
-      "dark": "#0042b9ff",
-      "light": "#0042b9ff"
+      "dark": "#16181cff",
+      "light": "#f1f3f5ff"
      },
-     "value": "oklch(0.42193229104741764 0.20498756752551014 255.8600088970723)"
+     "value": "light-dark(#f1f3f5ff, #16181cff)"
     },
     {
-     "dark": "oklch(0.42193229104741764 0.20498756752551014 255.8600088970723)",
-     "light": "oklch(0.42193229104741764 0.20498756752551014 255.8600088970723)",
+     "dark": "#1e2732ff",
+     "light": "#f1f3f5ff",
      "modes": {
       "dark-style": "dim",
       "density": "regular"
      },
      "srgb": {
-      "dark": "#0042b9ff",
-      "light": "#0042b9ff"
+      "dark": "#1e2732ff",
+      "light": "#f1f3f5ff"
      },
-     "value": "oklch(0.42193229104741764 0.20498756752551014 255.8600088970723)"
+     "value": "light-dark(#f1f3f5ff, #1e2732ff)"
     },
     {
-     "dark": "oklch(0.42193229104741764 0.20498756752551014 255.8600088970723)",
-     "light": "oklch(0.42193229104741764 0.20498756752551014 255.8600088970723)",
+     "dark": "#1e2732ff",
+     "light": "#f1f3f5ff",
      "modes": {
       "dark-style": "dim",
       "density": "compact"
      },
      "srgb": {
-      "dark": "#0042b9ff",
-      "light": "#0042b9ff"
+      "dark": "#1e2732ff",
+      "light": "#f1f3f5ff"
      },
-     "value": "oklch(0.42193229104741764 0.20498756752551014 255.8600088970723)"
+     "value": "light-dark(#f1f3f5ff, #1e2732ff)"
+    }
+   ]
+  },
+  "surface.inset": {
+   "token": "surface.inset",
+   "tuples": [
+    {
+     "dark": "#101214ff",
+     "light": "#f8f9faff",
+     "modes": {
+      "dark-style": "black",
+      "density": "regular"
+     },
+     "srgb": {
+      "dark": "#101214ff",
+      "light": "#f8f9faff"
+     },
+     "value": "light-dark(#f8f9faff, #101214ff)"
+    },
+    {
+     "dark": "#0c0e10ff",
+     "light": "#eef0f2ff",
+     "modes": {
+      "dark-style": "black",
+      "density": "compact"
+     },
+     "srgb": {
+      "dark": "#0c0e10ff",
+      "light": "#eef0f2ff"
+     },
+     "value": "light-dark(#eef0f2ff, #0c0e10ff)"
+    },
+    {
+     "dark": "#101214ff",
+     "light": "#f8f9faff",
+     "modes": {
+      "dark-style": "dim",
+      "density": "regular"
+     },
+     "srgb": {
+      "dark": "#101214ff",
+      "light": "#f8f9faff"
+     },
+     "value": "light-dark(#f8f9faff, #101214ff)"
+    },
+    {
+     "dark": "#0c0e10ff",
+     "light": "#eef0f2ff",
+     "modes": {
+      "dark-style": "dim",
+      "density": "compact"
+     },
+     "srgb": {
+      "dark": "#0c0e10ff",
+      "light": "#eef0f2ff"
+     },
+     "value": "light-dark(#eef0f2ff, #0c0e10ff)"
+    }
+   ]
+  },
+  "surface.page": {
+   "token": "surface.page",
+   "tuples": [
+    {
+     "dark": "#000000ff",
+     "light": "#ffffffff",
+     "modes": {
+      "dark-style": "black",
+      "density": "regular"
+     },
+     "srgb": {
+      "dark": "#000000ff",
+      "light": "#ffffffff"
+     },
+     "value": "light-dark(#ffffffff, #000000ff)"
+    },
+    {
+     "dark": "#000000ff",
+     "light": "#ffffffff",
+     "modes": {
+      "dark-style": "black",
+      "density": "compact"
+     },
+     "srgb": {
+      "dark": "#000000ff",
+      "light": "#ffffffff"
+     },
+     "value": "light-dark(#ffffffff, #000000ff)"
+    },
+    {
+     "dark": "#15202bff",
+     "light": "#ffffffff",
+     "modes": {
+      "dark-style": "dim",
+      "density": "regular"
+     },
+     "srgb": {
+      "dark": "#15202bff",
+      "light": "#ffffffff"
+     },
+     "value": "light-dark(#ffffffff, #15202bff)"
+    },
+    {
+     "dark": "#15202bff",
+     "light": "#ffffffff",
+     "modes": {
+      "dark-style": "dim",
+      "density": "compact"
+     },
+     "srgb": {
+      "dark": "#15202bff",
+      "light": "#ffffffff"
+     },
+     "value": "light-dark(#ffffffff, #15202bff)"
     }
    ]
   },
@@ -993,138 +1080,279 @@
     }
    ]
   },
-  "ink.on-brand": {
-   "token": "ink.on-brand",
+  "tone.base": {
+   "token": "tone.base",
    "tuples": [
     {
-     "dark": "#ffffffff",
-     "light": "#ffffffff",
+     "dark": "oklch(0.6 0.1 200)",
+     "light": "oklch(0.6 0.1 200)",
      "modes": {
       "dark-style": "black",
       "density": "regular"
      },
      "srgb": {
-      "dark": "#ffffffff",
-      "light": "#ffffffff"
+      "dark": "#0d9298ff",
+      "light": "#0d9298ff"
      },
-     "value": "#ffffffff"
+     "value": "oklch(0.6 0.1 200)"
     },
     {
-     "dark": "#ffffffff",
-     "light": "#ffffffff",
+     "dark": "oklch(0.6 0.1 200)",
+     "light": "oklch(0.6 0.1 200)",
      "modes": {
       "dark-style": "black",
       "density": "compact"
      },
      "srgb": {
-      "dark": "#ffffffff",
-      "light": "#ffffffff"
+      "dark": "#0d9298ff",
+      "light": "#0d9298ff"
      },
-     "value": "#ffffffff"
+     "value": "oklch(0.6 0.1 200)"
     },
     {
-     "dark": "#ffffffff",
-     "light": "#ffffffff",
+     "dark": "oklch(0.6 0.1 200)",
+     "light": "oklch(0.6 0.1 200)",
      "modes": {
       "dark-style": "dim",
       "density": "regular"
      },
      "srgb": {
-      "dark": "#ffffffff",
-      "light": "#ffffffff"
+      "dark": "#0d9298ff",
+      "light": "#0d9298ff"
      },
-     "value": "#ffffffff"
+     "value": "oklch(0.6 0.1 200)"
     },
     {
-     "dark": "#ffffffff",
-     "light": "#ffffffff",
+     "dark": "oklch(0.6 0.1 200)",
+     "light": "oklch(0.6 0.1 200)",
      "modes": {
       "dark-style": "dim",
       "density": "compact"
      },
      "srgb": {
-      "dark": "#ffffffff",
-      "light": "#ffffffff"
+      "dark": "#0d9298ff",
+      "light": "#0d9298ff"
      },
-     "value": "#ffffffff"
+     "value": "oklch(0.6 0.1 200)"
     }
    ]
   },
-  "-exact-label": {
-   "token": "-exact-label",
+  "tone.deep": {
+   "token": "tone.deep",
    "tuples": [
     {
-     "dark": "#e7e9eaff",
-     "light": "#0f1419ff",
+     "dark": "oklch(0.42193229104741764 0.20498756752551014 255.8600088970723)",
+     "light": "oklch(0.42193229104741764 0.20498756752551014 255.8600088970723)",
      "modes": {
       "dark-style": "black",
       "density": "regular"
      },
      "srgb": {
-      "dark": "#e7e9eaff",
-      "light": "#0f1419ff"
+      "dark": "#0042b9ff",
+      "light": "#0042b9ff"
      },
-     "value": "light-dark(#0f1419ff, #e7e9eaff)"
+     "value": "oklch(0.42193229104741764 0.20498756752551014 255.8600088970723)"
     },
     {
-     "dark": "#e7e9eaff",
-     "light": "#0f1419ff",
+     "dark": "oklch(0.42193229104741764 0.20498756752551014 255.8600088970723)",
+     "light": "oklch(0.42193229104741764 0.20498756752551014 255.8600088970723)",
      "modes": {
       "dark-style": "black",
       "density": "compact"
      },
      "srgb": {
-      "dark": "#e7e9eaff",
-      "light": "#0f1419ff"
+      "dark": "#0042b9ff",
+      "light": "#0042b9ff"
      },
-     "value": "light-dark(#0f1419ff, #e7e9eaff)"
+     "value": "oklch(0.42193229104741764 0.20498756752551014 255.8600088970723)"
     },
     {
-     "dark": "#e7e9eaff",
-     "light": "#0f1419ff",
+     "dark": "oklch(0.42193229104741764 0.20498756752551014 255.8600088970723)",
+     "light": "oklch(0.42193229104741764 0.20498756752551014 255.8600088970723)",
      "modes": {
       "dark-style": "dim",
       "density": "regular"
      },
      "srgb": {
-      "dark": "#e7e9eaff",
-      "light": "#0f1419ff"
+      "dark": "#0042b9ff",
+      "light": "#0042b9ff"
      },
-     "value": "light-dark(#0f1419ff, #e7e9eaff)"
+     "value": "oklch(0.42193229104741764 0.20498756752551014 255.8600088970723)"
     },
     {
-     "dark": "#e7e9eaff",
-     "light": "#0f1419ff",
+     "dark": "oklch(0.42193229104741764 0.20498756752551014 255.8600088970723)",
+     "light": "oklch(0.42193229104741764 0.20498756752551014 255.8600088970723)",
      "modes": {
       "dark-style": "dim",
       "density": "compact"
      },
      "srgb": {
-      "dark": "#e7e9eaff",
-      "light": "#0f1419ff"
+      "dark": "#0042b9ff",
+      "light": "#0042b9ff"
      },
-     "value": "light-dark(#0f1419ff, #e7e9eaff)"
+     "value": "oklch(0.42193229104741764 0.20498756752551014 255.8600088970723)"
+    }
+   ]
+  },
+  "tone.fine": {
+   "token": "tone.fine",
+   "tuples": [
+    {
+     "dark": "oklch(0.6 0.001 200)",
+     "light": "oklch(0.6 0.001 200)",
+     "modes": {
+      "dark-style": "black",
+      "density": "regular"
+     },
+     "srgb": {
+      "dark": "#7f8080ff",
+      "light": "#7f8080ff"
+     },
+     "value": "oklch(0.6 0.001 200)"
+    },
+    {
+     "dark": "oklch(0.6 0.001 200)",
+     "light": "oklch(0.6 0.001 200)",
+     "modes": {
+      "dark-style": "black",
+      "density": "compact"
+     },
+     "srgb": {
+      "dark": "#7f8080ff",
+      "light": "#7f8080ff"
+     },
+     "value": "oklch(0.6 0.001 200)"
+    },
+    {
+     "dark": "oklch(0.6 0.001 200)",
+     "light": "oklch(0.6 0.001 200)",
+     "modes": {
+      "dark-style": "dim",
+      "density": "regular"
+     },
+     "srgb": {
+      "dark": "#7f8080ff",
+      "light": "#7f8080ff"
+     },
+     "value": "oklch(0.6 0.001 200)"
+    },
+    {
+     "dark": "oklch(0.6 0.001 200)",
+     "light": "oklch(0.6 0.001 200)",
+     "modes": {
+      "dark-style": "dim",
+      "density": "compact"
+     },
+     "srgb": {
+      "dark": "#7f8080ff",
+      "light": "#7f8080ff"
+     },
+     "value": "oklch(0.6 0.001 200)"
+    }
+   ]
+  },
+  "tone.warm": {
+   "token": "tone.warm",
+   "tuples": [
+    {
+     "dark": "oklch(0.7 0.1 20)",
+     "light": "oklch(0.7 0.1 20)",
+     "modes": {
+      "dark-style": "black",
+      "density": "regular"
+     },
+     "srgb": {
+      "dark": "#d68585ff",
+      "light": "#d68585ff"
+     },
+     "value": "oklch(0.7 0.1 20)"
+    },
+    {
+     "dark": "oklch(0.7 0.1 20)",
+     "light": "oklch(0.7 0.1 20)",
+     "modes": {
+      "dark-style": "black",
+      "density": "compact"
+     },
+     "srgb": {
+      "dark": "#d68585ff",
+      "light": "#d68585ff"
+     },
+     "value": "oklch(0.7 0.1 20)"
+    },
+    {
+     "dark": "oklch(0.7 0.1 20)",
+     "light": "oklch(0.7 0.1 20)",
+     "modes": {
+      "dark-style": "dim",
+      "density": "regular"
+     },
+     "srgb": {
+      "dark": "#d68585ff",
+      "light": "#d68585ff"
+     },
+     "value": "oklch(0.7 0.1 20)"
+    },
+    {
+     "dark": "oklch(0.7 0.1 20)",
+     "light": "oklch(0.7 0.1 20)",
+     "modes": {
+      "dark-style": "dim",
+      "density": "compact"
+     },
+     "srgb": {
+      "dark": "#d68585ff",
+      "light": "#d68585ff"
+     },
+     "value": "oklch(0.7 0.1 20)"
     }
    ]
   }
  },
  "explain": {
-  "surface.page": {
+  "-exact-label": {
+   "dials": [],
+   "names": [
+    "text.primary"
+   ],
+   "token": "-exact-label",
+   "value": "text.primary",
+   "whens": []
+  },
+  "accent.fill": {
+   "dials": [
+    "accent"
+   ],
+   "names": [],
+   "token": "accent.fill",
+   "value": "accent",
+   "whens": []
+  },
+  "accent.soft": {
+   "dials": [
+    "accent",
+    "lift"
+   ],
+   "names": [],
+   "token": "accent.soft",
+   "value": "oklch(from accent calc(l + lift) c h)",
+   "whens": []
+  },
+  "ink.on-brand": {
    "dials": [],
    "names": [],
-   "token": "surface.page",
-   "value": "light-dark(#ffffff, #000000)",
-   "whens": [
-    {
-     "value": "light-dark(#ffffff, #15202b)",
-     "when": [
-      {
-       "axis": "dark-style",
-       "value": "dim"
-      }
-     ]
-    }
-   ]
+   "token": "ink.on-brand",
+   "value": "#ffffff",
+   "whens": []
+  },
+  "paint.pick": {
+   "dials": [
+    "paint"
+   ],
+   "names": [],
+   "token": "paint.pick",
+   "value": "paint",
+   "whens": []
   },
   "surface.card": {
    "dials": [],
@@ -1160,53 +1388,22 @@
     }
    ]
   },
-  "accent.fill": {
-   "dials": [
-    "accent"
-   ],
+  "surface.page": {
+   "dials": [],
    "names": [],
-   "token": "accent.fill",
-   "value": "accent",
-   "whens": []
-  },
-  "accent.soft": {
-   "dials": [
-    "accent",
-    "lift"
-   ],
-   "names": [],
-   "token": "accent.soft",
-   "value": "oklch(from accent calc(l + lift) c h)",
-   "whens": []
-  },
-  "tone.base": {
-   "dials": [
-    "hue",
-    "chroma"
-   ],
-   "names": [],
-   "token": "tone.base",
-   "value": "oklch(0.6 chroma hue)",
-   "whens": []
-  },
-  "tone.warm": {
-   "dials": [
-    "warmth"
-   ],
-   "names": [],
-   "token": "tone.warm",
-   "value": "oklch(0.7 0.1 warmth)",
-   "whens": []
-  },
-  "tone.deep": {
-   "dials": [
-    "accent",
-    "shade"
-   ],
-   "names": [],
-   "token": "tone.deep",
-   "value": "oklch(from accent calc(l - shade) c h)",
-   "whens": []
+   "token": "surface.page",
+   "value": "light-dark(#ffffff, #000000)",
+   "whens": [
+    {
+     "value": "light-dark(#ffffff, #15202b)",
+     "when": [
+      {
+       "axis": "dark-style",
+       "value": "dim"
+      }
+     ]
+    }
+   ]
   },
   "text.primary": {
    "dials": [],
@@ -1222,20 +1419,42 @@
    "value": "-exact-secondary-label",
    "whens": []
   },
-  "ink.on-brand": {
-   "dials": [],
+  "tone.base": {
+   "dials": [
+    "chroma",
+    "hue"
+   ],
    "names": [],
-   "token": "ink.on-brand",
-   "value": "#ffffff",
+   "token": "tone.base",
+   "value": "oklch(0.6 chroma hue)",
    "whens": []
   },
-  "-exact-label": {
-   "dials": [],
-   "names": [
-    "text.primary"
+  "tone.deep": {
+   "dials": [
+    "accent",
+    "shade"
    ],
-   "token": "-exact-label",
-   "value": "text.primary",
+   "names": [],
+   "token": "tone.deep",
+   "value": "oklch(from accent calc(l - shade) c h)",
+   "whens": []
+  },
+  "tone.fine": {
+   "dials": [
+    "fine"
+   ],
+   "names": [],
+   "token": "tone.fine",
+   "value": "oklch(0.6 fine 200)",
+   "whens": []
+  },
+  "tone.warm": {
+   "dials": [
+    "warmth"
+   ],
+   "names": [],
+   "token": "tone.warm",
+   "value": "oklch(0.7 0.1 warmth)",
    "whens": []
   }
  }
