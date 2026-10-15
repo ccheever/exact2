@@ -274,9 +274,11 @@ has a loaded view with nonempty bounds, `OwnerBlocks` restores that real block
 without claiming an offscreen placement. An offscreen route that kept its
 block retains it. The distinction matters to `head::inactive`: only a first
 route still in document layout can remain live beside a Mac detail pane; a
-covered native owner stays inactive. The content-owner regression exercises
-removal and offscreen reintroduction, its restored block and inactive tree,
-and ordinary input on the shown route.
+covered native owner stays inactive. The content-owner regression uses an
+authored temporary route before the retained stack to remove and reintroduce
+its owners through normal projection. It checks the released and restored
+block, inactive tree and ordinary input on the shown route; a direct UIKit
+stack edit is insufficient because projection can restore the authored stack.
 
 **Nested owners clear once.** Owners nest: a route inside a tab, a sheet over either. Only an owner whose content is authored clears. A container whose whole content is another owner, such as a tab panel holding a navigation stack, contributes no clearance of its own. UIKit already includes the outer chrome (the tab bar) in the inner owner's `safeAreaInsets`, so the inner owner clears it, once. A tab panel whose content is authored directly is itself the owner that clears.
 

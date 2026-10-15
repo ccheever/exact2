@@ -591,23 +591,24 @@ final class ContentOwnersIOSTests: XCTestCase {
     /// its top without appearing. It remains a native owner, not the list
     /// beside a Mac detail pane (runner `head::beside_a_pane`).
     func testAnOffscreenRouteReintroducedIntoItsStackRegainsItsBlock() throws {
-        let session = try fixture("owner-reintroduced", CGSize(width: 402, height: 874))
+        let session = try fixture("owner-reintroduced", CGSize(width: 402, height: 874), plan: "EXACT_NAVIGATION_BARS_PLAN")
         let p = session.presenter
-        let home = try node(session, "route-home")
+        let home = try node(session, "route-start")
         let controller = try XCTUnwrap(p.navigation.controllers[home.id])
         let homeView = try XCTUnwrap(controller.viewIfLoaded)
-        p.press(try node(session, "detail").id)
+        p.press(try node(session, "start-open-detail").id)
         let detail = try node(session, "route-detail")
-        let top = try XCTUnwrap(p.navigation.controllers[detail.id])
-        let nav = try XCTUnwrap(p.navigation.primaryNavigation)
         until("the detail covers home") { self.placed(session, detail) != nil && !p.navigation.transitioning && homeView.window == nil }
-        nav.setViewControllers([top], animated: false)
-        p.owners.publish()
+        // The authored temporary route is before the retained stack, so the
+        // production projection really releases the old owners' blocks.
+        p.press(try node(session, "detail-park-owners").id)
+        let parked = try node(session, "route-parked")
+        until("the temporary route replaces the native stack") { p.navigation.activeRoute?.node === parked && !p.navigation.transitioning }
         until("the departed owner gives its block back") { p.owners.told[home.id] == nil }
         XCTAssertTrue(p.navigation.controllers[home.id] === controller, "the authored route retains its controller")
         XCTAssertFalse(homeView.bounds.isEmpty)
-        nav.setViewControllers([controller, top], animated: false)
-        p.owners.publish()
+        p.press(try node(session, "restore-owners").id)
+        until("detail returns with home covered") { p.navigation.activeRoute?.node === detail && !p.navigation.transitioning }
         until("the reintroduced owner has its real block") { p.owners.told[home.id]?.block == .size(homeView.bounds.size) }
         XCTAssertNil(homeView.window, "the covered route was not shown to restore its block")
         XCTAssertNil(placed(session, home), "no offscreen placement is invented")
@@ -615,7 +616,8 @@ final class ContentOwnersIOSTests: XCTestCase {
         let rows = try XCTUnwrap(tree["nodes"] as? [[String: Any]])
         XCTAssertEqual(rows.first { ($0["id"] as? NSNumber)?.uint32Value == home.id }?["inactive"] as? Bool, true)
         XCTAssertNil(rows.first { ($0["id"] as? NSNumber)?.uint32Value == detail.id }?["inactive"])
-        XCTAssertNil(Agent(session: session).tap(["id": Int(try node(session, "back").id)])["error"], "the shown route remains normally reachable")
+        XCTAssertNil(Agent(session: session).tap(["id": Int(try node(session, "detail-open-plain").id)])["error"], "the shown route remains normally reachable")
+        until("the shown control navigated normally") { p.navigation.activeRoute?.node.props["testId"] == "route-plain" && !p.navigation.transitioning }
     }
 
     /// A runtime replaced while a report waits behind a slice in flight
