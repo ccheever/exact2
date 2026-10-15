@@ -17,8 +17,9 @@ import UniformTypeIdentifiers
 /// no sheet (ShortcutsMac `validateMenuItem`), where the reference's Check for Updates... is
 /// always enabled (it reopens the main window); no Contract API zooms the main window, an app
 /// chord is heard only inside a shown modal while one is up (Shortcuts.swift `shortcutModal`),
-/// and the host files app View items ahead of Reload; the host offers no order policy for the
-/// app menu, and `-exact-menu-remove` names none of the Edit, Help or Go/Develop items hidden.
+/// and the host files app View items ahead of Reload; the host files app-menu items after About's
+/// separator (ShortcutsMac `sync`), where the reference's Check for Updates... sits directly under
+/// About, and `-exact-menu-remove` names none of the Edit, Help or Go/Develop items hidden.
 final class T3Menus: NSObject, NSMenuItemValidation, NSMenuDelegate {
     private weak var window: NSWindow?
     private var monitor: Any?
