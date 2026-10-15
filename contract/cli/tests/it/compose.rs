@@ -504,7 +504,7 @@ fn nested_enum_parameters_keep_membership_and_enum_keys_and_overrides_work() {
     .unwrap();
     assert_eq!(runner.kernel().find_by_test_id("enum-row").len(), 2);
 
-    let wrapped = "shape Choice\n  value: list<option<enum<\"a\", \"b\">>>\ncomponent App\n  resource choice = choice() as shape Choice else empty(value=[some(\"b\"), none])\n  view\n    text \"nested\"\n";
+    let wrapped = "shape Choice\n  value: option<enum<\"a\", \"b\">>[]\ncomponent App\n  resource choice = choice() as shape Choice else empty(value=[some(\"b\"), none])\n  view\n    text \"nested\"\n";
     contract::compile(wrapped).unwrap();
     assert!(contract::compile(&wrapped.replace("some(\"b\")", "some(\"bad\")")).is_err());
 }

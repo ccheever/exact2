@@ -104,7 +104,7 @@ component App
       writeFileSync(join(app, 'app.ts'), `import type { Answer, Result, Sources } from './app.contract.d.ts';
 import { Snapback, refused } from './snapback4/snapback.ts';
 import { api } from './backend/api.ts';
-export const appId = 'com.example.app';
+export const appId = '${JSON.parse(readFileSync(join(app, 'app.json'), 'utf8')).app.id}';
 const origin = 'http://127.0.0.1:${port}';
 export const grants = \`net.fetch \${origin}\`;
 const persona = 'alice';
@@ -274,7 +274,7 @@ test('registry online scaffold and complete password example work through test w
     const password = guide.split('### A complete online password app\n')[1].split('### Live resources')[0];
     const blocks = [...password.matchAll(/```(?:contract|ts)\n([\s\S]*?)\n```/g)].map(m => m[1]);
     for (const [i, file] of ['app.contract', 'app.ts', 'app.test.contract'].entries())
-      writeFileSync(join(app, file), blocks[i].replaceAll('http://127.0.0.1:30100', `http://127.0.0.1:${port}`) + '\n');
+      writeFileSync(join(app, file), blocks[i].replaceAll('http://127.0.0.1:30100', `http://127.0.0.1:${port}`).replaceAll("'com.example.app'", JSON.stringify(JSON.parse(readFileSync(join(app, 'app.json'), 'utf8')).app.id)) + '\n');
     // Going offline for logout must still remove the browser's stored session.
     const tests = join(app, 'app.test.contract');
     writeFileSync(tests, readFileSync(tests, 'utf8').replace('\ntest "a new test', '\n  fail fetch "backend"\n  tap "logout"\n  clock data\n  expect text "session" == "Signed out"\n  pass fetch "backend"\n  reload\n  clock data\n  expect text "session" == "Signed out"\n\ntest "a new test'));
