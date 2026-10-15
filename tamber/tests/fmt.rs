@@ -111,3 +111,18 @@ fn a_token_called_when_a_quoted_slash_and_a_comment_between_blocks() {
     assert_eq!(out, "tamber t\n\ntheme\n  when = #ffffff\n  font.family = 'a//b'\n\n// between\n\nexports\n  when\n");
     assert_eq!(format(&out).unwrap(), out);
 }
+
+#[test]
+fn a_single_quoted_value_is_kept_whole() {
+    let src = "tamber t\n\ntheme\n  font.family = 'A x=y'\n";
+    assert_eq!(format(src).unwrap(), src);
+}
+
+#[test]
+fn an_apostrophe_in_a_word_is_no_quote() {
+    // The word's apostrophe opens no string, so the comment after it is one.
+    let src = "tamber t\n\ntheme\n  face = People's  // the face\n";
+    assert_eq!(format(src).unwrap(), src);
+    let design = exact_tamber::parse(src).unwrap();
+    assert_eq!(design.tokens[0].value.value, "People's");
+}
