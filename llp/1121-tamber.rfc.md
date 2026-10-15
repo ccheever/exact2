@@ -419,6 +419,23 @@ named length `-exact-hairline`, usable as a length token's value.
 so `lower-colour-one-scheme` doesn't report it. The mark is refused where light and dark
 differ (`tamber-scheme-fixed`). *Added 2026-10-14 from the Bluesky port; §10.*
 
+**A token may declare what it is drawn on** with `pair=<token>` (token-line metadata; several,
+comma-separated: `pair=surface.page,surface.raised`). Each named token must be a colour token
+or a role, and not the token itself (`tamber-pair`).
+- **What a pair is for.** It says the two are meant to be read together, a foreground on a
+  background. So the design tool's grid shows a contrast badge per tuple and scheme between
+  them (LLP 1122 D7).
+- **The check.** `contract tamber check` warns when, in any tuple and scheme, the pair's
+  folded colours fall below 4.5:1 (WCAG 2's ratio for text), naming the token, the tuple and
+  the ratio (`tamber-contrast`). A residual side (a role, a platform colour) is checked at its
+  fallback and the warning says so. The warning is the author's information, never a build
+  failure.
+- **Importers may propose pairs** where the source states them: shadcn's `x-foreground` is
+  `pair=x`, and Astryx's `on-` variants likewise.
+
+*Added 2026-10-15 (lead-approved), for the design tool's contrast badges; to be built by Tamber's
+implementer.*
+
 **A row names a token as a string**, as LLP 1095 D4 does: `background-color="surface.card"`,
 `padding="space.row"`, `font="type.body"`. Inside an expression in a row, a token is a bare
 name: `color="color-mix(in srgb, brand 60%, transparent)"`. The compiler checks every literal
