@@ -702,8 +702,7 @@ and two comments, with no pending work at either checkpoint. The original
 15-operation drive then stopped at operation 8: `tap nav-home` was refused
 because a `UIView` covered the control's center at `(1080.93, 28.0)`. Return
 through that control and the later login route are unqualified. The refusal
-was preserved; hit testing was not bypassed. This older fixture's obstruction
-has not been reproduced on current main.
+was preserved; hit testing was not bypassed. Current main was not tested.
 
 The storage fixture passed its normal UI drive: two hit-tested button taps
 advanced both displayed and resource values from `0` to `1` to `2` through
