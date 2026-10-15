@@ -183,8 +183,9 @@ describe('the FocusGuard pair (Base UI FloatingFocusManager\'s inside guards)', 
     expect(guard).toContain('focus(target == "" ? popup : target)');
   });
   const guard = contractComponent('dialog-trap.contract', 'FocusGuard');
-  for (const enabled of [['first', 'middle', 'last'], ['middle', 'last'], ['first', 'middle'], ['middle'], []]) {
-    test(`enabled candidates ${JSON.stringify(enabled)}: both guards and both Tab directions stay inside`, () => {
+  for (const [name, enabled] of ['FocusGuard', 'ControlGuard'].flatMap(name => [['first', 'middle', 'last'], ['middle', 'last'], ['first', 'middle'], ['middle'], []].map(enabled => [name, enabled] as const))) {
+    test(`${name}, enabled candidates ${JSON.stringify(enabled)}: both guards and both Tab directions stay inside`, () => {
+      const guard = contractComponent('dialog-trap.contract', name);
       for (const start of [false, true]) {
         const focused: string[] = [], events: string[] = [];
         const scope = { start, targets: ['first', 'middle', 'last'], popup: 'popup',
@@ -266,16 +267,20 @@ describe('the FocusGuard pair (Base UI FloatingFocusManager\'s inside guards)', 
       const depth = indent(children[0]!);
       const direct = children.filter(line => indent(line) === depth);
       if (beside) expect(direct.map(line => line.trim().split(/[ (]/)[0])).toEqual(['FocusGuard', 'column', 'FocusGuard']);
-      expect(direct[0]!.trim()).toStartWith(`FocusGuard(guardId="${base}-guard-start", targets=`);
-      expect(direct.at(-1)!.trim()).toStartWith(`FocusGuard(guardId="${base}-guard-end", targets=`);
-      expect(children.filter(line => line.includes('FocusGuard(')).length).toBe(2);
+      // ControlGuard is the pair of a dialog whose stops are all buttons (dialog-trap.contract).
+      const kind = direct[0]!.trim().startsWith('ControlGuard(') ? 'ControlGuard' : 'FocusGuard';
+      expect(direct[0]!.trim()).toStartWith(`${kind}(guardId="${base}-guard-start", targets=`);
+      expect(direct.at(-1)!.trim()).toStartWith(`${kind}(guardId="${base}-guard-end", targets=`);
+      expect(children.filter(line => line.includes('FocusGuard(') || line.includes('ControlGuard(')).length).toBe(2);
       // Every name a target can take is an element of the app (or a prop the shell's callers fill: `first`).
       for (const guard of [direct[0]!, direct.at(-1)!]) {
         const props = /targets=(\w+), popup=(.*)\)$/.exec(guard.trim())!;
         expect(props).not.toBeNull();
         expect(dialog.line).toContain(`id=${props[2]}`);
         expect(dialog.line).toContain('data-dialog-focus="open"');
-        expect(dialog.line).toContain(`key=dialogFallback(${props[2]}, ${props[1]})`);
+        // The popup's Tab fallback, bound directly or called from the popup's own key action.
+        if (dialog.line.includes('key=dialogFallback(')) expect(dialog.line).toContain(`key=dialogFallback(${props[2]}, ${props[1]})`);
+        else expect(source(dialog.file)).toContain(`dialogFallback(${props[2]}, ${props[1]}, k, e)`);
         expect(source(dialog.file)).toContain(`derive ${props[1]} =`);
       }
     });
