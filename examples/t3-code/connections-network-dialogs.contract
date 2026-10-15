@@ -123,11 +123,11 @@ component NetworkAccessDialog
       focus("network-access-cancel")
   view
     column class=NdOverlay animation="ndFadeIn 200ms ease-in-out" -exact-exit-animation="ndFadeOut 200ms ease-in-out" testId="network-access-overlay"
-      column class=NdPopup max-width="32rem" animation="ndPopupIn 200ms ease-in-out" -exact-exit-animation="ndPopupOut 200ms ease-in-out" role="alertdialog" aria-modal=true aria-label=(enabling ? "Enable network access?" : "Disable network access?") testId="network-access-dialog"
+      column class=NdPopup max-width="32rem" animation="ndPopupIn 200ms ease-in-out" -exact-exit-animation="ndPopupOut 200ms ease-in-out" role="alertdialog" aria-describedby="network-access-description" aria-modal=true aria-label=(enabling ? "Enable network access?" : "Disable network access?") testId="network-access-dialog"
         DialogOpenFocus(target="network-access-cancel")
         column gap="0.5rem" padding="1.5rem" box-sizing="border-box"
           text (enabling ? "Enable network access?" : "Disable network access?") font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2 testId="network-access-title"
-          text (enabling ? "Let your other devices connect to T3 Code over the network. Pair devices to give them access. T3 Code will restart." : "Devices connected over your local network will disconnect. Existing tunnels, such as T3 Connect or Tailscale HTTPS, keep working. T3 Code will restart.") font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #8f8f8f)" testId="network-access-body"
+          text (enabling ? "Let your other devices connect to T3 Code over the network. Pair devices to give them access. T3 Code will restart." : "Devices connected over your local network will disconnect. Existing tunnels, such as T3 Connect or Tailscale HTTPS, keep working. T3 Code will restart.") font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #8f8f8f)" testId="network-access-body" id="network-access-description"
         row gap="0.5rem" justify-content="flex-end" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafab8, #ffffff06)"
           NdAction(buttonId="network-access-cancel", label="Cancel", tone="outline", disabled=busy, busyLabel="", still=still, keys="Escape", first=true, press=close, key=tabCancel)
           NdAction(buttonId="network-access-confirm", label=(enabling ? "Restart and enable" : "Restart and disable"), tone="default", disabled=busy, busyLabel=(busy ? "Restarting…" : ""), still=still, keys="", first=false, press=confirm, key=tabConfirm)
@@ -156,11 +156,11 @@ component TailscaleDisableDialog
       focus("tailscale-disable-cancel")
   view
     column class=NdOverlay animation="ndFadeIn 200ms ease-in-out" -exact-exit-animation="ndFadeOut 200ms ease-in-out" testId="tailscale-disable-overlay"
-      column class=NdPopup max-width="32rem" animation="ndPopupIn 200ms ease-in-out" -exact-exit-animation="ndPopupOut 200ms ease-in-out" role="alertdialog" aria-modal=true aria-label="Disable Tailscale HTTPS?" testId="tailscale-disable-dialog"
+      column class=NdPopup max-width="32rem" animation="ndPopupIn 200ms ease-in-out" -exact-exit-animation="ndPopupOut 200ms ease-in-out" role="alertdialog" aria-describedby="tailscale-disable-description" aria-modal=true aria-label="Disable Tailscale HTTPS?" testId="tailscale-disable-dialog"
         DialogOpenFocus(target="tailscale-disable-cancel")
         column gap="0.5rem" padding="1.5rem" box-sizing="border-box"
           text "Disable Tailscale HTTPS?" font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
-          text "T3 Code will restart. The local backend will start without Tailscale Serve." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #8f8f8f)"
+          text "T3 Code will restart. The local backend will start without Tailscale Serve." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #8f8f8f)" id="tailscale-disable-description"
         row gap="0.5rem" justify-content="flex-end" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafab8, #ffffff06)"
           NdAction(buttonId="tailscale-disable-cancel", label="Cancel", tone="outline", disabled=busy, busyLabel="", still=still, keys="Escape", first=true, press=close, key=tabCancel)
           NdAction(buttonId="tailscale-disable-confirm", label="Restart and disable", tone="destructive", disabled=busy, busyLabel=(busy ? "Restarting…" : ""), still=still, keys="", first=false, press=confirm, key=tabConfirm)

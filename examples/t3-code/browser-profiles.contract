@@ -216,12 +216,12 @@ component BrowserProfileDialogs
   view
     if view.removalOpen
       column class=BpOverlay testId="browser-profile-remove-overlay"
-        column class=BpPopup role="alertdialog" aria-modal=true aria-label=`Remove “${view.removalName}”?` testId="browser-profile-remove-dialog" id="browser-profile-remove-dialog" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("browser-profile-remove-dialog") key=dialogFallback("browser-profile-remove-dialog", dialogTargets)
+        column class=BpPopup role="alertdialog" aria-describedby="browser-profile-remove-description" aria-modal=true aria-label=`Remove “${view.removalName}”?` testId="browser-profile-remove-dialog" id="browser-profile-remove-dialog" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("browser-profile-remove-dialog") key=dialogFallback("browser-profile-remove-dialog", dialogTargets)
           // The focus trap (dialog-trap.contract): Remove profile is the last stop while it is enabled.
           FocusGuard(guardId="browser-profile-remove-guard-start", targets=dialogTargets, popup="browser-profile-remove-dialog")
           column gap="0.5rem" padding="1.5rem" box-sizing="border-box"
             text `Remove “${view.removalName}”?` font-size="1.25rem" font-weight=600 line-height="1.5rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
-            text "Its cookies and logins are deleted. Tabs already open in this profile stay open until you close them." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #8f8f8f)"
+            text "Its cookies and logins are deleted. Tabs already open in this profile stay open until you close them." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #8f8f8f)" id="browser-profile-remove-description"
             if view.removalError != ""
               text view.removalError font-size="0.875rem" line-height="1.25rem" color="light-dark(#e7000b, #ff6467)" aria-live="polite" testId="browser-profile-remove-error"
             if not view.removalAvailable

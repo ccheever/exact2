@@ -36,12 +36,12 @@ component SettingsConfirm
   derive dialogTargets = [`${dialogId}-cancel`, `${dialogId}-confirm`]
   view
     column position="absolute" left=0 right=0 top=0 bottom=0 z-index=40 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #090909a3)" testId=`${dialogId}-overlay`
-      column width="100%" max-width="32rem" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="alertdialog" aria-modal=true aria-label=title testId=dialogId id=dialogId tabindex=-1 data-dialog-focus="open" focusin=dialogEntered(dialogId) key=dialogFallback(dialogId, dialogTargets)
+      column width="100%" max-width="32rem" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="alertdialog" aria-describedby=`${dialogId}-description` aria-modal=true aria-label=title testId=dialogId id=dialogId tabindex=-1 data-dialog-focus="open" focusin=dialogEntered(dialogId) key=dialogFallback(dialogId, dialogTargets)
         DialogOpenFocus(target=`${dialogId}-cancel`)
         column gap="0.5rem" padding="1.5rem" box-sizing="border-box"
           text title font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
           if description != ""
-            text description font-size="0.875rem" line-height="1.25rem" white-space="pre-line" color="light-dark(#71717b, #818181)"
+            text description font-size="0.875rem" line-height="1.25rem" white-space="pre-line" color="light-dark(#71717b, #818181)" id=`${dialogId}-description`
           if error != ""
             text error font-size="0.75rem" line-height="1.125rem" color="light-dark(#dc2626, #f87171)" role="alert" testId=`${dialogId}-error`
         row gap="0.5rem" justify-content="flex-end" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#f9f9f9b8, #ffffff06)"

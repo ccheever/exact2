@@ -390,12 +390,24 @@ could not, the comment at the fix says what happened and why the code is so.
 
 ## Work left
 
-As of 2026-10-16, after merging main's macOS fixes of that day (exact2 PRs #636 to #640) and a
-session with real keys on the terminal. Each item says what is wrong or missing; the open
-framework issues that someone using the app runs into are in the section above.
+As of 2026-10-16, after merging main's macOS fixes of that day (exact2 PRs #636 to #640, #646
+and #647) and a session with real keys on the terminal. Each item says what is wrong or missing;
+the open framework issues that someone using the app runs into are in the section above.
 
-**Fails:** none known. The items below that were fixed since the 2026-10-15 session still want
-real keys, a pointer and VoiceOver.
+**Fails:**
+
+- Terminal, Korean 2-Set: right after switching to 2-Set in a newly launched app, the first
+  syllable can reach the terminal as separate jamo (ㅎㅏㄴ). The input method starts by inserting
+  text without marking it, and the surface empties its input after each insert. Kotoeri's ⌃K has
+  not been run: no Japanese input source is installed.
+- The flat sidebar opens no context menu on a background environment's row, and dragging a
+  background row does not reorder it on its environment.
+- The image preview's zoomable image is a labelled group, read as "group"; the reference's
+  `role="region"` is an AXLandmarkRegion read as "region". The Mac host maps no `region` role
+  and Contract carries no `aria-roledescription` (host).
+
+The items below that were fixed since the 2026-10-15 session still want real keys, a pointer and
+VoiceOver.
 
 **Not failures** (the reference does the same):
 
@@ -406,10 +418,19 @@ real keys, a pointer and VoiceOver.
   reference stays silent. On a completed thread the row gains the green 'Completed' label.
 - The legacy thread menu has no Archive item, in the reference too (LegacySidebar.tsx:2241-2264).
   One row archives from its hover button, a selection from 'Archive (n)'.
-- After a chip's preview closes the chip stays selected and typing replaces it, in the reference
-  too (checked against the reference web build).
+- A chip pressed to open its preview stays selected after the preview closes, and a letter typed
+  after Escape, Close or a backdrop click replaces the file or image chip (C14/C23). T3 Code's
+  Tiptap editor keeps the chip's NodeSelection and Base UI's finalFocus gives the editor back the
+  focus; measured on the reference web build. `macos/tests/composer/chipactions.swift` pins it.
+- Dragging a zoomed preview image past an edge (row 4): ZoomableImage's drag keeps its press as
+  the origin, so the image moves back only once the pointer passes where the edge was hit.
+  Measured on the reference's own ZoomableImage.tsx in Chrome for Testing 154;
+  `composer-preview-keys.test.ts` pins it.
 
-**Checked with real keys** (2026-10-16): Terminal, Korean 2-Set. ⌃C while a syllable composes
+**Checked with real keys** (2026-10-16): Terminal, Korean 2-Set. ⌥Return while a syllable
+composes opens the Hanja list, as in T3 Code: the syllable goes to the shell when the input
+method commits it, and the candidate picked (or the syllable again, on Escape) follows it, as
+under T3 Code's Chromium page. ⌃C while a syllable composes
 commits it alone, and a second ⌃C is the shell's. ⌃L while a syllable composes commits it
 without clearing, as T3 Code does: its drawer reads the "Process" key's `key` ("ㅣ"), so a ⌃
 chord typed during a terminal composition is no longer re-issued with its Latin letter
@@ -459,21 +480,43 @@ zero-dwell press-key can make the input method commit a jamo at once.
   beside the image closes it; the image is a Tab stop ("<name>, zoomable image") on the page
   background with a ring; a click (its release over the image), Enter, + - 0 or the wheel zooms
   it, a double click zooms once, a window resize fits it again, and the zoom level is announced
-  politely; it pans while zoomed by arrows or drag, stopping at the edges. The Mac host exposes
-  no `region` role, so it is a labelled group.
+  politely; it pans while zoomed by arrows or drag, stopping at the edges.
 - A snapshot shortcut letter is found on the ASCII-capable layout under 2-Set Korean, and the
   snapshot AppKit test no longer depends on the input source.
-- Terminal, Korean 2-Set: ⌥Return no longer sends Escape or a line break, so typed text stays
-  inline; the Hanja list is still to check by real input.
 - The 'HTTP 404' after a hover Settle came from parking the open thread when the next card
   belonged to another environment. That card now opens in its own environment, and a thread the
   shell does not hold no longer fetches its detail. It is checked by tests and an agent drive
   with `tools/second-environment`; one real pointer run is still to do.
+- macOS VoiceOver (exact2 PR #647): an `alertdialog` that opens is announced with its title,
+  "dialog" and the message its `aria-describedby` names (each confirmation names its message, as
+  Base UI's AlertDialog.Description does); `role="menu"` popovers are menus and their rows menu
+  items (AXMenu, AXMenuItem, with AXMenuOpened as one shows); a labelled group says "group"; a
+  popover dialog that autofocuses a field reads the field. Checked by AX reads and notification
+  observers only.
+- The Git split button's options trigger is its chevron only (row C21), so its frame and click
+  target are the chevron's, as the reference's MenuTrigger is; the menu still hangs under the
+  whole group at its width, and the group lights on hover.
+- Tab from the window (session D: it did nothing): with nothing focused, for example after a
+  menu opened by the pointer closes, Tab goes to the first control (Keyboard Navigation on) or
+  the first text field (off), with its focus ring, and Shift-Tab to the last (exact2 PR #646,
+  `issues/closed/20261016-macos-tab-from-the-window-focuses-nothing.md`). Covered by XCTests only.
+- In the flat sidebar, settling, snoozing, waking and pinning a background environment's row act
+  on that environment, and the undo notice's ⌘Z reverts on the thread's own environment, also
+  after the focus has moved to another one (agent drive).
+- `tools/second-environment`'s `seed second --turns` gives "Background thread (completed turn)" a
+  completed turn, answered offline by the ACP stand-in. After Mark unread its legacy row shows the
+  reference's green "Completed" status (checked by sending `thread.mark-unread` through the
+  server); Mark unread from the native context menu is still to choose by pointer.
+- The keybinding recorder (Settings › Keybindings and the project action editor) is an editable
+  text field (AXTextField) named "Keybinding for <command>" with the placeholder "Press
+  shortcut", as the reference's Input is; whether VoiceOver announces it on open is unchecked.
 
 **Next real-input session:** VoiceOver rows 1, 2, 3, 4, 6, 25 and 28 of realinput-1015c (the
 `aria-modal` views and dialogs); rows 22 and 24 (VO-Right from the text area reaches every chip
-in text order, `sample.py` included, and none before the text area); rows 2 and 26 of session C
-(where the focus ended on the window after a menu or popup closed).
+in text order, `sample.py` included, and none before the text area); rows 5, 10, 13 and 15 of
+realinput-1016a (VoiceOver's speech for an opening confirmation, a menu, a group and the font
+picker's search); rows 2 and 26 of session C and session D's Tab from the window (with Keyboard
+Navigation on, open a menu with the pointer, close it, then press Tab and Shift-Tab).
 
 **Passed with real keys, pointer or VoiceOver** (2026-10-15): the keybinding recorder's Escape,
 Snooze's focus return, Return on the fixed menus, the launcher's letters after a remount, the
@@ -509,7 +552,7 @@ only a background environment has (tests only).
 environment, a machines list and an ACP agent stand-in (each has its README). Still missing: a
 tailnet, and a server older than the client for the machines-update popover's busy states.
 
-**Framework issues opened by this app:** the macOS issues it opened from 2026-10-13 to 2026-10-15
+**Framework issues opened by this app:** the macOS issues it opened from 2026-10-13 to 2026-10-16
 are closed on main. `issues/20261010-pointer-events-reach-ancestors.md` waits for a decision; until
 then the app forwards presses to the window itself.
 

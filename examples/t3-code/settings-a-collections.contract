@@ -68,13 +68,13 @@ component CollectionRemoveDialog
   derive dialogTargets = [(card.removal.length > 0 ? "theme-remove-pick-0" : "theme-remove-collection-cancel"), (busy or card.picked == 0 ? "theme-remove-collection-cancel" : "theme-remove-collection-confirm")]
   view
     column position="absolute" left=0 right=0 top=0 bottom=0 z-index=40 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #090909a3)" testId="theme-remove-collection-overlay"
-      column width="100%" max-width="32rem" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="alertdialog" aria-modal=true aria-label=`Remove themes from “${card.label}”?` testId="theme-remove-collection" id="theme-remove-collection" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("theme-remove-collection") key=dialogFallback("theme-remove-collection", dialogTargets)
+      column width="100%" max-width="32rem" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="alertdialog" aria-describedby="theme-remove-collection-description" aria-modal=true aria-label=`Remove themes from “${card.label}”?` testId="theme-remove-collection" id="theme-remove-collection" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("theme-remove-collection") key=dialogFallback("theme-remove-collection", dialogTargets)
         // The focus trap (dialog-trap.contract): the themes, Cancel, then Remove while it is enabled.
         FocusGuard(guardId="theme-remove-collection-guard-start", targets=dialogTargets, popup="theme-remove-collection")
         DialogOpenFocus(target=(card.removal.length > 0 ? "theme-remove-pick-0" : "theme-remove-collection-cancel"))
         column gap="0.5rem" padding="1.5rem" box-sizing="border-box"
           text `Remove themes from “${card.label}”?` font-size="1.25rem" font-weight=600 line-height="1.5rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
-          text "Select the variants you want to remove. You can restore them by importing the extension again." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
+          text "Select the variants you want to remove. You can restore them by importing the extension again." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)" id="theme-remove-collection-description"
           if error != ""
             text error font-size="0.75rem" line-height="1.125rem" color="light-dark(#dc2626, #f87171)" role="alert" testId="theme-remove-collection-error"
         scroll max-height="18rem" width="100%"

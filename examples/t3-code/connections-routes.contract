@@ -207,14 +207,14 @@ component RouteRemoveDialog
   derive dialogTargets = ["route-remove-cancel", "route-remove-confirm"]
   view
     column class=RtOverlay testId="route-remove-overlay"
-      column width="100%" max-width="28rem" box-sizing="border-box" padding="1.5rem" gap="1rem" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow="0 24px 64px -24px #000000a6" role="alertdialog" aria-modal=true aria-label=`Remove ${route.label} route?` testId="route-remove-dialog" id="route-remove-dialog" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("route-remove-dialog") key=dialogFallback("route-remove-dialog", dialogTargets)
+      column width="100%" max-width="28rem" box-sizing="border-box" padding="1.5rem" gap="1rem" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow="0 24px 64px -24px #000000a6" role="alertdialog" aria-describedby="route-remove-description" aria-modal=true aria-label=`Remove ${route.label} route?` testId="route-remove-dialog" id="route-remove-dialog" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("route-remove-dialog") key=dialogFallback("route-remove-dialog", dialogTargets)
         // The focus trap (dialog-trap.contract).
         FocusGuard(guardId="route-remove-guard-start", targets=dialogTargets, popup="route-remove-dialog")
         DialogOpenFocus(target="route-remove-cancel")
         column gap="0.5rem"
           text `Remove ${route.label} route?` font-size="1.125rem" line-height="1.5rem" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
           if route.address != ""
-            text route.address font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
+            text route.address font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)" id="route-remove-description"
         row gap="0.5rem" justify-content="flex-end"
           button id="route-remove-cancel" press=cancel class=PvOutline aria-keyshortcuts="Escape" disabled=busy testId="route-remove-cancel" data-focus-stop=(busy ? "" : "enabled")
             text "Cancel" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
