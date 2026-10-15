@@ -2,9 +2,19 @@
 // threadNotifications.ts, apps/desktop notificationBadge.ts): notification-center
 // posts tagged per thread (a click focuses the app and asks the window to open
 // that thread), the completion/input sounds and the Dock badge of pending
-// notifications, cleared when the window gains focus. A click's action and the
-// badge stay here (exact2 #224, refused by DEFERRED); whether the window has the
+// notifications, cleared when the window gains focus. Whether the window has the
 // focus is the page's `exactPage().hasFocus` (exact2 #219, shell-notify.ts).
+//
+// Badges stay refused (rules/DEFERRED.md), so the posts are counted here. The
+// default click is admitted since 2026-10-11 (DEFERRED, the notification click
+// ruling), but only for a notification Contract's `showNotification(navigate=)`
+// posted, whose click the host delivers as `navigate` to the navigation root
+// (host/apple/Sources/ExactKit/Notify.swift). This app cannot post that way:
+// the host's notification always sounds (`content.sound = .default`, presented
+// with `.sound`) where the reference's is `silent: true` and plays the sound the
+// setting chose; whether a thread notifies is decided in the data module, which
+// cannot run a host command; and the window has no navigation root. So the post
+// and its click stay here too.
 // An agent-launched app never asks for notification permission; it reports
 // what the notification center already says and labels itself as such.
 import AppKit
