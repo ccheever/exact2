@@ -359,6 +359,8 @@ pub struct Runner<D: DataSource> {
     tree: Option<Tree>,
     reorder_owner: Option<exact_kernel::NodeKey>,
     reorder_ops: Vec<exact_kernel::Op>,
+    /// The wide colours the queued patches hold, kept from the table's sweep.
+    reorder_kept: exact_kernel::style::wide::Keep,
     /// The session the owner's token names (LLP 1094 D4).
     reorder_session: Option<Box<reorder_group::Session>>,
     /// A grouped drop's source while its `reorderdrop` runs (D2).
@@ -815,6 +817,7 @@ impl<D: DataSource> Runner<D> {
             tree: None,
             reorder_owner: None,
             reorder_ops: Vec::new(),
+            reorder_kept: Default::default(),
             reorder_session: None,
             dropping_from: None,
             ids: Ids::default(),
@@ -1393,8 +1396,9 @@ impl<D: DataSource> Runner<D> {
     }
 
     fn apply(&mut self, mut ops: Vec<exact_kernel::Op>) -> Result<CommitReceipt, RunnerError> {
-        if !self.reorder_ops.is_empty() {
-            let mut prefix = std::mem::take(&mut self.reorder_ops);
+        // The queued patches' colours stay kept until this commit marks them.
+        let (mut prefix, _queued) = self.take_reorder_ops();
+        if !prefix.is_empty() {
             prefix.append(&mut ops);
             ops = prefix;
         }

@@ -69,6 +69,9 @@ mod content_region;
 #[cfg(test)]
 #[path = "content_region/presenter_tests.rs"]
 mod content_region_tests;
+#[cfg(test)]
+#[path = "content_region/wide_tests.rs"]
+mod content_region_wide_tests;
 #[cfg(target_os = "android")]
 mod feed;
 mod height;
