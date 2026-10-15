@@ -595,18 +595,17 @@ that settled the answer). It does not run for a failure that brought no answer,
 and it must not send its own mutation. Do not use `then` as a general event queue.
 
 `pending(resourceOrMutation)` asks whether a request is in flight.
-`failed(resource)` asks whether the current resource request failed without an
-answer. Both take the declared name, not an arbitrary value. `failed` does not
-accept a mutation: a mutation whose request fails without an answer stops being
-pending and keeps its previous value, and its `then` does not run. A domain error
-returned in a shaped answer is data to inspect, not a failed transport request.
+`failed(resourceOrMutation)` asks whether its latest admitted request failed
+without an answer. Both take the declared name. A failed mutation keeps its
+previous value and runs no `then`; its next send clears the failure. A domain
+error returned in a shaped answer is data, not a failed request.
 
-`failure(resource)` says why, so the view can tell a lost connection from a bug:
-`none` until the request fails, then `some` of a `Failure` record with a `code`
-from a short closed list (`offline`, `timeout`, `refused`, `shape`, `storage`,
-`error`; the grammar says when each applies), a `message` for a developer, and
-a `reason`: the code of a backend's refusal when the source threw one (the
-snapback4 driver puts a Snapback refusal's code there, `SLOT_FULL`), else empty.
+`failure(resourceOrMutation)` says why: `none` until a request fails, then
+`some` of a `Failure` record. Its `code` preserves a nonempty source `reason`,
+such as a Snapback refusal's `SLOT_FULL`; otherwise it is an infrastructure
+class (`offline`, `timeout`, `refused`, `shape`, `storage`, `error`; the grammar
+says when each applies). `message` is for a developer; `reason` also retains
+the source's domain code, or is empty.
 The code and the reason are the same on every host; the message is not, so
 branch on the code or the reason:
 

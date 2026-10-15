@@ -495,7 +495,7 @@ gets the same diagnostic as dot access, including in the web build's summary.
 Aliases and dynamic property keys still reach the runtime guard. In a running
 session, a refused TypeScript answer fails its resource and keeps its last value
 or placeholder; the typed input or action still commits. `failure(x).code` is
-`error` for the module's own error. A failed send ends unsent, retains its previous
+`error` for the module's own error, unless its nonempty `reason` supplies a domain code. A failed send ends unsent, retains its previous
 result and runs no `then`, including when queued. The journal names the failure.
 Module initialization, bake and replacement validation still refuse failures.
 Development JS builds name a derive
