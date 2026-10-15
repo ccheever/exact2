@@ -50,6 +50,37 @@ component FocusGuard
   view
     box id=guardId tabindex=0 aria-hidden=true focusin=enter key=hold position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none" testId=guardId
 
+// FocusGuard for a dialog whose stops are all controls, no field or list. FocusGuard's box is a Tab stop in both
+// Keyboard Navigation modes, so with it off (LLP 1115.000 D7.2: Tab moves between fields and lists only) Tab from the
+// focused first button reached the end guard and came back to it while Shift-Tab reached the start guard and jumped to
+// the last button. This guard is a button with no `tabindex`, a Tab stop exactly when the dialog's buttons are: with
+// Keyboard Navigation on Tab and Shift-Tab wrap through every control as Base UI's trap does; off, both pass over the
+// controls as AppKit's Tab passes over a sheet's buttons. The dialog's background is inert while it is open (the
+// window's `inert`), so with it off no stop outside the dialog is left for Tab to reach either.
+component ControlGuard
+  props
+    guardId: string
+    targets: string[]
+    popup: string
+  derive start = guardId.includes("-guard-start")
+  action enter
+    stopPropagation()
+    let mounted = querySelectorAll("[data-focus-stop~=\"enabled\"]")
+    let available = targets.filter(id => mounted.includes(id))
+    let target = (start ? available.slice(-1) : available.slice(0, 1)).join("")
+    if querySelectorAll("[data-dialog-focus~=\"open\"]").includes(popup)
+      focus(target == "" ? popup : target)
+  action hold(k: string, e: KeyboardEvent)
+    if k == "Tab" and not e.metaKey and not e.ctrlKey and not e.altKey
+      preventDefault()
+      stopPropagation()
+      let mounted = querySelectorAll("[data-focus-stop~=\"enabled\"]")
+      let available = targets.filter(id => mounted.includes(id))
+      let target = (e.shiftKey ? available.slice(-1) : available.slice(0, 1)).join("")
+      focus(target == "" ? popup : target)
+  view
+    button id=guardId appearance="none" aria-hidden=true focusin=enter key=hold position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 pointer-events="none" background-color="#00000000" testId=guardId
+
 // Base UI's Dialog moves the focus into the popup as it opens (FloatingFocusManager's `initialFocus`: the popup's first
 // Tab stop, unless the dialog names another or an element inside took the focus with `autoFocus` as it mounted), whether
 // a pointer or a key opened it, so the first Tab and Shift+Tab already start inside the trap. An `autofocus` takes the
