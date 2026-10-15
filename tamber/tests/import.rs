@@ -1018,3 +1018,165 @@ fn dtcg_scheme_and_axis_together_keep_the_scheme_in_the_default() {
         "{text}"
     );
 }
+
+#[test]
+fn dtcg_round_two_tokens_studio_order_names_and_references() {
+    use exact_tamber::import::dtcg;
+    // Sets apply in tokenSetOrder whatever the groups; one set in two themes
+    // is read once.
+    let single = r##"{
+      "late": { "c": { "a": { "value": "#020202", "type": "color" } } },
+      "early": { "c": { "a": { "value": "#010101", "type": "color" } } },
+      "shared": { "c": { "s": { "value": "#030303", "type": "color" } } },
+      "$themes": [
+        { "name": "One", "group": "g1", "selectedTokenSets": { "late": "enabled", "shared": "enabled" } },
+        { "name": "Two", "group": "g2", "selectedTokenSets": { "early": "enabled", "shared": "enabled" } }
+      ],
+      "$metadata": { "tokenSetOrder": ["early", "late", "shared"] }
+    }"##;
+    let import = dtcg::import(
+        &dtcg_files(&[("t.json", single)]),
+        "ts",
+        &parse(EMPTY).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(import.counted.source, 3);
+    let text = accepted(EMPTY, &import);
+    assert_eq!(token_value(&text, "ts.c.a"), "#020202");
+    // Two axes written apart but one identifier refuse the import.
+    let clash = dtcg_files(&[
+        (
+            "Brand Tone.Calm.json",
+            r##"{ "c": { "$type": "color", "a": { "$value": "#000" } } }"##,
+        ),
+        (
+            "Brand Tone.Loud.json",
+            r##"{ "c": { "$type": "color", "a": { "$value": "#111" } } }"##,
+        ),
+        (
+            "brand-tone.Calm.json",
+            r##"{ "c": { "$type": "color", "b": { "$value": "#222" } } }"##,
+        ),
+        (
+            "brand-tone.Loud.json",
+            r##"{ "c": { "$type": "color", "b": { "$value": "#333" } } }"##,
+        ),
+    ]);
+    assert_eq!(
+        dtcg::import(&clash, "f", &parse(EMPTY).unwrap()).unwrap_err()[0].id,
+        "tamber-import-axis"
+    );
+    // $extends deep and transitive; a whole-token $ref alias; ~1 decoded; a
+    // long untyped chain; an alias to a colliding name inlined.
+    let tokens = r##"{
+      "base": { "$type": "color", "g": { "a": { "$value": "#0a0a0a" }, "b": { "$value": "#0b0b0b" } } },
+      "mid": { "$extends": "{base}" },
+      "top": { "$extends": "{mid}", "g": { "a": { "$value": "#0c0c0c" } } },
+      "whole": { "$ref": "#/base/g/a" },
+      "slash": { "$type": "color", "a/b": { "$value": "#0d0d0d" } },
+      "esc": { "$value": { "$ref": "#/slash/a~1b/$value" } },
+      "a b": { "$type": "color", "$value": "#0e0e0e" },
+      "a-b": { "$type": "color", "$value": "#0f0f0f" },
+      "to-collided": { "$value": "{a-b}" },
+      "h0": { "$value": "{h1}" }, "h1": { "$value": "{h2}" }, "h2": { "$value": "{h3}" }, "h3": { "$value": "{h4}" },
+      "h4": { "$value": "{h5}" }, "h5": { "$value": "{h6}" }, "h6": { "$value": "{h7}" }, "h7": { "$value": "{h8}" },
+      "h8": { "$value": "{h9}" }, "h9": { "$value": "{h10}" }, "h10": { "$value": "{h11}" }, "h11": { "$value": "{h12}" },
+      "h12": { "$value": "{h13}" }, "h13": { "$value": "{h14}" }, "h14": { "$value": "{h15}" }, "h15": { "$value": "{h16}" },
+      "h16": { "$value": "{h17}" }, "h17": { "$value": "{h18}" }, "h18": { "$type": "color", "$value": "#121212" }
+    }"##;
+    let import = dtcg::import(
+        &dtcg_files(&[("tokens.json", tokens)]),
+        "ds",
+        &parse(EMPTY).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        import.counted.mapped + import.counted.reported,
+        import.counted.source
+    );
+    let text = accepted(EMPTY, &import);
+    assert_eq!(token_value(&text, "ds.top.g.a"), "#0c0c0c");
+    assert_eq!(token_value(&text, "ds.top.g.b"), "#0b0b0b");
+    assert_eq!(token_value(&text, "ds.whole"), "ds.base.g.a");
+    assert_eq!(token_value(&text, "ds.esc"), "ds.slash.a-b");
+    assert_eq!(token_value(&text, "ds.to-collided"), "#0f0f0f");
+    assert_eq!(token_value(&text, "ds.h0"), "ds.h1");
+    let cycle = r##"{ "a": { "$extends": "{b}" }, "b": { "$extends": "{a}" } }"##;
+    assert!(dtcg::import(
+        &dtcg_files(&[("c.json", cycle)]),
+        "ds",
+        &parse(EMPTY).unwrap()
+    )
+    .is_err());
+}
+
+#[test]
+fn dtcg_round_two_resolver_documents_figma_case_and_existing_axes() {
+    use exact_tamber::import::dtcg;
+    // A set in another file whose own references are its own; sets within
+    // sets; a set never reached reported.
+    let resolver = r##"{
+      "sets": { "unused": { "sources": [ { "u": { "$type": "color", "x": { "$value": "#999999" } } } ] } },
+      "resolutionOrder": [ { "$ref": "sub/sets.json#/sets/outer" } ]
+    }"##;
+    let sets = r##"{
+      "sets": {
+        "outer": { "sources": [ { "$ref": "#/sets/inner" } ] },
+        "inner": { "sources": [ { "$ref": "./colors.json" } ] }
+      }
+    }"##;
+    let colors = r##"{ "c": { "$type": "color", "a": { "$value": "#123123" } } }"##;
+    let files = dtcg_files(&[
+        ("r.json", resolver),
+        ("sub/sets.json", sets),
+        ("sub/colors.json", colors),
+    ]);
+    let import = dtcg::import(&files, "ds", &parse(EMPTY).unwrap()).unwrap();
+    let text = accepted(EMPTY, &import);
+    assert_eq!(token_value(&text, "ds.c.a"), "#123123");
+    assert!(import
+        .unmapped
+        .iter()
+        .any(|u| u.name == "u.x" && u.why.contains("never reaches")));
+    // Figma files named in upper case.
+    let upper = dtcg_files(&[
+        (
+            "T.Light.JSON",
+            r##"{ "c": { "$type": "color", "a": { "$value": "#fff" } } }"##,
+        ),
+        (
+            "T.Dark.JSON",
+            r##"{ "c": { "$type": "color", "a": { "$value": "#000" } } }"##,
+        ),
+    ]);
+    let text = accepted(
+        EMPTY,
+        &dtcg::import(&upper, "f", &parse(EMPTY).unwrap()).unwrap(),
+    );
+    assert_eq!(token_value(&text, "f.c.a"), "light-dark(#fff, #000)");
+    // An existing axis under the dark scheme, or one the values would take
+    // past the tuples, refuses.
+    let modes = dtcg_files(&[
+        (
+            "Brand.Calm.json",
+            r##"{ "c": { "$type": "color", "a": { "$value": "#000" } } }"##,
+        ),
+        (
+            "Brand.Loud.json",
+            r##"{ "c": { "$type": "color", "a": { "$value": "#111" } } }"##,
+        ),
+    ]);
+    let dark = "tamber app\n\naxes\n  brand = calm | quiet  under scheme=dark\n";
+    assert_eq!(
+        dtcg::import(&modes, "f", &parse(dark).unwrap()).unwrap_err()[0].id,
+        "tamber-import-axis"
+    );
+    let values: Vec<String> = std::iter::once("calm".to_string())
+        .chain((0..63).map(|i| format!("v{i}")))
+        .collect();
+    let full = format!("tamber app\n\naxes\n  brand = {}\n", values.join(" | "));
+    assert_eq!(
+        dtcg::import(&modes, "f", &parse(&full).unwrap()).unwrap_err()[0].id,
+        "tamber-import-tuples"
+    );
+}

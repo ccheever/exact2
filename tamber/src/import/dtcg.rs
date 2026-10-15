@@ -1,41 +1,46 @@
 //! DTCG JSON (LLP 1121 D14, importer 3): Format 2025.10, with the Resolver
 //! Module where present, from Tokens Studio and from Figma Variables
-//! exports. The source is a set of files read as layers, each the base, one
-//! side of the scheme, or one value of a proposed axis, in precedence order:
+//! exports. The source is a set of files read as layers, each active in some
+//! modes (always, one side of the scheme, or one value of a proposed axis),
+//! in precedence order:
 //!
 //! - **Figma:** `<Collection>.<Mode>.json`. A collection whose modes are
 //!   `Light` and `Dark` is the scheme; one with one mode is the base; any
 //!   other's modes are a proposed axis named for the collection, its first
-//!   mode (by name) the default. Any other file is the base.
+//!   mode (by name) the default. Any other file is the base. The base, then
+//!   the scheme, then the axes.
 //! - **Tokens Studio:** `$themes.json` and its token sets, or one file holding
 //!   them all. A group of one theme is the base; a group whose themes are
 //!   `light` and `dark` is the scheme; any other group (ungrouped themes are
-//!   one group) a proposed axis. A theme's `source` sets come before its
-//!   `enabled` ones, each in `$metadata.tokenSetOrder`; a set no theme turns
-//!   on is reported. The legacy `value`/`type` form is read as
+//!   one group) a proposed axis. Each set is read once and is active in the
+//!   modes of every theme that turns it on (`enabled` or `source`); the sets
+//!   apply in `$metadata.tokenSetOrder`, the lowest winning; a set no theme
+//!   turns on is reported. The legacy `value`/`type` form is read as
 //!   `$value`/`$type`; a value Tokens Studio modifies (`studio.tokens`
 //!   `modify`) is reported.
 //! - **A resolver** (`resolutionOrder`): each set the base, a modifier whose
 //!   contexts are `light` and `dark` the scheme, any other a proposed axis;
-//!   references resolved (`#/sets/…`, files relative to the document),
-//!   sibling keys overriding what they name, in the order the document gives.
+//!   references resolved in the document that holds them (`#/sets/…`, files
+//!   relative to it), sibling keys overriding what they name, sets within
+//!   sets expanded; a set the order never reaches is reported.
 //! - **Any other DTCG file:** the base.
 //!
-//! Each mode tuple (a side of the scheme with a value of every axis) is
-//! resolved on its own, its layers merged in order (a later one winning,
-//! whatever its kind), and every `{a.b}` or `$ref` alias followed there. A
-//! token is a colour in every tuple or makes no token; its default is the
-//! default tuple's (a `light-dark()` of the scheme's sides), and each other
-//! tuple Tamber would not otherwise select its value in is a `when` line.
-//! Other `$type`s are `kind pending (stage 6)` with the token each would
-//! become; borders, transitions, gradients and stroke styles are reported, as
-//! are strings and booleans. Names come from group paths, each segment made
-//! an identifier (`$root` is `root`); collisions are reported.
+//! Two axes, or two values of one, whose names are one identifier refuse the
+//! import. Each mode tuple (a side of the scheme with a value of every axis)
+//! is resolved on its own, its active layers merged in order (a later one
+//! winning, whatever its kind), and every `{a.b}` or `$ref` alias followed
+//! there. A token is a colour in every tuple or makes no token; its default
+//! is the default tuple's (a `light-dark()` of the scheme's sides), and each
+//! other tuple Tamber would not otherwise select its value in is a `when`
+//! line. Other `$type`s are `kind pending (stage 6)` with the token each
+//! would become; borders, transitions, gradients and stroke styles are
+//! reported, as are strings and booleans. Names come from group paths, each
+//! segment made an identifier (`$root` is `root`); collisions are reported.
 
 use super::{colour_literal, counted, reconcile, Import, Mapped, Unmapped};
 use crate::{Design, Diagnostic};
 use serde_json::{Map, Value};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 /// Where a layer applies.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -59,29 +64,53 @@ struct Def {
     refused: Option<String>,
 }
 
-/// A layer: where it applies, and its tokens (indices into the defs).
+/// A layer: the modes it is active in (any of them), and its tokens
+/// (indices into the defs).
 struct Layer {
-    scope: Scope,
+    scopes: Vec<Scope>,
     defs: Vec<usize>,
 }
 
-/// What the files make: every def, the layers in precedence order, and the
-/// defs no layer uses (a set no theme turns on), with why.
+/// What the files make: every def, the layers in precedence order, the defs
+/// no layer uses (with why), and each axis and value's name as written, to
+/// refuse two that become one identifier.
 #[derive(Default)]
 struct Read {
     defs: Vec<Def>,
     layers: Vec<Layer>,
     unused: Vec<(usize, String)>,
+    written: BTreeMap<(String, Option<String>), BTreeSet<String>>,
 }
 
 impl Read {
-    fn layer(&mut self, scope: Scope, found: Vec<Def>) {
+    fn layer(&mut self, scopes: Vec<Scope>, found: Vec<Def>) {
         let start = self.defs.len();
         self.defs.extend(found);
         self.layers.push(Layer {
-            scope,
+            scopes,
             defs: (start..self.defs.len()).collect(),
         });
+    }
+
+    /// An axis value's scope, its written names kept.
+    fn axis(&mut self, axis: &str, value: &str) -> Scope {
+        let (a, v) = (ident(axis), ident(value));
+        self.written
+            .entry((a.clone(), None))
+            .or_default()
+            .insert(axis.to_string());
+        self.written
+            .entry((a.clone(), Some(v.clone())))
+            .or_default()
+            .insert(value.to_string());
+        Scope::Axis(a, v)
+    }
+
+    fn unused(&mut self, found: Vec<Def>, why: &str) {
+        for def in found {
+            self.unused.push((self.defs.len(), why.to_string()));
+            self.defs.push(def);
+        }
     }
 }
 
@@ -126,9 +155,23 @@ fn legacy(map: &Map<String, Value>) -> bool {
             .is_some_and(|v| map.get("type").is_some_and(Value::is_string) || !v.is_object())
 }
 
-/// A group `$extends` or `$ref` names: `{a.b}` or a JSON pointer.
-fn group<'a>(root: &'a Value, target: &str) -> Option<&'a Value> {
-    let t = target.trim();
+/// Whether a node is a token (as opposed to a group).
+fn is_token(node: &Value) -> bool {
+    node.as_object()
+        .is_some_and(|m| m.contains_key("$value") || legacy(m))
+}
+
+/// A JSON Pointer's segments, `~1` and `~0` decoded.
+fn pointer_segments(pointer: &str) -> Vec<String> {
+    pointer
+        .split('/')
+        .map(|s| s.replace("~1", "/").replace("~0", "~"))
+        .collect()
+}
+
+/// What `$extends` or `$ref` names in `root`: `{a.b}` or a JSON pointer.
+fn target<'a>(root: &'a Value, name: &str) -> Option<&'a Value> {
+    let t = name.trim();
     if let Some(pointer) = t.strip_prefix('#') {
         return root.pointer(pointer);
     }
@@ -136,44 +179,113 @@ fn group<'a>(root: &'a Value, target: &str) -> Option<&'a Value> {
     path.split('.').try_fold(root, |node, seg| node.get(seg))
 }
 
+/// A group with what it extends merged under it, deeply: the inherited
+/// tree first, its own members over it (a group into a group, a token or a
+/// value replacing). A cycle of extensions is an error.
+fn extended(
+    root: &Value,
+    node: &Map<String, Value>,
+    stack: &mut Vec<String>,
+) -> Result<Map<String, Value>, String> {
+    let mut merged = Map::new();
+    for key in ["$extends", "$ref"] {
+        let Some(name) = node.get(key).and_then(Value::as_str) else {
+            continue;
+        };
+        if stack.iter().any(|s| s == name) {
+            return Err(format!("a cycle of `{key}` through `{name}`"));
+        }
+        let Some(inherited) = target(root, name).and_then(Value::as_object) else {
+            return Err(format!("`{key}` names `{name}`, which is not there"));
+        };
+        if is_token(&Value::Object(inherited.clone())) {
+            continue;
+        }
+        stack.push(name.to_string());
+        let base = extended(root, inherited, stack)?;
+        stack.pop();
+        deep(&mut merged, &base);
+        if merged.get("$type").is_none() {
+            if let Some(t) = inherited.get("$type") {
+                merged.insert("$type".into(), t.clone());
+            }
+        }
+    }
+    let own: Map<String, Value> = node
+        .iter()
+        .filter(|(k, _)| *k != "$extends" && *k != "$ref")
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    deep(&mut merged, &own);
+    Ok(merged)
+}
+
+/// `over` merged into `into`: groups into groups, anything else replacing.
+fn deep(into: &mut Map<String, Value>, over: &Map<String, Value>) {
+    for (k, v) in over {
+        match (into.get_mut(k), v) {
+            (Some(Value::Object(a)), Value::Object(b))
+                if !is_token(&Value::Object(a.clone())) && !is_token(v) =>
+            {
+                let b = b.clone();
+                deep(a, &b);
+            }
+            _ => {
+                into.insert(k.clone(), v.clone());
+            }
+        }
+    }
+}
+
 /// Every token in a tree: its dotted path and definition, `$type` (or a
 /// legacy group `type`) inherited from groups, `$root` a token of its group,
-/// `$extends` and a group's `$ref` merged under it (its own members
-/// overriding).
-fn tokens(file: &str, tree: &Value) -> Vec<Def> {
+/// `$extends` and a group's `$ref` merged under it; a token that is a whole
+/// `$ref` an alias. An error for a cycle, a missing target, or nesting past
+/// 64.
+fn tokens(file: &str, tree: &Value) -> Result<Vec<Def>, String> {
     fn walk(
         file: &str,
         root: &Value,
         node: &Value,
         path: &mut Vec<String>,
         ty: Option<String>,
-        depth: usize,
         out: &mut Vec<Def>,
-    ) {
-        let Some(map) = node.as_object() else { return };
-        if depth > 32 {
-            return;
+    ) -> Result<(), String> {
+        let Some(map) = node.as_object() else {
+            return Ok(());
+        };
+        if path.len() > 64 {
+            return Err(format!("`{}` nests deeper than 64", path.join(".")));
         }
-        let is_token = map.contains_key("$value") || legacy(map);
-        let own_ty = map
-            .get("$type")
-            .and_then(Value::as_str)
-            .or_else(|| {
-                map.get("type")
-                    .filter(|_| !map.contains_key("$value"))
-                    .and_then(Value::as_str)
-            })
-            .map(str::to_string);
-        // A group it extends lends its type when it has none of its own.
-        let lent = ["$extends", "$ref"].iter().find_map(|k| {
-            let target = map.get(*k)?.as_str()?;
-            group(root, target)?
-                .get("$type")?
-                .as_str()
-                .map(str::to_string)
-        });
-        let ty = own_ty.or(lent).or(ty);
-        if is_token {
+        // A whole-token `$ref`: to a token, a `$value` or anything not a
+        // group, it is an alias.
+        if let Some(r) = map.get("$ref").and_then(Value::as_str) {
+            let to_group = target(root, r).is_some_and(|t| t.is_object() && !is_token(t));
+            if !map.contains_key("$value") && !to_group {
+                out.push(Def {
+                    file: file.to_string(),
+                    path: path.join("."),
+                    ty: map
+                        .get("$type")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                        .or(ty),
+                    value: serde_json::json!({ "$ref": r }),
+                    refused: None,
+                });
+                return Ok(());
+            }
+        }
+        if is_token(node) {
+            let own = map
+                .get("$type")
+                .and_then(Value::as_str)
+                .or_else(|| {
+                    map.get("type")
+                        .filter(|_| !map.contains_key("$value"))
+                        .and_then(Value::as_str)
+                })
+                .map(str::to_string);
             let value = map
                 .get("$value")
                 .or_else(|| map.get("value"))
@@ -190,41 +302,32 @@ fn tokens(file: &str, tree: &Value) -> Vec<Def> {
             out.push(Def {
                 file: file.to_string(),
                 path: path.join("."),
-                ty,
+                ty: own.or(ty),
                 value,
                 refused,
             });
-            return;
+            return Ok(());
         }
-        // What the group inherits, then its own members over it.
-        let mut members: Vec<(String, Value)> = Vec::new();
-        for key in ["$extends", "$ref"] {
-            if let Some(target) = map.get(key).and_then(Value::as_str) {
-                if let Some(inherited) = group(root, target).and_then(Value::as_object) {
-                    for (k, v) in inherited {
-                        if !k.starts_with('$') || k == "$root" {
-                            members.push((k.clone(), v.clone()));
-                        }
-                    }
-                }
-            }
-        }
-        for (k, v) in map {
+        let group = extended(root, map, &mut Vec::new())?;
+        let ty = group
+            .get("$type")
+            .and_then(Value::as_str)
+            .or_else(|| group.get("type").and_then(Value::as_str))
+            .map(str::to_string)
+            .or(ty);
+        for (k, v) in &group {
             if k.starts_with('$') && k != "$root" {
                 continue;
             }
-            members.retain(|(m, _)| m != k);
-            members.push((k.clone(), v.clone()));
-        }
-        for (k, v) in members {
-            path.push(k);
-            walk(file, root, &v, path, ty.clone(), depth + 1, out);
+            path.push(k.clone());
+            walk(file, root, v, path, ty.clone(), out)?;
             path.pop();
         }
+        Ok(())
     }
     let mut out = Vec::new();
-    walk(file, tree, tree, &mut Vec::new(), None, 0, &mut out);
-    out
+    walk(file, tree, tree, &mut Vec::new(), None, &mut out).map_err(|e| format!("{file}: {e}"))?;
+    Ok(out)
 }
 
 /// Whether mode names are the scheme's sides.
@@ -241,9 +344,21 @@ fn is_dark(mode: &str) -> bool {
     mode.trim().eq_ignore_ascii_case("dark")
 }
 
+/// A file's name without its directory and its `.json`, any case.
 fn stem(name: &str) -> String {
     let base = name.rsplit('/').next().unwrap_or(name);
-    base.strip_suffix(".json").unwrap_or(base).to_string()
+    match base.len() > 5 && base[base.len() - 5..].eq_ignore_ascii_case(".json") {
+        true => base[..base.len() - 5].to_string(),
+        false => base.to_string(),
+    }
+}
+
+/// A file's path without its `.json`, any case.
+fn set_id(name: &str) -> String {
+    match name.len() > 5 && name[name.len() - 5..].eq_ignore_ascii_case(".json") {
+        true => name[..name.len() - 5].to_string(),
+        false => name.to_string(),
+    }
 }
 
 /// The layers a source's files make, or why it cannot be read.
@@ -279,11 +394,11 @@ fn read(files: &[(String, String)]) -> Result<Read, String> {
                 parsed
                     .iter()
                     .filter(|(n, _)| !stem(n).starts_with('$'))
-                    .map(|(n, v)| (n.strip_suffix(".json").unwrap_or(n).to_string(), v.clone()))
+                    .map(|(n, v)| (set_id(n), v.clone()))
                     .collect(),
             ),
         };
-        return Ok(studio(&themes, metadata.as_ref(), &sets));
+        return studio(&themes, metadata.as_ref(), &sets);
     }
     if let Some((name, doc)) = parsed
         .iter()
@@ -305,36 +420,38 @@ fn read(files: &[(String, String)]) -> Result<Read, String> {
             _ => plain.push((n, v)),
         }
     }
+    let mut layers: Vec<(u8, Vec<Scope>, Vec<Def>)> = Vec::new();
     for (n, v) in plain {
-        out.layer(Scope::Base, tokens(n, v));
+        layers.push((0, vec![Scope::Base], tokens(n, v)?));
     }
     for (collection, mut modes) in collections {
         modes.sort_by(|a, b| a.0.cmp(&b.0));
         let names: Vec<String> = modes.iter().map(|(m, _, _)| m.clone()).collect();
         for (mode, v, file) in &modes {
-            let scope = match (modes.len(), scheme(&names)) {
-                (1, _) => Scope::Base,
-                (_, true) => Scope::Scheme(is_dark(mode)),
-                _ => Scope::Axis(ident(&collection), ident(mode)),
+            let (rank, scope) = match (modes.len(), scheme(&names)) {
+                (1, _) => (0, Scope::Base),
+                (_, true) => (1, Scope::Scheme(is_dark(mode))),
+                _ => (2, out.axis(&collection, mode)),
             };
-            out.layer(scope, tokens(file, v));
+            layers.push((rank, vec![scope], tokens(file, v)?));
         }
     }
     // The base, then the scheme, then the axes: a collection's own modes over
     // what every mode shares.
-    out.layers.sort_by_key(|l| match l.scope {
-        Scope::Base => 0,
-        Scope::Scheme(_) => 1,
-        Scope::Axis(..) => 2,
-    });
+    layers.sort_by_key(|(rank, _, _)| *rank);
+    for (_, scopes, found) in layers {
+        out.layer(scopes, found);
+    }
     Ok(out)
 }
 
-/// A Tokens Studio theme: its name and its sets, `source` ones first.
-type Theme = (String, Vec<String>);
-
-/// Tokens Studio's themes: each group a dimension (base, scheme or axis).
-fn studio(themes: &Value, metadata: Option<&Value>, sets: &[(String, Value)]) -> Read {
+/// Tokens Studio's themes and sets: each set once, active in the modes of
+/// every theme that turns it on, the sets in `tokenSetOrder`.
+fn studio(
+    themes: &Value,
+    metadata: Option<&Value>,
+    sets: &[(String, Value)],
+) -> Result<Read, String> {
     let order: Vec<String> = metadata
         .and_then(|m| m.get("tokenSetOrder"))
         .and_then(Value::as_array)
@@ -345,11 +462,11 @@ fn studio(themes: &Value, metadata: Option<&Value>, sets: &[(String, Value)]) ->
         })
         .unwrap_or_default();
     // A set's place: its exact id in `tokenSetOrder`, else its last segment
-    // when that names one set only; sets it does not name keep their order
-    // after the ones it does.
-    let rank = |set: &str| {
+    // when that names one set only; sets it does not name after the ones it
+    // does, in the files' order.
+    let rank = |set: &str, at: usize| {
         if let Some(i) = order.iter().position(|o| o == set) {
-            return i;
+            return (i, at);
         }
         let last = set.rsplit('/').next().unwrap_or(set);
         let alike = sets
@@ -357,136 +474,80 @@ fn studio(themes: &Value, metadata: Option<&Value>, sets: &[(String, Value)]) ->
             .filter(|(n, _)| n.rsplit('/').next() == Some(last))
             .count();
         match (alike, order.iter().position(|o| o == last)) {
-            (1, Some(i)) => i,
-            _ => order.len(),
+            (1, Some(i)) => (i, at),
+            _ => (order.len(), at),
         }
     };
     let mut out = Read::default();
-    let mut used: BTreeSet<String> = BTreeSet::new();
     let list: Vec<&Value> = themes
         .as_array()
         .map(|a| a.iter().collect())
         .unwrap_or_default();
+    // Each set's modes: the scopes of the themes that turn it on.
+    let mut modes: BTreeMap<String, Vec<Scope>> = BTreeMap::new();
     if list.is_empty() {
-        // No themes: every set is the base, in order.
-        let mut all: Vec<&(String, Value)> = sets.iter().collect();
-        all.sort_by_key(|(n, _)| rank(n));
-        let mut found = Vec::new();
-        for (n, v) in all {
-            found.extend(tokens(n, v));
+        for (n, _) in sets {
+            modes.insert(n.clone(), vec![Scope::Base]);
         }
-        out.layer(Scope::Base, found);
-        return out;
     }
-    let mut groups: Vec<(String, Vec<Theme>)> = Vec::new();
+    let mut groups: Vec<(String, Vec<&Value>)> = Vec::new();
     for t in list {
-        let name = t["name"].as_str().unwrap_or("").to_string();
         // Ungrouped themes are one group.
         let group = t["group"].as_str().unwrap_or("").to_string();
-        let mut on: Vec<(u8, String)> = t["selectedTokenSets"]
-            .as_object()
-            .into_iter()
-            .flatten()
-            .filter_map(|(k, s)| match s.as_str() {
-                Some("source") => Some((0, k.clone())),
-                Some("enabled") => Some((1, k.clone())),
-                _ => None,
-            })
-            .collect();
-        // `source` sets under `enabled` ones, each in the set order.
-        on.sort_by_key(|(status, k)| (*status, rank(k)));
-        let on: Vec<String> = on.into_iter().map(|(_, k)| k).collect();
         match groups.iter_mut().find(|(g, _)| *g == group) {
-            Some((_, members)) => members.push((name, on)),
-            None => groups.push((group, vec![(name, on)])),
+            Some((_, members)) => members.push(t),
+            None => groups.push((group, vec![t])),
         }
     }
     for (group, members) in &groups {
-        let names: Vec<String> = members.iter().map(|(n, _)| n.clone()).collect();
-        for (theme, on) in members {
+        let names: Vec<String> = members
+            .iter()
+            .map(|t| t["name"].as_str().unwrap_or("").to_string())
+            .collect();
+        for (t, theme) in members.iter().zip(&names) {
             let scope = match (members.len(), scheme(&names)) {
                 (1, _) => Scope::Base,
                 (_, true) => Scope::Scheme(is_dark(theme)),
-                _ => Scope::Axis(
-                    ident(if group.is_empty() { "theme" } else { group }),
-                    ident(theme),
-                ),
+                _ => out.axis(if group.is_empty() { "theme" } else { group }, theme),
             };
-            let mut found = Vec::new();
-            for set in on {
-                if let Some((n, v)) = sets.iter().find(|(n, _)| n == set) {
-                    used.insert(n.clone());
-                    found.extend(tokens(n, v));
+            for (set, status) in t["selectedTokenSets"].as_object().into_iter().flatten() {
+                if matches!(status.as_str(), Some("enabled" | "source")) {
+                    let scopes = modes.entry(set.clone()).or_default();
+                    if !scopes.contains(&scope) {
+                        scopes.push(scope.clone());
+                    }
                 }
             }
-            out.layer(scope, found);
         }
     }
-    out.layers.sort_by_key(|l| l.scope != Scope::Base);
-    // A set no theme turns on: its tokens counted and reported.
-    for (n, v) in sets.iter().filter(|(n, _)| !used.contains(n)) {
-        for def in tokens(n, v) {
-            out.unused
-                .push((out.defs.len(), "in a set no theme turns on".into()));
-            out.defs.push(def);
+    let mut ordered: Vec<(usize, &(String, Value))> = sets.iter().enumerate().collect();
+    ordered.sort_by_key(|(at, (n, _))| rank(n, *at));
+    for (_, (n, v)) in ordered {
+        let found = tokens(n, v)?;
+        match modes.get(n) {
+            Some(scopes) => out.layer(scopes.clone(), found),
+            None => out.unused(found, "in a set no theme turns on"),
         }
     }
-    out
+    Ok(out)
 }
 
-/// A reference object resolved against `doc` and the source files: the node
-/// it names, its sibling keys merged over it, its own references followed;
-/// and the file it came from (empty for `doc` itself).
-fn deref(
-    doc: &Value,
-    files: &[(String, Value)],
-    relative: &dyn Fn(&str) -> String,
-    node: &Value,
-    depth: usize,
-) -> Result<(String, Value), String> {
-    if depth > 16 {
-        return Err("references nest too deep".into());
-    }
-    let Some(r) = node.get("$ref").and_then(Value::as_str) else {
-        return Ok((String::new(), node.clone()));
-    };
-    let (file, pointer) = r.split_once('#').map_or((r, ""), |(f, p)| (f, p));
-    let (from, base) = match file {
-        "" => (String::new(), doc),
-        f => {
-            let path = relative(f);
-            let (n, v) = files
-                .iter()
-                .find(|(n, _)| *n == path)
-                .ok_or_else(|| format!("no file `{path}` among the sources"))?;
-            (n.clone(), v)
-        }
-    };
-    let target = match pointer {
-        "" => base,
-        p => base.pointer(p).ok_or_else(|| format!("no `{r}`"))?,
-    };
-    let (inner, mut value) = deref(doc, files, relative, target, depth + 1)?;
-    if let (Some(over), Some(obj)) = (node.as_object(), value.as_object_mut()) {
-        for (k, v) in over {
-            if k != "$ref" {
-                obj.insert(k.clone(), v.clone());
-            }
-        }
-    }
-    Ok((if inner.is_empty() { from } else { inner }, value))
+/// A document and the directory its relative paths start from.
+#[derive(Clone, Copy)]
+struct Doc<'a> {
+    name: &'a str,
+    value: &'a Value,
 }
 
-/// A Resolver Module document.
-fn resolver(name: &str, doc: &Value, files: &[(String, Value)]) -> Result<Read, String> {
-    let dir = name.rsplit_once('/').map_or("", |(d, _)| d);
-    // A path relative to the document, normalised.
-    let relative = |r: &str| {
+impl Doc<'_> {
+    /// `path` from this document's directory, normalised.
+    fn relative(&self, path: &str) -> String {
+        let dir = self.name.rsplit_once('/').map_or("", |(d, _)| d);
         let mut parts: Vec<&str> = match dir {
             "" => Vec::new(),
             d => d.split('/').collect(),
         };
-        for seg in r.split('/') {
+        for seg in path.split('/') {
             match seg {
                 "" | "." => {}
                 ".." => {
@@ -496,27 +557,107 @@ fn resolver(name: &str, doc: &Value, files: &[(String, Value)]) -> Result<Read, 
             }
         }
         parts.join("/")
+    }
+}
+
+/// A reference object resolved: the document holding what it names and
+/// that node, its sibling keys merged over it, its own references followed
+/// in the document that holds them.
+fn deref<'a>(
+    files: &'a [(String, Value)],
+    doc: Doc<'a>,
+    node: &Value,
+    depth: usize,
+) -> Result<(Doc<'a>, Value), String> {
+    if depth > 16 {
+        return Err("references nest too deep".into());
+    }
+    let Some(r) = node.get("$ref").and_then(Value::as_str) else {
+        return Ok((doc, node.clone()));
     };
-    let source = |src: &Value| -> Result<Vec<Def>, String> {
-        let (from, tree) = deref(doc, files, &relative, src, 0)?;
-        // A set reached by reference brings its own sources.
-        if let Some(srcs) = tree.get("sources").and_then(Value::as_array) {
-            let mut out = Vec::new();
-            for s in srcs {
-                let (f, t) = deref(doc, files, &relative, s, 0)?;
-                out.extend(tokens(if f.is_empty() { name } else { &f }, &t));
-            }
-            return Ok(out);
+    let (file, pointer) = r.split_once('#').map_or((r, ""), |(f, p)| (f, p));
+    let held = match file {
+        "" => doc,
+        f => {
+            let path = doc.relative(f);
+            let (n, v) = files
+                .iter()
+                .find(|(n, _)| *n == path)
+                .ok_or_else(|| format!("no file `{path}` among the sources"))?;
+            Doc { name: n, value: v }
         }
-        Ok(tokens(if from.is_empty() { name } else { &from }, &tree))
     };
+    let found = match pointer {
+        "" => held.value,
+        p => held.value.pointer(p).ok_or_else(|| format!("no `{r}`"))?,
+    };
+    let (owner, mut value) = deref(files, held, found, depth + 1)?;
+    if let (Some(over), Some(obj)) = (node.as_object(), value.as_object_mut()) {
+        for (k, v) in over {
+            if k != "$ref" {
+                obj.insert(k.clone(), v.clone());
+            }
+        }
+    }
+    Ok((owner, value))
+}
+
+/// A Resolver Module document.
+fn resolver(name: &str, doc: &Value, files: &[(String, Value)]) -> Result<Read, String> {
+    let top = Doc { name, value: doc };
+    let mut reached: BTreeSet<String> = BTreeSet::new();
+    // A source's tokens: a token tree, or a set whose sources are expanded
+    // in turn (a cycle refused).
+    fn expand(
+        files: &[(String, Value)],
+        doc: Doc,
+        src: &Value,
+        stack: &mut Vec<String>,
+        reached: &mut BTreeSet<String>,
+        depth: usize,
+    ) -> Result<Vec<Def>, String> {
+        if depth > 16 {
+            return Err("sets nest too deep".into());
+        }
+        if let Some(r) = src.get("$ref").and_then(Value::as_str) {
+            let key = format!("{}{r}", doc.name);
+            if stack.contains(&key) {
+                return Err(format!("a cycle of sets through `{r}`"));
+            }
+            stack.push(key);
+            if let Some(set) = r.strip_prefix("#/sets/") {
+                reached.insert(set.to_string());
+            }
+        }
+        let (owner, tree) = deref(files, doc, src, 0)?;
+        let out = match tree.get("sources").and_then(Value::as_array) {
+            Some(srcs) => {
+                let mut out = Vec::new();
+                for s in srcs {
+                    out.extend(expand(files, owner, s, stack, reached, depth + 1)?);
+                }
+                out
+            }
+            None => tokens(owner.name, &tree)?,
+        };
+        if src.get("$ref").is_some() {
+            stack.pop();
+        }
+        Ok(out)
+    }
     let mut out = Read::default();
     let order = doc["resolutionOrder"]
         .as_array()
         .ok_or("`resolutionOrder` is a list")?;
     for entry in order {
-        let (_, node) =
-            deref(doc, files, &relative, entry, 0).map_err(|e| format!("{name}: {e}"))?;
+        let (owner, node) = deref(files, top, entry, 0).map_err(|e| format!("{name}: {e}"))?;
+        if let Some(set) = entry
+            .get("$ref")
+            .and_then(Value::as_str)
+            .and_then(|r| r.strip_prefix("#/sets/"))
+        {
+            reached.insert(set.to_string());
+        }
         let label = entry
             .get("$ref")
             .and_then(Value::as_str)
@@ -544,30 +685,45 @@ fn resolver(name: &str, doc: &Value, files: &[(String, Value)]) -> Result<Read, 
             for context in &names {
                 let scope = match scheme(&names) {
                     true => Scope::Scheme(is_dark(context)),
-                    false => Scope::Axis(ident(&label), ident(context)),
+                    false => out.axis(&label, context),
                 };
-                let mut found = Vec::new();
                 let sources = contexts[context]
                     .as_array()
                     .ok_or_else(|| format!("{name}: `{label}.{context}` is a list of sources"))?;
+                let mut found = Vec::new();
                 for src in sources {
-                    found.extend(source(src).map_err(|e| format!("{name}: {e}"))?);
+                    found.extend(
+                        expand(files, owner, src, &mut Vec::new(), &mut reached, 0)
+                            .map_err(|e| format!("{name}: {e}"))?,
+                    );
                 }
-                out.layer(scope, found);
+                out.layer(vec![scope], found);
             }
         } else {
-            let sources = node
-                .get("sources")
-                .and_then(Value::as_array)
-                .ok_or_else(|| {
-                    format!("{name}: `{label}` is a set (with `sources`) or a modifier (with `contexts`)")
-                })?;
+            let sources = node.get("sources").and_then(Value::as_array).ok_or_else(|| format!("{name}: `{label}` is a set (with `sources`) or a modifier (with `contexts`)"))?;
             let mut found = Vec::new();
             for src in sources {
-                found.extend(source(src).map_err(|e| format!("{name}: {e}"))?);
+                found.extend(
+                    expand(files, owner, src, &mut Vec::new(), &mut reached, 0)
+                        .map_err(|e| format!("{name}: {e}"))?,
+                );
             }
-            out.layer(Scope::Base, found);
+            out.layer(vec![Scope::Base], found);
         }
+    }
+    // A set the order never reaches: its tokens counted and reported.
+    for (set, node) in doc
+        .get("sets")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flatten()
+    {
+        if reached.contains(set) {
+            continue;
+        }
+        let found = expand(files, top, node, &mut Vec::new(), &mut BTreeSet::new(), 0)
+            .map_err(|e| format!("{name}: {e}"))?;
+        out.unused(found, "in a set the resolution order never reaches");
     }
     Ok(out)
 }
@@ -660,8 +816,8 @@ fn alias(value: &Value) -> Option<Result<String, String>> {
         .get("$ref")?
         .as_str()?;
     let pointer = r.strip_prefix("#/")?;
-    let segs: Vec<&str> = pointer.split('/').collect();
-    match segs.iter().position(|s| *s == "$value") {
+    let segs = pointer_segments(pointer);
+    match segs.iter().position(|s| s == "$value") {
         Some(i) if i + 1 == segs.len() => Some(Ok(segs[..i].join("."))),
         Some(_) => Some(Err(format!(
             "`{r}` names part of a value, which no Tamber value reads"
@@ -680,56 +836,75 @@ type Colour = (String, String, Option<String>);
 /// A path's colour in one tuple, or why not.
 type Seen = Result<Colour, String>;
 
-/// A path's type in a tuple: its own, else the type of what it aliases.
-fn type_of(defs: &[Def], w: &BTreeMap<&str, usize>, path: &str, depth: usize) -> Option<String> {
-    let d = &defs[*w.get(path)?];
-    if d.ty.is_some() || depth > 16 {
-        return d.ty.clone();
-    }
-    match alias(&d.value) {
-        Some(Ok(target)) => type_of(defs, w, &target, depth + 1),
-        _ => None,
+/// A path's type in a tuple: its own, else the type of what it aliases,
+/// however long the chain (a cycle has none).
+fn type_of(defs: &[Def], w: &BTreeMap<&str, usize>, path: &str) -> Option<String> {
+    let mut seen = BTreeSet::new();
+    let mut at = path.to_string();
+    loop {
+        let d = &defs[*w.get(at.as_str())?];
+        if d.ty.is_some() {
+            return d.ty.clone();
+        }
+        match alias(&d.value) {
+            Some(Ok(target)) if seen.insert(target.clone()) => at = target,
+            _ => return None,
+        }
     }
 }
 
-/// A path's colour in a tuple, aliases followed there.
-fn seen(
-    defs: &[Def],
-    w: &BTreeMap<&str, usize>,
-    names: &BTreeMap<String, String>,
-    path: &str,
-    visiting: &mut Vec<String>,
-) -> Seen {
-    let Some(&i) = w.get(path) else {
-        return Err(format!("`{{{path}}}` is no token in this mode"));
-    };
-    let d = &defs[i];
-    if let Some(why) = &d.refused {
-        return Err(why.clone());
-    }
-    match alias(&d.value) {
-        Some(Ok(target)) => {
-            if visiting.contains(&target) {
-                return Err(format!("a cycle of aliases through `{{{target}}}`"));
-            }
-            visiting.push(target.clone());
-            let found = seen(defs, w, names, &target, visiting);
-            visiting.pop();
-            let (_, resolved, _) = found?;
-            match names.get(&target) {
-                Some(n) => Ok((n.clone(), resolved, Some(target))),
-                None => Ok((resolved.clone(), resolved, None)),
-            }
+/// A tuple's resolution: its winners, the token names, and each path's
+/// colour once found.
+struct Resolve<'a> {
+    defs: &'a [Def],
+    w: &'a BTreeMap<&'a str, usize>,
+    names: &'a BTreeMap<String, String>,
+    memo: HashMap<String, Seen>,
+}
+
+impl Resolve<'_> {
+    /// A path's colour, aliases followed (a cycle is none).
+    fn seen(&mut self, path: &str, visiting: &mut BTreeSet<String>) -> Seen {
+        if let Some(found) = self.memo.get(path) {
+            return found.clone();
         }
-        Some(Err(why)) => Err(why),
-        None => colour(&d.value)
-            .map(|c| (c.clone(), c, None))
-            .ok_or_else(|| match d.value.as_str() {
-                Some(s) if exact_color::parse(s).is_some() => {
-                    "a colour Tamber does not fold yet".to_string()
+        let Some(&i) = self.w.get(path) else {
+            return Err(format!("`{{{path}}}` is no token in this mode"));
+        };
+        let d = &self.defs[i];
+        let found = if let Some(why) = &d.refused {
+            Err(why.clone())
+        } else {
+            match alias(&d.value) {
+                Some(Ok(target)) if visiting.contains(&target) => {
+                    Err(format!("a cycle of aliases through `{{{target}}}`"))
                 }
-                _ => "not a colour Tamber reads".to_string(),
-            }),
+                Some(Ok(target)) => {
+                    visiting.insert(target.clone());
+                    let inner = self.seen(&target, visiting);
+                    visiting.remove(&target);
+                    inner.map(|(_, resolved, _)| match self.names.get(&target) {
+                        Some(n) => (n.clone(), resolved, Some(target)),
+                        None => (resolved.clone(), resolved, None),
+                    })
+                }
+                Some(Err(why)) => Err(why),
+                None => colour(&d.value)
+                    .map(|c| (c.clone(), c, None))
+                    .ok_or_else(|| match d.value.as_str() {
+                        Some(s) if exact_color::parse(s).is_some() => {
+                            "a colour Tamber does not fold yet".to_string()
+                        }
+                        _ => "not a colour Tamber reads".to_string(),
+                    }),
+            }
+        };
+        // A colour found holds; a failure may be a cycle in progress, kept
+        // only from the top.
+        if found.is_ok() || visiting.len() <= 1 {
+            self.memo.insert(path.to_string(), found.clone());
+        }
+        found
     }
 }
 
@@ -759,17 +934,37 @@ pub fn import(
     let read = read(files).map_err(|m| refuse("tamber-import-source", m))?;
     let defs = &read.defs;
     // The dimensions: the scheme, and each axis with its values in order.
+    // Two axes, or two values of one, written differently but one
+    // identifier: no proposal can tell them apart.
+    for ((axis, value), written) in &read.written {
+        if written.len() > 1 {
+            let what = match value {
+                None => format!("the axis `{axis}`"),
+                Some(v) => format!("the value `{v}` of `{axis}`"),
+            };
+            let all: Vec<&str> = written.iter().map(String::as_str).collect();
+            return Err(refuse(
+                "tamber-import-axis",
+                format!(
+                    "{what} is written {}: name them apart in the source",
+                    all.join(" and ")
+                ),
+            ));
+        }
+    }
     let has_scheme = read
         .layers
         .iter()
-        .any(|l| matches!(l.scope, Scope::Scheme(_)));
+        .any(|l| l.scopes.iter().any(|s| matches!(s, Scope::Scheme(_))));
     let mut axes: Vec<(String, Vec<String>)> = Vec::new();
     for l in &read.layers {
-        if let Scope::Axis(a, v) = &l.scope {
-            match axes.iter_mut().find(|(n, _)| n == a) {
-                Some((_, vs)) if !vs.contains(v) => vs.push(v.clone()),
-                Some(_) => {}
-                None => axes.push((a.clone(), vec![v.clone()])),
+        for scope in &l.scopes {
+            if let Scope::Axis(a, v) = scope {
+                match axes.iter_mut().find(|(n, _)| n == a) {
+                    Some((_, vs)) if !vs.contains(v) => vs.push(v.clone()),
+                    Some(_) => {}
+                    None => axes.push((a.clone(), vec![v.clone()])),
+                }
             }
         }
     }
@@ -783,6 +978,12 @@ pub fn import(
             ));
         }
         if let Some(have) = design.axes.iter().find(|x| x.name.value == *a) {
+            if have.under_dark {
+                return Err(refuse(
+                    "tamber-import-axis",
+                    format!("the design's axis `{a}` is `under scheme=dark`, which the source's modes are not"),
+                ));
+            }
             if have.values.first() != vs.first() {
                 return Err(refuse(
                     "tamber-import-axis",
@@ -803,9 +1004,15 @@ pub fn import(
         .filter(|a| !axes.iter().any(|(n, _)| *n == a.name.value))
         .map(|a| a.values.len())
         .product();
-    let app_tuples = axes
-        .iter()
-        .try_fold(others, |acc, (_, vs)| acc.checked_mul(vs.len()));
+    // Each axis as reconcile leaves it: the design's values and the source's.
+    let app_tuples = axes.iter().try_fold(others, |acc, (a, vs)| {
+        let have = design
+            .axes
+            .iter()
+            .find(|x| x.name.value == *a)
+            .map_or(Vec::new(), |x| x.values.clone());
+        acc.checked_mul(have.len() + vs.iter().filter(|v| !have.contains(v)).count())
+    });
     if app_tuples.is_none_or(|t| t > crate::MAX_TUPLES) {
         return Err(refuse(
             "tamber-import-tuples",
@@ -852,24 +1059,25 @@ pub fn import(
     }
     // Each tuple's winners: its layers merged in order, a later one winning
     // whatever its kind.
-    let active = |t: &Tuple, scope: &Scope| match scope {
-        Scope::Base => true,
-        Scope::Scheme(dark) => *dark == t.0,
-        Scope::Axis(a, v) => axes
-            .iter()
-            .position(|(n, _)| n == a)
-            .is_some_and(|i| t.1[i] == *v),
+    let active = |t: &Tuple, scopes: &[Scope]| {
+        scopes.iter().any(|scope| match scope {
+            Scope::Base => true,
+            Scope::Scheme(dark) => *dark == t.0,
+            Scope::Axis(a, v) => axes
+                .iter()
+                .position(|(n, _)| n == a)
+                .is_some_and(|i| t.1[i] == *v),
+        })
     };
     let unused: BTreeSet<usize> = read.unused.iter().map(|(i, _)| *i).collect();
     let winners: Vec<BTreeMap<&str, usize>> = tuples
         .iter()
         .map(|t| {
             let mut w = BTreeMap::new();
-            for l in read.layers.iter().filter(|l| active(t, &l.scope)) {
+            // A colliding path still resolves; only its name is not made.
+            for l in read.layers.iter().filter(|l| active(t, &l.scopes)) {
                 for &i in l.defs.iter().filter(|i| !unused.contains(i)) {
-                    if !collided.contains_key(&defs[i].path) {
-                        w.insert(defs[i].path.as_str(), i);
-                    }
+                    w.insert(defs[i].path.as_str(), i);
                 }
             }
             w
@@ -879,10 +1087,19 @@ pub fn import(
     let paths: Vec<&str> = names.keys().map(String::as_str).collect();
     let mut values: BTreeMap<&str, Vec<Colour>> = BTreeMap::new();
     let mut fates: BTreeMap<&str, String> = BTreeMap::new();
+    let mut resolvers: Vec<Resolve> = winners
+        .iter()
+        .map(|w| Resolve {
+            defs,
+            w,
+            names: &names,
+            memo: HashMap::new(),
+        })
+        .collect();
     for &path in &paths {
         let mut per = Vec::new();
         let mut failure: Option<String> = None;
-        for (t, w) in tuples.iter().zip(&winners) {
+        for ((t, w), r) in tuples.iter().zip(&winners).zip(resolvers.iter_mut()) {
             let label = tuple_name(t, has_scheme, &axes);
             if !w.contains_key(path) {
                 failure.get_or_insert(format!(
@@ -890,8 +1107,8 @@ pub fn import(
                 ));
                 continue;
             }
-            match kind(type_of(defs, w, path, 0).as_deref()) {
-                Kind::Colour => match seen(defs, w, &names, path, &mut vec![path.to_string()]) {
+            match kind(type_of(defs, w, path).as_deref()) {
+                Kind::Colour => match r.seen(path, &mut BTreeSet::from([path.to_string()])) {
                     Ok(v) => per.push(v),
                     Err(why) => {
                         failure.get_or_insert(format!("{why} ({label})"));
@@ -1054,7 +1271,7 @@ pub fn import(
         let token = names.get(&d.path).cloned();
         let ty =
             d.ty.clone()
-                .or_else(|| winners.iter().find_map(|w| type_of(defs, w, &d.path, 0)));
+                .or_else(|| winners.iter().find_map(|w| type_of(defs, w, &d.path)));
         let why = match (&d.refused, kind(ty.as_deref())) {
             (Some(why), _) => why.clone(),
             (None, Kind::Pending(k)) => format!("kind pending (stage 6): {k}"),

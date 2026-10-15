@@ -124,9 +124,12 @@ fn read_source(path: &Path) -> std::io::Result<Vec<(String, String)>> {
             let entry = entry?;
             let p = entry.path();
             let kind = entry.file_type()?;
+            // A link to a file is read; a link to a directory is not followed.
+            let file = kind.is_file()
+                || (kind.is_symlink() && std::fs::metadata(&p).is_ok_and(|m| m.is_file()));
             if kind.is_dir() {
                 stack.push(p);
-            } else if kind.is_file()
+            } else if file
                 && p.extension()
                     .is_some_and(|e| e.eq_ignore_ascii_case("json"))
             {
