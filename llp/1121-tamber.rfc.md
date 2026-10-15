@@ -2183,7 +2183,7 @@ Each source is read as layers that are active in some modes.
 - **Known:**
   - a gradient's reference stops are reported, not made into tokens (D14 named this; later);
   - re-importing our own export waits for stage 5's export;
-  - two themes with the same empty name in one group aren't refused yet.
+  - two themes with the same name, or a nameless theme, in one group of several were refused afterwards (`451015da5`).
 
 ### Stage 3, commit 9: Astryx and the token-kinds probe (`cf25fb322`..`af1c5454e`; Astryx's `AccentColor` offer `319904b77`..`04f6875c9`)
 
@@ -2229,8 +2229,8 @@ brief adapted LLP 1121 §5's lines.
 | The four importers | **Met.** shadcn neutral 47 = 46 + 1 and blue 39 = 38 + 1 (and through the wire as a held proposal with its five offers); Tailwind's default theme 419 = 288 + 131 and a project sheet 10 = 6 + 4; Tokens Studio 49 = 44 + 5; Figma 104 = 40 + 64; Astryx neutral 268 = 160 + 108. Re-importing proposes nothing (32 import tests). |
 
 **Stage 3 is closed.** Its server additions for LLP 1122 T1 and T1a are in place, so the
-design tool's first stages can start. Still owed, outside the gate: refusing two
-same-named empty themes in one DTCG group.
+design tool's first stages can start. The one item owed outside the gate,
+refusing nameless or repeated themes in one DTCG group, landed in `451015da5`.
 
 (Also: after `scheme=fixed`, the Bluesky clone marked 12 tokens and builds with 0
 `lower-colour-one-scheme` warnings, down from 168: b41, clone `b8a7dc8`.)
