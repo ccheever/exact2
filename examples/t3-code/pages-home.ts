@@ -14,6 +14,7 @@ import { welcomeShowing } from './pages-welcome';
 import { cachedDisplayNames, heroGroups } from './r6-polish-groups';
 import { openScratchProject } from './r11-upstream-scratch';
 import { primary, withoutPrimaryDuplicates } from './local-primary'; // "This machine": the primary counts as an environment
+import { homeWaiting } from './home-landing';
 
 const timestamp = (value: unknown): number | null => {
   const parsed = typeof value === 'string' ? Date.parse(value) : NaN;
@@ -137,7 +138,8 @@ export async function pagesHome(client: T3Client, native: Native | null | undefi
   const projectName = scratchDraft ? 'No project' : (project && cachedDisplayNames(client).get(client.projectId)) || str(project?.title, 'Choose a project');
   return {
     // /welcome renders NoProjectsHero beneath the wizard.
-    landing: firstRunPending ? 'no-projects' : landingKind({ connected, ready: client.ready, savedEnvironments: saved, connecting: ['connecting', 'reconnecting'].includes(client.connection) || (local && !connected),
+    // IndexDraftLanding renders nothing until every environment's shell is in and it has picked (home-landing.ts).
+    landing: firstRunPending ? 'no-projects' : connected && client.ready && homeWaiting(client) ? 'offline' : landingKind({ connected, ready: client.ready, savedEnvironments: saved, connecting: ['connecting', 'reconnecting'].includes(client.connection) || (local && !connected),
       projects: client.shell.projects.length, projectId: client.projectId, threadId: client.threadId,
       missingThread: !client.thread && !client.shell.threads.some(thread => thread.id === client.threadId) }),
     headline, projectName, projectNames: [{ id: projectName }], projects,

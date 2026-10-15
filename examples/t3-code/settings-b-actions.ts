@@ -10,6 +10,7 @@ import { shortcutLabel } from './keybinding-view';
 import { pushToast } from './toast';
 import type { T3Client } from './client';
 import { letGo } from './let-go';
+import { byEnvironment, environmentClient } from './projects-fleet';
 
 export const SCRIPT_ICONS: [string, string][] = [['play', 'Play'], ['test', 'Test'], ['lint', 'Lint'], ['configure', 'Configure'], ['build', 'Build'], ['debug', 'Debug']];
 const ICON_IDS = SCRIPT_ICONS.map(([id]) => id);
@@ -155,9 +156,16 @@ export function validateInput(input: ScriptInput, scriptId: string | null, exist
 /**
  * Project action writes. `scope` is the projects page's member ids joined by
  * ","; `op` is action-save (id: existing script id or ""), action-delete,
- * action-import or action-reset.
+ * action-import or action-reset. Each environment's members are written
+ * through that environment, under their own project ids (projects-fleet.ts).
  */
 export async function runActionOp(client: T3Client, native: Native, op: string, scope: string, value: string): Promise<string> {
+  const groups = byEnvironment(client, scope.split(',').filter(Boolean));
+  if (!groups.size) return runEnvironmentActionOp(client, native, op, scope, value);
+  for (const [environmentId, ids] of groups) await runEnvironmentActionOp(environmentClient(client, environmentId, native), native, op, ids.join(','), value);
+  return '';
+}
+async function runEnvironmentActionOp(client: T3Client, native: Native, op: string, scope: string, value: string): Promise<string> {
   if (!client.writable) throw new ClientError('Reconnect before changing project actions.');
   const ids = scope.split(',').filter(Boolean);
   const projects = client.shell.projects.filter(project => ids.includes(str(project.id)));

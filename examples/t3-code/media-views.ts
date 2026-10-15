@@ -149,33 +149,44 @@ function imageSpan(line: string, at: number): { close: number; end: number } | n
   return null;
 }
 const leading = (text: string, marker: string) => { let count = 0; while (text[count] === marker) count++; return count; };
-/** r4_timeline_tables.rs table_lines: a pipe table's lines (a piped line over a `| --- |` rule, then its piped lines). */
-function tableLines(lines: string[]): boolean[] {
-  const rule = (line: string) => { const trimmed = line.trim(); return trimmed.includes('|') && trimmed.includes('-') && /^[|\-: \t]*$/.test(trimmed); };
-  const table = lines.map(() => false);
-  for (let index = 0; index < lines.length;) {
-    if (!lines[index]!.includes('|') || index + 1 >= lines.length || !rule(lines[index + 1]!)) { index++; continue; }
-    let end = index + 2;
-    while (end < lines.length && lines[end]!.includes('|') && lines[end]!.trim()) end++;
-    table.fill(true, index, end);
-    index = end;
-  }
-  return table;
-}
 /** The run href of an image inside a line of text (markdown_media.rs IMAGE_MARK). */
 export const INLINE_IMAGE = 't3-image:';
+/** markdown_media.rs code_span_end: where the code span whose backticks start at `at` ends (unclosed: its backticks). */
+function codeSpanEnd(line: string, at: number): number {
+  const run = leading(line.slice(at), '`');
+  let from = at + run;
+  for (;;) {
+    const found = line.indexOf('`'.repeat(run), from);
+    if (found < 0) return at + run;
+    const length = leading(line.slice(found), '`');
+    if (length === run) return found + run;
+    from = found + length;
+  }
+}
+/** markdown_media.rs starts_link_text: the `[` at `open` starts a link's text (its matching `]` is followed by `(`). */
+function startsLinkText(line: string, open: number): boolean {
+  for (let at = open + 1, depth = 1; at < line.length;) {
+    const character = line[at];
+    if (character === '\\') at += 2;
+    else if (character === '`') at = codeSpanEnd(line, at);
+    else if (character === '[') { depth++; at++; }
+    else if (character === ']') { if (--depth === 0) return line[at + 1] === '('; at++; }
+    else at++;
+  }
+  return false;
+}
+export type InlineImage = { alt: string; src: string; href: string; linked: boolean };
 /**
- * The images inside a line of text, which markdown_media.rs makes media
- * runs (ChatMarkdownImage; standalone when alone in its paragraph, list item or quote): outside fences, code spans and
- * table lines (their cells draw text), not inside a link's text, not one whose alt text holds a `[`. An image line may be
- * either (a block, or inline where it continues a paragraph), so it is listed here too.
+ * The images inside a line of text or a table cell, which markdown_media.rs makes media runs (ChatMarkdownImage;
+ * standalone when alone in its paragraph, list item or quote): outside fences and code spans, not one whose alt text
+ * holds a `[`. `linked`: inside a link's text (MarkdownAnchor's `<a>` around the `<img>`). An image line may be either
+ * (a block, or inline where it continues a paragraph), so it is listed here too.
  */
-export function markdownInlineImages(text: string): { alt: string; src: string; href: string }[] {
+export function markdownInlineImages(text: string): InlineImage[] {
   if (!text.includes('![')) return [];
-  const out: { alt: string; src: string; href: string }[] = [];
+  const out: InlineImage[] = [];
   let fence: { marker: string; width: number } | null = null;
-  const lines = text.split('\n'), tables = tableLines(lines);
-  for (const [index, line] of lines.entries()) {
+  for (const line of text.split('\n')) {
     const trimmed = line.trimStart().replace(/\r$/, '');
     if (fence) {
       const count = leading(trimmed, fence.marker);
@@ -184,30 +195,21 @@ export function markdownInlineImages(text: string): { alt: string; src: string; 
     }
     const first = trimmed[0] ?? '';
     if ((first === '`' || first === '~') && leading(trimmed, first) >= 3) { fence = { marker: first, width: leading(trimmed, first) }; continue; }
-    if (tables[index] || !line.includes('![')) continue;
-    let at = 0, brackets = 0;
+    if (!line.includes('![')) continue;
+    const opened: number[] = [];
+    let at = 0;
     while (at < line.length) {
       const character = line[at];
       if (character === '\\') at += 2;
-      else if (character === '`') {
-        // A code span: the same number of backticks closes it on this line, else they are text.
-        const run = leading(line.slice(at), '`');
-        let from = at + run, end = at + run;
-        for (;;) {
-          const found = line.indexOf('`'.repeat(run), from);
-          if (found < 0) break;
-          const length = leading(line.slice(found), '`');
-          if (length === run) { end = found + run; break; }
-          from = found + length;
-        }
-        at = end;
-      } else if (character === '[') { brackets++; at++; }
-      else if (character === ']') { brackets = Math.max(0, brackets - 1); at++; }
-      else if (character === '!' && brackets === 0 && line[at + 1] === '[') {
+      else if (character === '`') at = codeSpanEnd(line, at);
+      else if (character === '[') { opened.push(at); at++; }
+      else if (character === ']') { opened.pop(); at++; }
+      else if (character === '!' && line[at + 1] === '[') {
         const span = imageSpan(line, at);
         if (!span || line.slice(at + 2, span.close).includes('[')) { at++; continue; }
         const src = inlineTarget(line.slice(span.close + 2, span.end));
-        if (!src.startsWith('t3-context://')) out.push({ alt: line.slice(at + 2, span.close), src, href: `${INLINE_IMAGE}${markdownImageHref(src)}` });
+        const linked = opened.length > 0 && startsLinkText(line, opened[opened.length - 1]!);
+        if (!src.startsWith('t3-context://')) out.push({ alt: line.slice(at + 2, span.close), src, href: `${INLINE_IMAGE}${markdownImageHref(src)}`, linked });
         at = span.end + 1;
       } else at++;
     }
@@ -256,10 +258,10 @@ export function noteMarkdownDocument(owner: string, text: string, root: string, 
 }
 export const markdownDocument = (owner: string): MarkdownDocument | null => documents.get(owner) ?? null;
 export type GalleryImage = { key: string; name: string; access: MarkdownMedia['access']; source: MediaActionSource };
-/** markdownImageGallery: the document's images in order (an image that can load, not a video; not one in a table cell or a
- *  link's text, which draw their alt text), each as ExpandedImagePreview names it (`alt.trim() || "image"`). */
+/** markdownImageGallery: the document's images in order (an image that can load, not a video, a table cell's too; not one
+ *  inside a link's text, whose press is the link's), each as ExpandedImagePreview names it (`alt.trim() || "image"`). */
 export function markdownGallery(document: MarkdownDocument): GalleryImage[] {
-  return markdownInlineImages(document.text).flatMap(image => {
+  return markdownInlineImages(document.text).filter(image => !image.linked).flatMap(image => {
     const media = markdownMedia(image.alt, image.src, image.href, document.root, document.scope);
     return media.kind === 'image' && media.access !== 'blocked' && media.source ? [{ key: media.key, name: image.alt.trim() || 'image', access: media.access, source: media.source }] : [];
   });

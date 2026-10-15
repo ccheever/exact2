@@ -2,11 +2,14 @@
 // and the links of a document with no workspace folder.
 //
 // ChatMarkdown's `img` renderer draws every image: one alone in its block standalone (`markStandaloneImages`), one in a
-// line of text inline (ChatMarkdownImage with `standalone` false). The repository's parser keeps an image only when it
-// starts a block on a line of its own (`markdown_parse` `image_of`) and flattens any other one into its alt text, so
-// each other image is rewritten into a link whose destination carries IMAGE_MARK; `chat_run` makes it a "media" run that
-// markdown.contract FlowRuns draws through the image's media chip (media-views.ts `markdownInlineImages`), with the
-// href media-views.ts computes for it: IMAGE_MARK, then the image source as the URL transform leaves it.
+// line of text or a table cell inline (ChatMarkdownImage with `standalone` false). The repository's parser keeps an
+// image only when it starts a block on a line of its own (`markdown_parse` `image_of`) and flattens any other one into
+// its alt text, so each other image is rewritten into a link whose destination carries IMAGE_MARK; `chat_run` makes it a
+// "media" run that markdown.contract FlowRuns (CellRuns in a table) draws through the image's media chip (media-views.ts
+// `markdownInlineImages`), with the href media-views.ts computes for it: IMAGE_MARK, then the image source as the URL
+// transform leaves it. A link cannot hold that link, so an image inside a link's text is written into the link's text
+// between LINKED_IMAGE marks and split out of the link's run after parsing; its run keeps the link's destination after
+// IMAGE_LINK, which `link_labels` moves to the run's `link` (MarkdownAnchor's `<a>` around the `<img>`).
 
 /// The mark of an inline image's run href.
 const IMAGE_MARK: &str = "t3-image:";
@@ -15,6 +18,13 @@ const IMAGE_MARK: &str = "t3-image:";
 const IMAGE_START: char = '\u{e001}';
 /// A media run's `icon` when its image is the only content of its block (ChatMarkdown's `markStandaloneImages`).
 const STANDALONE: &str = "standalone";
+/// An image inside a link's text: LINKED_IMAGE, its alt text in hex, LINKED_SOURCE, its destination in hex, LINKED_END
+/// (hex, so the parser reads no emphasis or escape in either).
+const LINKED_IMAGE: char = '\u{e002}';
+const LINKED_SOURCE: char = '\u{e003}';
+const LINKED_END: char = '\u{e004}';
+/// Between a linked image's IMAGE_MARK href and the destination of the link around it.
+const IMAGE_LINK: char = '\u{e005}';
 
 /// `![alt](src)` alone on a line: the parser's image block (`markdown_parse` `image_of`, the line trimmed at its start),
 /// when that one image spans the line. `image_of` takes any line that starts with `![` and ends with `)` for one image,
@@ -31,9 +41,9 @@ fn sole_image_line(trimmed: &str) -> bool {
     }
 }
 
-/// Each image the parser would flatten, as `[alt](<IMAGE_MARK>src)`. Kept: fenced code, code spans, table lines (their
-/// cells draw text runs), an image inside a link's text, and an image line that starts a block (the parser's image
-/// block). An image line that continues a paragraph is inline, as the parser's paragraph takes it in.
+/// Each image the parser would flatten, as `[alt](<IMAGE_MARK>src)`, or between LINKED_IMAGE marks inside a link's text.
+/// Kept: fenced code, code spans, and an image line that starts a block (the parser's image block). An image line that
+/// continues a paragraph is inline, as the parser's paragraph takes it in; a table line's images are its cells' own.
 fn inline_image_links(text: &str) -> std::borrow::Cow<'_, str> {
     if !text.contains("![") {
         return std::borrow::Cow::Borrowed(text);
@@ -66,8 +76,8 @@ fn inline_image_links(text: &str) -> std::borrow::Cow<'_, str> {
                 continue;
             }
         }
-        let block_image = !paragraph && sole_image_line(trimmed);
-        if block_image || tables[index] || !line.contains("![") {
+        let block_image = !paragraph && !tables[index] && sole_image_line(trimmed);
+        if block_image || !line.contains("![") {
             out.push_str(line);
         } else {
             image_links_in_line(line, &mut out);
@@ -100,40 +110,91 @@ fn image_span(line: &str, at: usize) -> Option<(usize, usize)> {
     None
 }
 
-fn image_links_in_line(line: &str, out: &mut String) {
+/// The end of the code span whose backticks start at `at` (the same number of backticks closes it on this line; else
+/// they are text and end where they do).
+fn code_span_end(line: &str, at: usize) -> usize {
     let bytes = line.as_bytes();
-    let (mut at, mut copied, mut brackets) = (0usize, 0usize, 0usize);
+    let run = bytes[at..].iter().take_while(|b| **b == b'`').count();
+    let fence = &line[at..at + run];
+    let mut from = at + run;
+    loop {
+        match line[from..].find(fence) {
+            Some(found) => {
+                let start = from + found;
+                let length = bytes[start..].iter().take_while(|b| **b == b'`').count();
+                if length == run {
+                    return start + run;
+                }
+                from = start + length;
+            }
+            None => return at + run,
+        }
+    }
+}
+
+/// Whether the `[` at `open` starts a link's text: its matching `]` is followed by `(`.
+fn starts_link_text(line: &str, open: usize) -> bool {
+    let bytes = line.as_bytes();
+    let (mut at, mut depth) = (open + 1, 1usize);
     while at < bytes.len() {
         match bytes[at] {
             b'\\' => at += 2,
-            b'`' => {
-                // A code span: the same number of backticks closes it on this line, else they are text.
-                let run = bytes[at..].iter().take_while(|b| **b == b'`').count();
-                let fence = &line[at..at + run];
-                let mut from = at + run;
-                at = loop {
-                    match line[from..].find(fence) {
-                        Some(found) => {
-                            let start = from + found;
-                            let length = bytes[start..].iter().take_while(|b| **b == b'`').count();
-                            if length == run {
-                                break start + run;
-                            }
-                            from = start + length;
-                        }
-                        None => break at + run,
-                    }
-                };
-            }
+            b'`' => at = code_span_end(line, at),
             b'[' => {
-                brackets += 1;
+                depth += 1;
                 at += 1;
             }
             b']' => {
-                brackets = brackets.saturating_sub(1);
+                depth -= 1;
+                if depth == 0 {
+                    return bytes.get(at + 1) == Some(&b'(');
+                }
                 at += 1;
             }
-            b'!' if brackets == 0 && bytes.get(at + 1) == Some(&b'[') => {
+            _ => at += 1,
+        }
+    }
+    false
+}
+
+fn hex(text: &str) -> String {
+    text.bytes().map(|byte| format!("{byte:02x}")).collect()
+}
+fn unhex(text: &str) -> Option<String> {
+    let bytes = (0..text.len())
+        .step_by(2)
+        .map(|at| text.get(at..at + 2).and_then(|pair| u8::from_str_radix(pair, 16).ok()))
+        .collect::<Option<Vec<u8>>>()?;
+    String::from_utf8(bytes).ok()
+}
+
+/// A link destination as written between the parentheses (`<a b.png>` or `a.png "title"`).
+fn destination(inside: &str) -> &str {
+    let inside = inside.trim_start();
+    match inside.strip_prefix('<') {
+        Some(rest) => rest.split('>').next().unwrap_or(rest),
+        None => inside.split(char::is_whitespace).next().unwrap_or(inside),
+    }
+}
+
+fn image_links_in_line(line: &str, out: &mut String) {
+    let bytes = line.as_bytes();
+    let (mut at, mut copied) = (0usize, 0usize);
+    // The `[` of each bracket still open.
+    let mut opened: Vec<usize> = Vec::new();
+    while at < bytes.len() {
+        match bytes[at] {
+            b'\\' => at += 2,
+            b'`' => at = code_span_end(line, at),
+            b'[' => {
+                opened.push(at);
+                at += 1;
+            }
+            b']' => {
+                opened.pop();
+                at += 1;
+            }
+            b'!' if bytes.get(at + 1) == Some(&b'[') => {
                 // An alt text holding a `[` is left as the parser reads it (the span's `]` would not be its link's).
                 let Some((close, end)) = image_span(line, at).filter(|(close, _)| !line[at + 2..*close].contains('['))
                 else {
@@ -141,6 +202,17 @@ fn image_links_in_line(line: &str, out: &mut String) {
                     continue;
                 };
                 let inside = &line[close + 2..end];
+                if opened.last().is_some_and(|open| starts_link_text(line, *open)) {
+                    out.push_str(&line[copied..at]);
+                    out.push(LINKED_IMAGE);
+                    out.push_str(&hex(&line[at + 2..close]));
+                    out.push(LINKED_SOURCE);
+                    out.push_str(&hex(destination(inside)));
+                    out.push(LINKED_END);
+                    at = end + 1;
+                    copied = at;
+                    continue;
+                }
                 let mut lead = inside.len() - inside.trim_start().len();
                 if inside[lead..].starts_with('<') {
                     lead += 1;
@@ -214,8 +286,8 @@ fn push_media_token(tokens: &mut Vec<markdown_parse::Run>, run: &markdown_parse:
     }
 }
 
-/// IMAGE_START out of every run but an inline image's (its media token takes it off): a table cell's, and the text of an
-/// image the parser did not read as one.
+/// IMAGE_START out of every run but an inline image's (its media token takes it off): the text of an image the parser
+/// did not read as one. A table cell's runs are its tokens already (no flow splits them), so its images join here.
 fn unmark_runs(blocks: &mut [markdown_parse::Block]) {
     let unmark = |run: &mut markdown_parse::Run| {
         if run.text.contains(IMAGE_START) {
@@ -228,8 +300,74 @@ fn unmark_runs(blocks: &mut [markdown_parse::Block]) {
             .iter_mut()
             .filter(|run| !run.href.starts_with(IMAGE_MARK))
             .for_each(unmark);
-        block.cells.iter_mut().flatten().for_each(unmark);
+        for cell in &mut block.cells {
+            let mut tokens = Vec::with_capacity(cell.len());
+            for run in cell.iter() {
+                if run.href.starts_with(IMAGE_MARK) {
+                    push_media_token(&mut tokens, run);
+                } else {
+                    let mut run = run.clone();
+                    unmark(&mut run);
+                    tokens.push(run);
+                }
+            }
+            *cell = tokens;
+        }
     }
+}
+
+/// Each image written into a link's text (LINKED_IMAGE) as its own media run, between the link's other words: its
+/// source resolved as an inline image's, then IMAGE_LINK and the link's destination (none when the parser read no link).
+fn linked_images(blocks: &mut [markdown_parse::Block], resolve: &dyn Fn(&str) -> String) {
+    let split = |runs: &mut Vec<markdown_parse::Run>| {
+        if !runs.iter().any(|run| run.text.contains(LINKED_IMAGE)) {
+            return;
+        }
+        let mut out = Vec::with_capacity(runs.len() + 2);
+        for run in runs.iter() {
+            let mut rest = run.text.as_str();
+            while let Some(start) = rest.find(LINKED_IMAGE) {
+                let after = &rest[start + LINKED_IMAGE.len_utf8()..];
+                let parts = after.find(LINKED_END).and_then(|end| {
+                    let (alt, source) = after[..end].split_once(LINKED_SOURCE)?;
+                    Some((unhex(alt)?, unhex(source)?, end))
+                });
+                let Some((alt, source, end)) = parts else { break };
+                if start > 0 {
+                    out.push(markdown_parse::Run { text: rest[..start].to_string(), ..run.clone() });
+                }
+                let image = resolve(&format!("{IMAGE_MARK}{source}"));
+                let href = if run.href.is_empty() { image } else { format!("{image}{IMAGE_LINK}{}", run.href) };
+                out.push(markdown_parse::Run { text: format!("{IMAGE_START}{alt}"), href, code: false, ..run.clone() });
+                rest = &after[end + LINKED_END.len_utf8()..];
+            }
+            if !rest.is_empty() {
+                out.push(markdown_parse::Run { text: rest.to_string(), ..run.clone() });
+            }
+        }
+        *runs = out;
+    };
+    for block in blocks {
+        split(&mut block.runs);
+        block.cells.iter_mut().for_each(split);
+    }
+}
+
+/// A media run's href and the link around it (`link_labels`): IMAGE_LINK parts them.
+fn media_link(href: &str) -> (&str, &str) {
+    match href.starts_with(IMAGE_MARK).then(|| href.split_once(IMAGE_LINK)).flatten() {
+        Some((image, link)) => (image, link),
+        None => (href, ""),
+    }
+}
+
+/// An inline image's Markdown as markdownImageCopy writes it (`![alt](src)`, the source as authored): a table's Copy
+/// as Markdown.
+fn image_markdown(alt: &str, href: &str) -> String {
+    let source = href.strip_prefix(IMAGE_MARK).unwrap_or(href);
+    let source = source.strip_prefix(FILE_LINK).unwrap_or(source);
+    let alt = alt.replace('\\', "\\\\").replace('[', "\\[").replace(']', "\\]");
+    format!("![{alt}]({source})")
 }
 
 /// ChatMarkdown's `markStandaloneImages`: an image that is the only content of a paragraph, a list item or a quote
@@ -331,10 +469,14 @@ mod media_tests {
             "a line that continues a paragraph is inline"
         );
         assert!(
-            rewritten.contains("`![code](c.png)` \\![esc](e.png) [![linked](l.png)](https://a.com) ![a[b](x.png)"),
-            "code, an escape, a link's text and an alt text with a `[` are left"
+            rewritten.contains(&format!(
+                "`![code](c.png)` \\![esc](e.png) [\u{e002}{}\u{e003}{}\u{e004}](https://a.com) ![a[b](x.png)",
+                hex("linked"),
+                hex("l.png")
+            )),
+            "code, an escape and an alt text with a `[` are left; an image in a link's text is marked: {rewritten}"
         );
-        assert!(rewritten.contains("![fenced](f.png)") && rewritten.contains("| ![cell](c.png) |"));
+        assert!(rewritten.contains("![fenced](f.png)") && rewritten.contains("| [\u{e001}cell](t3-image:c.png) |"));
         assert!(
             rewritten.contains("\n[\u{e001}CI](t3-image:ci.png) [\u{e001}npm](t3-image:npm.png)\n\n[\u{e001}a](t3-image:x.png) and (b)"),
             "a line of several images, or an image and text, is not one image block: {rewritten}"
@@ -379,6 +521,103 @@ mod media_tests {
         // No run keeps the rewrite's mark: an alt text with a `[` is the parser's text.
         let marks = runs_of(&document_with_tasks(Value::str("m"), "See ![a[b](x.png) here", None, true));
         assert!(marks.iter().all(|run| !run.1.contains(IMAGE_START)), "{marks:?}");
+    }
+
+    /// The cells of a document's first table: each cell's runs as (text, href|kind, link).
+    fn cells_of(document: &Value) -> Vec<Vec<(String, String, String)>> {
+        let Value::Record(fields) = document else {
+            unreachable!()
+        };
+        let Value::List(blocks) = &fields[1] else {
+            unreachable!()
+        };
+        let text = |value: &Value| value.as_str().unwrap_or("").to_string();
+        let table = blocks
+            .iter()
+            .find_map(|block| match block {
+                Value::Record(block) if block[1].as_str() == Some("table") => Some(block.clone()),
+                _ => None,
+            })
+            .expect("a table block");
+        let Value::List(rows) = &table[11] else {
+            unreachable!()
+        };
+        rows.iter()
+            .flat_map(|row| {
+                let Value::Record(row) = row else { unreachable!() };
+                let Value::List(cells) = &row[2] else { unreachable!() };
+                cells
+                    .iter()
+                    .map(|cell| {
+                        let Value::Record(cell) = cell else { unreachable!() };
+                        let Value::List(runs) = &cell[1] else { unreachable!() };
+                        runs.iter()
+                            .map(|run| {
+                                let Value::Record(run) = run else { unreachable!() };
+                                (text(&run[1]), format!("{}|{}", text(&run[5]), text(&run[6])), text(&run[9]))
+                            })
+                            .collect()
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn an_image_in_a_table_cell_is_a_media_run_and_copies_as_markdown() {
+        let text = "| Shot | Note |\n| - | - |\n| ![Sh**o**t](shot.png) | see ![Logo](https://a.com/l.png) |";
+        let document = document_with_tasks(Value::str("m"), text, None, true);
+        let cells = cells_of(&document);
+        let media = |text: &str, href: &str| (text.to_string(), format!("{href}|media"), String::new());
+        assert_eq!(cells[2], vec![media("Shot", "t3-image:t3-file:shot.png")]);
+        assert_eq!(
+            cells[3],
+            vec![("see ".to_string(), "|".to_string(), String::new()), media("Logo", "t3-image:https://a.com/l.png")]
+        );
+        let Value::Record(fields) = &document else { unreachable!() };
+        let Value::List(blocks) = &fields[1] else { unreachable!() };
+        let Value::Record(table) = &blocks[0] else { unreachable!() };
+        // markdownImageCopy for the image; ToCsv reads the cell's text, where an image has none.
+        assert_eq!(
+            table[13].as_str(),
+            Some("| Shot | Note |\n| --- | --- |\n| ![Shot](shot.png) | see ![Logo](https://a.com/l.png) |")
+        );
+        assert_eq!(table[14].as_str(), Some("Shot,Note\n,see"));
+    }
+
+    #[test]
+    fn an_image_inside_a_link_is_a_media_run_that_names_its_link() {
+        let document = document_with_tasks(
+            Value::str("m"),
+            "Badge [![CI](ci.png)](https://ci.example/run) and [go ![b](<b c.png>) now](https://a.com).",
+            None,
+            true,
+        );
+        let runs: Vec<_> = runs_of(&document).into_iter().map(|run| (run.1, run.2)).collect();
+        assert!(runs.contains(&("CI".to_string(), "t3-image:t3-file:ci.png|media".to_string())), "{runs:?}");
+        assert!(runs.contains(&("b".to_string(), "t3-image:t3-file:b c.png|media".to_string())), "{runs:?}");
+        assert!(runs.contains(&("go ".to_string(), "https://a.com|link-start".to_string())), "{runs:?}");
+        assert!(runs.contains(&("now".to_string(), "https://a.com|link".to_string())), "{runs:?}");
+        let Value::Record(fields) = &document else { unreachable!() };
+        let Value::List(blocks) = &fields[1] else { unreachable!() };
+        let Value::Record(block) = &blocks[0] else { unreachable!() };
+        let Value::List(list) = &block[7] else { unreachable!() };
+        let links: Vec<(String, String)> = list
+            .iter()
+            .filter_map(|run| match run {
+                Value::Record(run) if run[6].as_str() == Some("media") => {
+                    Some((run[1].as_str()?.to_string(), run[9].as_str()?.to_string()))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            links,
+            vec![("CI".into(), "https://ci.example/run".into()), ("b".into(), "https://a.com".into())]
+        );
+        // A badge alone in its paragraph is a figure, as markStandaloneImages looks through the `<a>`.
+        let alone = media_of("[![CI](ci.png)](https://ci.example)");
+        assert_eq!(alone, vec![run("paragraph", "CI", "t3-image:t3-file:ci.png", STANDALONE)]);
     }
 
     #[test]

@@ -55,15 +55,17 @@ describe('media in Files\' rendered Markdown', () => {
   test('an image inside a line of text is listed with the href markdown_media.rs gives its run', () => {
     const text = 'See ![Logo **x**](<../a b.png> "t") and ![Web](https://a.com/w.png) or ![Bad](javascript:x.png).\n![Alone](a.png)\n`![code](c.png)` \\![esc](e.png) [![linked](l.png)](https://a.com) ![ctx](t3-context://v1/image/i)\n```\n![fenced](f.png)\n```';
     expect(markdownInlineImages(text)).toEqual([
-      { alt: 'Logo **x**', src: '../a b.png', href: `${INLINE_IMAGE}t3-file:../a b.png` },
-      { alt: 'Web', src: 'https://a.com/w.png', href: `${INLINE_IMAGE}https://a.com/w.png` },
-      { alt: 'Bad', src: 'javascript:x.png', href: INLINE_IMAGE },
-      { alt: 'Alone', src: 'a.png', href: `${INLINE_IMAGE}t3-file:a.png` },
+      { alt: 'Logo **x**', src: '../a b.png', href: `${INLINE_IMAGE}t3-file:../a b.png`, linked: false },
+      { alt: 'Web', src: 'https://a.com/w.png', href: `${INLINE_IMAGE}https://a.com/w.png`, linked: false },
+      { alt: 'Bad', src: 'javascript:x.png', href: INLINE_IMAGE, linked: false },
+      { alt: 'Alone', src: 'a.png', href: `${INLINE_IMAGE}t3-file:a.png`, linked: false },
+      // MarkdownAnchor's `<a>` around the `<img>` (markdown_media.rs LINKED_IMAGE).
+      { alt: 'linked', src: 'l.png', href: `${INLINE_IMAGE}t3-file:l.png`, linked: true },
     ]);
     // An image line may be a block or continue a paragraph (markdown_media.rs decides): both hrefs have its chip.
     expect(markdownMediaChips('![Alone](a.png)', '/repo').map(chip => [chip.href, chip.target])).toEqual([['t3-file:a.png', 'media:/repo/a.png'], [`${INLINE_IMAGE}t3-file:a.png`, 'media:/repo/a.png']]);
   });
-  test('a badge row is two inline images, not one image line; table lines and an alt text with a `[` are not media runs', () => {
+  test('a badge row is two inline images, not one image line; an alt text with a `[` is not a media run', () => {
     // The review's case: `![CI](ci.png) ![npm](npm.png)` was one image whose source was `ci.png) ![npm](npm.png`.
     const badges = '![CI](ci.png) ![npm](npm.png)\n\n![Alone](a.png "t")\n\n![a](x.png) and (b)';
     expect(markdownImages(badges).map(image => image.src)).toEqual(['a.png']);
@@ -71,9 +73,10 @@ describe('media in Files\' rendered Markdown', () => {
       ['t3-file:a.png', 'media:/repo/a.png'], [`${INLINE_IMAGE}t3-file:ci.png`, 'media:/repo/ci.png'], [`${INLINE_IMAGE}t3-file:npm.png`, 'media:/repo/npm.png'],
       [`${INLINE_IMAGE}t3-file:a.png`, 'media:/repo/a.png'], [`${INLINE_IMAGE}t3-file:x.png`, 'media:/repo/x.png'],
     ]);
-    // A table's cells draw text (markdown_media.rs leaves table lines), so nothing there is signed; nor is an alt text with a `[`.
-    expect(markdownInlineImages('| a | b |\n| - | - |\n| ![cell](c.png) | x |\n\nSee ![a[b](x.png) and ![ok](o.png)')).toEqual([]);
-    expect(markdownInlineImages('See ![a[b](x.png) here\n\n| a |\n| - |\n| ![cell](c.png) |\n\nThen ![ok](o.png)')).toEqual([{ alt: 'ok', src: 'o.png', href: `${INLINE_IMAGE}t3-file:o.png` }]);
+    // A table cell's image is its cell's media run (ChatMarkdownImage in the `td`); an alt text with a `[` is the parser's text.
+    expect(markdownInlineImages('| a | b |\n| - | - |\n| ![cell](c.png) | x |\n\nSee ![a[b](x.png) and ![ok](o.png)')).toEqual([
+      { alt: 'cell', src: 'c.png', href: `${INLINE_IMAGE}t3-file:c.png`, linked: false }, { alt: 'ok', src: 'o.png', href: `${INLINE_IMAGE}t3-file:o.png`, linked: false }]);
+    expect(markdownInlineImages('See ![a[b](x.png) here\n\n| a |\n| - |\n| ![cell](c.png) |\n\nThen ![ok](o.png)').map(image => image.alt)).toEqual(['cell', 'ok']);
   });
   test('a source joins the file\'s folder, its references are the workspace\'s, its fragment rides on the signed URL', () => {
     const shot = markdownMedia('Shot', 'shot.png', '', '/repo/docs', { cwd: '/repo' });
@@ -132,9 +135,9 @@ describe('the views', () => {
   const component = (name: string) => media.slice(media.indexOf(`component ${name}\n`), media.indexOf('\ncomponent ', media.indexOf(`component ${name}\n`) + 1) >>> 0);
   test('FlowRuns draws a media run through its media chip, standalone when its run says so, else its alt text', () => {
     expect(markdown).toContain('if run.kind == "media" and chips.filter((chip) => chip.kind == "media" and chip.href == run.href).length > 0');
-    expect(markdown).toContain('MarkdownMedia(alt=run.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=(run.icon == "standalone"), owner=chip.owner, nodeId=`media-${chip.owner}-${blockId}-${run.id}`)');
-    expect(markdown).toContain('MarkdownMedia(alt=block.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=true, owner=chip.owner, nodeId=`media-${chip.owner}-${block.id}`)');
-    expect(markdown).toContain('and not (run.kind == "media" and chips.filter((chip) => chip.kind == "media" and chip.href == run.href).length > 0)\n          if ms < 0\n            text run.text');
+    expect(markdown).toContain('MarkdownMedia(alt=run.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=(run.icon == "standalone"), link=run.link, linkLabel=(run.label != "" ? run.label : run.text), favicon=(webLink(run.link) and linkLeads(runs, run.id, run.link)), owner=chip.owner, nodeId=`media-${chip.owner}-${blockId}-${run.id}`)');
+    expect(markdown).toContain('MarkdownMedia(alt=block.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=true, link="", linkLabel="", favicon=false, owner=chip.owner, nodeId=`media-${chip.owner}-${block.id}`)');
+    expect(markdown).toContain('and not (run.kind == "media" and (run.link != "" or chips.filter((chip) => chip.kind == "media" and chip.href == run.href).length > 0))\n          if ms < 0\n            text run.text');
     expect(media).not.toContain('MarkdownInlineMedia');
   });
   test('an inline image has a zero-size status span while it loads and the fallback chip with its menu when it fails; a figure keeps its 16:9 frame', () => {
@@ -151,7 +154,7 @@ describe('the views', () => {
   });
   test('a video in a line of text is the block\'s player: its failure slot has Retry video and the open link (ChatMarkdownVideo)', () => {
     const block = component('MarkdownMedia');
-    expect(block).toContain('MarkdownMediaBody(url=url, alt=alt, kind=kind, tip=tip, source=source, original=(access == "direct" and (target.startsWith("http:") or target.startsWith("https:"))), local=local, standalone=standalone, open=local("image-md-open", target, `${owner}\\n${nodeId}\\n${galleryIds.map((id) => `media-${owner}-${id}`).indexOf(nodeId)}`), nodeId=nodeId)');
+    expect(block).toContain('MarkdownMediaBody(url=url, alt=alt, kind=kind, tip=tip, source=source, original=(access == "direct" and (target.startsWith("http:") or target.startsWith("https:"))), local=local, standalone=standalone, link=link, linkLabel=linkLabel, favicon=favicon, open=local("image-md-open", target, `${owner}\\n${nodeId}\\n${galleryIds.map((id) => `media-${owner}-${id}`).indexOf(nodeId)}`), nodeId=nodeId)');
     expect(block).not.toMatch(/if [^\n]*kind == "video"[^\n]*\n\s+video url/);
     const body = component('MarkdownMediaBody');
     expect(body).toContain('aria-label="Retry video"');
