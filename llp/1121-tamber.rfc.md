@@ -1,7 +1,7 @@
 # LLP 1121: Tamber — a design system in any language, edited through one API
 
 **Type:** RFC
-**Status:** **Accepted; stages 1 and 2 landed** (Charlie, 2026-10-13: "Can we start building tamber"; ".tamber is probably fine"). §9's open questions stand, each with the RFC's recommendation as the provisional default until he rules. §10 records what was built where it differs. Stage 1 landed 2026-10-14 (`7a95dcce4`..`13f49af39`). Stage 2 closed 2026-10-14 with its gate met on the Bluesky clone (§10). Stage 3 (the protocol and the design tool over files) is next, as is the `scheme=fixed` follow-up. Draft history: r7 (2026-10-13) is r6 with the system named **Tamber (provisional)** (Charlie, 2026-10-13; earlier Saturi, and Facet in r5–r6); nothing else changed. r1–r4 went through three blind review rounds by GPT-6 Astra (max) and Grok 4.7 (xhigh); every verdict after round 1 was RIGHT WITH CHANGES. r5 wrote in Charlie's rulings on r4's questions (2026-10-13): the system was named Facet, which r7 replaces; a design changes through a public, versioned edit API whose main client is the design tool (D13, D14); components declare their tweakable params in Contract (D15); a component library and a base scale are later stages. Round 4 reviewed r5 (both RIGHT WITH CHANGES; Grok found one BLOCKER, how the live table reaches a running build), and r6 takes its findings without another round (§0). Reviews: `llp/reviews/rfc-2026-10-13-design-system-r{1,2,3,4}.{astra,grok}.md`; they cite this file by its earlier name, `llp/1121-design-system.rfc.md` (it was then `llp/1121-facet.rfc.md`, then `llp/1121-saturi.rfc.md`). Nothing built. Builds on LLP 1095 D4 (`theme`) and its reach (Charlie, 2026-10-12; LLP 1095 §5 item 6), stage 1 here, not redesigned. Stages 3 and 4 need DEFERRED admissions (§9 Q3).
+**Status:** **Accepted; stages 1 and 2 landed** (Charlie, 2026-10-13: "Can we start building tamber"; ".tamber is probably fine"). §9's open questions stand, each with the RFC's recommendation as the provisional default until he rules. §10 records what was built where it differs. Stage 1 landed 2026-10-14 (`7a95dcce4`..`13f49af39`). Stage 2 closed 2026-10-14 with its gate met on the Bluesky clone (§10). The `scheme=fixed` follow-up landed (§10). Stage 3 (the protocol over files, `tamber fmt`, the importers) is next. Draft history: r7 (2026-10-13) is r6 with the system named **Tamber (provisional)** (Charlie, 2026-10-13; earlier Saturi, and Facet in r5–r6); nothing else changed. r1–r4 went through three blind review rounds by GPT-6 Astra (max) and Grok 4.7 (xhigh); every verdict after round 1 was RIGHT WITH CHANGES. r5 wrote in Charlie's rulings on r4's questions (2026-10-13): the system was named Facet, which r7 replaces; a design changes through a public, versioned edit API whose main client is the design tool (D13, D14); components declare their tweakable params in Contract (D15); a component library and a base scale are later stages. Round 4 reviewed r5 (both RIGHT WITH CHANGES; Grok found one BLOCKER, how the live table reaches a running build), and r6 takes its findings without another round (§0). Reviews: `llp/reviews/rfc-2026-10-13-design-system-r{1,2,3,4}.{astra,grok}.md`; they cite this file by its earlier name, `llp/1121-design-system.rfc.md` (it was then `llp/1121-facet.rfc.md`, then `llp/1121-saturi.rfc.md`). Nothing built. Builds on LLP 1095 D4 (`theme`) and its reach (Charlie, 2026-10-12; LLP 1095 §5 item 6), stage 1 here, not redesigned. Stages 3 and 4 need DEFERRED admissions (§9 Q3).
 **Systems:**
 - A new leaf crate, `tamber/` (`exact-tamber`): the `.tamber` grammar, its checker and the build's evaluator.
 - Contract: token names in rows, the `params` section (D15), state parts (D8), `setMode` and `-exact-mode` (D5).
@@ -413,6 +413,11 @@ and why):
 
 A gradient is colour tokens in its stops; there is no gradient kind. The hairline stays the
 named length `-exact-hairline`, usable as a length token's value.
+
+**A token may be marked `scheme=fixed`** (token-line metadata, as a dial takes):
+`white_100 = #ffffff  scheme=fixed` says the token is deliberately one colour in every scheme,
+so `lower-colour-one-scheme` doesn't report it. The mark is refused where light and dark
+differ (`tamber-scheme-fixed`). *Added 2026-10-14 from the Bluesky port; §10.*
 
 **A row names a token as a string**, as LLP 1095 D4 does: `background-color="surface.card"`,
 `padding="space.row"`, `font="type.body"`. Inside an expression in a row, a token is a bare
@@ -1233,7 +1238,7 @@ param       = IDENT ":" kind "=" value [ "in" value ".." value ] { meta } NL ;
 meta        = IDENT "=" ( STRING | NUMBER | IDENT ) ;
 axis        = IDENT "=" IDENT { "|" IDENT } [ "under" "scheme" "=" "dark" ] NL ;
 dial        = IDENT ":" ( "color" | "length" | "number" ) "=" value [ "in" value ".." value ] { meta } NL ;
-token       = NAME [ ":" kind ] "=" value NL [ INDENT { when } DEDENT ] ;
+token       = NAME [ ":" kind ] "=" value { meta } NL [ INDENT { when } DEDENT ] ;
 kind        = "color" | "length" | "number" | "type" | "family" | "box-shadow"
             | "text-shadow" | "duration" | "easing" | "icon" ;
 when        = "when" cond { cond } ":" value NL ;
@@ -1901,3 +1906,32 @@ bsky5's.
 once, at its declaration (see that follow-up's note).
 
 **Stage 2 is closed (2026-10-14).** Every gate line is met. The `scheme=fixed` follow-up is a refinement, not a gate item.
+
+### Stage 2 follow-up: `scheme=fixed` (`70c39ffec`..`f3b11e0a6`; core `73edf648a`, opaque-only `f3b11e0a6`)
+
+The Bluesky port found that deliberately one-colour tokens (white on a primary fill, media
+grounds) drew a `lower-colour-one-scheme` warning at every use: 168 on the clone.
+- **A token line takes metadata after its value, as a dial's does:**
+  `white_100 = #ffffff  scheme=fixed` (D3 and §3 are amended). `tamber-scheme-fixed` refuses
+  the mark where the folded light and dark sides differ in any tuple, on a role or a platform
+  colour, with any word other than `fixed`, or said twice. The IR carries `"scheme":
+  "fixed"`.
+- **The lint no longer warns at rows that name a token.** A token is reported once, at its
+  declaration, when its folded value is one opaque colour in light and dark in some tuple,
+  unless it is marked or is a whole alias of a marked token (a role's spellings count as one
+  name).
+  - A translucent single colour is not reported; an overlay works in both schemes.
+  - A role override replacing a page role is reported the same way.
+  - The message offers a `light-dark()` pair, or the mark. A token that is one colour only in
+    some modes is offered the pair alone.
+  - An inline theme can't carry the mark, so its message says to move the token to
+    `app.tamber`.
+- **Literals in `.contract` rows are unchanged:** one warning each.
+- **Measured:** the clone went from 168 warnings to 9: eight token lines (`white_100`,
+  `black_100`, `negative`, `over_limit`, `like`, `attie`, `mute_banner`, `contrast`) for the
+  port to mark where deliberate, plus the closing summary.
+- **Known:**
+  - an empty `scheme=` is a CSS value error rather than `tamber-scheme-fixed`;
+  - a row's own inline expression over a fixed token isn't folded by the lint;
+  - with both a design and an inline theme (already refused as `tamber-two-sources`), the
+    warning reads the inline entries.
