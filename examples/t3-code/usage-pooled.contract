@@ -95,8 +95,6 @@ shape PooledNotice
   text: string
 shape PooledView
   wide: bool
-  hatchWide: string
-  hatchNarrow: string
   empty: bool
   pools: PooledPool[]
   cursorAfter: bool
@@ -193,7 +191,7 @@ component PoolWindowCard
       // PoolBar: equal-width segments, one per account; narrow, a legend under the strip.
       box min-width=0 display="grid" grid-template-columns=`repeat(${window.count}, minmax(0, 1fr))` column-gap="0.25rem" row-gap="0.25rem"
         for seg in window.segments key=seg.id
-          PoolSegment(seg=seg, wide=view.wide, hatch=(view.wide ? view.hatchWide : view.hatchNarrow), light=pool.light, dark=pool.dark, scheme=scheme, reduced=reduced, open=(shown == seg.id), pinned=(pinned == seg.id), enterSeg=enterSeg, pin=pin)
+          PoolSegment(seg=seg, wide=view.wide, light=pool.light, dark=pool.dark, scheme=scheme, reduced=reduced, open=(shown == seg.id), pinned=(pinned == seg.id), enterSeg=enterSeg, pin=pin)
         if not view.wide
           for seg in window.segments key=seg.id
             LegendRow(seg=seg, light=pool.light, dark=pool.dark, pin=pinLegend)
@@ -245,7 +243,6 @@ component PoolSegment
   props
     seg: PooledSegment
     wide: bool
-    hatch: string
     light: string
     dark: string
     scheme: string
@@ -259,9 +256,7 @@ component PoolSegment
       button id=`usage-seg-${seg.id}` press=pin(seg.id) hover=enterSeg(seg.id) aria-label=seg.label aria-expanded=open aria-haspopup="dialog" testId=`usage-seg-${seg.id}` width="100%" height=(wide ? "2rem" : "1.25rem") min-width=0 padding=0 border-width=0 border-radius="0.375rem" overflow="hidden" position="relative" cursor="pointer" display="block" background-color="light-dark(#f4f4f5, #ffffff0a)" box-shadow=(open ? "0 0 0 1px light-dark(#e4e4e7, #ffffff1a)" : "none") title=""
         box position="absolute" left=0 top=0 bottom=0 width=`${seg.remaining}%` border-radius="0.375rem" opacity=0.35 background-color=`light-dark(${light}, ${dark})` aria-hidden=true testId=`usage-seg-fill-${seg.id}`
         if seg.hatch
-          box position="absolute" right=0 top=0 bottom=0 width=`${100 - seg.remaining}%` overflow="hidden" opacity=0.2 aria-hidden=true testId=`usage-seg-hatch-${seg.id}`
-            svg position="absolute" right=0 top=0 width=1400 height=(wide ? 32 : 20) viewBox=(wide ? "0 0 1400 32" : "0 0 1400 20") color=`light-dark(${light}, ${dark})` aria-hidden=true
-              path d=hatch stroke="currentColor" stroke-width=1 fill="none"
+          box position="absolute" right=0 top=0 bottom=0 width=`${100 - seg.remaining}%` opacity=0.2 background-image=`repeating-linear-gradient(135deg, light-dark(${light}, ${dark}) 0 1px, transparent 1px 5px)` aria-hidden=true testId=`usage-seg-hatch-${seg.id}`
         if wide
           row position="relative" height="100%" min-width=0 align-items="center" gap="0.375rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" aria-hidden=true
             if seg.showName
