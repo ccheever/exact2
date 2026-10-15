@@ -256,5 +256,26 @@ final class NavigationCollapseIOSTests: XCTestCase {
             XCTAssertEqual(bar.frame.height, expanded, accuracy: 0.5, "the title expanded, as a new page's is")
         }
     }
+    func testTopUnderlapKeepsTheBarAndBottomInsetAndCanBeReversed() throws {
+        let (_, nav, route) = try pushed("tall")
+        let scroll = try XCTUnwrap(route.collapseScrollView)
+        let bottom = scroll.adjustedContentInset.bottom
+        XCTAssertGreaterThan(scroll.adjustedContentInset.top, 0)
+        route.node.props["navigationScrollInsetTop"] = "none"
+        route.syncTopUnderlap()
+        nav.view.layoutIfNeeded()
+        route.syncTopUnderlap()
+        XCTAssertFalse(nav.isNavigationBarHidden)
+        XCTAssertEqual(scroll.adjustedContentInset.top, 0, accuracy: 0.5)
+        XCTAssertEqual(scroll.adjustedContentInset.bottom, bottom, accuracy: 0.5)
+        let top = scroll.contentInset.top
+        route.syncTopUnderlap()
+        XCTAssertEqual(scroll.contentInset.top, top, "repeated layout adds no inset")
+        route.node.props["navigationScrollInsetTop"] = "auto"
+        route.syncTopUnderlap()
+        XCTAssertEqual(scroll.contentInset.top, 0, accuracy: 0.5)
+        XCTAssertGreaterThan(scroll.adjustedContentInset.top, 0)
+    }
+
 }
 #endif

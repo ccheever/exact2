@@ -1508,6 +1508,12 @@
       "_comment": "@ref LLP 1116 D8: ARIA's `aria-valuemax`, as `accessibilityValueNow`."
     },
     {
+      "id": 266,
+      "name": "navigationScrollInsetTop",
+      "kind": "str",
+      "_comment": "On an iOS route, auto keeps the platform's top scroll inset; none starts content at the screen's top while keeping the navigation bar and bottom safe-area inset. Other hosts keep their own content layout."
+    },
+    {
       "id": 259,
       "name": "navigationBar",
       "kind": "str",
