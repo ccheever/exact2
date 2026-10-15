@@ -33,9 +33,18 @@ fn every_design_formats_to_a_fixed_point_with_the_same_ir() {
     let mut formatted = 0;
     for path in designs() {
         let src = std::fs::read_to_string(&path).unwrap();
+        // Only a refusal fixture (a `.err` beside it) may fail to parse;
+        // every other design checks.
+        let refusal = path.with_extension("err").exists();
         let Ok(once) = format(&src) else {
+            assert!(refusal, "{}: does not format", path.display());
             continue;
         };
+        assert!(
+            refusal || check(&src, &vocab).is_ok(),
+            "{}: does not check",
+            path.display()
+        );
         formatted += 1;
         let twice = format(&once).unwrap_or_else(|e| panic!("{}: {e:?}\n{once}", path.display()));
         assert_eq!(once, twice, "{}: fmt of fmt differs", path.display());
@@ -67,4 +76,38 @@ fn the_canonical_layout() {
 fn a_design_that_does_not_parse_has_no_layout() {
     let e = format("theme\n  a = #fff\n").unwrap_err();
     assert_eq!(e[0].id, "tamber-header");
+}
+
+#[test]
+fn a_comment_keeps_its_place_and_a_final_one_is_stable() {
+    // A comment over a `when` stays where it is when the `when` goes: an
+    // edit that removes the line is a one-line diff.
+    let with = "tamber t\n\ntheme\n  ink = #ffffff\n    // darker\n    when tone=hard: #000000\n  other = #000000\n";
+    let without = "tamber t\n\ntheme\n  ink = #ffffff\n    // darker\n  other = #000000\n";
+    assert_eq!(format(with).unwrap(), with);
+    assert_eq!(format(without).unwrap(), without);
+    // A comment closing the file, then blank lines: one layout.
+    let tail = "tamber t\n\ntheme\n  ink = #ffffff\n// tail\n\n\n";
+    let once = format(tail).unwrap();
+    assert_eq!(format(&once).unwrap(), once);
+    // A block's last comment stays in the block, above the next one.
+    let ending =
+        "tamber t\n\ntheme\n  ink = #ffffff\n  // the end of the theme\n\nexports\n  ink\n";
+    assert_eq!(format(ending).unwrap(), ending);
+}
+
+#[test]
+fn the_header_and_line_endings_have_one_layout() {
+    assert_eq!(
+        format("tamber    t\r\ntheme\r\n  ink=#fff\r\n").unwrap(),
+        "tamber t\n\ntheme\n  ink = #fff\n"
+    );
+}
+
+#[test]
+fn a_token_called_when_a_quoted_slash_and_a_comment_between_blocks() {
+    let src = "tamber t\n\ntheme\n  when=#ffffff\n  font.family = 'a//b'\n// between\n\nexports\n  when\n";
+    let out = format(src).unwrap();
+    assert_eq!(out, "tamber t\n\ntheme\n  when = #ffffff\n  font.family = 'a//b'\n\n// between\n\nexports\n  when\n");
+    assert_eq!(format(&out).unwrap(), out);
 }

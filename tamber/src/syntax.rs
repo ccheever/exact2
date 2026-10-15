@@ -444,7 +444,8 @@ fn tokens(body: &[Line], out: &mut Vec<Token>, errors: &mut Vec<Diagnostic>) {
             ));
             continue;
         }
-        if l.text.starts_with("when ") {
+        // `when = …` is a token called `when`; `when axis=value: …` a when.
+        if l.text.starts_with("when ") && !l.text[4..].trim_start().starts_with('=') {
             errors.push(syntax(l, "a `when` is indented under its token"));
             continue;
         }

@@ -54,18 +54,21 @@ pub(crate) fn split_comment(raw: &str) -> (&str, Option<&str>) {
     (body, (body.len() < raw.len()).then(|| &raw[body.len()..]))
 }
 
-/// The line up to a `//` outside a string and outside parentheses (so a
-/// URL in `icon(svg "…")` or `url(…)` keeps its slashes).
+/// The line up to a `//` outside a string (either quote) and outside
+/// parentheses (so a URL in `icon(svg "…")` or `url(…)` keeps its slashes).
 fn strip_comment(raw: &str) -> &str {
     let bytes = raw.as_bytes();
-    let (mut depth, mut quoted, mut escaped) = (0usize, false, false);
+    let (mut depth, mut quote, mut escaped) = (0usize, None, false);
     for i in 0..bytes.len() {
         if std::mem::take(&mut escaped) {
             continue;
         }
+        let quoted = quote.is_some();
         match bytes[i] {
             b'\\' if quoted => escaped = true,
-            b'"' => quoted = !quoted,
+            q @ (b'"' | b'\'') if quote.is_none_or(|open| open == q) => {
+                quote = if quoted { None } else { Some(q) };
+            }
             b'(' if !quoted => depth += 1,
             b')' if !quoted => depth = depth.saturating_sub(1),
             b'/' if !quoted && depth == 0 && bytes.get(i + 1) == Some(&b'/') => {

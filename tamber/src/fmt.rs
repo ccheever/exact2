@@ -29,10 +29,22 @@ pub fn format(src: &str) -> Result<String, Vec<Diagnostic>> {
     let mut block = "";
     let mut entry_indent = None;
     for text in &raw {
+        let text = text.strip_suffix('\r').unwrap_or(text);
         let (body, comment) = lex::split_comment(text);
         if body.trim().is_empty() {
             match comment {
-                Some(c) => items.push((Kind::Comment(c.trim_end()), usize::MAX)),
+                // A comment keeps its own place: its indent's level, so an
+                // edit to the line after it moves it nowhere.
+                Some(c) => {
+                    let indent = text.len() - text.trim_start_matches(' ').len();
+                    let level = match (indent, entry_indent) {
+                        (0, _) => 0,
+                        (i, Some(e)) if i <= e => 1,
+                        (_, Some(_)) => 2,
+                        (_, None) => usize::MAX,
+                    };
+                    items.push((Kind::Comment(c.trim_end()), level));
+                }
                 None => items.push((Kind::Blank, 0)),
             }
             continue;
@@ -49,6 +61,7 @@ pub fn format(src: &str) -> Result<String, Vec<Diagnostic>> {
             2
         };
         let mut out = match (level, block) {
+            (0, "tamber") => format!("tamber {}", l.text["tamber".len()..].trim()),
             (0, _) => l.text.clone(),
             (1, "axes") => axis(l),
             (1, "dials") => dial(l),
@@ -62,13 +75,19 @@ pub fn format(src: &str) -> Result<String, Vec<Diagnostic>> {
         }
         items.push((Kind::Code(out), level));
     }
-    // A comment line takes the level of the code line after it.
-    let mut next_level = 0;
+    // Blank lines at the end are none.
+    while matches!(items.last(), Some((Kind::Blank, _))) {
+        items.pop();
+    }
+    // A comment before a block's first entry, whose indent no entry has
+    // given a level yet, takes the level of the line after it (an entry's,
+    // never the next block's).
+    let mut next_level = 1;
     for (kind, level) in items.iter_mut().rev() {
         match kind {
-            Kind::Code(_) => next_level = *level,
-            Kind::Comment(_) => *level = next_level,
-            Kind::Blank => {}
+            Kind::Code(_) => next_level = (*level).max(1),
+            Kind::Comment(_) if *level == usize::MAX => *level = next_level,
+            _ => {}
         }
     }
     // A top-level line and the comments right above it open a group, which
@@ -81,10 +100,9 @@ pub fn format(src: &str) -> Result<String, Vec<Diagnostic>> {
         let opens = *level == 0
             && match kind {
                 Kind::Code(_) => true,
-                Kind::Comment(_) => items[i..]
-                    .iter()
-                    .find(|(k, _)| !matches!(k, Kind::Comment(_)))
-                    .is_none_or(|(k, l)| matches!(k, Kind::Code(_)) && *l == 0),
+                // A top-level comment opens its own group (the block after
+                // it, when it is right above one).
+                Kind::Comment(_) => true,
                 Kind::Blank => false,
             }
             && !matches!(items.get(i.wrapping_sub(1)), Some((Kind::Comment(_), 0)) if i > 0);
@@ -110,6 +128,14 @@ pub fn format(src: &str) -> Result<String, Vec<Diagnostic>> {
         out.push_str(text);
         out.push('\n');
         opened = matches!(kind, Kind::Code(_)) && *level == 0;
+    }
+    // What it prints parses, or it prints nothing: a layout never breaks a
+    // design.
+    if let Err(all) = crate::parse(&out) {
+        return Err(all
+            .into_iter()
+            .map(|d| Diagnostic::new("tamber-fmt", format!("tamber fmt would break this design here ({}): leave it as it is and report it", d.message), d.line, d.col))
+            .collect());
     }
     Ok(out)
 }
