@@ -102,3 +102,24 @@ test "with no output chosen nothing is sent"
   tap "toggle"
   clock +1000
   expect midi missing "OP-XY" 99 4c 7f at 0
+
+test "following an input's clock, it waits for Start and plays at the device's tempo"
+  prefer midi.inputs "OP-XY"
+  tap "connect"
+  type "follow" "OP-XY"
+  tap "count-in"
+  tap "toggle"
+  expect state transport.state == "waiting"
+  expect text "beat" == "Waiting for clock"
+  tap midi "OP-XY" clock 125 1000
+  expect text "bpm" == "125"
+  tap midi "OP-XY" fa
+  tap midi "OP-XY" clock 125 1000
+  expect state transport.state == "playing"
+  expect sound has "assets/click-high.wav" at 1020
+  expect sound has "assets/click-low.wav" at 1500 gain 0.6
+  expect sound has "assets/click-low.wav" at 1980 gain 0.6
+  tap midi "OP-XY" fc
+  expect state transport.state == "waiting"
+  expect state transport.reason == "clock"
+  expect text "beat" == "Waiting for clock"
