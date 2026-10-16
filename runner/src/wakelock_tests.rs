@@ -226,6 +226,8 @@ component App
           column navigationKey=`${e.id}` position="absolute" inset=0
             button press=back testId="back"
               text "Back"
+            button press=openAdd testId="item-add"
+              text "Add"
         if e.name == "add"
           column navigationKey=`${e.id}` navigationPresentation="modal" position="absolute" inset=0
             button press=back testId="close"
@@ -252,6 +254,42 @@ fn a_covered_screen_holds_nothing_but_one_under_a_sheet_does() {
         super::holders(r.kernel()),
         vec![id],
         "a sheet leaves it shown"
+    );
+}
+
+fn view(r: &Runner<NoData>, id: &str) -> u32 {
+    let k = r.kernel();
+    k.node_by_key(k.find_by_test_id(id)[0]).unwrap().id
+}
+
+/// A split: the list a host shows beside the detail's pane holds, and so it
+/// does under a sheet over that detail, as the web shows both (navigation.js
+/// `covered`). With no pane reported the list is covered, under a sheet too.
+#[test]
+fn a_splits_list_beside_its_detail_holds_under_a_sheet_too() {
+    use exact_kernel::{BlockAxis, HostBlock};
+    let mut r = boot_source(STACK);
+    let id = player(&r).unwrap();
+    press(&mut r, "open");
+    assert!(super::holders(r.kernel()).is_empty(), "no pane: covered");
+    press(&mut r, "item-add");
+    assert!(
+        super::holders(r.kernel()).is_empty(),
+        "no pane: covered under a sheet"
+    );
+    press(&mut r, "close");
+    let detail = r.kernel().node(view(&r, "back")).unwrap().parent.unwrap();
+    let pane = HostBlock {
+        width: BlockAxis::Is(500.0),
+        height: BlockAxis::Is(400.0),
+    };
+    r.kernel_mut().set_host_block(detail, Some(pane)).unwrap();
+    assert_eq!(super::holders(r.kernel()), vec![id], "beside the pane");
+    press(&mut r, "item-add");
+    assert_eq!(
+        super::holders(r.kernel()),
+        vec![id],
+        "beside the pane, under a sheet"
     );
 }
 

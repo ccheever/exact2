@@ -75,6 +75,57 @@ const jsPage = `<div id="exact-root"><div id="player" data-exact-wakelock="scree
   window.ready = true;
 </script>`;
 
+// A counting stand-in for the API, for the navigation pages below.
+const FAKE = `window.asked = 0;
+  Object.defineProperty(navigator, 'wakeLock', { configurable: true, get: () => ({ request() {
+    window.asked++; const s = new EventTarget(); s.released = false; s.release = async () => { s.released = true; s.dispatchEvent(new Event('release')); };
+    return Promise.resolve(s);
+  } }) });`;
+// A stack whose root route is a split's list (an explicit column width) holding
+// the lock, under its detail: hidden on a narrow window, shown beside the detail
+// on a wide one (navigation.js `splitOf`, 900 px). Projected by navigation.js.
+const navPage = `<div id="exact-root" style="position:relative;width:100vw;height:100vh">
+  <main id="nav" navigationKey="detail" navigationBack="back" style="position:absolute;inset:0">
+    <div navigationKey="list" navigationSplit="320" style="position:absolute;inset:0"><div id="player" data-exact-wakelock="screen">p</div></div>
+    <div navigationKey="detail" style="position:absolute;inset:0">detail</div>
+  </main>
+</div>
+<script type="module">
+  ${FAKE}
+  const { navigation } = await import('./navigation.js');
+  const glue = await import('./wakelock-glue.js');
+  const root = document.getElementById('exact-root');
+  navigation.connect(root, () => false, () => {});
+  navigation.project(root, () => {});
+  glue.hold(glue.holders(root).length > 0, () => {});
+  window.glue = glue; window.root = root;
+  window.ready = true;
+</script>`;
+// The JS target's order: wakelock.js's commit callback comes before the
+// navigation projection in rt.js's After (document.js pushes it later).
+const navJsPage = `<div id="exact-root">
+  <main id="nav" navigationKey="a" navigationBack="back">
+    <div role="tablist"><button role="tab" aria-controls="p1">1</button><button role="tab" aria-controls="p2">2</button></div>
+    <div role="tabpanel" id="p1"><div navigationKey="a">a</div></div>
+    <div role="tabpanel" id="p2"><div navigationKey="b"><div id="player" data-exact-wakelock="screen">p</div></div></div>
+  </main>
+</div>
+<script type="module">
+  ${FAKE}
+  import { After } from './rt.js';
+  import { install } from './wakelock.js';
+  import { navigation } from './navigation.js';
+  import { granted } from './wakelock-glue.js';
+  const root = document.getElementById('exact-root');
+  install();
+  navigation.connect(root, () => false, () => {});
+  After.push(() => navigation.project(root, () => {}));
+  window.commit = key => { document.getElementById('nav').setAttribute('navigationKey', key); for (const f of After) f(); };
+  window.granted = granted;
+  commit('a');
+  window.ready = true;
+</script>`;
+
 const script = body => [200, { 'content-type': 'text/javascript' }, body];
 let server, profile, child, cdp;
 beforeAll(async () => {
@@ -83,7 +134,8 @@ beforeAll(async () => {
     const [status, headers, body] = req.url.startsWith('/wakelock-glue.js') ? script(readFileSync(resolve(WEB, 'wakelock-glue.js')))
       : req.url === '/wakelock.js' ? script(readFileSync(resolve(WEB, '../web-js/wakelock.js')))
       : req.url === '/rt.js' ? script(RT)
-      : [200, { 'content-type': 'text/html' }, req.url === '/js' ? jsPage : page];
+      : req.url === '/navigation.js' || req.url === '/grant-admission.js' ? script(readFileSync(resolve(WEB, req.url.slice(1)))) // navigation.js re-exports the grant admission
+      : [200, { 'content-type': 'text/html' }, { '/js': jsPage, '/nav': navPage, '/navjs': navJsPage }[req.url] ?? page];
     res.writeHead(status, headers); res.end(body);
   });
   await new Promise(ok => server.listen(0, '127.0.0.1', ok));
@@ -109,7 +161,7 @@ async function open(path) {
   };
   await call('Page.navigate', { url: `http://127.0.0.1:${server.address().port}${path}` });
   for (let i = 0; !(await evaluate('window.ready === true')); i++) { if (i > 2000) throw new Error('page never ready'); await Bun.sleep(5); }
-  return { evaluate, close: () => cdp.send('Target.closeTarget', { targetId }) };
+  return { call, evaluate, close: () => cdp.send('Target.closeTarget', { targetId }) };
 }
 
 check('the holders are the displayed elements that say screen', async () => {
@@ -200,5 +252,35 @@ check('the JS target journals a bad word as the runner does: raw, each time it c
       'view 1: invalid wakelock value "dim"; unset',
       'view 1: invalid wakelock value 1; unset',
     ]);
+  } finally { await close(); }
+});
+
+check('the lock follows a window crossing the split width, with no commit', async () => {
+  const { call, evaluate, close } = await open('/nav');
+  const width = async w => {
+    await call('Emulation.setDeviceMetricsOverride', { width: w, height: 700, deviceScaleFactor: 1, mobile: false });
+    for (let i = 0; i < 200 && (await evaluate('innerWidth')) !== w; i++) await Bun.sleep(5);
+    await evaluate('new Promise(r => setTimeout(r, 20))');
+  };
+  try {
+    await width(600);
+    expect(await evaluate('[glue.holders(root).length, glue.granted()]')).toEqual([0, false]);
+    await width(1000);
+    expect(await evaluate('[glue.holders(root).length, glue.granted()]')).toEqual([1, true]);
+    await width(600);
+    expect(await evaluate('[glue.holders(root).length, glue.granted()]')).toEqual([0, false]);
+  } finally { await close(); }
+});
+
+check('on the JS target a commit that switches tabs moves the lock in that commit', async () => {
+  const { evaluate, close } = await open('/navjs');
+  const settle = () => evaluate('new Promise(r => setTimeout(r))');
+  try {
+    await settle();
+    expect(await evaluate('[exact.wakelock().held, granted()]')).toEqual([false, false]);
+    await evaluate(`commit('b')`); await settle();
+    expect(await evaluate('[exact.wakelock().held, granted()]')).toEqual([true, true]);
+    await evaluate(`commit('a')`); await settle();
+    expect(await evaluate('[exact.wakelock().held, granted()]')).toEqual([false, false]);
   } finally { await close(); }
 });

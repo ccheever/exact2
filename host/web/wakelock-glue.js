@@ -62,5 +62,13 @@ export function holders(root) {
 /** Whether the lock is held now (a sentinel granted and not released): tests and diagnostics. */
 export const granted = () => sentinel != null;
 
-// glue.js loads host pieces as scripts and reads them here.
-(globalThis.exact ??= {}).wakeLockGlue = { hold, holders, granted };
+/** A navigation projection (navigation.js `project`) may have shown or hidden
+ * a route or tab: after a commit's tree, a resize, or the window crossing the
+ * split's width. Once anything has asked for the lock, it follows. */
+export function projected(root) {
+  if (listening) hold(holders(root).length > 0);
+}
+
+// glue.js loads host pieces as scripts, navigation.js tells projections, and
+// both read them here.
+(globalThis.exact ??= {}).wakeLockGlue = { hold, holders, granted, projected };

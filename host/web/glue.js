@@ -1126,6 +1126,7 @@ function agentReply(request) {
         const policy = document.querySelector("[interactiveWidget]")?.getAttribute("interactiveWidget") ?? "resizes-visual";
         st.keyboard = { visible: overlap > 0, overlap: r2(overlap), policy, interactive: false };
         st.navigation = navigation.observation(root); st.window = { title: document.title }; if (page) st.adopted = page.adopted === true; if (st.sounds && soundOut) st.sounds.output = soundOut.state(); // LLP 1048.000 D6; LLP 1096 D10 (a page that plays)
+        const wake = globalThis.exact.wakeLockGlue; if (wake) { const by = wake.holders(root).map(idOf); st.wakelock = { held: by.length > 0, by }; } // LLP 1125 D11: what this page shows holds it (a split's list beside its detail, the routes under a sheet), which the runner cannot see; the JS target's agent.js reads the same
         // The drive's app storage (trivia F7): none unless it names a scratch store, as storage-environment.js's `storageKey`.
         const store = new URL(performance.getEntriesByType?.("navigation")[0]?.name ?? location.href).searchParams.get("storage");
         st.storage = store == null ? { available: false, code: "agent", message: "storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)" } : { available: true, store };

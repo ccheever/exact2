@@ -136,7 +136,7 @@ fn inactive_with(kernel: &Kernel, id: ViewId, covered_shows: bool) -> bool {
         if let Some(n) = node(at.id) {
             let off = unselected(&node, &n);
             if let Some(route) = off.iter().find(|off| path.contains(off)) {
-                let shown = covered_shows && under_a_sheet(&node, &n) == Some(*route);
+                let shown = covered_shows && under_a_sheet(kernel, &node, &n).contains(route);
                 if !shown && !beside_a_pane(kernel, &n, *route) {
                     return true;
                 }
@@ -293,14 +293,21 @@ fn unselected<'a>(
 
 /// The route a navigation root's selected route covers when that route is a
 /// sheet (`navigationPresentation="modal"`): the one before it in its stack,
-/// which every host leaves shown beneath the sheet (navigation.js `covered`).
+/// which every host leaves shown beneath the sheet (navigation.js `covered`),
+/// and, when that one is a split's detail in a pane its host reported (as
+/// [`beside_a_pane`] reads it), the split's list beside it.
 fn under_a_sheet<'a>(
+    kernel: &Kernel,
     node: &impl Fn(ViewId) -> Option<HeadNode<'a>>,
     at: &HeadNode<'a>,
-) -> Option<ViewId> {
-    let key =
+) -> Vec<ViewId> {
+    use exact_kernel::BlockAxis;
+    let Some(key) =
         at.1.str(PropId::NavigationBack)
-            .and(at.1.str(PropId::NavigationKey))?;
+            .and(at.1.str(PropId::NavigationKey))
+    else {
+        return Vec::new();
+    };
     let routes = |ids: &[ViewId]| -> Vec<ViewId> {
         ids.iter()
             .copied()
@@ -316,14 +323,25 @@ fn under_a_sheet<'a>(
             .map(|p| node(*p).map(|(_, _, c)| routes(&c)).unwrap_or_default())
             .collect()
     };
-    stacks.iter().find_map(|rs| {
-        let top = rs.iter().position(|r| {
-            node(*r).is_some_and(|(_, p, _)| p.str(PropId::NavigationKey) == Some(key))
-        })?;
-        let modal = node(rs[top])
-            .is_some_and(|(_, p, _)| p.str(PropId::NavigationPresentation) == Some("modal"));
-        (modal && top > 0).then(|| rs[top - 1])
-    })
+    stacks
+        .iter()
+        .find_map(|rs| {
+            let top = rs.iter().position(|r| {
+                node(*r).is_some_and(|(_, p, _)| p.str(PropId::NavigationKey) == Some(key))
+            })?;
+            let modal = node(rs[top])
+                .is_some_and(|(_, p, _)| p.str(PropId::NavigationPresentation) == Some("modal"));
+            if !modal || top == 0 {
+                return None;
+            }
+            let covered = rs[top - 1];
+            let pane = kernel.host_block(covered).is_some_and(|b| {
+                matches!((b.width, b.height), (BlockAxis::Is(_), BlockAxis::Is(_)))
+            });
+            let list = (top > 1 && pane && kernel.host_block(rs[0]).is_none()).then_some(rs[0]);
+            Some([Some(covered), list].into_iter().flatten().collect())
+        })
+        .unwrap_or_default()
 }
 
 /// A navigation root's tabpanels, in tab order: those its own tablist's
