@@ -31,6 +31,14 @@ enum ButtonConfigurationIOS {
         }
         return TextEngine.cssWeight(UIFont.systemFont(ofSize: targetSize, weight: platformWeight), weight: cssWeight, size: targetSize)
     }
+    /// Whether a colour row is the platform's accent itself (`AccentColor`),
+    /// which UIKit draws from the view's tint rather than as a colour of its
+    /// own; one derived from it (`Highlight`, `@tint/0.2`) keeps its alpha
+    /// as a colour of its own.
+    static func followsAccent(_ value: BatchValue?) -> Bool {
+        guard case .object(let o)? = value else { return false }
+        return o["sys"]?.string == "@tint"
+    }
     static func color(_ value: BatchValue?, traits: UITraitCollection, accent: UIColor?) -> UIColor? {
         value?.cgColor(dark: traits.userInterfaceStyle == .dark,
             contrast: traits.accessibilityContrast == .high, tint: accent).map { UIColor(cgColor: $0) }
@@ -177,12 +185,13 @@ enum ButtonConfigurationIOS {
             config.baseForegroundColor = .black
         }
         let titleFontAuthored = rows.title["font_size"] != nil || rows.title["font_weight"] != nil
-        // An authored colour survives UIKit's disabled-state foreground transform (D16).
+        // An authored colour survives UIKit's disabled-state foreground transform (D16). Enabled, it is the
+        // configuration's foreground, which UIKit greys with the tint behind a modal (`tintAdjustmentMode`).
         if titleFontAuthored || foreground != nil {
-            config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+            config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { [weak button] incoming in
                 var outgoing = incoming
                 if titleFontAuthored, let f = incoming.uiKit.font { outgoing.uiKit.font = font(f, rows: rows.title) }
-                if let foreground { outgoing.uiKit.foregroundColor = foreground }
+                if let foreground, button?.isEnabled == false { outgoing.uiKit.foregroundColor = foreground }
                 return outgoing
             }
         }
@@ -216,8 +225,26 @@ enum ButtonConfigurationIOS {
             config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(font: symbolFont)
         } else { config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(font: titleFont) }
         config.imagePadding = rows.imageGap ?? systemSpacing(font: titleFont)
-        if let tint = color(rows.symbol["tint_color"], traits: traits, accent: accent) {
-            config.image = config.image?.withTintColor(tint, renderingMode: .alwaysOriginal)
+        // A symbol's colour is the configuration's, which UIKit greys with the whole button behind a modal
+        // (`tintAdjustmentMode`), its own colour as much as the accent. A glass configuration draws a template
+        // image in its own ink and ignores that, so there the symbol carries its colour, drawn again as the
+        // tint changes (`NativeButtonIOS.tintColorDidChange`).
+        let follows = followsAccent(rows.symbol["tint_color"])
+        let resolved = color(rows.symbol["tint_color"], traits: traits, accent: accent), own = follows ? nil : resolved
+        let native = button as? NativeButtonIOS
+        native?.symbolInk = nil
+        if follows || own != nil, let template = config.image {
+            if !button.isEnabled {
+                // Disabled, an authored colour keeps its look through UIKit's disabled one (D16)
+                if let resolved { config.image = template.withTintColor(resolved, renderingMode: .alwaysOriginal) }
+            } else if drawn.lowercased().hasSuffix("glass"), let native {
+                let ink = NativeButtonIOS.Ink(template: template, color: own, alpha: (follows ? accent : own)?.cgColor.alpha)
+                native.noteTint()
+                native.symbolInk = ink
+                config.image = ink.drawn(in: native)
+            } else {
+                config.imageColorTransformer = UIConfigurationColorTransformer { [weak button] _ in own ?? button?.tintColor ?? .tintColor }
+            }
         }
         button.configuration = config
         // Only an authored clamp changes UIKit's line count. Configuration owns

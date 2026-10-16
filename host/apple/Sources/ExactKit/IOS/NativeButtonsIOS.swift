@@ -48,6 +48,35 @@ final class NativeButtonIOS: UIButton {
     }
     /// Whether it draws glass: a glass row on iOS 26 and later.
     var isGlass = false
+    /// A glass button's coloured symbol: its template, its own colour (nil when it is drawn in the tint),
+    /// and the alpha the face gives it (its own colour's, or an authored accent's; nil for an inherited tint)
+    struct Ink {
+        let template: UIImage
+        let color: UIColor?
+        let alpha: CGFloat?
+        /// Drawn in its colour, grey while the tint is dimmed behind a modal, as UIKit greys a button,
+        /// keeping its alpha: the face's, else an inherited tint's as last seen undimmed
+        func drawn(in button: NativeButtonIOS) -> UIImage {
+            let tint: UIColor = button.tintColor
+            let ink = button.tintAdjustmentMode == .dimmed ? tint.withAlphaComponent(alpha ?? button.tintAlpha) : color ?? tint
+            return template.withTintColor(ink, renderingMode: .alwaysOriginal)
+        }
+    }
+    var symbolInk: Ink?
+    /// An inherited tint's alpha while it is not dimmed: UIKit's dimmed tint is a grey that keeps none
+    /// of it, which a symbol drawn in the tint keeps behind a modal (one that changes while dimmed cannot
+    /// be read until the tint is restored)
+    private(set) var tintAlpha: CGFloat = 1
+    func noteTint() {
+        if tintAdjustmentMode != .dimmed { tintAlpha = tintColor.cgColor.alpha }
+    }
+    override func tintColorDidChange() {
+        super.tintColorDidChange()
+        noteTint()
+        guard let symbolInk, var config = configuration else { return }
+        config.image = symbolInk.drawn(in: self)
+        configuration = config
+    }
     /// The configuration drawn, its name in the table's iOS column.
     var drawn = ButtonFace.unsaid
     override var canBecomeFocused: Bool {
