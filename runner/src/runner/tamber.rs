@@ -58,11 +58,12 @@ impl<D: DataSource> Tamber<'_, D> {
     /// Colour token `name` at `place`: what a row naming it there reads (a
     /// colour, a `light-dark()` pair, a role the host resolves), with the
     /// live table's edits and the session's role overrides. `None` for a
-    /// name the plan lacks, said once in the journal; the caller keeps its
-    /// fallback.
+    /// name the plan lacks, or a value its row would refuse (a live edit
+    /// that does not parse), each said once in the journal; the caller
+    /// keeps its fallback.
     pub fn color(&mut self, name: &str, place: Place) -> Option<ColorValue> {
         if !self.has(name) {
-            self.missing(name);
+            self.say_once(name, "no token `{name}` in this plan");
             return None;
         }
         let tuple = self.tuple(place);
@@ -70,42 +71,65 @@ impl<D: DataSource> Tamber<'_, D> {
         let _roles = runner.bind_roles();
         let before = crate::bridge::set_tuple(tuple);
         let mut patch = StyleProps::default();
-        let set = crate::bridge::set_plan_style(
-            &mut patch,
-            StyleId::TextColor as u16,
-            &exact_plan::Value::str(name),
-            &runner.plan,
-        );
-        exact_kernel::style::theme::take_named();
+        // Read aside: what the runner's own parses recorded stays theirs.
+        let (set, _) = exact_kernel::style::theme::recorded(|| {
+            crate::bridge::set_plan_style(
+                &mut patch,
+                StyleId::TextColor as u16,
+                &exact_plan::Value::str(name),
+                &runner.plan,
+            )
+        });
         crate::bridge::set_tuple(before);
-        set.ok().map(|_| patch.text_color)
+        if set.is_err() {
+            self.say_once(name, "`{name}`'s value is no colour a row takes");
+            return None;
+        }
+        Some(patch.text_color)
+    }
+
+    /// Whether `place` draws dark: the nearest `color-scheme` at or above
+    /// it, else the window's.
+    pub fn dark(&self, place: Place) -> bool {
+        let scheme = match place {
+            Place::Node(id) => self
+                .runner
+                .kernel()
+                .node(id)
+                .and_then(|n| n.color_scheme_dark()),
+            Place::Root => None,
+        };
+        scheme.unwrap_or(self.runner.viewport().preferences.dark)
     }
 
     /// What a binding at `place` reads besides the token's name, as one
     /// number that moves when any of it does: its app tuple (`setMode`, a
-    /// pin above), the design (a live batch, its role overrides), the
-    /// scheme and contrast, and the root font size. A host compares it after
-    /// each batch to tell its observers (`observe`).
+    /// pin above), the design's values (a token edit, a live batch, a role
+    /// override's), its scheme (the window's, a `color-scheme` above), the
+    /// contrast, and the root font size. A host compares it after each batch
+    /// to tell its observers (`observe`); it costs no walk of the design.
     pub fn inputs(&self, place: Place) -> u64 {
         use std::hash::{Hash, Hasher};
         let runner = &*self.runner;
-        let preferences = runner.viewport().preferences;
         let mut h = std::collections::hash_map::DefaultHasher::new();
         self.tuple(place).hash(&mut h);
-        runner.design().hash(&mut h);
+        runner.design_moves.hash(&mut h);
         runner.roles().generation().hash(&mut h);
-        preferences.dark.hash(&mut h);
-        format!("{:?}", preferences.contrast).hash(&mut h);
+        self.dark(place).hash(&mut h);
+        format!("{:?}", runner.viewport().preferences.contrast).hash(&mut h);
         runner.root_font_size().to_bits().hash(&mut h);
         h.finish()
     }
 
-    fn missing(&mut self, name: &str) {
-        if !self.runner.missing_tokens.iter().any(|n| n == name) {
-            self.runner.missing_tokens.push(name.to_string());
-            self.runner.log(format!(
-                "tamber: no token `{name}` in this plan: its binding keeps its fallback (LLP 1121 D12)"
-            ));
+    /// Say `why` (its `{name}` the token's) once for this runner.
+    fn say_once(&mut self, name: &str, why: &str) {
+        let line = format!(
+            "tamber: {}: its binding keeps its fallback (LLP 1121 D12)",
+            why.replace("{name}", name)
+        );
+        if !self.runner.tamber_said.contains(&line) {
+            self.runner.tamber_said.push(line.clone());
+            self.runner.log(line);
         }
     }
 }

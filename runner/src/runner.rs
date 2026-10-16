@@ -370,8 +370,10 @@ pub struct Runner<D: DataSource> {
     design: Option<String>,
     /// A development build, admitting live batches ([`Runner::admit_live`], from its compat).
     live: bool,
-    /// The token names a binding asked of this plan that it lacks, each said once (LLP 1121 D12).
-    missing_tokens: Vec<String>,
+    /// What a binding was told of this plan's tokens (a name it lacks), each said once (LLP 1121 D12).
+    tamber_said: Vec<String>,
+    /// How many times a token's value moved (`set_tokens`): a binding's input.
+    design_moves: u64,
     /// Its role overrides, its own (LLP 1121 stage 5; [`Runner::roles`]).
     roles: exact_kernel::style::roles::Installed,
     /// The session the owner's token names (LLP 1094 D4).
@@ -836,7 +838,8 @@ impl<D: DataSource> Runner<D> {
             reorder_kept: Default::default(),
             design: None,
             live: false,
-            missing_tokens: Vec::new(),
+            tamber_said: Vec::new(),
+            design_moves: 0,
             roles: exact_kernel::style::roles::Installed::new(roles.clone()),
             reorder_session: None,
             dropping_from: None,

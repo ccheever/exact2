@@ -578,8 +578,10 @@ uint32_t exact_design_rows(ExactRuntime rt, size_t len);
 /* @ref LLP 1121 D12, stage 5: the binding core. A request
  * `{"view": id, "names": [token, …]}` (view 0: the session's root) in the
  * input buffer; answers `{"inputs": "…", "colors": {token: colour|null}}`,
- * UTF-8 in exact_out, each colour as a row crosses it. `inputs` moves when
- * anything the answer read does. Not a batch. */
+ * UTF-8 in exact_out, each colour as a row crosses it, null for a name the
+ * plan lacks or a value that is no colour (the binding keeps its fallback).
+ * `inputs` moves when anything the answer read does. A view that is not live,
+ * or names that are not strings, answer {"error"}. Not a batch. */
 uint32_t exact_tamber(ExactRuntime rt, size_t len);
 /* The design digest the running app runs (its plan's, or the live table's
  * applied since), UTF-8 in exact_out, length 0 before boot. Not a batch. */

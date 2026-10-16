@@ -82,11 +82,20 @@ fn a_name_the_plan_lacks_is_said_once() {
         .filter(|l| l.contains("no token `text.primary`"))
         .count();
     assert_eq!(said, 1);
+    // A live edit that is no colour: the same, said once.
+    let _ = r.set_token("ink", "nope", &[]);
+    assert_eq!(r.tamber().color("ink", Place::Root), None);
+    assert_eq!(r.tamber().color("ink", Place::Root), None);
+    let said = r
+        .journal()
+        .filter(|l| l.contains("`ink`'s value is no colour"))
+        .count();
+    assert_eq!(said, 1);
 }
 
 /// `inputs` moves on each input a binding reads, and holds when none does:
 /// `setMode`, the scheme, the contrast, the root font size, a live batch,
-/// and a role override's live edit.
+/// a role override's live edit, and a token's edit.
 #[test]
 fn inputs_move_on_every_input_and_only_then() {
     let a = plan("inputs-a", DESIGN);
@@ -124,7 +133,16 @@ fn inputs_move_on_every_input_and_only_then() {
         design::batch(&design::shape(&b), &design::tokens(&b), &design::tokens(&c)).unwrap();
     assert!(r.apply_live(&roles).unwrap().roles);
     moved(&mut r, "a role override's edit");
+    r.set_token("ink", "#123456", &[]).unwrap();
+    moved(&mut r, "a token's edit");
     assert_eq!(r.tamber().inputs(place), last, "nothing moved");
+    // A batch that moves nothing a binding reads (a mode it has already).
+    r.set_modes(&[("dark-style", "dim")]).unwrap();
+    assert_eq!(
+        r.tamber().inputs(place),
+        last,
+        "nothing a binding reads moved"
+    );
     assert_eq!(
         r.tamber().color("CanvasText", place),
         Some(parsed("#202020"))
@@ -187,4 +205,28 @@ fn two_sessions_answer_from_their_own_designs() {
             Some(parsed("light-dark(#111111, #eeeeee)"))
         );
     }
+}
+
+/// A `color-scheme` above a place is its scheme: a boundary that turns dark
+/// moves the place's inputs, though the window's scheme did not move.
+#[test]
+fn a_scheme_above_moves_the_places_inputs() {
+    let dir = std::env::temp_dir().join(format!("exact2-binding-scheme-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("app.tamber"), DESIGN).unwrap();
+    std::fs::write(dir.join("app.contract"), "component App\n  state dark = false\n  action flip\n    dark = not dark\n  view\n    column\n      button press=flip testId=\"flip\"\n        text \"flip\"\n      column color-scheme=(dark ? \"dark\" : \"light\")\n        text \"b\" testId=\"inner\"\n").unwrap();
+    let mut r = booted(contract::compile_path(&dir.join("app.contract")).unwrap());
+    let _ = std::fs::remove_dir_all(&dir);
+    let inner = node(&r, "inner");
+    let before = r.tamber().inputs(inner);
+    assert!(!r.tamber().dark(inner));
+    let flip = {
+        let k = r.kernel();
+        k.node_by_key(k.find_by_test_id("flip")[0]).unwrap().id
+    };
+    r.dispatch(flip, exact_runner::Event::Press).unwrap();
+    assert!(r.tamber().dark(inner));
+    assert!(!r.tamber().dark(Place::Root), "the window's stays light");
+    assert_ne!(r.tamber().inputs(inner), before);
 }

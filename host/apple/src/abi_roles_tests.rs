@@ -189,4 +189,16 @@ fn the_binding_core_answers_each_runtime_from_its_own_design() {
     assert!(b.contains(r#""CanvasText":[2,2,2,255]"#), "{b}");
     assert!(a.contains(r#""nonesuch":null"#), "{a}");
     assert_eq!(ask(first), a, "nothing moved");
+    let refused = crate::abi::registry::with_runtime(
+        &RUNTIMES,
+        first,
+        false,
+        |b, _| {
+            let len = b.input_write(br#"{"view": 4294967297, "names": ["CanvasText"]}"#);
+            let n = b.tamber(len) as usize;
+            String::from_utf8(b.output_bytes(n).to_vec()).unwrap()
+        },
+        |_| String::new(),
+    );
+    assert!(refused.contains("no live view id"), "{refused}");
 }
