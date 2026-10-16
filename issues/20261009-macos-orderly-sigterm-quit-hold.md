@@ -146,17 +146,19 @@ traps SIGTERM and exits 3 s later (or ignores it), driven through
 
 | Scenario | Exit | Hook / destroy | Evidence |
 |---|---|---|---|
-| SIGTERM ×3 and an Apple Event quit, 0.3 s apart | code 0 after 3.06 s | 1 / 1 | child exited before `destroy`; agent `state` answered in 5 ms during the hold; 60 main-thread ticks at 50 ms |
-| Apple Event quit | 0 after 3.08 s | 1 / 1 | child exited first |
-| Last window closing (`close()`) | 0 after 3.13 s | 1 / 1 | child exited first |
-| SIGTERM, then the window closed during the hold | 0 after 3.04 s | 1 / 1 | child exited first |
+| SIGTERM ×3 and an Apple Event quit, 0.3 s apart | code 0 after 3.08 s | 1 / 1 | child exited before `destroy`; agent `state` answered in 18 ms during the hold; 61 main-thread ticks at 50 ms |
+| Apple Event quit | 0 after 3.12 s | 1 / 1 | child exited first |
+| Last window closing (`close()`) | 0 after 3.10 s | 1 / 1 | child exited first |
+| SIGTERM, then the window closed during the hold | 0 after 3.03 s | 1 / 1 | child exited first |
 | `beforeunload` cancels, then allows | 0 after 3.10 s | 1 / 1 | not asked while cancelled |
-| Child ignores SIGTERM | 0 after 5.07 s | 1 / 1 | child still running after exit; 100 ticks |
-| No hook; hook drops `done` | 0 after 12 ms; 9 ms | 0 / 1; 1 / 1 | — |
-| Storage in flight and a stuck child | 0 after 6.01 s | 1 / 1 | one deadline, not two |
+| Child ignores SIGTERM | 0 after 5.03 s | 1 / 1 | cut at the deadline; `destroy()` sent SIGKILL, child gone after exit (status 9); 100 ticks |
+| No hook; hook drops `done` | 0 after 5 ms; 5 ms | 0 / 1; 1 / 1 | — |
+| Storage in flight and a stuck child | 0 after 6.02 s | 1 / 1 | one deadline, not two; child SIGKILLed in `destroy()`, gone after exit |
 | Storage in flight, no hook (D10) | 0 after 6.02 s | 0 / 1 | the D10 hold still holds |
 
-The storage rows include the JS module's one-second teardown drain after the
+`destroy()` runs after the deadline whether or not the work finished; the
+probe, as `docs/reference.md`'s example, SIGKILLs there a child that ignored
+SIGTERM, so no child outlives the app. The storage rows include the JS module's one-second teardown drain after the
 five-second hold, as #313 measured. `ModuleQuitHoldTests` (`StorageHoldTests.swift`)
 covers the host side: once-only asking, `done` from another thread, the main
 run loop running during the hold, the bound, the session ending, and a module
