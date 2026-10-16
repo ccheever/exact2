@@ -1110,9 +1110,10 @@ fn compile_file_output(
 }
 
 /// [`compile_file_output`], adding to `warned`, when given, the warnings of
-/// a file the type checker accepts (LLP 1116 D6), before analysis and
-/// lowering run, so they are reported beside those passes' refusals too. A
-/// compile nobody reads them from does not look for them.
+/// a file the type checker accepts (LLP 1116 D6). After analysis succeeds,
+/// warnings use lowering's typography and control decisions, even if lowering
+/// refuses. An analysis failure uses the checked tree alone. A compile nobody
+/// reads warnings from does not look for them.
 fn compile_file_warned(
     file: &File,
     asset_root: Option<&Path>,
@@ -1148,17 +1149,29 @@ fn compile_file_warned(
     contract_analyze::check_routes_root(file, true).map_err(CompileError::from)?;
     let checked = contract_types::check_all(file, mapped, contract_lower::tags::style, strings)
         .map_err(|all| with_lint(each(all, hint)))?;
+    let analysis = contract_analyze::check_all(&checked);
+    let mut lower_warnings = Vec::new();
+    let result = match analysis {
+        Ok(analysis) => contract_lower::lower_all(
+            &checked,
+            &analysis,
+            asset_root,
+            mapped,
+            profile,
+            warned.as_ref().map(|_| &mut lower_warnings),
+        )
+        .map_err(|all| each(all, |e| e)),
+        Err(all) => {
+            if warned.is_some() {
+                lower_warnings = contract_lower::warnings(&checked);
+            }
+            Err(with_lint(each(all, hint)))
+        }
+    };
     if let Some(warned) = warned {
-        warned.extend(
-            contract_lower::warnings(&checked)
-                .into_iter()
-                .map(CompileError::warning),
-        );
+        warned.extend(lower_warnings.into_iter().map(CompileError::warning));
     }
-    let analysis =
-        contract_analyze::check_all(&checked).map_err(|all| with_lint(each(all, hint)))?;
-    contract_lower::lower_all(&checked, &analysis, asset_root, mapped, profile)
-        .map_err(|all| each(all, |e| e))
+    result
 }
 
 /// Boot the plan once against `data` and write every resource's boot value

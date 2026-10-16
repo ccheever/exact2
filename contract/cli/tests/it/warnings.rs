@@ -629,7 +629,10 @@ fn a_button_with_words_a_name_or_a_doubt_is_not_named() {
         // Filled through a slot.
         "Pill()\n  text \"Add\"",
     ] {
-        assert_eq!(warned(&buttons(view)), [], "{view}");
+        let expected = if view.starts_with("Pill()") {
+            vec![("lower-text-px-width".into(), 12)]
+        } else { vec![] };
+        assert_eq!(warned(&buttons(view)), expected, "{view}");
     }
 }
 
@@ -1274,7 +1277,12 @@ fn what_fits_or_the_compiler_cannot_see_is_not_named_for_width_and_padding() {
         ),
     ] {
         let src = buttons(view);
-        assert_eq!(warned(&src), [], "{case}\n{src}");
+        let expected = match case {
+            "a fixed width" => vec![("lower-text-px-width".into(), 7)],
+            "a slot's children" => vec![("lower-text-px-width".into(), 13)],
+            _ => vec![],
+        };
+        assert_eq!(warned(&src), expected, "{case}\n{src}");
     }
     // A flex column and an explicit block both stretch their items.
     for parent in [
@@ -1316,7 +1324,7 @@ fn warned_circles(name: &str, body: &str) -> Vec<(String, u32, String)> {
     if let Err(e) = result {
         panic!("a warning never fails a build: {e:?}\n{src}");
     }
-    warnings
+    super::text_px_width::without_round_button_widths(warnings)
         .into_iter()
         .map(|w| (w.id.clone(), w.span.line, w.message))
         .collect()

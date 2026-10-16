@@ -132,6 +132,7 @@ mod tamber_scheme;
 mod tamber_serve;
 mod tests_decl;
 mod text_item;
+mod text_px_width;
 mod text_selection;
 mod theme;
 mod three_forms;

@@ -28,7 +28,9 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   and a box the author sized in px does not, so at accessibility sizes the text runs past
   it (a day label under its icon, "Low" and "High" run together). That is CSS too. Fix: say
   the width in `rem` or `em` (`width="3rem"`), size columns with a grid of `auto` tracks,
-  or let the row wrap (`flex-wrap="wrap"`). (Bake-off round 13, weather; LLP 1116.011 D2.4.)
+  or let the row wrap (`flex-wrap="wrap"`). The compiler warns `lower-text-px-width`
+  where it can prove the box keeps its px width around such text, and is silent where it
+  cannot. (Bake-off round 13, weather; LLP 1116.011 D2.4.)
 
 - **A root with `min-height="100%"` and `overflow-y="auto"` does not scroll itself.**
   `min-height` lets the box grow with its in-flow content (CSS), so it has nothing to
