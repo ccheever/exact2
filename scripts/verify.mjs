@@ -32,6 +32,7 @@ import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readFileSync,
 import { basename, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { guardFlags } from './help.mjs';
+import { holderOf, takePort } from './port-lock.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 /** The web's two widths: a phone's, and a desktop window's. */
@@ -133,6 +134,13 @@ const lastError = (said) => { const lines = said.split('\n').map((l) => l.trim()
  * answers; refused (`heldLine`) when its URL already does. `{ stop(), exited(), tail() }`: `stop` ends it and removes
  * the database; `exited` is its exit code once it has ended on its own, else null. `forward` passes its stderr on. */
 export async function startServer(dir, server, name, { forward = false } = {}) {
+  // Its port in turn with other runs (scripts/port-lock.mjs), then refused
+  // if something that took no turn (a server run by hand) answers there.
+  const give = await takePort(server.port, { label: `${name}: ${server.entry} in ${dir}` });
+  try { return await started(dir, server, name, forward, give); } catch (e) { give(); throw e; }
+}
+
+async function started(dir, server, name, forward, give) {
   if (await answering(server.url)) throw new Error(heldLine(server));
   // `owner` names this process, for a `bun exact.mjs test` it runs (an api-test's test.mjs) to find the server already here.
   const db = resolve(dir, '.exact', name, 'db.sqlite'), owner = resolve(dirname(db), 'owner');
@@ -150,7 +158,7 @@ export async function startServer(dir, server, name, { forward = false } = {}) {
     off();
     if (child.exitCode == null) { child.kill('SIGTERM'); await Promise.race([child.exited, Bun.sleep(3000)]); }
     if (child.exitCode == null) { child.kill('SIGKILL'); await child.exited; }
-    clear();
+    try { clear(); } finally { give(); }
     try { rmdirSync(dirname(db)); } catch {} // when nothing else is in it (verify's keeps its screenshots)
   };
   const why = await untilAnswers(server, child, tail);
@@ -771,7 +779,8 @@ async function main(argv) {
   const server = appServer(app.dir), owned = server && !server.why;
   const refuse = (line) => { if (json) console.log(JSON.stringify({ host, server: { error: line }, problems: 1, exit: 1 })); else console.error(`verify: ${line}`); return 1; };
   if (server?.refusal) return refuse(server.refusal);
-  if (owned && await answering(server.url)) return refuse(heldLine(server));
+  // (A test run that holds the port's turn is waited for when the server starts.)
+  if (owned && await answering(server.url) && !(await holderOf(server.port))) return refuse(heldLine(server));
 
   const built = host === 'web' ? await webBuild(app) : await iosBuild(app, sim);
   // The build said the compiler's warnings when it ran; the report's own group says them whether it ran or not.

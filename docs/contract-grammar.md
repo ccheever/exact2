@@ -535,7 +535,8 @@ refusal: that status passes it, any other (a success too) fails it. The app
 shows the write when it next reads, so follow it with `clock +<its poll's ms>` and
 `clock data` before the `expect` (a failed `expect` before the clock moved says so).
 `test` and `verify` run the server on an empty database (one already answering there,
-your dev server, is refused). `fail fetch` does not reach a `request`: the driver sends
+your dev server, is refused). Runs take the server's port in turn (another checkout's
+run on it is waited for, and named). `fail fetch` does not reach a `request`: the driver sends
 it, not the app.
 `tap "id" drag to "other" [at x y]` ends on the other
 node (LLP 1094 D12). `tap "id" drag dx dy` is the driver's `tap … drag` (from the
