@@ -638,5 +638,22 @@ export function layoutBoxes(views, gpu) {
   }
   return nodes;
 }
-export const agentInput = { guestOutline, guestTap, guestType, reveal, viewBox, layoutBoxes };
+// The agent's select-all before it types, as a person's ⌘A. HTML's "set the selection range" queues `select` only
+// when the selection changes (and Firefox fires none at a disabled control); the promise is that event's, so the
+// driver's next input cannot overtake it and leave its handler reading the selection after the input. Its 2 s bound
+// only stops a hang where no `select` comes (a control disabled before it is dispatched).
+export function selectAll(el) {
+  // A type with no selection API reads null (or, in an engine that throws there, as Firefox once did, the same).
+  const at = () => { try { return `${el.selectionStart},${el.selectionEnd},${el.selectionDirection}`; } catch { return null; } }, was = at();
+  let heard, timer;
+  const event = new Promise(resolve => {
+    heard = () => { clearTimeout(timer); el.removeEventListener("select", heard); resolve(); };
+    el.addEventListener("select", heard);
+  });
+  el.select?.();
+  if (at() !== was && !el.matches(":disabled")) { timer = setTimeout(heard, 2000); return event; }
+  el.removeEventListener("select", heard);
+  return null;
+}
+export const agentInput = { guestOutline, guestTap, guestType, reveal, viewBox, layoutBoxes, selectAll };
 if (globalThis.exact) Object.assign(globalThis.exact, { createInputHandlers, agentInput });

@@ -12,6 +12,21 @@ impl<D: DataSource> Presenter<D> {
     /// store (LLP 1030 D7); `setScheme` chooses this painter's `light-dark()`
     /// appearance (LLP 1034 D2); anything else is named.
     pub fn run_commands(&mut self, mut data: impl FnMut() -> D) {
+        self.run_queued_commands();
+        if self.pending_update {
+            self.pending_update = false;
+            match self.activate_update(data()) {
+                Ok(true) => {}
+                Ok(false) => eprintln!("exact update: nothing is staged"),
+                Err(HostError::PreparingModule) => self.pending_update = true,
+                Err(e) => eprintln!("exact update: activate: {e}"),
+            }
+        }
+    }
+
+    /// [`Presenter::run_commands`] but for activating a staged update, which
+    /// waits for the next full run: it needs a data source.
+    pub(super) fn run_queued_commands(&mut self) {
         for c in std::mem::take(&mut self.commands) {
             match c.name.as_str() {
                 "deliveryCheck" => {
@@ -121,14 +136,5 @@ impl<D: DataSource> Presenter<D> {
         // Selection events are queued tasks: the input's commands run first.
         self.drain_field_select_tasks();
         self.dispatch_toggles();
-        if self.pending_update {
-            self.pending_update = false;
-            match self.activate_update(data()) {
-                Ok(true) => {}
-                Ok(false) => eprintln!("exact update: nothing is staged"),
-                Err(HostError::PreparingModule) => self.pending_update = true,
-                Err(e) => eprintln!("exact update: activate: {e}"),
-            }
-        }
     }
 }

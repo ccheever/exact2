@@ -52,11 +52,14 @@ impl<D: DataSource> Presenter<D> {
         if node.props.bool(PropId::EmojiPicker) == Some(true) {
             return Err("emoji selection is not supported on the Linux host".into());
         }
-        let text = exact_kernel::control::limit_text(node.props, text).to_string();
+        let typed = text;
+        let text = exact_kernel::control::limit_text(node.props, typed).to_string();
         let now = self.host.now();
         if let Some(e) = self.set_focus(Some(id), now) {
             return Err(e);
         }
+        // The web's `focus()` runs its handler's commands before it returns.
+        self.run_commands_now();
         self.forget_replaced_choices();
         let value = self.field_text(id);
         let selection = FieldSelection {
@@ -66,14 +69,42 @@ impl<D: DataSource> Presenter<D> {
         };
         let moved = self.field_selection(id) != selection;
         self.mark_field(id, &value, selection, true);
-        // The web driver selects all, then inserts. The queued select
-        // handler reads the caret after that insertion, not the old range.
-        if moved {
-            self.field_select_tasks.push(id);
-        }
+        // Select all, then insert, as a person's select-all and typing: a
+        // changed selection's `select` is heard before the insertion (the
+        // web driver waits for it), and its handler and the commands it
+        // runs may rewrite the field or move its selection.
+        let (value, selection) = if moved {
+            self.field_select(id, &value, selection, now);
+            self.run_commands_now();
+            (self.field_text(id), self.field_selection(id))
+        } else {
+            (value, selection)
+        };
+        // The insertion goes where the handlers left the focus, as the
+        // browser's does: into an enabled, editable text field (cut to its
+        // own maxlength), the one typed into or another, else nowhere.
+        let target = self.focus().filter(|&f| {
+            self.host.kernel().node(f).is_some_and(|n| {
+                n.node_type == NodeType::TextInput
+                    && n.props.bool(PropId::Disabled) != Some(true)
+                    && n.props.bool(PropId::Editable) != Some(false)
+            })
+        });
+        let Some(target) = target else {
+            return Ok(format!("{{\"typed\":{id}}}"));
+        };
+        let (value, selection) = if target == id {
+            (value, selection)
+        } else {
+            (self.field_text(target), self.field_selection(target))
+        };
+        let props = self.host.kernel().node(target).map(|n| n.props);
+        let text = props.map_or(text, |p| {
+            exact_kernel::control::limit_text(p, typed).to_string()
+        });
         let (next, caret) = field::replace(&value, selection, &text);
         let error = self.edit_field(
-            id,
+            target,
             next,
             caret,
             now,
@@ -87,16 +118,27 @@ impl<D: DataSource> Presenter<D> {
         if let Some(e) = error {
             return Err(e);
         }
-        let value = self.field_text(id);
-        let mut s = format!("{{\"typed\":{id},\"value\":");
+        let value = self.field_text(target);
+        let mut s = format!("{{\"typed\":{target},\"value\":");
         // A password's value is never agent output (#134).
-        let props = self.host.kernel().node(id).map(|n| n.props);
+        let props = self.host.kernel().node(target).map(|n| n.props);
         quote(
             props.map_or(&value[..], |p| exact_runner::agent::shown_value(p, &value)),
             &mut s,
         );
         s.push('}');
         Ok(s)
+    }
+
+    /// The commands a handler's commits issue, run as the web runs them,
+    /// at once, and theirs in turn; 16 rounds bound a handler that loops.
+    fn run_commands_now(&mut self) {
+        for _ in 0..16 {
+            self.run_queued_commands();
+            if self.commands.is_empty() {
+                break;
+            }
+        }
     }
 
     /// `type <id> copy|cut|paste [text]` (spreadsheet F6): the clipboard's
