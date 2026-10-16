@@ -76,6 +76,8 @@ pub trait Backend {
     fn split_window_canvas(&mut self, _dst: Rect4, _clips: &[Shape], _ts: Transform) -> bool {
         false
     }
+    /// Reuse storage released by the previous window picture.
+    fn recycle_window_layers(&mut self, _below: Pixmap, _above: Option<Pixmap>) {}
     /// UI painted below the last successfully split window canvas.
     fn take_window_underlay(&mut self) -> Option<Pixmap> {
         None

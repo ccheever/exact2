@@ -74,7 +74,9 @@ impl<D: DataSource> Presenter<D> {
                     .as_ref()
                     .is_some_and(|l| l.view == view);
             if !cached {
-                self.surfaces.window_layers = None;
+                if let Some(layers) = self.surfaces.window_layers.take() {
+                    self.brush.recycle_window_layers(layers.below, layers.above);
+                }
                 self.brush.window_canvas = Some(view);
                 let above = self.frame();
                 self.brush.window_canvas = None;

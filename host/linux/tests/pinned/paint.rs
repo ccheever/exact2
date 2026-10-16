@@ -1167,6 +1167,26 @@ fn full_window_split_preserves_premultiplied_composition_and_refuses_clips() {
             assert!((composed.round() as i32 - expected[channel] as i32).abs() <= 1);
         }
     }
+    split.recycle_window_layers(below, Some(above));
+    split.begin(16., 8., 1.);
+    assert!(split.split_window_canvas(rect, &[], ts));
+    let below = split.take_window_underlay().unwrap();
+    let above = split.finish().unwrap();
+    assert!(
+        below.data().iter().all(|&c| c == 255),
+        "reused background is repainted"
+    );
+    assert!(
+        above.data().iter().all(|&c| c == 0),
+        "removed HUD ink must disappear"
+    );
+    split.recycle_window_layers(below, Some(above));
+    split.begin(8., 4., 1.);
+    assert!(split.split_window_canvas((0., 0., 8., 4.), &[], ts));
+    assert_eq!(split.take_window_underlay().unwrap().width(), 8);
+    let resized = split.finish().unwrap();
+    assert_eq!((resized.width(), resized.height()), (8, 4));
+    assert!(resized.data().iter().all(|&c| c == 0));
     split.begin(16., 8., 1.);
     split.push_clip(&Shape::rect((0., 0., 8., 8.)), ts);
     assert!(!split.split_window_canvas(rect, &[shape], ts));

@@ -208,20 +208,40 @@ fn upload(queue: &wgpu::Queue, texture: &wgpu::Texture, previous: &mut Vec<u8>, 
         {
             row += 1;
         }
-        let bytes = &data[start * stride..row * stride];
-        previous[start * stride..row * stride].copy_from_slice(bytes);
+        // A changing counter can touch a few pixels in very wide rows.
+        // Keep the source stride, but stage only the changed columns.
+        let (mut left, mut right) = (texture.width() as usize, 0usize);
+        for y in start..row {
+            let old = &previous[y * stride..(y + 1) * stride];
+            let new = &data[y * stride..(y + 1) * stride];
+            if first {
+                left = 0;
+                right = texture.width() as usize;
+                break;
+            }
+            for (x, (a, b)) in old.chunks_exact(4).zip(new.chunks_exact(4)).enumerate() {
+                if a != b {
+                    left = left.min(x);
+                    right = right.max(x + 1);
+                }
+            }
+        }
+        let offset = start * stride + left * 4;
+        let end = (row - 1) * stride + right * 4;
+        previous[start * stride..row * stride].copy_from_slice(&data[start * stride..row * stride]);
         let mut dest = texture.as_image_copy();
+        dest.origin.x = left as u32;
         dest.origin.y = start as u32;
         queue.write_texture(
             dest,
-            bytes,
+            &data[offset..end],
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(stride as u32),
                 rows_per_image: None,
             },
             wgpu::Extent3d {
-                width: texture.width(),
+                width: (right - left) as u32,
                 height: (row - start) as u32,
                 depth_or_array_layers: 1,
             },
@@ -405,5 +425,20 @@ mod tests {
             gpu.queue.submit([]);
             assert_eq!(fixture::read(&gpu, &texture).unwrap().data, pixels);
         }
+        // Adjacent rows change at different columns, with unchanged pixels
+        // between them and at both edges of the texture.
+        for changes in [[(0, 2), (1, 1)], [(1, 0), (2, 2)], [(0, 2), (3, 0)]] {
+            for (row, column) in changes {
+                let at = (row * 3 + column) * 4;
+                pixels[at..at + 4].fill(77);
+            }
+            upload(&gpu.queue, &texture, &mut previous, &pixels);
+            gpu.queue.submit([]);
+            assert_eq!(fixture::read(&gpu, &texture).unwrap().data, pixels);
+        }
+        pixels.fill(0);
+        upload(&gpu.queue, &texture, &mut previous, &pixels);
+        gpu.queue.submit([]);
+        assert_eq!(fixture::read(&gpu, &texture).unwrap().data, pixels);
     }
 }

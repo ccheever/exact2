@@ -647,6 +647,15 @@ impl Painter {
         self.backend.name()
     }
 
+    pub(crate) fn recycle_window_layers(&mut self, below: Pixmap, above: Arc<Pixmap>) {
+        // Damage snapshots contain only the overlay after a split, not a
+        // complete CPU picture. A window repaint rebuilds both layers.
+        self.damage.pixels = None;
+        self.damage.next.clear();
+        self.backend
+            .recycle_window_layers(below, Arc::try_unwrap(above).ok());
+    }
+
     pub(crate) fn take_window_underlay(&mut self) -> Option<Pixmap> {
         self.backend.take_window_underlay()
     }

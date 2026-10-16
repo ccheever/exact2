@@ -38,6 +38,8 @@ struct ClipKey {
 pub struct Raster {
     target: Option<Pixmap>,
     window_underlay: Option<Pixmap>,
+    window_background: Option<Pixmap>,
+    window_overlay: Option<Pixmap>,
     transparent: bool,
     /// The page's colour ([`Backend::page`]); white until one is told.
     page: Option<[u8; 4]>,
@@ -402,10 +404,17 @@ impl Backend for Raster {
         // refuses the frame by name.
         let fits = self.width <= MAX_FRAME_SIDE && self.height <= MAX_FRAME_SIDE;
         self.target = fits
-            .then(|| Pixmap::new(self.width, self.height))
+            .then(|| {
+                self.window_background
+                    .take()
+                    .filter(|p| p.width() == self.width && p.height() == self.height)
+                    .or_else(|| Pixmap::new(self.width, self.height))
+            })
             .flatten()
             .map(|mut pixmap| {
-                if !self.transparent {
+                if self.transparent {
+                    pixmap.fill(Color::TRANSPARENT);
+                } else {
                     let [r, g, b, a] = self.page.unwrap_or([255; 4]);
                     pixmap.fill(Color::from_rgba8(r, g, b, a));
                 }
@@ -978,11 +987,22 @@ impl Backend for Raster {
         {
             return false;
         }
-        let Some(overlay) = Pixmap::new(self.width, self.height) else {
+        let Some(mut overlay) = self
+            .window_overlay
+            .take()
+            .filter(|p| p.width() == self.width && p.height() == self.height)
+            .or_else(|| Pixmap::new(self.width, self.height))
+        else {
             return false;
         };
+        overlay.fill(Color::TRANSPARENT);
         self.window_underlay = self.target.replace(overlay);
         self.window_underlay.is_some()
+    }
+
+    fn recycle_window_layers(&mut self, below: Pixmap, above: Option<Pixmap>) {
+        self.window_background = Some(below);
+        self.window_overlay = above;
     }
 
     fn take_window_underlay(&mut self) -> Option<Pixmap> {
