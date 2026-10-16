@@ -288,9 +288,11 @@ final class AgentClockIOSTests: XCTestCase {
         _ = agent.clock(["to": at + 1000, "step": true])
         XCTAssertLessThan(Date().timeIntervalSince(t), 0.5, "a step waits for nothing")
         t = Date()
-        _ = agent.clock(["to": at + 1100, "jump": 300.0])
+        let jumped = agent.clock(["to": at + 1100, "jump": 300.0])
         XCTAssertGreaterThan(Date().timeIntervalSince(t), 0.25, "the last step waits for up to the whole jump")
         XCTAssertLessThan(Date().timeIntervalSince(t), 1, "and no longer")
+        XCTAssertEqual(jumped["settled"] as? Bool, false, "and says it still runs: \(jumped)")
+        XCTAssertEqual(jumped["reason"] as? String, "motion")
     }
 }
 #endif

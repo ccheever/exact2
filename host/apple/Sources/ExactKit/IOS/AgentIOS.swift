@@ -172,17 +172,20 @@ extension Agent {
         // The document and every presentation's mount (LLP 1123 D2)
         var pending: [UIView] = [presenter.viewport] + presenter.modals.mountRoots
         let now = CACurrentMediaTime()
+        var moving = false
+        Agent.pruneUnbegun(now: now)
         while let view = pending.popLast() {
             guard !view.isHidden, view.alpha > 0 else { continue }
             // Only one still running (`inFlight`): not one held at speed 0
             // for the agent's clock (a lowered `@keyframes`), repeating for
-            // ever, or kept on the layer past its end.
-            if view.layer.animationKeys()?.contains(where: { key in
-                view.layer.animation(forKey: key).map { movesGeometry($0) && Agent.inFlight($0, on: view.layer, key: key, now: now) } == true
-            }) == true { return true }
+            // ever, or kept on the layer past its end. Every one is looked
+            // at, so ones with no begin time are first seen together.
+            for key in view.layer.animationKeys() ?? [] {
+                if let a = view.layer.animation(forKey: key), movesGeometry(a), Agent.inFlight(a, on: view.layer, key: key, now: now) { moving = true }
+            }
             pending.append(contentsOf: view.subviews)
         }
-        return false
+        return moving
     }
 
     /// What UIKit knows for `state` (LLP 1035.002 D2): which node holds the

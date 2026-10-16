@@ -112,7 +112,7 @@ final class AgentMotionIOSTests: XCTestCase {
         XCTAssertNil(cover.superview)
         XCTAssertLessThan(Date().timeIntervalSince(tapped), 1, "no longer than the overlay stayed")
         // One fading at another point delays nothing; one holding still over
-        // the point is waited for only half a second (the tap then refuses it).
+        // the point delays the quiet spell alone (the tap then refuses it).
         let corner = UIView(frame: CGRect(x: 0, y: 0, width: 60, height: 60))
         window.addSubview(corner)
         UIView.animate(withDuration: 1) { corner.alpha = 0 }
@@ -122,9 +122,30 @@ final class AgentMotionIOSTests: XCTestCase {
         let still = UIView(frame: window.bounds)
         window.addSubview(still)
         tapped = Date()
-        XCTAssertTrue(agent.awaitAppOverlay(at: middle, in: window))
-        XCTAssertLessThan(Date().timeIntervalSince(tapped), 1.2, "a still overlay ends the wait")
+        XCTAssertFalse(agent.awaitAppOverlay(at: middle, in: window), "nothing moves there")
+        XCTAssertLessThan(Date().timeIntervalSince(tapped), 0.8, "a still overlay that takes the touch: only the quiet spell")
         still.removeFromSuperview()
+        // A full-screen container that takes no touch, a toast moving in its corner: the point is still.
+        let container = UIView(frame: window.bounds), toast = UIView(frame: CGRect(x: 0, y: 0, width: 80, height: 40))
+        container.isUserInteractionEnabled = false
+        container.addSubview(toast)
+        window.addSubview(container)
+        UIView.animate(withDuration: 1) { toast.alpha = 0.2 }
+        tapped = Date()
+        agent.awaitAppOverlay(at: middle, in: window)
+        XCTAssertLessThan(Date().timeIntervalSince(tapped), 0.3, "a toast elsewhere delays nothing")
+        toast.layer.removeAllAnimations()
+        container.removeFromSuperview()
+        // A completion that starts a second fade: `clock` waits for that one too.
+        let first = UIView(frame: CGRect(x: 0, y: 0, width: 40, height: 40))
+        window.addSubview(first)
+        var second = false
+        UIView.animate(withDuration: 0.2) { first.alpha = 0.5 } completion: { _ in
+            UIView.animate(withDuration: 0.2) { first.alpha = 0 } completion: { _ in second = true }
+        }
+        XCTAssertTrue(agent.awaitWallMotion(until: Date(timeIntervalSinceNow: 1.5)))
+        XCTAssertTrue(second, "the fade the first one's completion started has ended too")
+        first.removeFromSuperview()
     }
 
     /// Contract motion held at speed 0 (a lowered `@keyframes`, filled both
@@ -171,6 +192,26 @@ final class AgentMotionIOSTests: XCTestCase {
         node.layer.add(endless, forKey: "endless")
         XCTAssertFalse(agent.nativeGeometryInFlight(), "a spinner is not a transition")
         node.layer.removeAnimation(forKey: "endless")
+    }
+
+    /// Animations attached together end together: one pass looks at every
+    /// one, so two with no begin time yet are first seen at once, not one
+    /// per call, which timed them one after the other and held `clock
+    /// settle` past their end.
+    func testAnimationsAttachedTogetherAreTimedTogether() {
+        let root = CALayer(), layers = [CALayer(), CALayer()]
+        for (i, layer) in layers.enumerated() {
+            root.addSublayer(layer)
+            let fade = CABasicAnimation(keyPath: "opacity")
+            fade.fromValue = 1; fade.toValue = 0; fade.duration = 0.5
+            fade.fillMode = .forwards; fade.isRemovedOnCompletion = false
+            layer.add(fade, forKey: "fade\(i)")
+        }
+        XCTAssertTrue(Agent.wallMotion(under: root), "both running")
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.3))
+        XCTAssertTrue(Agent.wallMotion(under: root))
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.35))
+        XCTAssertFalse(Agent.wallMotion(under: root), "both over, the second timed from when the first was")
     }
 }
 #endif

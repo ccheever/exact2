@@ -42,16 +42,20 @@ extension Agent {
     /// completion: `clock` waits for it (LLP 1012 §2), so an overlay a
     /// module fades away is gone after `clock settle`, as it is for a
     /// person. Core Animation's time is the wall's, which the agent's clock
-    /// cannot seek. Whether it came to rest (false: still running).
+    /// cannot seek. A completion that starts more motion (a second fade) is
+    /// waited for too, within the same deadline. Whether it came to rest
+    /// (false: still running at the deadline).
     @discardableResult func awaitWallMotion(until deadline: Date) -> Bool {
-        guard let window = presenter.viewport.window, Agent.wallMotion(under: window.layer) else { return true }
-        repeat {
+        guard let window = presenter.viewport.window else { return true }
+        while true {
+            if !Agent.wallMotion(under: window.layer) {
+                // An animation's completion runs on a turn after its last frame.
+                RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.016))
+                if !Agent.wallMotion(under: window.layer) { return true }
+            }
             if Date() >= deadline { return false }
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.016))
-        } while Agent.wallMotion(under: window.layer)
-        // An animation's completion runs on a turn after its last frame.
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.016))
-        return true
+        }
     }
 
     /// Whether `hit` is a view the app's native code laid over the screen:
@@ -69,71 +73,121 @@ extension Agent {
         return true
     }
 
-    /// A tap at `p` (in the window) waits while such an overlay covers that
-    /// point and is still moving, as a person waits for a splash to go: it
-    /// goes on the wall's time (a `UIView.animate`, a display link), which
-    /// the agent's clock does not move. It stops when the overlay has gone,
-    /// has held still for half a second (a view that stays is refused at
-    /// once by the tap's own check), or after `bound` seconds. One fading
-    /// out covers the point though it is no longer hit-tested (its model
-    /// alpha is already 0). Whether it waited.
+    /// A tap at `p` (in the window) waits while a view the app laid on the
+    /// window, outside every session and every UIKit presentation, is over
+    /// that point and alive, as a person waits for a splash to go: it goes on
+    /// the wall's time (a `UIView.animate`, a display link), which the
+    /// agent's clock does not move. One that takes the touch there (hit
+    /// there) is alive while anything in it animates or changes from frame
+    /// to frame: a splash types on in one place and fades over all. One that
+    /// does not (a container that takes no touch, a fade whose model alpha
+    /// is already 0) is alive only while a layer of it shown over the point
+    /// moves: a toast moving in another corner delays nothing. It stops
+    /// when nothing alive is there for half a second (a view that stays is
+    /// then refused by the tap's own check, named), or after `bound`
+    /// seconds. Whether anything moved (it waited).
     @discardableResult func awaitAppOverlay(at p: CGPoint, in win: UIWindow, bound: TimeInterval = 3) -> Bool {
-        func covering() -> UIView? {
-            if let hit = win.hitTest(p, with: nil), Agent.appOverlay(hit) {
-                var top = hit
-                while let up = top.superview, up !== win { top = up }
-                return top
-            }
-            return win.subviews.last { sub in
-                let shown = sub.layer.presentation() ?? sub.layer
-                return Agent.appOverlay(sub) && shown.opacity > 0.01 && shown.frame.contains(p) && Agent.wallMotion(under: sub.layer)
-            }
+        // The app's overlays shown over the point, and the one taking the touch there.
+        let over = { win.subviews.filter { sub in
+            let shown = sub.layer.presentation() ?? sub.layer
+            return !sub.isHidden && shown.opacity > 0.01 && shown.frame.contains(p) && Agent.appOverlay(sub)
+        } }
+        let taking = { () -> UIView? in
+            guard let hit = win.hitTest(p, with: nil), Agent.appOverlay(hit) else { return nil }
+            var top = hit
+            while let up = top.superview, up !== win { top = up }
+            return top
         }
-        guard covering() != nil else { return false }
+        guard !over().isEmpty else { return false }
+        var prints: [ObjectIdentifier: Int] = [:]
+        func moving() -> Bool {
+            let now = CACurrentMediaTime(), whole = taking()
+            var moved = false, next: [ObjectIdentifier: Int] = [:]
+            Agent.pruneUnbegun(now: now)
+            var pending = over().map { ($0.layer, $0 === whole) }
+            while let (layer, anywhere) = pending.popLast() {
+                guard !layer.isHidden else { continue }
+                let shown = layer.presentation() ?? layer
+                if anywhere || shown.opacity > 0.01 && (layer.superlayer ?? layer).convert(shown.frame, to: win.layer).contains(p) {
+                    let key = ObjectIdentifier(layer), print = Agent.restingPrint(of: layer)
+                    next[key] = print
+                    if prints[key].map({ $0 != print }) == true { moved = true }
+                    for name in layer.animationKeys() ?? [] {
+                        if let a = layer.animation(forKey: name), Agent.inFlight(a, on: layer, key: name, now: now) { moved = true }
+                    }
+                }
+                pending.append(contentsOf: (layer.sublayers ?? []).map { ($0, anywhere) })
+            }
+            prints = next
+            return moved
+        }
+        // One taking the touch is given the quiet spell to show it is alive
+        // (a display link's changes come a few frames apart); any other, two
+        // frames to show a change from one to the next.
+        let first = moving()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.016))
+        var moved = moving() || first
+        var still = moved || taking() != nil ? Date() : Date.distantPast
         let deadline = Date(timeIntervalSinceNow: bound)
-        var print = covering().map { Agent.restingPrint(under: $0.layer) }, still = Date()
-        while Date() < deadline, let cover = covering() {
+        while Date() < deadline, !over().isEmpty, Date().timeIntervalSince(still) < 0.5 {
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.016))
-            let now = Agent.restingPrint(under: cover.layer)
-            if now != print || Agent.wallMotion(under: cover.layer) { print = now; still = Date() }
-            else if Date().timeIntervalSince(still) >= 0.5 { break }
+            if moving() { still = Date(); moved = true }
         }
-        return true
+        return moved
     }
 
     static func wallMotion(under root: CALayer) -> Bool {
         let now = CACurrentMediaTime()
-        var pending: [(CALayer, Float)] = [(root, 1)]
+        var pending: [(CALayer, Float)] = [(root, 1)], moving = false
+        pruneUnbegun(now: now)
+        // Every animation is looked at, not only up to the first running:
+        // one with no begin time is timed from when it is first seen, so two
+        // begun together are seen together (`inFlight`).
         while let (layer, speed) = pending.popLast() {
             let s = speed * layer.speed
             guard s != 0, !layer.isHidden else { continue }
             for key in layer.animationKeys() ?? [] {
-                if let a = layer.animation(forKey: key), inFlight(a, on: layer, key: key, now: now) { return true }
+                if let a = layer.animation(forKey: key), inFlight(a, on: layer, key: key, now: now) { moving = true }
             }
             pending.append(contentsOf: (layer.sublayers ?? []).map { ($0, s) })
         }
-        return false
+        return moving
     }
 
     /// Whether `a`, on `layer` under `key`, is still running on the wall
     /// clock: finite (a caret's blink and a spinner repeat for ever), not
     /// held at speed 0 (Contract motion the agent's clock seeks), and not
     /// past its end, though kept on the layer to hold its last frame
-    /// (`isRemovedOnCompletion` false). One whose begin time is still 0 has
-    /// not been committed or kept no begin: it runs for its span from when
-    /// it was first seen.
+    /// (`isRemovedOnCompletion` false). Its begin time is the one Core
+    /// Animation recorded when it was attached; one still at 0 (not yet
+    /// committed, or kept with none) runs for its span from when it was
+    /// first seen, the nearest to its attachment a reader can know. Callers
+    /// look at every animation in one pass, so ones attached together are
+    /// first seen together.
     static func inFlight(_ a: CAAnimation, on layer: CALayer, key: String, now: CFTimeInterval) -> Bool {
         guard a.speed != 0, a.repeatCount < 1e6, a.repeatDuration < 1e6, a.duration < 60 else { return false }
         let span = max(a.duration * Double(max(1, a.repeatCount)) * (a.autoreverses ? 2 : 1), a.repeatDuration) / Double(abs(a.speed))
         guard a.beginTime == 0 else { return layer.convertTime(now, from: nil) < a.beginTime + span }
         let seen = "\(ObjectIdentifier(layer).hashValue)/\(key)/\(ObjectIdentifier(a).hashValue)"
-        if unbegun.count > 256 { unbegun.removeAll() }
-        let first = unbegun[seen] ?? now
-        unbegun[seen] = first
+        let first = unbegun[seen]?.first ?? now
+        unbegun[seen] = (first, now)
         return now - first < span
     }
-    /// When each animation with no begin time was first seen (`inFlight`).
-    nonisolated(unsafe) private static var unbegun: [String: CFTimeInterval] = [:]
+    /// When each animation with no begin time was first and last seen (`inFlight`).
+    nonisolated(unsafe) private static var unbegun: [String: (first: CFTimeInterval, last: CFTimeInterval)] = [:]
+    /// Forgets, before a pass, an animation not seen for a minute (the
+    /// longest `inFlight` counts): it is gone, and a reused identity is a
+    /// new one. Never during a pass, so every one in it is timed alike.
+    static func pruneUnbegun(now: CFTimeInterval) { unbegun = unbegun.filter { now - $0.value.last < 60 } }
+
+    /// One layer's model geometry and opacity, hashed: what a frame-by-frame
+    /// animation (a display link's) changes.
+    static func restingPrint(of layer: CALayer) -> Int {
+        var h = Hasher()
+        let t = layer.transform
+        for v in [layer.position.x, layer.position.y, layer.bounds.minX, layer.bounds.minY, layer.bounds.width, layer.bounds.height, CGFloat(layer.opacity), t.m11, t.m12, t.m21, t.m22, t.m41, t.m42] { h.combine(v) }
+        return h.finalize()
+    }
 
     /// Where UIKit's own controls that move by themselves are shown (a
     /// segmented control, a switch, a slider, a stepper, a tab bar, whose

@@ -684,13 +684,17 @@ public final class Agent {
                 #if os(iOS) || os(tvOS)
                 // The app's own native motion on the wall clock has as long as
                 // the whole jump (`jump`: the driver's seek in steps), up to
-                // 1.5 s, once: after its last step (`step` marks the others).
+                // 1.5 s, once: after its last step (`step` marks the others);
+                // still running then, the reply says so.
+                var runsOn = false
                 if req["step"] as? Bool != true {
                     let jump = req["jump"] as? Double ?? landed - from
-                    awaitWallMotion(until: Date(timeIntervalSinceNow: min(1.5, max(0, jump) / 1000)))
+                    runsOn = !awaitWallMotion(until: Date(timeIntervalSinceNow: min(1.5, max(0, jump) / 1000)))
                 }
-                #endif
+                var out = runsOn ? reply(landed, false, reason: "motion") : reply(landed)
+                #else
                 var out = reply(landed)
+                #endif
                 let inflight = pendingCount()
                 if inflight > 0 { out["inflight"] = inflight }
                 // The module's background storage still to land (LLP 1097 D9).
