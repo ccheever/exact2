@@ -852,8 +852,75 @@ fn shape_json(
             Property::Stroke,
         ]
     };
-    let specs = specs(engine, key, props, &underlying);
+    let mut specs = specs(engine, key, props, &underlying);
+    if let Some(path) = path_spec(engine, key) {
+        specs.pop();
+        if specs.len() > 1 {
+            specs.push(',');
+        }
+        specs.push_str(&path);
+        specs.push(']');
+    }
     let _ = write!(s, ",\"a\":{specs}");
+}
+
+/// A `d` transition Core Animation plays (LLP 1115.003 D4,
+/// `svg_lower::hand_over_paths`): a `path` spec between the paths at its ends,
+/// in the shape's own space, held at its start through any delay (fill both).
+/// An easing that is no cubic, and a spring's frames, become linear keys.
+fn path_spec(engine: &Engine, key: u64) -> Option<String> {
+    let (from, to, start, curve) = engine.played_path(key)?;
+    let at = |t: f64| {
+        let mut out = String::new();
+        path_json(
+            Some(&exact_kernel::svg::parse_d(&from.lerp(&to, t).to_d())),
+            &mut out,
+        );
+        out
+    };
+    let (duration, keys, cubic): (f64, Vec<(f64, f64)>, Option<[f64; 4]>) = match &curve {
+        exact_motion::PlayedCurve::Easing { easing, duration } => {
+            match super::svg_lower::bezier(easing) {
+                Some(c) => (*duration, vec![(0.0, 0.0), (1.0, 1.0)], Some(c)),
+                None => {
+                    let xs: Vec<f64> = (0..=32).map(|j| j as f64 / 32.0).collect();
+                    (
+                        *duration,
+                        xs.iter().map(|x| (*x, easing.progress(*x))).collect(),
+                        None,
+                    )
+                }
+            }
+        }
+        exact_motion::PlayedCurve::Frames { duration, values } => {
+            let last = values.len().saturating_sub(1).max(1) as f64;
+            let keys = values
+                .iter()
+                .enumerate()
+                .map(|(i, v)| (i as f64 / last, v.x))
+                .collect();
+            (*duration, keys, None)
+        }
+    };
+    if duration <= 0.0 || keys.len() < 2 {
+        return None;
+    }
+    let times: Vec<String> = keys.iter().map(|(t, _)| num(*t as f32)).collect();
+    let values: Vec<String> = keys.iter().map(|(_, p)| at(*p)).collect();
+    let curves = cubic.map_or(String::new(), |c| {
+        format!(
+            "[{},{},{},{}]",
+            num(c[0] as f32),
+            num(c[1] as f32),
+            num(c[2] as f32),
+            num(c[3] as f32)
+        )
+    });
+    Some(format!(
+        "{{\"id\":\"d#{start}#path\",\"k\":\"path\",\"s\":{start},\"dl\":0,\"d\":{duration},\"n\":1,\"t\":[{}],\"v\":[{}],\"c\":[{curves}],\"fill\":3,\"h\":null}}",
+        times.join(","),
+        values.join(",")
+    ))
 }
 
 /// A gradient: `{"lg":[x1,y1,x2,y2]}` or `{"rg":[cx,cy,r,fx,fy,fr]}`, its
