@@ -5,10 +5,13 @@
 // the app for all-session acceptance, and subscribe to the server's events
 // so an edit re-fetches. Transactional: a candidate replaces the
 // running app only after its bytes hash clean and boot runs; every failure
-// keeps the last good app on screen. `{rebuilt}` is session-terminal — the
-// wasm-side program changed, so a new plan against this binary's data crate
-// would be a poisoned boot; the menu's Reload starts over after the host is
-// rebuilt. One connection per app (LLP 1031 D11), never per session.
+// keeps the last good app on screen. `{rebuilt}`, or a generation for
+// another program, takes no generation — the wasm-side program changed, so a
+// new plan against this binary's data crate would be a poisoned boot — but
+// the host stays connected and registered, reconnects across restarts, and
+// takes the next generation for its own program; rebuilding the host, or the
+// menu's Reload, starts over. One connection per app (LLP 1031 D11), never
+// per session.
 import CryptoKit
 import Foundation
 
@@ -444,7 +447,7 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
     // MARK: discovery and immutable generation fetches (LLP 1023 D1–D3)
 
     private func resolveAndBoot() {
-        guard !closed, terminal == nil else { return }
+        guard !closed else { return }
         stream?.cancel()
         stream = nil
         let generation = beginResolution()
@@ -492,7 +495,7 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
         let fetch = BoundedFetch(origin: page, limit: limit) { [weak self] result in
             guard let self else { return }
             self.fetches.removeValue(forKey: id)
-            guard !self.closed, self.terminal == nil, generation == self.resolution else { return }
+            guard !self.closed, generation == self.resolution else { return }
             completion(result)
         }
         fetches[id] = fetch
@@ -545,11 +548,12 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
     /// started before a newer announcement cannot commit afterward.
     private func observe(_ revision: Revision) -> Bool {
         guard acceptProgram(revision.program) else {
-            terminal = "the dev server rebuilt the app's native code — rebuild and relaunch this host (the last good plan is still running)"
-            status(terminal!)
-            beginResolution()
-            stream?.cancel()
+            waitForProgram()
             return false
+        }
+        if terminal != nil {
+            terminal = nil
+            status("dev: the server runs this host's native code again")
         }
         if let old = observed {
             if old.epoch == revision.epoch {
@@ -639,6 +643,15 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
         let canonical = "{\"assets\":[" + assets.map(\.canonical).joined(separator: ",") + "]" + moduleCanonical + ",\"plan\":" + plan.canonical + rustCanonical + "}"
         let identity = PlanURL.hash(Data(canonical.utf8))
         if let dev = json["dev"] as? [String: Any] {
+            // Built for other native code: no generation, but the stream, so
+            // the build stays registered and takes the next one for its own.
+            if let revision = PlanURL.revision(dev), !acceptProgram(revision.program),
+               let path = dev["events"] as? String, let events = URL(string: path, relativeTo: base)?.absoluteURL,
+               PlanURL.sameOrigin(events, page) {
+                waitForProgram()
+                if shouldSubscribe { subscribe(events) }
+                return
+            }
             guard let revision = PlanURL.revision(dev), revision.identity == identity,
                   expected == nil || revision == expected,
                   let path = dev["events"] as? String, let events = URL(string: path, relativeTo: base)?.absoluteURL,
@@ -804,9 +817,22 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
         guard task === stream else { return }
         // Its nonce ended with it: no report goes out under it again.
         nonce = nil
-        guard !closed, terminal == nil else { return }
+        guard !closed else { return }
         if (error as? URLError)?.code == .cancelled { return }
         failed("events disconnected; resolving the current generation", generation: resolution)
+    }
+
+    /// The dev server's native code is no longer this host's (it rebuilt it,
+    /// or a generation names another program). The last good plan keeps
+    /// running and no generation is fetched, but the host stays connected and
+    /// registered and keeps reconnecting across the server's restarts, so the
+    /// generation for its own code, when the server has it again, is taken.
+    private func waitForProgram() {
+        if terminal == nil {
+            terminal = "the dev server rebuilt the app's native code — rebuild and relaunch this host (the last good plan is still running)"
+            status(terminal!)
+        }
+        beginResolution()
     }
 
     private func failed(_ message: String, generation: UInt64) {
@@ -815,7 +841,7 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
         let delay = retrySeconds
         retrySeconds = min(retrySeconds * 2, 5)
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            guard let self, !self.closed, self.terminal == nil, self.resolution == generation else { return }
+            guard let self, !self.closed, self.resolution == generation else { return }
             self.resolveAndBoot()
         }
     }
@@ -834,10 +860,7 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
     private func handle(_ frame: [String: Any]) {
         retrySeconds = 1
         if frame["rebuilt"] != nil {
-            terminal = "the dev server rebuilt the app's native code — rebuild and relaunch this host (the last good plan is still running)"
-            status(terminal!)
-            beginResolution()
-            stream?.cancel()
+            waitForProgram()
             return
         }
         if let error = frame["error"] as? String { status("dev: \(error)"); return }
@@ -855,7 +878,7 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
             channel(frame)
         }
         if frame["ready"] as? Bool == false { return }
-        guard let revision = PlanURL.revision(frame), terminal == nil, observe(revision) else { return }
+        guard let revision = PlanURL.revision(frame), observe(revision) else { return }
         if currentGeneration() == revision.identity { beginResolution(); return }
         guard pending != revision,
               let path = frame["envelope"] as? String, let url = URL(string: path, relativeTo: page)?.absoluteURL,
