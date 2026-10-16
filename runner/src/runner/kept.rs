@@ -511,6 +511,7 @@ impl<D: DataSource> Runner<D> {
         for (m, source, args) in std::mem::take(&mut self.unsent) {
             let target = super::Target::Mutation(m);
             let name = self.plan.str(self.plan.mutations[m].name).to_string();
+            self.mutation_requests += 1;
             let refused = match self
                 .data
                 .answer_for(target, &mut self.store, &source, &args)
