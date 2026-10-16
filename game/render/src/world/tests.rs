@@ -1206,7 +1206,7 @@ fn hierarchy_resets_coalesce_without_snapping_an_unrelated_moving_slot() {
                     w.spawn_named("moving", (Transform::default(), Mesh::cube(1.)));
                 }
                 w.spawn_named(
-                    &format!("piece-{i}"),
+                    format!("piece-{i}"),
                     (
                         Transform::at(i as f32, 1., 0.),
                         Parent(root),

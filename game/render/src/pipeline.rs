@@ -67,7 +67,9 @@ pub(crate) struct Pipelines {
     pub shadow: [wgpu::RenderPipeline; 2],
     pub sky: wgpu::RenderPipeline,
     pub tone: [wgpu::RenderPipeline; 2],
-    pub bloom: [wgpu::RenderPipeline; 3],
+    pub bloom: [wgpu::RenderPipeline; 2],
+    pub bright: wgpu::ComputePipeline,
+    pub bright_target_layout: wgpu::BindGroupLayout,
     pub scene_layout: wgpu::BindGroupLayout,
     pub tone_layout: wgpu::BindGroupLayout,
     pub shadow_layout: wgpu::BindGroupLayout,
@@ -198,10 +200,13 @@ impl Pipelines {
         let bloom_layout = layout(
             "game bloom",
             &[
-                uniform,
+                wgpu::BindGroupLayoutEntry {
+                    visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::COMPUTE,
+                    ..uniform
+                },
                 wgpu::BindGroupLayoutEntry {
                     binding: 3,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::COMPUTE,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: true,
@@ -209,11 +214,14 @@ impl Pipelines {
                     },
                     count: None,
                 },
-                texture(
-                    1,
-                    wgpu::TextureSampleType::Float { filterable: true },
-                    wgpu::TextureViewDimension::D2,
-                ),
+                wgpu::BindGroupLayoutEntry {
+                    visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::COMPUTE,
+                    ..texture(
+                        1,
+                        wgpu::TextureSampleType::Float { filterable: true },
+                        wgpu::TextureViewDimension::D2,
+                    )
+                },
                 sampler(2, wgpu::SamplerBindingType::Filtering),
             ],
         );
@@ -348,19 +356,46 @@ impl Pipelines {
                 &shaders[4],
                 "game bloom",
                 "vs",
-                Some(["bright", "down", "up"][i]),
+                Some(["down", "up"][i]),
                 &[Some(&bloom_layout)],
                 &[],
                 None,
                 1,
                 wgpu::TextureFormat::Rgba16Float,
-                (i == 2).then_some(wgpu::BlendState {
+                (i == 1).then_some(wgpu::BlendState {
                     color: additive,
                     alpha: additive,
                 }),
                 &[],
                 false,
             )
+        });
+        let bright_target_layout = layout(
+            "game bloom bright target",
+            &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::StorageTexture {
+                    access: wgpu::StorageTextureAccess::WriteOnly,
+                    format: wgpu::TextureFormat::Rgba16Float,
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                },
+                count: None,
+            }],
+        );
+        let bright = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("game bloom bright"),
+            layout: Some(
+                &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("game bloom bright"),
+                    bind_group_layouts: &[Some(&bloom_layout), Some(&bright_target_layout)],
+                    immediate_size: 0,
+                }),
+            ),
+            module: &shaders[4],
+            entry_point: Some("bright_tile"),
+            compilation_options: Default::default(),
+            cache: None,
         });
         Self {
             models: None,
@@ -369,6 +404,8 @@ impl Pipelines {
             sky,
             tone,
             bloom,
+            bright,
+            bright_target_layout,
             scene_layout,
             tone_layout,
             shadow_layout,
