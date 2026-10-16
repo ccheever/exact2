@@ -671,6 +671,12 @@ test('accepted findings: matched by kind and testId, said once as accepted, neve
   assert.equal(accepts(entries, { kind: 'target', id: 234 }, nodes), undefined, 'another kind on that node is still a finding');
   assert.equal(accepts(entries, { kind: 'target', id: 300 }, nodes), entries[1]);
   assert.equal(accepts(entries, { kind: 'target', id: 236 }, nodes), undefined, 'a node with no testId is never accepted');
+  // A bare `*` (or a `*` inside) would accept a kind on every node: it matches nothing, and the manifest refuses it.
+  for (const node of ['*', 'mute*0', 'mute-**']) assert.equal(accepts([{ finding: 'contrast', node, why: 'x' }], { kind: 'contrast', id: 236, of: 234 }, nodes), undefined, node);
+  const { validate } = await import('./app.mjs'), schema = JSON.parse(readFileSync(resolve(import.meta.dir, 'app.schema.json'), 'utf8'));
+  const problems = (node) => validate({ accept: [{ finding: 'contrast', node, why: 'x' }] }, schema.properties.verify, 'verify', schema);
+  assert.deepEqual([problems('mute-*'), problems('mute-0')], [[], []]);
+  for (const node of ['*', 'mute*0', 'mute-**']) assert.equal(problems(node).length, 1, node);
   const line = (x) => `  contrast mute-0's label "M" [${x},127 13×18]: 1.8:1 (#b4b4ba on #f6f4f4), needs 4.5:1; accepted: the original's dim letters`;
   const checks = runs(() => []).map((r) => ({ ...r, accepted: [{ line: line(r.size[0] - 73), accept: entries[0] }] }));
   const r = report({ host: 'ios', built: null, tested: { passed: 1, failed: 0, results: [] }, checks, shots: [], accept: [...entries, { finding: 'clipped', node: 'gone', why: 'x' }], ms: 1000 });

@@ -163,10 +163,12 @@ function named(id, nodes, fallback) {
 const who = (f, nodes) => f.of != null && f.text != null ? `${named(f.of, nodes)}'s label ${JSON.stringify(f.text)}` : named(f.id, nodes, f.name ? f.name + (f.text ? ` ${JSON.stringify(f.text)}` : '') : null);
 
 /** The entry of app.json's `verify.accept` that takes a finding as the app's design, or undefined: its kind, and the
- *  testId of its node or of the control whose label it is (`node`; a trailing `*` matches a prefix). */
+ *  testId of its node or of the control whose label it is (`node`; a non-empty prefix and one trailing `*` match a prefix:
+ *  a bare `*`, which the schema refuses too, matches nothing, so no entry accepts a kind everywhere). */
 export function accepts(entries, f, nodes) {
   const ids = [f.id, f.of].map((id) => (id == null ? null : nodes.get(id)?.props?.testId)).filter((id) => id != null).map(String);
-  return entries.find((e) => e.finding === f.kind && ids.some((id) => (e.node.endsWith('*') ? id.startsWith(e.node.slice(0, -1)) : id === e.node)));
+  const takes = (node, id) => (/^[^*]+\*$/.test(node) ? id.startsWith(node.slice(0, -1)) : !node.includes('*') && id === node);
+  return entries.find((e) => e.finding === f.kind && ids.some((id) => takes(String(e.node), id)));
 }
 
 /** One line a finding. */
