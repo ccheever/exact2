@@ -849,7 +849,7 @@ test('a pressable that is no button activates by Enter or Space', () => {
 
 // @ref LLP 1043.000 §3 D7/D8 — optional host code cannot gate data readiness.
 const checkpoint = () => new Promise(resolve => setImmediate(resolve));
-async function startupFixture(rustOnly = false) {
+async function startupFixture(rustOnly = false, served = null) {
   const data = deferred(), input = deferred(), timer = deferred();
   const frames = [], loads = [], errors = [], events = [];
   const exports = { memory: {}, exact_compat: () => '{"inputs":{}}',
@@ -869,7 +869,7 @@ async function startupFixture(rustOnly = false) {
     requestAnimationFrame: fn => frames.push(fn), console: { error: error => errors.push(String(error)) },
     motion: { commit() {} }, collections: { dataReady: () => events.push('collections') },
     applyBatch: () => events.push('batch'), inertAncestor: () => false, editMenu: () => false, focusAutofocus() {},
-    resolveModuleReady: () => events.push('ready'), page: null, pageNative: undefined, log() {}, // the input piece's journal (a cancelled pan's line)
+    resolveModuleReady: () => events.push('ready'), page: served && { holding: true, early: [] }, pageNative: undefined, log() {}, // the input piece's journal (a cancelled pan's line)
     loadAfterPaint(file) {
       loads.push(file);
       if (file === './input-glue.js') return input.promise;
@@ -879,11 +879,12 @@ async function startupFixture(rustOnly = false) {
       throw new Error('unexpected startup module: ' + file);
     },
   });
-  f.exact = {};
+  f.exact = served ? { documentPage: { connect: () => ({ started: Promise.resolve(), ...served }) } } : {}; // a served document's capture (document-glue.js)
   // navigation.js's export, which a context global would confuse with the browser's own `globalThis.navigation`.
   vm.runInContext([source.match(/^const AGENT_ADMITTED = .*$/m)[0], "const navigation = { activate: () => events.push('navigation') };", ...['setInputReady', 'activateData', 'main'].map(declaration)].join('\n')
     .replaceAll('import.meta.url', '"https://fixture.invalid/glue.js"'), f);
   await f.main();
+  if (served) return { f }; // a served document's first pixel is painted: activation is not a frame away
   expect(events).toEqual(['boot', 'navigation']); // Adoption activates navigation before optional modules or data.
   expect(loads).toEqual([]); // Neither optional nor app modules run before paint.
   frames.shift()();
@@ -916,6 +917,17 @@ test('pending, failed and invalid optional modules leave Rust and JS apps ready 
     expect(f.errors).toHaveLength(failure === 'pending' ? 1 : 2);
     if (failure === 'pending') expect(f.inputHandlers.pan).toBe('installed after readiness');
   }
+});
+
+// @ref LLP 1115.002 D4 — a served document is projected only once the target has adopted it.
+test('a served document activates navigation when release has adopted it, not at boot', async () => {
+  const released = [];
+  const { f } = await startupFixture(true, { hold: () => true, release: (...args) => released.push(args) });
+  await checkpoint();
+  expect(f.events).toEqual(['boot', 'activate', 'batch', 'collections', 'ready']); // a composition defers the adoption
+  expect(released).toHaveLength(1);
+  released[0][2]();
+  expect(f.events.at(-1)).toBe('navigation');
 });
 
 test('required app module failure still keeps dispatch gated and settles the error', async () => {

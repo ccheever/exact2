@@ -166,9 +166,10 @@ function documentBoot(options) {
     get adopting() { return adopting; },
     get restoringFocus() { return restoringFocus; },
     hold(batch) { if (holding) held.push(batch); return holding; },
-    release(apply, inputReady = Promise.resolve()) {
+    /** `adopted` runs once the held batches are applied, which a composition can defer past this call. */
+    release(apply, inputReady = Promise.resolve(), adopted = () => {}) {
       if (!holding) return;
-      if (composing.size) { releaseAfterComposition = [apply, inputReady]; return; }
+      if (composing.size) { releaseAfterComposition = [apply, inputReady, adopted]; return; }
       releaseAfterComposition = null;
       holding = false;
       for (const kind of kinds) root.removeEventListener(kind, record, true);
@@ -189,6 +190,7 @@ function documentBoot(options) {
       }
       for (const batch of held.splice(0)) apply(batch);
       adopting = null;
+      adopted();
       // Once the caller's input is ready: until then the host holds every
       // control disabled (input waits for the handlers of the pieces the tree
       // uses, LLP 1047 D5), and a replay into one would be dropped. The caller

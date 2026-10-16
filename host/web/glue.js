@@ -1263,7 +1263,7 @@ function activateData() {
   const batch = JSON.parse(readOut(wasm.exact_data_ready()));
   if (batch.error) throw new Error(batch.error);
   let inputOpen; const inputOpened = new Promise(resolve => { inputOpen = resolve; });
-  page?.release(applyBatch, inputOpened); applyBatch(batch); // early presses replay once input is ready
+  page?.release(applyBatch, inputOpened, () => navigation.activate(root, log)); applyBatch(batch); // early presses replay once input is ready
   const ready = () => {
     setInputReady(true); collections.dataReady(); root.dataset.moduleReady = 'true'; inputOpen();
     if (pageNative) loadPageNative().then(native => native.drain()).catch(error => log(`native: ${error}`));
@@ -1458,7 +1458,7 @@ async function main() {
     .then(async loader => { moduleLoader = loader; const payload = first?.module ?? await loader.baked(); const replaces = Boolean(first?.module) && JSON.parse(decoder.decode(payload.receipt)).module?.sha256 !== logicInfo.revision; return { ...payload, replaces, realm: await loader.prepare(payload, logicInfo, replaces ? undefined : 0) }; });
   const prepared = page ? realm() : null; prepared?.catch(() => {}); // awaited, and reported, at activation
   await boot(first?.plan ?? null, first ? assetNamespace(first.assets) : null, () => true, null, true); // @ref LLP 1007 §6
-  navigation.activate(root, log); // A served document stays unsplit until this target has adopted it (LLP 1115.002 D4).
+  if (!page) navigation.activate(root, log); // A served document stays unsplit until release adopts it (LLP 1115.002 D4).
   root.dataset.bootMs = (performance.now() - t0).toFixed(1);
   const activate = async () => {
     loadGpuIfNeeded(); if (wasm.exact_motion) pieces.preload(); if (globalThis.launchQueue) documentsGlue().catch(console.error); // motion links its export (LLP 1047 D3); an installed app's launch files (LLP 1069.010)
