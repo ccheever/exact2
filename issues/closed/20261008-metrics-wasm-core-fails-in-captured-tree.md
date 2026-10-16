@@ -1,6 +1,7 @@
 # Metrics: the wasm core of realworld and caltrain fails to build in the async lane's captured tree
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Not reproducible on current main: Caltrain's failure was fixed by #538; at c874a53cd the captured-tree wasm core of RealWorld and Caltrain (normal and names builds, via withAppFixture as metrics.mjs does) built 12 of 12 times across three captures with identical hashes, on Linux; the 2026-10-08 Mac lane logs are no longer reachable.
 **Systems:** scripts/metrics.mjs (`--long`), scripts/app.mjs (captured snapshot), host/web/build.mjs `--wasm`
 **Author:** Claude (Opus 5.5), for Charlie Cheever
 **Date:** 2026-10-08
