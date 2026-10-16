@@ -160,3 +160,73 @@ fn a_panel_no_tab_names_is_built_at_once() {
     assert!(unopened(&tree, "b"));
     assert!(!unopened(&tree, "c") && has(&tree, "bump-c"));
 }
+
+/// A panel whose tab leaves the tablist is no navigation tab any more: it
+/// is built then, as one no tab names is at once.
+#[test]
+fn a_panel_whose_tab_goes_is_built() {
+    let c = "        button press=pick(\"c\") testId=\"tab-c\" role=\"tab\" aria-controls=\"panel-c\" aria-selected=(nav.tab == \"c\")\n          text \"C\"\n";
+    let source = source(ARIA)
+        .replace(
+            "component App\n",
+            "component App\n  state third = true\n  action drop\n    third = false\n",
+        )
+        .replace(
+            c,
+            "        if third\n          button press=pick(\"c\") testId=\"tab-c\" role=\"tab\" aria-controls=\"panel-c\"\n            text \"C\"\n",
+        );
+    assert!(source.contains("if third"), "{source}");
+    let mut r = boot(&source, "/");
+    assert!(unopened(&agent::tree(&r), "c"));
+    r.act("drop", vec![]).unwrap();
+    let tree = agent::tree(&r);
+    assert!(!unopened(&tree, "c") && has(&tree, "bump-c"), "{tree}");
+}
+
+/// A component used directly in a tab panel, outside every route, has its
+/// state from the tab's first selection: its initializer reads what holds
+/// then, not what held at boot (the panel's contents are one arm).
+#[test]
+fn a_component_in_a_panel_starts_its_state_when_the_tab_is_built() {
+    let source = "routes nav
+  tab a \"/\"
+  tab b \"/b\"
+
+component App
+  state title = \"boot\"
+  action pick(name: string)
+    nav = select(nav, name)
+  action rename
+    title = \"later\"
+  view
+    main navigationKey=`${top(nav).id}` navigationBack=\"back\"
+      column
+        for t in nav.tabs key=t.name
+          column role=\"tabpanel\" id=`panel-${t.name}` testId=`panel-${t.name}`
+            Editor(label=t.name, seed=title)
+            for e in t.stack key=e.id
+              column navigationKey=`${e.id}`
+                text e.name
+      row role=\"tablist\"
+        button press=pick(\"a\") role=\"tab\" aria-controls=\"panel-a\" aria-selected=(nav.tab == \"a\")
+          text \"A\"
+        button press=pick(\"b\") role=\"tab\" aria-controls=\"panel-b\" aria-selected=(nav.tab == \"b\")
+          text \"B\"
+
+component Editor
+  props
+    label: string
+    seed: string
+  state draft = seed
+  view
+    text `${label}:${draft}` testId=`draft-${label}`
+";
+    let mut r = boot(source, "/");
+    r.act("rename", vec![]).unwrap();
+    let tree = agent::tree(&r);
+    assert!(tree.contains("\"text\":\"a:boot\""), "{tree}");
+    assert!(!has(&tree, "draft-b"));
+    r.act("pick", vec![Value::str("b")]).unwrap();
+    let tree = agent::tree(&r);
+    assert!(tree.contains("\"text\":\"b:later\""), "{tree}");
+}

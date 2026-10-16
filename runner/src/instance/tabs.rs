@@ -5,7 +5,9 @@
 //! whose tree first selects it, as `UITabBarController` loads a tab's view
 //! controller when the tab is first selected and SwiftUI's `TabView` builds
 //! a tab's content when it is first shown. Once made they stay, as a visited
-//! tab's stack does.
+//! tab's stack does. The inliner makes a panel's contents one `if true` arm
+//! (`contract_syntax::inline`), which owns the state of a component used
+//! directly in it, so that state too starts at the first selection.
 //!
 //! Which panel is selected is what every host's projection reads
 //! (`head.rs` `unselected`): the panel whose routes hold the navigation
@@ -159,39 +161,79 @@ impl Index {
     }
 }
 
+/// The tab panels that wait, and the views their selection is read from.
+#[derive(Debug, Default)]
+pub(super) struct Waiting {
+    panels: Vec<ViewId>,
+    /// Each waiting panel's navigation root and what lies between it and its
+    /// routes (its tablist and tabs, its panels), sorted: a child list one
+    /// of them changes, or one of them destroyed, can change which tab is
+    /// a navigation tab or selected.
+    zone: Vec<ViewId>,
+}
+
 impl Tree {
     /// The tab panels whose contents wait for their first selection.
     pub(crate) fn waiting(&self) -> &[ViewId] {
-        &self.waiting
+        &self.tabs.panels
     }
 
     /// Make the contents of each waiting panel its root now selects, in
     /// this update's batch; a panel no root's tablist names is made at
-    /// once. Asked when this update made a panel or set a prop the
-    /// selection reads.
+    /// once. Asked when this update made a panel, set a prop the selection
+    /// reads, or changed the children of or destroyed a view of a waiting
+    /// panel's root above its routes.
     pub(super) fn open_tabs(&mut self, u: &mut Update<'_>) -> Result<(), InstanceError> {
         let made = !u.waiting.is_empty();
-        self.waiting.append(&mut u.waiting);
+        self.tabs.panels.append(&mut u.waiting);
+        let zone = &self.tabs.zone;
         let read = |op: &Op| match op {
             Op::SetProp { prop, .. } | Op::ClearProp { prop, .. } => READ.contains(prop),
+            Op::SetChildren { id, .. } | Op::DestroyView { id } => zone.binary_search(id).is_ok(),
             _ => false,
         };
         // A detached kernel's update writes no prop ops to read.
-        if self.waiting.is_empty() || !(made || u.discard || u.ops.iter().any(read)) {
+        if self.tabs.panels.is_empty() || !(made || u.discard || u.ops.iter().any(read)) {
             return Ok(());
         }
         loop {
             let index = Index::of(u.env.plan, &self.children);
-            self.waiting.retain(|w| index.nodes.contains_key(w));
+            self.tabs.panels.retain(|w| index.nodes.contains_key(w));
             let open = self.to_open(&index);
             if open.is_empty() {
+                self.tabs.zone = self.zone(&index);
                 return Ok(());
             }
-            self.waiting.retain(|w| !open.contains(w));
+            self.tabs.panels.retain(|w| !open.contains(w));
             let mut left = open.len();
             open_in(u, &mut self.children, &[], &open, &mut left)?;
-            self.waiting.append(&mut u.waiting);
+            self.tabs.panels.append(&mut u.waiting);
         }
+    }
+
+    /// [`Waiting::zone`], over `index`.
+    fn zone(&self, index: &Index) -> Vec<ViewId> {
+        let mut zone = Vec::new();
+        let mut stack: Vec<ViewId> = self
+            .tabs
+            .panels
+            .iter()
+            .filter_map(|p| index.root_of(*p))
+            .collect();
+        while let Some(id) = stack.pop() {
+            let Some((_, props, kids)) = index.nodes.get(&id) else {
+                continue;
+            };
+            let route = props.str(PropId::NavigationKey).is_some()
+                && props.str(PropId::NavigationBack).is_none();
+            if route || zone.contains(&id) {
+                continue;
+            }
+            zone.push(id);
+            stack.extend(kids);
+        }
+        zone.sort_unstable();
+        zone
     }
 
     /// The waiting panels to make now: at most one per navigation root.
@@ -212,7 +254,7 @@ impl Tree {
             .filter_map(|(_, p, _)| p.str(PropId::AccessibilityControls))
             .collect();
         let (mut open, mut roots) = (Vec::new(), Vec::new());
-        for &w in &self.waiting {
+        for &w in &self.tabs.panels {
             let at = index.root_of(w).and_then(|r| Some((r, node(r)?)));
             let panels = at
                 .as_ref()
@@ -236,7 +278,7 @@ impl Tree {
             if held {
                 continue;
             }
-            let waiting = || panels.iter().filter(|p| self.waiting.contains(p));
+            let waiting = || panels.iter().filter(|p| self.tabs.panels.contains(p));
             let chosen = waiting()
                 .find(|p| {
                     let id = index.nodes.get(p).and_then(|n| n.1.str(PropId::Id));

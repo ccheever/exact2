@@ -275,6 +275,7 @@ fn expand_with_sites(
         provides: Vec::new(),
         fill: None,
         arms: Vec::new(),
+        tabs: false,
         next_tag: 1,
         extra_states: Vec::new(),
         extra_actions: Vec::new(),
@@ -373,6 +374,9 @@ struct Ctx<'a> {
     fill: Option<Rc<Fill>>,
     /// The region arms enclosing the current site, outermost first.
     arms: Vec<Owner>,
+    /// Whether the current site lies between a navigation root and its
+    /// routes, where a `tabpanel` is a tab built when first selected.
+    tabs: bool,
     /// The next region tag.
     next_tag: u32,
     /// The children's `state`s lifted into the root, with their owners and
@@ -481,10 +485,8 @@ fn inline_nodes(
                 children,
                 span,
                 ..
-            } => out.push(Node::Element {
-                tag: tag.clone(),
-                positional: positional.iter().map(|e| subst_expr(e, subst)).collect(),
-                attrs: attrs
+            } => {
+                let attrs: Vec<Attr> = attrs
                     .iter()
                     .map(|a| Attr {
                         name: a.name.clone(),
@@ -492,11 +494,46 @@ fn inline_nodes(
                         span: a.span,
                         written: a.written,
                     })
-                    .collect(),
-                children: inline_nodes(children, subst, ctx)?,
-                span: *span,
-                instance: ctx.instance,
-            }),
+                    .collect();
+                let has = |name: &str| attrs.iter().any(|a| a.name == name);
+                let panel = ctx.tabs
+                    && !children.is_empty()
+                    && attrs.iter().any(|a| {
+                        a.name == "role" && matches!(&a.value, Expr::Str(r, _) if r == "tabpanel")
+                    });
+                let tabs = ctx.tabs;
+                if has("navigationKey") {
+                    ctx.tabs = has("navigationBack");
+                }
+                // @ref LLP 1075.003 §9.14 — a tab panel's contents are made
+                // when its tab is first selected: they are one arm, which
+                // owns the state of the children used in it, as an `if`'s
+                // arm does, so that state starts when the tab is built.
+                let children = if panel {
+                    let tag = ctx.tag();
+                    let then = ctx.in_arm(tag, 0, |ctx| inline_nodes(children, subst, ctx));
+                    then.map(|then| {
+                        vec![Node::When {
+                            tag,
+                            cond: Expr::Bool(true, *span),
+                            then,
+                            otherwise: Vec::new(),
+                            span: *span,
+                        }]
+                    })
+                } else {
+                    inline_nodes(children, subst, ctx)
+                };
+                ctx.tabs = tabs;
+                out.push(Node::Element {
+                    tag: tag.clone(),
+                    positional: positional.iter().map(|e| subst_expr(e, subst)).collect(),
+                    attrs,
+                    children: children?,
+                    span: *span,
+                    instance: ctx.instance,
+                })
+            }
             Node::When {
                 cond,
                 then,

@@ -1328,7 +1328,7 @@ pub struct Tree {
     children: Vec<Child>,
     last_roots: Vec<ViewId>,
     /// Tab panels whose contents wait for their first selection ([`tabs`]).
-    waiting: Vec<ViewId>,
+    tabs: tabs::Waiting,
     /// The inputs the kernel shows, as of the last create or update.
     seen: Seen,
     /// Work performed by the last instance update.
@@ -1352,7 +1352,7 @@ impl Tree {
             }),
             children,
             last_roots: Vec::new(),
-            waiting: Vec::new(),
+            tabs: Default::default(),
             seen: Seen::of(&u.env),
             last_work: u.work,
         };
