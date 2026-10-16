@@ -170,11 +170,48 @@ pub(crate) fn into_scope(frames: u64, dirty: bool) -> u64 {
     (frames << 1) | (frames & (1 << 63)) | u64::from(dirty)
 }
 
+/// Read sets by index, those that read nothing one shared entry: most of a
+/// plan's bindings are literal rows.
+#[derive(Debug, Default)]
+pub(crate) struct ReadsTable {
+    /// Each index's place in `reads`; 0 is the empty set.
+    at: Vec<u32>,
+    reads: Vec<Reads>,
+}
+
+impl FromIterator<Reads> for ReadsTable {
+    fn from_iter<I: IntoIterator<Item = Reads>>(all: I) -> Self {
+        let mut table = ReadsTable {
+            at: Vec::new(),
+            reads: vec![Reads::default()],
+        };
+        for reads in all {
+            let at = match reads == Reads::default() {
+                true => 0,
+                false => {
+                    table.reads.push(reads);
+                    table.reads.len() - 1
+                }
+            };
+            table.at.push(at as u32);
+        }
+        table.reads.shrink_to_fit();
+        table
+    }
+}
+
+impl std::ops::Index<usize> for ReadsTable {
+    type Output = Reads;
+    fn index(&self, i: usize) -> &Reads {
+        &self.reads[self.at[i] as usize]
+    }
+}
+
 /// Per binding, surface argument, site, derive and resource argument list.
 #[derive(Debug, Default)]
 pub struct Deps {
     layout: Option<Layout>,
-    pub(crate) bindings: Vec<Reads>,
+    pub(crate) bindings: ReadsTable,
     pub(crate) surface_args: Vec<Reads>,
     /// A node's own reads and every descendant's, relative to the node.
     pub(crate) nodes: Vec<Reads>,
