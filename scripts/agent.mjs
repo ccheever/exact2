@@ -23,7 +23,7 @@
 import { Cdp, browserDiagnosticNoise, closePage, backLayer, cdpEscape, exclusiveIOS, copyCdpFailureContext, chromium, closeWindowsBrowser, retainCleanupError, removeBrowserProfile, driveStore, traceLocators, parseFlags, launchFacts, launchEnvironment, withEpoch, withFaults, refuseStale, unchecked, depInfoChanges, packagedBuildChanges, webChanges, bakedPlans, parityScript, netFlags } from './agent-launch.mjs';
 export { Cdp } from './agent-launch.mjs';
 import { sourceMapReaders, identifyInspectedNode, identifyLayoutNodes, withRegions, render, perfOp, partTap, readTrace, renderTrace, layoutArgs, tapRefusal, worldView, phoneTrace, stateOp, WORLD_LIMIT, worldFile, scaledScreenshot, FILM_FRAMES, FILM_PIXELS } from './agent-inspect.mjs';
-import { LAUNCH_MEDIA, preferGroups, preferOp, preferWeb } from './agent-prefer.mjs';
+import { faultRequest, LAUNCH_MEDIA, preferGroups, preferOp, preferWeb } from './agent-prefer.mjs';
 import { guardFlags } from './help.mjs';
 import { nativeBuild, planOverride, refuseBuild } from './agent-build.mjs';
 import { axTree } from './agent-ax.mjs';
@@ -39,10 +39,10 @@ import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openTouches, realTap } from '../host/apple/touches.mjs';
 import { pageAim, namedRefusal } from './agent-aim.mjs'; import { checkOp } from './agent-check.mjs';
-import { dragTap, duringAllowed, duringOp } from './agent-drag.mjs';
+import { dragArguments, dragTap, duringAllowed, duringOp } from './agent-drag.mjs';
 import { driveNotes, runTests, nodeNamed, targetsIn, refuseDisabled } from './agent-test.mjs';
-import { cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, withHeldModifiers, pasteChord, deliverClipboard, tapWords, pointerGap, chordModifiers, withChordModifiers, heldForClick } from './agent-keys.mjs';
-export { cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, pasteChord, deliverClipboard, tapWords, pointerGap } from './agent-keys.mjs';
+import { MalformedOperation, operationReply, inputJSON, keyArguments, validateKey, pinchArguments, pointerArguments, resizeArguments, cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, withHeldModifiers, pasteChord, deliverClipboard, tapWords, pointerGap, chordModifiers, withChordModifiers, heldForClick } from './agent-keys.mjs';
+export { MalformedOperation, resizeArguments, cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, pasteChord, deliverClipboard, tapWords, pointerGap } from './agent-keys.mjs';
 import { appleRunBinary, appleArtifacts, assertAppleIdentity, bundleId, install } from '../host/apple/build.mjs';
 import { crashReports, developmentLaunchEnvironment, phone, phoneBridge, showSimulator, simulator, withKeyboard } from '../host/apple/devices.mjs';
 import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs';
@@ -258,12 +258,12 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
     const frame = () => waitAtMost(evaluate('new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true))))'), 250);
     // The one contact this carrier may hold (LLP 1035.003 D1).
     let contact = null;
-    const ask = async (req) => {
+    const rawAsk = async (req) => {
       // The existing resize input uses Chrome's real viewport and resize event.
       if (req.op === 'tap' && req.resize !== undefined) {
         const pair = req.resize;
         if (Object.keys(req).some(k => !['op', 'resize'].includes(k)) || !Array.isArray(pair) || pair.length !== 2
-          || !pair.every(n => Number.isInteger(n) && n >= 64 && n <= 4096) || pair[0] * pair[1] > 8388608) return { error: 'tap resize needs exactly two integer dimensions in 64...4096, area <= 8388608, and no other input fields' };
+          || !pair.every(n => Number.isInteger(n) && n >= 64 && n <= 4096) || pair[0] * pair[1] > 8388608) return { malformed: true, error: 'tap resize needs exactly two integer dimensions in 64...4096, area <= 8388608, and no other input fields' };
         await call('Emulation.setDeviceMetricsOverride', { width: pair[0], height: pair[1], deviceScaleFactor: scale ? 0 : 1, mobile: false }); size = [...pair]; // a later screenshot reports this size, not the launch's
         await frame();
         return { resized: pair, viewport: await evaluate('[innerWidth, innerHeight]'), delivery: 'browser-viewport' };
@@ -275,6 +275,7 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
       const timeout = req.op === 'clock' ? 60000 : req.op === 'perf' && req.live > 0 ? req.live + 30000 : undefined;
       return JSON.parse(await evaluate(`(typeof globalThis.exact?.agentSettled === 'function' ? exact.agentSettled(${JSON.stringify(req)}) : Promise.reject(new Error('the page has no agent adapter: open a development build with ?agent=1'))).then((r) => JSON.stringify(r))`, timeout));
     };
+    const ask = req => rawAsk(req).then(MalformedOperation.reply);
     return {
       host: 'web', browser: 'chrome', boot: Number(boot), hostLines, evaluate, call, launchFacts: facts, mediaClock, lineHeight,
       async gpuMs() {
@@ -324,7 +325,7 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
           return reply;
         }
         // @ref LLP 1098 D10 — the handler the browser would call, through the media glue's `act`.
-        if (kind === 'mediasession') { const r = await evaluate(`(globalThis.exact?.mediaSession?.act(${id}, ${JSON.stringify(opts.mediaSession)}, ${opts.seconds ?? null}) ?? { error: 'mediasession: this page publishes no media session (no media glue)' })`); if (r.error) throw new Error(r.error); await frame(); return r; }
+        if (kind === 'mediasession') { const r = await evaluate(`(globalThis.exact?.mediaSession?.act(${id}, ${JSON.stringify(opts.mediaSession)}, ${opts.seconds ?? null}) ?? { error: 'mediasession: this page publishes no media session (no media glue)' })`); MalformedOperation.reply(r); if (r.error) throw new Error(r.error); await frame(); return r; }
         if (kind === 'key' && (opts.phase != null || await evaluate(`exact.gpu?.wantsInput(${id}) || exact.views.get(${id})?.matches('button, a[href], [role="button"], [role="link"]') || false`))) {
           return browserKey({ id, opts, evaluate, ask, call, frame });
         }
@@ -540,7 +541,7 @@ export function jsonLines(readable, writable, hostLines) {
   const next = () => failure ? Promise.reject(failure) : new Promise((resolve, reject) => waiting.push({ resolve, reject }));
   return {
     next,
-    ask: (req) => { const p = next(); if (!failure) writable.write(JSON.stringify(req) + '\n'); return p; },
+    ask: (req) => { const p = next(); if (!failure) writable.write(JSON.stringify(req) + '\n'); return p.then(MalformedOperation.reply); },
     fail: (why) => { failure ??= new Error(why); for (const w of waiting.splice(0)) w.reject(failure); },
   };
 }
@@ -813,14 +814,7 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
 const CLOCK_STEP_MS = 1000, CLOCK_BUDGET_MS = 3000, CLOCK_SPAN_MS = 600_000, REAL_STEP_MS = 50;
 /** The next step of a split clock: aimed at CLOCK_BUDGET_MS of wall clock from the last step's cost, growing at most 4x and never past CLOCK_SPAN_MS of world time. */
 /** `fail fetch <url-prefix> [times <n>]` and `pass fetch <url-prefix>` as the `prefer` request with `faults` every carrier answers (LLP 1103 D3): the network is the environment, so this is a form of `prefer`, not another operation (LLP 1012 §1). */
-export function faultRequest(op, args) {
-  if (args[0] !== 'fetch' || !args[1]) throw new Error(`${op} fetch <url-prefix>${op === 'fail' ? ' [times <n>]' : ''}: what a matching fetch's URL starts with`);
-  if (op === 'pass') { if (args.length > 2) throw new Error('pass fetch <url-prefix> takes nothing after the prefix'); return { op: 'prefer', faults: { pass: args[1] } }; }
-  if (args.length === 2) return { op: 'prefer', faults: { fail: args[1] } };
-  const times = Number(args[3]);
-  if (args[2] !== 'times' || args.length !== 4 || !Number.isInteger(times) || times < 1) throw new Error('fail fetch <url-prefix> times <n>: n a positive integer');
-  return { op: 'prefer', faults: { fail: args[1], times } };
-}
+export { faultRequest } from './agent-prefer.mjs';
 export const clockSpan = (span, elapsedMs) => Math.max(CLOCK_STEP_MS, Math.min(span * 4, CLOCK_SPAN_MS, span * CLOCK_BUDGET_MS / Math.max(1, elapsedMs)));
 // ---------------------------------------------------------------- the eight operations
 /** Open a session on `host` ('web' | 'macos' | 'ios' | 'linux'); `url` opens
@@ -909,11 +903,10 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     /** The host's wire: one request as the carrier sends it, views addressed by `id`. The methods (`tap`, `type`, …)
      * are the operations a person performs; a request the wire would answer by doing nothing is refused (habits F8). */
     async op(req) {
-      if (!req || typeof req !== 'object' || typeof req.op !== 'string') throw new Error('op: a request is {op: "<name>", …}');
+      if (!req || typeof req !== 'object' || typeof req.op !== 'string') throw new MalformedOperation('op: a request is {op: "<name>", …}');
       const input = req.op === 'tap' || req.op === 'type';
-      if (input && req.target !== undefined) throw new Error(`op: the wire's ${req.op} addresses a view by \`id\`, not \`target\`; s.${req.op}(${JSON.stringify(req.target)}, …) finds a target and delivers the input as a person would`);
-      const r = await carrier.ask(req);
-      if (r.error) throw Object.assign(new Error(`${req.op}: ${r.error}`), {reply:r});
+      if (input && req.target !== undefined) throw new MalformedOperation(`op: the wire's ${req.op} addresses a view by \`id\`, not \`target\`; s.${req.op}(${JSON.stringify(req.target)}, …) finds a target and delivers the input as a person would`);
+      const r = await operationReply(carrier, req);
       // A web page's own tap or type acts only for an iframe guest, history, a list's row or a control's value:
       // the carrier's browser input is the rest, which only the methods reach.
       if (input && carrier.host === 'web' && req.resize === undefined && !['tapped', 'typed', 'handled', 'history', 'into', 'resized', 'guest', 'value', 'delivery', 'phase', 'aimed'].some((k) => r[k] != null && r[k] !== false))
@@ -991,7 +984,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     },
     /** The node for a target: a testId (first in preorder on a selected route; a covered screen's copy only when no active one carries it), a view id, else the one view whose label or text it is (`nodeNamed`). */
     async find(target, required = true, named = true, tree = null) {
-      if (target == null) throw new Error(`no view matches ${target}`);
+      if (target == null) throw new MalformedOperation(`no view matches ${target}`);
       const byId = typeof target === 'number' || /^\d+$/.test(String(target));
       const t = tree ? { nodes: tree } : required ? await s.op({op:'tree', target, shallow:true}).catch((e) => { if (byId || !/no view matches/.test(e.message)) throw e; return null; }) : null;
       const nodes = t?.nodes ?? (await s.op({op:'tree'})).nodes;
@@ -1024,24 +1017,31 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     // {contextmenu:true,at:[x,y]} is secondary. Points are target-relative; plain
     // canvas taps and held down/move/up contacts remain fingers (LLP 1015.000).
     async tap(target, opts = {}) {
+      if (holdOf(target)) { if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`); return s.answer('tap', target, opts.choice); }
+      if (opts.wheel !== undefined && ![opts.wheel?.[0], opts.wheel?.[1]].every(Number.isFinite)) throw new MalformedOperation('wheel: expected two finite deltas');
+      if (opts.drag) dragArguments(opts.drag);
+      if (opts.mouse && ['contextmenu','dblclick','auxclick','clicks','down','drag','wheel','hover','pinch','history','into','gesture'].some(key => opts[key] !== undefined)) throw new MalformedOperation('mouse cannot be combined with another input mode');
+      if (opts.pinch !== undefined) pinchArguments(opts.pinch);
+      if (opts.seconds != null && !Number.isFinite(opts.seconds)) throw new MalformedOperation('mediasession: expected finite seconds');
+      if (opts.mediaSession === 'seekto' && !(Number.isFinite(opts.seconds) && opts.seconds >= 0)) throw new MalformedOperation('mediasession: seekto needs finite nonnegative seconds');
+      // The mouse's forms (#107): one button form at a time, each at its middle or `at`, the modifiers held through it.
+      const button = ['mouse', 'contextmenu', 'auxclick', 'dblclick', 'clicks'].filter((k) => opts[k] !== undefined && opts[k] !== false);
+      if (button.length > 1) throw new MalformedOperation(`tap: one of mouse, dblclick, contextmenu, auxclick and clicks at a time, not ${button.join(' and ')}`);
+      if (opts.clicks !== undefined && ![1, 2, 3].includes(opts.clicks)) throw new MalformedOperation('tap … clicks: 1, 2 or 3');
+      if (opts.at !== undefined && (opts.hover || opts.history !== undefined || opts.drop || opts.into)) throw new MalformedOperation('at is a point on a press, a click (mouse, dblclick, contextmenu, auxclick, clicks), a wheel, a contact, a pinch or a drag');
+      if (opts.at !== undefined && (!Array.isArray(opts.at) || opts.at.length !== 2 || !opts.at.every(Number.isFinite))) throw new MalformedOperation('tap at needs two finite numbers');
+      const modifiers = opts.modifiers ?? opts.drag?.modifiers;
+      if (modifiers !== undefined && !String(modifiers).split('+').filter(Boolean).every(k => ['Shift', 'Control', 'Alt', 'Meta'].includes(k))) throw new MalformedOperation(`tap … modifiers: ${modifiers} is not Shift, Control, Alt and Meta joined by +`);
+      if (modifiers !== undefined && (opts.hover || opts.history !== undefined || opts.into || opts.drop || opts.pinch !== undefined)) throw new MalformedOperation('modifiers are held through a press, a click, a wheel, a contact or a drag');
       if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`);
-      if (holdOf(target)) return s.answer('tap', target, opts.choice);
       let node, part = await partTap({ s, host, touch }, target, opts); if (part) return part; // `tap <node>/<part>` (agent-inspect.mjs)
       try { node = await s.target(target); }
       catch (error) { throw await tapRefusal(s, target, error); } await refuseDisabled(s, node, target, opts); // a disabled control is refused the same on every host (LLP 1116.010 D3)
       // @ref LLP 1098 D10 — a media element's session action, as the platform's handler: no reveal, no box, never a press.
       if (opts.mediaSession !== undefined) return s.landed({ ...await carrier.input(node.id, 'mediasession', opts), tapped: node.id, target, delivery: 'substituted', carrier: host, mode: timing });
-      // The mouse's forms (#107): one button form at a time, each at its middle or `at`, the modifiers held through it.
-      const button = ['mouse', 'contextmenu', 'auxclick', 'dblclick', 'clicks'].filter((k) => opts[k] !== undefined && opts[k] !== false);
-      if (button.length > 1) throw new Error(`tap: one of mouse, dblclick, contextmenu, auxclick and clicks at a time, not ${button.join(' and ')}`);
-      if (opts.clicks !== undefined && ![1, 2, 3].includes(opts.clicks)) throw new Error('tap … clicks: 1, 2 or 3');
-      if (opts.at !== undefined && (opts.hover || opts.history !== undefined || opts.drop || opts.into || opts.mediaSession !== undefined)) throw new Error('at is a point on a press, a click (mouse, dblclick, contextmenu, auxclick, clicks), a wheel, a contact, a pinch or a drag');
-      const modifiers = opts.modifiers ?? opts.drag?.modifiers;
-      if (modifiers !== undefined && !String(modifiers).split('+').filter(Boolean).every(k => ['Shift', 'Control', 'Alt', 'Meta'].includes(k))) throw new Error(`tap … modifiers: ${modifiers} is not Shift, Control, Alt and Meta joined by +`);
-      if (modifiers !== undefined && (opts.hover || opts.history !== undefined || opts.into || opts.drop || opts.pinch !== undefined)) throw new Error('modifiers are held through a press, a click, a wheel, a contact or a drag');
       if (opts.mouse) {
         if (!['web', 'linux', 'android', 'windows', 'macos', 'mac'].includes(host)) throw new Error(`${host} does not carry explicit mouse clicks`);
-        if (node.entity !== undefined || ['contextmenu','dblclick','auxclick','clicks','down','drag','wheel','hover','pinch','history','into','gesture'].some(key => opts[key] !== undefined)) throw new Error('mouse cannot be combined with another input mode or an entity target');
+        if (node.entity !== undefined) throw new Error('mouse cannot be combined with an entity target');
       }
       if (node.entity !== undefined) {
         if (opts.drag) throw new Error(`drag: ${target} is a world entity; a drag starts on a view`);
@@ -1076,15 +1076,12 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       if ((button.length || opts.wheel || pressAt) && opts.at !== undefined) {
         const form = button[0] ?? (opts.wheel ? 'wheel' : 'a press');
         if (!['web', 'linux', 'android', 'windows', 'macos', 'mac', 'host', ...(pressAt || ['contextmenu', 'dblclick'].includes(form) ? ['ios', 'host-ios'] : [])].includes(host)) throw new Error(`${host} does not carry ${form} at an explicit point`); // iOS: a press, and the long press and double tap that select text there (LLP 1115.000 D11.6)
-        if (!Array.isArray(opts.at) || opts.at.length !== 2 || !opts.at.every(Number.isFinite)) throw new Error(`${form} at needs two finite numbers`);
         const layout = await s.layout(), b = layout.nodes.find(n => n.id === node.id), [x, y] = opts.at;
         if (!b || x < 0 || y < 0 || x >= b.w || y >= b.h) throw new Error(`${form} at must be inside the target box`);
         if (layout.viewport && (b.x + x < 0 || b.y + y < 0 || b.x + x >= layout.viewport.w || b.y + y >= layout.viewport.h)) throw new Error(`${form} at is outside the viewport`);
       }
-      if (opts.pinch !== undefined && !(opts.pinch > 0 && Number.isFinite(opts.pinch))) throw new Error('pinch: expected a positive finite scale');
       if (opts.pinch !== undefined && !['web', 'ios', 'macos', 'mac'].includes(host)) return s.tagged({ tapped: node.id, target, pinch: opts.pinch, delivery: 'unsupported', reason: `${host} has no pinch (LLP 1057.001 §4)`, carrier: host, mode: timing });
-      // @ref LLP 1070.000 §5 — a virtualized list's row brought into view by
-      // key: the runner's request, the same on every carrier, not an input.
+      // @ref LLP 1070.000 §5 — a list's row by key: the runner's request on every carrier, not an input.
       if (opts.into) {
         const r = await s.op({ op: 'tap', id: node.id, into: opts.into });
         return s.tagged({ ...r, tapped: node.id, target, delivery: 'runner', carrier: host, mode: timing });
@@ -1133,12 +1130,12 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
      * The platform owns hit-testing, recognition, scrolling and animation: the app receives whatever it delivers,
      * and a carrier that cannot hold a contact answers `delivery: "unsupported"` rather than faking one. */
     async pointer(phase, opts = {}) {
+      pointerArguments(phase, opts);
       if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`);
-      if (!['move', 'hold', 'up', 'cancel'].includes(phase)) throw new Error(`pointer: not a phase: ${phase} (move, hold, up, cancel)`);
       // Modifiers that a move or an up names are held from that event on (#107), where the carrier can hold them.
       if (opts.modifiers !== undefined) {
-        if (!['move', 'up'].includes(phase)) throw new Error(`tap ${phase}: modifiers are held through a down, a move or an up`);
-        if (!String(opts.modifiers).split('+').filter(Boolean).every(k => ['Shift', 'Control', 'Alt', 'Meta'].includes(k))) throw new Error(`tap … modifiers: ${opts.modifiers} is not Shift, Control, Alt and Meta joined by +`);
+        if (!['move', 'up'].includes(phase)) throw new MalformedOperation(`tap ${phase}: modifiers are held through a down, a move or an up`);
+        if (!String(opts.modifiers).split('+').filter(Boolean).every(k => ['Shift', 'Control', 'Alt', 'Meta'].includes(k))) throw new MalformedOperation(`tap … modifiers: ${opts.modifiers} is not Shift, Control, Alt and Meta joined by +`);
         const gap = pointerGap(host, carrier.browser, { ...opts, phase });
         if (gap) return s.tagged({ phase, delivery: 'unsupported', reason: gap, carrier: host, mode: timing });
       }
@@ -1166,13 +1163,14 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     },
     /** Deliver a location to a navigation root (LLP 1038 D11), or set an input's text through the host's text input path; an iframe accepts `{text, selector}` or `{key, selector}` for its guest. */
     async type(target, text) {
-      if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`);
-      if (holdOf(target)) return s.answer('type', target, typeof text === 'object' && text !== null ? JSON.stringify(text) : text);
-      const node = await s.find(target);
+      if (holdOf(target)) { if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`); return s.answer('type', target, typeof text === 'object' && text !== null ? JSON.stringify(text) : text); }
       const options = typeof text === 'object' && text !== null ? text : { text };
+      keyArguments(options);
+      if (options.key != null) await validateKey(options.key, carrier);
+      if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`);
+      const node = await s.find(target);
       const key = options.key;
       if (options.for !== undefined) {
-        if (key == null || options.phase != null || !Number.isFinite(options.for) || options.for < 0) throw new Error('type for: expected a key and a nonnegative finite duration, without phase');
         return typeFor({ node, target, options, carrier, clock: spec => s.clock(spec), tagged: reply => s.landed(reply), delivery: s.input.delivery('key'), host, timing });
       }
       // A field out of view is scrolled into it, as for a tap; a root (a navigation root's location) is the page.
@@ -1182,8 +1180,8 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     },
     /** Answer held device request `@N` (LLP 1069.007 D4), resolved before any view: `tap @N <choice>` (`cancel`, or a choice the capability declares) or `type @N <value>` (a fixture path, a URL, JSON). `@<id>` names the hold by the node its answer arrives at (a picker's `id`) or by its capability (`@open-directory`, `@pick`), whatever its ticket (files F11). The hold is consumed once; a stale ticket is refused by name. The reply says `delivery: "substituted"`. */
     async answer(op, target, value) {
+      if (value == null || value === '') throw new MalformedOperation(`${op} ${target}: expected ${op === 'tap' ? 'a choice (cancel, …)' : 'a value'}; state shows the hold under pending`);
       if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`);
-      if (value == null || value === '') throw new Error(`${op} ${target}: expected ${op === 'tap' ? 'a choice (cancel, …)' : 'a value'}; state shows the hold under pending`);
       const pending = ticketOf(target) != null && op === 'tap' ? [] : (await s.op({ op: 'state' })).pending ?? [];
       const ticket = ticketOf(target) ?? heldTicket(pending, target);
       if (op === 'tap') return s.landed(await s.op({ op, ticket, choice: String(value) }));
@@ -1225,16 +1223,22 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     },
     /** Move the clock: to an absolute millisecond, by '+N', or to 'settle' — a fixed point at which nothing is in flight (`settled: false` if timers keep starting motion). Timers fire on the way, each at its own time; motion is seeked, never played. The clock lands where the runner says; a timer's refusal is the error. */
     async clock(spec = 'settle') {
+      const real = /^\+(\d+(?:\.\d+)?)\s+real$/.exec(String(spec)), time = real ? real[1] : typeof spec === 'string' && spec.startsWith('+') ? spec.slice(1) : spec;
+      if (!['settle', 'data'].includes(spec) && !Number.isFinite(Number(time))) throw new MalformedOperation(`clock: not a time: ${spec}; use clock +100, clock +100 real, clock settle or clock data; state shows the current clock`);
       // @ref LLP 1080.000 §12 — an Apple host takes its clock over at the wall under platform timing (and reports a clock it already has otherwise); a seek counts from where it stands. Settle needs no count.
       if (spec !== 'settle' && spec !== 'data' && ['ios', 'host-ios', 'macos', 'host'].includes(carrier.host)) s.now = (await s.op({ op: 'clock', take: true })).clock;
       // `data`: the app's data lands (activation, every request in flight, each `then`), the clock unmoved and no timer fired.
       if (spec === 'data') { const r = await s.op({ op: 'clock', data: true }); if (r.settled === false) r.diagnostic = r.reason === 'data' ? 'clock data gave up on the data module\'s activation at its bound (20 s); logs say why' : 'clock data gave up on requests still in flight at its bound (20 s); state shows them under pending'; return r; }
+      const req = { op: 'clock' };
+      if (spec === 'settle') req.settle = true;
+      else if (real || typeof spec === 'string' && spec.startsWith('+')) req.to = s.now + Number(time);
+      else req.to = Number(spec);
+      if (!req.settle && !Number.isFinite(req.to)) throw new MalformedOperation(`clock: not a time: ${spec}; use clock +100, clock +100 real, clock settle or clock data; state shows the current clock`);
       // `+N real`: N ms of real time pass, the clock moving with them a step
       // at a time, so what runs on real time — a playing video (LLP 1042 §3),
       // a store, the network — goes on beside the app's timers (jukebox F14).
-      const real = /^\+(\d+(?:\.\d+)?)\s+real$/.exec(String(spec));
       if (real) {
-        const from = s.now, end = from + Number(real[1]), t0 = performance.now();
+        const from = s.now, end = req.to, t0 = performance.now();
         for (;;) {
           const to = Math.max(s.now, Math.min(end, from + (performance.now() - t0))), r = await s.op({ op: 'clock', to });
           s.now = r.clock;
@@ -1242,11 +1246,6 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
           await new Promise(ok => setTimeout(ok, Math.min(REAL_STEP_MS, end - to)));
         }
       }
-      const req = { op: 'clock' };
-      if (spec === 'settle') req.settle = true;
-      else if (typeof spec === 'string' && spec.startsWith('+')) req.to = s.now + Number(spec.slice(1));
-      else req.to = Number(spec);
-      if (!req.settle && !Number.isFinite(req.to)) throw new Error(`clock: not a time: ${spec}; use clock +100, clock +100 real, clock settle or clock data; state shows the current clock`);
       // A long seek steps by wall clock (each operation ~CLOCK_BUDGET_MS of a web clock op's 60 s, from CLOCK_STEP_MS of world
       // time, at most 4x a step and CLOCK_SPAN_MS), so a cheap hour is a few presents, not 3,600; the final reply is the seek's.
       let span = CLOCK_STEP_MS;
@@ -1261,6 +1260,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     /** The window to `w`x`h` points (reader: repagination): the browser's viewport, a macOS window, the Linux presenter. The wire's
      * `tap` with `resize` (LLP 1041 §8: an input, not an operation); an iOS app's viewport is the device's, and it says so. */
     async resize(w, h) {
+      if (![w, h].every(Number.isFinite)) throw new MalformedOperation('resize: expected two finite dimensions');
       if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`);
       return s.landed({ ...(await s.op({ op: 'tap', resize: [w, h] })), carrier: host });
     },
@@ -1297,7 +1297,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
         writeFileSync(resolve(path), bytes);
         return s.tagged({...metadata, screenshot:resolve(path)});
       }
-      if (form !== undefined) throw new Error(`screenshot: unknown form ${form}`);
+      if (form !== undefined) throw new MalformedOperation(`screenshot: unknown form ${form}`);
       if (typeof target === 'string') return s.op({op:'screenshot', ...await s.target(target), world:true, path:resolve(path)});
       const r = await carrier.screenshot(resolve(path), target, film);
       if (scale === undefined) return s.tagged(r);
@@ -1309,8 +1309,8 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     /** Film on the agent's clock (LLP 1012.001.000 D2): a frame, `clock +every`, a frame … through `over`. A `.apng` path is an animated PNG (for a person to play); any other is one PNG of the frames in a grid (for an agent to look at), both at the drive's `--scale` (a grid wider than 2048 px is shrunk again; the reply's `scale` is the picture's). Every frame is also kept at full size beside it, `<path>.frames/<i>-<clock>ms.png`. The clock lands at the last frame. A step that fails stops the film: what was taken is written, and the error says so. */
     async film(path, { over, every }) {
       const frames = Math.floor(over / every) + 1;
-      if (!(Number.isFinite(over) && over >= 0 && Number.isFinite(every) && every >= 1)) throw new Error('screenshot over <ms> every <ms>: over ≥ 0, every ≥ 1 ms');
-      if (frames > FILM_FRAMES) throw new Error(`screenshot over ${over} every ${every}: ${frames} frames, at most ${FILM_FRAMES}; take a longer every or a shorter over`);
+      if (!(Number.isFinite(over) && over >= 0 && Number.isFinite(every) && every >= 1)) throw new MalformedOperation('screenshot over <ms> every <ms>: over ≥ 0, every ≥ 1 ms');
+      if (frames > FILM_FRAMES) throw new MalformedOperation(`screenshot over ${over} every ${every}: ${frames} frames, at most ${FILM_FRAMES}; take a longer every or a shorter over`);
       // Under platform timing UIKit's transitions run on their own clock: frames would not be the clock's.
       if (timing === 'platform') throw new Error('screenshot over: film is the agent clock\'s, and --timing platform leaves UIKit\'s motion on its own');
       const out = resolve(path), dir = out + '.frames', animated = /\.apng$/i.test(out), images = [], at = [];
@@ -1415,7 +1415,7 @@ export async function main(argv, injected = {}) {
       if (/^type(\s|$)/.test(trimmed)) return ['type', await s.type(...typeCommand(trimmed))];
       // A target of several words is quoted inside the op: `tap "Sky off"`.
       const named = trimmed.match(/^(tap|tree|state|layout|perf)\s+"((?:[^"\\]|\\.)*)"(?:\s+([\s\S]*))?$/);
-      const [op, ...args] = named ? [named[1], JSON.parse(`"${named[2]}"`), ...(named[3] ? named[3].split(/\s+/) : [])] : trimmed.split(/\s+/);
+      const [op, ...args] = named ? [named[1], inputJSON(`"${named[2]}"`), ...(named[3] ? named[3].split(/\s+/) : [])] : trimmed.split(/\s+/);
       let r;
       switch (op) {
         case 'tree': r = args[0] === '--ax' ? await s.tree(args[1], {ax: true}) : await s.tree(args[0], args[1] === 'under' ? args[2] : undefined); break;
@@ -1424,7 +1424,7 @@ export async function main(argv, injected = {}) {
         case 'layout': r = await s.layout(...layoutArgs(args)); break;
         case 'screenshot':
           if (args[1] === 'over') {
-            if (args[3] !== 'every' || args.length !== 5) throw new Error('screenshot <png|apng> over <ms> every <ms>');
+            if (args[3] !== 'every' || args.length !== 5) throw new MalformedOperation('screenshot <png|apng> over <ms> every <ms>');
             r = await s.screenshot(args[0], { over: Number(args[2]), every: Number(args[4]) });
           } else r = await s.screenshot(args[0] ?? 'screenshot.png', args[2] === 'save' ? args[1] : args[1] === 'window', args[2]);
           break;
@@ -1442,11 +1442,11 @@ export async function main(argv, injected = {}) {
               if (args[i] === 'during') {
                 // The rest of the line is quoted ops and nothing else; reads and the clock only (a tap would be a second finger).
                 const after = line.indexOf(' drag ') + 1, rest = line.slice(after + line.slice(after).search(/\sduring\s+"/) + ' during '.length);
-                const ops = [...rest.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((m) => JSON.parse(`"${m[1]}"`));
-                if (!ops.length || rest.replace(/"((?:[^"\\]|\\.)*)"/g, '').trim()) throw new Error('tap … drag … during: the last option, each op quoted, as hold 300 during "state" "clock +600" (a hold the touch runner needs)');
+                const ops = [...rest.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((m) => inputJSON(`"${m[1]}"`));
+                if (!ops.length || rest.replace(/"((?:[^"\\]|\\.)*)"/g, '').trim()) throw new MalformedOperation('tap … drag … during: the last option, each op quoted, as hold 300 during "state" "clock +600" (a hold the touch runner needs)');
                 // A filmed screenshot (`over … every`) loops on the clock: not one bounded read.
                 const refused = ops.find((op) => !duringAllowed(op));
-                if (refused) throw new Error(`tap … drag … during: ${JSON.stringify(refused)} is not a read or the clock`);
+                if (refused) throw new MalformedOperation(`tap … drag … during: ${JSON.stringify(refused)} is not a read or the clock`);
                 drag.during = ops.map((op) => async () => duringOp(s, op));
                 break;
               }
@@ -1455,7 +1455,7 @@ export async function main(argv, injected = {}) {
               else if (args[i] === 'mouse') { drag.mouse = true; i += 1; }
               else if (args[i] === 'modifiers' && args[i + 1]) { drag.modifiers = args[i + 1]; i += 2; }
               else if (['press', 'over', 'hold'].includes(args[i])) { drag[args[i]] = Number(args[i + 1]); i += 2; }
-              else throw new Error(`tap … drag: unknown option ${args[i]}; from <x> <y>, ${to ? 'at <x> <y>, ' : ''}mouse, modifiers <Shift+Control+Alt+Meta>, press <ms>, over <ms>, hold <ms>, during "<op>" …`);
+              else throw new MalformedOperation(`tap … drag: unknown option ${args[i]}; from <x> <y>, ${to ? 'at <x> <y>, ' : ''}mouse, modifiers <Shift+Control+Alt+Meta>, press <ms>, over <ms>, hold <ms>, during "<op>" …`);
             }
             r = await s.tap(args[0], { drag });
           }
@@ -1463,14 +1463,14 @@ export async function main(argv, injected = {}) {
           // `tap up`, `tap cancel` only while a contact is down; with none down those words are targets like any other.
           else { const [target, { phase, ...opts }] = tapWords(args, !!s.contact); r = target === null ? await s.pointer(phase, opts) : await s.tap(target, opts); }
           break;
-        case 'clock': r = await s.clock(args.join(' ') || 'settle'); break; case 'sample': { const n = args.map(Number); if (!n.length || n.length % 2 || n.some(v => !Number.isFinite(v))) throw new Error('sample <x> <y> [<x> <y> …]: view points; layout <target> gives a node\'s frame'); r = await s.op({ op: 'sample', points: n.flatMap((v, i) => i % 2 ? [] : [[v, n[i + 1]]]) }); break; }
-        case 'resize': { const m = /^(\d+)x(\d+)$/.exec(args.join('')); if (!m) throw new Error('resize <w>x<h>, as resize 800x600'); r = await s.resize(Number(m[1]), Number(m[2])); break; }
-        case 'close': if (args.length) throw new Error('close takes nothing: it presses the window\'s close button'); r = await s.closeWindow(); break; case 'back': if (args.length) throw new Error('back takes nothing: it is the platform\'s Back from what is on top'); r = await s.back(); break;
+        case 'clock': r = await s.clock(args.join(' ') || 'settle'); break; case 'sample': { const n = args.map(Number); if (!n.length || n.length % 2 || n.some(v => !Number.isFinite(v))) throw new MalformedOperation('sample <x> <y> [<x> <y> …]: view points; layout <target> gives a node\'s frame'); r = await s.op({ op: 'sample', points: n.flatMap((v, i) => i % 2 ? [] : [[v, n[i + 1]]]) }); break; }
+        case 'resize': r = await s.resize(...resizeArguments(args.join(''))); break;
+        case 'close': if (args.length) throw new MalformedOperation('close takes nothing: it presses the window\'s close button'); r = await s.closeWindow(); break; case 'back': if (args.length) throw new MalformedOperation('back takes nothing: it is the platform\'s Back from what is on top'); r = await s.back(); break;
         case 'prefer': r = await s.prefer(Object.fromEntries(args.flatMap((a, i) => i % 2 ? [] : [[a, args[i + 1]]]))); break;
         case 'fail': case 'pass': r = await s.op(faultRequest(op, args)); break;
         case 'perf': r = await perfOp(s, args, line, step); break;
         case 'check': r = await checkOp(s, args); break; // LLP 1116.003 D8: the presented screen, judged in text
-        default: throw new Error(`unknown op: ${op} (tree, layout, state, logs, check, screenshot, sample, tap, type, clock, resize, close, back, prefer, perf, fail fetch, pass fetch)${op === 'reload' ? '; reload is an authored test\'s line: a drive relaunches as a second drive on the same --storage' : ''}`);
+        default: throw new MalformedOperation(`unknown op: ${op} (tree, layout, state, logs, check, screenshot, sample, tap, type, clock, resize, close, back, prefer, perf, fail fetch, pass fetch)${op === 'reload' ? '; reload is an authored test\'s line: a drive relaunches as a second drive on the same --storage' : ''}`);
       }
       return [op, r];
   };

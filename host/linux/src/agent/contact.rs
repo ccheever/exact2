@@ -3,36 +3,60 @@
 use super::*;
 use serde_json::Value;
 
-fn number(request: &Value, name: &str) -> Result<f64, String> {
+struct InputError(String);
+// A String is a host refusal; malformed input goes through InputError::malformed.
+impl From<String> for InputError {
+    fn from(message: String) -> Self {
+        Self(error(&message))
+    }
+}
+impl From<&str> for InputError {
+    fn from(message: &str) -> Self {
+        Self(error(message))
+    }
+}
+impl InputError {
+    fn malformed(message: impl AsRef<str>) -> Self {
+        Self(malformed(message.as_ref()))
+    }
+}
+
+fn number(request: &Value, name: &str) -> Result<f64, InputError> {
     request[name]
         .as_f64()
         .filter(|n| n.is_finite())
-        .ok_or_else(|| format!("contact {name} must be finite"))
+        .ok_or_else(|| InputError::malformed(format!("contact {name} must be finite")))
 }
-fn coordinate(n: f64) -> Result<f32, String> {
+fn coordinate(n: f64) -> Result<f32, InputError> {
     if n.abs() > f32::MAX as f64 {
-        Err("contact coordinate exceeds layout range".into())
+        Err(InputError::malformed(
+            "contact coordinate exceeds layout range",
+        ))
     } else {
         Ok(n as f32)
     }
 }
-fn duration(request: &Value) -> Result<f64, String> {
+fn duration(request: &Value) -> Result<f64, InputError> {
     let ms = if request.get("ms").is_some() {
         number(request, "ms")?
     } else {
         0.
     };
     if !(0. ..=10_000.).contains(&ms) {
-        return Err("contact duration must be in 0...10000ms".into());
+        return Err(InputError::malformed(
+            "contact duration must be in 0...10000ms",
+        ));
     }
     Ok(ms)
 }
 
 pub(crate) fn answer<D: DataSource>(p: &mut Presenter<D>, request: &Value) -> String {
-    perform(p, request).unwrap_or_else(|e| error(&e))
+    perform(p, request).unwrap_or_else(|e| e.0)
 }
-fn perform<D: DataSource>(p: &mut Presenter<D>, request: &Value) -> Result<String, String> {
-    let phase = request["phase"].as_str().ok_or("contact needs a phase")?;
+fn perform<D: DataSource>(p: &mut Presenter<D>, request: &Value) -> Result<String, InputError> {
+    let phase = request["phase"]
+        .as_str()
+        .ok_or_else(|| InputError::malformed("contact needs a phase"))?;
     let allowed: &[&str] = match phase {
         "down" => &["op", "session", "phase", "id", "x", "y", "mouse"],
         "move" => &[
@@ -41,7 +65,7 @@ fn perform<D: DataSource>(p: &mut Presenter<D>, request: &Value) -> Result<Strin
         // `virtual` is the driver's flag that it will not also seek (platformer R7).
         "hold" => &["op", "session", "phase", "ms", "mouse", "virtual"],
         "up" | "cancel" => &["op", "session", "phase", "mouse"],
-        _ => return Err("unknown contact phase".into()),
+        _ => return Err(InputError::malformed("unknown contact phase")),
     };
     if request
         .as_object()
@@ -49,7 +73,7 @@ fn perform<D: DataSource>(p: &mut Presenter<D>, request: &Value) -> Result<Strin
         .keys()
         .any(|k| !allowed.contains(&k.as_str()))
     {
-        return Err("unexpected field for contact phase".into());
+        return Err(InputError::malformed("unexpected field for contact phase"));
     }
     // An accepted receipt can retire native contact before the shared driver
     // hears it. Terminal phases acknowledge that state without dispatch/time.
@@ -65,7 +89,8 @@ fn perform<D: DataSource>(p: &mut Presenter<D>, request: &Value) -> Result<Strin
         let id = request["id"]
             .as_u64()
             .filter(|n| *n <= u32::MAX as u64)
-            .ok_or("contact down needs a live id")? as u32;
+            .ok_or_else(|| InputError::malformed("contact down needs a live id"))?
+            as u32;
         let explicit = request.get("x").is_some() || request.get("y").is_some();
         let xy = if explicit {
             Some((
@@ -89,7 +114,9 @@ fn perform<D: DataSource>(p: &mut Presenter<D>, request: &Value) -> Result<Strin
                 let relative = request.get("dx").is_some() || request.get("dy").is_some();
                 let absolute = request.get("x").is_some() || request.get("y").is_some();
                 if relative == absolute {
-                    return Err("contact move needs exactly x/y or dx/dy".into());
+                    return Err(InputError::malformed(
+                        "contact move needs exactly x/y or dx/dy",
+                    ));
                 }
                 let (tx, ty) = if relative {
                     (
@@ -108,7 +135,7 @@ fn perform<D: DataSource>(p: &mut Presenter<D>, request: &Value) -> Result<Strin
                     let now = from + ms * f;
                     let (_, failure) = p.clock(now);
                     if let Some(error) = failure {
-                        return Err(error);
+                        return Err(error.into());
                     }
                     // A receipt during the seek can retire this contact before
                     // delivery. Report the last delivered sample, not the endpoint.
@@ -130,7 +157,7 @@ fn perform<D: DataSource>(p: &mut Presenter<D>, request: &Value) -> Result<Strin
                 let ms = duration(request)?;
                 let (_, failure) = p.clock(from + ms);
                 if let Some(error) = failure {
-                    return Err(error);
+                    return Err(error.into());
                 }
             }
             "up" => {

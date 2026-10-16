@@ -250,6 +250,21 @@ fn a_mouse_contact_goes_down_holds_and_lifts() {
         &format!(r#"{{"op":"tap","phase":"down","id":{pad},"x":20,"y":20,"mouse":true}}"#),
     );
     assert!(!down.contains("\"error\""), "{down}");
+    for request in [
+        r#"{"op":"tap","phase":"hold","ms":-1}"#,
+        r#"{"op":"tap","phase":"move","dx":"banana","dy":0}"#,
+        r#"{"op":"tap","phase":"banana"}"#,
+    ] {
+        let reply: serde_json::Value = serde_json::from_str(&handle(&mut p, request)).unwrap();
+        assert_eq!(reply["malformed"], true, "{reply}");
+    }
+    let again: serde_json::Value = serde_json::from_str(&handle(
+        &mut p,
+        &format!(r#"{{"op":"tap","phase":"down","id":{pad}}}"#),
+    ))
+    .unwrap();
+    assert!(again["error"].as_str().unwrap().contains("already down"));
+    assert!(again["malformed"].is_null());
     // A hold seeks the presenter clock and reports it, so the driver does not seek again (platformer R7).
     let before = p.host().now();
     let held = handle(
@@ -657,4 +672,38 @@ fn a_named_tap_never_toggles_focuses_or_follows_what_is_inside_it() {
         &format!(r#"{{"op":"tap","id":{row},"at":[149,14]}}"#),
     );
     assert!(!reply.contains("error") && on(&p), "{reply}");
+}
+
+#[test]
+fn media_seek_time_is_malformed_before_ownership_is_checked() {
+    let plan = contract::compile("component App\n  view\n    text \"ready\"\n").unwrap();
+    let (mut p, boot_error) = Presenter::boot_with(
+        &plan.encode(),
+        (),
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(boot_error.is_none(), "{boot_error:?}");
+    for seconds in ["null", "-1", "\"Infinity\"", "\"NaN\""] {
+        let reply: serde_json::Value = serde_json::from_str(&handle(
+            &mut p,
+            &format!(r#"{{"op":"tap","id":999,"mediaSession":"seekto","seconds":{seconds}}}"#),
+        ))
+        .unwrap();
+        assert_eq!(reply["malformed"], true, "{reply}");
+    }
+    for request in [
+        r#"{"op":"tap","id":999,"mediaSession":"seekto","seconds":0}"#,
+        r#"{"op":"tap","id":999,"mediaSession":"play"}"#,
+    ] {
+        let reply: serde_json::Value = serde_json::from_str(&handle(&mut p, request)).unwrap();
+        assert!(reply["error"]
+            .as_str()
+            .unwrap()
+            .contains("no media session"));
+        assert!(reply.get("malformed").is_none(), "{reply}");
+    }
 }

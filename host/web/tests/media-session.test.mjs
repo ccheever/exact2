@@ -10,12 +10,26 @@ import { afterAll, test, expect } from 'bun:test';
 import { existsSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { resolve } from 'node:path';
+import { runInNewContext } from 'node:vm';
 import { chromium as installed } from '../../../scripts/agent-launch.mjs';
 import { browserMissing } from '../../../scripts/agent-playwright.mjs';
 import { need } from '../../../scripts/coverage.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
 const glue = readFileSync(resolve(WEB, 'media-glue.js'), 'utf8');
+test('agent seekto validates time before looking for an owner', () => {
+  const exact = { views: new Map() };
+  runInNewContext(glue, { exact });
+  for (const seconds of [undefined, null, -1, NaN, Infinity, -Infinity]) {
+    const reply = exact.mediaSession.act(999, 'seekto', seconds);
+    expect(reply.malformed).toBe(true);
+    expect(reply.error).toContain('finite nonnegative seconds');
+  }
+  const refusal = exact.mediaSession.act(999, 'seekto', 0);
+  expect(refusal.error).toContain('there is no media session');
+  expect(Object.hasOwn(refusal, 'malformed')).toBe(false);
+});
+
 const page = `<!doctype html><meta charset="utf-8"><div id="exact-root"></div>
 <script type="module">
   // A second of silence at 8 kHz, a WAV every engine decodes.

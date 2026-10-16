@@ -54,7 +54,7 @@ extension Agent {
             let at = view.convert(middle, to: node)
             return ["aimed": ["at": [Agent.r2(at.x), Agent.r2(at.y)], "token": token] as [String: Any]]
         }
-        guard let given = req["landed"] as? String else { return ["error": "tap with a part aims (\"aim\": true) or reads the landing (\"landed\": token)"] }
+        guard let given = req["landed"] as? String else { return ["malformed": true, "error": "tap with a part aims (\"aim\": true) or reads the landing (\"landed\": token)"] }
         guard given == token else { return ["error": "part \(name): it changed between the aim and the delivery (a stale token)"] }
         guard PartLanding.delivered else { return ["error": "part \(name): no pointer event was delivered since the aim"] }
         // The evidence is the delivery's own hit view, by identity, not a second look at the part.

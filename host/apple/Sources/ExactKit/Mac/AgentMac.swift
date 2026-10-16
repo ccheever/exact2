@@ -421,8 +421,8 @@ extension Agent {
     /// `move` or `up` that names others holds those from it on (#107).
     func contact(_ phase: String, _ req: [String: Any]) -> [String: Any] {
         guard let win = presenter.viewport.window else { return ["error": "no window"] }
-        guard let named = Agent.heldModifiers(req) else { return ["error": "tap: modifiers are Shift, Control, Alt and Meta, joined by +"] }
-        if req["modifiers"] != nil, phase == "hold" || phase == "cancel" { return ["error": "tap \(phase): modifiers ride on down, move and up"] }
+        guard let named = Agent.heldModifiers(req) else { return ["malformed": true, "error": "tap: modifiers are Shift, Control, Alt and Meta, joined by +"] }
+        if req["modifiers"] != nil, phase == "hold" || phase == "cancel" { return ["malformed": true, "error": "tap \(phase): modifiers ride on down, move and up"] }
         let clip = presenter.viewport.contentView
         let toWindow = { (p: CGPoint) -> NSPoint in clip.convert(NSPoint(x: p.x + clip.bounds.origin.x, y: p.y + clip.bounds.origin.y), to: nil) }
         // The contact's own timeline (LLP 1057 §10.6): a timed move's events
@@ -477,7 +477,7 @@ extension Agent {
         case "move":
             guard let from = contact else { return ["error": "no contact is down"] }
             let to = CGPoint(x: req["x"] as? Double ?? from.x + (req["dx"] as? Double ?? 0), y: req["y"] as? Double ?? from.y + (req["dy"] as? Double ?? 0))
-            guard to.x.isFinite, to.y.isFinite else { return ["error": "move needs finite coordinates"] }
+            guard to.x.isFinite, to.y.isFinite else { return ["malformed": true, "error": "move needs finite coordinates"] }
             let ms = max(0, req["ms"] as? Double ?? 0)
             if req["modifiers"] != nil { contactFlags = named }
             let steps = max(1, Int(ms / 16))
@@ -519,7 +519,7 @@ extension Agent {
             contactTracksNative = false
             return ["phase": "cancel", "at": at(p), "delivery": "platform"]
         default:
-            return ["error": "unknown phase \(phase) (down, move, hold, up, cancel)"]
+            return ["malformed": true, "error": "unknown phase \(phase) (down, move, hold, up, cancel)"]
         }
     }
 
@@ -609,7 +609,7 @@ extension Agent {
             guard let raw = req["at"] as? [Double], raw.count == 2, raw.allSatisfy(\.isFinite) else { return nil }
             return CGPoint(x: raw[0], y: raw[1])
         }()
-        if req["at"] != nil, localAt == nil { return ["error": "at needs two finite numbers"] }
+        if req["at"] != nil, localAt == nil { return ["malformed": true, "error": "at needs two finite numbers"] }
         // An inline run's `at` is from its first visible fragment's top left, as
         // `tapPoint` reads it (the run has no view; its paragraph's origin is another run's).
         let inlineAt = localAt != nil && (req["id"] as? Int).map({ presenter.inlineText(UInt32($0)) != nil }) == true ? tapPoint(req, node: v) : nil
@@ -661,9 +661,9 @@ extension Agent {
             // What AppKit then animates (a rubber band settling) is its own
             // and outside the session clock; `layout` reports the overscroll
             // it leaves behind.
-            guard wheel.allSatisfy(\.isFinite) else { return ["error": "wheel deltas must be finite"] }
+            guard wheel.allSatisfy(\.isFinite) else { return ["malformed": true, "error": "wheel deltas must be finite"] }
             // The modifiers held (studio diary R3: ⌘-scroll; a pinch is Control's).
-            guard let flags = Agent.heldModifiers(req) else { return ["error": "tap: modifiers are Shift, Control, Alt and Meta, joined by +"] }
+            guard let flags = Agent.heldModifiers(req) else { return ["malformed": true, "error": "tap: modifiers are Shift, Control, Alt and Meta, joined by +"] }
             // A wheel is the mouse's, where it then rests (CDP's `mouseWheel` moves it there too):
             // the target's middle, or `at` in it.
             presenter.agentPointer = p
@@ -682,7 +682,7 @@ extension Agent {
             // product is `scale`, to the view under the point, as the window
             // routes a trackpad's (LLP 1057.001 §5). AppKit has no public
             // constructor for them; a gesture CGEvent carries the zoom fields.
-            guard scale.isFinite, scale > 0 else { return ["error": "pinch: expected a positive finite scale"] }
+            guard scale.isFinite, scale > 0 else { return ["malformed": true, "error": "pinch: expected a positive finite scale"] }
             let point = (req["at"] as? [Double]).map { v.convert(CGPoint(x: $0[0], y: $0[1]), to: nil) } ?? p
             let screen = win.convertPoint(toScreen: point)
             let target = win.contentView?.hitTest(point) ?? v
@@ -725,7 +725,7 @@ extension Agent {
             }
         }
         // The modifiers held through the click (gallery F20: shift-click).
-        guard let held = Agent.heldModifiers(req) else { return ["error": "tap: modifiers are Shift, Control, Alt and Meta, joined by +"] }
+        guard let held = Agent.heldModifiers(req) else { return ["malformed": true, "error": "tap: modifiers are Shift, Control, Alt and Meta, joined by +"] }
         // A right click (minesweeper F8), or the middle button's (`auxclick`,
         // #107): the button down and up at the point through the application,
         // as a mouse's are routed; `rightMouseUp` answers it on the node with
@@ -738,7 +738,7 @@ extension Agent {
         // A double click is two real clicks, the second with clickCount 2;
         // `clicks n` is n, each with the count so far (a triple click selects a line).
         let count = req["clicks"] == nil ? (req["dblclick"] as? Bool == true ? 2 : 1) : req["clicks"] as? Int ?? 0
-        guard (1...3).contains(count) else { return ["error": "tap: clicks is 1, 2 or 3"] }
+        guard (1...3).contains(count) else { return ["malformed": true, "error": "tap: clicks is 1, 2 or 3"] }
         // What the click will reach, by the window's own hit test: a part's landing reads it (AgentParts.swift).
         PartLanding.view = win.contentView?.superview?.hitTest(p) ?? win.contentView?.hitTest(p)
         PartLanding.delivered = true
@@ -831,15 +831,14 @@ extension Agent {
             let parts = normalized.split(separator: "+").map(String.init)
             let rawKey = parts.last ?? chord
             let device = KeyCodes.device(rawKey)
-            // An unknown name is a refusal, not text: typing "End" inserted
-            // the letters e-n-d (notes repro mac-agent-named-keys).
-            if device == nil, rawKey != "Plus" { return ["error": "key: unsupported key \(rawKey)"] }
+            // An unknown name is malformed input; it is never inserted as text.
+            if device == nil, rawKey != "Plus" { return ["malformed": true, "error": "key: unsupported key \(rawKey)"] }
             let key = device?.key ?? rawKey
             var modifiers: NSEvent.ModifierFlags = []
             for modifier in parts.dropLast() {
                 switch modifier { case "Meta": modifiers.insert(.command); case "Shift": modifiers.insert(.shift)
                 case "Control": modifiers.insert(.control); case "Alt": modifiers.insert(.option)
-                default: return ["error": "unknown key modifier \(modifier)"] }
+                default: return ["malformed": true, "error": "unknown key modifier \(modifier)"] }
             }
             // A modifier alone is held as it goes down, as the web's keydown
             // for Shift says `shiftKey`; AppKit has it as a flags change, not
@@ -853,7 +852,7 @@ extension Agent {
             // NSWindow delivery bypasses the local event monitor. Share its
             // pressed-control route before making any responder change.
             let phase = req["phase"] as? String
-            guard phase == nil || phase == "down" || phase == "up" else { return ["error": "invalid key phase"] }
+            guard phase == nil || phase == "down" || phase == "up" else { return ["malformed": true, "error": "invalid key phase"] }
             if modifiers.intersection([.command,.control]).isEmpty, let code=device?.code,
                session.canvases.pressedControlKey(code,down:phase != "up") {
                 if phase == nil {_ = session.canvases.pressedControlKey(code,down:false)}
@@ -915,7 +914,7 @@ extension Agent {
                 // AppKit function characters with no virtual key.
                 (chars, code) = (function, UInt16.max)
             } else {
-                return ["error": "key: unsupported key \(rawKey)"]
+                return ["malformed": true, "error": "key: unsupported key \(rawKey)"]
             }
             let t = ProcessInfo.processInfo.systemUptime
             // Both character fields preserve Shift. AppKit interprets a
@@ -1125,7 +1124,7 @@ extension Agent {
         // at the agent's clock first, as `clock` leaves it.
         if let now = session.clock, session.canvases.waitUntilReady() { session.canvases.settle(now: now) }
         presenter.canvas2d.waitForReplays()
-        guard let path = req["path"] as? String else { return ["error": "screenshot needs a path"] }
+        guard let path = req["path"] as? String else { return ["malformed": true, "error": "screenshot needs a path"] }
         let v = presenter.viewport
         if req["window"] as? Bool == true {
             // The window server's picture of this window — Metal layers

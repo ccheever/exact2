@@ -736,7 +736,7 @@ export class Cdp {
  * activation, as for a person), answered "Stay". Either the dialog or the target's detach comes; after the second the
  * page is gone. */
 export async function closePage(req, { cdp, sessionId, call, frame }) {
-  if (Object.keys(req).some(k => !['op', 'close'].includes(k)) || req.close !== true) return { error: 'tap close takes no other input fields' };
+  if (Object.keys(req).some(k => !['op', 'close'].includes(k)) || req.close !== true) return { malformed: true, error: 'tap close takes no other input fields' };
   let listener, timer;
   const outcome = new Promise((ok) => {
     listener = (msg) => {
@@ -762,7 +762,7 @@ export async function closePage(req, { cdp, sessionId, call, frame }) {
  * keeps it open, as a `cancel` handler that prevents it does). `escape` presses it (CDP's, or Playwright's keyboard).
  * Null with none open: the page's agent then takes the browser's Back from the selected route (navigation.js `back`). */
 export async function backLayer(req, { evaluate, escape, frame }) {
-  if (Object.keys(req).some(k => !['op', 'back'].includes(k)) || req.back !== true) return { error: 'tap back takes no other input fields' };
+  if (Object.keys(req).some(k => !['op', 'back'].includes(k)) || req.back !== true) return { malformed: true, error: 'tap back takes no other input fields' };
   const open = `document.querySelectorAll('dialog:modal, [role="alertdialog"]:popover-open').length`, before = await evaluate(open);
   if (!before) return null;
   await escape();

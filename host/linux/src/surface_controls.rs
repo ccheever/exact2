@@ -437,7 +437,11 @@ impl<D: DataSource> Presenter<D> {
                     let (nx, ny, ..) = self.rect_of(named)?;
                     (id, nx + ax as f32, ny + ay as f32)
                 }
-                Some(_) => return Some(json!({"error":"tap at needs two finite numbers"})),
+                Some(_) => {
+                    return Some(
+                        json!({"error":"tap at needs two finite numbers","malformed":true}),
+                    )
+                }
                 None => (id, x + w / 2., y + h / 2.),
             }
         };
@@ -448,21 +452,21 @@ impl<D: DataSource> Presenter<D> {
             .as_f64()
             .unwrap_or(sy as f64 + q["dy"].as_f64().unwrap_or(0.)) as f32;
         if !x.is_finite() || !y.is_finite() {
-            return Some(json!({"error":"control needs finite points"}));
-        }
-        if !continuing && self.hit(x, y).and_then(|hit| self.control_target(hit)) != Some(id) {
-            return Some(json!({"error":"control is covered"}));
-        }
-        if phase == Some("down") && self.control_contact.is_some() {
-            return Some(json!({"error":"a contact is already down"}));
+            return Some(json!({"error":"control needs finite points","malformed":true}));
         }
         let phases = match phase {
             None => &["down", "up"][..],
             Some("hold") if x == sx && y == sy => &[],
             Some("hold") => &["move"],
             Some("down" | "move" | "up" | "cancel") => phase.as_slice(),
-            _ => return Some(json!({"error":"unknown control phase"})),
+            _ => return Some(json!({"error":"unknown control phase","malformed":true})),
         };
+        if !continuing && self.hit(x, y).and_then(|hit| self.control_target(hit)) != Some(id) {
+            return Some(json!({"error":"control is covered"}));
+        }
+        if phase == Some("down") && self.control_contact.is_some() {
+            return Some(json!({"error":"a contact is already down"}));
+        }
         for step in phases {
             if !self.control_input(id, step, x, y, 1, self.host.now()) {
                 return Some(json!({"error":"control surface refused input"}));
