@@ -79,12 +79,16 @@ function build(app, dist, keep = () => false, compiler = null) {
   });
 }
 
-/** A copy of the compiler at `path` under the app's target/ (written
- * whole, then renamed), or null where it cannot be made. */
-function compilerCopy(path, app) {
-  const copy = resolve(app.target, 'web-js-dev-compiler');
+/** Copy the compiler at `path`, and its dep-info, to `copy` (each written
+ * whole, then renamed), dated as it is, so `freshCompiler` reads the copy
+ * as it read the original; or remove the copy where that fails. */
+function copyCompiler(path, copy) {
   const temp = `${copy}.${process.pid}.tmp`; // a loop's own: apps in the tree share a target/
-  try { copyFileSync(path, temp); renameSync(temp, copy); return copy; } catch { rmSync(temp, { force: true }); return null; }
+  try {
+    for (const [from, to] of [[`${path}.d`, `${copy}.d`], [path, copy]]) { copyFileSync(from, temp); renameSync(temp, to); }
+    const { atime, mtime } = statSync(path);
+    utimesSync(copy, atime, mtime);
+  } catch { rmSync(temp, { force: true }); rmSync(copy, { force: true }); }
 }
 
 /** Build `app` on the JS target and serve it with reload, until the process ends. */
@@ -247,9 +251,13 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
       }
     }
     if (building) { for (const p of pendingEdits) edited.add(p); for (const p of pendingAppeared) appeared.add(p); again = true; return; }
-    // The design reader, done and fresh, is this build's compiler too: a
-    // copy, taken before it builds again (Cargo replaces even a fresh one).
-    const compiler = tool.ready && freshCompiler(tool.path) ? compilerCopy(tool.path, app) : null;
+    // The design reader's compiler is this build's too: a copy (Cargo
+    // replaces even a fresh binary), taken while it is done and fresh, then
+    // kept while it is fresh, so a build while the reader builds again (as
+    // it does below, after every edit) takes it as well.
+    const copy = resolve(app.target, 'web-js-dev-compiler');
+    if (tool.ready && freshCompiler(tool.path)) copyCompiler(tool.path, copy);
+    const compiler = freshCompiler(copy) ? copy : null;
     // Anything else may move the compiler: the design tool is built again.
     if (!designOnly) buildTool();
     // What a full build reads from disk is what changed since it began.
