@@ -169,6 +169,52 @@ final class AddressedTapIOSTests: XCTestCase {
         XCTAssertEqual((agent.aim(["id": 2, "aim": true])["aim"] as? [String: Any])?["hit"] as? Int, 3, "a drag's aim is the middle still")
     }
 
+    /// A tap on a native module's own control reaches no control of its
+    /// (UIKit has no public touch synthesis): refused, naming `--touch
+    /// platform`, unless Contract hears it, a pointer listener around the
+    /// native view, which gets its pointer events, the reply saying what
+    /// went unreached.
+    func testATapOnAModulesControlIsRefusedUnlessContractHearsIt() throws {
+        let session = ExactApp.shared.makeSession(label: "module-tap")
+        self.session = session
+        let p = session.presenter
+        let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
+        let window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+        window.frame = CGRect(x: 0, y: 0, width: 400, height: 800)
+        window.rootViewController = UIViewController()
+        window.makeKeyAndVisible()
+        self.window = window
+        p.viewport.frame = window.bounds
+        window.rootViewController?.view.addSubview(p.viewport)
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "native", "props": ["testId": "transport"]],
+            ["op": "create", "id": 3, "kind": "view", "handlers": ["pointerdown"], "props": ["testId": "listening"]],
+            ["op": "create", "id": 4, "kind": "native", "props": ["testId": "heard"]],
+            ["op": "children", "id": 1, "ids": [2, 3]],
+            ["op": "children", "id": 3, "ids": [4]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 800.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 400.0, "h": 100.0],
+            ["op": "frame", "id": 3, "x": 0.0, "y": 200.0, "w": 400.0, "h": 100.0],
+            ["op": "frame", "id": 4, "x": 0.0, "y": 0.0, "w": 400.0, "h": 100.0],
+        ]))
+        p.viewport.layoutIfNeeded()
+        // What a module's view holds: a control of its own.
+        for id in [UInt32(2), 4] {
+            let control = UIButton(type: .system)
+            control.frame = CGRect(x: 0, y: 0, width: 400, height: 100)
+            try XCTUnwrap(p.views[id]).addSubview(control)
+        }
+        let agent = Agent(session: session)
+        let refused = agent.tap(["id": 2, "at": [200.0, 50.0]])
+        XCTAssertTrue((refused["error"] as? String)?.contains("unsupported") == true, "\(refused)")
+        XCTAssertTrue((refused["error"] as? String)?.contains("--touch platform") == true, "\(refused)")
+        let heard = agent.tap(["id": 4, "at": [200.0, 50.0]])
+        XCTAssertNil(heard["error"], "\(heard)")
+        XCTAssertNotNil(heard["unreached"], "says the module's control heard nothing: \(heard)")
+    }
+
     /// Under `--touch platform` a menu's row is UIKit's, found by its place
     /// in the menu the popover gave UIKit (LLP 1080.000 §13): UIKit puts no
     /// identifier on the element it shows, so the menu is the one run of

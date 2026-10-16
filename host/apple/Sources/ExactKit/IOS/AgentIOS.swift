@@ -708,19 +708,23 @@ extension Agent {
         // what the pointer events below do to the tree never sends the press
         // elsewhere, as a real contact keeps its target.
         let reach = fingerReach(hit, at: p)
-        if plain, reach.action == nil, let why = moduleTouch(hit) { return ["error": "unsupported: tap #\(v.id) at (\(at[0]), \(at[1])) \(why)"] }
-        // An iPad's hardware keys held through the tap (gallery F20).
-        let held = Agent.heldPrefix(req)
         // A finger's `pointerdown` as it lands and `pointerup` as it lifts,
         // before what the lift does (DOM's order), as `PointerRecognizer`
         // hears a real touch before the node does; a held contact's lift
         // sends its own (`fingerPhase`).
         let fingers = Agent.fingerPath(from: hit)
+        // On a module's own view, what Contract hears of a finger (a press,
+        // a pointer listener) is delivered; with nothing to hear it, refused.
+        let unreached = plain && reach.action == nil ? moduleTouch(hit) : nil
+        if let why = unreached, fingers.isEmpty { return ["error": "unsupported: tap #\(v.id) at (\(at[0]), \(at[1])) \(why)"] }
+        // An iPad's hardware keys held through the tap (gallery F20).
+        let held = Agent.heldPrefix(req)
         fingerPointer(.down, fingers, at: p, held: held)
         fingerPointer(.up, fingers, at: p, held: held)
         var reply: [String: Any] = ["tapped": Int(v.id), "at": at].merging(lift(reach, at: p, held: held)) { a, _ in a }
         // Its middle reaches a control inside it: the tap landed beside it.
         if let avoided { reply["avoided"] = ["middle": [Agent.r2(b.midX), Agent.r2(b.midY)], "pressing": avoided.pressing ?? NSNull(), "what": avoided.described] as [String: Any] }
+        if let why = unreached { reply["unreached"] = "Contract's pointer listeners heard it, but it \(why)" }
         return reply
     }
 
