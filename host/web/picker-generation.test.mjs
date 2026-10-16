@@ -1,7 +1,8 @@
 import { expect, test } from 'bun:test';
 
-// A picker still open across a dev restart answers into a runner that reuses
-// view ids: its choice is dropped, not dispatched to the new view.
+// A picker still open across a dev restart, or asked before it and loaded
+// after, would answer into a runner that reuses view ids: its choice is
+// dropped, not dispatched to the new view.
 test('a picker answer that outlives its generation is dropped', async () => {
   globalThis.exact = {};
   const showDirectoryPicker = globalThis.showDirectoryPicker;
@@ -17,7 +18,13 @@ test('a picker answer that outlives its generation is dropped', async () => {
     open({ kind: 'directory', name: 'chosen' });
     await shown;
     expect(sent).toEqual([]);
-    const again = host.show({ present: true, view: 7 }, 'showDirectoryPicker');
+    // Asked in generation 1, but the glue loaded after the restart.
+    const late = host.at(1).show({ present: true, view: 7 }, 'showDirectoryPicker');
+    await new Promise(resolve => setTimeout(resolve, 0));
+    open({ kind: 'directory', name: 'chosen' });
+    await late;
+    expect(sent).toEqual([]);
+    const again = host.at(2).show({ present: true, view: 7 }, 'showDirectoryPicker');
     await new Promise(resolve => setTimeout(resolve, 0));
     open({ kind: 'directory', name: 'chosen' });
     await again;

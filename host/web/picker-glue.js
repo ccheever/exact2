@@ -78,8 +78,11 @@ export async function appFrame(el, state, appId, committed = () => {}) {
 globalThis.exact.picker = function install(host) {
   // host: { dispatch(id, kind, payload), generation() (none on the JS target), pickedPath(name), appId, log(line) }
   // A view id names a view only in the generation that asked: an answer that
-  // outlives a restart, which reuses ids, is dropped.
-  const since = () => { const g = host.generation?.(); return (id, kind, payload) => { if (host.generation?.() === g) host.dispatch(id, kind, payload); }; };
+  // outlives a restart, which reuses ids, is dropped. `at(g)` is these
+  // operations for generation `g`, the one the glue asked in (the module may
+  // load after a restart); each takes its `since()` before its first await.
+  let pinned;
+  const since = () => { const g = pinned ?? host.generation?.(); return (id, kind, payload) => { if (host.generation?.() === g) host.dispatch(id, kind, payload); }; };
   // What the last page picked is gone (D4).
   const pickStore = () => emptied ??= fileStore(host.appId).then(async s => {
     if (!s) return null;
@@ -129,7 +132,7 @@ globalThis.exact.picker = function install(host) {
   }
   const saved = (dispatch, view, name) => { host.log('saveFile: saved'); dispatch(view, 1, name); };
   const unsaved = (dispatch, view, line) => { host.log(line); dispatch(view, 27, ''); };
-  return {
+  const api = {
     /** `saveFile`'s ruling `r` (refused, or present) and, where the browser
      * has one, the save picker's pending handle: write the copy there, or
      * download it under the suggested name (Safari, Firefox). */
@@ -164,7 +167,7 @@ globalThis.exact.picker = function install(host) {
     },
     /** The element's own `change`: what the person chose. */
     change: (el, id) => el.files?.length ? deliver(id, [...el.files], since()).finally(() => { el.value = ''; }) : Promise.resolve(),
-    cancel: (id) => host.dispatch(id, 27, ''),
+    cancel: (id) => since()(id, 27, ''),
     appURL: (path) => appURL(path, host.appId),
     appFrame: (el, state, committed) => appFrame(el, state, host.appId, committed),
     /** The agent's answer (D9): `files` as the driver sent them, or null for `tap @t cancel`. */
@@ -179,7 +182,12 @@ globalThis.exact.picker = function install(host) {
       return deliver(id, made, dispatch);
     },
   };
+  return { ...api, at: g => pinnedTo(api, g, v => { pinned = v; }) };
 };
+
+function pinnedTo(api, g, pin) {
+  return Object.fromEntries(Object.entries(api).map(([name, f]) => [name, (...args) => { pin(g); try { return f(...args); } finally { pin(undefined); } }]));
+}
 
 // A browser's guess from the name, for the agent's files.
 function typeFor(name) {

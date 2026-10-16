@@ -228,8 +228,11 @@ globalThis.exact.documents = {
   install(host) {
     // host: { dispatch(id, kind, payload), generation() (none on the JS target), log(line), openFile(value) }
     // A view id names a view only in the generation that asked: an answer that
-    // outlives a restart, which reuses ids, is dropped.
-    const since = () => { const g = host.generation?.(); return (id, kind, payload) => { if (host.generation?.() === g) host.dispatch(id, kind, payload); }; };
+    // outlives a restart, which reuses ids, is dropped. `at(g)` is these
+    // operations for generation `g`, the one the glue asked in (the module may
+    // load after a restart); each takes its `since()` before its first await.
+    let pinned;
+    const since = () => { const g = pinned ?? host.generation?.(); return (id, kind, payload) => { if (host.generation?.() === g) host.dispatch(id, kind, payload); }; };
     // The files an installed app was launched with (`file_handlers`,
     // `launchQueue`, LLP 1069.010 slice 4), each opened as a document.
     globalThis.launchQueue?.setConsumer((params) => {
@@ -242,7 +245,7 @@ globalThis.exact.documents = {
       host.log(`${name}: chosen`);
       dispatch(view, 1, found.map(mint).join('\n'));
     };
-    return {
+    const api = {
       /** Files dropped on the page (studio diary R19): each handle the
        * browser gave, else its File, read-only; of a declared type. */
       async dropped(handles, files) {
@@ -270,5 +273,10 @@ globalThis.exact.documents = {
         chosen(dispatch, r.node, name, made);
       },
     };
+    return { ...api, at: g => pinnedTo(api, g, v => { pinned = v; }) };
   },
 };
+
+function pinnedTo(api, g, pin) {
+  return Object.fromEntries(Object.entries(api).map(([name, f]) => [name, (...args) => { pin(g); try { return f(...args); } finally { pin(undefined); } }]));
+}
