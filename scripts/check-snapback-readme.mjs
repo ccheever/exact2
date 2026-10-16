@@ -8,7 +8,7 @@ export const receiptPath = 'snapback4/readme-tested.json';
 export const testedFiles = ['snapback4/README.md', 'docs/recipes/snapback-auth.md',
   'snapback4/ts/snapback.ts', 'snapback4/online/snapback.ts', 'snapback4/ts/web.ts',
   'snapback4/ts/projection.ts', 'snapback4/online/projection.ts', 'snapback4/ts/release.ts', 'snapback4/online/release.ts',
-  'game/new.mjs', 'js/bake/src/typescript.mjs', 'host/web-js/agent.js', 'scripts/agent-test.mjs', 'scripts/agent.mjs',
+  'game/new.mjs', 'contract/cli/src/typescript.rs', 'js/bake/src/typescript.mjs', 'host/web-js/agent.js', 'scripts/agent-test.mjs', 'scripts/agent.mjs',
   'scripts/retest-snapback-readme.mjs', 'scripts/check-snapback-readme.mjs', 'snapback4/Cargo.toml', 'snapback4/Cargo.lock'];
 export function digest(text) {return createHash('sha256').update(text).digest('hex');}
 export function checkReadmeVersion(readme, pinned, wave=pinned) {
