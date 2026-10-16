@@ -48,7 +48,8 @@ function keysOf(row: string): (facts: Record<string, boolean>) => string {
   };
 }
 
-const holders = ['panel.deviceSetup', 'panel.files.editorsOpen', 'panel.files.editing', 'searchFocused', 'panel.browser.capture.pickActive'];
+// The thread details popover (`detailsOpen`, the window's above a sheet) holds it as the topmost layer.
+const holders = ['detailsOpen', 'panel.deviceSetup', 'panel.files.editorsOpen', 'panel.files.editing', 'searchFocused', 'panel.browser.capture.pickActive'];
 const none = Object.fromEntries(holders.map(name => [name, false]));
 
 describe('right-panel-escape: the right panel takes Escape only as a sheet', () => {
@@ -72,10 +73,11 @@ describe('right-panel-escape: the right panel takes Escape only as a sheet', () 
     expect(line(source('diff.contract'), 'R4PanelHeader(')).not.toContain('urlFocused=');
   });
 
-  test('the launcher\'s bar (no surface yet) declares Escape only as a sheet', () => {
+  test('the launcher\'s bar (no surface yet) declares Escape only as a sheet with no details popover over it', () => {
     const launcher = keysOf(line(source('shell-panels.contract'), 'testId="panel-toggle-right"'));
-    expect(launcher({ sheet: false })).toBe('');
-    expect(launcher({ sheet: true })).toBe('Escape');
+    expect(launcher({ sheet: false, detailsOpen: false })).toBe('');
+    expect(launcher({ sheet: true, detailsOpen: false })).toBe('Escape');
+    expect(launcher({ sheet: true, detailsOpen: true })).toBe('');
   });
 
   test('the Files search\'s own Escape closes the search and blurs the field (FileSearchField onKeyDown), and closes a sheet', () => {

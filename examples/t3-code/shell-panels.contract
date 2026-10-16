@@ -93,7 +93,7 @@ component SurfacePanel
               ShellIcon(name="panel-bottom", size=16, color="light-dark(#27272acc, #f5f5f5cc)")
             TipBubble(label=(shell.terminalAvailable ? (shell.keyTerminal == "" ? "Toggle terminal drawer" : `Toggle terminal drawer (${shell.keyTerminal})`) : "Terminal drawer is unavailable"), side="bottom", align="end", offset=32, inset=40, shown=(hovered == "terminal"))
           box position="relative" flex-shrink=0
-            button press=ui("toggle", "") hover=hover("toggle") aria-label="Toggle right panel" aria-keyshortcuts=(sheet ? "Escape" : "") testId="panel-toggle-right" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color="light-dark(#f4f4f5, #ffffff0a)" title=""
+            button press=ui("toggle", "") hover=hover("toggle") aria-label="Toggle right panel" aria-keyshortcuts=((sheet and not detailsOpen) ? "Escape" : "") testId="panel-toggle-right" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color="light-dark(#f4f4f5, #ffffff0a)" title=""
               ShellIcon(name="panel-right", size=16, color="light-dark(#27272acc, #f5f5f5cc)")
             TipBubble(label=(shell.keyRightPanel == "" ? "Toggle right panel" : `Toggle right panel (${shell.keyRightPanel})`), side="bottom", align="end", offset=32, inset=8, shown=(hovered == "toggle"))
         SurfaceLauncher(surfaces=shell.surfaces, ui=ui, profiles=shell.panel.browser.profiles, local=local)
