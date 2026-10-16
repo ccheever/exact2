@@ -234,9 +234,11 @@ final class NavigationTabsIOSTests: XCTestCase {
         container.frame = CGRect(x: 0, y: 300, width: 402, height: 574)
         p.navigation.reportCovers()
         XCTAssertEqual(p.navigation.covers[list.id], protected, "the root's tablist is not measured under a sheet")
-        session.view?.fit()
-        XCTAssertEqual(p.viewport.frame, container.bounds, "route covers protect the sheet exactly once")
-        XCTAssertEqual(p.viewport.bounds.width, container.bounds.width, accuracy: 0.5)
+        let view = try XCTUnwrap(session.view)
+        view.fit()
+        // The document stays in the session's view; the sheet lays its own
+        // routes out in their blocks (LLP 1123 D1, D2)
+        XCTAssertEqual(p.viewport.frame, view.bounds, "a sheet does not move or resize the document")
     }
 
     func testAuthoredTabsLeaveLandscapeNavigationBackgroundAtTheEdges() throws {
@@ -266,7 +268,7 @@ final class NavigationTabsIOSTests: XCTestCase {
         try authoredTabs(session, true)
         XCTAssertNil(agent.substituted(tab), "platform touch must target the visible authored tab")
         let reply = agent.aim(["id": Int(tab.id), "aim": ["press": true]])
-        if (reply["error"] as? String)?.contains("foreground") == true { throw XCTSkip("test host is in the background") }
+        if (reply["error"] as? String)?.contains("foreground") == true { throw missing("foreground", "test host is in the background") }
         let aim = try XCTUnwrap(reply["aim"] as? [String: Any], "\(reply)")
         let point = try XCTUnwrap(aim["window"] as? [Double])
         let hit = try XCTUnwrap(window?.hitTest(CGPoint(x: point[0], y: point[1]), with: nil))
@@ -437,6 +439,83 @@ final class NavigationTabsIOSTests: XCTestCase {
         until("Home selected") { tabs.selectedIndex == 0 }
         tapTab(tabs, 0)
         until("Home popped to its root") { home.viewControllers.count == 1 && home.transitionCoordinator == nil }
+    }
+
+    /// A tab selected while a push animates: the pushing stack stops being
+    /// the one navigation follows, so its `didShow` is not navigation's, and
+    /// the push must still end for later navigation to apply.
+    func testATabSelectedDuringAPushLeavesNavigationFree() throws {
+        let session = try fixture("tabs-mid-push")
+        let navigation = session.presenter.navigation
+        let tabs = try XCTUnwrap(navigation.tabController)
+        let home = try XCTUnwrap(tabs.viewControllers?[0] as? UINavigationController)
+        // Second shown once already: a stack's first appearance calls its
+        // `didShow`, which would end the push's transition by itself.
+        tapTab(tabs, 1)
+        until("Second selected") { tabs.selectedIndex == 1 }
+        tapTab(tabs, 0)
+        until("Home selected") { tabs.selectedIndex == 0 }
+        try selectDuringPush(session, home) { self.tapTab(tabs, 1) } selected: { tabs.selectedIndex == 1 }
+        // Reselecting Home pops it to its root: a sync, which waits for no transition.
+        tapTab(tabs, 0)
+        until("Home selected") { tabs.selectedIndex == 0 }
+        tapTab(tabs, 0)
+        until("Home popped to its root") { home.viewControllers.count == 1 && home.transitionCoordinator == nil }
+
+        // Away and back while the push runs: Home's transition is navigation's
+        // again, and its own `didShow` ends it.
+        UIView.setAnimationsEnabled(true)
+        defer { UIView.setAnimationsEnabled(false) }
+        try tapNode(session, "detail")
+        XCTAssertNotNil(home.transitionCoordinator, "the push is animating")
+        tapTab(tabs, 1)
+        until("Second selected") { tabs.selectedIndex == 1 }
+        tapTab(tabs, 0)
+        until("Home selected") { tabs.selectedIndex == 0 }
+        XCTAssertNotNil(home.transitionCoordinator, "Home was selected again while its push ran")
+        XCTAssertTrue(navigation.changing, "navigation waits for Home's push again")
+        until("the push over and navigation free") { home.transitionCoordinator == nil && !navigation.changing }
+        UIView.setAnimationsEnabled(false)
+        tapTab(tabs, 0)
+        until("Home popped to its root again") { home.viewControllers.count == 1 && home.transitionCoordinator == nil }
+    }
+
+    /// The same in a container the app owns (the tabs hatch).
+    func testATabSelectedDuringAPushInTheAppsContainerLeavesNavigationFree() throws {
+        setenv("EXACT_FIXTURE_CONTAINER", "app", 1)
+        defer { unsetenv("EXACT_FIXTURE_CONTAINER"); NativeViews.uninstallTable() }
+        let session = try fixture("tabs-owned-mid-push", module: true)
+        let navigation = session.presenter.navigation
+        until("the app's container holds the tabs") { navigation.tabController == nil && navigation.tabOwner != nil }
+        let owner = try XCTUnwrap(navigation.tabOwner)
+        let stacks = navigation.tabPanels.compactMap { navigation.tabNavigations[$0] }
+        let control = try XCTUnwrap(owner.view.subviews.compactMap { $0 as? UISegmentedControl }.first)
+        try selectDuringPush(session, stacks[0]) {
+            control.selectedSegmentIndex = 1
+            for case let target as NSObject in control.allTargets {
+                for name in control.actions(forTarget: target, forControlEvent: .valueChanged) ?? [] { target.perform(Selector(name), with: control) }
+            }
+        } selected: { navigation.primaryNavigation === stacks[1] }
+    }
+
+    /// Pushes Detail on `home` with animation, selects another tab before the
+    /// push ends, and waits for navigation to leave the transition.
+    private func selectDuringPush(_ session: ExactSession, _ home: UINavigationController, select: () -> Void, selected: () -> Bool) throws {
+        // The push must still be running when the selection's batch arrives.
+        UIView.setAnimationsEnabled(true)
+        defer { UIView.setAnimationsEnabled(false) }
+        try tapNode(session, "detail")
+        XCTAssertNotNil(home.transitionCoordinator, "the push is animating")
+        select()
+        var selectedMidPush = false
+        until("the other tab selected and the push over") {
+            if selected(), home.transitionCoordinator != nil { selectedMidPush = true }
+            return selected() && home.transitionCoordinator == nil
+        }
+        XCTAssertTrue(selectedMidPush, "the tab was selected while the push ran")
+        until("navigation left the transition") { !session.presenter.navigation.changing }
+        let transition = session.presenter.navigation.observation()["transition"] as? [String: Any]
+        XCTAssertEqual(transition?["phase"] as? String, "idle", "a programmatic push settles idle")
     }
 
     /// The edge swipe on a tab's stack: Exact stays the delegate of both pop

@@ -214,6 +214,53 @@ final class NativeFieldsMacTests: XCTestCase {
         node.applyProps(set: ["markup": "markdown"], clear: [])
         XCTAssertFalse(node.isNativeTextControl)
     }
+    /// LLP 1095 D4: the native editor's two background surfaces read Field;
+    /// author-drawn and Markdown editors keep their transparent native views.
+    func testTextareaThemeBackgroundAndRemoval() throws {
+        _ = NSApplication.shared
+        defer { ThemeRoles.apply(wireBatch([["op": "roles", "roles": [String: Any]()]])) }
+        ThemeRoles.apply(wireBatch([["op": "roles", "roles": ["Field": [[204, 255, 204, 255], [0, 51, 0, 255]]]]]))
+        let session = ExactApp.shared.makeSession(label: "textarea-theme")
+        defer { session.destroy() }
+        let node = NodeView(id: 1, kind: "textarea", presenter: session.presenter)
+        node.frame = NSRect(x: 0, y: 0, width: 240, height: 100)
+        node.applyProps(set: ["value": "Keep this text"], clear: [])
+        node.applyStyle([:])
+        let editor = try XCTUnwrap(node.textArea)
+        let scroll = try XCTUnwrap(node.textAreaScroll)
+        editor.setSelectedRange(NSRange(location: 5, length: 4))
+        let inset = editor.textContainerInset
+        for (name, rgb) in [(NSAppearance.Name.aqua, [204.0, 255, 204]), (.darkAqua, [0.0, 51, 0])] {
+            let appearance = try XCTUnwrap(NSAppearance(named: name))
+            appearance.performAsCurrentDrawingAppearance {
+                for color in [editor.backgroundColor, scroll.backgroundColor] {
+                    let channels = color.usingColorSpace(.sRGB)!
+                    for (got, want) in zip([channels.redComponent, channels.greenComponent, channels.blueComponent], rgb) {
+                        XCTAssertEqual(got, want / 255, accuracy: 0.001, name.rawValue)
+                    }
+                }
+            }
+        }
+        XCTAssertTrue(editor.drawsBackground)
+        XCTAssertTrue(scroll.drawsBackground)
+        XCTAssertEqual(scroll.borderType, .bezelBorder)
+        ThemeRoles.apply(wireBatch([["op": "roles", "roles": [String: Any]()]]))
+        node.applyStyle([:])
+        XCTAssertEqual(editor.backgroundColor, NSTextView().backgroundColor)
+        XCTAssertEqual(scroll.backgroundColor, NSScrollView().backgroundColor)
+        XCTAssertEqual(editor.string, "Keep this text")
+        XCTAssertEqual(editor.selectedRange(), NSRange(location: 5, length: 4))
+        XCTAssertEqual(editor.textContainerInset, inset)
+        ThemeRoles.apply(wireBatch([["op": "roles", "roles": ["Field": [255, 0, 0, 255]]]]))
+        node.applyStyle(["appearance": .string("none"), "background_color": .array([.number(0), .number(0), .number(255), .number(255)])])
+        XCTAssertFalse(editor.drawsBackground)
+        XCTAssertFalse(scroll.drawsBackground)
+        node.applyProps(set: ["markup": "markdown"], clear: [])
+        node.applyStyle([:])
+        XCTAssertFalse(editor.drawsBackground)
+        XCTAssertFalse(scroll.drawsBackground)
+    }
+
     /// LLP 1104 D6: AppKit asks only the first responder for a ring, so a
     /// bare field (the field editor is first responder) and any textarea
     /// (its text view sits in a clip view) show Exact's ring; checked by
@@ -433,7 +480,7 @@ final class NativeFieldsMacTests: XCTestCase {
               input testId="bare" appearance="none" value="Inherited"
               button testId="more" press=show
                 text "More"
-              when expanded
+              if expanded
                 input testId="new-font" font-size=31 value="New font"
 
         """

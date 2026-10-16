@@ -1,7 +1,5 @@
-//! The web host under the neutral look (LLP 1115.000 D4 part B). A binary of
-//! its own: the look is the process's (the role table's column,
-//! `roles::set_column`), and every other test of this host reads Apple's
-//! pairs beside it. One test, so nothing here boots while the switch moves.
+//! Web boots use neutral roles and metrics without a page-supplied selector.
+use exact_kernel::style::roles::{self, Column};
 use exact_runner::{DataError, DataSource, Value};
 use exact_web::abi::Bridge;
 
@@ -12,16 +10,10 @@ impl DataSource for NoData {
     }
 }
 
-/// A page whose stylesheet is the neutral one says so in the facts word it
-/// boots with (bit 25, navigation.js `foldBits`). From then a role falls
-/// back to the table's neutral column, and each element is told what the
-/// neutral sheet has to know and CSS cannot say: which controls it draws
-/// (their appearance is the platform's), and which rows the author wrote
-/// where it would draw over an implied or inherited one. Before that, and
-/// on a page built `EXACT_WEB_LOOK=apple`, which never says it, the page is
-/// told none of it.
+/// The sheet receives control and authored-row metadata on every web boot,
+/// including callers that supply no preferences word.
 #[test]
-fn a_page_in_the_neutral_look_boots_the_neutral_column_and_is_told_what_its_sheet_draws() {
+fn a_web_boot_uses_neutral_roles_and_marks_without_a_look_fact() {
     // A file control's picker is a capability the app links (LLP 1047).
     exact_web::link(exact_web_capabilities::ALL);
     let plan = contract::compile(
@@ -65,9 +57,11 @@ fn a_page_in_the_neutral_look_boots_the_neutral_column_and_is_told_what_its_shee
     )
     .unwrap()
     .encode();
-    let boot = |facts: u32| {
+    let boot = |facts: Option<u32>| {
         let mut bridge: Bridge<NoData> = Bridge::new();
-        bridge.set_preferences(facts);
+        if let Some(facts) = facts {
+            bridge.set_preferences(facts);
+        }
         let len = bridge.boot(&plan, NoData, 390.0, 844.0, "/");
         String::from_utf8_lossy(bridge.output_bytes(len as usize)).into_owned()
     };
@@ -81,19 +75,11 @@ fn a_page_in_the_neutral_look_boots_the_neutral_column_and_is_told_what_its_shee
         batch[start..end].to_string()
     };
 
-    // As every page boots today: Apple's pairs, and no mark.
-    let apple = boot(0);
-    assert!(
-        apple.contains("var(--exact-separator, light-dark(#3c3c431f, #54545880))"),
-        "{apple}"
-    );
-    assert!(
-        !apple.contains("data-exact-control") && !apple.contains("data-exact-said"),
-        "{apple}"
-    );
-
-    // The neutral page's facts: the fold's bits and the look's.
-    let neutral = boot(1 << 25);
+    roles::set_column(Column::Apple);
+    let neutral = boot(None);
+    assert_eq!(roles::column(), Column::Neutral);
+    roles::set_column(Column::Apple);
+    assert_eq!(boot(Some(0)), neutral);
     assert!(
         neutral.contains("var(--exact-separator, light-dark(#0000001f, #ffffff29))"),
         "a role's fallback is the neutral column's: {neutral}"
@@ -125,7 +111,7 @@ fn a_page_in_the_neutral_look_boots_the_neutral_column_and_is_told_what_its_shee
         "a determinate bar's colour is no ring's"
     );
     // A platform button's written size, which the look's floor yields to; an
-    // unsized button keeps the floor, and the old look is told nothing.
+    // unsized button keeps the floor.
     assert!(!created(&neutral, "unsized").contains("data-exact-said"));
     assert!(
         created(&neutral, "sized").contains("\"data-exact-said\":\"width height\""),
@@ -137,9 +123,8 @@ fn a_page_in_the_neutral_look_boots_the_neutral_column_and_is_told_what_its_shee
         "{}",
         created(&neutral, "short")
     );
-    assert!(!created(&apple, "sized").contains("data-exact-said"));
     // LLP 1115.000 D16: a list whose rows are cells carries Contract's mark
-    // in both looks, a list whose author opted out does not, and a row is
+    // on every boot, a list whose author opted out does not, and a row is
     // told which of its edges its author wrote (`none` is written too), so
     // the sheet draws no separator of its own there.
     // LLP 1115.000 D6: Contract's mark on a button that styles its own disabled state.
@@ -149,12 +134,10 @@ fn a_page_in_the_neutral_look_boots_the_neutral_column_and_is_told_what_its_shee
         created(&neutral, "own-off")
     );
     assert!(!created(&neutral, "off").contains("data-disabledstyled"));
-    for page in [&neutral, &apple] {
-        let rows = created(page, "rows");
-        assert!(rows.contains("\"data-listrows\":\"true\""), "{rows}");
-        assert!(!created(page, "own-rows").contains("data-listrows"));
-        assert!(!created(page, "list").contains("data-listrows"));
-    }
+    let rows = created(&neutral, "rows");
+    assert!(rows.contains("\"data-listrows\":\"true\""), "{rows}");
+    assert!(!created(&neutral, "own-rows").contains("data-listrows"));
+    assert!(!created(&neutral, "list").contains("data-listrows"));
     assert!(!created(&neutral, "plain-row").contains("data-exact-said"));
     assert!(
         created(&neutral, "lined-row").contains("\"data-exact-said\":\"border-bottom\""),

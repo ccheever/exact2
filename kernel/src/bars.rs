@@ -26,11 +26,25 @@
 //! ([`Kernel::root_tabs`]). A tablist or a panel inside a route is that
 //! route's, never the root's.
 
-use crate::control::ControlKind;
 use crate::generated::{Appearance, Display, NodeType, PropId, StyleId};
 use crate::id::ViewId;
 use crate::kernel::{Kernel, NodeRef};
 use crate::props::PropValue;
+
+// Paint predicates are broader than the projection rules below.
+impl NodeRef<'_> {
+    /// The neutral sheet removes an ordinary bar button's edge anywhere
+    /// below a direct route header, including nested authored containers.
+    pub fn inside_neutral_header(&self) -> bool {
+        self.arena.inside_neutral_header(self.slot)
+    }
+
+    /// A direct controlled tab of the neutral sheet, independently of
+    /// whether a navigation host projects its tablist or resolves its target.
+    pub fn is_neutral_tab(&self) -> bool {
+        self.arena.is_neutral_tab(self.slot)
+    }
+}
 
 /// What the rule asks of a node: bits, with a heading's level above them
 /// ([`fact::LEVEL`]).
@@ -43,8 +57,7 @@ pub mod fact {
     pub const TABLIST: u32 = 1 << 2;
     /// It hears `press`.
     pub const PRESS: u32 = 1 << 3;
-    /// A button that opens a popover: it names one with `popovertarget`,
-    /// and not to hide it.
+    /// A button whose invocation opens a popover (`Invocation::opens_popover`).
     pub const MENU: u32 = 1 << 4;
     /// Its `id` is the one the navigation root names as the stack's Back
     /// control (`navigationBack`).
@@ -354,11 +367,6 @@ struct Live<'a> {
     pressed: &'a dyn Fn(ViewId) -> bool,
 }
 
-fn is_button(node: &NodeRef<'_>) -> bool {
-    node.node_type == NodeType::Pressable
-        || ControlKind::of(node.node_type, node.props) == Some(ControlKind::Button)
-}
-
 impl Tree for Live<'_> {
     type Node = ViewId;
     fn facts(&self, id: ViewId) -> u32 {
@@ -382,9 +390,7 @@ impl Tree for Live<'_> {
         set(role == Some("tablist"), fact::TABLIST);
         set((self.pressed)(id), fact::PRESS);
         set(
-            is_button(&node)
-                && props.str(PropId::Popovertarget).is_some()
-                && props.str(PropId::Popovertargetaction) != Some("hide"),
+            crate::Invocation::of(self.kernel, &node).is_some_and(|i| i.opens_popover()),
             fact::MENU,
         );
         set(

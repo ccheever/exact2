@@ -8,7 +8,7 @@ component App
     column
       text `${n}` testId="label"
       button "inc" press=inc testId="inc"
-      when n > 1
+      if n > 1
         button "extra" press=inc testId="extra"
 
 test "missing testId"

@@ -2,20 +2,8 @@
 use exact_kernel::{motion::motion_node, NodeKey, PropId};
 use exact_linux::{presenter::PainterChoice, Presenter};
 use exact_motion::{Property, Value};
-use exact_runner::{DataError, DataSource};
 use std::path::PathBuf;
 
-#[derive(Default)]
-struct Empty;
-impl DataSource for Empty {
-    fn query(
-        &mut self,
-        name: &str,
-        _: &[exact_runner::Value],
-    ) -> Result<exact_runner::Value, DataError> {
-        Err(DataError::UnknownSource(name.into()))
-    }
-}
 const APP: &str = r#"component App
   state x = 20
   state y = 10
@@ -58,7 +46,7 @@ const APP: &str = r#"component App
     draft = value
   view
     box width="100%" height="100%"
-      when showing
+      if showing
         box testId="clip" position="absolute" left=left top=40 width="60%" height=160 overflow="hidden" box-sizing="border-box" padding=0 border-width=0
           box id="target" testId="target" width="100%" height="100%" box-sizing="border-box" margin=0 padding=0 border-width=0 translate=`${x}px ${y}px` scale=zoom transition="translate -exact-spring(300,30,1), scale -exact-spring(300,30,1)"
             box testId="handle" position="absolute" left=0 top=0 width="100%" height="100%" transformDragFor="target" transformgeometry=geometry transformrelease=release touch-action="none" disabled=disabled
@@ -83,10 +71,10 @@ const APP: &str = r#"component App
         text `${boxWidth}` testId="boxWidth"
         text `${portWidth}` testId="portWidth"
 "#;
-fn boot(source: &str) -> Presenter<Empty> {
+fn boot(source: &str) -> Presenter<()> {
     let (p, error) = Presenter::boot_with(
         &contract::compile(source).unwrap().encode(),
-        Empty,
+        (),
         (400., 500.),
         1.,
         PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
@@ -96,13 +84,13 @@ fn boot(source: &str) -> Presenter<Empty> {
     assert!(error.is_none(), "{error:?}");
     p
 }
-fn key(p: &Presenter<Empty>, name: &str) -> NodeKey {
+fn key(p: &Presenter<()>, name: &str) -> NodeKey {
     p.host().kernel().find_by_test_id(name)[0]
 }
-fn id(p: &Presenter<Empty>, name: &str) -> u32 {
+fn id(p: &Presenter<()>, name: &str) -> u32 {
     p.host().kernel().node_by_key(key(p, name)).unwrap().id
 }
-fn text<'a>(p: &'a Presenter<Empty>, name: &str) -> &'a str {
+fn text<'a>(p: &'a Presenter<()>, name: &str) -> &'a str {
     p.host()
         .kernel()
         .node(id(p, name))
@@ -111,14 +99,14 @@ fn text<'a>(p: &'a Presenter<Empty>, name: &str) -> &'a str {
         .str(PropId::Text)
         .unwrap()
 }
-fn press(p: &mut Presenter<Empty>, name: &str) {
+fn press(p: &mut Presenter<()>, name: &str) {
     p.tap(id(p, name)).unwrap();
 }
-fn held(p: &Presenter<Empty>, target: NodeKey) -> [bool; 2] {
+fn held(p: &Presenter<()>, target: NodeKey) -> [bool; 2] {
     [Property::Translate, Property::Scale]
         .map(|prop| p.host().engine().is_held(motion_node(target), prop))
 }
-fn recognize(p: &mut Presenter<Empty>) -> NodeKey {
+fn recognize(p: &mut Presenter<()>) -> NodeKey {
     let target = key(p, "target");
     assert!(p.pointer_down(80., 80., 0.).unwrap());
     assert!(p.pointer_move(86., 86., 10.).unwrap());
@@ -297,7 +285,7 @@ fn unrelated_typing_preserves_contact_and_negative_pan_velocity_is_parent_space(
 
 #[test]
 fn ancestor_scroll_changes_mapping_without_repeating_identical_dimensions() {
-    let start = APP.find("      when showing").unwrap();
+    let start = APP.find("      if showing").unwrap();
     let end = APP.find("      column position").unwrap();
     let body = APP[start..end]
         .lines()

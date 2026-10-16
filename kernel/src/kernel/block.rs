@@ -3,8 +3,8 @@
 //! A host shows some subtrees of one page in views of their own: a route in
 //! a split's pane, a modal route in a sheet. Each is laid out in a box that
 //! is not the window, and the host says which: a width and a height, each
-//! the size (a pane reports its own) or a maximum (a sheet is as large as
-//! its content, up to it). The kernel learns nothing else of panes or
+//! the size (a pane reports its own), a maximum, or a content-fit limit
+//! that an authored size may exceed. The kernel learns nothing else of panes or
 //! sheets, and where the host puts the result is the host's.
 //!
 //! While a node has a block it is out of its parent's layout, as a box in
@@ -35,13 +35,16 @@ pub enum BlockAxis {
     Is(f32),
     /// The block is at most this long, and as long as its content: a sheet's.
     AtMost(f32),
+    /// An automatic size fits its content under this limit. An authored
+    /// size or minimum may exceed it; percentages still use this basis.
+    Fit(f32),
 }
 
 impl BlockAxis {
     /// The length the host gave, the size or the maximum.
     pub fn length(self) -> f32 {
         match self {
-            BlockAxis::Is(v) | BlockAxis::AtMost(v) => v,
+            BlockAxis::Is(v) | BlockAxis::AtMost(v) | BlockAxis::Fit(v) => v,
         }
     }
 }
@@ -122,7 +125,9 @@ pub(crate) fn publication_start(arena: &mut NodeArena, root: u32) -> (bool, bool
 /// apply. `fit-content` is what CSS gives an absolutely positioned box with
 /// no inset, and the engine sizes one before it lays its children out, so
 /// their percentages have their basis: under a maximum width a root that
-/// is in flow is laid out as such a box, at its static position.
+/// is in flow is laid out as such a box, at its static position. `Fit`
+/// uses the same placement, but supplies a ceiling only for an automatic
+/// size; CSS's own minimum can exceed that ceiling.
 pub(crate) fn apply(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
     let Some(block) = arena.blocks.get(slot) else {
         return;
@@ -147,19 +152,23 @@ pub(crate) fn apply(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
             *margin = Lpa::length(0.0);
         }
     };
-    if let BlockAxis::AtMost(most) = block.width {
+    if let BlockAxis::AtMost(most) | BlockAxis::Fit(most) = block.width {
         unplaced(&mut s.inset.left, &mut s.margin.left);
         unplaced(&mut s.inset.right, &mut s.margin.right);
         if in_flow {
             s.position = Position::Absolute;
             (s.inset.top, s.inset.bottom) = (Lpa::auto(), Lpa::auto());
         }
-        s.max_size.width = ceiling(most, edges.horizontal_axis_sum(), s.max_size.width, most);
+        if matches!(block.width, BlockAxis::AtMost(_)) || s.size.width.is_auto() {
+            s.max_size.width = ceiling(most, edges.horizontal_axis_sum(), s.max_size.width, most);
+        }
     }
-    if let BlockAxis::AtMost(most) = block.height {
+    if let BlockAxis::AtMost(most) | BlockAxis::Fit(most) = block.height {
         unplaced(&mut s.inset.top, &mut s.margin.top);
         unplaced(&mut s.inset.bottom, &mut s.margin.bottom);
-        s.max_size.height = ceiling(most, edges.vertical_axis_sum(), s.max_size.height, most);
+        if matches!(block.height, BlockAxis::AtMost(_)) || s.size.height.is_auto() {
+            s.max_size.height = ceiling(most, edges.vertical_axis_sum(), s.max_size.height, most);
+        }
     }
 }
 
@@ -232,7 +241,7 @@ impl Kernel {
 
     /// The used size of `view`'s block as last laid out: the given length
     /// where the block is the size, and where it is a maximum the root's
-    /// border box and margins, at most the maximum. Zero while the root is
+    /// border box and margins, clamped only for `AtMost`. Zero while the root is
     /// hidden; `None` when `view` has no block.
     pub fn host_block_size(&self, view: ViewId) -> Option<(f32, f32)> {
         let slot = self.arena.slot_of(view)?;
@@ -330,6 +339,7 @@ impl Kernel {
         let axis = |axis: BlockAxis, end: f32| match axis {
             BlockAxis::Is(length) => length,
             BlockAxis::AtMost(most) => end.clamp(0.0, most),
+            BlockAxis::Fit(_) => end.max(0.0),
         };
         (
             axis(block.width, l.location.x + l.size.width + l.margin.right),

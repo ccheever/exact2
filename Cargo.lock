@@ -665,6 +665,8 @@ dependencies = [
  "exact-motion",
  "exact-plan",
  "exact-runner",
+ "exact-tamber",
+ "libc",
  "serde_json",
  "sha2",
 ]
@@ -703,6 +705,7 @@ dependencies = [
  "exact-motion",
  "exact-num",
  "exact-plan",
+ "exact-tamber",
  "icu_locale",
  "serde_json",
  "sha2",
@@ -717,6 +720,7 @@ name = "contract-types"
 version = "0.1.0"
 dependencies = [
  "contract-syntax",
+ "exact-num",
  "exact-plan",
  "exact-route",
 ]
@@ -1124,6 +1128,7 @@ dependencies = [
  "exact-textflow",
  "ibex2",
  "serde_json",
+ "url",
 ]
 
 [[package]]
@@ -1352,6 +1357,7 @@ dependencies = [
  "exact-data",
  "exact-grants",
  "exact-kernel",
+ "exact-linux",
  "exact-markdown",
  "exact-motion",
  "exact-plan",
@@ -1379,6 +1385,7 @@ dependencies = [
  "skrifa",
  "swash",
  "tiny-skia",
+ "url",
  "vello",
  "wgpu 29.0.4",
  "windows-sys 0.61.2",
@@ -1539,6 +1546,8 @@ dependencies = [
  "libc",
  "serde_json",
  "sha2",
+ "url",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1576,6 +1585,16 @@ name = "exact-svg-raster"
 version = "0.1.0"
 dependencies = [
  "exact-svg-filter",
+]
+
+[[package]]
+name = "exact-tamber"
+version = "0.1.0"
+dependencies = [
+ "exact-color",
+ "exact-kernel",
+ "exact-num",
+ "serde_json",
 ]
 
 [[package]]
@@ -4882,6 +4901,25 @@ dependencies = [
  "exact-web",
  "exact-web-capabilities",
  "textflow-data",
+]
+
+[[package]]
+name = "theme-fixture-apple"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-apple",
+ "exact-bake",
+ "exact-logic",
+ "theme-fixture-data",
+]
+
+[[package]]
+name = "theme-fixture-data"
+version = "0.1.0"
+dependencies = [
+ "exact-plan",
+ "exact-runner",
 ]
 
 [[package]]

@@ -8,10 +8,10 @@ use exact_runner::{
 
 const APP: &str = r#"shape Post
   id: number
-  cards: list<number>
+  cards: number[]
 component App
   state shown = 0
-  resource posts = posts() as shape list<Post>
+  resource posts = posts() as shape Post[]
   action go(n: number)
     shown = n
     scrollIntoView("feed", n, block="center")
@@ -23,12 +23,12 @@ component App
     scrollIntoView("strip", n, row=post, inline="center", block="start")
   view
     list id="feed" virtualized=true height=600 width=400 overflow-x="hidden" estimated-item-height=100 testId="feed"
-      each p in posts key=p.id
+      for p in posts key=p.id
         column width="100%" testId=`post-${p.id}`
           text `${p.id}` height=40
-          when p.id % 10 == 0
+          if p.id % 10 == 0
             list id="strip" virtualized=true display="flex" height=120 overflow-x="scroll" overflow-y="hidden" estimated-item-width=100
-              each t in p.cards key=t
+              for t in p.cards key=t
                 text `${t}` width=60 height=100
 "#;
 
@@ -344,9 +344,9 @@ fn a_card_in_a_strip_in_a_row_far_away_brings_both_into_view() {
 fn a_scroll_event_restores_the_first_visible_key_and_offset_after_remount() {
     let source = r#"shape Post
   id: number
-  cards: list<number>
+  cards: number[]
 component App
-  resource posts = posts() as shape list<Post>
+  resource posts = posts() as shape Post[]
   state shown = true
   state saved = none
   state within = 0
@@ -364,9 +364,9 @@ component App
         within = 0
   view
     column
-      when shown
+      if shown
         list id="feed" virtualized=true height=600 width=400 estimated-item-height=100 scroll=moved
-          each p in posts key=p.id
+          for p in posts key=p.id
             text `${p.id}` height=(40 + p.id % 80)
 "#;
     for key in ["p.id", "`${p.id}`"] {

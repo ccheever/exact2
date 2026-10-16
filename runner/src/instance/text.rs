@@ -84,11 +84,16 @@ fn hidden(n: &NodeInst, plan: &Plan) -> bool {
 /// Top-down equivalent of AppKit's `textSelectable` walk. A nearer
 /// authored value wins over a control; a nearer control wins over an
 /// ancestor's value. Document/chrome defaults matter only without either.
+/// Text the reader can neither see nor reach takes no part, as in Chrome
+/// and AppKit's own selection: computed `visibility: hidden` (inherited, a
+/// nearer `visible` shows again), and `inert` here or above.
 #[derive(Clone, Copy, Default)]
 struct Selection {
     explicit: Option<bool>,
     document: bool,
     chrome: bool,
+    hidden: bool,
+    inert: bool,
 }
 impl Selection {
     fn at(self, n: &NodeInst, plan: &Plan, policy: ListTextPolicy) -> Self {
@@ -138,10 +143,17 @@ impl Selection {
             None | Some("auto") => {}
             Some(_) => next.explicit = Some(true),
         }
+        if let Some(visibility) = n
+            .bound_style(plan, StyleId::Visibility)
+            .and_then(Value::as_str)
+        {
+            next.hidden = visibility == "hidden";
+        }
+        next.inert |= n.bound_prop(plan, PropId::Inert).and_then(Value::as_bool) == Some(true);
         next
     }
     fn selectable(self) -> bool {
-        self.explicit.unwrap_or(self.document || !self.chrome)
+        !self.hidden && !self.inert && self.explicit.unwrap_or(self.document || !self.chrome)
     }
 }
 
@@ -228,8 +240,9 @@ impl Tree {
     }
 
     /// Text for all rows, or two stable UTF-16 endpoints, without mutation.
-    /// Text the reader cannot select (`user-select: none`) is left out; it
-    /// still counts toward an endpoint's paragraph ordinal.
+    /// Text the reader cannot select (`user-select: none`, `visibility:
+    /// hidden`, `inert`) is left out; it still counts toward an endpoint's
+    /// paragraph ordinal.
     pub fn list_text(
         &self,
         u: &mut Update<'_>,

@@ -247,12 +247,13 @@ fn containing_width(kernel: &Kernel, view: ViewId, viewport: f64) -> f64 {
         at = parent.parent;
     }
     ancestors.into_iter().rev().fold(viewport, |basis, node| {
-        let [_, right, _, left] = node.style.border_widths();
+        let style = node.computed_style(exact_kernel::StyleMask::EMPTY);
+        let [_, right, _, left] = style.border_widths();
         (node.frame.width as f64
             - left as f64
             - right as f64
-            - length(kernel, node.style.padding_left, basis)
-            - length(kernel, node.style.padding_right, basis))
+            - length(kernel, style.padding_left, basis)
+            - length(kernel, style.padding_right, basis))
         .max(0.)
     })
 }
@@ -1165,7 +1166,7 @@ mod tests {
                 Ok(exact_runner::Value::list(vec![]))
             }
         }
-        let plan = contract::compile("component App\n  resource rows = rows() as shape list<number>\n  view\n    column width=200\n      list virtualized=true width=\"50%\" height=100 padding-left=\"10%\" padding-right=\"10%\" box-sizing=\"border-box\"\n        each x in rows key=x\n          text `${x}`\n").unwrap();
+        let plan = contract::compile("component App\n  resource rows = rows() as shape number[]\n  view\n    column width=200\n      list virtualized=true width=\"50%\" height=100 padding-left=\"10%\" padding-right=\"10%\" box-sizing=\"border-box\"\n        for x in rows key=x\n          text `${x}`\n").unwrap();
         let (host, error) = Host::boot(
             &plan.encode(),
             Empty,
@@ -1205,7 +1206,7 @@ mod tests {
             format!("list virtualized=true width=200 height=100 overflow-x=\"hidden\" padding-top={below} padding-bottom={below}"),
             format!("list virtualized=true display=\"flex\" width=200 height=100 overflow-x=\"scroll\" overflow-y=\"hidden\" padding-left={below} padding-right={below}"),
         ] {
-            let source = format!("component App\n  resource rows = rows() as shape list<number>\n  view\n    column width=200\n      {list}\n        each x in rows key=x\n          text `${{x}}` width=40 height=20\n");
+            let source = format!("component App\n  resource rows = rows() as shape number[]\n  view\n    column width=200\n      {list}\n        for x in rows key=x\n          text `${{x}}` width=40 height=20\n");
             let plan = contract::compile(&source).unwrap();
             let (mut host, error) = Host::boot(
                 &plan.encode(),

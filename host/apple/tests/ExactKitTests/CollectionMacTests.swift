@@ -30,6 +30,7 @@ final class CollectionMacTests: XCTestCase {
             ["op": "roots", "ids": [1]],
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 200.0],
             ["op": "frame", "id": 2, "x": 10.0, "y": 20.0, "w": 280.0, "h": 72.0],
+            contentOp(1, 300, 200, padding: [20, 10, 0, 10]),
             ["op": "content", "id": 1, "w": 300.0, "h": 3020.0]
         ]))
         return (p, p.views[1]!)
@@ -69,9 +70,9 @@ final class CollectionMacTests: XCTestCase {
               button press=restore testId="restore"
                 text "Restore"
               text `${within}` testId="within"
-              when shown
+              if shown
                 list id="feed" testId="feed" virtualized=true estimated-item-height=100 height=300 width=400 border-top="10px solid black" scroll=moved
-                  each n in [\((0..<80).map(String.init).joined(separator: ", "))] key=n
+                  for n in [\((0..<80).map(String.init).joined(separator: ", "))] key=n
                     text `${n}` height=100
 
         """
@@ -114,6 +115,23 @@ final class CollectionMacTests: XCTestCase {
         XCTAssertTrue(CSSCursor.value("grabbing") === NSCursor.closedHand)
         XCTAssertTrue(CSSCursor.value("pointer") === NSCursor.pointingHand)
         XCTAssertNil(CSSCursor.value("auto"))
+        // The resize keywords are macOS 15's frame-resize cursors, as Chrome
+        // and Safari draw them there: an edge or a corner moves outward, a
+        // two-way keyword both ways, and a divider is a column or a row.
+        guard #available(macOS 15, *) else { return }
+        let outward: [(String, NSCursor.FrameResizePosition)] = [
+            ("n-resize", .top), ("e-resize", .right), ("s-resize", .bottom), ("w-resize", .left),
+            ("ne-resize", .topRight), ("nw-resize", .topLeft), ("se-resize", .bottomRight), ("sw-resize", .bottomLeft),
+        ]
+        for (name, position) in outward {
+            XCTAssertTrue(CSSCursor.value(name) === NSCursor.frameResize(position: position, directions: .outward), name)
+        }
+        let both: [(String, NSCursor.FrameResizePosition)] = [("ns-resize", .top), ("ew-resize", .left), ("nesw-resize", .topRight), ("nwse-resize", .topLeft)]
+        for (name, position) in both {
+            XCTAssertTrue(CSSCursor.value(name) === NSCursor.frameResize(position: position, directions: .all), name)
+        }
+        XCTAssertTrue(CSSCursor.value("col-resize") === NSCursor.columnResize)
+        XCTAssertTrue(CSSCursor.value("row-resize") === NSCursor.rowResize)
     }
     func testOverflowAutoCreatesAnAutohidingScrollContainer() {
         _ = NSApplication.shared
@@ -343,6 +361,7 @@ final class CollectionMacTests: XCTestCase {
             ["op": "roots", "ids": [1]],
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 132.0],
             ["op": "frame", "id": 2, "x": 0.0, "y": 8.0, "w": 150.0, "h": 116.0],
+            contentOp(1, 400, 132, padding: [8, 0, 8, 0]),
             ["op": "content", "id": 1, "w": 3000.0, "h": 132.0]
         ]))
         let list = try XCTUnwrap(p.views[1])

@@ -433,8 +433,8 @@ WebSocket sending: the stream mapper receives a socket handle and a mutation
 sends ordered, never-coalesced protocol frames (LLP 1016.000 D7). T3 Code's
 subscribe/Ack/Ping protocol and queued Supabase/Convex consumers justify the
 expansion. No take named; the approved feature ruling admits it. Ambient
-WebSocket globals remain refused. The first slice is the web JS target's
-TypeScript adapter; D7 lists the remaining host deviations.
+WebSocket globals remain refused. TypeScript on the web JS target and the
+native hosts has it; D7 lists the host deviations and what remains.
 
 
 **Expanded (Charlie, 2026-10-08, issue #283; focus lane, 2026-10-12):**
@@ -456,6 +456,11 @@ names no take; `:focus-within` remains out.
   hydration, route payloads and cache policies are on the doing-list (the
   entry above). Still refused: progressive forms and server-driven UI.
 - Aquifer data tier, durable worker tier, capability capsules, durable capability grants.
+- A hardened-runtime exception on the app's own executable (Charlie, 2026-10-15):
+  `runtime.*` grants name helper executables only (LLP 1069.008 D9), until the
+  main executable has a consumer. The likely first, an in-process wasmtime loader
+  (LLP 1028), would need only `allow-jit` or `allow-unsigned-executable-memory`,
+  never `disable-library-validation`.
 - ~~Snapback / update economy.~~ Moved 2026-09-03 (Charlie: "you can pull out snapback
   for now"), in LLP 1026 D11's minimal form only: an installed app fetches a signed
   bundle of static files from a baked-in origin, after first pixel, into an on-disk
@@ -471,6 +476,11 @@ names no take; `:focus-within` remains out.
   state* — slots by name where their types still fit, settled resources where
   their arguments still match, the clock — and is otherwise a restart: no patch
   format, no generations, no identity matching. LLP 1007 §6; Charlie, 2026-08-28.)
+  **Admitted (Charlie, 2026-10-14; LLP 1121 §9 Q3), development builds only:** Tamber's
+  live table, which replaces design token values in a running development session without
+  a reload (LLP 1121 D13). It patches values only: no code, no slots, no tree. A scrub
+  session previews values for the length of a gesture. Release builds change their
+  design only by an update. Charlie's waiver; no take is named.
 - Islands and inline islands.
 - Cross-runtime shared data in production. **Measured exception (Charlie,
   2026-09-18, LLP 1027.003 §9):** all four isolated transfer/storage directions
@@ -821,6 +831,16 @@ highlight is (a shrink is feedback, not motion).
 **Tooling** — no Design Mode, no Guide system, no devtools UI, no blog/CMS. (The
 TUI host came off on 2026-10-06: §Surfaces.)
 
+**Admitted (Charlie, 2026-10-14; LLP 1122 §9 Q2 and LLP 1121 §9 Q3), development
+builds only:** the Tamber protocol server (`tamber/1`, LLP 1121 D13) and the design tool
+(LLP 1122). The tool is a web JS-target app, and every client edits through the protocol.
+Each host's development build gains an **inspect mode** and a build channel: four commands
+down (inspect, outline, hold, pin) and three reports up (status, a selection,
+unsupported); the tool never drives an app. Release builds carry none of it: no endpoint,
+no inspect mode, no build channel. Charlie's waiver; no take is named. Still refused:
+editing in release builds, a production inspect tier, layout and structure editing,
+captures of running apps, and a hosted relay.
+
 **Agent API** — 10 operations, not 90:
 
 `tree` · `screenshot` · `tap` · `type` · `state` · `layout` · `logs` · `clock` · `prefer` · `perf`
@@ -870,6 +890,11 @@ node to its source. The take: no new Contract syntax until formatting and naviga
 have landed (1035.005 §1's order), and `contract` blocks as executable assertions
 (LLP 1006 §8) stay off the doing-list. The witness, dataflow and any general
 provenance explorer stay refused.
+**Widened (Charlie, 2026-10-14; LLP 1122 §9 Q2), development builds only:** the Tamber
+server may also read the map, to join a build's inspect report with its source for the
+design tool (LLP 1122 D5). It records each file's source digest and each winning row's
+attribute span. A host still never reads a map, and no map is in a bake. The tool shows
+one selected node's provenance; a general provenance explorer stays refused.
 
 `clock` replaces a `wait` operation on purpose. If the motion graph is closed-form under
 a virtual clock, an agent advances time and reads the result; it never sleeps waiting for

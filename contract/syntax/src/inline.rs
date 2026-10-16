@@ -88,7 +88,7 @@ pub enum Owner {
     /// the root instance first renders, after boot settlement.
     Instance,
     /// A child used inside a region: arm `arm` of the region tagged `tag`
-    /// (an `each` row is arm 0; a `when`'s then/else and a `match`'s
+    /// (a `for` row is arm 0; an `if`'s then/else and a `match`'s
     /// some/none are arms 0 and 1) owns it, one value per arm instance.
     Arm {
         /// The innermost enclosing region's tag.

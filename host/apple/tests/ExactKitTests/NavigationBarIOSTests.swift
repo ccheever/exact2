@@ -257,8 +257,9 @@ final class NavigationBarIOSTests: XCTestCase {
     }
 
     func testHeaderOptOutRetiresAnActiveSearchProjection() throws {
-        try XCTSkipUnless(UIApplication.shared.connectedScenes.contains { $0 is UIWindowScene },
-                          "a search presentation completes only in a scene’s window")
+        guard UIApplication.shared.connectedScenes.contains(where: { $0 is UIWindowScene }) else {
+            throw missing("scene", "a search presentation completes only in a scene’s window")
+        }
         let session = try fixture("authored-header-search", module: false)
         let p = session.presenter
         // Isolate search retirement from the header-segment appearance regression.
@@ -324,7 +325,7 @@ final class NavigationBarIOSTests: XCTestCase {
         let header = try node(session, "header-home")
         XCTAssertTrue(header.isHidden, "the bar shows the header: its authored button is hidden")
         let reply = Agent(session: session).aim(["id": Int(compose.id), "aim": ["press": true]])
-        if (reply["error"] as? String)?.contains("foreground") == true { throw XCTSkip("the test host is in the background: a real touch's aim refuses it") }
+        if (reply["error"] as? String)?.contains("foreground") == true { throw missing("foreground", "the test host is in the background: a real touch's aim refuses it") }
         let aim = try XCTUnwrap(reply["aim"] as? [String: Any], "\(reply)")
         let w = try XCTUnwrap(aim["window"] as? [Double])
         let point = CGPoint(x: w[0], y: w[1])
@@ -383,8 +384,9 @@ final class NavigationBarIOSTests: XCTestCase {
     }
 
     /// LLP 1075.003 §9.6: a button whose one child is a filled box is an
-    /// image item drawn from it; a popover's invoker is an item whose menu
-    /// holds the popover's rows, each pressing its authored button.
+    /// image item drawn from it; a popover's invoker is an item whose menu,
+    /// titled by the popover's `aria-label`, holds the popover's rows, each
+    /// pressing its authored button.
     func testABadgeButtonIsAnImageItemAndAPopoverInvokerAMenuItem() throws {
         let session = try fixture("bar-badge-menu", module: false)
         let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
@@ -400,7 +402,10 @@ final class NavigationBarIOSTests: XCTestCase {
         let more = try XCTUnwrap(left.first { $0.accessibilityLabel == "More" }, "the popover's invoker is an item")
         let menu = try XCTUnwrap(more.menu, "with the popover as its menu")
         XCTAssertNil(more.action, "UIKit opens the menu on a tap")
-        XCTAssertTrue(menu.children.first is UIDeferredMenuElement, "rows read as it opens")
+        let section = try XCTUnwrap(menu.children.first as? UIMenu, "the popover's `aria-label` titles a section")
+        XCTAssertEqual(section.title, "Actions")
+        XCTAssertTrue(section.options.contains(.displayInline), "an inline section's heading, not the taller top-level title")
+        XCTAssertTrue(section.children.first is UIDeferredMenuElement, "rows read as it opens")
         let pop = try XCTUnwrap(session.presenter.carrying("popover").first { $0.props["id"] == "bar-menu" })
         let rows = session.presenter.menus.items(of: pop)
         let row = try XCTUnwrap(rows.first as? UIAction)
@@ -714,13 +719,17 @@ final class NavigationBarIOSTests: XCTestCase {
         spin(0.2)
         XCTAssertTrue(app.animated, "the app's animator ran, through the forwarded delegate")
         XCTAssertEqual(backs(session), 0, "no Back")
+        let phase = { (navigation.observation()["transition"] as? [String: Any])?["phase"] as? String }
+        XCTAssertFalse(navigation.changing, "the cancelled pop is over")
+        XCTAssertEqual(phase(), "cancelled")
         // Completed: the same animator, finished.
         app.interactive = false
         nav.popViewController(animated: true)
         until("the completed pop lands") { nav.transitionCoordinator == nil && nav.viewControllers.count == 1 }
         spin(0.2)
-        XCTAssertGreaterThan(app.shown, 0, "didShow forwarded after Exact's own")
+        XCTAssertGreaterThan(app.shown, 0, "didShow forwarded to the app")
         XCTAssertEqual(backs(session), 1, "Back once")
+        XCTAssertEqual(phase(), "completed")
     }
 
     func testTheModulesHatchesRunAtTheirMomentsAndActThroughAuthoredControls() throws {

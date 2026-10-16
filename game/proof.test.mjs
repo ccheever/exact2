@@ -402,15 +402,15 @@ test('steady residency skips no-device worlds and asserts only device-backed wor
 test('explicit focus in a commit precedes autofocus and its authored side effects', () => {
   const source=readFileSync(resolve(import.meta.dir,'../host/web/glue.js'),'utf8');
   // The commit's tail: explicit focus commands, then autofocus (6dbf594b moved autofocus into navigation.js).
-  const start=source.indexOf('  runFocusCommands(focusCommands,'), end=source.indexOf('  positionContexts(); presence.live?.after');
+  const start=source.indexOf('  for (const command of focusCommands)'), end=source.indexOf('  positionContexts(); presence.live?.after');
   expect(start).toBeGreaterThan(-1); expect(end).toBeGreaterThan(start);
   const code=runFocusCommands.toString()+';\n'+source.slice(start,end);
   const calls=[], explicit={id:'chosen',isConnected:true,matches:()=>false,getClientRects:()=>[{}],focus:()=>{calls.push('explicit');document.activeElement=explicit;}};
   const document={activeElement:null};
   // `inputHandlers` (the tail's route-arrival call, optional there) has no
   // part in the order under test, so it stands in as absent.
-  new Function('focusAutofocus','focusCommands','inputReady','root','inertAncestor','getComputedStyle','log','document','inputHandlers',code)(
-    ()=>{if(!document.activeElement) calls.push('autofocus side effect');},[{name:'focus',args:['chosen']}],true,{querySelectorAll:()=>[explicit]},()=>false,()=>({visibility:'visible'}),()=>{},document,undefined);
+  new Function('focusAutofocus','focusCommands','inputReady','root','inertAncestor','getComputedStyle','log','document','inputHandlers','popoverCommand',code)(
+    ()=>{if(!document.activeElement) calls.push('autofocus side effect');},[{name:'focus',args:['chosen']}],true,{querySelectorAll:()=>[explicit]},()=>false,()=>({visibility:'visible'}),()=>{},document,undefined,()=>{});
   expect(calls).toEqual(['explicit']);
 });
 
@@ -1133,7 +1133,7 @@ test.each(['in-tree','external','linked'])('R15 %s game compiles with contractio
     writeFileSync(resolve(probe,'Cargo.toml'),'[workspace]\n[package]\nname="flags-probe"\nversion="0.1.0"\nedition="2021"\n[lib]\npath="lib.rs"\n');
     writeFileSync(resolve(probe,'lib.rs'),'pub fn value() -> u32 { 1 }\n');
     writeFileSync(resolve(probe,'build.rs'),'fn main() { std::fs::write(std::env::var_os("EXACT_FLAGS_OUT").unwrap(), std::env::var("CARGO_ENCODED_RUSTFLAGS").unwrap()).unwrap(); }\n');
-    const env={...process.env,CARGO_HOME:resolve(root,'cargo'),CARGO_TARGET_DIR:resolve(root,'target'),CARGO_BUILD_BUILD_DIR:resolve(root,'build'),EXACT_FLAGS_OUT:output};
+    const env={...process.env,RUSTC_WRAPPER:'',CARGO_BUILD_RUSTC_WRAPPER:'',CARGO_HOME:resolve(root,'cargo'),CARGO_TARGET_DIR:resolve(root,'target'),CARGO_BUILD_BUILD_DIR:resolve(root,'build'),EXACT_FLAGS_OUT:output}; // no rustc wrapper from a Cargo config above the checkout: a caching one can skip the build script's run
     for(const key of ['RUSTFLAGS','CARGO_ENCODED_RUSTFLAGS','CARGO_BUILD_RUSTFLAGS'])delete env[key];
     const result=spawnSync('cargo',['check','--offline'],{cwd:probe,env,encoding:'utf8',timeout:60000});
     expect({status:result.status,stderr:result.status===0?'':result.stderr}).toEqual({status:0,stderr:''});

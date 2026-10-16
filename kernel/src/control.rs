@@ -467,7 +467,7 @@ impl Kernel {
     }
 
     /// A button's face (LLP 1069.011.000 D1), its children read as they now
-    /// stand (a `when` between them included); `None` for a node that is not
+    /// stand (an `if` between them included); `None` for a node that is not
     /// a custom or native button.
     pub fn press_face(&self, view: ViewId) -> Option<PressFace> {
         let slot = self.arena().slot_of(view)?;

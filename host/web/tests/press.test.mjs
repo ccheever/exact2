@@ -12,17 +12,17 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { Cdp } from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
-import { DEFAULT_LOOK, withLook } from '../look.mjs';
+import { withLook } from '../look.mjs';
+import { need } from '../../../scripts/coverage.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
 const { executable: chrome, unavailable } = chromium();
-if (unavailable) console.warn(`SKIP: ${unavailable}`);
-const check = unavailable ? (name, ...args) => test.skip(`${name} — ${unavailable}`, ...args) : test;
+const check = need('chrome', unavailable);
 
 // The stylesheet a default build's page has (look.mjs), with nodes as the host writes them: a card
 // (0.9) holding a button (0.5), a plain pressable (no row) in the card, and
 // a disabled button, and a native button with neither (its card's press is its own).
-const sheet = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8'), DEFAULT_LOOK).match(/<style>[\s\S]*?<\/style>/)[0];
+const sheet = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8')).match(/<style>[\s\S]*?<\/style>/)[0];
 const page = sheet + `
 <div id="exact-root" style="padding:20px">
   <div id="card" data-exact-on="press" style="scale:calc(var(--exact-scale,1) * var(--exact-press-factor,1))!important;--exact-press:0.9;width:300px;height:300px;padding:20px">
@@ -292,12 +292,15 @@ check('a pressable that declares no feedback dims while pressed; a row, a native
     const shown = (...ids) => evaluate(`${JSON.stringify(ids)}.map(id => getComputedStyle(document.getElementById(id)).opacity).join()`);
     const marked = (id, name) => evaluate(`document.getElementById('${id}').hasAttribute('${name}')`);
     // The left button down on a node (or at a point), what the named nodes show, then the button up where it presses nothing.
+    // Moving a held link away drags it, so each press below waits for the drag to end: a press during it is lost
+    await evaluate(`addEventListener('dragstart', () => { window.dragging = new Promise(ended => addEventListener('dragend', () => ended(), { once: true })); }, true)`);
     const held = async (at, ...ids) => {
       await mouse('mousePressed', typeof at === 'string' ? await centre(at) : at);
       const seen = await shown(...ids);
       const away = await centre('away');
       await mouse('mouseMoved', away);
       await mouse('mouseReleased', away);
+      await evaluate('window.dragging');
       return seen;
     };
     expect(await shown('box', 'custom', 'link', 'off')).toBe('1,1,1,0.5'); // at rest only a disabled custom button is dimmed
@@ -344,6 +347,7 @@ check('a pressable that declares no feedback dims while pressed; a row, a native
       const away = await centre('away');
       await mouse('mouseMoved', away);
       await mouse('mouseReleased', away);
+      await evaluate('window.dragging');
       return seen;
     };
     expect(await washed('row', 'row')).toBe('1,true');

@@ -1,4 +1,5 @@
 //! @ref LLP 1038 D6 — the browser's route visibility rule, without a view mirror.
+use exact_kernel::invocation::Action;
 use exact_kernel::{Kernel, PropId, ViewId};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -21,14 +22,21 @@ pub(crate) fn popover_invoker(kernel: &Kernel, id: ViewId) -> bool {
             || exact_kernel::ControlKind::of(node.node_type, node.props)
                 == Some(exact_kernel::ControlKind::Button)
         {
-            return node
-                .props
-                .str(PropId::Popovertarget)
-                .is_some_and(|target| !target.is_empty());
+            return invocation(kernel, id).is_some_and(|action| !dialog_command(action));
         }
         at = node.parent;
     }
     false
+}
+
+/// What the button `id` invokes, as HTML resolves it.
+fn invocation(kernel: &Kernel, id: ViewId) -> Option<Action> {
+    let node = kernel.node(id)?;
+    exact_kernel::Invocation::of(kernel, &node).map(|i| i.action)
+}
+
+fn dialog_command(action: Action) -> bool {
+    matches!(action, Action::ShowModal | Action::Close)
 }
 
 /// LLP 1035.001 D1, when the root's key matches no route: the stack is left
@@ -153,10 +161,8 @@ impl Navigation {
         }
         match dialog {
             false => popover_invoker(kernel, view).then_some(POPOVER_UNSUPPORTED),
-            true => kernel
-                .node(view)
-                .and_then(|node| node.props.str(PropId::Commandfor))
-                .is_some_and(|target| !target.is_empty())
+            true => invocation(kernel, view)
+                .is_some_and(dialog_command)
                 .then_some(DIALOG_UNSUPPORTED),
         }
     }

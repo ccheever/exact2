@@ -275,7 +275,7 @@ fn types(file: &Path) -> Result<bool, String> {
     );
     let lines = leanrun::memo(&work_dir(), &module, || {
         crate::types::build_checker()?;
-        leanrun::run_module(&module, &work_dir(), "verify-types")
+        leanrun::run_module_uncached(&module, &work_dir(), "verify-types")
     })?;
     let verdict = lines
         .iter()

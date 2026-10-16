@@ -18,6 +18,11 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate {
     private weak var presenter: Presenter?
     private weak var menus: MenuHost?
     private var interactions: [UInt32: UIContextMenuInteraction] = [:]
+    /// A sheet's mount's interaction, while a logical ancestor of its route
+    /// names a menu (LLP 1123 D2): UIKit gives a long press to the
+    /// interactions of the views it falls in, and the ancestor's own is on a
+    /// view behind the sheet.
+    private var mountInteractions: [ObjectIdentifier: UIContextMenuInteraction] = [:]
     private var recognizers: [ObjectIdentifier: Set<ObjectIdentifier>] = [:]
     /// Views parked with an interaction kept on them (`parked`).
     private var parkedViews = NSHashTable<UIView>.weakObjects()
@@ -41,6 +46,9 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate {
         /// to), its index there and its frame there (`home`, the last frame
         /// op's); whether a children op has dropped it.
         weak var preview: NodeView?
+        /// The view a long press in a sheet fell on, when the menu is a
+        /// logical ancestor's behind the sheet: its preview lifts that.
+        weak var touched: UIView?
         weak var homePopover: NodeView?
         weak var container: UIView?
         var inPopover = true
@@ -92,6 +100,7 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate {
         if !ExactEnv.agentMode {
             for v in presenter.carrying("contextPopover") where v.props["contextPopover"]?.isEmpty == false { wanted[v.id] = v }
         }
+        syncMounts(presenter, sources: Array(wanted.values))
         for (id, interaction) in interactions where wanted[id] == nil || interaction.view !== wanted[id] {
             // A commit in flight keeps its interaction until it completes.
             if let owner = open, owner.committed, owner.interaction === interaction { continue }
@@ -228,20 +237,48 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate {
     }
     private func log(_ line: String) { presenter?.session?.log(line) }
 
+    /// A mount takes an interaction while one of `sources` is a logical
+    /// ancestor of its route, and gives it back when none is.
+    private func syncMounts(_ presenter: Presenter, sources: [NodeView]) {
+        var live: Set<ObjectIdentifier> = []
+        for (mount, route) in presenter.modals.mounted {
+            guard sources.contains(where: { $0 !== route && presenter.logicallyWithin(route, $0) }) else { continue }
+            let key = ObjectIdentifier(mount)
+            live.insert(key)
+            if mountInteractions[key] == nil {
+                let interaction = UIContextMenuInteraction(delegate: self)
+                mount.addInteraction(interaction)
+                mountInteractions[key] = interaction
+            }
+        }
+        for (key, interaction) in mountInteractions where !live.contains(key) {
+            interaction.view?.removeInteraction(interaction)
+            mountInteractions[key] = nil
+        }
+    }
+
     func contextMenuInteraction(_ interaction: UIContextMenuInteraction, configurationForMenuAtLocation location: CGPoint) -> UIContextMenuConfiguration? {
-        guard let menus, let source = interaction.view as? NodeView, live(source),
-              let name = source.props["contextPopover"], menus.eligible(source) else { return nil }
+        guard let menus, let view = interaction.view else { return nil }
+        let source: NodeView, point: CGPoint, hit: UIView?
+        if let node = view as? NodeView {
+            source = node; point = location; hit = node.hitTest(location, with: nil)
+        } else if let mount = view as? PresentationMount, let found = mount.relay?.listener(mount.hitTest(location, with: nil), { $0.props["contextPopover"]?.isEmpty == false }) {
+            // A sheet's mount: its route's nearest logical ancestor with a
+            // menu, unless a node in the sheet is nearer (`MountRelay`)
+            source = found; point = mount.convert(location, to: found); hit = mount.hitTest(location, with: nil)
+        } else { return nil }
+        guard live(source), let name = source.props["contextPopover"], menus.eligible(source) else { return nil }
         // UIKit's row menu wins over text selection. An authored menu
         // nearer the hit still belongs to that node (LLP 1115.000 D11.6).
-        let hit = source.hitTest(location, with: nil)
-        guard !source.hitsNativeEditor(hit) else { return nil }
+        if view is NodeView ? NodeView.nativeEditor(hit, below: view) : NodeView.nativeInputOwns(hit, below: view) { return nil }
         if let hit = hit as? NodeView,
            let nearest = hit.contextMenuSource, nearest !== source { return nil }
         guard let pop = popover(named: name) else { log("context menu \(name) refused: no popover has that id"); return nil }
         // A press released before its menu showed never reached `willEnd`.
         if let previous = open { restore(previous) }
-        let owner = Open(source: source, popover: pop, name: name, point: location)
+        let owner = Open(source: source, popover: pop, name: name, point: point)
         owner.interaction = interaction
+        if !(view is NodeView) { owner.touched = hit }
         open = owner
         let configuration = UIContextMenuConfiguration(identifier: NSNumber(value: source.id), previewProvider: { [weak self, weak owner] in
             guard let self, let owner else { return nil }
@@ -307,9 +344,10 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate {
         guard let owner = open, let source = owner.source, live(source), source.window != nil,
               (configuration.identifier as? NSNumber)?.uint32Value == source.id else { return nil }
         let parameters = UIPreviewParameters()
-        let radius = source.layer.cornerRadius
-        if radius > 0 { parameters.visiblePath = UIBezierPath(roundedRect: source.bounds, cornerRadius: radius) }
-        return UITargetedPreview(view: source, parameters: parameters)
+        let shown = owner.touched.flatMap { $0.window == nil ? nil : $0 } ?? source
+        let radius = shown.layer.cornerRadius
+        if radius > 0 { parameters.visiblePath = UIBezierPath(roundedRect: shown.bounds, cornerRadius: radius) }
+        return UITargetedPreview(view: shown, parameters: parameters)
     }
     func contextMenuInteraction(_ interaction: UIContextMenuInteraction, configuration: UIContextMenuConfiguration, highlightPreviewForItemWithIdentifier identifier: NSCopying) -> UITargetedPreview? {
         targeted(configuration)
@@ -377,7 +415,7 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate {
             if let node = current as? NodeView, node.disabled || node.props["inert"] == "true" { return false }
             if current.isHidden, current !== pop { return false }
             if current === pop, pop.style["display"]?.string == "none" { return false }
-            view = current.superview
+            view = presenter.eventParent(of: current)
         }
         return true
     }

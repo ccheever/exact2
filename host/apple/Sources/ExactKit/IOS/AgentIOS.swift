@@ -38,19 +38,25 @@ extension Agent {
             var announcement = ready
             announcement["container"] = NSHomeDirectory()
             announcement["token"] = token
+            // @ref LLP 1012#summary — only pre-handshake startup retries. UIKit
+            // lifecycle reads and observers stay on the main thread; the worker
+            // waits off-main under one deadline, including inactive time.
+            let startup = AgentSocketStartup(active: UIApplication.shared.applicationState == .active)
+            let notifications = NotificationCenter.default
+            let observers = [
+                notifications.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in startup.setActive(true) },
+                notifications.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { _ in startup.setActive(false) },
+                notifications.addObserver(forName: UIApplication.willTerminateNotification, object: nil, queue: .main) { _ in startup.cancel() },
+            ]
             Thread {
-                let fd = socket(AF_INET, SOCK_STREAM, 0)
-                guard fd >= 0 else { return }
-                let connected = withUnsafePointer(to: &addr) {
-                    $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                        connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
-                    }
-                }
-                guard connected == 0 else {
-                    FileHandle.standardError.write(Data("exact: agent connect: \(String(cString: strerror(errno)))\n".utf8))
-                    close(fd)
+                let fd: Int32
+                do { fd = try startup.connect(to: addr) }
+                catch {
+                    DispatchQueue.main.async { observers.forEach(notifications.removeObserver) }
+                    FileHandle.standardError.write(Data("exact: agent startup: \(error)\n".utf8))
                     return
                 }
+                DispatchQueue.main.async { observers.forEach(notifications.removeObserver) }
                 out = FileHandle(fileDescriptor: fd, closeOnDealloc: false)
                 reply(announcement)
                 serve(fd: fd)
@@ -163,7 +169,8 @@ extension Agent {
                   let property = path.split(separator: ".").first else { return false }
             return ["bounds", "position", "transform", "sublayerTransform", "anchorPoint", "zPosition"].contains(String(property))
         }
-        var pending: [UIView] = [presenter.viewport]
+        // The document and every presentation's mount (LLP 1123 D2)
+        var pending: [UIView] = [presenter.viewport] + presenter.modals.mountRoots
         while let view = pending.popLast() {
             guard !view.isHidden, view.alpha > 0 else { continue }
             if view.layer.animationKeys()?.contains(where: { key in
@@ -397,7 +404,10 @@ extension Agent {
             }
             above = s.superview
         }
-        var scroll: [[String: Any]] = [["viewport": true, "sx": Agent.r2(vp.contentOffset.x), "sy": Agent.r2(vp.contentOffset.y)]]
+        // The viewport's scrolling, or none: a presentation's mount does not scroll (LLP 1123 D2)
+        let inViewport = presenter.port(of: host) === vp
+        var scroll: [[String: Any]] = [inViewport ? ["viewport": true, "sx": Agent.r2(vp.contentOffset.x), "sy": Agent.r2(vp.contentOffset.y)]
+                                                  : ["presentation": true, "sx": 0.0, "sy": 0.0]]
         scroll.append(contentsOf: chain.reversed())
         var clip: [[String: Any]] = []
         for (n, kind) in clippers.reversed() {
@@ -408,7 +418,7 @@ extension Agent {
         node["clip"] = clip
         // CSS `visibility: hidden` with nothing of it showing, or a hidden run (e28279b3b keeps the view).
         if hiddenBy == nil, !host.accessibilityExposed || presenter.inlineText(UInt32(id))?.hidden == true { hiddenBy = "visibility" }
-        var visible: [String: Any] = ["hidden": hiddenBy != nil, "inert": inertBy != nil, "inViewport": b.intersects(CGRect(origin: .zero, size: vp.bounds.size)), "clipped": clipped]
+        var visible: [String: Any] = ["hidden": hiddenBy != nil, "inert": inertBy != nil, "inViewport": b.intersects(presenter.reach(of: host)), "clipped": clipped]
         if let hiddenBy { visible["hiddenBy"] = hiddenBy }
         if let inertBy { visible["inertBy"] = inertBy }
         node["visible"] = visible
@@ -473,14 +483,14 @@ extension Agent {
         if req["scrollDrag"] != nil { return scrollDrag(req) }
         if view(req)?.placedAncestor?.placementHidden == true { return ["error": "placed child is hidden"] }
         if req["phase"] == nil, req["wheel"] == nil,
-           let node = view(req), node.isDescendant(of: presenter.viewport), presenter.groupedLists?.draws(node.id) != true,
+           let node = view(req), presenter.mounts(node), presenter.groupedLists?.draws(node.id) != true,
            // A swipe action's control sits past its row's edge until a swipe
            // reveals it; its tap is the action's (below), wherever it sits.
            !presenter.swipeActions.ownsAction(node.id) {
             guard let point = tapPoint(req, node: node) else {
                 return ["error": "tap #\(req["id"] ?? node.id): no visible text fragment; scroll it into view first"]
             }
-            if !CGRect(origin: .zero, size: presenter.viewport.bounds.size).contains(point) {
+            if !presenter.reach(of: node).contains(point) {
                 return ["error": "tap #\(node.id): its middle is outside the viewport; scroll it into view first"]
             }
         }
@@ -636,11 +646,12 @@ extension Agent {
                         let handled = target.handlers.contains(event)
                         if handled { presenter.contextmenu(target.id) }
                         // A node with only a popover that cannot open it is not the target.
-                        if !presenter.menus.agentContext(target) && !handled { next = node.superview; continue }
+                        if !presenter.menus.agentContext(target) && !handled { next = presenter.touchParent(of: node); continue }
                     } else { presenter.dblclick(target.id) }
                     return ["tapped": Int(target.id), "event": event, "injected": true, "at": at].merging(selection.map { ["selection": $0] } ?? [:]) { a, _ in a }
                 }
-                next = node.superview
+                // What a finger reaches, out of a sheet's mount too
+                next = presenter.touchParent(of: node)
             }
             if let selection { return ["tapped": Int((hit as? NodeView)?.id ?? v.id), "event": event, "delivery": "recognized", "selection": selection, "at": at] }
             return ["error": "no \(event) handler at view \(v.id)"]
@@ -717,7 +728,7 @@ extension Agent {
         }
         // Nothing settled the focus, as in `focusForPress`: the text being
         // edited loses it, and any other focus stays.
-        if !took && presenter.hasKeyboardEditor && !presenter.contextRetainsFocus(n ?? v) { presenter.viewport.endEditing(true) }
+        if !took && presenter.hasKeyboardEditor && !presenter.contextRetainsFocus(n ?? v) { presenter.endEditing() }
         var pressed: Any = NSNull()
         // An iPad's hardware keys held through the tap (gallery F20).
         let held = (req["modifiers"] as? String).map { $0.hasSuffix("+") || $0.isEmpty ? $0 : $0 + "+" } ?? ""
@@ -773,9 +784,12 @@ extension Agent {
         while let cur = up {
             if let n = cur as? NodeView {
                 if n.disabled { return .blocked(n) }
-                if n.takesPress { return n.bounds.contains(n.local(p)) ? .node(n) : .nothing }
+                if n.takesPress {
+                    let box = presenter.pressBox(of: n, from: node)
+                    return box.bounds.contains(box === n ? n.local(p) : box.convert(p, from: nil)) ? .node(n) : .nothing
+                }
             }
-            up = cur.superview
+            up = presenter.touchParent(of: cur)
         }
         return .nothing
     }
@@ -784,7 +798,7 @@ extension Agent {
     /// box in the viewport, the answer a point there, or the refusal.
     func addressedPoint(_ v: NodeView, box b: CGRect, in win: UIWindow) -> AddressedAim {
         let vp = presenter.viewport
-        let seen = b.intersection(CGRect(origin: .zero, size: vp.bounds.size))
+        let seen = b.intersection(presenter.reach(of: v))
         let window = { (q: CGPoint) in vp.convert(CGPoint(x: q.x + vp.contentOffset.x, y: q.y + vp.contentOffset.y), to: nil) }
         return Agent.addressedAim(v, middle: CGPoint(x: b.midX, y: b.midY), area: seen) { q in
             pressReach(v, at: window(q), in: win)
@@ -795,7 +809,7 @@ extension Agent {
     /// viewport it scrolls in, or off the window.
     func offscreen(_ v: NodeView, box b: CGRect, hit: UIView?) -> String? {
         let vp = presenter.viewport
-        if v.isDescendant(of: vp), !CGRect(origin: .zero, size: vp.bounds.size).contains(CGPoint(x: b.midX, y: b.midY)) {
+        if presenter.mounts(v), !presenter.reach(of: v).contains(CGPoint(x: b.midX, y: b.midY)) {
             return "its middle is outside the \(Agent.r2(vp.bounds.width))×\(Agent.r2(vp.bounds.height)) viewport; a finger would scroll it into view first"
         }
         return hit == nil ? "its middle is off the window" : nil
@@ -894,6 +908,8 @@ extension Agent {
     func type(_ req: [String: Any]) -> [String: Any] {
         guard let v = view(req), v.window != nil else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         guard !v.disabled else { return ["error": "view \(v.id) is disabled"] }
+        // An inert view takes no input, as a person cannot reach it (HTML inert; a modal presentation's background)
+        guard !v.inert else { return ["error": "view \(v.id) is inert"] }
         if let edit = req["clipboard"] as? String { return clipboardType(v, edit, req["text"] as? String) }
         if session.canvases.wantsInput(v.id) {
             if let routed = canvasRouted(v, req) { return routed }

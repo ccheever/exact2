@@ -180,10 +180,16 @@ struct Em<'a> {
 const HOST_FACTS: &[&str] = &["exactViewport", "exactTime", "exactPage", "exactSurface"];
 
 pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, String> {
+    // @ref LLP 1095 D4 — the roles the theme replaces, as the runner sets them.
+    let _ = exact_runner::bridge::set_role_overrides(plan);
     let fonts = crate::faces::fonts(plan)?;
     let sites = Sites::new(plan)?;
     let mut warnings = Vec::new();
-    let parts = style::project(plan, &sites, &mut warnings)?;
+    let mut modes = crate::modes::Modes::new(plan);
+    let parts = match modes.as_mut() {
+        Some(m) => m.project(plan, &sites, &mut warnings)?,
+        None => style::project(plan, &sites, &mut warnings)?,
+    };
     let paint = crate::paint::needed(plan, &parts);
     let mut parts = parts;
     if !paint {
@@ -500,6 +506,9 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
     em.out.clear();
     em.node(sites.root, "$R", &top)?;
     let view = std::mem::take(&mut em.out);
+    if let Some(m) = &modes {
+        body.push_str(&m.js(plan, &em.classes));
+    }
     // Symbols (symbols.js): a bound source picks its role from the plan's
     // strings that name one, `symbol:`-prefixed or not.
     if em.symbols.0 {
@@ -710,6 +719,7 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
             (em.media, "import{mediaUse as $media}from\"./media.js\";"),
             (!facts.is_empty(), facts.as_str()),
             (em.symbols.0, "import{symbols as $symbols}from\"./symbols.js\";"),
+            (modes.is_some(), "import{modes as $modes,Sx}from\"./modes.js\";"),
             (plan.slots.iter().any(|s| s.persist), "import{stored as $stored,keep as $keep}from\"./persist.js\";"),
         ]
         .iter()
@@ -730,11 +740,16 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         js
     };
     let mut css = fonts.css.clone();
+    // @ref LLP 1095 D4 — the theme's reach into the host's own sheet.
+    css.push_str(&exact_kernel::style::roles::theme_css());
     css.push_str("#exact-root#exact-root{");
     for (i, c) in em.classes.iter().enumerate() {
         let _ = write!(css, ".c{}{{{c}}}", i + 1);
     }
     css.push('}');
+    // The classes that set a scheme read the theme's text on it.
+    css.push_str(&exact_kernel::style::roles::scheme_classes(&em.classes));
+    css.push_str(&modes.as_ref().map_or(String::new(), |m| m.css(plan)));
     // The plan's `@keyframes` (LLP 1055 D5, D7), as the document's head
     // carries them: the browser runs `animation` rows.
     for row in &plan.keyframes {
@@ -1327,6 +1342,9 @@ impl Em<'_> {
                 | EventKind::Transformgeometry
                 | EventKind::Transformrelease => self.motion = true,
                 EventKind::Reachstart | EventKind::Reachend if virtualized => {}
+                EventKind::Reachstart | EventKind::Reachend => {
+                    return Err(contract::collection_edge_refusal(h.event.name()))
+                }
                 EventKind::Reorderdrop if virtualized => self.motion = true,
                 k => {
                     return Err(format!(
@@ -1378,12 +1396,12 @@ impl Em<'_> {
             let opts = self.list_options(i, scope, &edges)?;
             let &[Site::Region(r)] = self.sites.of_node(i) else {
                 return Err(format!(
-                    "node {i}: a virtualized list needs one direct `each`"
+                    "node {i}: a virtualized list needs one direct `for`"
                 ));
             };
             if plan.regions[r as usize].kind != RegionKind::Each {
                 return Err(format!(
-                    "node {i}: a virtualized list needs one direct `each`"
+                    "node {i}: a virtualized list needs one direct `for`"
                 ));
             }
             self.list = true;

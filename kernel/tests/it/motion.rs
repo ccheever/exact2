@@ -391,7 +391,16 @@ fn property_retirement_precedes_readoption_and_preserves_other_live_holds() {
     assert!(e.has_hold(opacity_hold.token));
     let mut mask = exact_kernel::StyleMask::EMPTY;
     mask.set(StyleId::Height);
-    k.apply(0, 3, &[Op::ClearStyle { id: 3, mask }]).unwrap();
+    k.apply(
+        0,
+        3,
+        &[Op::ClearStyle {
+            id: 3,
+            mask,
+            written: false,
+        }],
+    )
+    .unwrap();
     k.height_motion_sync(owner).apply(&mut e).unwrap();
     assert_eq!(
         e.value(node, Property::Height),
@@ -730,7 +739,15 @@ fn clearing_the_row_makes_later_changes_immediate() {
     let mut mask = exact_kernel::StyleMask::EMPTY;
     mask.set(StyleId::Transition);
     let receipt = kernel
-        .apply(0, 2, &[Op::ClearStyle { id: 1, mask }])
+        .apply(
+            0,
+            2,
+            &[Op::ClearStyle {
+                id: 1,
+                mask,
+                written: false,
+            }],
+        )
         .unwrap();
     kernel.motion_sync(&receipt).apply(&mut engine).unwrap();
     assert_eq!(kernel.node(1).unwrap().style.transition, Transitions::NONE);
@@ -988,7 +1005,11 @@ fn clearing_or_zeroing_the_kernel_transition_during_hold_snaps_on_end() {
             let declaration = if clear {
                 let mut mask = exact_kernel::StyleMask::EMPTY;
                 mask.set(StyleId::Transition);
-                Op::ClearStyle { id: 1, mask }
+                Op::ClearStyle {
+                    id: 1,
+                    mask,
+                    written: false,
+                }
             } else {
                 Op::SetStyle {
                     id: 1,

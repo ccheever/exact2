@@ -11,6 +11,13 @@ impl DataSource for Rows {
                 Value::Number(first + 1.),
             ]));
         }
+        if let [Value::Number(first), Value::Number(count)] = args {
+            return Ok(Value::list(
+                (0..*count as u32)
+                    .map(|n| Value::Number(first + f64::from(n)))
+                    .collect(),
+            ));
+        }
         Ok(Value::list(
             (0..25_000).map(|n| Value::Number(n as f64)).collect(),
         ))
@@ -19,12 +26,12 @@ impl DataSource for Rows {
 fn boot(row: &str) -> Presenter<Rows> {
     let source = format!(
         r#"component App
-  resource rows = rows() as shape list<number>
+  resource rows = rows() as shape number[]
   view
     column width="100%" padding=20 box-sizing="border-box"
       text "nested port"
       list virtualized=true width="100%" height=180 padding-left=10 padding-right=10 border-width=2 border-style="solid" box-sizing="border-box" testId="port"
-        each x in rows key=x
+        for x in rows key=x
           {row}
 "#
     );
@@ -32,7 +39,7 @@ fn boot(row: &str) -> Presenter<Rows> {
 }
 fn boot_source(source: &str) -> Presenter<Rows> {
     let (p, error) = Presenter::boot_with(
-        &contract::compile(source).unwrap().encode(),
+        &crate::test_plan(source),
         Rows,
         (400., 500.),
         1.,
@@ -84,7 +91,7 @@ fn bidirectional_tiny_edges_reach_the_endpoint_and_become_idle() {
     let mut p = boot_source(
         r#"component App
   state first = 0
-  resource rows = rows(first) as shape list<number>
+  resource rows = rows(first) as shape number[]
   action start
     if first > 0
       first = 0
@@ -93,7 +100,7 @@ fn bidirectional_tiny_edges_reach_the_endpoint_and_become_idle() {
       first = 12
   view
     list virtualized=true height=180 width=320 reachstart=start reachend=end
-      each x in rows key=x
+      for x in rows key=x
         text `${x}` height=1
 "#,
     );
@@ -139,14 +146,14 @@ fn an_edge_before_activation_commits_and_activation_asks_once() {
     let source = r#"component App
   state next = 0
   resource answer = answer(next) as shape number
-  resource rows = rows() as shape list<number>
+  resource rows = rows() as shape number[]
   action start
     next = next + 1
   view
     column
       text `${answer}`
       list virtualized=true height=180 width=320 reachstart=start
-        each x in rows key=x
+        for x in rows key=x
           text `${x}` height=24
 "#;
     let plan = contract::bake(contract::compile(source).unwrap(), Deferred(true)).unwrap();
@@ -189,7 +196,7 @@ fn authored_collection_scroll_top_is_consumed_once_and_latest_reissues_it() {
     let mut p = boot_source(
         r#"component App
   state requested = 1000000
-  resource rows = rows() as shape list<number>
+  resource rows = rows() as shape number[]
   action latest
     requested = requested + 1000
   view
@@ -197,7 +204,7 @@ fn authored_collection_scroll_top_is_consumed_once_and_latest_reissues_it() {
       button press=latest testId="latest"
         text "Latest"
       list virtualized=true scrollFollowEnd=true scrollTop=requested height=180 width=400
-        each x in rows key=x
+        for x in rows key=x
           text `${x}` height=24
 "#,
     );
@@ -485,11 +492,11 @@ fn ordinary_scroll_events_preserve_change_order_and_observe_prior_handler_writes
 fn fractional_high_extent_end_follow_needs_one_wheel_without_false_origin_changes() {
     let mut p = boot_source(
         r#"component App
-  resource rows = rows() as shape list<number>
+  resource rows = rows() as shape number[]
   view
     column width="100%" padding=20 box-sizing="border-box"
       list virtualized=true scrollFollowEnd=true height=180 width="100%" padding-left=10 padding-right=10 border-width=2 border-style="solid" box-sizing="border-box"
-        each x in rows key=x
+        for x in rows key=x
           text `row ${x}` height=100.1
 "#,
     );
@@ -538,7 +545,7 @@ fn fractional_high_extent_end_follow_needs_one_wheel_without_false_origin_change
 fn a_padding_only_change_reaches_the_runner_and_the_end_follows_it() {
     let mut p = boot_source(
         r#"component App
-  resource rows = rows() as shape list<number>
+  resource rows = rows() as shape number[]
   state end = 83
   action grow
     end = end + 26
@@ -546,7 +553,7 @@ fn a_padding_only_change_reaches_the_runner_and_the_end_follows_it() {
     column
       button "Grow" press=grow testId="grow"
       list virtualized=true scrollFollowEnd=true height=180 width=200 padding-top=20 padding-bottom=end box-sizing="border-box" testId="feed"
-        each x in rows key=x
+        for x in rows key=x
           text `row ${x}` height=24
 "#,
     );
@@ -623,14 +630,14 @@ fn ordinary_scroll_handler_runs_beside_collection_observation() {
     let mut p = boot_source(
         r#"component App
   state top = 0
-  resource rows = rows() as shape list<number>
+  resource rows = rows() as shape number[]
   action moved(x, y)
     top = y
   view
     column
       text `${top}` testId="observed"
       list virtualized=true height=180 width="100%" scroll=moved testId="port"
-        each x in rows key=x
+        for x in rows key=x
           text `${x}` height=24
 "#,
     );
@@ -697,7 +704,7 @@ fn interaction_release_cancel_and_navigation_clear_the_pin() {
     let mut p = boot_source(
         r#"component App
   state selected = "list"
-  resource rows = rows() as shape list<number>
+  resource rows = rows() as shape number[]
   action away
     selected = "away"
   action back
@@ -710,7 +717,7 @@ fn interaction_release_cancel_and_navigation_clear_the_pin() {
         text "back"
       column navigationKey="list"
         list virtualized=true height=180 width="100%"
-          each x in rows key=x
+          for x in rows key=x
             button testId=`row-${x}` height=24
               text `${x}`
       column navigationKey="away"
@@ -751,7 +758,7 @@ fn interaction_release_cancel_and_navigation_clear_the_pin() {
 fn height_projection_refines_real_25k_port_through_hold_ticks_resize_and_typing() {
     use exact_motion::HoldEnd;
     let source = r#"component App
-  resource rows = rows() as shape list<number>
+  resource rows = rows() as shape number[]
   state draft = ""
   state target = 180
   action edit(value)
@@ -765,7 +772,7 @@ fn height_projection_refines_real_25k_port_through_hold_ticks_resize_and_typing(
         text "grow"
       column position="absolute" bottom=0 width="100%" height=target max-height="100%" padding=8 border-width=2 border-style="solid" box-sizing="border-box" transition="height -exact-spring(300,30,1)" testId="panel"
         list virtualized=true scrollFollowEnd=true flex=1 min-height=0 width="100%" testId="port"
-          each x in rows key=x
+          for x in rows key=x
             text `row ${x}` height=24
 "#;
     let mut p = boot_source(source);
@@ -821,8 +828,7 @@ fn height_projection_refines_real_25k_port_through_hold_ticks_resize_and_typing(
     settle(&mut p);
     assert!(!p.dirty());
     let old = p.height_begin(10_000.).unwrap().unwrap();
-    p.reload(&contract::compile(source).unwrap().encode(), Rows)
-        .unwrap();
+    p.reload(&crate::test_plan(source), Rows).unwrap();
     assert!(p.host.height_owner().is_none());
     assert!(!p.height_update(old.token, f64::NAN, f64::NAN).unwrap());
     assert!(!p.height_end(old.token, HoldEnd::Cancel, f64::NAN).unwrap());
@@ -836,13 +842,13 @@ fn strip(list_attrs: &str, card: &str) -> String {
   state jump = 0
   action far
     jump = jump + 50000
-  resource rows = rows() as shape list<number>
+  resource rows = rows() as shape number[]
   view
     column width="100%"
       button press=far testId="far"
         text "Far"
       list {list_attrs} display="flex" width=400 height=120 overflow-x="scroll" overflow-y="hidden" padding-top=8 padding-bottom=8 box-sizing="border-box" testId="strip"
-        each x in rows key=x
+        for x in rows key=x
           box testId=`c-${{x}}` width=90 height=80 margin-right=4 {card}
 "#
     )
@@ -945,7 +951,8 @@ fn horizontal_first_measurements_correct_x_and_scroll_left_builds_before_it_move
 #[test]
 fn horizontal_card_boxes_match_the_eager_strip_at_the_same_scroll_left() {
     let boxes = |attrs: &str, left: f32| {
-        let mut p = boot_source(&strip(attrs, "flex-shrink=0"));
+        // Mount 200 cards, not 25,000: the eager strip lays out every one
+        let mut p = boot_source(&strip(attrs, "flex-shrink=0").replace("rows()", "rows(0, 200)"));
         settle(&mut p);
         let view = named(&p, "strip");
         p.wheel(view, left, 0.).unwrap();
@@ -969,12 +976,12 @@ fn horizontal_card_boxes_match_the_eager_strip_at_the_same_scroll_left() {
 fn nested(strip_attrs: &str) -> Presenter<Rows> {
     boot_source(&format!(
         r#"component App
-  resource rows = rows() as shape list<number>
+  resource rows = rows() as shape number[]
   view
     scroll testId="outer" width=400 height=300 overflow-x="hidden"
       box height=200
       list virtualized=true estimated-item-width=94 display="flex" width=400 height=120 overflow-x="scroll" overflow-y="hidden" {strip_attrs} testId="strip"
-        each x in rows key=x
+        for x in rows key=x
           box width=90 height=80 margin-right=4
       box height=2000
 "#

@@ -30,6 +30,8 @@ let capabilities: [(name: String, target: String, define: String)] = [
     ("markdown", "ExactMarkdown", "EXACT_LINK_MARKDOWN"),
     ("surfaces", "ExactSurfaces", "EXACT_LINK_SURFACES"),
     ("drag", "ExactDrag", "EXACT_LINK_DRAG"),
+    ("media_picker", "ExactMediaPicker", "EXACT_LINK_MEDIA_PICKER"),
+    ("auth_session", "ExactAuthSession", "EXACT_LINK_AUTH_SESSION"),
 ].filter { links($0.name) }
 
 // `swift test` builds every target a package declares, and the two UIKit
@@ -52,6 +54,8 @@ let core: [Target] = [
     .target(name: "ExactMarkdown", dependencies: ["ExactKit", "CExact"], path: "Sources/ExactMarkdown"),
     .target(name: "ExactSurfaces", dependencies: ["ExactKit", "CExact"], path: "Sources/ExactSurfaces"),
     .target(name: "ExactDrag", dependencies: ["ExactKit", "CExact"], path: "Sources/ExactDrag"),
+    .target(name: "ExactMediaPicker", dependencies: ["ExactKit"], path: "Sources/ExactMediaPicker"),
+    .target(name: "ExactAuthSession", dependencies: ["ExactKit"], path: "Sources/ExactAuthSession"),
     .target(name: "ExactComposition", dependencies: [.target(name: "ExactKit")] + (composition == "updating" ? [.target(name: "ExactUpdates")] : [])
                 + capabilities.map { .target(name: $0.target) },
             path: composition == "updating" ? "Sources/ExactUpdating" : "Sources/ExactEmbedded",
@@ -75,7 +79,8 @@ let tests: [Target] = [
     // The video arm's media session coordinator (LLP 1098 D7), driven by the
     // tests over stand-in players; the arm itself is build.mjs's dylib.
     .target(name: "ExactNowPlaying", path: "videoarm", exclude: ["VideoArm.swift"], sources: ["NowPlaying.swift"]),
-    .testTarget(name: "ExactKitTests", dependencies: ["ExactKit", "ExactGroupedLists", "ExactMarkdown", "ExactSurfaces", "ExactDrag", "ExactSoundRender", "ExactNowPlaying"], path: "Tests/ExactKitTests"),
+    .testTarget(name: "ExactKitTests", dependencies: ["ExactKit", "ExactGroupedLists", "ExactMarkdown", "ExactSurfaces", "ExactDrag", "ExactMediaPicker", "ExactAuthSession", "ExactSoundRender", "ExactNowPlaying"], path: "Tests/ExactKitTests",
+                resources: [.copy("ColorFixtures")]),
 ]
 
 let package = Package(
@@ -88,6 +93,8 @@ let package = Package(
         .library(name: "ExactMarkdown", targets: ["ExactMarkdown"]),
         .library(name: "ExactSurfaces", targets: ["ExactSurfaces"]),
         .library(name: "ExactDrag", targets: ["ExactDrag"]),
+        .library(name: "ExactMediaPicker", targets: ["ExactMediaPicker"]),
+        .library(name: "ExactAuthSession", targets: ["ExactAuthSession"]),
         .executable(name: "ExactMac", targets: ["ExactMac"]),
         .executable(name: "ExactIOS", targets: ["ExactIOS"]),
         .executable(name: "ExactHostMac", targets: ["ExactHostMac"]),

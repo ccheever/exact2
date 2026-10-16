@@ -6,7 +6,7 @@
 //!
 //! Each is read from the checked file's expanded root, as lowering reads
 //! it, and gives what it cannot see through the benefit of the doubt, as
-//! `routes.rs`'s `check_scroll` does: a `when`, `each` or `match`, a use
+//! `routes.rs`'s `check_scroll` does: an `if`, `for` or `match`, a use
 //! or a slot, a computed role or type.
 
 use crate::tags::AttrTarget;
@@ -123,8 +123,28 @@ pub fn warnings(checked: &Checked<'_>) -> Vec<LowerError> {
             }),
     );
     out.truncate(MAX_WARNINGS);
-    one_scheme(root, &checked.file.styles, &checked.file.fns, &mut out);
+    one_scheme(
+        root,
+        &checked.file.styles,
+        &checked.file.fns,
+        crate::theme::theme_decl(checked.file).as_ref(),
+        &Tokens {
+            one: crate::theme::one_scheme_tokens(checked.file),
+            design: checked.file.theme.is_none(),
+        },
+        &mut out,
+    );
     out
+}
+
+/// What the one-scheme warning knows of the app's tokens (LLP 1121 D3).
+struct Tokens {
+    /// The tokens one colour in light and dark, not marked `scheme=fixed`,
+    /// with that colour and whether in every tuple (`theme::one_scheme_tokens`).
+    one: Vec<(String, String, bool)>,
+    /// The tokens are a design's (`app.tamber`), which can mark one, not an
+    /// inline `theme`'s.
+    design: bool,
 }
 
 fn has(attrs: &[Attr], name: &str) -> bool {
@@ -161,7 +181,7 @@ const BOXES: &[&str] = &[
 
 /// What the iOS bar makes of one node in a route's header.
 enum Part {
-    /// A `when`, `each`, `match`, use or slot, or a computed role or type:
+    /// An `if`, `for`, `match`, use or slot, or a computed role or type:
     /// the benefit of the doubt.
     Doubt,
     /// Not shown in the header on any host: `display="none"`, or a popover
@@ -279,7 +299,7 @@ struct Bar<'a> {
     headings: usize,
     /// The last heading counted: the bar's title when it is the one.
     title: Option<&'a Node>,
-    /// A `when`, `each`, `match`, use or slot, or a computed role: the
+    /// An `if`, `for`, `match`, use or slot, or a computed role: the
     /// headings counted may not be all.
     doubt: bool,
     /// The heading has been passed, in document order.
@@ -307,10 +327,10 @@ const OR_NO_BAR: &str =
 /// tablist and the buttons that press or open a popover; the rest of the
 /// header is hidden with it. With no heading or with two, the bar takes
 /// nothing and the header is shown as written, so nothing is dropped; that
-/// header is `lower-header-no-bar`'s (LLP 1116.003 D2.2). A `when` first
+/// header is `lower-header-no-bar`'s (LLP 1116.003 D2.2). An `if` first
 /// among the route's children is read branch by branch: a branch's first
 /// node is the route's first child while it is taken, and `after` the
-/// route's nodes past that `when`.
+/// route's nodes past that `if`.
 fn route_header<'a>(children: &'a [Node], after: &[&'a Node], out: &mut Vec<LowerError>) {
     if let Some(Node::When {
         then, otherwise, ..
@@ -416,7 +436,7 @@ fn has_press(node: &Node) -> bool {
 }
 
 /// The `header`s that may be a route's first child: its first node, or the
-/// first node of a branch of the `when`s and `match`es it opens with, each
+/// first node of a branch of the `if`s and `match`es it opens with, each
 /// of which may yield nothing and leave the next to be first.
 fn first_headers<'a>(children: &'a [Node], out: &mut Vec<&'a Node>) {
     for node in children {
@@ -898,16 +918,47 @@ fn literal_colours(text: &str, out: &mut Vec<String>) {
 struct Leaves<'a> {
     fns: &'a [FnDecl],
     derives: &'a [Binding],
+    /// The theme's entries, by every spelling a row names them (LLP 1095
+    /// D4): a name is the colour it stands for.
+    theme: Vec<(String, &'a str)>,
+    /// The entries a row names: their colours are their declaration's to
+    /// report, once, not each row's.
+    named: std::cell::RefCell<Vec<String>>,
 }
 
 impl Leaves<'_> {
+    /// The entry a theme name is, as declared, and the colour text it
+    /// stands for: a name exactly, a role's spelling without case (LLP 1095
+    /// D4).
+    fn entry_named(&self, word: &str) -> Option<(&str, &str)> {
+        self.theme
+            .iter()
+            .find(|(name, _)| {
+                *name == word
+                    || exact_kernel::style::roles::role(name).is_some()
+                        && name.eq_ignore_ascii_case(word)
+            })
+            .map(|(name, value)| (name.as_str(), *value))
+    }
+
     /// The literal colours `e` may be: its string leaves, through `?:`,
     /// `match`, a template's text, a `fn`'s body and a derive. A name the
     /// view binds, a state, a field or a call of the stdlib is given the
     /// benefit of the doubt. `depth` bounds the expansion.
     fn colours(&self, e: &Expr, locals: &[String], depth: u32, out: &mut Vec<String>) {
         match e {
-            Expr::Str(text, _) => literal_colours(text, out),
+            Expr::Str(text, _) => {
+                literal_colours(text, out);
+                // A token's colours are its declaration's (LLP 1121 D3).
+                for word in text.split(|c: char| c.is_whitespace() || c == ',') {
+                    if let Some((name, _)) = self.entry_named(word) {
+                        let mut named = self.named.borrow_mut();
+                        if !named.iter().any(|n| n == name) {
+                            named.push(name.to_string());
+                        }
+                    }
+                }
+            }
             Expr::Template(parts, _) => {
                 for p in parts {
                     if let TemplatePart::Text(text) = p {
@@ -951,12 +1002,14 @@ impl Leaves<'_> {
     }
 }
 
-/// One attribute that sets a literal colour.
+/// One attribute that sets a literal colour, or a token one colour in
+/// every scheme, at its declaration.
 struct Site {
     span: Span,
     name: String,
     paints: Paints,
     colours: Vec<String>,
+    token: bool,
 }
 
 /// Every attribute of `attrs` that sets a literal colour on the page's own
@@ -977,6 +1030,7 @@ fn colour_sites(attrs: &[Attr], leaves: &Leaves<'_>, locals: &[String], out: &mu
                 name: a.name.clone(),
                 paints,
                 colours,
+                token: false,
             });
         }
     }
@@ -994,17 +1048,78 @@ fn colour_sites(attrs: &[Attr], leaves: &Leaves<'_>, locals: &[String], out: &mu
 /// One line a node and property, each short, so every site is named in
 /// one run; with more than one, a last line says why and what the accent
 /// may be.
-fn one_scheme(root: &Component, styles: &[StyleDecl], fns: &[FnDecl], out: &mut Vec<LowerError>) {
+fn one_scheme(
+    root: &Component,
+    styles: &[StyleDecl],
+    fns: &[FnDecl],
+    theme: Option<&contract_syntax::ThemeDecl>,
+    tokens: &Tokens,
+    out: &mut Vec<LowerError>,
+) {
     // A game (LLP 1046) reads its world through `exactSurface`: its HUD and
     // title screen are its art, over a world no scheme repaints.
     if root.resources.iter().any(|r| r.source == "exactSurface") {
         return;
     }
+    let entries = theme.map_or(&[][..], |t| &t.entries[..]);
+    let mut spelled = Vec::new();
+    for e in entries {
+        let Expr::Str(value, _) = &e.value else {
+            continue;
+        };
+        spelled.push((e.name.clone(), value.as_str()));
+        spelled.push((format!("-exact-{}", e.name), value.as_str()));
+    }
     let leaves = Leaves {
         fns,
         derives: &root.derives,
+        theme: spelled,
+        named: Default::default(),
+    };
+    // A token's colour when it is one in light and dark, by any spelling.
+    let one = |name: &str| {
+        let bare = name.strip_prefix("-exact-").unwrap_or(name);
+        tokens
+            .one
+            .iter()
+            .find(|(n, ..)| n == name || n == bare)
+            .map(|(_, c, _)| vec![c.clone()])
+            .unwrap_or_default()
     };
     let mut sites = Vec::new();
+    // An entry that replaces a role the page paints with no row naming it
+    // (its text, its ground) is a site of its own.
+    for e in entries {
+        let role = exact_kernel::style::roles::role(&e.name)
+            .or_else(|| exact_kernel::style::roles::role(&format!("-exact-{}", e.name)));
+        let paints = match role
+            .and_then(exact_kernel::style::roles::role_of)
+            .map(|r| r.name)
+        {
+            Some("CanvasText" | "label" | "secondary-label" | "FieldText") => Paints::Text,
+            Some(
+                "Canvas"
+                | "background"
+                | "grouped-background"
+                | "secondary-background"
+                | "secondary-grouped-background"
+                | "Field",
+            ) => Paints::Surface,
+            Some("separator" | "opaque-separator") => Paints::Line,
+            _ => continue,
+        };
+        let colours = one(&e.name);
+        if !colours.is_empty() {
+            // A declaration: the token's repair, the mark or a pair.
+            sites.push(Site {
+                span: e.span,
+                name: e.name.clone(),
+                paints,
+                colours,
+                token: true,
+            });
+        }
+    }
     for s in styles {
         colour_sites(&s.attrs, &leaves, &[], &mut sites);
     }
@@ -1042,6 +1157,25 @@ fn one_scheme(root: &Component, styles: &[StyleDecl], fns: &[FnDecl], out: &mut 
         };
         stack.extend(children.into_iter().rev().map(|n| (n, locals.clone())));
     }
+    // A token a row names that is one colour in every scheme: one line, at
+    // its declaration, however many rows name it (LLP 1121 D3).
+    let named = leaves.named.borrow().clone();
+    for e in entries {
+        let spellings = [e.name.clone(), format!("-exact-{}", e.name)];
+        if !named.iter().any(|n| spellings.contains(n)) {
+            continue;
+        }
+        let colours = one(&e.name);
+        if !colours.is_empty() {
+            sites.push(Site {
+                span: e.span,
+                name: e.name.clone(),
+                paints: Paints::Text,
+                colours,
+                token: true,
+            });
+        }
+    }
     // A component used twice is inlined twice: one line for its source.
     let mut seen = BTreeSet::new();
     sites.retain(|s| {
@@ -1067,7 +1201,36 @@ fn one_scheme(root: &Component, styles: &[StyleDecl], fns: &[FnDecl], out: &mut 
         };
         format!("{} on `{}` {stay}", shown.join(", "), s.name)
     };
+    // A token's line names it and both ways out (LLP 1121 D3).
+    let mark = match tokens.design {
+        true => "mark it `scheme=fixed` in the design if one colour is deliberate (an ink on a fixed fill, a ground under media)",
+        false => "an inline `theme` cannot mark one deliberate: move it to `app.tamber` and mark it `scheme=fixed`",
+    };
+    let token = |s: &Site| {
+        // Marked only where it is one colour in every app mode.
+        let every = tokens.one.iter().any(|(n, _, all)| *all && (*n == s.name));
+        if !every {
+            return format!(
+                "`{}` is the same colour in light and dark in some app modes ({}): give it a `light-dark(light, dark)` pair in those (`scheme=fixed` is for a token one colour in every mode)",
+                s.name,
+                s.colours.iter().map(|c| format!("`{c}`")).collect::<Vec<_>>().join(", ")
+            );
+        }
+        format!(
+            "`{}` is the same colour in light and dark ({}): give it a `light-dark(light, dark)` pair, or {mark}",
+            s.name,
+            s.colours.iter().take(3).map(|c| format!("`{c}`")).collect::<Vec<_>>().join(", ")
+        )
+    };
     if let [s] = sites.as_slice() {
+        if s.token {
+            out.push(LowerError {
+                id: "lower-colour-one-scheme",
+                message: token(s),
+                span: s.span,
+            });
+            return;
+        }
         out.push(LowerError {
             id: "lower-colour-one-scheme",
             message: format!(
@@ -1082,16 +1245,37 @@ fn one_scheme(root: &Component, styles: &[StyleDecl], fns: &[FnDecl], out: &mut 
     for s in &sites {
         out.push(LowerError {
             id: "lower-colour-one-scheme",
-            message: format!("{} the same in dark mode: {}", shown(s), s.paints.repair()),
+            message: match s.token {
+                true => token(s),
+                false => format!("{} the same in dark mode: {}", shown(s), s.paints.repair()),
+            },
             span: s.span,
         });
+    }
+    // Every line a token's: their closer is a token's repair.
+    if let Some(first) = sites.first().filter(|_| sites.iter().all(|s| s.token)) {
+        out.push(LowerError {
+            id: "lower-colour-one-scheme",
+            message: format!(
+                "these {} tokens are the same colour in light and dark: each line above says how to repair it",
+                sites.len()
+            ),
+            span: first.span,
+        });
+        return;
     }
     if let Some(first) = sites.first() {
         out.push(LowerError {
             id: "lower-colour-one-scheme",
             message: format!(
-                "these {} literal colours stay the same in dark mode while the platform's text and controls change, so a light card keeps its colour under the platform's white text: name a role for each or leave it unsaid. {why}",
-                sites.len()
+                "these {} {}colours stay the same in dark mode while the platform's text and controls change, so a light card keeps its colour under the platform's white text: name a role for each{} or leave it unsaid. {why}",
+                sites.len(),
+                if sites.iter().any(|s| s.token) { "" } else { "literal " },
+                if sites.iter().any(|s| s.token) {
+                    " literal (each token's line says its own repair)"
+                } else {
+                    ""
+                }
             ),
             span: first.span,
         });

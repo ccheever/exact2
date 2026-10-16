@@ -334,6 +334,8 @@ impl<D: DataSource + Default + 'static> ApplicationHandler for App<D> {
         match app::boot_presenter::<D>(&mut self.config, viewport) {
             Ok((mut p, warning)) => {
                 p.surface_lifecycle(self.minimized || self.occluded, !self.focused);
+                // The window's clock owns time (the timers RFC, D1)
+                p.set_live_clock(Some(exact_linux::presenter::wall_since(self.started)));
                 if let Some(warning) = warning {
                     eprintln!("exact-windows: {warning}");
                 }
@@ -388,9 +390,11 @@ impl<D: DataSource + Default + 'static> ApplicationHandler for App<D> {
             }
             return;
         }
-        let now = self.now();
         let Some(p) = &mut self.presenter else { return };
-        p.advance(now);
+        p.advance(self.started.elapsed().as_secs_f64() * 1000.);
+        // The input's time: where the advance left the clock, a live runner's
+        // sample past the time it was asked for
+        let now = p.host().now();
         let (x, y) = self.pointer;
         match event {
             WindowEvent::Focused(focused) => {

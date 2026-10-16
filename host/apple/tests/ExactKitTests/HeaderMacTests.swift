@@ -356,6 +356,30 @@ final class HeaderMacTests: XCTestCase {
         p.toolbar.detach()
     }
 
+    /// What a header button invokes, as HTML resolves it, decides whether
+    /// the window's bar can hold it: a button whose `commandfor` hides a form
+    /// popover is a command, though its `popovertarget` names that form; one
+    /// whose invocation opens the form keeps the header painted, as the form
+    /// is placed against the button's box; a command-only `toggle-popover`
+    /// of a menu is the bar's menu item.
+    func testWhatAHeaderButtonInvokesDecidesItsPlaceInTheBar() throws {
+        /// Whether the header is the window's bar (titled by its heading), and the bar's items.
+        func attach(_ props: [String: String]) -> (inBar: Bool, identifiers: [String]) {
+            let extra = symbolButton(16, "More", "ellipsis.circle", props)
+                + view(40, "view", ["popover": "auto", "id": "more", "accessibilityRole": "menu"])
+                + view(41, "button", ["popovertarget": "more", "popovertargetaction": "hide"], press: true) + view(411, "text", ["text": "Rename"])
+                + view(50, "view", ["popover": "auto", "id": "form"]) + view(51, "input", ["value": ""])
+                + [children(41, [411]), children(40, [41]), children(50, [51]), children(10, [11, 12, 13, 14, 16]), children(2, [10, 15, 40, 50])]
+            let p = fixture(extra: extra)
+            defer { window.close() }
+            XCTAssertTrue(p.toolbar.attach(to: window))
+            return (window.title == "Library", identifiers())
+        }
+        XCTAssertTrue(attach(["popovertarget": "form", "commandfor": "form", "command": "hide-popover"]).inBar, "its commandfor governs: a command")
+        XCTAssertFalse(attach(["popovertarget": "form"]).inBar, "it opens the form, which needs the button's box")
+        XCTAssertTrue(attach(["commandfor": "more", "command": "toggle-popover"]).identifiers.contains("exact.menu.16"), "a command-only menu item")
+    }
+
     /// A header's button that opens a menu is AppKit's menu item: the menu
     /// is the item's own to pop up, filled from the popover's rows as it
     /// opens, after the button's own press; a chosen row presses its
@@ -658,9 +682,9 @@ final class HeaderMacTests: XCTestCase {
         nav = back(nav)
       view
         main navigationKey=`${top(nav).id}` navigationBack="back" testId="app" width="100%" height="100%" position="relative"
-          each e in stack(nav) key=e.id
+          for e in stack(nav) key=e.id
             column navigationKey=`${e.id}` position="absolute" inset=0 testId=`route-${e.name}`
-              when e.name == "library"
+              if e.name == "library"
                 header display="flex" align-items="center" padding="8px 16px" testId="header"
                   text "Library" role="heading" aria-level=1 flex=1
                   button press=add aria-label="Add Book" testId="add"
@@ -669,7 +693,7 @@ final class HeaderMacTests: XCTestCase {
                   button press=open testId="open"
                     text "Open"
                   text `added ${added}` testId="added"
-              when e.name == "book"
+              if e.name == "book"
                 header display="flex" align-items="center" padding="8px 16px" testId="book-header"
                   button id="back" press=back testId="back"
                     text "Back"

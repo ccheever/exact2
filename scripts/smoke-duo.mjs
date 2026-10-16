@@ -2,9 +2,9 @@
 // `apps/duo-lab` and the `insets` and `keyboard-bar` corpus fixtures on the
 // Duo simulator through open 180°, book 130°, half 90° and closed 0°, the
 // hinge set from inside the simulator by `scripts/duo/hinge_helper.c`
-// (compiled per run with the selected Xcode's simulator SDK), the angle read
-// back and each panel captured by `xcrun devicectl`. At every pose: the
-// cover-root and inset invariants `smoke ios` checks; the Fold screen's two
+// (compiled per run with the selected Xcode's simulator SDK) and each panel
+// captured by `xcrun devicectl`. At every pose: the cover-root and inset
+// invariants `smoke ios` checks; the Fold screen's two
 // panes exactly on the division's segments (one pane flat or closed);
 // `devicePosture` folded at 130° and 90° only; keyboard, sheet, push and
 // scroll state across a fold; the two-session host's panes.
@@ -54,7 +54,7 @@ export async function duoSmoke({ open, check: record }) {
   const pick = process.env.EXACT_SIM;
   const version = (d) => Number(/iOS-(\d+)-(\d+)/.exec(d.runtime)?.slice(1).join('.') ?? 0);
   const dev = pick ? simulators().find((d) => d.udid === pick || d.name === pick) : null;
-  if (!dev || dev.name !== 'iPhone Duo' || version(dev) < 27.1) {
+  if (!dev || dev.type !== 'iPhone-Duo' || version(dev) < 27.1) {
     console.log('duo: unsupported — needs an iPhone Duo simulator on iOS ≥ 27.1 under Xcode 27.1 (EXACT_SIM, DEVELOPER_DIR)');
     return 'unsupported';
   }
@@ -73,22 +73,28 @@ export async function duoSmoke({ open, check: record }) {
   const sign = spawnSync('codesign', ['-f', '-s', '-', helper], { encoding: 'utf8' });
   if (!check(sign.status === 0, `the hinge helper was not signed: ${sign.stderr}`)) return;
   const devicectl = (...a) => spawnSync('xcrun', ['devicectl', ...a, '-d', udid], { encoding: 'utf8' });
-  const hingeAngle = () => {
-    const r = spawnSync('xcrun', ['devicectl', 'device', 'motion', 'hinge-angle', '-d', udid, '--session-timeout', '2', '-t', '8'], { encoding: 'utf8' });
-    const m = (r.stdout + r.stderr).match(/Angle:\s*([0-9.]+)/);
-    return m ? Number(m[1]) : null;
-  };
-  /** Set the hinge and wait for the simulator to report it, then for the panels to switch. */
-  const hinge = async (deg) => {
+  /** Set the hinge. Xcode 27.1 RC's devicectl has no hinge readback (`device motion` is gone), so a pose is judged by what the session reports. */
+  const hinge = (deg) => {
     const r = spawnSync('xcrun', ['simctl', 'spawn', udid, helper, 'set', String(deg)], { encoding: 'utf8' });
     check(r.status === 0, `hinge ${deg}: ${r.stderr || r.stdout}`);
-    let angle = null;
-    for (let i = 0; i < 12 && !(angle != null && Math.abs(angle - deg) < 1); i++) { await sleep(250); angle = hingeAngle(); }
-    check(angle != null && Math.abs(angle - deg) < 1, `the simulator reports the hinge at ${angle}, not ${deg}`);
-    await sleep(1500);
   };
   const settle = async (s) => { await sleep(300); await s.clock('settle'); await sleep(200); };
-  const pose = async (s, deg) => { await hinge(deg); await settle(s); };
+  /** Whether the session is on the cover panel: its screen is the cover's, either way round. */
+  const onCover = (l) => [l.screen?.w, l.screen?.h].sort((a, b) => a - b).join() === [RECORDED.cover.w, RECORDED.cover.h].sort((a, b) => a - b).join();
+  /** Set the hinge and wait, over 50 reads, for the session to report the pose: the cover panel at 0° and only then, and the posture. A pose the session never reports fails here. */
+  const pose = async (s, deg) => {
+    hinge(deg);
+    let panel = false, postured = false;
+    for (let i = 0; i < 50 && !(panel && postured); i++) {
+      if (i > 0) await sleep(100);
+      const l = await s.layout();
+      panel = onCover(l) === (deg === 0);
+      postured = (l.env['device-posture'] === 'folded') === folded(deg);
+    }
+    const missed = [panel ? null : `the session is ${deg === 0 ? 'not ' : ''}on the cover panel`, postured ? null : `the posture is not ${folded(deg) ? 'folded' : 'continuous'}`].filter(Boolean);
+    check(!missed.length, `the hinge moved to ${deg}° and the session missed it: ${missed.join(', ')}`);
+    await settle(s);
+  };
   const captures = (tag) => {
     const r = devicectl('device', 'info', 'displays', '-j', '-');
     let list = [];
@@ -112,7 +118,7 @@ export async function duoSmoke({ open, check: record }) {
       recorded = l.viewport.w === RECORDED.inner.w && l.viewport.h === RECORDED.inner.h;
       if (!recorded) console.log(`duo: the inner panel reports ${l.viewport.w}×${l.viewport.h}, not the recorded ${RECORDED.inner.w}×${RECORDED.inner.h} (orientation ${orientation}; CoreDevice cannot rotate the Duo, LLP 1008 §9): panel sizes and segments are checked against what the device reports`);
     }
-    console.log(`  ${tag}: viewport ${l.viewport.w}×${l.viewport.h} screen ${l.screen?.w}×${l.screen?.h}@${l.screen?.scale} at ${l.screen?.x},${l.screen?.y} insets t${l.env['safe-area-inset-top']} r${l.env['safe-area-inset-right']} b${l.env['safe-area-inset-bottom']} l${l.env['safe-area-inset-left']} kb${l.env['keyboard-inset-height']} posture ${l.env['device-posture']} segments ${l.env['horizontal-viewport-segments']}×${l.env['vertical-viewport-segments']} ${JSON.stringify(l.env['viewport-segments'])} hinge ${hingeAngle()} displays ${seen.join(' ')}`);
+    console.log(`  ${tag}: viewport ${l.viewport.w}×${l.viewport.h} screen ${l.screen?.w}×${l.screen?.h}@${l.screen?.scale} at ${l.screen?.x},${l.screen?.y} insets t${l.env['safe-area-inset-top']} r${l.env['safe-area-inset-right']} b${l.env['safe-area-inset-bottom']} l${l.env['safe-area-inset-left']} kb${l.env['keyboard-inset-height']} posture ${l.env['device-posture']} segments ${l.env['horizontal-viewport-segments']}×${l.env['vertical-viewport-segments']} ${JSON.stringify(l.env['viewport-segments'])} displays ${seen.join(' ')}`);
     return { l, st };
   };
   /** The cover-root and inset invariants `smoke ios` checks, on this panel. */
@@ -162,7 +168,7 @@ export async function duoSmoke({ open, check: record }) {
   const sdk = JSON.parse(readFileSync(resolve(labBundle, 'receipt.json'), 'utf8')).sdk ?? '';
   const sdkVersion = Number(/iPhoneSimulator(\d+\.\d+)\.sdk/.exec(sdk)?.[1] ?? 0);
   if (!check(sdkVersion >= 27.1, `duo: the duo-lab bundle was built with ${sdk || 'an unknown SDK'}; the fold needs the iOS 27.1 SDK — DEVELOPER_DIR=<Xcode 27.1> bun host/apple/build.mjs --ios duo-lab`)) return;
-  await hinge(180);
+  hinge(180); await sleep(1500);
 
   // Whether this simulator shows a software keyboard at all. The simulator's state
   // is what counts, and it moves under a run: a Device Hub window sets the device's
@@ -300,16 +306,8 @@ export async function duoSmoke({ open, check: record }) {
       const chosen = byTestId(await s.tree(), 'detail-title')?.props.text;
       check(typeof chosen === 'string' && chosen.length > 0, `item-2 selected a detail: ${chosen}`);
       await eachPose(s, 'fold', async ({ l }, tag, deg) => {
-        let t = await s.tree();
+        const t = await s.tree();
         const two = folded(deg);
-        if ((l.env['device-posture'] === 'folded') !== two) {
-          // The hinge moved but the session did not hear it (UIHingeInteraction, D5): move it again, once, and say what happened.
-          await pose(s, deg === 180 ? 90 : 180); await pose(s, deg);
-          const again = await s.layout();
-          console.log(`  note ${tag}: the session reported ${l.env['device-posture']} ${JSON.stringify(l.env['viewport-segments'])} after the hinge moved to ${deg}°; after a second move it reports ${again.env['device-posture']} ${JSON.stringify(again.env['viewport-segments'])}`);
-          check(false, `${tag}: the live fold update after the hinge moved to ${deg}° was missed (${l.env['device-posture']}; a second move ${(again.env['device-posture'] === 'folded') === two ? 'recovered it' : 'did not recover it'})`);
-          l = again; t = await s.tree();
-        }
         const text = (id) => byTestId(t, id)?.props.text;
         check(text('fact-posture') === (two ? 'folded' : 'continuous'), `${tag}: fact-posture is ${text('fact-posture')}, expected ${two ? 'folded' : 'continuous'}`);
         // The segments: the record's two side by side, or what the device reports (two
@@ -378,11 +376,15 @@ export async function duoSmoke({ open, check: record }) {
         // text and focus but no keyboard, 2026-10-02); the textarea takes the draft.
         await s.type('note-title-input', 'fold');
         let l = await keyboard(s, true);
-        const kb = l.env['keyboard-inset-height'], sheet = box(l, 'note-sheet');
+        const kb = l.env['keyboard-inset-height'];
         if (rose(kb, tag)) check(kb > 100, `${tag}: the keyboard rose under the sheet (${kb})`);
         await s.type('note-textarea', 'fold me');
-        l = await keyboard(s, true);
-        check(sheet && near(sheet.y + sheet.h, l.viewport.h), `${tag}: the sheet sits on the keyboard-shortened viewport ${JSON.stringify(sheet)} in ${JSON.stringify(l.viewport)}`);
+        await keyboard(s, true);
+        // The sheet's height springs to the shortened viewport: read it settled, in the same layout as the viewport
+        await settle(s);
+        l = await s.layout();
+        const sheet = box(l, 'note-sheet');
+        check(sheet && near(sheet.y + sheet.h, l.viewport.h) && (!softKeyboard || l.env['keyboard-inset-height'] > 0), `${tag}: the sheet sits on the keyboard-shortened viewport ${JSON.stringify(sheet)} in ${JSON.stringify(l.viewport)} kb ${l.env['keyboard-inset-height']}`);
         await s.screenshot(resolve(out, `${tag}-sheet-keyboard.png`));
         const next = after(deg);
         await pose(s, next);
@@ -419,5 +421,5 @@ export async function duoSmoke({ open, check: record }) {
       });
     } catch (e) { check(false, `host: ${e.message}`); } finally { await s?.close(); }
   }
-  await hinge(180);
+  hinge(180); await sleep(1500);
 }

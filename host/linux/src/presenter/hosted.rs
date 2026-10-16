@@ -379,6 +379,7 @@ impl<D: DataSource> Presenter<D> {
             _ => 0,
         };
         let rgba = crate::paint::rgba;
+        let _accent = crate::paint::accent_scope(&node);
         let role = |name: &str| roles::role(name).map(|r| rgba(ColorValue::Role(r).resolve(dark)));
         let mut ink = rgba(node.text_color().resolve(dark));
         if disabled

@@ -339,7 +339,6 @@ extension Presenter {
                 continue
             }
             guard seen[id] === v, v.window != nil else { report.skip("offWindow"); continue }
-            if modals.holdsGeometry(id) { report.skip("deferred"); continue }
             if v.placedAncestor != nil { report.skip("placed"); continue }
             if menus.projects(v) || swipeActions.projects(v) || groupedLists?.projects(v) == true { report.skip("projected"); continue }
             if navigation.controllers[id]?.node === v { report.skip("route"); continue }

@@ -448,7 +448,7 @@ final class GroupedListIOSTests: GroupedListFixture {
         XCTAssertNotNil(host(p).activate(try XCTUnwrap(p.views[13]))?["error"])
         p.apply(wireBatch([["op": "props", "id": 13, "set": [String: String](), "clear": ["disabled"]]]))
         XCTAssertTrue(s.isEnabled)
-        // A `when` replaced the control: the same switch flips the new one.
+        // An `if` replaced the control: the same switch flips the new one.
         target = 14
         p.apply(wireBatch([["op": "create", "id": 14, "kind": "control", "props": ["type": "checkbox", "accessibilityRole": "switch"], "handlers": ["input"], "style": [:]],
                            ["op": "children", "id": 12, "ids": [14]], ["op": "destroy", "id": 13]]))
@@ -806,7 +806,7 @@ final class GroupedListIOSTests: GroupedListFixture {
             return try XCTUnwrap(l.cell(10)).frame.minY - l.collection.contentOffset.y
         }
         let top = try shown()
-        p.apply(wireBatch([["op": "style", "id": 1, "style": ["overflow_y": "scroll", "padding_top": 12.0, "padding_bottom": 83.0]]]))
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["overflow_y": "scroll", "padding_top": 12.0, "padding_bottom": 83.0]], contentOp(1, 402, 200, padding: [12, 0, 83, 0])]))
         XCTAssertEqual(l.collection.contentInset.top - before.top, 12, accuracy: 0.5)
         XCTAssertEqual(l.collection.contentInset.bottom - before.bottom, 83, accuracy: 0.5)
         XCTAssertEqual(try shown() - top, 12, accuracy: 0.5, "the room shows at rest, not only past the top")
@@ -816,7 +816,7 @@ final class GroupedListIOSTests: GroupedListFixture {
         // A reader among the rows keeps them where they are as the padding goes.
         l.collection.contentOffset.y = 60
         let reading = try shown()
-        p.apply(wireBatch([["op": "style", "id": 1, "style": ["overflow_y": "scroll"]]]))
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["overflow_y": "scroll"]], ["op": "fieldContent", "id": 1, "rect": NSNull()]]))
         XCTAssertEqual(l.collection.contentInset, before, "and none once it is gone")
         XCTAssertEqual(try shown(), reading, accuracy: 0.5, "the rows stay put")
     }
@@ -1140,7 +1140,8 @@ final class GroupedListIOSTests: GroupedListFixture {
     /// LLP 1116.002 D2, round 4's countdowns: the commit that lands while a
     /// sheet covers the list (the saved event's refresh, before `then`
     /// closes the form) inserts a row and a sibling section, the "next up"
-    /// card, and grows a row; the sheet holds their boxes until it closes.
+    /// card, and grows a row. The list behind keeps the document's layout
+    /// while the sheet is up, so their boxes apply at once (LLP 1123 D1).
     /// All of it shows on the batch that closes the sheet, not after the
     /// screen is left: a cell first sized to nothing is one UIKit never
     /// shows again, and a box given back to a row that a layout pass in that
@@ -1174,11 +1175,11 @@ final class GroupedListIOSTests: GroupedListFixture {
             ["op": "create", "id": 95, "kind": "view", "props": [:], "style": [:]],
             ["op": "roots", "ids": [95]],
         ]))
-        p.modals.present(try XCTUnwrap(p.views[90]), navigation: UIViewController(), from: background, node: route, preceding: nil, owner: owner)
+        p.modals.present(try XCTUnwrap(p.views[90]), navigation: UIViewController(), from: background, preceding: nil, owner: owner)
         XCTAssertEqual(p.modals.routes.count, 1, "the sheet is up")
 
         // The refresh, under the sheet: a "next up" section first, a new row
-        // under the others, and row 21 grown. The sheet holds every box.
+        // under the others, and row 21 grown.
         m.sections.insert(.init(view: 69, header: nil, footer: nil, rows: [Row(view: 71, custom: true)]), at: 0)
         m.sections[2].rows.append(Row(view: 80, custom: true, pressable: true))
         let view = { (id: Int, kind: String, props: [String: String]) -> [String: Any] in
@@ -1197,8 +1198,7 @@ final class GroupedListIOSTests: GroupedListFixture {
             ["op": "frame", "id": 80, "x": 16.0, "y": 143.0, "w": 354.0, "h": 73.0],
             ["op": "frame", "id": 81, "x": 16.0, "y": 26.0, "w": 100.0, "h": 21.0],
         ]))
-        for id: UInt32 in [71, 80, 21] { XCTAssertTrue(p.modals.holdsGeometry(id), "the sheet holds #\(id)'s box") }
-        XCTAssertEqual(p.views[80]?.frame.height, 0, "no box yet")
+        XCTAssertEqual(p.views[80]?.frame.height ?? 0, 73, accuracy: 0.5, "the box applies under the sheet")
 
         // The batch that closes it, as navigation's sync does mid-batch; UIKit
         // laid the list out in that batch, carrying its shown rows again.
@@ -1220,9 +1220,9 @@ final class GroupedListIOSTests: GroupedListFixture {
         try shown(80, 72, "the new row")
         try shown(21, 90, "the grown row")
         // The next batch gives the rows back and carries them again at
-        // their boxes, the ones the sheet held.
+        // their boxes.
         p.apply(wireBatch([["op": "props", "id": 95, "set": ["testId": "root"], "clear": [String]()]]))
-        XCTAssertEqual(p.views[21]?.frame.height ?? 0, 91, accuracy: 0.5, "the replayed box, kept")
+        XCTAssertEqual(p.views[21]?.frame.height ?? 0, 91, accuracy: 0.5, "the box, kept")
         try shown(21, 90, "the grown row, after a batch")
         try shown(80, 72, "the new row, after a batch")
     }

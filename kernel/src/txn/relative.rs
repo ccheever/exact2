@@ -30,6 +30,13 @@ pub(crate) fn resolve(
             let rows = StyleMask::of(StyleId::FontSize);
             let slots: Vec<u32> = arena.iter_live().collect();
             for slot in slots {
+                // Tab metrics use rem even when an authored local font stops
+                // inheritance. Refresh their minimum and cached host offers.
+                if arena.neutral_tab_root(slot).is_some() {
+                    control_env_changed(arena, layout, slot);
+                    receipt.layout_invalidated = true;
+                    touched.push(arena.key(slot));
+                }
                 if arena.inherited_source(slot, StyleId::FontSize).is_none()
                     && !arena
                         .control_text_start(slot)

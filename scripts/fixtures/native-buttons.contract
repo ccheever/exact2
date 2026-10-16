@@ -183,6 +183,6 @@ component NativeButtons
         button appearance="auto" buttonStyle="glass" press=fade testId="g3" opacity=(fading ? 0.3 : 1)
           text "Fade"
       row role="radiogroup" aria-label="Period" testId="period" align-self="stretch"
-        each p in ["Day", "Week", "Month"] key=p
+        for p in ["Day", "Week", "Month"] key=p
           button role="radio" aria-checked=(period == p) press=choose(p) testId=`period-${p}` flex=1
             text p

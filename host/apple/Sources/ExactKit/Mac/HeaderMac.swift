@@ -113,7 +113,7 @@ struct WindowHeader {
                     // that asks first opens the window's alert. Any other
                     // popover is placed against its button's box in the page,
                     // which a bar item does not have.
-                    if child.props["popovertarget"] != nil, child.props["popovertargetaction"] != "hide", !opensFromTheBar(child) {
+                    if child.presenter?.invocation(of: child)?.opensPopover == true, !opensFromTheBar(child) {
                         return "button #\(child.id) opens a popover that is neither a menu nor an alert, which is placed against the button's own box"
                     }
                     if !showable(child) { return "button #\(child.id) shows more than one symbol and its title, which is all a toolbar item shows" }
@@ -149,16 +149,15 @@ struct WindowHeader {
         return tabs.count >= 2 && tabs.allSatisfy(titled) ? tabs : nil
     }
 
-    /// Whether what a button's `popovertarget` opens needs no place in the
-    /// page: a button menu, which is the bar's menu item
-    /// (`MenuHost.toolbarPopover`), or a confirmation in the alert's shape,
-    /// which is a sheet on the window (AlertsMac.swift).
+    /// Whether the popover a button opens needs no place in the page: a
+    /// button menu, which is the bar's menu item (`MenuHost.toolbarPopover`),
+    /// or a confirmation in the alert's shape, which is a sheet on the window
+    /// (AlertsMac.swift).
     static func opensFromTheBar(_ button: NodeView) -> Bool {
         guard let presenter = button.presenter else { return false }
         if presenter.menus.toolbarPopover(of: button) != nil { return true }
-        guard let name = button.props["popovertarget"],
-              let pop = presenter.carrying("popover").first(where: { $0.props["id"] == name }) else { return false }
-        return presenter.alerts.plan(of: pop) != nil
+        guard let invocation = presenter.invocation(of: button), invocation.opensPopover else { return false }
+        return presenter.alerts.plan(of: invocation.target, popover: true) != nil
     }
 
     /// Whether a toolbar item can show all of a button's face: a native

@@ -199,7 +199,7 @@ component A
     column
       button press=hide testId="hide"
         text "Hide"
-      when shown
+      if shown
         box testId="gone" width=24 height=24 -exact-exit-animation="leave 300ms linear both"
 "##;
     let plan = contract::compile(LEAVE).unwrap().encode();
@@ -379,4 +379,22 @@ component A
     let next = next.unwrap_or_else(|| panic!("the next batch replaces it: {batch}"));
     assert!(next["h"].is_null(), "{batch}");
     assert_eq!(next["s"], 0.05);
+}
+
+#[test]
+fn an_input_a_live_clock_overtook_is_presented_at_the_inputs_time() {
+    let mut host = boot();
+    host.start_on_frame(false, 0.0);
+    host.runner.set_live_clock(Some(Box::new(|| 2600.0)));
+    let go = id(&host, "go");
+    let batch = host.dispatch_at(go, Event::Press, 2000.0);
+    assert!(!batch.contains("\"error\":\""), "{batch}");
+    assert_eq!(
+        host.runner.now_ms(),
+        2600.0,
+        "the action observed the clock"
+    );
+    // The fade starts at the input's time: a release at 2000 can still end
+    // a hold there.
+    assert_eq!(host.engine.now(), 2.0);
 }

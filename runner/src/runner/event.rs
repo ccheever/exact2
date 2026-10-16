@@ -1052,6 +1052,10 @@ impl<D: DataSource> Runner<D> {
     /// Deliver a host event to `view`: find its handler, evaluate the curried
     /// arguments in the instance's scope now, run the action, update.
     pub fn dispatch(&mut self, view: ViewId, event: Event) -> Result<CommitReceipt, RunnerError> {
+        self.arrived(|r| r.dispatch_event(view, event))
+    }
+
+    fn dispatch_event(&mut self, view: ViewId, event: Event) -> Result<CommitReceipt, RunnerError> {
         let mut what = super::lines::event(
             match &event {
                 Event::ReorderDrop { .. } => "reorderdrop",

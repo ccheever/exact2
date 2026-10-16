@@ -40,12 +40,20 @@ struct HeaderShape: Equatable {
         /// badge: a shape holding a text or a symbol), when the button has
         /// one: the item's image, in the box's own colours and corners.
         let badge: BadgeFace?
-        /// The popover a button opens (`popovertarget`): the item's menu,
-        /// its rows read when it opens, as LLP 1021 D3's pull-down.
-        let menu: String?
+        /// Whether the button opens a popover (`Invocation.opensPopover`):
+        /// the item's menu, its rows read when it opens, as LLP 1021 D3's
+        /// pull-down.
+        let menu: Bool
+        /// The popover's `aria-label`: the menu's title, as an in-page
+        /// button's is (MenusIOS: "Open location in", "Sort by").
+        let menuTitle: String
         /// A native button's prominent style: a prominent bar item (iOS 26),
         /// as LLP 1069.011.000 D2 maps `NSToolbarItem`.
         let prominent: Bool
+        /// A native button's `glass` or `clear-glass` style: a glass capsule
+        /// of its own, not the one iOS 26 shares among adjacent items
+        /// (`sharesBackground`). A bar item has no clear variant.
+        let ownGlass: Bool
         /// The colour the author gave the item's face, light and dark: a
         /// symbol's tint, else a `color` written on the button itself. Nil
         /// (UIKit's tint, the platform default) for a colour the button
@@ -72,13 +80,16 @@ struct HeaderShape: Equatable {
             id = button.id
             testId = button.props["testId"]
             badge = button.isNativeButton ? nil : BadgeFace(button)
-            menu = button.props["popovertargetaction"] == "hide" ? nil : button.props["popovertarget"]
+            let invocation = button.presenter?.invocation(of: button)
+            menu = invocation?.opensPopover == true
+            menuTitle = menu ? invocation?.target.props["accessibilityLabel"] ?? "" : ""
             self.symbol = symbol
             title = text
             label = button.props["accessibilityLabel"] ?? face?.label
             disabled = button.disabled
             accessibilityDisabled = button.ariaUnavailable
             prominent = ["filled", "bordered-prominent", "prominent-glass", "prominent-clear-glass"].contains(face?.style ?? "")
+            ownGlass = ["glass", "clear-glass"].contains(face?.style ?? "")
             // The platform's tint unless the author said otherwise (LLP
             // 1115.000 D2): a tint written on the symbol, else a `color`
             // written on the button, a platform colour as much as a literal.
@@ -92,7 +103,7 @@ struct HeaderShape: Equatable {
             }
         }
         /// Everything a bar item is made from.
-        var source: String { "\(id):\(title):\(symbol ?? ""):\(label ?? ""):\(disabled):\(accessibilityDisabled):\(prominent):\(badge?.source ?? ""):\(menu ?? ""):\(tint ?? []):\(testId ?? "")" }
+        var source: String { "\(id):\(title):\(symbol ?? ""):\(label ?? ""):\(disabled):\(accessibilityDisabled):\(prominent):\(ownGlass):\(badge?.source ?? ""):\(menu):\(menuTitle):\(tint ?? []):\(testId ?? "")" }
     }
     let header: NodeView
     let title: String
@@ -236,9 +247,10 @@ struct BadgeFace: Equatable {
 }
 
 /// The delegate Exact gives each navigation controller it builds: Exact's
-/// own handling first (pop reconciliation, LLP 1035.001 D1, D2), then the
-/// app's delegate, which receives straight anything Exact does not
-/// implement — a custom transition's animator (LLP 1075.003 §3.5).
+/// own handling first, then the app's delegate, which receives straight
+/// anything Exact does not implement — a custom transition's animator
+/// (LLP 1075.003 §3.5). An animated push or pop is reconciled (LLP 1035.001
+/// D1, D2) in its coordinator's completion, after both have heard `didShow`.
 final class NavigationDelegateProxy: NSObject, UINavigationControllerDelegate {
     weak var host: NavigationHost?
     weak var app: UINavigationControllerDelegate?
@@ -477,6 +489,14 @@ extension NavigationHost {
         #if !os(tvOS)
         nav.navigationBar.prefersLargeTitles = true
         #endif
+        // The theme's label colour on the bar's titles (LLP 1095 D4); its
+        // glyphs take the app's tint, which the theme's `AccentColor` sets.
+        if let ink = ThemeRoles.color("label") ?? ThemeRoles.color("CanvasText") {
+            nav.navigationBar.titleTextAttributes = [.foregroundColor: ink]
+            #if !os(tvOS)
+            nav.navigationBar.largeTitleTextAttributes = [.foregroundColor: ink]
+            #endif
+        }
         if presenter.session?.natives.hatchesConnected == true {
             stack.showsBar = presenter.session?.natives.navigationHatch(nav, built: true, showsBar: stack.showsBar, label: stack.label) ?? stack.showsBar
             stack.hatched = true
@@ -923,27 +943,23 @@ extension NavigationHost {
         controllers.values.contains { $0.collapseScroll === node || $0.edgeScroll === node }
     }
 
+    /// Whether the page hides `view` only because a bar shows it: a lifted
+    /// header, or a node the bar placed, that its author did not hide.
+    func hiddenForBar(_ view: UIView) -> Bool {
+        guard let node = view as? NodeView, node.style["display"]?.string != "none" else { return false }
+        return controllers.values.contains { $0.lifted === node || $0.barNodes.contains { $0 === node } }
+    }
+
     private func barItem(_ i: HeaderShape.Item, _ c: RouteController) -> UIBarButtonItem {
         let press = BarPress(i.id, self)
         c.barPresses.append(press)
         let action = #selector(BarPress.press)
         let image = i.badge?.image ?? i.symbol.flatMap { UIImage(systemName: $0) }
         let item: UIBarButtonItem
-        if let name = i.menu {
-            // A pull-down: UIKit opens it on tap; the rows are the popover's,
-            // read as it opens, after the button's own press (both fire, as
-            // LLP 1021 D1 has it on the web).
-            let id = i.id
-            let deferred = UIDeferredMenuElement.uncached { [weak self] completion in
-                guard let self else { return completion([]) }
-                if self.presenter.views[id]?.handlers.contains("press") == true { self.presenter.press(id) }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
-                    guard let self, let pop = self.presenter.carrying("popover").first(where: { $0.props["id"] == name }) else { return completion([]) }
-                    completion(self.presenter.menus.items(of: pop))
-                }
-            }
-            item = image.map { UIBarButtonItem(image: $0, menu: UIMenu(children: [deferred])) }
-                ?? UIBarButtonItem(title: i.title, menu: UIMenu(children: [deferred]))
+        if i.menu, let button = presenter.views[i.id] {
+            // A pull-down: UIKit opens it on tap (`MenuHost.pullDown`).
+            let menu = presenter.menus.pullDown(of: button, titled: i.menuTitle, inBar: true)
+            item = image.map { UIBarButtonItem(image: $0, menu: menu) } ?? UIBarButtonItem(title: i.title, menu: menu)
         } else {
             item = image.map { UIBarButtonItem(image: $0, style: .plain, target: press, action: action) }
                 ?? UIBarButtonItem(title: i.title, style: .plain, target: press, action: action)
@@ -963,6 +979,7 @@ extension NavigationHost {
             // A drawn face is its own shape: no glass capsule around it.
             #if !os(tvOS)
             if i.badge != nil { item.hidesSharedBackground = true }
+            else if i.ownGlass { item.sharesBackground = false }
             #endif
         }
         return item
@@ -1040,18 +1057,30 @@ extension NavigationHost {
 
     // MARK: The content area (LLP 1075.003 §3.5)
 
-    /// Whether a native container shows its bars, so the session's view
-    /// takes the whole of its own (ExactViewIOS `fit`).
-    var wantsWholeView: Bool {
-        (tabOwner != nil && !ExactEnv.authoredChrome) || allNavigations.contains(where: barShows)
-    }
+    /// Whether the root's routes have a native primary container (a stack
+    /// or the tabs), so the session's view takes the whole of its own
+    /// (ExactViewIOS `fit`): the document and the window the viewport units
+    /// resolve against. Its bars, whether shown or not, and a
+    /// presentation's containers never decide it (LLP 1123 D1); its routes
+    /// clear what covers them (`reportCovers`). Not under the agent's own
+    /// chrome, where no native container shows.
+    var wantsWholeView: Bool { primaryOwner != nil && !ExactEnv.authoredChrome }
 
-    /// `wantsWholeView` for the root's containers alone, whatever a sheet
-    /// shows: what the window's own viewport is, which the viewport units
-    /// resolve against (LLP 1075.003 §9.11; Astra's review).
-    var rootWantsWholeView: Bool {
-        (tabOwner != nil && !ExactEnv.authoredChrome)
-            || allNavigations.contains { nav in !presentedNavigations.contains { $0 === nav } && barShows(nav) }
+    /// What covers a route of its controller's safe area (`safe`): the
+    /// edges past the document's insets (`env()`, which the page authored
+    /// against) for a route in the document, and every edge of its own for a
+    /// presented one, whose sheet the document's insets do not clear (LLP
+    /// 1123 D2). The top is a collapsing title's scroller's when it has one,
+    /// and the bottom a scroller's at the bottom edge (`reachBottom`); the
+    /// sides and the bottom only while the containers take the whole view
+    /// (`whole`), and the bottom only as far as the route reaches it.
+    static func routeEdges(safe: UIEdgeInsets, document: UIEdgeInsets, presented: Bool, whole: Bool,
+                           collapses: Bool, scrollsToBottom: Bool, reached: CGFloat) -> HostCover.Edges {
+        let env = presented ? .zero : document
+        return .init(top: collapses ? 0 : max(0, safe.top - env.top),
+                     right: whole ? max(0, safe.right - env.right) : 0,
+                     bottom: whole && !scrollsToBottom ? max(0, min(safe.bottom, reached) - env.bottom) : 0,
+                     left: whole ? max(0, safe.left - env.left) : 0)
     }
 
     /// What Exact's containers cover of each route — its controller's safe
@@ -1062,11 +1091,16 @@ extension NavigationHost {
     func reportCovers() {
         var changes: [(UInt32, HostCover?)] = []
         var wanted: [UInt32: HostCover] = [:]
-        let whole = wantsWholeView && presenter.viewportFit != "cover"
         for c in controllers.values where presenter.views[c.node.id] === c.node {
             // A lifted header takes no room, on a stack yet or not (`coverLifted`).
             for node in c.lifted.map({ [$0] }) ?? c.barNodes { wanted[node.id] = .whole }
             guard let nav = c.navigationController, nav.viewControllers.contains(c) else { continue }
+            // A presented route's controller takes its sheet's whole view, and
+            // the document's insets (`env()`) are not the sheet's: its route is
+            // covered for its own safe area whatever the document's fit (LLP
+            // 1123 D2; its own clearance and credit are stage 2's)
+            let presented = presentedNavigations.contains { $0 === nav }
+            let whole = presented || (wantsWholeView && presenter.viewportFit != "cover")
             let shows = barShows(nav)
             guard shows || whole else { continue }
             let edges: HostCover.Edges
@@ -1107,15 +1141,12 @@ extension NavigationHost {
                 } else if case .inset? = covers[node.id] { wanted[node.id] = covers[node.id] }
             }
             if settled, c.viewIfLoaded?.window != nil {
-                let safe = c.view.safeAreaInsets, env = presenter.insets
-                let top = c.collapseScroll == nil ? max(0, safe.top - env.top) : 0
-                // A scroller at the bottom edge goes under it (`reachBottom`).
+                let safe = c.view.safeAreaInsets
                 // Only what the route reaches of the bottom bars is covered:
                 // none once the keyboard ends it above them (`ownerFrame`).
                 let reached = c.node.convert(c.node.bounds, to: c.view).maxY - (c.view.bounds.height - safe.bottom)
-                let bottom = whole && c.edgeScroll == nil ? max(0, min(safe.bottom, reached) - env.bottom) : 0
-                edges = .init(top: top, right: whole ? max(0, safe.right - env.right) : 0,
-                              bottom: bottom, left: whole ? max(0, safe.left - env.left) : 0)
+                edges = Self.routeEdges(safe: safe, document: presenter.insets, presented: presented, whole: whole,
+                                        collapses: c.collapseScroll != nil, scrollsToBottom: c.edgeScroll != nil, reached: reached)
             } else if case .edges(let e)? = covers[c.node.id] {
                 edges = e
             } else { continue }
@@ -1126,23 +1157,20 @@ extension NavigationHost {
             measuredTablist = presenter.session?.view.map { list.convert(list.bounds, to: $0) }
             if adopts(tablist: list) { wanted[list.id] = .whole }
             else if tablistAppearanceNone, list.style["display"]?.string != "none",
-                    rootWantsWholeView, presenter.viewportFit != "cover",
+                    wantsWholeView, presenter.viewportFit != "cover",
                     let view = presenter.session?.view, view.window != nil {
                 // Authored tabs are page content outside the routes. Protect
                 // only the edges they reach; leave the viewport and bar
-                // backgrounds full-size. A sheet never measures these covers.
-                if presenter.modals.coordinateView != nil {
-                    if case .edges? = covers[list.id] { wanted[list.id] = covers[list.id] }
-                } else {
-                    let rect = list.convert(list.bounds, to: view)
-                    let safe = view.bounds.inset(by: view.safeAreaInsets)
-                    let edges = HostCover.Edges(
-                        top: max(0, min(rect.height, safe.minY - rect.minY)),
-                        right: max(0, min(rect.width, rect.maxX - safe.maxX)),
-                        bottom: max(0, min(rect.height, rect.maxY - safe.maxY)),
-                        left: max(0, min(rect.width, safe.minX - rect.minX)))
-                    if edges != .init(top: 0, right: 0, bottom: 0, left: 0) { wanted[list.id] = .edges(edges) }
-                }
+                // backgrounds full-size. A sheet leaves them where they are
+                // (LLP 1123 D1).
+                let rect = list.convert(list.bounds, to: view)
+                let safe = view.bounds.inset(by: view.safeAreaInsets)
+                let edges = HostCover.Edges(
+                    top: max(0, min(rect.height, safe.minY - rect.minY)),
+                    right: max(0, min(rect.width, rect.maxX - safe.maxX)),
+                    bottom: max(0, min(rect.height, rect.maxY - safe.maxY)),
+                    left: max(0, min(rect.width, safe.minX - rect.minX)))
+                if edges != .init(top: 0, right: 0, bottom: 0, left: 0) { wanted[list.id] = .edges(edges) }
             }
         }
         for (id, cover) in wanted where covers[id] != cover { changes.append((id, cover)) }

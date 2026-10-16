@@ -246,7 +246,7 @@ fn walk_use(
                 let Ty::List(item) = lt else {
                     return err(
                         "type-each-list",
-                        format!("`each` needs a list, given `{lt}`"),
+                        format!("`for` needs a list, given `{lt}`"),
                         list.span(),
                     );
                 };

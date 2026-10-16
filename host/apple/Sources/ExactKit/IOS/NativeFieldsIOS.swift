@@ -68,7 +68,7 @@ extension NodeView {
     func applyFieldContent(_ payload: [String: Any]) {
         let r = payload["rect"] as? [Double]
         let box = r.flatMap { $0.count == 4 ? CGRect(x: $0[0], y: $0[1], width: $0[2], height: $0[3]) : nil }
-        applyKernelContentBox(box)
+        applyKernelContentBox(box, padding: NodeView.sentPadding(payload))
         let cell = box != nil && payload["cell"] as? Bool == true
         if cell != fieldInCell {
             fieldInCell = cell
@@ -152,6 +152,20 @@ extension TextArea {
         textContainerInset = native ? inset : .zero
         #endif
         textContainer.lineFragmentPadding = 0
+    }
+}
+#endif
+
+#if os(iOS) || os(tvOS)
+extension Presenter {
+    /// Applies a `fieldContent` op. A content box touches its node here,
+    /// where it takes effect: the paragraph laid out in it, and a native
+    /// button's face, whose padding the kernel resolved with it, asked for
+    /// again at the next controls sync.
+    func applyContentGeometry(_ v: NodeView, _ op: BatchOp) {
+        v.applyFieldContent(op.payload)
+        touched(v.id, textChanged: true)
+        controls.faceChanged(v.id)
     }
 }
 #endif

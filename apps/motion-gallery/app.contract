@@ -60,9 +60,9 @@ component Gallery
           text "Fixtures" font-size=13
         button press=shimmer testId="page-2" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color=(page == 2 ? "#e2e8f0" : "#f8fafc")
           text "Shimmer" font-size=13
-      when page == 1
+      if page == 1
         Fixtures()
-      when page == 2
+      if page == 2
         Shimmer()
 
 component Fixtures

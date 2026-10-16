@@ -6,6 +6,15 @@ import XCTest
 /// `tree --ax` on AppKit (LLP 1080.002 §3 stage 3): the unignored tree in
 /// navigation order, AppKit's own roles and names, each element joined to
 /// its view. Run by `bun host/apple/build.mjs --test`.
+private extension NSView {
+    nonisolated(unsafe) static var hiddenGetterCalls = 0
+    /// Exchanged with `isAccessibilityHidden()`; the call inside is the original.
+    @objc func countingIsAccessibilityHidden() -> Bool {
+        NSView.hiddenGetterCalls += 1
+        return countingIsAccessibilityHidden()
+    }
+}
+
 final class AccessibilityTreeMacTests: XCTestCase {
     private var window: NSWindow!
 
@@ -213,6 +222,43 @@ final class AccessibilityTreeMacTests: XCTestCase {
         XCTAssertFalse(elements(shown).contains { $0["testId"] as? String == "named" })
         p.dialogs.close(try XCTUnwrap(p.views[10]))
         XCTAssertTrue(elements(p.axElements(roots: [p.viewport])).contains { $0["testId"] as? String == "named" })
+    }
+
+    /// AppKit drops its reply to another process (VoiceOver) when the code
+    /// serving the request calls `isAccessibilityHidden()`: the window reads
+    /// as an empty scroll area. The projection reads the host's own flag.
+    func testTheModalProjectionCallsNoAccessibilityHiddenGetter() throws {
+        let p = try fixture()
+        p.apply(wireBatch([
+            ["op": "create", "id": 9, "kind": "view"],
+            ["op": "create", "id": 10, "kind": "view", "props": ["accessibilityRole": "alertdialog", "accessibilityModal": "true", "accessibilityLabel": "Confirm"]],
+            ["op": "create", "id": 11, "kind": "button", "handlers": ["press"], "props": ["accessibilityLabel": "OK"]],
+            ["op": "children", "id": 10, "ids": [11]],
+            ["op": "children", "id": 9, "ids": [10]],
+            ["op": "children", "id": 1, "ids": [2, 3, 9]],
+            ["op": "frame", "id": 9, "x": 0.0, "y": 100.0, "w": 200.0, "h": 100.0],
+            ["op": "frame", "id": 10, "x": 0.0, "y": 0.0, "w": 200.0, "h": 100.0],
+            ["op": "frame", "id": 11, "x": 0.0, "y": 0.0, "w": 80.0, "h": 30.0],
+        ]))
+        p.syncAccessibility()
+        let dialog = try XCTUnwrap(p.views[10]), ok = try XCTUnwrap(p.views[11]), wrapper = try XCTUnwrap(p.views[9])
+        let getter = try XCTUnwrap(class_getInstanceMethod(NSView.self, #selector(NSView.isAccessibilityHidden)))
+        let counting = try XCTUnwrap(class_getInstanceMethod(NSView.self, #selector(NSView.countingIsAccessibilityHidden)))
+        method_exchangeImplementations(getter, counting)
+        NSView.hiddenGetterCalls = 0
+        let children = p.viewport.accessibilityChildren() as? [NSView]
+        let contents = p.viewport.accessibilityAttributeValue(.contents) as? [NSView]
+        let parent = dialog.accessibilityAttributeValue(.parent) as? NSView
+        _ = ok.accessibilityParent()
+        method_exchangeImplementations(getter, counting)
+        XCTAssertEqual(NSView.hiddenGetterCalls, 0, "serving AXChildren, AXContents and AXParent calls no isAccessibilityHidden()")
+        XCTAssertTrue(children?.count == 1 && children?.first === dialog, "the viewport's child is exactly the modal")
+        XCTAssertTrue(contents?.count == 1 && contents?.first === dialog)
+        XCTAssertTrue(parent === p.viewport)
+        wrapper.setAccessibilityHidden(true)
+        XCTAssertNil(p.macAccessibilityModal, "an ancestor the host hid from accessibility still hides the modal")
+        wrapper.setAccessibilityHidden(false)
+        XCTAssertTrue(p.macAccessibilityModal === dialog)
     }
 
     func testModalProjectsAXContentsAsWellAsNavigationChildren() throws {
@@ -597,6 +643,47 @@ final class AccessibilityTreeMacTests: XCTestCase {
         XCTAssertEqual(status["role"] as? String, "status")
         XCTAssertEqual(status["name"] as? String, "", "named only by its author")
         XCTAssertEqual(children(status), ["text Archived. ", "link Undo", "text  or keep it."], "each word once, in reading order")
+    }
+
+    /// VoiceOver moves by `AXChildrenInNavigationOrder`. It is `AXChildren`,
+    /// the order the author wrote, wherever the frames are: AppKit's own sorts
+    /// by frame and read a chip over a textarea's top-left corner first.
+    /// Another process reads the method's answer (measured with
+    /// `AXUIElementCopyAttributeValue`); AppKit's in-process
+    /// `accessibilityAttributeValue` of the name does not consult it.
+    func testNavigationOrderIsTheTreeOrder() throws {
+        let p = try fixture()
+        p.apply(wireBatch([
+            ["op": "create", "id": 20, "kind": "view", "props": ["accessibilityRole": "group", "accessibilityLabel": "Composer"]],
+            ["op": "create", "id": 21, "kind": "textarea", "props": ["value": "", "accessibilityLabel": "Message"], "handlers": ["input"]],
+            ["op": "create", "id": 22, "kind": "button", "handlers": ["press"], "props": ["accessibilityLabel": "Chip"]],
+            ["op": "create", "id": 23, "kind": "button", "handlers": ["press"], "props": ["accessibilityLabel": "Send"]],
+            ["op": "create", "id": 24, "kind": "button", "handlers": ["press"], "props": ["accessibilityLabel": "Corner"]],
+            ["op": "create", "id": 30, "kind": "view", "props": ["accessibilityRole": "list", "accessibilityLabel": "Chips"], "style": ["overflow_y": "scroll"]],
+            ["op": "create", "id": 31, "kind": "button", "handlers": ["press"], "props": ["accessibilityLabel": "Below"]],
+            ["op": "create", "id": 32, "kind": "button", "handlers": ["press"], "props": ["accessibilityLabel": "Above"]],
+            ["op": "children", "id": 20, "ids": [21, 22, 23]],
+            ["op": "children", "id": 30, "ids": [31, 32]],
+            ["op": "children", "id": 1, "ids": [2, 3, 20, 30, 24]],
+            ["op": "frame", "id": 20, "x": 0.0, "y": 100.0, "w": 400.0, "h": 100.0],
+            ["op": "frame", "id": 21, "x": 0.0, "y": 0.0, "w": 300.0, "h": 70.0],
+            ["op": "frame", "id": 22, "x": 4.0, "y": 4.0, "w": 60.0, "h": 20.0],
+            ["op": "frame", "id": 23, "x": 0.0, "y": 76.0, "w": 60.0, "h": 20.0],
+            ["op": "frame", "id": 30, "x": 0.0, "y": 210.0, "w": 200.0, "h": 80.0],
+            ["op": "frame", "id": 31, "x": 0.0, "y": 40.0, "w": 60.0, "h": 20.0],
+            ["op": "frame", "id": 32, "x": 0.0, "y": 0.0, "w": 60.0, "h": 20.0],
+            ["op": "frame", "id": 24, "x": 0.0, "y": 0.0, "w": 20.0, "h": 20.0],
+        ]))
+        p.syncAccessibility()
+        let scroll = try XCTUnwrap(p.views[30]?.subviews.first { $0 is ChainingScrollView })
+        for parent in [try XCTUnwrap(p.views[20]), scroll, p.viewport] {
+            let children = try XCTUnwrap(parent.accessibilityChildren() as? [AnyObject])
+            XCTAssertGreaterThan(children.count, 1)
+            let order = try XCTUnwrap(Presenter.navigationOrder(parent) as? [AnyObject])
+            XCTAssertTrue(order.elementsEqual(children, by: ===), "\(parent): \(order) is not \(children)")
+        }
+        let order = elements(p.axElements(roots: [p.viewport])).compactMap { $0["name"] as? String }
+        XCTAssertEqual(order.filter { ["Message", "Chip", "Send", "Below", "Above", "Corner"].contains($0) }, ["Message", "Chip", "Send", "Below", "Above", "Corner"])
     }
 
     func testATargetScopesTheReply() throws {

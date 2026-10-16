@@ -325,7 +325,8 @@ final class AccessibilityTests: XCTestCase {
     /// `Link` do. A `link` node's `AXURL` is its `href`. A paragraph's `href`
     /// run is one element from one ask to the next, and a hit test returns
     /// it (one made per ask is invalid to another process, VoiceOver's);
-    /// new runs make a new one. Pressing either opens its URL.
+    /// new runs make a new one. Pressing either opens its URL once AppKit's
+    /// request has returned (`testAnInlineRunsPressRunsOnceTheRequestReturns`).
     func testALinkCarriesItsURLAndAnInlineLinkIsOneElementWhileItsRunsLast() throws {
         _ = NSApplication.shared
         let session = ExactApp.shared.makeSession(label: "link-url")
@@ -367,12 +368,66 @@ final class AccessibilityTests: XCTestCase {
         XCTAssertTrue(paragraph.accessibilityHitTest(NSPoint(x: frame.midX, y: frame.midY)) as AnyObject === run, "a hit test over the run returns it")
         XCTAssertTrue(link.accessibilityPerformPress())
         XCTAssertTrue(run.accessibilityPerformPress())
+        XCTAssertEqual(opened.urls, [], "each URL opens after the request")
+        spin { opened.urls.count == 2 }
         XCTAssertEqual(opened.urls, ["https://example.com/link-node", "https://example.com/inline-run"])
         p.apply(wireBatch([runs("https://example.com/moved")]))
         let moved = try XCTUnwrap(paragraph.accessibilityChildren()?.first as? NSAccessibilityElement)
         XCTAssertFalse(moved === run, "new runs, a new element")
         XCTAssertEqual(moved.accessibilityURL(), URL(string: "https://example.com/moved"))
         XCTAssertTrue(paragraph.accessibilityChildren()?.first as AnyObject === moved)
+    }
+    /// An assistive app's press on an inline run (VoiceOver's VO-Space,
+    /// Switch Control: AppKit's AXPress request) runs the run's `press` once
+    /// the request has returned, and once. AppKit answers the request with
+    /// the first accessibility error recorded while it is open, and the
+    /// update a press makes records one: run inside it, a press that landed
+    /// answered kAXErrorAttributeUnsupported. A run with neither a `press`
+    /// nor an `href` has nothing to do, nor has an `href` run with no
+    /// session to follow it (`canActivateInline`, as `activateInline`).
+    func testAnInlineRunsPressRunsOnceTheRequestReturns() throws {
+        let (p, w, _, _) = fixture()
+        let paragraph = NodeView(id: 80, kind: "text", presenter: p)
+        paragraph.frame = NSRect(x: 0, y: 60, width: 300, height: 20)
+        p.root.addSubview(paragraph); p.views[paragraph.id] = paragraph
+        func run(_ id: Int, _ props: [String: String], _ handlers: [String] = []) -> [String: Any] {
+            ["id": id, "parent": 80, "paint": true, "props": props, "style": ["font_size": 16.0], "handlers": handlers]
+        }
+        p.apply(wireBatch([["op": "paragraph", "id": 80, "runs": [run(81, ["text": "Press "]), run(82, ["text": "here"], ["press"]),
+                                                                  run(83, ["text": " or "]), run(84, ["text": "this", "accessibilityLabel": "This"]),
+                                                                  run(85, ["text": " "]), run(86, ["text": "that", "href": "https://example.com/unfollowed"])]]]))
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        let runs = paragraph.accessibilityChildren()?.compactMap { $0 as? NSAccessibilityElement } ?? []
+        XCTAssertEqual(runs.map { $0.accessibilityLabel() }, ["here", "This", "that"])
+        XCTAssertFalse(runs[1].accessibilityPerformPress(), "nothing to do")
+        XCTAssertNil(p.session)
+        XCTAssertFalse(runs[2].accessibilityPerformPress(), "no session to follow the href")
+        XCTAssertTrue(runs[0].accessibilityPerformPress())
+        XCTAssertEqual(pressed, [], "nothing runs inside the request")
+        var drained = false
+        DispatchQueue.main.async { drained = true }
+        spin { drained }
+        XCTAssertEqual(pressed, [82])
+        withExtendedLifetime(w) {}
+    }
+    /// A button's press from an assistive app (AXPress) runs once AppKit's
+    /// request has returned, and once, as an inline run's does: run inside
+    /// it, the update the press made recorded an error, and a press that
+    /// landed answered kAXErrorAttributeUnsupported.
+    func testAButtonsAssistivePressRunsOnceTheRequestReturns() {
+        let (p, w, button, other) = fixture()
+        button.handlers = ["press"]
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        XCTAssertFalse(other.accessibilityPerformPress(), "nothing to press")
+        XCTAssertTrue(button.accessibilityPerformPress())
+        XCTAssertEqual(pressed, [], "nothing runs inside the request")
+        var drained = false
+        DispatchQueue.main.async { drained = true }
+        spin { drained }
+        XCTAssertEqual(pressed, [1])
+        withExtendedLifetime(w) {}
     }
     /// X78 with #278: a status paragraph's words and link are kept from one
     /// ask to the next like any paragraph's runs, and made again when its
@@ -484,8 +539,13 @@ final class AccessibilityTests: XCTestCase {
         XCTAssertEqual(dialog.accessibilityRole(), .group)
         XCTAssertEqual(dialog.accessibilitySubrole()?.rawValue, "AXApplicationDialog")
         XCTAssertEqual(dialog.accessibilityLabel(), "Rename")
+        let word = NSAccessibility.Role.window.description(with: .dialog)
+        XCTAssertEqual(dialog.accessibilityRoleDescription(), word, "VoiceOver says dialog, as for a dialog window, not group")
         dialog.applyProps(set: ["accessibilityRole": "alertdialog"], clear: [])
         XCTAssertEqual(dialog.accessibilitySubrole()?.rawValue, "AXApplicationAlertDialog")
+        XCTAssertEqual(dialog.accessibilityRoleDescription(), word, "an alert's window is a dialog too")
+        dialog.applyProps(set: ["accessibilityRole": "status"], clear: [])
+        XCTAssertEqual(dialog.accessibilityRoleDescription(), NSAccessibility.Role.group.description(with: .init(rawValue: "AXApplicationStatus")))
         withExtendedLifetime(w) {}
     }
     /// A role removed or changed at runtime leaves no trace of it: a box
@@ -508,6 +568,7 @@ final class AccessibilityTests: XCTestCase {
             XCTAssertFalse(box.isAccessibilityElement(), "\(set) removed")
             XCTAssertTrue([nil, fresh.accessibilityRole()].contains(box.accessibilityRole()), "\(set) removed: AppKit's default role, or none")
             XCTAssertNil(box.accessibilitySubrole(), "\(set) removed")
+            XCTAssertTrue([nil, fresh.accessibilityRoleDescription()].contains(box.accessibilityRoleDescription()), "\(set) removed: no dialog's")
             XCTAssertNil(box.accessibilityValue(), "\(set) removed")
             XCTAssertNil(box.accessibilityValueDescription(), "\(set) removed")
             XCTAssertNil(box.liveText, "\(set) removed")

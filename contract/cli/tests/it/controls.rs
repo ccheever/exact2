@@ -374,7 +374,7 @@ const THEME: &str = r#"shape Theme
   name: string
 
 component App
-  resource themes = themes() as shape list<Theme>
+  resource themes = themes() as shape Theme[]
   state theme = "system"
   state moves = 0
   action setTheme(value: string)
@@ -387,7 +387,7 @@ component App
       select value=theme change=setTheme testId="theme" aria-label="Theme"
         option value="system"
           text "System"
-        each t in themes key=t.id
+        for t in themes key=t.id
           option t.name value=t.id testId=`theme-${t.id}`
         option "Sepia" value="sepia" disabled=true
       select value=theme input=refuse testId="fixed" aria-label="Fixed"
@@ -420,7 +420,7 @@ fn a_select_is_a_control_whose_options_are_its_children() {
     assert_eq!(node.node_type, NodeType::Control);
     assert_eq!(node.props.str(PropId::Type), Some("select"));
     assert_eq!(node.props.str(PropId::AccessibilityRole), Some("combobox"));
-    // `each` and keys work: the options are nodes, never laid out.
+    // `for` and keys work: the options are nodes, never laid out.
     let choices = r.kernel().select_choices(theme);
     let values: Vec<_> = choices.iter().map(|c| c.value.as_str()).collect();
     assert_eq!(values, ["system", "light", "dark", "sepia"]);

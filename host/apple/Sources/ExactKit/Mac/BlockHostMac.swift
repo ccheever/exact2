@@ -13,44 +13,6 @@
 import AppKit
 import CExact
 
-/// The containing block a native container gives one subtree, in points.
-struct HostBlock: Equatable {
-    /// One axis: the block is this long, or at most this long and as long
-    /// as its content.
-    enum Axis: Equatable {
-        case size(CGFloat), atMost(CGFloat)
-        fileprivate var wire: (length: CGFloat, most: CGFloat) {
-            switch self {
-            case .size(let length): (length, 0)
-            case .atMost(let length): (length, 1)
-            }
-        }
-    }
-    var width: Axis, height: Axis
-    /// A pane's: the block is its size.
-    static func size(_ size: CGSize) -> HostBlock { HostBlock(width: .size(size.width), height: .size(size.height)) }
-    /// A sheet's: as large as its content, at most this.
-    static func atMost(_ size: CGSize) -> HostBlock { HostBlock(width: .atMost(size.width), height: .atMost(size.height)) }
-}
-
-extension Runtime {
-    /// Subtrees' containing blocks (nil takes one back) under one layout,
-    /// through the door the covers use (`exact_host_covers`, kinds 4 and 5).
-    func blocks(_ blocks: [(UInt32, HostBlock?)]) -> Batch {
-        return on {
-            var bytes = Data(capacity: blocks.count * 24)
-            for (view, block) in blocks {
-                let width = block?.width.wire, height = block?.height.wire
-                let lengths = [width?.length ?? 0, height?.length ?? 0, width?.most ?? 0, height?.most ?? 0].map { Float($0).bitPattern }
-                for word in [view, block == nil ? 5 : 4] + lengths {
-                    withUnsafeBytes(of: word.littleEndian) { bytes.append(contentsOf: $0) }
-                }
-            }
-            return read(exact_host_covers(rt, write(bytes)))
-        }
-    }
-}
-
 /// The view a native container shows a subtree in: flipped, as node views
 /// are, clipping what overflows the block, and saying when the container
 /// (a divider, a window) gave it another size.

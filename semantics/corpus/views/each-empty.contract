@@ -1,15 +1,15 @@
-// `each` over an empty list renders nothing; siblings before and after
+// `for` over an empty list renders nothing; siblings before and after
 // stay in order.
 shape Item
   id: string
 
 component App
-  mutation got as shape list<Item>
+  mutation got as shape Item[]
   derive items = match got { case some(xs) => xs, case none => [] }
   view
     column
       text "before" testId="before"
-      each it, i in items key=i
+      for it, i in items key=i
         text it.id testId=`row-${i}`
       text "after" testId="after"
 

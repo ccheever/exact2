@@ -273,3 +273,25 @@ export function macIdentity() {
   const m = /\d+\) ([0-9A-F]{40}) "Apple Development: /.exec(read('security', ['find-identity', '-v', '-p', 'codesigning']).stdout ?? '');
   return m ? m[1] : null;
 }
+
+/** Every orientation: an iPad app supports them all, as its multitasking requires. Without this key iPad reads
+ * the iPhone's. */
+export const IPAD_ORIENTATIONS = ['UIInterfaceOrientationPortrait', 'UIInterfaceOrientationPortraitUpsideDown', 'UIInterfaceOrientationLandscapeLeft', 'UIInterfaceOrientationLandscapeRight'];
+
+/** The iPhone orientations the manifest's `orientation` allows, or null for `any` or none, which leaves iOS's own
+ * (portrait and both landscapes). A `-primary` is the device's own way up, as the Screen Orientation API has it:
+ * `landscape-primary` is turned left, the home indicator on the right, which UIKit calls LandscapeRight. Every
+ * portrait is upright, the only portrait an iPhone with Face ID offers. */
+export function phoneOrientations(orientation) {
+  const up = 'UIInterfaceOrientationPortrait';
+  const right = 'UIInterfaceOrientationLandscapeRight', left = 'UIInterfaceOrientationLandscapeLeft';
+  return { natural: [up], portrait: [up], 'portrait-primary': [up], 'portrait-secondary': [up], landscape: [left, right],
+    'landscape-primary': [right], 'landscape-secondary': [left] }[orientation] ?? null;
+}
+
+/** The Info.plist keys that lock the iPhone to the manifest's `orientation` and leave iPad all four, over a
+ * distribution's default orientations; none for `any` or no `orientation`. */
+export function orientationKeys(orientation) {
+  const phone = phoneOrientations(orientation);
+  return phone ? { UISupportedInterfaceOrientations: phone, 'UISupportedInterfaceOrientations~ipad': IPAD_ORIENTATIONS } : {};
+}

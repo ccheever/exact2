@@ -124,8 +124,8 @@ Ops (the layer covers exactly the card, so its centre is over Save): `"tap inspe
 
 | Scenario | Setup / reset / exact commands | Platform / OS / device | Framework revision | Actual result | Expected result | Evidence |
 |---|---|---|---|---|---|---|
-| Inspect without and with a layer, macOS | `bun exact.mjs mac`; `bun exact.mjs agent macos --size 700x300 <ops>` | macOS 26.6.2, Apple Silicon | main `b896050d7` | `out` after each step: `paint-primary-save · 0`, `paint-primary-save · 1`, `paint-primary-save · 2`, `paint-surface-card · 2`, `paint-surface-card · 3` | the layer reads `paint-primary-save` through `elementsFromPoint`; presses stay 0 while inspecting through the layer | [record](https://raw.githubusercontent.com/ccheever/exact2/911685b6825363eeb0cb30e117c7fd761c0e8e14/file-x48-x68/x68-record.txt) |
-| Same, web | `bun exact.mjs agent web --size 700x300 <ops>` | Chrome 154 (the agent's) | same | `paint-primary-save · 0`, `· 1`, `· 2`, `paint-surface-card · 2`, `paint-surface-card · 2` | same | same, [end-state screenshots](https://raw.githubusercontent.com/ccheever/exact2/d47bb6ad52f193bb2b368f7dbe15ee558fb5a059/file-x48-x68/x68-macos-vs-web.png) |
+| Inspect without and with a layer, macOS | `bun exact.mjs mac`; `bun exact.mjs agent macos --size 700x300 <ops>` | macOS 26.6.2, Apple Silicon | main `b896050d7` | `out` after each step: `paint-primary-save · 0`, `paint-primary-save · 1`, `paint-primary-save · 2`, `paint-surface-card · 2`, `paint-surface-card · 3` | the layer reads `paint-primary-save` through `elementsFromPoint`; presses stay 0 while inspecting through the layer | record |
+| Same, web | `bun exact.mjs agent web --size 700x300 <ops>` | Chrome 154 (the agent's) | same | `paint-primary-save · 0`, `· 1`, `· 2`, `paint-surface-card · 2`, `paint-surface-card · 2` | same | same, end-state screenshots |
 | `elementsFromPoint` | `contract build` of a `pointerdown` action that reads `elementsFromPoint(e.clientX, e.clientY)` | any (compiler) | same | `` [type-unknown-function] `elementsFromPoint` is not in the stdlib roster … did you mean `elementFromPoint`? `` | `list<string>` | — |
 
 ### Acceptance criteria

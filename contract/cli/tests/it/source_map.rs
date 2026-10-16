@@ -111,14 +111,14 @@ fn imports_nested_instances_and_slot_fills_keep_their_own_source_files() {
         r#"use Panel from "./ui/panel.contract"
 use Counter from "./ui/counter.contract"
 component App
-  resource entries = entries() as shape list<string>
+  resource entries = entries() as shape string[]
   view
     column testId="root"
       Panel()
         text "from caller" testId="slot"
         Counter(label="slot-counter")
       Counter(label="outside")
-      each entry in entries key=entry
+      for entry in entries key=entry
         Counter(label=entry)
 "#,
     );
@@ -262,7 +262,7 @@ fn source_snapshot_and_final_baked_bytes_determine_the_map() {
     let app = App::new("snapshot");
     let path = app.write("app.contract", "invalid on disk\n");
     let source = r#"component App
-  resource entries = entries() as shape list<string>
+  resource entries = entries() as shape string[]
   view
     text "snapshot"
 "#;

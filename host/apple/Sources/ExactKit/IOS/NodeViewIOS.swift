@@ -193,13 +193,22 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     }
     /// A nested editor owns its selection gestures, including read-only
     /// text. Plain gestures and native context menus use the same boundary.
-    func hitsNativeEditor(_ view: UIView?) -> Bool {
+    func hitsNativeEditor(_ view: UIView?) -> Bool { Self.nativeEditor(view, below: self) }
+    /// Whether `view` is in a native editor's view below `boundary`, which
+    /// owns its selection gestures.
+    static func nativeEditor(_ view: UIView?, below boundary: UIView) -> Bool {
         var hit = view
-        while let current = hit, current !== self {
+        while let current = hit, current !== boundary {
             if current is UITextView || current is UITextField { return true }
             hit = current.superview
         }
         return false
+    }
+    /// Whether a touch on `view` is native input's, which an ancestor's
+    /// long press or double tap never takes, below `boundary`: a canvas that
+    /// takes its own touches (`CanvasInputs`), or a native editor.
+    static func nativeInputOwns(_ view: UIView?, below boundary: UIView) -> Bool {
+        CanvasInputs.owns(view) || nativeEditor(view, below: boundary)
     }
     func updateContextGestures() {
         if handlers.contains("contextmenu"), contextRecognizer == nil {
@@ -316,13 +325,13 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     var press = PressFeedback() // LLP 1061 D2: the feedback `pressed` drives
     package var disabled: Bool { props["disabled"] == "true" }
     /// HTML inertness covers the subtree, including direct agent activation.
-    package var inert: Bool {
-        var ancestor: UIView? = self
-        while let view = ancestor {
-            if (view as? NodeView)?.props["inert"] == "true" { return true }
-            ancestor = view.superview
-        }
-        return false
+    package var inert: Bool { presenter?.modals.inertBehind(self) == true || authoredInert }
+    /// Inert by an `inert` attribute at or above it, whatever is presented:
+    /// what an event bubbling out of a presentation still reaches.
+    package var authoredInert: Bool {
+        // Its logical ancestors, a presented route's included (LLP 1123 D2)
+        (presenter?.logicalAncestry(of: self) ?? sequence(first: self as UIView, next: \.superview))
+            .contains { ($0 as? NodeView)?.props["inert"] == "true" }
     }
     /// Images loaded since launch (smoke reporting).
     /// The session's text engine (LLP 1031 D12: the catalog is the session's).
@@ -453,7 +462,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
 
     package func textFieldShouldReturn(_ textField: UITextField) -> Bool {
         presenter?.focusAsked = nil
-        guard !disabled else { return false }
+        guard !disabled, !inert else { return false }
         // The software keyboard's Return is a key the handlers hear first (a
         // hardware one's they heard in `pressesBegan`); prevented, it neither
         // commits nor submits.
@@ -928,7 +937,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         // its field the label colour). A bare field that writes its own
         // colour mutes that ink.
         // An authored `::placeholder` colour wins, its alpha its own (LLP 1104 D3).
-        let ink = placeholderColor ?? (isNativeTextControl || ownColor("text_color") == nil ? UIColor.placeholderText : (f.textColor ?? SystemColor.canvasText).withAlphaComponent(0.30))
+        let ink = placeholderColor ?? (isNativeTextControl || ownColor("text_color") == nil ? ThemeRoles.color("placeholder", or: UIColor.placeholderText) : (f.textColor ?? SystemColor.canvasText).withAlphaComponent(0.30))
         f.attributedPlaceholder = NSAttributedString(string: text, attributes: [
             .font: font,
             .foregroundColor: ink,
@@ -997,6 +1006,9 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if style["mask_image"] != nil { applyBoxMask() }
     }
     var kernelContentBox: CGRect?
+    /// The padding layout resolved and sent with `kernelContentBox`: top,
+    /// right, bottom, left (`nil` on a native button's unsaid side).
+    var kernelPadding: [CGFloat?]?
     var pendingScrollLeft: Double? {
         get { extras?.pendingScrollLeft }
         set { if newValue != nil || extras != nil { more.pendingScrollLeft = newValue; more.pendingScrollTransfer = false }; presenter?.pendingScrolls.insert(id) }
@@ -1160,7 +1172,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if superview != nil { syncVibrancy() }
     }
     func applyStyle(_ s: NodeStyle) {
-        defer { video?.update(); applyCssVisibility(); if columnRecord?.columns.isEmpty == false { layoutColumnRules() } }
+        defer { video?.update(); layoutContent(); applyCssVisibility(); if columnRecord?.columns.isEmpty == false { layoutColumnRules() } }
         let origin = style["transform_origin"]
         let old = style
         style = s
@@ -1310,6 +1322,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if kind == "native" { presenter?.session?.natives.laidOut(self) }
         layoutTextArea()
         layoutSymbol()
+        layoutContent()
     }
 
     /// The reduced radii; the layer fast path additionally requires circles.

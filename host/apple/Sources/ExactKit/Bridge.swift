@@ -35,6 +35,8 @@ public struct Batch {
     public var controls = false
     /// Image handles a 2D canvas asked for, to decode (LLP 1056 D9).
     public var canvasImages: [String] = []
+    /// The window's app modes after a `setMode` (LLP 1121 D5), when the call was one.
+    public var modes: [String: String]? = nil
     /// The kernel transactions it carries, while the runner measures (LLP 1079 D3).
     public var seq: (UInt64, UInt64)?
     init(ops: [BatchOp], timers: Bool, motion: Bool, clock: Double?, error: String?, timerDueMs: Double? = nil, pending: Bool = false) {
@@ -63,7 +65,7 @@ public struct Batch {
 package final class Runtime {
     package let rt: ExactRuntime
     private(set) package var destroyed = false
-    var topLayer: (() -> [(UInt32, CGRect)])?
+    var topLayer: (() -> (frames: [(UInt32, CGRect)], modal: Int?))?
     var inlineFrame: ((UInt32) -> CGRect?)?
     #if DEBUG
     // Per-runtime observation for differential tests of actual session traffic.
@@ -94,13 +96,13 @@ package final class Runtime {
         error: "busy: the owner is waiting on this callback (LLP 1072 T5)")
     static let busyAgent = "{\"error\":\"busy: the owner is waiting on this callback (LLP 1072 T5)\"}"
     package func on(_ body: () -> Batch) -> Batch {
-        let open = topLayer?() ?? []
+        let (open, modal) = topLayer?() ?? ([], nil)
         let ids = open.map(\.0)
         let rects = open.flatMap { [Double($0.1.minX), Double($0.1.minY), Double($0.1.width), Double($0.1.height)] }
         return Owner.shared.sync({
             ids.withUnsafeBufferPointer { ids in
                 rects.withUnsafeBufferPointer { rects in
-                    exact_top_layer(rt, ids.baseAddress, rects.baseAddress, UInt32(open.count))
+                    exact_top_layer(rt, ids.baseAddress, rects.baseAddress, UInt32(open.count), modal.map(UInt32.init) ?? .max)
                 }
             }
             return body()
@@ -528,6 +530,8 @@ package final class Runtime {
     /// (LLP 1003.001 D7); off, what waits starts at `at`.
     func startOnFrame(_ yes: Bool, at: Double) -> Batch { on { read(exact_start_on_frame(rt, yes ? 1 : 0, at)) } }
     func presentFrames(_ yes: Bool) { on { () -> Void in _ = exact_present_frames(rt, yes ? 1 : 0) } }
+    /// The wall clock owns time, or the agent's clock does (the timers RFC, D1).
+    func liveClock(_ yes: Bool) { on { () -> Void in _ = exact_set_live_clock(rt, yes ? { ExactEnv.wall() } : nil) } }
     func resize(width: CGFloat, height: CGFloat) -> Batch { on { read(exact_resize(rt, Float(width), Float(height))) } }
     func setTime(epochAtZero: Double, utcOffset: Double) -> Batch { on { read(exact_set_time(rt, epochAtZero, utcOffset)) } }
     func setLaunchTime(epochAtZero: Double, utcOffset: Double) { on { () -> Void in _ = exact_set_launch_time(rt, epochAtZero, utcOffset) } }
@@ -535,6 +539,7 @@ package final class Runtime {
     func setPreferences(_ bits: UInt32) -> Batch { on { read(exact_set_preferences(rt, bits)) } }
     func setPage(_ bits: UInt32) -> Batch { on { read(exact_set_page(rt, bits)) } }
     func setRootFontSize(_ px: Double) -> Batch { on { read(exact_set_root_font_size(rt, px)) } }
+    func setModes(_ pins: [String: String], check: Bool = false) -> Batch { on { read(exact_set_mode(rt, write((check ? "?" : "") + pins.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ",")))) } }
     func setDisplayScale(_ scale: Double) -> Batch { on { read(exact_set_display_scale(rt, scale)) } }
     func setPlace(locale: String, timeZone: String, seed: UInt64) -> Batch { on { read(exact_set_place(rt, write(locale + "\0" + timeZone + "\0" + String(seed))) ) } }
     func listIndex(_ view: UInt32, key: String) -> Int? {

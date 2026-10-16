@@ -1,7 +1,7 @@
 // @ref LLP 1069.002 — the file picker on Apple. `showPicker(id)` presents
-// PHPicker on iOS (no permission, no usage string) or a document picker for
-// non-media or unrestricted input, and an NSOpenPanel sheet on macOS
-// (D8). Native hosts don't enforce user activation (ruled, Q2). Each chosen
+// PHPicker on iOS (no permission, no usage string; the `ExactMediaPicker`
+// module's, LLP 1047.001.000 E) or a document picker for non-media or
+// unrestricted input, and an NSOpenPanel sheet on macOS (D8). Native hosts don't enforce user activation (ruled, Q2). Each chosen
 // file is copied into `app:/tmp/picked/` before `change` fires (D4), a HEIC
 // photo becoming a JPEG when `accept` names images but not HEIC (D6,
 // Safari's rule), with its pixel size and a video's duration (D3). Under
@@ -9,13 +9,30 @@
 // (D9), whose files take the same path.
 import Foundation
 import ImageIO
+import CoreImage
 import AVFoundation
 import UniformTypeIdentifiers
 #if canImport(UIKit)
 import UIKit
-import PhotosUI
 #else
 import AppKit
+#endif
+
+#if os(iOS)
+/// What the core asks of the photo picker's module, which links PhotosUI.
+package protocol MediaPickerCapability: AnyObject {
+    /// Present the photo picker over `controller` for a media-only
+    /// `accept`. `done` runs once, on the main queue, with each chosen file
+    /// staged in the temporary directory and the name to give it (none
+    /// when cancelled); the caller removes the staged files.
+    func present(over controller: UIViewController, accept: [String], multiple: Bool,
+                 done: @escaping ([(url: URL, name: String)]) -> Void)
+}
+
+/// The photo picker's module, installed by the composition.
+package enum MediaPickerLink {
+    package static var installed: MediaPickerCapability?
+}
 #endif
 
 /// The app's directories behind `app:/`, so an `image` source can read the
@@ -130,6 +147,7 @@ final class Picker: NSObject {
                 try? FileManager.default.removeItem(at: target)
                 try Picker.copy(f.url, to: target, accept: accept, mime: mime)
             } catch {
+                try? FileManager.default.removeItem(at: target)
                 session.log("picker: refused: \(f.name): \(error.localizedDescription)"); cancel(view); return
             }
             let type = convert ? "image/jpeg" : mime
@@ -178,28 +196,88 @@ final class Picker: NSObject {
     }
 
     /// D6: JPEG at quality 0.9, orientation applied, with no metadata copied
-    /// (so no location). The color profile is kept, and an HDR photo is
-    /// written with an ISO 21496-1 gain map from iOS 18 / macOS 15; before
-    /// that it becomes its SDR picture (LLP 1100 D13).
-    static func jpeg(from: URL, to: URL) throws {
-        guard let source = CGImageSourceCreateWithURL(from as CFURL, nil),
-              let (w, h) = pixels(from),
-              let destination = CGImageDestinationCreateWithURL(to as CFURL, UTType.jpeg.identifier as CFString, 1, nil)
+    /// (so no location). An HDR photo is written with an ISO 21496-1 gain
+    /// map where ImageIO can encode it, preserving the color profile.
+    /// A rejected HDR encode retries ImageIO's SDR rendition, then Core
+    /// Image's Display P3 tone map if ImageIO still writes HDR (LLP 1100 D13).
+    static func jpeg(from: URL, to: URL,
+                     thumbnail: (CGImageSource, Int, CFDictionary?) -> CGImage? = CGImageSourceCreateThumbnailAtIndex,
+                     finalize: (CGImageDestination) -> Bool = CGImageDestinationFinalize) throws {
+        var accepted = false
+        defer { if !accepted { try? FileManager.default.removeItem(at: to) } }
+        guard let source = CGImageSourceCreateWithURL(from as CFURL, nil), let (w, h) = pixels(from)
         else { throw CocoaError(.fileReadCorruptFile) }
+        func encode(_ image: CGImage, options: [CFString: Any]) throws {
+            guard let destination = CGImageDestinationCreateWithURL(to as CFURL, UTType.jpeg.identifier as CFString, 1, nil)
+            else { throw CocoaError(.fileWriteUnknown) }
+            CGImageDestinationAddImage(destination, image, options as CFDictionary)
+            guard finalize(destination) else { throw CocoaError(.fileWriteUnknown) }
+        }
+        func write(hdr: Bool) throws {
+            let options = jpegOptions(maxPixel: max(w, h), hdr: hdr)
+            guard let image = thumbnail(source, 0, options.decode as CFDictionary)
+            else { throw CocoaError(.fileReadCorruptFile) }
+            try encode(image, options: options.encode)
+        }
+        @available(iOS 18, macOS 15, tvOS 18, *)
+        func isSDRResult(_ result: CGImageSource) -> Bool {
+            guard !isHDR(result), let image = CGImageSourceCreateImageAtIndex(result, 0, nil)
+            else { return false }
+            // CIImage reports 0 for unknown headroom, 1 for SDR.
+            // https://developer.apple.com/documentation/coreimage/ciimage/contentheadroom
+            let headroom = CIImage(cgImage: image).contentHeadroom
+            return headroom == 1 || (headroom == 0 && image.colorSpace.map(CGColorSpaceUsesITUR_2100TF) != true)
+        }
+        var wantsHDR = false
+        var sdrFallback: Data?
+        if #available(iOS 18, macOS 15, tvOS 18, *) { wantsHDR = isHDR(source) }
+        if #available(iOS 18, macOS 15, tvOS 18, *), wantsHDR,
+           (try? write(hdr: true)) != nil,
+           let result = CGImageSourceCreateWithURL(to as CFURL, nil) {
+            if CGImageSourceCopyAuxiliaryDataInfoAtIndex(result, 0, kCGImageAuxiliaryDataTypeISOGainMap) != nil,
+               isHDR(result) { accepted = true; return }
+            // An ignored gain-map request can still produce a usable SDR JPEG.
+            if isSDRResult(result) { sdrFallback = try Data(contentsOf: to) }
+        }
+        do {
+            try write(hdr: false)
+            if #available(iOS 18, macOS 15, tvOS 18, *) {
+                guard let result = CGImageSourceCreateWithURL(to as CFURL, nil)
+                else { throw CocoaError(.fileWriteUnknown) }
+                if !isSDRResult(result) {
+                    // ImageIO can finalize a JPEG while ignoring both SDR requests.
+                    guard wantsHDR, isHDR(result),
+                          let image = CIImage(contentsOf: from, options: [.toneMapHDRtoSDR: true, .applyOrientationProperty: true]),
+                          let working = CGColorSpace(name: CGColorSpace.extendedLinearDisplayP3),
+                          let output = CGColorSpace(name: CGColorSpace.displayP3)
+                    else { throw CocoaError(.fileWriteUnknown) }
+                    let context = CIContext(options: [.workingColorSpace: working])
+                    guard let bitmap = context.createCGImage(image, from: image.extent, format: .RGBA8, colorSpace: output)
+                    else { throw CocoaError(.fileWriteUnknown) }
+                    try encode(bitmap, options: [kCGImageDestinationLossyCompressionQuality: 0.9])
+                    guard let converted = CGImageSourceCreateWithURL(to as CFURL, nil), isSDRResult(converted)
+                    else { throw CocoaError(.fileWriteUnknown) }
+                }
+            }
+        } catch {
+            guard let sdrFallback else { throw error }
+            try sdrFallback.write(to: to, options: .atomic)
+        }
+        accepted = true
+    }
+
+    static func jpegOptions(maxPixel: Int, hdr: Bool) -> (decode: [CFString: Any], encode: [CFString: Any]) {
         var decode: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: max(w, h),
+            kCGImageSourceThumbnailMaxPixelSize: maxPixel,
         ]
         var encode: [CFString: Any] = [kCGImageDestinationLossyCompressionQuality: 0.9]
-        if #available(iOS 18, macOS 15, tvOS 18, *), isHDR(source) {
-            decode[kCGImageSourceDecodeRequest] = kCGImageSourceDecodeToHDR
-            encode[kCGImageDestinationEncodeRequest] = kCGImageDestinationEncodeToISOGainmap
+        if #available(iOS 18, macOS 15, tvOS 18, *) {
+            decode[kCGImageSourceDecodeRequest] = hdr ? kCGImageSourceDecodeToHDR : kCGImageSourceDecodeToSDR
+            encode[kCGImageDestinationEncodeRequest] = hdr ? kCGImageDestinationEncodeToISOGainmap : kCGImageDestinationEncodeToSDR
         }
-        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, decode as CFDictionary)
-        else { throw CocoaError(.fileReadCorruptFile) }
-        CGImageDestinationAddImage(destination, image, encode as CFDictionary)
-        guard CGImageDestinationFinalize(destination) else { throw CocoaError(.fileWriteUnknown) }
+        return (decode, encode)
     }
 
     /// A gain map of either kind, or a PQ or HLG transfer (LLP 1100 D4).
@@ -233,7 +311,7 @@ extension Picker {
     }
 }
 #elseif canImport(UIKit)
-extension Picker: PHPickerViewControllerDelegate, UIDocumentPickerDelegate {
+extension Picker: UIDocumentPickerDelegate {
     func present(_ r: Request) {
         guard var controller = session.presenter.root.window?.rootViewController else {
             session.log("picker: refused: no window"); cancel(r.view); return
@@ -241,52 +319,21 @@ extension Picker: PHPickerViewControllerDelegate, UIDocumentPickerDelegate {
         while let presented = controller.presentedViewController { controller = presented }
         let media = !r.accept.isEmpty && r.accept.allSatisfy { $0.hasPrefix("image/") || $0.hasPrefix("video/") }
         if media {
-            var config = PHPickerConfiguration()
-            config.selectionLimit = r.multiple ? 0 : 1
-            let images = r.accept.contains { $0.hasPrefix("image/") }, videos = r.accept.contains { $0.hasPrefix("video/") }
-            config.filter = images && videos ? .any(of: [.images, .videos]) : images ? .images : .videos
-            // D6: HEVC/ProRes stays as is under `video/*`; otherwise H.264.
-            config.preferredAssetRepresentationMode = r.accept.contains("video/*") || !videos ? .current : .compatible
-            let picker = PHPickerViewController(configuration: config)
-            picker.delegate = self
-            requests[ObjectIdentifier(picker)] = r
-            controller.present(picker, animated: true)
+            // A production plan that can show it is refused at boot without
+            // it; a development plan that newly does needs a rebuild.
+            guard let link = MediaPickerLink.installed else {
+                session.log("picker: refused: this build links no photo picker (media_picker); rebuild"); cancel(r.view); return
+            }
+            link.present(over: controller, accept: r.accept, multiple: r.multiple) { [weak self] files in
+                if files.isEmpty { self?.cancel(r.view) } else { self?.deliver(r.view, accept: r.accept, files: files) }
+                for f in files { try? FileManager.default.removeItem(at: f.url) }
+            }
         } else {
             let picker = UIDocumentPickerViewController(forOpeningContentTypes: Picker.types(r.accept), asCopy: true)
             picker.allowsMultipleSelection = r.multiple
             picker.delegate = self
             requests[ObjectIdentifier(picker)] = r
             controller.present(picker, animated: true)
-        }
-    }
-
-    func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
-        picker.dismiss(animated: true)
-        guard let r = requests.removeValue(forKey: ObjectIdentifier(picker)) else { return }
-        if results.isEmpty { cancel(r.view); return }
-        // The provider's URL is deleted when its callback returns: stage a
-        // copy there, then copy into app:/tmp/picked/ on the main thread.
-        let group = DispatchGroup(), lock = NSLock()
-        var staged = [(url: URL, name: String)?](repeating: nil, count: results.count)
-        for (i, result) in results.enumerated() {
-            let provider = result.itemProvider
-            guard let type = provider.registeredTypeIdentifiers.first(where: {
-                UTType($0).map { $0.conforms(to: .image) || $0.conforms(to: .movie) } ?? false
-            }) else { continue }
-            group.enter()
-            provider.loadFileRepresentation(forTypeIdentifier: type) { url, _ in
-                defer { group.leave() }
-                guard let url else { return }
-                let stage = FileManager.default.temporaryDirectory.appendingPathComponent("exact-pick-\(UUID().uuidString).\(url.pathExtension)")
-                guard (try? FileManager.default.copyItem(at: url, to: stage)) != nil else { return }
-                let name = provider.suggestedName.map { $0 + "." + url.pathExtension } ?? url.lastPathComponent
-                lock.lock(); staged[i] = (stage, name); lock.unlock()
-            }
-        }
-        group.notify(queue: .main) { [weak self] in
-            let files = staged.compactMap { $0 }
-            if files.isEmpty { self?.cancel(r.view) } else { self?.deliver(r.view, accept: r.accept, files: files) }
-            for f in files { try? FileManager.default.removeItem(at: f.url) }
         }
     }
 

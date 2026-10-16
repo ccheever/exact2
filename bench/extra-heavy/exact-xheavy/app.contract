@@ -1,5 +1,5 @@
 // Extra Heavy feed (../SPEC.md, "Decisions" included) on exact2. One `list virtualized=true`
-// with one keyed `each` carries the 3,000 rows of `data/feed.json`; a row is the header plus one
+// with one keyed `for` carries the 3,000 rows of `data/feed.json`; a row is the header plus one
 // body per kind, chosen by the row's one `some` kind field. The data source (`data/`) answers the
 // feed, the launch config and the app state keyed by row id (a thread's expansion and draft), and
 // draws the canvas row; `gpu/` is the shader row's surface. Everything a row looks like is here,
@@ -42,10 +42,10 @@ shape Pic
   src: string
 shape PicRow
   id: string
-  cells: list<Pic>
+  cells: Pic[]
 shape ThumbsK
   title: string
-  rows: list<PicRow>
+  rows: PicRow[]
 shape ShaderK
   caption: string
   photo: string
@@ -56,7 +56,7 @@ shape ShaderK
 shape Stroke
   color: string
   width: number
-  p: list<number>
+  p: number[]
 shape Dot
   x: number
   y: number
@@ -68,13 +68,13 @@ shape CanvasK
   bg: string
   band0: string
   band1: string
-  strokes: list<Stroke>
-  dots: list<Dot>
+  strokes: Stroke[]
+  dots: Dot[]
 shape IconRef
   id: string
   name: string
 shape SvgK
-  icons: list<IconRef>
+  icons: IconRef[]
   chart: string
   art: string
 shape VideoK
@@ -91,31 +91,31 @@ shape MdRun
   s: string
 shape MdItem
   id: string
-  runs: list<MdRun>
+  runs: MdRun[]
 shape MdBlock
   id: string
   kind: string
-  runs: list<MdRun>
-  items: list<MdItem>
+  runs: MdRun[]
+  items: MdItem[]
 shape MarkdownK
-  blocks: list<MdBlock>
+  blocks: MdBlock[]
 shape Tok
   id: string
   t: string
   k: string
 shape Line
   n: string
-  toks: list<Tok>
+  toks: Tok[]
 shape CodeK
   file: string
   lang: string
-  lines: list<Line>
+  lines: Line[]
 shape Script
   id: string
   text: string
   rtl: bool
 shape IntlK
-  blocks: list<Script>
+  blocks: Script[]
 shape TypefaceK
   quote: string
   by: string
@@ -130,7 +130,7 @@ shape Card
   meta: string
 shape CarouselK
   title: string
-  cards: list<Card>
+  cards: Card[]
 shape MotionK
   caption: string
   gif: string
@@ -158,8 +158,8 @@ shape LiveK
   title: string
   endsInSec: number
   updatedSec: number
-  rings: list<RingV>
-  wave: list<Bar>
+  rings: RingV[]
+  wave: Bar[]
 shape ThreadK
   text: string
   expanded: bool
@@ -218,10 +218,10 @@ shape Msg
   avatar: string
   text: string
 shape Feed
-  rows: list<Row>
-  strip: list<Idx>
-  mail: list<Idx>
-  pool: list<Msg>
+  rows: Row[]
+  strip: Idx[]
+  mail: Idx[]
+  pool: Msg[]
 shape Config
   live: bool
   freeze: bool
@@ -320,7 +320,7 @@ component XHeavy
         text "Extra Heavy" testId="title" flex=1 font-size=17 font-weight=600
         text (live ? "Live: on" : "Live: off") testId="live" font-size=13 color="#8E8E93"
       list id="feed" virtualized=true estimated-item-height=470 testId="feed" flex=1 min-height=0 width="100%" overflow-x="hidden" background-color="#ffffff"
-        each r in feed.rows key=r.id
+        for r in feed.rows key=r.id
           FeedRow(r=r, feed=feed, secs=secs, live=live, freeze=freeze, setDraft=setDraft, toggle=toggle)
 
 // One row: white, 16 padding top and bottom, a full-width hairline at its bottom; the content
@@ -377,7 +377,7 @@ component FeedRow
         match r.intl
           case some(k)
             column gap=8
-              each b in k.blocks key=b.id
+              for b in k.blocks key=b.id
                 text b.text font-size=17 color="#000000" direction=(b.rtl ? "rtl" : "ltr") text-align="start"
           case none
         match r.typeface
@@ -448,12 +448,12 @@ component ThumbsBody
     column gap=10
       text k.title font-size=15 font-weight=600 color="#000000"
       column width="100%" gap=4 position="relative" overflow="hidden"
-        each row in k.rows key=row.id
+        for row in k.rows key=row.id
           row width="100%" gap=4
-            each c in row.cells key=c.id
+            for c in row.cells key=c.id
               box flex=1 min-width=0 aspect-ratio=1 border-radius=8 overflow="hidden" background-color="#E5E5EA"
                 image c.src width="100%" height="100%" object-fit="cover" animation=(freeze ? "none" : "fadeIn 200ms linear 1200ms both")
-        when not freeze
+        if not freeze
           box position="absolute" top=0 left=0 width="100%" height="100%" animation="skeletonOut 1ms linear 1200ms both"
             box position="absolute" top=0 left=0 width="40%" height="100%" background-image="linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,0.65), rgba(255,255,255,0))" animation="shimmer 1000ms linear infinite"
 
@@ -474,7 +474,7 @@ component SvgBody
   view
     column gap=12
       row gap=16
-        each i in k.icons key=i.id
+        for i in k.icons key=i.id
           box width=28 height=28 flex-shrink=0
             Icon(name=i.name)
       box width="100%" aspect-ratio=3.75
@@ -513,34 +513,34 @@ component MarkdownBody
     k: MarkdownK
   view
     column gap=8
-      each b in k.blocks key=b.id
-        when b.kind == "h2"
+      for b in k.blocks key=b.id
+        if b.kind == "h2"
           Runs(runs=b.runs, size=20, weight=600, italic=false, color="#000000")
-        when b.kind == "p"
+        if b.kind == "p"
           Runs(runs=b.runs, size=16, weight=400, italic=false, color="#000000")
-        when b.kind == "ul"
+        if b.kind == "ul"
           column gap=4
-            each item in b.items key=item.id
+            for item in b.items key=item.id
               row gap=8 align-items="flex-start"
                 text "•" font-size=16 color="#000000"
                 box flex=1 min-width=0
                   Runs(runs=item.runs, size=16, weight=400, italic=false, color="#000000")
-        when b.kind == "quote"
+        if b.kind == "quote"
           box border-left-style="solid" border-left-width=3 border-left-color="#C7C7CC" padding-left=10
             Runs(runs=b.runs, size=16, weight=400, italic=true, color="#3C3C43")
 
 // One paragraph of inline runs: bold 700, italic, code in Space Mono 14 on #F2F2F7, links blue.
 component Runs
   props
-    runs: list<MdRun>
+    runs: MdRun[]
     size: number
     weight: number
     italic: bool
     color: string
   view
     text font-size=size font-weight=weight font-style=(italic ? "italic" : "normal") color=color
-      each r in runs key=r.id
-        when r.s == "code"
+      for r in runs key=r.id
+        if r.s == "code"
           text r.t font-family="Space Mono" font-size=14 font-weight=400 font-style="normal" color=color background-color="#F2F2F7"
         else
           text r.t font-weight=(r.s == "bold" ? 700 : weight) font-style=(r.s == "italic" or italic ? "italic" : "normal") color=(r.s == "link" ? "#007AFF" : color)
@@ -556,11 +556,11 @@ component CodeBody
         text k.file flex=1 min-width=0 font-family="Space Mono" font-size=12 color="#8B949E"
         text k.lang font-size=11 font-weight=600 color="#8B949E"
       column width="100%" overflow="hidden"
-        each line in k.lines key=line.n
+        for line in k.lines key=line.n
           row height=20 align-items="center" gap=12
             text line.n width=24 flex-shrink=0 text-align="right" font-family="Space Mono" font-size=13 color="#6E7681"
             text white-space="pre" flex-shrink=0 font-family="Space Mono" font-size=13 color="#E6EDF3"
-              each t in line.toks key=t.id
+              for t in line.toks key=t.id
                 text t.t color=tokColor(t.k)
 
 // 11 — a quote in the row's bundled face.
@@ -582,7 +582,7 @@ component CarouselBody
     column gap=10
       text k.title font-size=17 font-weight=600 color="#000000"
       list virtualized=true display="flex" flex-direction="row" width="100%" height=170 overflow-x="scroll" overflow-y="hidden" scrollbar-width="none" estimated-item-width=150 scroll-restoration="manual"
-          each c in k.cards key=c.id
+          for c in k.cards key=c.id
             column width=140 flex-shrink=0 margin-right=10
               image c.image width=140 height=100 border-radius=10 object-fit="cover" background-color="#E5E5EA"
               box height=34 margin-top=6
@@ -644,7 +644,7 @@ component LiveBody
         text "Ends in "
         text hms(max(0, k.endsInSec - secs)) font-size=22 font-weight=600 font-variant-numeric="tabular-nums" color="#000000"
       row margin-top=12 gap=16
-        each g in k.rings key=g.id
+        for g in k.rings key=g.id
           Ring(v=g.v, color=g.color, phase=g.i, frozen=freeze)
       row margin-top=12 gap=10 align-items="center"
         box width=32 height=32 flex-shrink=0 border-radius=16 background-color="#007AFF" display="flex" align-items="center" justify-content="center"
@@ -663,7 +663,7 @@ component Bars
     color: string
   view
     row width=238 height=40 gap=2 align-items="center"
-      each b in k.wave key=b.id
+      for b in k.wave key=b.id
         box width=3 height=b.h flex-shrink=0 border-radius=1.5 background-color=color
 
 // 16 — show more / less with a 250 ms height change, then a comment box. Expansion and the
@@ -711,12 +711,12 @@ component Filmstrip
   props
     id: string
     k: FilmK
-    items: list<Idx>
+    items: Idx[]
   view
     column gap=10
       text k.title font-size=15 font-weight=600 color="#000000"
       list virtualized=true display="flex" flex-direction="row" width="100%" height=136 overflow-x="scroll" overflow-y="hidden" scrollbar-width="none" estimated-item-width=120 testId=`strip-${id}`
-        each t in items key=t.id
+        for t in items key=t.id
           column width=112 flex-shrink=0 margin-right=8
             image `assets/small-${two(mod(k.img0 + t.j * k.imgStep, 48))}.jpg` width=112 height=112 border-radius=8 object-fit="cover" background-color="#E5E5EA"
             text `IMG_${k.num0 + t.j}` margin-top=4 white-space="nowrap" font-size=12 color="#3C3C43"
@@ -727,16 +727,16 @@ component Inbox
   props
     id: string
     k: InboxK
-    items: list<Idx>
-    pool: list<Msg>
+    items: Idx[]
+    pool: Msg[]
   view
     column gap=10
       text k.title font-size=15 font-weight=600 color="#000000"
       box width="100%" height=400 box-sizing="border-box" border-style="solid" border-width=0.5 border-color="#D1D1D6" border-radius=12 overflow="hidden" background-color="#ffffff"
         list virtualized=true width="100%" height=399 overflow-x="hidden" estimated-item-height=63 testId=`inbox-${id}`
-          each t in items key=t.id
+          for t in items key=t.id
             column width="100%"
-              match at(pool, mod(k.m0 + t.j * k.mStep, 997))
+              match pool.at(mod(k.m0 + t.j * k.mStep, 997))
                 case some(m)
                   Message(m=m, time=mod(k.clock0 - 7 * t.j, 1440))
                 case none

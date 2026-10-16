@@ -1,4 +1,4 @@
-// A child's state lives as long as its instance: the `when` arm owns it,
+// A child's state lives as long as its instance: the `if` arm owns it,
 // so hiding the child and showing it again starts it fresh, as a removed
 // and re-added row does.
 component App
@@ -8,7 +8,7 @@ component App
   view
     column
       button "toggle" press=toggle testId="toggle"
-      when open
+      if open
         Counter()
 
 component Counter

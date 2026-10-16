@@ -10,7 +10,7 @@ component App
   state reverse = false
   state skip = 0
   state jump = 0
-  resource rows = rows(reverse, skip) as shape list<Item>
+  resource rows = rows(reverse, skip) as shape Item[]
   action reorder
     reverse = !reverse
   action trim(n: number)
@@ -19,7 +19,7 @@ component App
     jump = n
   view
     list virtualized=true estimated-item-height=24 height=240 width=390 overflow-x="hidden" testId="list" scrollTop=jump
-      each item in rows key=item.id
+      for item in rows key=item.id
         Cell(item=item)
 component Cell
   props

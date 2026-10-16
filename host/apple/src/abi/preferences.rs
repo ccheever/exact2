@@ -1,12 +1,42 @@
 //! The display preferences (LLP 1061 D4; LLP 1069.000 D1), told to the
 //! running host and kept for the next boot's first frame; the date (LLP
 //! 1027.000.000) and where the viewer is, told to the running host, and
-//! before each boot for its first settle (`set_launch_time`, `set_launch_place`).
+//! before each boot for its first settle (`set_launch_time`, `set_launch_place`);
+//! and the host's live clock while it owns time (the timers RFC, D1), told to the
+//! running host and kept for every boot (`set_live_clock`).
 
 use super::{not_booted, Bridge};
 use exact_runner::DataSource;
 
 impl<D: DataSource> Bridge<D> {
+    /// App modes, `axis=value` pins comma-separated in the input buffer
+    /// (LLP 1121 D5), set in one commit; after a `?`, only checked.
+    pub fn set_mode(&mut self, len: usize) -> u32 {
+        let text = std::str::from_utf8(&self.input[..len.min(self.input.len())]).unwrap_or("");
+        // `?` first: only ask whether they would be taken.
+        let (check, text) = match text.strip_prefix('?') {
+            Some(rest) => (true, rest),
+            None => (false, text),
+        };
+        let pins: Option<Vec<(String, String)>> = text
+            .split(',')
+            .filter(|pin| !pin.is_empty())
+            .map(|pin| {
+                pin.split_once('=')
+                    .map(|(a, v)| (a.to_owned(), v.to_owned()))
+            })
+            .collect();
+        let Some(pins) = pins else {
+            return self.emit(exact_runner::agent::error("mode: expected axis=value pins"));
+        };
+        let pins: Vec<(&str, &str)> = pins.iter().map(|(a, v)| (a.as_str(), v.as_str())).collect();
+        let out = self.host.as_mut().map_or_else(not_booted, |h| match check {
+            true => h.check_modes(&pins),
+            false => h.set_modes(&pins),
+        });
+        self.emit(out)
+    }
+
     /// The user's display preferences changed or became known (LLP 1061
     /// D4; LLP 1069.000 D1): bit 0 reduced motion, bit 1 reduced
     /// transparency, bit 2 contrast more, bit 3 contrast less, bit 4 a dark
@@ -62,4 +92,25 @@ impl<D: DataSource> Bridge<D> {
             ..exact_runner::Viewport::sized(width as f64, height as f64)
         }
     }
+
+    /// The presenter's clock owns time (`Some`), or the agent's seekable one
+    /// does (`None`): the running runner and every one booted later take it.
+    pub fn set_live_clock(&mut self, wall: Option<LiveClockFn>) {
+        self.live_clock = wall;
+        if let Some(h) = self.host.as_mut() {
+            h.runner_mut().set_live_clock(wall.map(sampler));
+        }
+    }
 }
+
+/// The presenter's clock in the runner's milliseconds (`ExactEnv.wall`).
+pub type LiveClockFn = extern "C" fn() -> f64;
+
+/// The runner's sampler for `wall`.
+pub(super) fn sampler(wall: LiveClockFn) -> Box<dyn FnMut() -> f64> {
+    Box::new(move || wall())
+}
+
+#[cfg(test)]
+#[path = "live_clock_tests.rs"]
+mod live_clock_tests;

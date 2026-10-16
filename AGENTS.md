@@ -66,7 +66,7 @@ For all prose: comments, commit messages, guides, LLPs, issues and PR text.
 - Every source file ≤ 1,500 lines. Stage (`git add -A`) and run `bun scripts/caps.mjs`.
 - Writing or changing a test: read `docs/testing.md` (waits, isolation, coverage, measuring).
 - The six checks: `cargo build --all-targets --keep-going` ·
-  `cargo test --lib --bins --tests --no-fail-fast` · `cargo clippy --all-targets
+  `cargo test --tests --no-fail-fast` · `cargo clippy --all-targets
   --keep-going -- -D warnings` and `cargo fmt --all -- --check` (run both) ·
   `bun scripts/caps.mjs` · `bun scripts/boot.mjs` · `cargo check --workspace
   --all-targets --keep-going`. The flags keep Cargo from
@@ -89,14 +89,15 @@ For all prose: comments, commit messages, guides, LLPs, issues and PR text.
   `docs/`, `QUEUE.md`, and `*.md` paths
   (`build.mjs --test --ios`; `build.mjs --tvos --no-install`, which builds and signs
   the Apple TV bundle and asks for no simulator), the
-  Contract semantics (`semantics/README.md`: the Lean proofs, then `contract-difftest`
-  running the runner against the Lean semantics over `semantics/corpus` and a fixed
-  random sweep), then `metrics.mjs --long`. A second, hourly tier (`bun scripts/async.mjs --tier 2`) builds
+  Contract semantics (`semantics/README.md`: the Lean proofs, the extracted VM's, and
+  `contract-difftest` running the runner and the web JS target against the Lean
+  semantics; each skipped when its inputs are those of a run that passed,
+  `scripts/async-inputs.mjs`), then `metrics.mjs --long`. A second, hourly tier (`bun scripts/async.mjs --tier 2`) builds
   the platforms that ride on another host's code: tvOS on the UIKit presenter
   (installed on an Apple TV simulator, which that machine must have),
-  plus cross-target Cargo checks of the Linux host with Caltrain and the Windows
-  host with Windows Desk. Other Linux apps are not yet selected. Tier 2 needs
-  both Rust cross targets and Zig on this Mac. These checks qualify
+  plus cross-target Cargo checks of the Linux host with every Linux app (`-p '*-linux'`)
+  and the Windows host with Windows Desk. Tier 2 needs both Rust cross targets,
+  Zig (C and C++) and the pinned Linux Hermes bundle on this Mac. These checks qualify
   compilation, not native window, KMS, or input behavior. Building
   `--all-targets` resolves features as `cargo test` does, so the two share artifacts.
 - A green `--workspace` build proves the apps compile, not that they work: their Apple
@@ -178,7 +179,7 @@ For all prose: comments, commit messages, guides, LLPs, issues and PR text.
   and `print`, `screenshot` read its screen (`print --all` the scrollback, `document`
   the whole laid-out document). Develop it in `host-dev`: a debug build lays out a long
   document hundreds of times slower. `exact-terminal` is in `default-members`
-  (`tests/screen.rs` drives inline mode through the emulator); `harness-data` is not,
+  (`tests/it/screen.rs` drives inline mode through the emulator); `harness-data` is not,
   so when you touch the harness run `cargo test -p harness-data`.
   `examples/replay.rs` replays a recorded session through the same emulator.
   The LLP reader is the other terminal app (LLP 1101.004): `cargo build --profile

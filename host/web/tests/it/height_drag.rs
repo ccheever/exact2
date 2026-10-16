@@ -50,11 +50,11 @@ const SOURCE: &str = r#"component App
       button width=80 height=24 press=restore testId="restore"
       text `${count}/${received}/${speed}` testId="result"
       column display=display testId="ancestor"
-        when shown
+        if shown
           column id="sheet" testId="sheet" height=extent max-height=400 box-sizing="border-box" transition="height -exact-spring(180, 12, 1)"
-            when first
+            if first
               column testId="handle" heightDragFor=reference heightrelease=snap
-            when second
+            if second
               column testId="handle2" heightDragFor="sheet" heightrelease=snap
       column id="other" testId="other" height=100 box-sizing="border-box"
         column testId="otherHandle" heightDragFor="other" heightrelease=snap

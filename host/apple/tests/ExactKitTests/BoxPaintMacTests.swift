@@ -50,8 +50,7 @@ final class BoxPaintMacTests: XCTestCase {
         DisplayRange.pinned = 4
         defer { DisplayRange.pinned = pinned }
         let p = presenter(), loader = RasterLoader()
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("scripts/fixtures/color")
+        let root = Bundle.module.resourceURL!.appendingPathComponent("ColorFixtures")
         let resolver = AssetResolver(root: root)
         defer { loader.shutdown(); withExtendedLifetime(resolver) {} }
         let node = NodeView(id: 1, kind: "image", presenter: p)

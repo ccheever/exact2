@@ -121,10 +121,6 @@ holding a `textarea { field-sizing: content; min-height: 4rem; max-height: 10rem
 Chrome gives column 166 and textarea 166 for both values (A and B), and column 160 and div 160 for C. In every case
 Chrome's column is the clamped item's height.
 
-Record (the contract, `app.ts`, both drives' output, the plain HTML page with Chrome's measurements, and the Taffy-only
-probes, a column's and a row's, with their output):
-https://raw.githubusercontent.com/ccheever/exact2/39058daf23281813b87a6b09fc95fadefc16ec85/fw-issues-20261012-x86/x86-record.txt
-
 Not run: Linux, Windows and iOS hosts. The cause is in shared layout code, so they are expected to agree with macOS.
 No macOS picture was taken: the agent's window screenshot comes back empty while the screen is locked.
 

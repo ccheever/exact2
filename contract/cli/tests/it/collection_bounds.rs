@@ -12,7 +12,7 @@ impl DataSource for Rows {
     }
 }
 fn source(attrs: &str) -> String {
-    format!("component App\n  state bound = \"auto\"\n  state grow = 0\n  resource rows = rows() as shape list<number>\n  view\n    row\n      list {attrs} testId=\"collection\"\n        each x in rows key=x\n          text `${{x}}` height=20\n")
+    format!("component App\n  state bound = \"auto\"\n  state grow = 0\n  resource rows = rows() as shape number[]\n  view\n    row\n      list {attrs} testId=\"collection\"\n        for x in rows key=x\n          text `${{x}}` height=20\n")
 }
 #[test]
 fn literal_auto_and_zero_flex_are_not_vertical_bounds() {
@@ -91,11 +91,11 @@ fn nests(source: &str) {
 #[test]
 fn nested_virtual_templates_compile_through_branches_and_eager_rows() {
     let inner =
-        "list virtualized=true height=80\n{indent}  each y in rows key=y\n{indent}    text `${y}`";
+        "list virtualized=true height=80\n{indent}  for y in rows key=y\n{indent}    text `${y}`";
     for prefix in [
         "",
-        "column\n{indent}  when false\n{indent}    ",
-        "list virtualized=false\n{indent}  each z in rows key=z\n{indent}    column\n{indent}      ",
+        "column\n{indent}  if false\n{indent}    ",
+        "list virtualized=false\n{indent}  for z in rows key=z\n{indent}    column\n{indent}      ",
         "column\n{indent}  match some(x)\n{indent}    case some(n)\n{indent}      ",
     ] {
         let indent = "          ";
@@ -111,12 +111,12 @@ fn nested_virtual_templates_compile_through_branches_and_eager_rows() {
 }
 #[test]
 fn expanded_components_can_hold_a_nested_virtual_collection() {
-    let s = format!("{}\ncomponent Inner\n  props\n    items: list<number>\n  view\n    column\n      list virtualized=true height=80\n        each y in items key=y\n          text `${{y}}`\n", nested_source("          Inner(items=rows)"));
+    let s = format!("{}\ncomponent Inner\n  props\n    items: number[]\n  view\n    column\n      list virtualized=true height=80\n        for y in items key=y\n          text `${{y}}`\n", nested_source("          Inner(items=rows)"));
     nests(&s);
 }
 #[test]
 fn ordinary_sheet_and_eager_outer_list_can_contain_virtual_collections() {
-    let s = nested_source("          column\n            list virtualized=true height=80\n              each y in rows key=y\n                text `${y}`");
+    let s = nested_source("          column\n            list virtualized=true height=80\n              for y in rows key=y\n                text `${y}`");
     contract::compile(&s.replacen(
         "virtualized=true height=200",
         "virtualized=false height=200",
@@ -131,7 +131,7 @@ fn ordinary_sheet_and_eager_outer_list_can_contain_virtual_collections() {
 #[test]
 fn disabled_lists_and_ordinary_scrolls_remain_valid_inside_virtual_rows() {
     for inner in ["scroll", "list virtualized=false"] {
-        let s = nested_source(&format!("          {inner} height=80\n            each y in rows key=y\n              text `${{y}}`"));
+        let s = nested_source(&format!("          {inner} height=80\n            for y in rows key=y\n              text `${{y}}`"));
         contract::compile(&s).unwrap();
     }
 }

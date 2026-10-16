@@ -2,12 +2,13 @@
 // Only Contract compiler discovery below runs Cargo; no install, signing, publication or host process is needed here.
 import { afterAll, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, resolve, sep, toNamespacedPath } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { assertCapturedContractSources, contractCompiler, installedContractPackage, unrelocatableContractDependency } from './deploy.mjs';
 import * as asyncLane from './async.mjs';
+import { pinned } from './test-workspace.mjs';
 const {appleTouched, glueTests, retainSkippedFailures} = asyncLane;
 
 test('async retains only failures from checks skipped on this commit', () => {
@@ -67,13 +68,13 @@ test('async iOS schedules every non-documentation change in the coalesced range'
   for (const [paths, scheduled] of [['docs/reference.md', false], ['docs/reference.md\nscripts/app.mjs', true]]) {
     const apple = appleTouched('new', 'old', () => paths);
     expect(apple).toBe(scheduled);
-    const steps = asyncLane.checks('new', 'old', {lane: [], apple, contract: false, glue: []});
+    const steps = asyncLane.checks('new', 'old', {lane: [], apple, glue: []});
     for (const name of ['ios', 'ios-touch', 'tvos']) expect(steps.some(([step]) => step === name)).toBe(scheduled);
   }
 });
 
 test('async compiles tvOS per commit with no simulator, and tier 2 installs it', () => {
-  const steps = asyncLane.checks('new', 'old', {lane: [], apple: true, contract: false, glue: []});
+  const steps = asyncLane.checks('new', 'old', {lane: [], apple: true, glue: []});
   expect(steps.find(([name]) => name === 'tvos')).toEqual(['tvos', 'env', ['EXACT_JS_ENGINE=stub', 'bun', 'host/apple/build.mjs', '--tvos', '--no-install']]);
   expect(steps.filter(([name]) => name === 'tvos').length).toBe(1);
   expect(asyncLane.tierTwoChecks().find(([name]) => name === 'tvos')).toEqual(['tvos', 'env', ['EXACT_JS_ENGINE=stub', 'bun', 'host/apple/build.mjs', '--tvos']]);
@@ -91,8 +92,23 @@ test('tier 2 checks platform host and app crates for their actual target', () =>
   for (const name of ['linux', 'windows']) expect(checks.find(([step]) => step === name)?.[2]).toContain('CRATE_CC_NO_DEFAULTS=1');
   expect(checks.find(([name]) => name === 'linux')?.[2]).toContain('x86_64-unknown-linux-gnu');
   expect(checks.find(([name]) => name === 'linux')?.[2]).toContain('--keep-going');
-  expect(checks.find(([name]) => name === 'linux')?.[2]).toContain('caltrain-linux');
   expect(checks.find(([name]) => name === 'linux')?.[2]).toContain('CC_x86_64_unknown_linux_gnu=zig cc -target x86_64-linux-gnu');
+  // Hermes's JSI bindings (ibex2, exact-js) are C++: a Mac has no x86_64-linux-gnu-g++.
+  expect(checks.find(([name]) => name === 'linux')?.[2]).toContain('CXX_x86_64_unknown_linux_gnu=zig c++ -target x86_64-linux-gnu');
+  // Every Linux app crate, by Cargo's package glob, which matches workspace members only:
+  // each `apps/<app>/linux` is a listed member named `<app>-linux`.
+  expect(checks.find(([name]) => name === 'linux')?.[2]).toContain('*-linux');
+  const root = resolve(import.meta.dir, '..');
+  const [, list = ''] = /^members = \[([^\]]*)\]/m.exec(readFileSync(join(root, 'Cargo.toml'), 'utf8')) ?? [];
+  const members = new Set([...list.matchAll(/"([^"]+)"/g)].map(([, path]) => path));
+  const apps = [...new Bun.Glob('apps/*/linux/Cargo.toml').scanSync({ cwd: root })];
+  expect(apps.length).toBeGreaterThan(1);
+  for (const manifest of apps) {
+    const dir = dirname(manifest);
+    expect(members.has(dir) ? dir : `${dir} (not a workspace member)`).toBe(dir);
+    const [, name] = /^name = "([^"]+)"$/m.exec(readFileSync(join(root, manifest), 'utf8')) ?? [];
+    expect(`${manifest}: ${name}`).toMatch(/: [\w-]+-linux$/);
+  }
   expect(checks.find(([name]) => name === 'windows')?.[2]).toContain('x86_64-pc-windows-gnu');
   expect(checks.find(([name]) => name === 'windows')?.[2]).toContain('--keep-going');
   expect(checks.find(([name]) => name === 'windows')?.[2]).toContain('windows-desk');
@@ -100,48 +116,17 @@ test('tier 2 checks platform host and app crates for their actual target', () =>
 });
 
 test('async game step checks the separate workspace with its lockfile', () => {
-  const steps = asyncLane.checks('new', 'old', {lane: [], apple: false, contract: false, glue: []});
+  const steps = asyncLane.checks('new', 'old', {lane: [], apple: false, glue: []});
   expect(steps.find(([name]) => name === 'game')).toEqual(['game', 'cargo', ['test', '--manifest-path', 'game/Cargo.toml', '--workspace', '--locked', '--lib', '--bins', '--tests', '--no-fail-fast']]);
 });
 
-test('async runs semantics when the checked program or its dependencies change', () => {
-  const language = [
-    'semantics/Contract/Eval.lean',
-    'contract/types/src/lib.rs',
-    'contract/corpus/lists.contract',
-    'apps/caltrain/app.contract',
-    'runner/src/machine.rs',
-    'plan/tables/format.json',
-    'route/src/lib.rs',
-    'num/src/lib.rs',
-    'host/web-js/runtime.js',
-    'kernel/tables/schema.json', 'kernel/src/transaction/apply.rs',
-    'canvas/src/lib.rs', 'color/src/lib.rs', 'grants/src/lib.rs', 'motion/src/lib.rs',
-    'svg-filter/src/lib.rs', 'textflow/src/lib.rs', 'vendor/taffy/src/lib.rs',
-    'host/web/faults.js', 'scripts/async.mjs', '.cargo/config.toml',
-    'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'package.json', 'bun.lock',
-  ];
-  for (const path of language) {
-    expect(asyncLane.contractTouched('new', 'old', () => `docs/reference.md\n${path}`)).toBe(true);
-  }
-  const other = ['host/apple/Sources/ExactKit/View.swift', 'host/linux/src/paint.rs', 'apps/caltrain/data/src/lib.rs', 'docs/reference.md'].join('\n');
-  expect(asyncLane.contractTouched('new', 'old', () => other)).toBe(false);
-  expect(asyncLane.contractTouched('new', 'old', () => '')).toBe(false);
-  const calls = [];
-  asyncLane.contractTouched('new', null, args => { calls.push(args); return ''; });
-  expect(calls[0]).toEqual(['diff', '--name-only', 'new^', 'new']);
-  for (const contract of [true, false]) {
-    const steps = asyncLane.checks('new', 'old', {lane: [], apple: false, contract, glue: []});
-    expect(steps.some(([name]) => name === 'semantics')).toBe(contract);
-  }
-  // Skipped, the step keeps its last failure until it runs again.
-  const skipped = {checks: {}, failures: []};
-  retainSkippedFailures(['semantics: DIVERGE lists'], skipped);
-  expect(skipped.failures).toEqual(['semantics: DIVERGE lists']);
-});
-
-test('async glue runs the capture fixtures', () => {
-  expect(glueTests(resolve(import.meta.dir, '..'))).toContain('./scripts/app.test.mjs');
+test('async glue runs the capture fixtures and the web JS target\'s tests, less those it leaves out', () => {
+  const glue = glueTests(resolve(import.meta.dir, '..'));
+  expect(glue).toContain('./scripts/app-workspace.test.mjs');
+  expect(glue).toContain('./host/web-js/conformance/net.test.mjs');
+  expect(glue).toContain('./host/web-js/live-clock.test.js');
+  expect(glue).not.toContain('./host/web-js/bundle-size.test.mjs');
+  expect(glue).not.toContain('./host/web-js/document-agent.test.mjs');
 });
 
 const parent = realpathSync.native(tmpdir());
@@ -163,6 +148,7 @@ function compilerRoot() {
   mkdirSync(join(root, 'src'));
   writeFileSync(join(root, 'Cargo.toml'), '[package]\nname="contract"\nversion="0.1.0"\nedition="2021"\n');
   writeFileSync(join(root, 'src/main.rs'), 'fn main() {}\n');
+  pinned(root);
   const lock = spawnSync('cargo', ['generate-lockfile', '--offline'], {cwd:root, encoding:'utf8'});
   expect(lock.status).toBe(0);
   return root;

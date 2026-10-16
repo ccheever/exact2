@@ -22,13 +22,13 @@ shape Month
   id: string
   month: number
   label: string
-  weeks: list<Week>
+  weeks: Week[]
   firstDay: number
   lastDay: number
 shape Week
   id: string
-  cells: list<Cell>
-  bars: list<Bar>
+  cells: Cell[]
+  bars: Bar[]
   lanes: number
   footer: number
 shape Cell
@@ -71,7 +71,7 @@ shape Agenda
   day: number
   date: string
   label: string
-  items: list<Schedule>
+  items: Schedule[]
   stickerId: string
 shape Event
   found: bool

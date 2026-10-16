@@ -40,6 +40,10 @@ const RECIPE_FILE = /^docs\/recipes\/[^/]+\.md$/;
 const RECIPE_BYTES = 3072;
 const RECIPE_BYTES_BY_FILE = { 'navigation-stack.md': 5120, 'rest-backend.md': 5120 }; // their example stays whole
 
+// A test (`#[test]`, `#[tokio::test]`, `#[test_case]`, `#[rstest]`) or code compiled only for tests (`cfg(test)` or
+// `cfg_attr(test, …)`, platform-gated or not)
+const TEST_CODE = /#\s*\[\s*(?:\w+\s*::\s*)*(?:test|test_case|rstest)\b|\bcfg(?:_attr)?\s*\([^)]*\btest\b/;
+
 const problems = [];
 const counted = [];
 
@@ -198,7 +202,61 @@ export function runCaps(root = process.cwd()) {
     counted.push(`recipes: ${recipes.length} files, largest ${largest.f.slice(13)} at ${largest.bytes} bytes, ${over} over their caps`);
   }
 
+  harnesses(root, files);
+
   return { problems, counted };
+}
+
+/**
+ * Skip the test harness of each library and binary target in a workspace package without tests: `test = false` keeps
+ * `cargo test --tests` from building and running an empty test binary, and `bench = false` keeps `cargo build
+ * --all-targets` from building it as a benchmark. A package whose sources hold test code keeps every harness, so its
+ * first test turns them back on. Finding test code is a source scan: a test that a macro or a generated file produces
+ * needs a reviewer's eye.
+ */
+function harnesses(root, files) {
+  if (!existsSync(resolve(root, 'Cargo.toml'))) return;
+  const result = spawnSync('cargo', ['metadata', '--no-deps', '--offline', '--format-version', '1'], { cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  if (result.status !== 0) {
+    fail('tests:metadata', 'cargo metadata failed, so no test harness was checked.', result.stderr.trim().split('\n').slice(-3).join(' '));
+    return;
+  }
+  const metadata = JSON.parse(result.stdout);
+  const members = new Set(metadata.workspace_members);
+  const packages = metadata.packages.filter((p) => members.has(p.id))
+    .map((p) => ({ ...p, dir: p.manifest_path.slice(metadata.workspace_root.length + 1, -'Cargo.toml'.length) }))
+    .filter((p) => !VENDORED.test(p.dir));
+  // A source file belongs to the package whose directory holds it most closely
+  const deepestFirst = [...packages].sort((a, b) => b.dir.length - a.dir.length);
+  const owner = (f) => deepestFirst.find((p) => f.startsWith(p.dir));
+  const testCode = new Map();
+  for (const f of files) {
+    if (!f.endsWith('.rs') || !existsSync(resolve(root, f))) continue;
+    const p = owner(f);
+    if (p && !testCode.has(p.id) && TEST_CODE.test(readFileSync(resolve(root, f), 'utf8'))) testCode.set(p.id, f);
+  }
+  let skipped = 0;
+  for (const p of packages) {
+    const manifest = p.dir + 'Cargo.toml', toml = Bun.TOML.parse(readFileSync(resolve(root, manifest), 'utf8'));
+    const harnessed = p.targets.filter((t) => t.kind.some((k) => k === 'bin' || k.endsWith('lib') || k === 'proc-macro'))
+      .map((t) => {
+        const bin = t.kind.includes('bin'), section = bin ? (toml.bin ?? []).find((b) => b.name === t.name) : toml.lib;
+        return { name: bin ? `[[bin]] ${t.name}` : '[lib]', test: t.test, bench: section?.bench ?? true };
+      });
+    const tests = testCode.get(p.id);
+    const off = harnessed.filter((t) => !t.test);
+    if (tests && off.length) {
+      fail('tests:unbuilt', `${manifest} turns off the test harness of ${off.map((t) => t.name).join(', ')}, but ${tests} holds test code.`,
+        `Remove \`test = false\` and \`bench = false\` from ${manifest}: a package's first test turns its harnesses back on.`);
+    }
+    const on = tests ? [] : harnessed.filter((t) => t.test || t.bench);
+    if (on.length) {
+      fail('tests:empty-harness', `${manifest} builds a test harness for ${on.map((t) => t.name).join(', ')}, but ${p.dir} holds no test code.`,
+        `Add \`test = false\` and \`bench = false\` under each (a \`[[bin]]\` entry with its \`name\` and \`path\` for a binary Cargo found itself).`);
+    }
+    if (!tests && harnessed.length && !on.length) skipped += 1;
+  }
+  counted.push(`workspace packages without tests: ${skipped}, every library and binary test harness skipped`);
 }
 
 function main() {

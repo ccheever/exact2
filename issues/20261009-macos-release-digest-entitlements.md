@@ -1,6 +1,6 @@
 # macOS release: entitlements for the app and its nested code, and a pre-seal step (rest of #119)
 
-**Status:** Open
+**Status:** Open: helper runtime exceptions built 2026-10-15 (LLP 1069.008 D9, accepted by Charlie 2026-10-15, helpers only); open until the notarized proof runs
 **Systems:** host/apple, delivery, app manifest
 **Severity:** P2
 **Author:** daehyeon-mun (GitHub report); Codex (filesystem transfer)
@@ -23,10 +23,78 @@ regressions for the asset refusal and preserved primary/named GPU and Rust modul
 digests, using real Mach-O files and `codesign --verify --deep --strict`.
 
 The existing `host.macos.resources` copy already handles staging files before
-sealing. Scoped capability-derived helper runtime exceptions remain outstanding;
-LLP 1069.008 records that boundary. This issue stays open. The verification Mac
-has only an Apple Development identity, so a Developer ID/notarized helper proof
-has not been run.
+sealing. Helper runtime exceptions followed on 2026-10-15 (below).
+
+## Implementation, 2026-10-15: scoped runtime-exception grants
+
+Built as LLP 1069.008 D9, accepted by Charlie on 2026-10-15 for helper
+executables only; the app's own executable is deferred (`rules/DEFERRED.md`).
+`runtime.<exception> <target>` is a grant line beside `device.*`, with three
+rows: `allow-jit`, `allow-unsigned-executable-memory` and
+`disable-library-validation`, each mapping to `com.apple.security.cs.<name>`.
+The target is one helper executable's path under `Contents`, inside a
+`host.macos.resources` destination; a line naming `app` is refused with the
+other bad lines. The table is `runner/src/hardened.rs`, and
+`io_grants` and the web host strip the family. The macOS bake derives
+`reach.helperEntitlements` (path → keys), never `reach.entitlements`.
+`exact release` signs through `signRelease`
+(`host/apple/assets.mjs`): each named helper takes exactly its own keys, the app
+only its device entitlements, and other nested code none. A target that is not a regular Mach-O executable the walk signs inside a
+resources destination, reached through no symbolic link and with no other hard
+link, is refused,
+every one in one error, at `mac --bundle` and again at release. The lines are
+grant-ceiling lines, so adding one classifies as a binary release with no new
+classifier row. Pre-seal: a staging file goes in a `host.macos.resources` tree
+under `Resources/`, copied before the seal; no hook was added. Data under
+`Helpers/` makes `codesign` fail ("code object is not signed at all"), which
+the docs now say.
+
+**Verified, ad hoc (`-s -`), on macOS 27.0.1 with Xcode 27.0:** `bun test
+./scripts/exact.test.mjs` (16 pass) signs a fixture through `signRelease`.
+`codesign -d --entitlements - --xml` shows a helper with exactly
+`allow-jit` and `allow-unsigned-executable-memory`, a nested `.app` with
+`allow-jit` and `disable-library-validation`, the app with only its device
+entitlement (`audio-input`), and an undeclared
+sibling executable and a dylib with none. Run under the hardened runtime, the
+granted helper maps `MAP_JIT` memory (exit 0) and its undeclared sibling and
+the app are refused (exit 1). `codesign --verify --deep --strict` passes, then
+fails once the staged stamp under `Resources/` is edited. With no runtime grant,
+every path is signed with no entitlements. A nested bundle's grant follows the
+executable `NSBundle` resolves for it: an `Info-macos.plist` or commented decoy
+is refused, and an executable named with an XML entity keeps its grant. A
+receipt naming `app`, a hard-linked target, or a path
+outside the resources destinations, is refused before anything is signed. Bake
+and runner unit tests cover the grammar, the derivation and the refusal of
+`app`.
+
+**Not verified:**
+- A real `mac --bundle` of an app with a runtime grant. This machine has no
+  installed Hermes bundle, and the worktree's nesting stops its installer.
+- The notarized proof, which the ruling requires before release support is
+  claimed. There is no Developer ID here.
+
+**The notarized proof, for a Mac with a Developer ID and a notary profile.**
+Use an app with a helper under `host.macos.resources`
+(`{"from": "helper", "to": "Helpers/helper"}`), built from
+`int main(void){return mmap(0,16384,PROT_READ|PROT_WRITE|PROT_EXEC,MAP_PRIVATE|MAP_ANON|MAP_JIT,-1,0)==MAP_FAILED;}`
+(with `#include <sys/mman.h>`) as `helper/jit`, and the same binary again as
+`helper/jit2`. Its source grants hold `runtime.allow-jit Helpers/helper/jit`
+and nothing for `jit2`.
+
+```sh
+xcrun notarytool store-credentials exact-notary --apple-id <id> --team-id <TEAM> --password <app-specific>
+bun exact.mjs release                       # or: bun scripts/exact.mjs release <app>
+APP=<the .app path exact release prints>
+codesign -d --entitlements - --xml "$APP"; echo
+codesign -d --entitlements - --xml "$APP/Contents/Helpers/helper/jit"; echo   # exactly allow-jit
+codesign -dv "$APP/Contents/Helpers/helper/jit" 2>&1 | grep flags          # runtime
+"$APP/Contents/Helpers/helper/jit"; echo "jit exit $?"                      # 0
+"$APP/Contents/Helpers/helper/jit2"; echo "jit2 exit $?"                    # 1: no grant, no JIT
+spctl -a -t exec -vv "$APP"                                                 # source=Notarized Developer ID
+xcrun stapler validate "$APP"
+```
+
+When every line answers as marked, the issue can close.
 
 Transferred at exact2 `5e8da7027` on 2026-10-09. This preserves reported evidence; this triage has not reproduced or fixed the runtime behavior. The current scope and Charlie's decisions below supersede conflicting proposals/acceptance in the original report. This file is the live issue after the GitHub copy is closed.
 

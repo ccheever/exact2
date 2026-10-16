@@ -1,8 +1,8 @@
 // `length` counts UTF-16 code units, as the web's String#length does.
 component App
   state s = "hello"
-  derive n = length(s)
-  derive empty = isEmpty(s)
+  derive n = s.length
+  derive empty = s.isEmpty()
   action set(v: string)
     s = v
   view

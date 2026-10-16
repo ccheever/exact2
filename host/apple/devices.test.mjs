@@ -5,7 +5,36 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { decodePng, encodePng } from '../../scripts/png.mjs';
-import { withKeyboard } from './devices.mjs';
+import { withKeyboard, phoneBridge } from './devices.mjs';
+import { createConnection } from 'node:net';
+import { once } from 'node:events';
+
+// Native startup retries do not change the per-launch authentication boundary.
+test('a refused phone token cannot admit a command carrier; the right token still can', async () => {
+  const before = process.env.EXACT_AGENT_HOST;
+  process.env.EXACT_AGENT_HOST = '127.0.0.1';
+  let bridge;
+  try { bridge = await phoneBridge(); }
+  finally { if (before === undefined) delete process.env.EXACT_AGENT_HOST; else process.env.EXACT_AGENT_HOST = before; }
+  const [host, port] = bridge.env.EXACT_AGENT_CONNECT.split(':');
+  const sockets = [];
+  try {
+    let admitted = false;
+    bridge.ready.then(() => { admitted = true; });
+    const wrong = createConnection({host, port: Number(port)}); sockets.push(wrong);
+    await once(wrong, 'connect');
+    const refused = once(wrong, 'close');
+    wrong.write(JSON.stringify({ready: true, token: 'wrong-token'}) + '\n');
+    await refused;
+    expect(admitted).toBe(false);
+    const right = createConnection({host, port: Number(port)}); sockets.push(right);
+    await once(right, 'connect');
+    right.write(JSON.stringify({ready: true, token: bridge.env.EXACT_AGENT_TOKEN}) + '\n');
+    const accepted = await bridge.ready;
+    expect(accepted.announcement).toEqual({ready: true});
+    expect(admitted).toBe(true);
+  } finally { for (const socket of sockets) socket.destroy(); bridge.close(); }
+});
 
 const solid = (width, height, rgba) => encodePng({ width, height, data: Uint8Array.from({ length: width * height * 4 }, (_, i) => rgba[i % 4]) });
 

@@ -192,7 +192,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         var ancestor: UIView? = owner
         while let view = ancestor {
             if view.isHidden || view.alpha <= 0.01 || (view as? NodeView)?.props["inert"] == "true" { return false }
-            ancestor = view.superview
+            ancestor = presenter.eventParent(of: view)
         }
         return owner.window != nil
     }
@@ -302,11 +302,8 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             // border-box minimum also holds the padding and border around it.
             let natural = natural(owner.id, control as! UISegmentedControl)
             size = CGSize(width: 1, height: natural.height)
-            if owner.style["box_sizing"]?.string == "border-box" {
-                let border = owner.number("border_width")
-                size.height += owner.number("border_width_top", border) + owner.padding("top")
-                    + owner.number("border_width_bottom", border) + owner.padding("bottom")
-            }
+            // The padding and border around the content box layout sent
+            if owner.style["box_sizing"]?.string == "border-box" { size.height += owner.bounds.height - owner.contentBox().height }
         } else {
             guard owner.bounds.width > 0 else { return }
             // A tab bar lays its items out in any width: none is its narrowest.

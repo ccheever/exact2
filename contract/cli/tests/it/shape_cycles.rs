@@ -7,7 +7,7 @@ fn primitive_named_shapes_do_not_make_primitive_fields_recursive() {
         for ty in [
             name.to_owned(),
             format!("option<{name}>"),
-            format!("list<option<{name}>>"),
+            format!("option<{name}>[]"),
         ] {
             let source =
                 format!("shape {name}\n  value: {ty}\ncomponent App\n  view\n    text \"hello\"\n");
@@ -18,7 +18,7 @@ fn primitive_named_shapes_do_not_make_primitive_fields_recursive() {
 
 #[test]
 fn primitive_names_do_not_create_false_indirect_cycles() {
-    let source = "shape string\n  value: Other\nshape Other\n  value: list<option<string>>\ncomponent App\n  view\n    text \"hello\"\n";
+    let source = "shape string\n  value: Other\nshape Other\n  value: option<string>[]\ncomponent App\n  view\n    text \"hello\"\n";
     contract::compile(source).unwrap();
 }
 
@@ -27,8 +27,8 @@ fn real_cycles_remain_refused_through_wrappers_and_unreachable_declarations() {
     for declarations in [
         "shape Row\n  next: Row\n",
         "shape Row\n  next: option<Row>\n",
-        "shape Row\n  next: list<option<Row>>\n",
-        "shape Row\n  next: list<Other>\nshape Other\n  previous: option<Row>\n",
+        "shape Row\n  next: option<Row>[]\n",
+        "shape Row\n  next: Other[]\nshape Other\n  previous: option<Row>\n",
     ] {
         let error = contract::compile(&format!(
             "{declarations}component App\n  view\n    text \"hello\"\n"
@@ -42,12 +42,12 @@ fn real_cycles_remain_refused_through_wrappers_and_unreachable_declarations() {
 #[test]
 fn unknown_field_types_keep_their_own_diagnostic() {
     let error = contract::compile(
-        "shape Row\n  value: list<Missing>\ncomponent App\n  view\n    text \"hello\"\n",
+        "shape Row\n  value: Missing[]\ncomponent App\n  view\n    text \"hello\"\n",
     )
     .unwrap_err();
     assert_eq!(error.id, "type-unknown");
     assert_eq!(error.span.line, 2);
-    assert_eq!(error.span.col, 15);
+    assert_eq!(error.span.col, 10);
 }
 
 fn refused(source: &str) -> String {
@@ -63,7 +63,7 @@ fn refused(source: &str) -> String {
 #[test]
 fn an_option_directly_inside_an_option_is_refused() {
     let app = |decl: &str, view: &str| {
-        format!("shape Box\n  values: list<option<number>>\n{decl}component App\n  resource box = load() as shape Box\n  view\n    text {view}\n")
+        format!("shape Box\n  values: option<number>[]\n{decl}component App\n  resource box = load() as shape Box\n  view\n    text {view}\n")
     };
     for source in [
         app("shape Bad\n  value: option<option<number>>\n", "\"a\""),
@@ -80,8 +80,8 @@ fn an_option_directly_inside_an_option_is_refused() {
     }
     // An option in a list in an option, or in a record field, is fine.
     contract::compile(&app(
-        "shape Fine\n  value: option<list<option<number>>>\n",
-        "`${length(box.values)}`",
+        "shape Fine\n  value: option<option<number>[]>\n",
+        "`${box.values.length}`",
     ))
     .unwrap();
 }
@@ -107,12 +107,12 @@ fn a_type_nests_at_most_sixty_four_deep() {
         "type-too-deep"
     );
     // 63 levels of shape and one list is 64; an inferred `some` is 65.
-    contract::compile(&(chain(63) + &view("list<S62>", "\"a\""))).unwrap();
+    contract::compile(&(chain(63) + &view("S62[]", "\"a\""))).unwrap();
     assert_eq!(
         refused(&(chain(64) + &view("S63", "`${some(top) == none}`"))),
         "type-too-deep"
     );
-    let lists = |n: usize| "list<".repeat(n) + "number" + &">".repeat(n);
+    let lists = |n: usize| "number".to_owned() + &"[]".repeat(n);
     contract::compile(&view(&lists(64), "\"a\"")).unwrap();
     assert_eq!(refused(&view(&lists(65), "\"a\"")), "type-too-deep");
 }

@@ -2,7 +2,7 @@
 shape Item
   id: string
   note: option<string>
-  tags: list<string>
+  tags: string[]
 
 fn itemId(i: Item): string = i.id
 fn noteText(i: Item): string = match i.note { case some(n) => n, case none => "(none)" }
@@ -11,7 +11,7 @@ component App
   state it = Item(id="a", note=none, tags=[])
   state held = none
   derive text1 = noteText(it)
-  derive tagCount = length(it.tags)
+  derive tagCount = it.tags.length
   derive heldId = match held { case some(h) => itemId(h), case none => "-" }
   action annotate(n: string)
     it = Item(it, note=some(n))

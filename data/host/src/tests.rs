@@ -1043,7 +1043,7 @@ fn compress_image_answers_a_rust_source_as_typescripts() {
     } else {
         assert_eq!(
             result.unwrap_err(),
-            "compressImage: unsupported: no JPEG encoder on this host"
+            "compressImage: unsupported: no image codec"
         );
     }
     for (request, expected) in [

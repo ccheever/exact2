@@ -20,7 +20,7 @@ fn payload(event: &str, control: Option<&str>) -> Vec<(&'static str, &'static st
         }
         ("change" | "input", Some("radio")) => one("value", "string", "the radio's `value`"),
         ("change" | "input", Some("range")) => one("value", "number", "the range's new `value`"),
-        ("change" | "input", Some("file")) => one("files", "list<Picked>", "the picked `files`"),
+        ("change" | "input", Some("file")) => one("files", "Picked[]", "the picked `files`"),
         ("change" | "input", Some("select")) => one("value", "string", "the select's new `value`"),
         ("change" | "input", _) => one("value", "string", "the field's new `value`"),
         ("key" | "keycapture" | "keyup", _) => one("key", "string", "the key's name, `key`"),

@@ -31,7 +31,7 @@ shape Index
   project: string
   total: number
   shown: number
-  entries: list<Entry>
+  entries: Entry[]
 
 // A run of a block, split where the find matches: `hit` is the match's
 // ordinal from 1, or 0. `id` is the page's only span of that name (`b4s0`).
@@ -47,7 +47,7 @@ shape Span
 // A table cell; `grow` is its column's weight (its widest cell).
 shape Part
   id: string
-  spans: list<Span>
+  spans: Span[]
   grow: number
 
 // One block; `id` (`b0`, `b1`, …) is the element `scrollIntoView` names.
@@ -58,8 +58,8 @@ shape Piece
   marker: string
   lang: string
   header: bool
-  spans: list<Span>
-  cells: list<Part>
+  spans: Span[]
+  cells: Part[]
 
 shape Heading
   id: string
@@ -85,11 +85,11 @@ shape Page
   status: string
   message: string
   failed: bool
-  blocks: list<Piece>
-  outline: list<Heading>
+  blocks: Piece[]
+  outline: Heading[]
   hits: number
-  marks: list<string>
-  links: list<Link>
+  marks: string[]
+  links: Link[]
   prev: string
   next: string
 
@@ -120,18 +120,18 @@ component Reader
   resource index = index(asked, filter, "", false) as shape Index
 
   derive hits = page.hits
-  derive here = indexOf(map(index.entries, e => e.current), true)
+  derive here = index.entries.map(e => e.current).indexOf(true)
 
   action open(path: string)
     if path != "" and path != page.path
-      history = concat([page.path], history)
+      history = [page.path].concat(history)
       chosen = path
       cur = 0
       scrollIntoView("top", block="start")
   action back
     match first(history)
       case some(path)
-        history = slice(history, 1)
+        history = history.slice(1)
         chosen = path
         cur = 0
         scrollIntoView("top", block="start")
@@ -140,7 +140,7 @@ component Reader
   // A link in the text: a document of this corpus opens here; anything
   // else goes to the system (a browser, mail).
   action follow(href: string)
-    match first(filter(page.links, k => k.href == href))
+    match first(page.links.filter(k => k.href == href))
       case some(k)
         if k.local
           open(k.href)
@@ -189,7 +189,7 @@ component Reader
   action show(k: number)
     if hits > 0
       cur = k
-      match at(page.marks, k - 1)
+      match page.marks.at(k - 1)
         case some(block)
           scrollIntoView(block, block="center")
         case none
@@ -219,7 +219,7 @@ component Reader
   action openTree
     treeLoaded = true
     if filter == ""
-      match at(index.entries, here)
+      match index.entries.at(here)
         case some(e)
           scrollIntoView("tree-list", e.id, block="nearest")
         case none
@@ -234,21 +234,21 @@ component Reader
     column width="100%" height="100%"
       // What is open.
       row padding="0 1ch" gap="2ch" background-color="#262626" flex-shrink=0 testId="header"
-        when page.number != ""
+        if page.number != ""
           text `LLP ${page.number}` font-weight=700 color="#ffaf5f" flex-shrink=0
         text page.title font-weight=700 white-space="nowrap" text-overflow="ellipsis" min-width=0 flex-shrink=1
         text `${page.kind}${page.status != "" ? ` · ${page.status}` : ""}` color="#8a8a8a" white-space="nowrap" text-overflow="ellipsis" min-width=0 margin-left="auto"
-      when page.failed
+      if page.failed
         text page.message color="#ff5f5f" padding="0 1ch" testId="failed"
       scroll id="page" flex=1 min-height=0 testId="page"
         column align-items="center" width="100%"
           column max-width="100ch" width="100%" box-sizing="border-box" padding="0 2ch 1lh 2ch"
             view id="top"
-            each b in page.blocks key=b.id
+            for b in page.blocks key=b.id
               Block(b=b, cur=cur, follow=follow)
             view id="end"
       // Find, while it is being typed.
-      when finding
+      if finding
         row padding="0 1ch" gap="1ch" background-color="#1c1c1c" flex-shrink=0 testId="find-bar"
           text "/" color="#ffd700" font-weight=700 flex-shrink=0
           input id="find" value=find input=setFind key=onFindKey placeholder="find in this document" flex-grow=1 testId="find"
@@ -258,7 +258,7 @@ component Reader
         Key(k="t", keys="t", what="tree", press=openTree)
         Key(k="o", keys="o", what="outline", press=openOutline)
         Key(k="/", keys="/", what="find", press=startFind)
-        when find != "" and not finding
+        if find != "" and not finding
           Pair(a="n", akeys="n", b="N", bkeys="Shift+N", what="match", first=nextMatch, second=prevMatch)
           button appearance="none" press=stopFind aria-keyshortcuts="Escape" display="flex" flex-shrink=0 testId="key-clear"
             text "esc" color="#d0d0d0" font-weight=700
@@ -266,7 +266,7 @@ component Reader
           text (hits == 0 ? `no “${find}”` : `${cur}/${hits} “${find}”`) color="#ffd700" white-space="nowrap" flex-shrink=0
         Key(k="l", keys="l", what="links", press=openLinks)
         Pair(a="[", akeys="[", b="]", bkeys="]", what="doc", first=open(page.prev), second=open(page.next))
-        when not isEmpty(history)
+        if not history.isEmpty()
           Key(k="b", keys="b", what="back", press=back)
         Pair(a="j", akeys="j", b="k", bkeys="k", what="line", first=lineDown, second=lineUp)
         Pair(a="g", akeys="g", b="G", bkeys="Shift+G", what="ends", first=toTop, second=toEnd)
@@ -284,15 +284,15 @@ component Reader
           text "/" color="#ffd700" flex-shrink=0
           input value=filter input=setFilter submit=firstMatch aria-keyshortcuts="/" placeholder="filter: number, title or any text — ↓ to the list" flex-grow=1 testId="tree-filter"
         list id="tree-list" virtualized=true estimated-item-height=16 flex=1 min-height=0 testId="tree-list"
-          each e, i in (treeLoaded ? index.entries : []) key=e.id
+          for e, i in (treeLoaded ? index.entries : []) key=e.id
             button press=pick(e.path) commandfor="tree" command="close" autofocus=(filter == "" and i == here) text-align="start" width="100%" testId=`tree-${label(e)}`
               row width="100%" gap="1ch" padding-right="1ch" box-sizing="border-box"
                 text label(e) width="14ch" box-sizing="border-box" flex-shrink=0 padding-left=`${e.depth * 2}ch` color=(e.current ? "#ffaf5f" : "#8a8a8a") font-weight=(e.current ? 700 : 400)
                 text e.title flex-grow=1 flex-shrink=1 min-width=0 white-space="nowrap" text-overflow="ellipsis" font-weight=(e.current ? 700 : 400)
-                when e.overlay != ""
+                if e.overlay != ""
                   text e.overlay color="#5fd7af" flex-shrink=0
                 text e.kind color="#6c6c6c" width="10ch" flex-shrink=0 white-space="nowrap" text-overflow="ellipsis"
-                when filter != ""
+                if filter != ""
                   text `${e.hits}` color="#ffd700" width="5ch" text-align="end" flex-shrink=0
         text "↑/↓ move · enter open · / filter · esc close" color="#6c6c6c" flex-shrink=0
 
@@ -300,21 +300,21 @@ component Reader
       dialog id="outline" closedby="any" top="1lh" bottom="2lh" right="2ch" width="60ch" border="thin solid #ffaf5f" border-radius="1ch" padding="0 1ch" background-color="#121212" display="flex" flex-direction="column" testId="outline"
         text "Outline" font-weight=700 color="#ffaf5f" flex-shrink=0
         scroll flex=1 min-height=0 margin-top="1lh"
-          when isEmpty(page.outline)
+          if page.outline.isEmpty()
             text "No headings" color="#6c6c6c"
-          each h in page.outline key=h.id
+          for h in page.outline key=h.id
             button press=toHeading(h.id) commandfor="outline" command="close" text-align="start" padding-left=`${(h.level - 1) * 2}ch` testId=`outline-${h.id}`
               text h.text color=headColor(h.level) white-space="nowrap" text-overflow="ellipsis" min-width=0 font-weight=(h.level <= 2 ? 700 : 400)
 
       // Every link in the page: a document of this corpus opens here;
       // anything else is shown, to open from the terminal (⌘-click).
       dialog id="links" closedby="any" top="1lh" bottom="2lh" left="4ch" right="4ch" border="thin solid #5fafff" border-radius="1ch" padding="0 1ch" background-color="#121212" display="flex" flex-direction="column" testId="links"
-        text `Links (${length(page.links)})` font-weight=700 color="#5fafff" flex-shrink=0
+        text `Links (${page.links.length})` font-weight=700 color="#5fafff" flex-shrink=0
         scroll flex=1 min-height=0 margin-top="1lh"
-          when isEmpty(page.links)
+          if page.links.isEmpty()
             text "No links in this document" color="#6c6c6c"
-          each k in page.links key=k.id
-            when k.local
+          for k in page.links key=k.id
+            if k.local
               button press=open(k.href) commandfor="links" command="close" text-align="start" width="100%" testId=`link-${k.id}`
                 row width="100%" gap="2ch"
                   text k.text color="#5fafff" font-weight=700 flex-shrink=0 white-space="nowrap"
@@ -365,46 +365,46 @@ component Block
     cur: number
     follow: action
   view
-    when b.kind == "heading"
+    if b.kind == "heading"
       column id=b.id margin-top="1lh"
         text color=headColor(b.depth) font-weight=700 testId=`block-${b.id}`
-          when b.depth > 2
+          if b.depth > 2
             text `${b.depth == 3 ? "▸ " : "· "}` color="#6c6c6c" white-space="pre"
           Spans(spans=b.spans, cur=cur, follow=follow)
-        when b.depth <= 2
+        if b.depth <= 2
           view border-bottom=(b.depth == 1 ? "thin solid #ffaf5f" : "thin solid #3a3a3a")
-    else when b.kind == "paragraph"
+    else if b.kind == "paragraph"
       text id=b.id margin-top="1lh" testId=`block-${b.id}`
         Spans(spans=b.spans, cur=cur, follow=follow)
-    else when b.kind == "meta"
+    else if b.kind == "meta"
       row id=b.id testId=`block-${b.id}`
         text b.marker width="13ch" flex-shrink=0 white-space="nowrap" text-overflow="ellipsis" color="#8a8a8a" font-weight=700
         text flex-grow=1 flex-shrink=1 min-width=0
           Spans(spans=b.spans, cur=cur, follow=follow)
-    else when b.kind == "item"
+    else if b.kind == "item"
       row id=b.id padding-left=`${b.depth * 2}ch` testId=`block-${b.id}`
         text `${b.marker} ` white-space="pre" color="#ffaf5f" flex-shrink=0
         text flex=1 min-width=0
           Spans(spans=b.spans, cur=cur, follow=follow)
-    else when b.kind == "code"
+    else if b.kind == "code"
       column id=b.id margin-top="1lh" background-color="#1c1c1c" padding="0 1ch" testId=`block-${b.id}`
-        when b.lang != ""
+        if b.lang != ""
           text b.lang color="#6c6c6c" align-self="end"
         text white-space="pre-wrap"
           Spans(spans=b.spans, cur=cur, follow=follow)
-    else when b.kind == "quote"
+    else if b.kind == "quote"
       row id=b.id margin-top="1lh" padding-left=`${(b.depth - 1) * 2}ch` testId=`block-${b.id}`
         text "▌ " white-space="pre" color="#5f5f87" flex-shrink=0
         text flex=1 min-width=0 color="#afafd7" font-style="italic"
           Spans(spans=b.spans, cur=cur, follow=follow)
-    else when b.kind == "rule"
+    else if b.kind == "rule"
       view id=b.id margin="1lh 0 0 0" border-bottom="thin solid #585858" testId=`block-${b.id}`
-    else when b.kind == "table-row"
+    else if b.kind == "table-row"
       row id=b.id margin-top=(b.header ? "1lh" : "0") border-bottom=(b.header ? "thin solid #585858" : "none") gap="2ch" testId=`block-${b.id}`
-        each c in b.cells key=c.id
+        for c in b.cells key=c.id
           text flex-grow=c.grow flex-shrink=1 flex-basis=0 min-width=0 font-weight=(b.header ? 700 : 400)
             Spans(spans=c.spans, cur=cur, follow=follow)
-    else when b.kind == "image"
+    else if b.kind == "image"
       text id=b.id margin-top="1lh" color="#6c6c6c" testId=`block-${b.id}`
         text "[image] " white-space="pre"
         Spans(spans=b.spans, cur=cur, follow=follow)
@@ -417,12 +417,12 @@ component Block
 // on a fill, the current one bright.
 component Spans
   props
-    spans: list<Span>
+    spans: Span[]
     cur: number
     follow: action
   view
-    each s in spans key=s.id
-      when s.href != ""
+    for s in spans key=s.id
+      if s.href != ""
         text s.text font-weight=s.weight font-style=s.slant href=s.href press=follow(s.href) color=spanInk(s, cur) background-color=spanFill(s, cur) text-decoration-line="underline" testId=`link-${s.id}`
       else
         text s.text font-weight=s.weight font-style=s.slant color=spanInk(s, cur) background-color=spanFill(s, cur)

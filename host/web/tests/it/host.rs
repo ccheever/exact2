@@ -729,9 +729,9 @@ fn a_multi_timer_advance_creates_children_before_attaching_them() {
     every(100, tick)
   view
     column testId="parent"
-      when phase == 1
+      if phase == 1
         text "typing"
-      when phase >= 2
+      if phase >= 2
         text "reply" testId="reply"
 "#,
     )
@@ -1073,14 +1073,14 @@ fn a_theme_flip_restyles_each_touched_row_once() {
   id: number
 component App
   state dark = false
-  resource rows = rows() as shape list<Row>
+  resource rows = rows() as shape Row[]
   action flip
     dark = !dark
   view
     column
       button press=flip testId="flip"
         text "Flip"
-      each r in rows key=r.id
+      for r in rows key=r.id
         text `${r.id}` color=(dark ? "#ffffff" : "#000000")
 "##;
     let plan = contract::bake(contract::compile(source).unwrap(), Rows).unwrap();
@@ -1257,7 +1257,7 @@ fn a_node_takes_no_position_the_plan_did_not_give_it() {
         text "b" top=4 testId="inset"
         text "c" z-index=2 testId="raised"
         text "d" position="relative" top=4 testId="moved"
-        when pinned
+        if pinned
           box position="absolute" width=4 height=4 testId="badge"
 "##,
     )

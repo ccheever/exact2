@@ -152,7 +152,6 @@ impl Server {
             .iter()
             .find_map(|name| std::fs::read_to_string(serve.dist.join(name)).ok())
             .ok_or_else(|| std::io::Error::other("the dist has no shell"))?;
-        crate::shell_look(&shell);
         let listener = TcpListener::bind(("127.0.0.1", serve.port))?;
         let csp = csp(grants, &serve.dist);
         let permissions = exact_runner::device::permissions_policy(grants);

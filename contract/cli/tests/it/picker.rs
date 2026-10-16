@@ -1,6 +1,6 @@
 //! LLP 1069.002: `input type="file"` is a `Control` with `accept` and
 //! `multiple`; `showPicker` is a host command; `change` carries a
-//! `list<Picked>` and `cancel` nothing; `accept` is bounded at bake.
+//! `Picked[]` and `cancel` nothing; `accept` is bounded at bake.
 
 use exact_kernel::{Kernel, NodeType, PropId};
 use exact_runner::{ControlValue, DataError, DataSource, Event, Picked, Runner, Value};
@@ -18,8 +18,8 @@ const COMPOSE: &str = r#"component App
   state cancels = 0
   action choose
     showPicker("attach")
-  action attach(files: list<Picked>)
-    summary = join(map(files, (f, i) => `${f.name}:${f.type}:${f.size}:${match f.width { case some(w) => w, case none => 0 }}`), ",")
+  action attach(files: Picked[])
+    summary = files.map((f, i) => `${f.name}:${f.type}:${f.size}:${match f.width { case some(w) => w, case none => 0 }}`).join(",")
   action dismissed
     cancels = cancels + 1
   view

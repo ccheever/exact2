@@ -8,20 +8,12 @@ import AppKit
 
 #if os(macOS) || os(iOS)
 final class WebDocumentsTests: XCTestCase {
-    // component App
-    //   state loaded = 0
-    //   state failed = ""
-    //   action didLoad
-    //     loaded = loaded + 1
-    //   action didFail(message: string)
-    //     failed = message
-    //   view
-    //     iframe src="app:/data/doc.pdf" width=300 height=200 load=didLoad error=didFail testId="pdf"
-    private let plan = Data(base64Encoded: "RVhQTAUAAACvJkuYSx0hQQVGB0XGRtGZGA1E2ggCJPIAAAAA//////////8KAAAABgAAAG51bWJlcgYAAABsb2FkZWQGAAAAc3RyaW5nBgAAAGZhaWxlZAcAAABkaWRMb2FkBwAAAG1lc3NhZ2UHAAAAZGlkRmFpbAAAAAARAAAAYXBwOi9kYXRhL2RvYy5wZGYDAAAAcGRmUAAAAAQoAAAAAAAAAAAAKAIHAAAAKAYAAAAAAAAAAAAAAPA/DyIAAAAAKAkAACIBAAAAKAIIAAAAKAAAAAAAAMByQCgAAAAAAAAAaUAoAgkAAAAoAAAAAAIAAAAA/////wAAAAAAAAAAAAAAAAL/////AAAAAAAAAAACAAAAAAAAAAAAAAAAAAAACAAAAAAAAAABAAAAAQAAAAEAAAACAAAAAQAAAAMAAAABAAAABAAAAAEAAAAFAAAAAQAAAAYAAAABAAAABwAAAAEAAAAIAAAAAf////8C/////wP/////BP////8F/////wb/////B/////8I/////wIAAAABAAAAAAAAAAIAAAAKAAAA/////wAAAwAAAAEAAAAMAAAABgAAAP////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAAABAAAAAAAAAAAAAAAAAAAAAEAAAASAAAAFQAAAAYAAAAAAAAAAQAAAAEAAAABAAAAJwAAAAkAAAABAAAABQAAAAEAAAACAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAL//////////8AAAAAAAAAAAQAAAAAAAAAAgAAAP////8EAAAAACoAMAAAAAYAAAABAQAANgAAAAoAAAABAQEAQAAAAAoAAAABAAsASgAAAAYAAAABAgAAAAcAAAAAAAAAAAAAAAAgAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==")!
+    // scripts/fixtures/web-documents.contract: an iframe of an app file and its load and error actions.
+    private func plan() throws -> Data { try fixturePlan("WEB_DOCUMENTS") }
 
     func testAppTextFilePreservesMIMEAndLiteralMarkup() throws {
         guard let path = ProcessInfo.processInfo.environment["EXACT_TEST_WEB_MODULE"] else {
-            throw XCTSkip("name a built WebKit arm with EXACT_TEST_WEB_MODULE")
+            throw missing("module", "no WebKit arm: name a built one with EXACT_TEST_WEB_MODULE")
         }
         #if os(macOS)
         _ = NSApplication.shared
@@ -34,7 +26,7 @@ final class WebDocumentsTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         let literal = "<b>literal</b><script>window.executed = true</script>"
         try Data(literal.utf8).write(to: directory.appendingPathComponent("notes.txt"))
-        XCTAssertNil(session.boot(plan: plan, size: CGSize(width: 300, height: 200)).error)
+        XCTAssertNil(session.boot(plan: try plan(), size: CGSize(width: 300, height: 200)).error)
         AppFiles.learn(["roots": ["data": directory.path]])
         let node = try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == "pdf" })
         let loaded = expectation(description: "plain text document loaded")
@@ -61,7 +53,7 @@ final class WebDocumentsTests: XCTestCase {
 
     func testAppFilePDFPixelsAndMissingFileError() throws {
         guard let path = ProcessInfo.processInfo.environment["EXACT_TEST_WEB_MODULE"] else {
-            throw XCTSkip("name a built WebKit arm with EXACT_TEST_WEB_MODULE")
+            throw missing("module", "no WebKit arm: name a built one with EXACT_TEST_WEB_MODULE")
         }
         #if os(macOS)
         _ = NSApplication.shared
@@ -79,7 +71,7 @@ final class WebDocumentsTests: XCTestCase {
         pdf.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
         pdf.fill(CGRect(x: 40, y: 40, width: 220, height: 120))
         pdf.endPDFPage(); pdf.closePDF()
-        XCTAssertNil(session.boot(plan: plan, size: bounds.size).error)
+        XCTAssertNil(session.boot(plan: try plan(), size: bounds.size).error)
         // Boot learns the runtime's roots. This test owns one file root.
         AppFiles.learn(["roots": ["data": directory.path]])
         let node = try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == "pdf" })

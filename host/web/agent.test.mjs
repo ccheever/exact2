@@ -14,6 +14,7 @@ import { storageKey } from './storage-environment.js';
 import { open } from '../../scripts/agent.mjs';
 import { launchFacts, launchEnvironment, parseFlags } from '../../scripts/agent-launch.mjs';
 import { nodeNamed } from '../../scripts/agent-test.mjs';
+import { browserMissing } from '../../scripts/agent-playwright.mjs'; import { required } from '../../scripts/coverage.mjs';
 
 const mapAt = (digest, line = 12) => ({digest, nodes: [{file: '/app/ui/bubble.contract', line, col: 3, end_col: 9, component: 'Bubble',
   chain: [{file: '/app/app.contract', line: 45, col: 5, end_col: 11, component: 'App'}],
@@ -249,7 +250,7 @@ function fixture(agentMode = true) {
     Date: class extends Date { static now() { return 123; } }, performance: { now: () => 10 }, TextEncoder, Uint8Array,
     HTMLInputElement: class {}, HTMLTextAreaElement: class {}, HTMLIFrameElement: class {}, HTMLVideoElement: class {}, HTMLMediaElement: class {},
     foldBits: () => 0 /* no fold posture (LLP 1078 D6) */,
-    document: { activeElement: null, body: {}, querySelector: () => null },
+    document: { activeElement: null, body: {}, querySelector: () => null, getElementById: () => null }, // boot's last plan's theme: none
     innerWidth: 300, innerHeight: 200, devicePixelRatio: 1, scrollX: 0, scrollY: 0,
     INHERITED_CSS: {}, getComputedStyle: () => ({}), inertAncestor: () => false,
     viewBox: element => element.getBoundingClientRect(),
@@ -553,11 +554,10 @@ test('programmatic web opens stay on Chrome and Firefox drives a small Exact pla
     expect(await chrome.carrier.evaluate(({ probe() { return 5; } }).probe)).toBe(5);
     expect(await chrome.carrier.evaluate(({ async probe() { return 6; } }).probe)).toBe(6);
     await chrome.close(); chrome = null;
-    const { firefox } = await import('playwright-core');
-    if (!existsSync(firefox.executablePath())) {
-      console.log('skip: Firefox is not installed; bunx playwright@1.63.0 install firefox webkit');
-      return;
-    }
+    // The Firefox half: a missing Firefox fails under EXACT_REQUIRED (scripts/coverage.mjs), else the Chrome half stands.
+    const firefoxMissing = await browserMissing('firefox');
+    if (firefoxMissing && required()) throw new Error(`missing firefox: ${firefoxMissing} (EXACT_REQUIRED=1)`);
+    if (firefoxMissing) return console.warn(`SKIP: missing firefox: ${firefoxMissing}`);
     session = await open({ host:'web', browser:'firefox', url, onProcess: child => { browserProcess = child; } });
     expect(session.carrier.browser).toBe('firefox');
     expect(browserProcess?.pid).toBeGreaterThan(0);
@@ -637,7 +637,7 @@ test('page facts: the platform off the agent, the drive\'s values under it (LLP 
 });
 
 test('the app\'s root font size: a rule over the root, read past by the host (LLP 1069.000 D3)', () => { const rules = new Map(), said = [], say = line => said.push(line), document = { documentElement: {}, head: { append: el => rules.set(el.id, el) }, getElementById: id => rules.get(id) ?? null, createElement: () => ({ remove() { rules.delete(this.id); } }) }; const platform = { document, getComputedStyle: () => { const r = [...rules.values()].find(r => !r.disabled); return { fontSize: r ? r.textContent.match(/font-size:([\d.]+)px/)[1] + 'px' : '18px' }; } }, host = pageReporter(false, platform); // the browser's own 18; an enabled rule's `!important` wins
-  appRootFontSize(20, say, platform); expect(rules.get('exact-root-font-size').textContent).toBe(':root{font-size:20px!important}'); expect(platform.getComputedStyle().fontSize).toBe('20px'); expect(host.rootFontSize()).toBe(18); for (const bad of [0, -4, NaN, '20px', 1e300]) appRootFontSize(bad, say, platform); expect(said).toHaveLength(5); expect(said[0]).toBe('setRootFontSize(0) refused: the root font size is a number of px above 0, or "medium"'); expect(rules.get('exact-root-font-size').textContent).toBe(':root{font-size:20px!important}'); appRootFontSize('medium', null, platform); expect(rules.size).toBe(0); expect(host.rootFontSize()).toBe(18); });
+  appRootFontSize(20, say, platform); expect(rules.get('exact-root-font-size').textContent).toBe(':root{font-size:20px!important}'); expect(platform.getComputedStyle().fontSize).toBe('20px'); expect(host.rootFontSize()).toBe(18); for (const bad of [0, -4, NaN, '20px', 1e300]) appRootFontSize(bad, say, platform); expect(said).toHaveLength(5); expect(said[0]).toBe('setRootFontSize(0) refused: the root font size is a number of px above 0, a percentage of the host\'s above 0 ("125%"), or "medium"'); expect(rules.get('exact-root-font-size').textContent).toBe(':root{font-size:20px!important}'); appRootFontSize('medium', null, platform); expect(rules.size).toBe(0); expect(host.rootFontSize()).toBe(18); }); test('the app\'s percentage root font size is a share of the host\'s, the agent\'s substitute included (LLP 1121 D6)', () => { const rules = new Map(), said = [], say = line => said.push(line), style = { setProperty(k, v) { this[k] = v; } }, document = { documentElement: { style }, head: { append: el => rules.set(el.id, el) }, getElementById: id => rules.get(id) ?? null, createElement: () => ({ remove() { rules.delete(this.id); } }) }, platform = { document }, rule = () => rules.get('exact-root-font-size').textContent; appRootFontSize('125%', null, platform); expect(rule()).toBe(':root{font-size:calc(var(--exact-host-font-size, 100%) * 1.25)!important}'); appRootFontSize('.5e2%', null, platform); expect(rule()).toContain('* 0.5)'); for (const bad of ['0%', '-5%', '125', '125.%', ' 125%', 'inf%', '1e400%', '1e300%', '1e-100%']) appRootFontSize(bad, say, platform); expect(said).toHaveLength(9); expect(rule()).toContain('* 0.5)'); const sized = px => ({ document, getComputedStyle: () => ({ fontSize: `${px}px` }) }); said.length = 0; /* the share is the runner's, host * (n / 100) as an f32, at the host's own size beneath the app's rule */ appRootFontSize('3.8924957342356035e-45%', say, sized(18)); appRootFontSize('1.4178431532488902e+39%', say, sized(24)); expect(said).toHaveLength(1); expect(rule()).toContain('* 1.41784315324889e+37)'); pageReporter(true, platform).prefer({ 'root-font-size': 20 }); expect(style.fontSize).toBe('20px'); expect(style['--exact-host-font-size']).toBe('20px'); });
 test('agent launch facts never read the platform locale, zone or entropy', async () => {
   const f = fixture(), reported = [];
   f.navigator = { language: 'fr-FR' };

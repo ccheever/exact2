@@ -28,7 +28,7 @@ final class SheetFixture {
       state tag = ""
       state discarded = 0
       action more
-        notes = concat(notes, [length(notes)])
+        notes = notes.concat([notes.length])
       action save
         saved = saved + 1
         close("book")
@@ -57,7 +57,7 @@ final class SheetFixture {
               text "New Book" testId="heading"
               input testId="title" placeholder="Title" value=name input=rename width=380 height=24
               input testId="author" placeholder="Author" width=380 height=24
-              each i in notes key=i
+              for i in notes key=i
                 box height=30 testId=`note-${i}`
               row gap=8 justify-content="flex-end"
                 button testId="more" press=more width=60 height=28
@@ -159,6 +159,49 @@ final class SheetHostMacTests: XCTestCase {
                                              context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code)!)
         }
         f.settle()
+    }
+
+    /// LLP 1123 D2: the runner reads a sheet's dialog by its block, which the
+    /// dialog sits in by its own frame. A dialog with 20-point side margins
+    /// in a sheet: `frame` and `elementFromPoint` answer where AppKit shows
+    /// its card, not a box stretched or shifted by the margins.
+    func testTheRunnerReadsADialogWithMarginsWhereItsSheetShowsIt() throws {
+        let page = """
+        component Probe
+          state at = "unread"
+          state hit = "unread"
+          action read
+            let f = frame("card")
+            at = `${f.x},${f.y},${f.width}`
+            hit = match elementFromPoint(f.x + 5, f.y + 5) { case some(id) => id, case none => "none" }
+          view
+            column testId="page" width="100%" height="100%" padding=20
+              button testId="open" commandfor="box" command="show-modal"
+                text "Open"
+              text `${at} ${hit}` testId="status"
+              dialog id="box" testId="box" width=300 margin-left=20 margin-right=20 padding=0
+                column id="card" testId="card" width=100 height=40
+                button testId="read" press=read width=60 height=28
+                  text "Read"
+
+        """
+        let f = try SheetFixture(page: page)
+        fixture = f
+        try f.press("open")
+        let card = try f.node("card")
+        XCTAssertNotNil(card.window, "the dialog is in its sheet")
+        XCTAssertNotIdentical(card.window, f.window)
+        try f.press("read")
+        let clip = f.presenter.viewport.contentView
+        let shown = clip.convertAcross(card.bounds, from: card)
+        let x = shown.minX - clip.bounds.minX, y = shown.minY - clip.bounds.minY
+        let fields = f.status.split(separator: " ")
+        let at = fields.first.map { $0.split(separator: ",").compactMap { Double($0) } } ?? []
+        XCTAssertEqual(at.count, 3, f.status)
+        XCTAssertEqual(at[0], Double(x), accuracy: 0.5, "the card's x where AppKit shows it")
+        XCTAssertEqual(at[1], Double(y), accuracy: 0.5)
+        XCTAssertEqual(at[2], 100, accuracy: 0.5, "unscaled")
+        XCTAssertEqual(fields.last.map(String.init), "card", "and a point in it is the card")
     }
 
     /// The dialog is laid out in its sheet's block: as large as its

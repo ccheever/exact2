@@ -42,8 +42,8 @@ component App
     nav = back(nav)
   view
     main navigationKey=`${{top(nav).id}}` navigationBack="back" navigate=follow width="100%" height="100%"
-      each e in stack(nav) key=e.id
-        when e.name == "home"
+      for e in stack(nav) key=e.id
+        if e.name == "home"
           column navigationKey=`${{e.id}}` testId="home" position="absolute" inset=0 {route}
             header
               text "Home" role="heading"
@@ -53,19 +53,19 @@ component App
                 text "Hide"
             list testId="rows" {list}
 {rows}
-        when e.name == "item"
+        if e.name == "item"
           column navigationKey=`${{e.id}}` testId=`item-${{e.params.id}}` position="absolute" inset=0
             text e.params.id
             button id="back" press=back testId="item-back"
               text "Back"
-        when e.name == "add"
+        if e.name == "add"
           column navigationKey=`${{e.id}}` navigationPresentation="modal" testId="form" position="absolute" inset=0
             text "New"
 "#
     )
 }
 
-const LINKS: &str = r#"              each id in ["a", "b", "c"] key=id
+const LINKS: &str = r#"              for id in ["a", "b", "c"] key=id
                 link href=path("item", id) testId=`row-${id}`
                   text id
                   button press=pick(id) testId=`star-${id}`
@@ -127,7 +127,7 @@ fn a_list_whose_rows_link_to_a_route_splits_and_names_each_rows_detail() {
 fn a_row_whose_press_writes_the_router_splits_and_one_that_writes_none_does_not() {
     let pressed = |action: &str| {
         format!(
-            "              each id in [\"a\", \"b\"] key=id\n                button press={action}(id) testId=`row-${{id}}`\n                  text id"
+            "              for id in [\"a\", \"b\"] key=id\n                button press={action}(id) testId=`row-${{id}}`\n                  text id"
         )
     };
     let r = boot(&app("", "", &pressed("open")));
@@ -143,7 +143,7 @@ fn a_row_whose_press_writes_the_router_splits_and_one_that_writes_none_does_not(
 
 #[test]
 fn rows_of_text_a_sideways_list_and_a_hidden_list_do_not_split() {
-    let text = "              each id in [\"a\", \"b\"] key=id\n                text id";
+    let text = "              for id in [\"a\", \"b\"] key=id\n                text id";
     assert_eq!(split(&boot(&app("", "", text))), None);
     assert_eq!(
         split(&boot(&app(
@@ -160,7 +160,7 @@ fn rows_of_text_a_sideways_list_and_a_hidden_list_do_not_split() {
     r.dispatch(view(&r, "hide"), Event::Press).unwrap();
     assert_eq!(split(&r), None);
     // A link out of the app is no push.
-    let out = "              each id in [\"a\", \"b\"] key=id\n                link href=`https://example.com/${id}`\n                  text id";
+    let out = "              for id in [\"a\", \"b\"] key=id\n                link href=`https://example.com/${id}`\n                  text id";
     assert_eq!(split(&boot(&app("", "", out))), None);
 }
 
@@ -177,7 +177,7 @@ fn navigation_split_on_the_root_route_opts_out_names_the_width_and_opts_in() {
         (Some(view(&r, "rows")), Some(280.0))
     );
     // A width splits a stack whose list the rule does not find.
-    let text = "              each id in [\"a\", \"b\"] key=id\n                text id";
+    let text = "              for id in [\"a\", \"b\"] key=id\n                text id";
     let found = split(&boot(&app("navigationSplit=300", "", text))).unwrap();
     assert_eq!((found.list, found.width), (None, Some(300.0)));
 }
@@ -255,4 +255,40 @@ fn the_list_beside_a_route_in_a_hosts_pane_is_not_inactive() {
     assert!(r.inactive(row));
     r.kernel_mut().set_host_block(top, None).unwrap();
     assert!(r.inactive(row));
+}
+
+/// A host that lays every route out in a block of its own, as iOS gives
+/// each route its controller's view (LLP 1123 D2), shows no list beside a
+/// pane: the route under a pushed route, and under a sheet the size of its
+/// detent, stays covered.
+#[test]
+fn a_list_in_a_block_of_its_own_is_covered_by_the_route_over_it() {
+    use exact_kernel::{BlockAxis, HostBlock};
+    let mut r = boot(&app("", "", LINKS));
+    let root = r.kernel().roots()[0];
+    let screen = HostBlock {
+        width: BlockAxis::Is(402.0),
+        height: BlockAxis::Is(874.0),
+    };
+    let home = view(&r, "home");
+    r.kernel_mut().set_host_block(home, Some(screen)).unwrap();
+    r.dispatch(root, Event::Navigate("/item/b".into())).unwrap();
+    let item = view(&r, "item-b");
+    r.kernel_mut().set_host_block(item, Some(screen)).unwrap();
+    assert!(
+        r.inactive(view(&r, "row-a")),
+        "a pushed route covers its list"
+    );
+    r.dispatch(root, Event::Navigate("/".into())).unwrap();
+    r.dispatch(view(&r, "add"), Event::Press).unwrap();
+    let sheet = HostBlock {
+        width: BlockAxis::Is(402.0),
+        height: BlockAxis::Is(814.0),
+    };
+    let form = view(&r, "form");
+    r.kernel_mut().set_host_block(form, Some(sheet)).unwrap();
+    assert!(
+        r.inactive(view(&r, "row-a")),
+        "a sheet covers the screen under it"
+    );
 }

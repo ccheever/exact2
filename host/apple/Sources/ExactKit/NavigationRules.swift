@@ -173,18 +173,6 @@ enum NavigationRules {
         closedby == "none"
     }
 
-    /// D4: geometry deferred behind a sheet replays as a batch would apply
-    /// it — every frame before any content size, node ids ascending.
-    static func replayOrder(deferred: [UInt32: Set<String>]) -> [(id: UInt32, kind: String)] {
-        var out: [(id: UInt32, kind: String)] = []
-        for kind in ["frame", "content"] {
-            for id in deferred.keys.sorted() where deferred[id]?.contains(kind) == true {
-                out.append((id, kind))
-            }
-        }
-        return out
-    }
-
     /// D5: a keyboard notification is a session's business only when one of
     /// its own editors is editing, or it still holds an inset from a show it
     /// applied; another session's keyboard in the same window is not.
@@ -197,17 +185,6 @@ enum NavigationRules {
     /// transition outside a sheet — never to a sheet's vertical dismissal.
     static func freezesViewport(modalActive: Bool, changing: Bool, initiallyInteractive: Bool) -> Bool {
         !modalActive && changing && initiallyInteractive
-    }
-
-    /// A presentation's background view, back in the home it left: its
-    /// frame then, grown or shrunk on each flexible axis by what its home
-    /// did meanwhile, as autoresizing would have done had it stayed.
-    static func restoredFrame(_ frame: CGRect, homeThen: CGSize, homeNow: CGSize,
-                              flexibleWidth: Bool, flexibleHeight: Bool) -> CGRect {
-        var out = frame
-        if flexibleWidth { out.size.width = max(0, out.width + homeNow.width - homeThen.width) }
-        if flexibleHeight { out.size.height = max(0, out.height + homeNow.height - homeThen.height) }
-        return out
     }
 
     /// D3 (as it stands): why a `focus(id)` command cannot be delivered now,

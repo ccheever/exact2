@@ -16,7 +16,7 @@ impl DataSource for NoData {
 }
 
 fn boot(src: &str) -> Runner<NoData> {
-    let src = src.replace("  resource items = items() as shape list<string>\n", "");
+    let src = src.replace("  resource items = items() as shape string[]\n", "");
     let plan = contract::compile(&src).unwrap_or_else(|e| panic!("{e}"));
     Runner::boot(
         plan,
@@ -41,13 +41,33 @@ fn app(body: &str) -> String {
         .map(|l| format!("      {l}\n"))
         .collect::<String>();
     format!(
-        "component App\n  resource items = items() as shape list<string>\n  state busy = false\n  state n = 0\n  action go\n    n = n + 1\n  action pick(s: string)\n    n = n + 1\n  view\n    column\n{body}"
+        "component App\n  resource items = items() as shape string[]\n  state busy = false\n  state n = 0\n  action go\n    n = n + 1\n  action pick(s: string)\n    n = n + 1\n  view\n    column\n{body}"
     )
 }
 
 fn refused(body: &str) -> (String, String) {
     let e = contract::compile(&app(body)).unwrap_err();
     (e.id.to_string(), e.message)
+}
+
+/// `open` on a `dialog` is refused, and the error teaches the modal ways to
+/// open and close one: in HTML `open` alone shows it non-modally.
+#[test]
+fn a_dialogs_open_attribute_is_refused_teaching_show_modal() {
+    for open in ["open=true", "open=busy"] {
+        let (id, message) = refused(&format!(
+            "dialog id=\"c\" role=\"alertdialog\" {open}\n  button press=go commandfor=\"c\" command=\"close\"\n    text \"Delete\"\n  button commandfor=\"c\" command=\"close\"\n    text \"Cancel\""
+        ));
+        assert_eq!(id, "lower-unknown-attr");
+        for taught in [
+            "non-modal",
+            "showModal(\"id\")",
+            "command=\"show-modal\"",
+            "close(\"id\")",
+        ] {
+            assert!(message.contains(taught), "{message}");
+        }
+    }
 }
 
 #[test]
@@ -243,10 +263,10 @@ fn a_confirmation_or_chooser_shape_compiles() {
     for body in [
         // One action, explanatory text and a cancel: Messages' Block Contact.
         format!("column id=\"c\" popover=\"auto\" role=\"alertdialog\"\n  text \"Block?\"\n  button press=go popovertarget=\"c\" popovertargetaction=\"hide\"\n    text \"Block\"\n{CANCEL}"),
-        // A chooser: one action per row of an `each`, then the cancel.
-        format!("column id=\"c\" popover=\"auto\" role=\"alertdialog\"\n  each s in items key=s\n    button press=pick(s) popovertarget=\"c\" popovertargetaction=\"hide\"\n      text s\n{CANCEL}"),
-        // A cancel on each arm of one `when` is still one cancel.
-        "column id=\"c\" popover=\"auto\" role=\"alertdialog\"\n  button press=go popovertarget=\"c\" popovertargetaction=\"hide\"\n    text \"Go\"\n  when busy\n    button popovertarget=\"c\" popovertargetaction=\"hide\"\n      text \"Stop\"\n  else\n    button popovertarget=\"c\" popovertargetaction=\"hide\"\n      text \"Cancel\"".into(),
+        // A chooser: one action per row of a `for`, then the cancel.
+        format!("column id=\"c\" popover=\"auto\" role=\"alertdialog\"\n  for s in items key=s\n    button press=pick(s) popovertarget=\"c\" popovertargetaction=\"hide\"\n      text s\n{CANCEL}"),
+        // A cancel on each arm of one `if` is still one cancel.
+        "column id=\"c\" popover=\"auto\" role=\"alertdialog\"\n  button press=go popovertarget=\"c\" popovertargetaction=\"hide\"\n    text \"Go\"\n  if busy\n    button popovertarget=\"c\" popovertargetaction=\"hide\"\n      text \"Stop\"\n  else\n    button popovertarget=\"c\" popovertargetaction=\"hide\"\n      text \"Cancel\"".into(),
         // A value known only at run time is the host's to check.
         "column id=\"c\" popover=\"auto\" role=\"alertdialog\"\n  button press=go popovertarget=\"c\" popovertargetaction=(busy ? \"hide\" : \"show\")\n    text \"Go\"".into(),
         // A modal `dialog` confirmation closes by `command`.
@@ -292,8 +312,8 @@ fn a_shape_the_native_sheet_cannot_present_is_refused_naming_the_row() {
         ),
         (format!("{open}\n{action}\n{CANCEL}\n{CANCEL}"), "a second cancel"),
         (
-            format!("{open}\n{action}\n  each s in items key=s\n    button popovertarget=\"c\" popovertargetaction=\"hide\"\n      text s"),
-            "inside `each`",
+            format!("{open}\n{action}\n  for s in items key=s\n    button popovertarget=\"c\" popovertargetaction=\"hide\"\n      text s"),
+            "inside `for`",
         ),
         (format!("{open}\n  text \"Sure?\"\n{CANCEL}"), "has no action"),
         (
@@ -344,10 +364,10 @@ fn an_alert_shaped_dialog_implies_closerequest_and_a_chooser_any() {
     ] {
         assert_eq!(implied(&rows).as_deref(), Some(expected), "{why}");
     }
-    // The most that can show at once: an action on each arm of a `when` is
+    // The most that can show at once: an action on each arm of an `if` is
     // one button, and a text on one arm is its text.
     let arms = format!(
-        "  when busy\n  {}\n  else\n  {}",
+        "  if busy\n  {}\n  else\n  {}",
         delete.replace('\n', "\n  "),
         keep.replace('\n', "\n  ")
     );
@@ -356,7 +376,7 @@ fn an_alert_shaped_dialog_implies_closerequest_and_a_chooser_any() {
         Some("closerequest"),
         "two choices of one action each, and the cancel: three buttons"
     );
-    let sometimes = "  when busy\n    text \"Working.\"";
+    let sometimes = "  if busy\n    text \"Working.\"";
     assert_eq!(
         implied(&[sometimes, &delete, cancel]).as_deref(),
         Some("closerequest"),
@@ -380,7 +400,7 @@ fn an_alert_shaped_dialog_implies_closerequest_and_a_chooser_any() {
     assert_eq!(node(&r, "c").props.str(PropId::Closedby), None);
     // What a shape cannot do is refused, and no longer by saying a native
     // confirmation "is dismissed by a tap outside it": an alert is not.
-    let each = "  each s in items key=s\n    button press=pick(s) commandfor=\"c\" command=\"close\"\n      text s";
+    let each = "  for s in items key=s\n    button press=pick(s) commandfor=\"c\" command=\"close\"\n      text s";
     for (closedby, rows, why) in [
         (
             "none",
@@ -400,7 +420,7 @@ fn an_alert_shaped_dialog_implies_closerequest_and_a_chooser_any() {
         (
             "closerequest",
             vec![text, each, cancel],
-            "a button under `each`",
+            "a button under `for`",
         ),
     ] {
         let (id, message) = refused(&format!(
@@ -433,7 +453,7 @@ fn one_cancel_component_on_both_arms_of_a_when_is_one_cancel() {
     let arms = format!(
         "{}{cancel}",
         app(&format!(
-            "{open}\n  when busy\n    Cancel()\n  else\n    Cancel()"
+            "{open}\n  if busy\n    Cancel()\n  else\n    Cancel()"
         ))
     );
     if let Err(e) = contract::compile(&arms) {
@@ -441,7 +461,7 @@ fn one_cancel_component_on_both_arms_of_a_when_is_one_cancel() {
     }
     let twice = format!(
         "{}{cancel}",
-        app(&format!("{open}\n  when busy\n    Cancel()\n    Cancel()"))
+        app(&format!("{open}\n  if busy\n    Cancel()\n    Cancel()"))
     );
     let e = contract::compile(&twice).unwrap_err();
     assert_eq!(e.id, "lower-alertdialog", "{}", e.message);
@@ -481,7 +501,7 @@ fn menu_bar_removal_accepts_only_root_literal_standard_ids() {
         "component App\n  view\n    column -exact-menu-remove=\"develop\"\n".to_owned(),
         "component App\n  state removal = \"show-tab-bar\"\n  view\n    column -exact-menu-remove=removal\n".to_owned(),
         app("column -exact-menu-remove=\"show-tab-bar\""),
-        app("when busy\n  column -exact-menu-remove=\"autofill\""),
+        app("if busy\n  column -exact-menu-remove=\"autofill\""),
     ] {
         let e = contract::compile(&source).unwrap_err();
         assert_eq!(e.id, "lower-menu-remove", "{source}: {e}");

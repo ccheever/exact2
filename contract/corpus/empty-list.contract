@@ -5,12 +5,12 @@
 // `filter(xs, c => false)`.
 shape Coin
   id: string
-  tags: list<string>
+  tags: string[]
 
-fn nothing(): list<string> = []
+fn nothing(): string[] = []
 
 component EmptyList
-  mutation changed as shape list<Coin>
+  mutation changed as shape Coin[]
   // The `some` arm types the `none` arm.
   derive coins = match changed { case some(m) => m, case none => [] }
   state showAll = false
@@ -19,17 +19,17 @@ component EmptyList
   // Initialized empty; the write in `pick` says what it holds.
   state picked = []
   action pick(id: string)
-    picked = map(filter(coins, c => c.id == id), c => c.id)
+    picked = coins.filter(c => c.id == id).map(c => c.id)
   action toggle
     showAll = not showAll
   action tick
     send changed = tick()
   view
     column testId="root"
-      text `${length(coins)} coins` testId="count"
-      text join(map(shown, c => c.id), ",") testId="shown"
-      text join(picked, ",") testId="picked"
-      text join(nothing(), ",") testId="fn"
+      text `${coins.length} coins` testId="count"
+      text shown.map(c => c.id).join(",") testId="shown"
+      text picked.join(",") testId="picked"
+      text nothing().join(",") testId="fn"
       Tags(tags=[])
       button press=toggle testId="toggle"
         text "toggle"
@@ -40,6 +40,6 @@ component EmptyList
 
 component Tags
   props
-    tags: list<string>
+    tags: string[]
   view
-    text `${length(tags)} tags` testId="tags"
+    text `${tags.length} tags` testId="tags"

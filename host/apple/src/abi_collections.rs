@@ -7,22 +7,41 @@ impl<D: DataSource> Bridge<D> {
     /// 0 clears, 1 edges, 2 whole, 3 a scroller's platform inset (top and
     /// bottom) — and f32 top, right, bottom, left), one layout. And the
     /// containing blocks they give subtrees (LLP 1115.002 D8.2): kind 4
-    /// with f32 width, height and, for each, 1 where it is a maximum and 0
-    /// where it is the size; kind 5 takes a block back.
+    /// with f32 width, height and, for each, 0 for a size, 1 for a maximum,
+    /// or 2 for a content-fit limit that an authored size may exceed;
+    /// kind 5 takes a block back. Kind 6 says where a block is shown in
+    /// place (LLP 1123 D2): f32 x, y, width, height in the local
+    /// coordinates of a u32 view after them, which makes its record 28
+    /// bytes; kind 7 forgets it.
     pub fn covers(&mut self, len: usize) -> u32 {
         let bytes = self.input.get(..len).unwrap_or(&[]);
-        let out = if bytes.len() % 24 != 0 {
+        let mut records = Vec::new();
+        let mut rest = bytes;
+        while rest.len() >= 8 {
+            let size = if rest[4..8] == 6u32.to_le_bytes() {
+                28
+            } else {
+                24
+            };
+            let Some((record, after)) = rest.split_at_checked(size) else {
+                break;
+            };
+            records.push(record);
+            rest = after;
+        }
+        let out = if !rest.is_empty() {
             "{\"ops\":[],\"timers\":false,\"motion\":false,\"error\":\"covers: truncated record\"}"
                 .to_string()
         } else {
-            let (mut covers, mut blocks) = (Vec::new(), Vec::new());
-            for r in bytes.chunks_exact(24) {
+            let (mut covers, mut blocks, mut placements) = (Vec::new(), Vec::new(), Vec::new());
+            for r in records {
                 let word = |i: usize| [r[i], r[i + 1], r[i + 2], r[i + 3]];
                 let edge = |i: usize| f32::from_le_bytes(word(i));
                 let (view, kind) = (u32::from_le_bytes(word(0)), u32::from_le_bytes(word(4)));
-                let axis = |length: usize, most: usize| match edge(most) != 0.0 {
-                    true => exact_kernel::BlockAxis::AtMost(edge(length)),
-                    false => exact_kernel::BlockAxis::Is(edge(length)),
+                let axis = |length: usize, policy: usize| match edge(policy) {
+                    0.0 => exact_kernel::BlockAxis::Is(edge(length)),
+                    2.0 => exact_kernel::BlockAxis::Fit(edge(length)),
+                    _ => exact_kernel::BlockAxis::AtMost(edge(length)),
                 };
                 match kind {
                     4 | 5 => {
@@ -31,7 +50,15 @@ impl<D: DataSource> Bridge<D> {
                             height: axis(12, 20),
                         };
                         blocks.push((view, (kind == 4).then_some(block)));
+                        if kind == 5 {
+                            placements.push((view, None));
+                        }
                     }
+                    6 => {
+                        let rect = [8, 12, 16, 20].map(|i| f64::from(edge(i)));
+                        placements.push((view, Some((rect, u32::from_le_bytes(word(24))))));
+                    }
+                    7 => placements.push((view, None)),
                     1 => {
                         let edges = [edge(8), edge(12), edge(16), edge(20)];
                         covers.push((view, Some(exact_kernel::HostCover::Edges(edges))));
@@ -46,7 +73,7 @@ impl<D: DataSource> Bridge<D> {
             }
             self.host
                 .as_mut()
-                .map_or_else(not_booted, |h| h.set_claims(&covers, &blocks))
+                .map_or_else(not_booted, |h| h.set_claims(&covers, &blocks, &placements))
         };
         self.emit(out)
     }

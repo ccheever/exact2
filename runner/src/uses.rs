@@ -105,11 +105,21 @@ pub enum Capability {
     /// (LLP 1047.001). The browser plays them, so the web links nothing for
     /// it.
     Transitions,
+    /// iOS's photo picker (LLP 1047.001.000 E): a file input whose `accept`
+    /// is only images and videos, or is computed. Linking it costs every
+    /// launch PhotosUI's images, so a document input does not; the picker
+    /// itself is [`Capability::Picker`].
+    MediaPicker,
+    /// The sign-in sheet behind `openAuthSession` (LLP 1047.001.000 E):
+    /// never set by a plan, since a data source's requests are the source's;
+    /// the bake links it for an app whose grants name `auth.session`, and a
+    /// manifest's `link` may name it.
+    AuthSession,
 }
 
 impl Capability {
     /// Every capability, in bit order.
-    pub const ALL: [Capability; 26] = [
+    pub const ALL: [Capability; 28] = [
         Capability::Markdown,
         Capability::Motion,
         Capability::Collections,
@@ -136,6 +146,8 @@ impl Capability {
         Capability::GroupedLists,
         Capability::Io,
         Capability::Transitions,
+        Capability::MediaPicker,
+        Capability::AuthSession,
     ];
 
     /// The name an entry, a refusal and a report use.
@@ -167,6 +179,8 @@ impl Capability {
             Capability::GroupedLists => "grouped_lists",
             Capability::Io => "io",
             Capability::Transitions => "transitions",
+            Capability::MediaPicker => "media_picker",
+            Capability::AuthSession => "auth_session",
         }
     }
 
@@ -402,7 +416,40 @@ pub fn uses(plan: &Plan) -> Uses {
     if geometry {
         uses = uses.with(Capability::Geometry);
     }
+    if shows_media_picker(plan) {
+        uses = uses.with(Capability::MediaPicker);
+    }
     uses
+}
+
+/// Whether a file input of `plan` can take iOS's photo picker: its `type`
+/// can be `file` and its `accept`, as the host reads it, is a non-empty list
+/// of only `image/…` and `video/…` types, or is computed. `showPicker` names
+/// an input, so the inputs decide.
+fn shows_media_picker(plan: &Plan) -> bool {
+    let media = |accept: &str| {
+        let types: Vec<String> = accept
+            .split(',')
+            .map(|t| t.trim().to_ascii_lowercase())
+            .filter(|t| !t.is_empty())
+            .collect();
+        !types.is_empty()
+            && types
+                .iter()
+                .all(|t| t.starts_with("image/") || t.starts_with("video/"))
+    };
+    plan.nodes.iter().any(|node| {
+        let prop = |id: PropId| {
+            node.bindings
+                .iter()
+                .map(|b| plan.binding(b))
+                .find(|b| b.kind == BindingKind::Prop && b.id == id as u16)
+        };
+        let file = prop(PropId::Type)
+            .is_some_and(|b| constant_str(plan, plan.code(b.expr)).is_none_or(|v| v == "file"));
+        file && prop(PropId::Accept)
+            .is_some_and(|b| constant_str(plan, plan.code(b.expr)).is_none_or(media))
+    })
 }
 
 /// Whether `plan` can show an SVG island (LLP 1055.000 D10, D14): a `mask`

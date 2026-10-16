@@ -17,20 +17,20 @@ component HeadsTabs
       head description="Base description" robots="noindex"
       main navigationKey=`${top(nav).id}` navigationBack="back" flex=1
         column
-          each t in nav.tabs key=t.name
+          for t in nav.tabs key=t.name
             column role="tabpanel" id=`panel-${t.name}`
-              each e in t.stack key=e.id
+              for e in t.stack key=e.id
                 column navigationKey=`${e.id}` testId=`route-${e.name}`
                   text e.name
-                  when e.name == "home"
+                  if e.name == "home"
                     head title="Home"
                     button press=push testId="push-detail"
                       text "Detail"
-                  when e.name == "detail"
+                  if e.name == "detail"
                     head title="Detail" canonical="/detail" status=410
                     button press=back testId="back"
                       text "Back"
-                  when e.name == "saved"
+                  if e.name == "saved"
                     column
                       head title="Saved" description="Saved description" image="/saved.png" canonical="/saved" robots="nofollow" status=404 edited=true
         row role="tablist"

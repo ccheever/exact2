@@ -124,9 +124,9 @@ export function install(exact) {
   // A class's rule may be nested: the build wraps them all in
   // `#exact-root#exact-root { & .cN { … } }` for specificity (emit.rs).
   const declared = el => {
-    const out = new Set(el.style), classes = new Set([...el.classList].map(c => '.' + c));
+    const out = new Map([...el.style].map(p => [p, el.style.getPropertyValue(p)])), classes = new Set([...el.classList].map(c => '.' + c));
     const walk = rules => { for (const r of rules) {
-      if (r.style && classes.has(r.selectorText?.replace(/^&\s+/, ''))) for (const p of r.style) out.add(p);
+      if (r.style && classes.has(r.selectorText?.replace(/^&\s+/, ''))) for (const p of r.style) if (!out.has(p)) out.set(p, r.style.getPropertyValue(p));
       if (r.cssRules) walk(r.cssRules);
     } };
     for (const sheet of document.styleSheets) { let rules; try { rules = sheet.cssRules; } catch { continue; } walk(rules); }
@@ -137,7 +137,8 @@ export function install(exact) {
     const el = views.get(nid);
     if (!el || !el.isConnected) return { error: `stale node #${nid} (incarnation 1)` };
     const own = declared(el), cs = getComputedStyle(el), style = {};
-    for (const p of own) if (!p.startsWith('--')) style[rowOf(p)] = { value: cs.getPropertyValue(p), source: el.$css?.[p] !== undefined ? 'dynamic' : 'authored' };
+    // A row naming a token that varies by an app axis says which (modes.js, LLP 1121 D7).
+    for (const [p, text] of own) if (!p.startsWith('--')) { const token = exact.modes?.token(el, p, text); style[rowOf(p)] = { value: cs.getPropertyValue(p), ...(token ? { token } : {}), source: el.$css?.[p] !== undefined ? 'dynamic' : 'authored' }; }
     for (const [row, prop] of Object.entries(INHERITED)) {
       if (own.has(prop)) continue;
       let from = null;
@@ -479,7 +480,7 @@ export function install(exact) {
       // The fold group (LLP 1078 D7) likewise: through facts.js where the plan reads the fold's fields (it re-answers them), else the
       // substitute lands here for `layout.env`; without a fold group the fold stays as it is.
       // The driver's fetch faults (LLP 1103 D3), a form of `prefer`: the page's table, as glue.js answers it.
-      case 'prefer': if (req.faults) return faultOp(req.faults); try { return { page: (exact.page ?? ownPage()).prefer(req.page ?? {}), fold: !req.fold ? foldEnv() : exact.fold ? exact.fold.prefer(req.fold) : preferFold(Object.keys(req.fold).length ? req.fold : null) }; } catch (e) { return { error: e.message }; }
+      case 'prefer': { if (req.faults) return faultOp(req.faults); const pins = Object.entries(req.mode ?? {}), why = req.mode && (exact.modes ? exact.modes.check(pins) : pins.length > 0 && `${pins.map(([a, v]) => `\`${a}=${v}\``).join(" ")} names an axis or value the app's design lacks, or an axis twice`); if (why) return { error: `prefer mode: ${why}` }; try { const facts = (exact.page ?? ownPage()).prefer(req.page ?? {}), fold = !req.fold ? foldEnv() : exact.fold ? exact.fold.prefer(req.fold) : preferFold(Object.keys(req.fold).length ? req.fold : null); if (req.mode) exact.modes?.set(pins); return { page: facts, fold, ...(req.mode ? { mode: exact.modes?.read() ?? {} } : {}) }; } catch (e) { return { error: e.message }; } } // @ref LLP 1121 D13 — the mode group: checked before any fact is set, set after the rest
       default: return { error: `${req.op} is not carried by the JS target` };
     }
   };

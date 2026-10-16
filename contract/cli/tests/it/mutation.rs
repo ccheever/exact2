@@ -187,11 +187,11 @@ component App
         text "Log out"
       button press=paid aria-label="Paid" testId="paid"
         text "Paid"
-      when busy
+      if busy
         text "Logging in…" testId="busy"
       match session
         case some(s)
-          when s.ok
+          if s.ok
             text `Signed in as ${s.username}` testId="signed-in"
           else
             text s.error testId="error"
@@ -646,7 +646,7 @@ shape Effect
 
 component App
   state trigger = 0
-  resource items = items(trigger) as shape list<Item>
+  resource items = items(trigger) as shape Item[]
   mutation effect as shape Effect
 
   action go
@@ -656,7 +656,7 @@ component App
 
   view
     column testId="root"
-      each item in items key=item.id
+      for item in items key=item.id
         text item.id + item.id
 "#;
 
@@ -725,6 +725,19 @@ fn poison_leaks_no_effects_from_the_failed_commit() {
     assert!(r.pending().is_empty());
     assert!(r.take_store_writes().is_empty());
     assert!(r.store_names().is_empty());
+}
+
+/// `STORE_SRC` compiled and baked once for the binary; each test boots its own runner over it.
+fn store_plan() -> exact_plan::Plan {
+    static PLAN: std::sync::OnceLock<exact_plan::Plan> = std::sync::OnceLock::new();
+    PLAN.get_or_init(|| {
+        contract::bake(
+            contract::compile(STORE_SRC).unwrap(),
+            StoreSource::default(),
+        )
+        .unwrap()
+    })
+    .clone()
 }
 
 const STORE_SRC: &str = r#"
@@ -822,8 +835,7 @@ impl DataSource for StoreSource {
 
 #[test]
 fn a_parse_store_write_reanswers_store_reading_resources() {
-    let plan = contract::compile(STORE_SRC).unwrap();
-    let baked = contract::bake(plan, StoreSource::default()).unwrap();
+    let baked = store_plan();
     let mut r = Runner::boot_stored(
         baked,
         StoreSource {
@@ -862,8 +874,7 @@ fn a_parse_store_write_reanswers_store_reading_resources() {
 
 #[test]
 fn a_mutation_answer_store_write_reanswers_store_reading_resources() {
-    let plan = contract::compile(STORE_SRC).unwrap();
-    let baked = contract::bake(plan, StoreSource::default()).unwrap();
+    let baked = store_plan();
     let mut r = Runner::boot_stored(
         baked,
         StoreSource {
@@ -894,8 +905,7 @@ fn a_mutation_answer_store_write_reanswers_store_reading_resources() {
 
 #[test]
 fn a_resource_answer_store_write_reanswers_an_earlier_store_reader() {
-    let plan = contract::compile(STORE_SRC).unwrap();
-    let baked = contract::bake(plan, StoreSource::default()).unwrap();
+    let baked = store_plan();
     let mut r = Runner::boot_stored(
         baked,
         StoreSource {
@@ -925,8 +935,7 @@ fn a_resource_answer_store_write_reanswers_an_earlier_store_reader() {
 
 #[test]
 fn a_baked_store_dependency_is_transitive_through_resource_arguments() {
-    let plan = contract::compile(STORE_SRC).unwrap();
-    let baked = contract::bake(plan, StoreSource::default()).unwrap();
+    let baked = store_plan();
     for name in ["remembered", "echoed"] {
         let row = baked
             .resources

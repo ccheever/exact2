@@ -33,7 +33,10 @@ pub(super) struct Checkpoint {
     timers: Vec<super::Timer>,
     published: Option<Box<Published>>,
     commands: usize,
-    root_font: (super::root_font::RootFont, f32),
+    /// Socket batches of earlier commits, not yet taken (LLP 1016.000 D7).
+    sockets: usize,
+    /// The root font size, and the window's app tuple (`setMode`).
+    root_font: (super::root_font::RootFont, f32, u32),
     /// Kept answers refused before this commit (`kept::refuse`).
     refused: usize,
 }
@@ -60,20 +63,10 @@ impl<D: DataSource> Runner<D> {
         self.scrolled.inline = read;
     }
 
-    /// The open popovers and dialogs last shown by a native presenter.
-    pub fn top_layer(&mut self, views: &[ViewId]) {
-        self.scrolled.top_layer(&self.kernel, views);
-    }
-
-    /// Open top-layer boxes in the presenter's back-to-front order and their
-    /// actual viewport frames.
-    pub fn top_layer_frames(&mut self, frames: &[(ViewId, [f64; 4])]) {
-        self.scrolled.top_layer_frames(&self.kernel, frames);
-    }
-
     /// Before a commit. `resources`: the commit edits the settled caches
     /// before settling (a reply does).
     pub(super) fn checkpoint(&mut self, resources: bool) -> Checkpoint {
+        self.start_commit();
         self.derives_evaluated = 0;
         self.copied_at_checkpoint = self.store.copied_bytes();
         Checkpoint {
@@ -109,7 +102,12 @@ impl<D: DataSource> Runner<D> {
                     })
                 }),
             commands: self.commands.len(),
-            root_font: (self.root_font, self.kernel.root_font_size()),
+            sockets: self.sockets.len(),
+            root_font: (
+                self.root_font,
+                self.kernel.root_font_size(),
+                self.ids.theme.window,
+            ),
             refused: self.keeping.refused.len(),
         }
     }
@@ -129,8 +127,12 @@ impl<D: DataSource> Runner<D> {
                 self.journal_refused();
                 self.log_store_writes(c.store.writes)
             }
-            Err(_) if self.poisoned && !was_poisoned => self.store.restore(c.store),
+            Err(_) if self.poisoned && !was_poisoned => {
+                self.store.restore(c.store);
+                self.sockets.truncate(c.sockets);
+            }
             Err(_) => {
+                self.sockets.truncate(c.sockets);
                 // What the refused commit asked is let go with it.
                 self.forgot = true;
                 self.store.restore(c.store);
@@ -181,6 +183,7 @@ impl<D: DataSource> Runner<D> {
                 self.keeping.refused.truncate(c.refused);
                 self.root_font = c.root_font.0;
                 let _ = self.kernel.set_root_font_size(c.root_font.1);
+                self.ids.theme.window = c.root_font.2;
             }
         }
         self.refused_unsent.clear();
@@ -198,6 +201,7 @@ impl<D: DataSource> Runner<D> {
                 .collect();
             self.data.forgotten(&self.store, &in_flight);
         }
+        self.sample();
     }
 
     /// Run an action by name with `args` — what a test or an agent does.
@@ -219,346 +223,6 @@ impl<D: DataSource> Runner<D> {
         };
         self.log_outcome(&what, &result, was_poisoned);
         result
-    }
-
-    /// Move the clock to `now_ms`, firing every timer due, in order — the
-    /// commits alone, or the refusal that stopped it. Tests use this; a host
-    /// uses [`Runner::advance_timed`], which keeps the commits before a
-    /// refusal and the time each was made.
-    pub fn advance(&mut self, now_ms: f64) -> Result<Vec<CommitReceipt>, RunnerError> {
-        let a = self.advance_timed(now_ms);
-        match a.error {
-            Some(e) => Err(e),
-            None => Ok(a.receipts.into_iter().map(|t| t.receipt).collect()),
-        }
-    }
-
-    /// An input at the host's time `now_ms`: the clock moves there first,
-    /// firing every timer due by then, so the action's `performanceNow()` — and a sound
-    /// it schedules (LLP 1096 D3) — is the event's time, as on the JS
-    /// target, not the last timer's. The commits in order, the event's last,
-    /// at `now_ms`; a timer's refusal rides along and the event still runs.
-    pub fn dispatch_at(&mut self, view: ViewId, event: Event, now_ms: f64) -> Advanced {
-        let mut a = self.advance_timed(now_ms);
-        match self.dispatch(view, event) {
-            Ok(receipt) => a.receipts.push(Timed {
-                at_ms: now_ms.max(self.now_ms),
-                receipt,
-            }),
-            Err(e) => a.error = Some(e),
-        }
-        a.now_ms = self.now_ms;
-        a
-    }
-
-    /// Move the clock to `now_ms`, firing every timer due, in order, each at
-    /// its own due time. A refusal stops the advance there: the commits so
-    /// far are returned with their times, the clock stays at the refusing
-    /// timer's due time, and the refusal rides along. Frame tasks fire their
-    /// virtual frames here unless the host presents frames
-    /// ([`Runner::present_frames`]; LLP 1073 D3).
-    pub fn advance_timed(&mut self, now_ms: f64) -> Advanced {
-        self.advance_within(now_ms, false, true)
-    }
-
-    /// Whether the host presents frames (LLP 1073 D4): while it does, frame
-    /// tasks fire only at [`Runner::frame`]; while it doesn't (the default:
-    /// tests, and the agent's seekable clock), every advance fires their
-    /// virtual frames. A host turns it on when its display drives the clock
-    /// and off when the agent's clock takes over.
-    pub fn present_frames(&mut self, on: bool) {
-        self.presenting = on;
-    }
-
-    /// A presented frame at `now_ms` (LLP 1073 D2, D4): timers due by then
-    /// fire as [`Runner::advance_timed`] fires them, then every frame task
-    /// once, at `now_ms`, in plan order; a frame missed is never caught up.
-    /// Each task's virtual frames restart from `now_ms` (`super::virtual_frame`).
-    pub fn frame(&mut self, now_ms: f64) -> Advanced {
-        let presenting = std::mem::replace(&mut self.presenting, true);
-        let mut a = self.advance_timed(now_ms);
-        self.presenting = presenting;
-        // A refused `next` is journaled and the frame goes on: its frame
-        // tasks fire, and the `next` waits for a later wake (LLP 1092 D3).
-        let next_refused = std::mem::take(&mut self.queues.stopped_on_next);
-        if (a.error.is_some() && !next_refused) || !self.wants_frames() {
-            return a;
-        }
-        let at = self.now_ms;
-        // The frame tasks armed as the frame starts fire, once each: one a
-        // task's commit arms keeps the virtual frame its gate step set, and
-        // one it drops is skipped (LLP 1092 D10), as the web's `paint`
-        // snapshots them (b6 review A3).
-        let armed: Vec<usize> = (0..self.plan.timers.len())
-            .filter(|&i| self.plan.timers[i].frame && self.timers[i].armed)
-            .collect();
-        for i in armed {
-            if !self.timers[i].armed {
-                continue;
-            }
-            self.timers[i].base = at;
-            self.timers[i].k = 1;
-            self.timers[i].next_ms = super::virtual_frame(at, 1);
-            let action = self.plan.timers[i].action;
-            let was_poisoned = self.poisoned;
-            match self.run_action(action, Vec::new(), &[]) {
-                Ok(receipt) => a.receipts.push(Timed { at_ms: at, receipt }),
-                Err(e) => {
-                    let what = format!(
-                        "frame {} ({})",
-                        i,
-                        self.plan.str(self.plan.action(action).name)
-                    );
-                    let failed = Err(e);
-                    self.log_outcome(&what, &failed, was_poisoned);
-                    a.error = failed.err();
-                    return a;
-                }
-            }
-        }
-        a.now_ms = self.now_ms;
-        a
-    }
-
-    /// [`Runner::advance_timed`], stopping after the first timer whose
-    /// commit hands the host a request: the clock stays at that timer's due
-    /// time, for the host to land the reply before advancing again. The
-    /// runner keeps one request per target (LLP 1016 D5), so the next tick's
-    /// send would drop it. An agent's clock jump advances this way (LLP
-    /// 1012); on the wall clock, replies land between ticks by themselves.
-    pub fn advance_until_request(&mut self, now_ms: f64) -> Advanced {
-        self.advance_within(now_ms, true, true)
-    }
-
-    /// The `then` of every answer already landed, each its own commit, with
-    /// the clock where it is and no timer fired: how an agent's input ends
-    /// (LLP 1012 §2), so the next operation sees what the input settled —
-    /// a wall-clock host runs them at once by itself (`timer_due_ms`).
-    /// trivia F3, kanban F19.
-    pub fn land_then(&mut self) -> Advanced {
-        self.advance_within(self.now_ms, false, false)
-    }
-
-    fn advance_within(&mut self, now_ms: f64, until_request: bool, timers: bool) -> Advanced {
-        // A host that presents frames fires frame tasks at `frame`; else
-        // their virtual frames are timers (LLP 1073 D3).
-        let frames = !self.presenting;
-        let mut receipts = Vec::new();
-        if !now_ms.is_finite() {
-            return Advanced {
-                receipts,
-                now_ms: self.now_ms,
-                error: Some(RunnerError::NonFiniteClock),
-            };
-        }
-        if now_ms < self.now_ms {
-            return Advanced {
-                receipts,
-                now_ms: self.now_ms,
-                error: None,
-            };
-        }
-        if now_ms > MAX_CLOCK_MS {
-            return Advanced {
-                receipts,
-                now_ms: self.now_ms,
-                error: Some(RunnerError::ClockOutOfRange),
-            };
-        }
-        let mut landed = now_ms;
-        self.queues.stopped_on_next = false;
-        loop {
-            // The earliest due timer, deterministic by index on ties.
-            let due = self
-                .timers
-                .iter()
-                .enumerate()
-                .filter(|_| timers)
-                .filter(|(i, t)| t.next_ms <= now_ms && (frames || !self.plan.timers[*i].frame))
-                .min_by(|(ia, a), (ib, b)| {
-                    a.next_ms.partial_cmp(&b.next_ms).unwrap().then(ia.cmp(ib))
-                })
-                .map(|(i, t)| (i, t.next_ms));
-            // An answer's `then` goes before a timer due at the same time: the
-            // answer landed first. A queue's `next` goes after the `then`s and
-            // before the timers (LLP 1092 D3).
-            let then = self
-                .then_due
-                .iter()
-                .enumerate()
-                .filter(|(_, at)| **at <= now_ms)
-                .min_by(|(ia, a), (ib, b)| a.partial_cmp(b).unwrap().then(ia.cmp(ib)))
-                .map(|(m, at)| (m, *at));
-            let next = self
-                .due_next(now_ms)
-                .filter(|(_, at)| due.is_none_or(|(_, timer)| *at <= timer))
-                .filter(|(_, at)| then.is_none_or(|(_, then)| *at < then));
-            let then = then.filter(|(_, at)| due.is_none_or(|(_, timer)| *at <= timer));
-            let then = then.filter(|_| next.is_none());
-            if let Some((m, at)) = next {
-                if receipts.len() == TIMER_FIRE_LIMIT {
-                    return Advanced {
-                        receipts,
-                        now_ms: self.now_ms,
-                        error: Some(RunnerError::TimerFireLimit {
-                            limit: TIMER_FIRE_LIMIT,
-                        }),
-                    };
-                }
-                self.now_ms = self.now_ms.max(at);
-                let ticket = self.next_ticket;
-                match self.run_next(m) {
-                    Ok(receipt) => receipts.push(Timed {
-                        at_ms: self.now_ms,
-                        receipt,
-                    }),
-                    Err(e) => {
-                        self.queues.stopped_on_next = true;
-                        return Advanced {
-                            receipts,
-                            now_ms: self.now_ms,
-                            error: Some(e),
-                        };
-                    }
-                }
-                if until_request && self.next_ticket != ticket {
-                    landed = self.now_ms;
-                    break;
-                }
-                continue;
-            }
-            if let Some((m, at)) = then {
-                if receipts.len() == TIMER_FIRE_LIMIT {
-                    return Advanced {
-                        receipts,
-                        now_ms: self.now_ms,
-                        error: Some(RunnerError::TimerFireLimit {
-                            limit: TIMER_FIRE_LIMIT,
-                        }),
-                    };
-                }
-                self.now_ms = self.now_ms.max(at);
-                self.then_due[m] = f64::INFINITY;
-                let action = self.plan.mutations[m].then.expect("armed only with a then");
-                let was_poisoned = self.poisoned;
-                let ticket = self.next_ticket;
-                match self.run_action(action, Vec::new(), &[]) {
-                    Ok(receipt) => receipts.push(Timed {
-                        at_ms: self.now_ms,
-                        receipt,
-                    }),
-                    Err(e) => {
-                        let what = format!(
-                            "{} then {}",
-                            self.plan.str(self.plan.mutations[m].name),
-                            self.plan.str(self.plan.action(action).name)
-                        );
-                        let failed = Err(e);
-                        self.log_outcome(&what, &failed, was_poisoned);
-                        return Advanced {
-                            receipts,
-                            now_ms: self.now_ms,
-                            error: failed.err(),
-                        };
-                    }
-                }
-                if until_request && self.next_ticket != ticket {
-                    landed = self.now_ms;
-                    break;
-                }
-                continue;
-            }
-            // A drop's hold ends at its deadline (LLP 1094 D8), before a
-            // timer due at the same time: the drop came first.
-            if let Some(at) = self
-                .reorder_deadline()
-                .filter(|at| timers && *at <= now_ms && due.is_none_or(|(_, t)| *at <= t))
-            {
-                self.now_ms = self.now_ms.max(at);
-                match self.reorder_timeout() {
-                    Ok(receipt) => receipts.push(Timed {
-                        at_ms: self.now_ms,
-                        receipt,
-                    }),
-                    Err(e) => {
-                        return Advanced {
-                            receipts,
-                            now_ms: self.now_ms,
-                            error: Some(e),
-                        }
-                    }
-                }
-                continue;
-            }
-            let Some((i, at)) = due else { break };
-            if receipts.len() == TIMER_FIRE_LIMIT {
-                return Advanced {
-                    receipts,
-                    now_ms: self.now_ms,
-                    error: Some(RunnerError::TimerFireLimit {
-                        limit: TIMER_FIRE_LIMIT,
-                    }),
-                };
-            }
-            let row = &self.plan.timers[i];
-            // A one-shot timer is spent: an infinite deadline is never due
-            // and never reported (`timer_due_ms`), so it keeps no host awake.
-            let next_ms = if row.once {
-                f64::INFINITY
-            } else if row.frame {
-                self.timers[i].k = self.timers[i].k.saturating_add(1);
-                super::virtual_frame(self.timers[i].base, self.timers[i].k)
-            } else {
-                at + row.interval_ms as f64
-            };
-            if !row.once && (!next_ms.is_finite() || next_ms <= at) {
-                return Advanced {
-                    receipts,
-                    now_ms: self.now_ms,
-                    error: Some(RunnerError::ClockDidNotAdvance { timer: i }),
-                };
-            }
-            self.now_ms = at;
-            self.timers[i].next_ms = next_ms;
-            let action = self.plan.timers[i].action;
-            let was_poisoned = self.poisoned;
-            let ticket = self.next_ticket;
-            let result = self.run_action(action, Vec::new(), &[]);
-            match result {
-                Ok(receipt) => receipts.push(Timed { at_ms: at, receipt }),
-                Err(e) => {
-                    let what = format!(
-                        "timer {} ({})",
-                        i,
-                        self.plan.str(self.plan.action(action).name)
-                    );
-                    let failed = Err(e);
-                    self.log_outcome(&what, &failed, was_poisoned);
-                    return Advanced {
-                        receipts,
-                        now_ms: self.now_ms,
-                        error: failed.err(),
-                    };
-                }
-            }
-            if until_request && self.next_ticket != ticket {
-                landed = at;
-                break;
-            }
-        }
-        self.now_ms = landed;
-        if !receipts.is_empty() {
-            let line = super::lines::advanced(
-                receipts.len(),
-                receipts.last().map_or(0, |t| t.receipt.epoch),
-            );
-            self.log(line);
-        }
-        Advanced {
-            receipts,
-            now_ms: landed,
-            error: None,
-        }
     }
 
     /// Run an action: its body, its sends, its writes, settlement, the
@@ -588,7 +252,7 @@ impl<D: DataSource> Runner<D> {
     pub(super) fn arm_then(&mut self, stood: bool) {
         for m in std::mem::take(&mut self.landed) {
             if stood && self.plan.mutations[m].then.is_some() {
-                self.then_due[m] = self.now_ms;
+                self.then_due[m] = self.armed_at();
             }
         }
     }
@@ -910,6 +574,7 @@ impl<D: DataSource> Runner<D> {
                 self.plan.str(self.plan.mutations[*m].name),
             ));
         }
+        self.take_set_modes(first_command);
         // `setRootFontSize` is the runner's too: the size lands in this
         // commit's layout, and the command stays for a host that mirrors it;
         // a refused one is journaled as refused, never as a command.
@@ -963,27 +628,6 @@ impl<D: DataSource> Runner<D> {
             self.apply_sounds(first_command);
         }
         result
-    }
-
-    /// The voice table takes the commit's `playSound`, `playSounds` and
-    /// `stopSounds` once it stands, in the order they were issued; the
-    /// commands stay for the host, which skips them (LLP 1096 D5). A
-    /// `reload` ends every live voice first.
-    fn apply_sounds(&mut self, from: usize) {
-        let commands = &self.commands[from.min(self.commands.len())..];
-        let calls: Vec<_> = commands
-            .iter()
-            .filter_map(|c| crate::sound::Call::of(&c.name, &c.args))
-            .collect();
-        let mut lines = Vec::new();
-        if !calls.is_empty() {
-            self.sounds
-                .apply(&self.plan, self.now_ms, &calls, &mut lines);
-        }
-        if !self.plan.sounds.is_empty() && commands.iter().any(|c| c.name == "reload") {
-            self.sounds.reload(self.now_ms, &mut lines);
-        }
-        lines.into_iter().for_each(|l| self.log(l));
     }
 
     /// Whether `value` conforms to `ty`, checking only the list items not
@@ -1121,7 +765,7 @@ impl<D: DataSource> Runner<D> {
             args,
             continuation: request.continuation,
             keepable: keepable.then(|| request.clone()),
-            stream: request.stream.then(StreamCount::default),
+            stream: sockets::stream_count(&request),
             ask_again: false,
             origin: self.writes.tick(),
             write: match target {
@@ -1311,6 +955,15 @@ impl<D: DataSource> Runner<D> {
         outcome: Outcome,
         elapsed_ms: Option<u64>,
     ) -> Result<Option<CommitReceipt>, RunnerError> {
+        self.arrived(|r| r.fulfill_now(ticket, outcome, elapsed_ms))
+    }
+
+    fn fulfill_now(
+        &mut self,
+        ticket: u64,
+        outcome: Outcome,
+        elapsed_ms: Option<u64>,
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
         if self.is_background(ticket) {
             // Its own path (LLP 1097 D5): no commit, no `then`, no update.
             self.background_landed(outcome);
@@ -1373,6 +1026,7 @@ impl<D: DataSource> Runner<D> {
         if let (Some(count), Outcome::Message(m)) = (p.stream.as_mut(), &outcome) {
             count.messages += 1;
             count.coalesced += u64::from(m.coalesced);
+            sockets::socket_message(count, m);
         }
         let p = p.clone();
         self.sync_pending_flags();
@@ -1404,6 +1058,7 @@ impl<D: DataSource> Runner<D> {
             Target::Mutation(m) => self.plan.mutations[m].ty,
         };
         self.store.take_topics();
+        self.snapshot_sockets();
         let parsed = self
             .data
             .parse_for(p.target, &mut self.store, &p.source, &p.args, outcome);

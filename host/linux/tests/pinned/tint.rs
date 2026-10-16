@@ -1,5 +1,5 @@
 //! Raster template alpha, fitting and box paint held to Chrome at 1×.
-use crate::borders::{boot, held_to_chrome, view, NoData};
+use crate::borders::{boot, held_to_chrome, view};
 use exact_linux::presenter::PainterChoice;
 use std::time::Duration;
 
@@ -20,7 +20,7 @@ fn raster_tint_matches_chrome_in_both_painters() {
             if dark {
                 let id = view(&p, "dark");
                 p.tap(id).unwrap();
-                p.run_commands(NoData::default);
+                p.run_commands(<()>::default);
             }
             failures.extend(held_to_chrome(
                 &mut p,
@@ -53,7 +53,7 @@ fn an_untinted_symbol_paints_the_accent_fallback() {
         "/../../apps/caltrain/assets"
     ));
     let (mut p, error) =
-        exact_linux::Presenter::boot(&plan.encode(), NoData, (100.0, 100.0), 1.0, assets).unwrap();
+        exact_linux::Presenter::boot(&plan.encode(), (), (100.0, 100.0), 1.0, assets).unwrap();
     assert!(error.is_none(), "{error:?}");
     let frame = p.frame();
     // The most strongly coloured pixel in each 48-pixel row band.

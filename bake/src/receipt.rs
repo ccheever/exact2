@@ -878,7 +878,7 @@ mod tests {
 component App
   view
     main navigationKey=`${top(nav).id}` navigationBack=\"back\"
-      each e in stack(nav) key=e.id
+      for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` navigationScroll=\"l\" ROUTE position=\"absolute\" inset=0
           header
             text \"Laps\" role=\"heading\" aria-level=1

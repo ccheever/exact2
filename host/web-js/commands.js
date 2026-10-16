@@ -37,6 +37,9 @@ export const commands = say => ({
   // `:root { font-size }` (LLP 1069.000 D3): the stylesheet's `rem` rows
   // follow it; checked here, where no runner checked it first.
   setRootFontSize: v => appRootFontSize(v, say),
+  // The window's app modes (LLP 1121 D5, D7): modes.js's, which an app with
+  // axes loads; any other refuses it, as the runner does.
+  setMode: (...args) => globalThis.exact?.modes ? globalThis.exact.modes.command(args) : say(`setMode(${args.map(x => JSON.stringify(x)).join(", ")}) refused: an axis of the app's design and one of its values`),
   // The page's own reload: every web page has one, where a native host
   // needs its dev menu's.
   reload: () => location.reload(),

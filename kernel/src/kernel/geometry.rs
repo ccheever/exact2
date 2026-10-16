@@ -117,13 +117,17 @@ impl Kernel {
         let (frame, _) = self.laid_out_frame(key)?;
         self.measure_symbols();
         let slot = key.index;
-        // A block's root has no parent to stand in for: its used size is
-        // its content's already (`Kernel::host_block_size`).
-        if self.arena.blocks.holds(slot) {
-            return None;
-        }
+        // A block's root stands in its block (LLP 1115.002 D8.2): the block's
+        // width is what it is measured in, with no parent and no height, so
+        // a fitted sheet whose route has its block is measured as it wraps
+        // there (LLP 1123 D2, D7).
+        let block = self.arena.blocks.get(slot);
         let tree_ref = self.layout.as_deref().and_then(LayoutMirror::tree_ref)?;
-        let parent = self.arena.parent(slot);
+        let parent = if block.is_some() {
+            None
+        } else {
+            self.arena.parent(slot)
+        };
         let holder = parent.map(|p| (p, self.arena.taffy(p).map(|n| tree_ref.layout(n))));
         // Where the parent shares its inline axis among its children (a flex
         // row, a grid), the in-flow siblings come too: they set the box's
@@ -197,7 +201,10 @@ impl Kernel {
             Some((p, _)) => taffy_style(&self.arena, p),
             None => taffy::style::Style::default(),
         };
-        let width = holder.map_or(frame.width, |(p, _)| self.arena.frame(p).width);
+        let width = match block {
+            Some(b) => b.width.length(),
+            None => holder.map_or(frame.width, |(p, _)| self.arena.frame(p).width),
+        };
         if let Some((_, Some(laid))) = holder {
             let (pad, border) = (laid.padding, laid.border);
             outer.padding = taffy::geometry::Rect {
@@ -258,19 +265,27 @@ impl Kernel {
         (height.is_finite() && height >= 0.0).then_some(height)
     }
 
-    /// The padding the last layout resolved, in points: left, top, right,
-    /// bottom. A percentage is of the containing block's width, which in a
-    /// multi-column container is the column's (CSS Multi-column §3.4).
-    /// Whichever engine laid the node out publishes it, a content region's
-    /// own included: zero for a hidden node, `None` before any layout or for
-    /// a node the document's engine has no node for.
+    /// The CSS padding the last layout resolved, in points: left, top,
+    /// right, bottom. A percentage is of the containing block's width, which
+    /// in a multi-column container is the column's (CSS Multi-column §3.4).
+    /// A host cover's part is not in it (`layout_padding`). Whichever engine
+    /// laid the node out publishes it, a content region's own included;
+    /// `None` before any layout or for a node it gave no box (an inline run).
     pub fn resolved_padding(&self, key: NodeKey) -> Option<(f32, f32, f32, f32)> {
         let [left, top, right, bottom] = self.arena.inset(self.arena.resolve(key)?)?.padding;
         Some((left, top, right, bottom))
     }
 
+    /// The padding the engine laid the box out with: `resolved_padding` and
+    /// what a host cover added to it (LLP 1075.003 §3.5).
+    pub fn layout_padding(&self, key: NodeKey) -> Option<(f32, f32, f32, f32)> {
+        let inset = self.arena.inset(self.arena.resolve(key)?)?;
+        let [left, top, right, bottom] = std::array::from_fn(|i| inset.padding[i] + inset.cover[i]);
+        Some((left, top, right, bottom))
+    }
+
     /// The border the last layout resolved, in points: left, top, right,
-    /// bottom, published as [`Kernel::resolved_padding`] is.
+    /// bottom, the engine's, which holds a native field's chrome too.
     pub fn resolved_border(&self, key: NodeKey) -> Option<(f32, f32, f32, f32)> {
         let [left, top, right, bottom] = self.arena.inset(self.arena.resolve(key)?)?.border;
         Some((left, top, right, bottom))

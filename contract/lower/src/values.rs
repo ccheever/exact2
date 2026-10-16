@@ -493,6 +493,23 @@ pub(crate) fn check_style_value(
     scope: &Scope,
     shapes: &Shapes,
 ) -> Result<(), LowerError> {
+    // A pin names the design's axes, which the runner resolves (LLP 1121 D5).
+    if rows == [StyleId::Mode] {
+        return crate::theme::mode_pins(a);
+    }
+    // A name the design lacks, or a colour token in another row (LLP 1121 D3).
+    style_value(a, rows, ty, fonts, scope, shapes)
+        .map_err(|e| crate::theme::token_error(a, rows, e))
+}
+
+fn style_value(
+    a: &Attr,
+    rows: &[StyleId],
+    ty: &Ty,
+    fonts: &[FontUse],
+    scope: &Scope,
+    shapes: &Shapes,
+) -> Result<(), LowerError> {
     if rows
         .iter()
         .any(|r| matches!(r, StyleId::Resize | StyleId::UserSelect))
@@ -1225,7 +1242,7 @@ pub(crate) fn check_prop_value(
                 ty,
                 // A number or bool shown as text is interpolated.
                 if want == tags::PropTy::Str && matches!(ty, Ty::Number | Ty::Bool) {
-                    ": interpolate it in a template, `${…}`, or write `toString(…)`"
+                    ": interpolate it in a template, `${…}`, or write `x.toString()`"
                 } else {
                     ""
                 }

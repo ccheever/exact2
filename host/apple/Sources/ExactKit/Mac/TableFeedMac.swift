@@ -508,9 +508,24 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         if recount { told.removeAll(keepingCapacity: true); (agreed, differed) = (0, 0) }
         // A row selected before it was made is its item's from now on.
         if selectedKey == nil, selectedNode == nil, let row = row(at: table.selectedRow) { remember(row) }
-        // The selected item, wherever its row is now.
-        let selected = selectedKey.flatMap { key in next.first { $0.node.props["listItemKey"] == key }?.index }
-            ?? selectedNode.flatMap { node in next.first { $0.node.id == node }?.index }
+        // The selected item, by its mounted row or the runner's logical key index.
+        var disappeared = false
+        let selected: Int?
+        if let key = selectedKey {
+            if let mounted = next.first(where: { $0.node.props["listItemKey"] == key })?.index {
+                selected = mounted
+            } else if let lookup = presenter.onListIndex {
+                selected = lookup(id, key)
+                if selected == nil {
+                    selectedKey = nil
+                    disappeared = true
+                }
+            } else {
+                selected = nil
+            }
+        } else {
+            selected = selectedNode.flatMap { node in next.first { $0.node.id == node }?.index }
+        }
 
         syncing = true
         defer { syncing = false }
@@ -532,7 +547,11 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
             still { table.noteHeightOfRows(withIndexesChanged: changed) }
             noted += changed.count
         }
-        if let selected, table.selectedRow != selected { table.selectRowIndexes([selected], byExtendingSelection: false) }
+        if let selected, table.selectedRow != selected {
+            table.selectRowIndexes([selected], byExtendingSelection: false)
+        } else if disappeared, table.selectedRow >= 0 {
+            table.deselectAll(nil)
+        }
         // The run of mounted rows the port is in: the table keeps a view
         // for each of them. A list the runner does not window has every
         // row mounted, so the table keeps what AppKit keeps: what shows.

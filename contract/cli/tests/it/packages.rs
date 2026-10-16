@@ -593,7 +593,7 @@ component App
       row justify-content="space-between"
         RoundButton(label="Go", tint=some("-exact-system-green"), press=add(1000), disabled=false, testId="go")
         RoundButton(label="Wait", tint=some("-exact-system-yellow"), press=add(10000), disabled=true, testId="wait")
-      each a in ["Lima", "Quito", "Bogota", "Caracas"] key=a
+      for a in ["Lima", "Quito", "Bogota", "Caracas"] key=a
         AnswerTile(label=a, status=(picked == "" ? (a == "Caracas" ? "selected" : "idle") : a == "Quito" ? "correct" : a == picked ? "wrong" : "dimmed"), press=pick(a), testId=a)
 "#,
     );

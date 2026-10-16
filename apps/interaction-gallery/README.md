@@ -90,10 +90,10 @@ transition is `height -exact-spring(300, 30, 1)`; projection changes the actual 
 List port on every presentation sample, without writing sampled height back into
 `sheetPx`. The header's binding uses an authored IDREF, never `testId` inference.
 
-Photos appends one bounded `viewer: list<ViewerState>` to gallery metadata. It is
+Photos appends one bounded `viewer: ViewerState[]` to gallery metadata. It is
 empty when closed and contains one `{viewerToken, photo, naturalWidth,
 naturalHeight}` while open. The existing eight-field Photo records and full-row
-resource are unchanged. `each viewer in gallery.viewer key=viewer.viewerToken`
+resource are unchanged. `for viewer in gallery.viewer key=viewer.viewerToken`
 owns a child component whose `panX=0`, `panY=0`, `zoom=1` and geometry reset only
 when that accepted lifetime changes. Open/Previous/Next and selecting a different
 open photo reserve a new token before replacement; same-item selection, typing,

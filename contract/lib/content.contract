@@ -94,7 +94,7 @@ component RingProgress
       svg viewBox="0 0 100 100" position="absolute" inset=0 width="100%" height="100%" aria-hidden=true
         color=(match tint { case some(t) => t, case none => fraction >= 1 ? "-exact-system-green" : "AccentColor" })
         circle cx=50 cy=50 r=45 fill="none" stroke="-exact-tertiary-fill" stroke-width=8
-        when fraction > 0
+        if fraction > 0
           circle cx=50 cy=50 r=45 fill="none" stroke="currentcolor" stroke-width=8 stroke-linecap="round"
             pathLength=100 stroke-dasharray=`${min(1, fraction) * 100} 100` transform="rotate(-90 50 50)"
       column position="absolute" inset=0 align-items="center" justify-content="center" gap=2 padding="0 18%"
@@ -116,7 +116,7 @@ component DoneMark
       aria-label=(caption == "" ? (done ? "Done" : "Not done") : `${caption}, ${done ? "done" : "not done"}`)
       image (done ? "symbol:select-fill" : "symbol:circle") width=26 height=26 object-fit="contain" aria-hidden=true
         -exact-tint-color=(done ? "-exact-system-green" : "-exact-tertiary-label")
-      when caption != ""
+      if caption != ""
         text caption font="-exact-caption1" color="-exact-secondary-label" white-space="nowrap" aria-hidden=true
 
 // What a screen with nothing to show says: a symbol, a title, a line saying
@@ -150,7 +150,7 @@ component RowText
     row flex=1 min-width=0 align-items="center" gap=12 padding-top=10 padding-bottom=10
       column flex=1 min-width=0 gap=2
         text title white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
-        when detail != ""
+        if detail != ""
           text detail font="-exact-subheadline" color="-exact-secondary-label"
       match value
         case some(v)
@@ -176,10 +176,10 @@ component Badge
   derive fill = match tint { case some(t) => t, case none => "-exact-tertiary-fill" }
   view
     row flex-shrink=0 align-items="center"
-      when fill == "-exact-tertiary-fill"
+      if fill == "-exact-tertiary-fill"
         row padding="2px 8px" border-radius=999 background-color=fill
           text label font="-exact-caption1" font-weight=600 white-space="nowrap" color="-exact-label"
-      else when fill == "AccentColor"
+      else if fill == "AccentColor"
         row position="relative" padding="2px 8px" border-radius=999 overflow="hidden"
           view position="absolute" inset=0 background-color="AccentColor" opacity=0.16 aria-hidden=true
           text label font="-exact-caption1" font-weight=600 white-space="nowrap" color="-exact-label"
@@ -215,7 +215,7 @@ component RoundButton
   view
     match tint
       case some(t)
-        when includes(["-exact-system-green", "-exact-system-mint", "-exact-system-teal", "-exact-system-cyan", "-exact-system-yellow", "-exact-system-orange"], t)
+        if ["-exact-system-green", "-exact-system-mint", "-exact-system-teal", "-exact-system-cyan", "-exact-system-yellow", "-exact-system-orange"].includes(t)
           button press=press disabled=disabled testId=testId buttonStyle="tinted"
             accent-color=t color=(disabled ? "-exact-tertiary-label" : "-exact-label")
             -exact-corner-style="capsule" width=80 height=80 padding="0 6px" flex-shrink=0
@@ -247,7 +247,7 @@ component AnswerTile
     press: action
     testId: string
   view
-    when status == "correct" or status == "wrong"
+    if status == "correct" or status == "wrong"
       button appearance="none" press=press disabled=true testId=testId aria-label=`${label}, ${status}`
         display="flex" align-items="center" gap=12 padding="14px 16px" border-radius=12
         border="2px solid transparent" color="-exact-label" color-scheme=(status == "correct" ? "light" : "dark")
@@ -262,6 +262,6 @@ component AnswerTile
         border=(status == "selected" ? "2px solid AccentColor" : "2px solid transparent")
         background-color="-exact-tertiary-fill" color=(status == "dimmed" ? "-exact-secondary-label" : "-exact-label")
         text label flex=1 min-width=0 font="-exact-headline" text-align="start" aria-hidden=true
-        when status == "selected"
+        if status == "selected"
           image "symbol:select-fill" width=22 height=22 object-fit="contain" flex-shrink=0
             aria-hidden=true -exact-tint-color="AccentColor"

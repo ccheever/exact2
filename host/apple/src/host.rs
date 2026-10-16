@@ -140,7 +140,7 @@ pub(crate) struct Mirror {
     frame: Option<(f32, f32, f32, f32)>,
     content: Option<(f32, f32)>,
     flow: Vec<exact_kernel::FlowShape>,
-    field_content: Option<exact_kernel::Frame>,
+    field_content: Option<crate::batch::ContentBox>,
     field_cell: bool,
     block: Option<(f32, f32)>,
 }
@@ -538,6 +538,7 @@ impl<D: DataSource> Host<D> {
         batch.roots(&host.roots.clone());
         host.emit_title(&mut batch);
         host.emit_language(&mut batch);
+        colors::emit_roles(&mut batch);
         for s in host.runner.take_surface_updates() {
             batch.surface(&s);
         }
@@ -581,12 +582,10 @@ impl<D: DataSource> Host<D> {
         host.emit_transform_drags(&mut batch);
         host.present(&mut batch, true);
         let (mut batch, _) = host.resize_rounds(batch, None);
-        let timers = host.runner.timer_due_ms();
-        let motion = !host.engine.quiescent();
         batch.spatial = host.engine.spatial();
         batch.frames = host.runner.wants_frames();
-        let clock = host.runner.now_ms();
-        Ok((host, batch.finish(timers, motion, clock, None)))
+        let batch = host.write(batch, None);
+        Ok((host, batch))
     }
 
     /// Release effects only after the containing app accepted every candidate.
@@ -715,6 +714,11 @@ impl<D: DataSource> Host<D> {
         self.runner.listen(wake);
     }
 
+    /// [`Host::listen`] to `io`, and read sockets' buffered bytes from it (D7).
+    pub fn listen_io(&mut self, io: &dyn crate::executor::Io) {
+        self.listen(io.waker());
+        self.runner.set_socket_reader(io.socket_reader());
+    }
     /// The source's native slot, where the host installs the app module.
     pub fn native_slot(&self) -> exact_runner::Native {
         self.runner.native_slot()
@@ -1174,25 +1178,24 @@ impl<D: DataSource> Host<D> {
     }
 
     fn finish(&mut self, batch: Batch, error: Option<String>) -> String {
-        let (batch, error) = self.resize_rounds(batch, error);
-        if batch.layout_provisional {
-            self.withhold_layout();
-        }
-        self.refused(batch, error)
+        let (mut batch, error) = self.resize_rounds(batch, error);
+        self.state_onto(&mut batch);
+        self.write(batch, error.as_deref())
     }
 
-    /// [`Host::finish`] for a batch that commits nothing, a refusal's.
-    fn refused(&self, mut batch: Batch, error: Option<String>) -> String {
+    /// An empty batch, which has no geometry to hold: a refusal's.
+    fn refused(&self, error: Option<String>) -> String {
+        let mut batch = Batch::new();
+        self.state_onto(&mut batch);
+        let (timers, motion) = (self.runner.timer_due_ms(), !self.engine.quiescent());
+        batch.finish(timers, motion, self.runner.now_ms(), error.as_deref())
+    }
+
+    fn state_onto(&self, batch: &mut Batch) {
         batch.spatial = self.engine.spatial();
         batch.frames = self.runner.wants_frames();
         batch.seq = self.runner.seq_range();
         batch.canvas_frames(self.runner.canvas_wants_frame());
-        batch.finish(
-            self.runner.timer_due_ms(),
-            !self.engine.quiescent(),
-            self.runner.now_ms(),
-            error.as_deref(),
-        )
     }
 
     fn commit(&mut self, receipts: &[Timed], error: Option<String>) -> String {

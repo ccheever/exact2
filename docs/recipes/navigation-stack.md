@@ -1,8 +1,8 @@
 # Recipe: a navigation stack
 
 A list that pushes a detail, a Cancel/Save sheet and an alert (`pattern list-detail`).
-A second screen is a route (`when` over state gets no Back, links or split). Each route block
-fills its `when`.
+A second screen is a route (`if` over state gets no Back, links or split). Each route block
+fills its `if`.
 
 A route's `header` is its bar when first in the route with one heading (the title: large at
 `aria-level=1`, inline at 2); buttons before it lead, after it trail. A pushed route without
@@ -25,7 +25,7 @@ shape Reply
 
 component App
   state draft = ""
-  resource lib = loadNotes() as shape list<Note> else empty()
+  resource lib = loadNotes() as shape Note[] else empty()
   mutation added as shape Reply refreshes lib then afterSave
   mutation removed as shape Reply refreshes lib
   derive saveError = match added { case some(r) => r.error, case none => "" }
@@ -39,8 +39,8 @@ component App
   action edit(v: string)
     draft = v
   action save
-    if trim(draft) != "" and not pending(added)
-      send added = addNote(trim(draft))
+    if draft.trim() != "" and not pending(added)
+      send added = addNote(draft.trim())
   action afterSave
     if saveError == "" and top(nav).name == "add"
       draft = ""
@@ -53,12 +53,12 @@ component App
 
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow width="100%" height="100%"
-      each e in stack(nav) key=e.id
-        when e.name == "notes"
+      for e in stack(nav) key=e.id
+        if e.name == "notes"
           // the list
-        when e.name == "note"
+        if e.name == "note"
           // the detail
-        when e.name == "add"
+        if e.name == "add"
           // the sheet
       dialog id="remove" role="alertdialog" aria-label="Delete Note?"
         text "This can't be undone."
@@ -80,7 +80,7 @@ column navigationKey=`${e.id}` navigationScroll="notes-list" position="absolute"
       image "symbol:add"
   list id="notes-list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
     section
-      each n in lib key=n.id
+      for n in lib key=n.id
         link href=path("note", n.id) testId=`note-${n.id}`
           text n.title
           image "symbol:forward-chevron"
@@ -92,7 +92,7 @@ column navigationKey=`${e.id}` navigationScroll="note-list" position="absolute" 
   header display="flex" align-items="center" padding="8px 16px"
     text "Note" role="heading" aria-level=2
   list id="note-list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
-    each n in filter(lib, x => x.id == e.params.id) key=n.id
+    for n in lib.filter(x => x.id == e.params.id) key=n.id
       section
         text n.title testId="detail-title"
         button press=askRemove destructive=true testId="delete-note"
@@ -100,7 +100,8 @@ column navigationKey=`${e.id}` navigationScroll="note-list" position="absolute" 
 ```
 
 The sheet: `navigationPresentation="modal"`; its Cancel's `id` is the root's `navigationBack`,
-which the swipe down presses.
+which the swipe down presses. Its last child, the `scroll`, runs to the bottom edge (nested in
+a `column` it stops short).
 
 <!-- check: route add -->
 ```contract
@@ -137,9 +138,9 @@ test "add, open, delete after asking"
 
 - The alert holds text, closing buttons and one Cancel; any other modal is a sheet (`push`,
   `back`), closed in `then` only on an ok reply ([after-a-write](after-a-write.md)).
-- Covered routes stay mounted: no two screens share a `testId`. In tests, `clock settle` after a
+- Covered routes stay mounted: no two screens share a `testId`. Tests: `clock settle` after a
   push, sheet or alert; `clock data` before a save's read.
-- A wide window (900 px up) shows the list beside its detail when its rows push (a `link`, or a
-  `press` that writes the router); `follow` replaces it; `navigationSplit="none"` keeps it pushed.
-- A location no route matches keeps its URL and shows not-found with a way home, unless the
-  routes declare `notfound`; a detail whose id names nothing says so.
+- A wide window (900 px up) shows a list beside its detail when rows push (a `link` or a
+  router write); `follow` replaces it; `navigationSplit="none"` keeps it pushed.
+- An unmatched location keeps its URL and shows not-found with a way home, or the
+  `notfound` route; a detail whose id names nothing says so.

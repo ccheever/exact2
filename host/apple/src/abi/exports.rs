@@ -363,7 +363,7 @@ macro_rules! host {
         /// # Safety
         /// `views` points to `count` valid ids, `rects` to `count * 4` doubles.
         #[no_mangle]
-        pub unsafe extern "C" fn exact_top_layer(rt: u32, views: *const u32, rects: *const f64, count: u32) {
+        pub unsafe extern "C" fn exact_top_layer(rt: u32, views: *const u32, rects: *const f64, count: u32, modal: u32) {
             let ids = if count == 0 { &[] } else {
                 // SAFETY: the caller keeps `count` ids live for this synchronous call.
                 unsafe { std::slice::from_raw_parts(views, count as usize) }
@@ -374,7 +374,8 @@ macro_rules! host {
             };
             let frames: Vec<_> = ids.iter().zip(rects.chunks_exact(4))
                 .map(|(&id, r)| (id, [r[0], r[1], r[2], r[3]])).collect();
-            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.top_layer(&frames), |_| ())
+            let modal = (modal != u32::MAX).then_some(modal as usize);
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.top_layer(&frames, modal), |_| ())
         }
 
         /// Copy current region source/paint metadata. No returned bytes outlive exact_out.
@@ -554,6 +555,14 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| { b.present_frames(on != 0); 0 }, |n| n)
         }
 
+        /// The presenter's clock owns time (`wall`, in the runner's
+        /// milliseconds), or the agent's seekable one does (null): a live
+        /// clock fires a repeat that missed beats once (the timers RFC, D1).
+        #[no_mangle]
+        pub extern "C" fn exact_set_live_clock(rt: u32, wall: Option<$crate::abi::LiveClockFn>) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| { b.set_live_clock(wall); 0 }, |n| n)
+        }
+
         /// Publish or clear a named surface record; returns the batch length.
         #[no_mangle]
         pub extern "C" fn exact_surface_record(rt: u32, len: usize) -> u32 {
@@ -611,6 +620,12 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_set_page(rt: u32, bits: u32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.set_page(bits), |n| n)
+        }
+
+        /// App modes, `axis=value` pins in the input buffer (LLP 1121 D5).
+        #[no_mangle]
+        pub extern "C" fn exact_set_mode(rt: u32, len: usize) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.set_mode(len), |n| n)
         }
 
         /// The locale and time zone: `locale NUL timeZone` in the input buffer.

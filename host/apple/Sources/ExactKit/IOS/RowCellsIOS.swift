@@ -221,7 +221,7 @@ final class RowCells {
             // leading edge and not under a leading image: where the text's
             // glyphs start, inside any padding of its own (a row that is
             // itself a padded text). A row with no text, from the cell's margin.
-            let lead = row.firstText.map { row.convert(CGPoint(x: $0.bounds.minX, y: 0), from: $0).x + $0.number("padding_left", 0) + $0.number("border_width_left", 0) } ?? Self.margin
+            let lead = row.firstText.map { row.convert(CGPoint(x: $0.contentBox().minX, y: 0), from: $0).x } ?? Self.margin
             let from = frame.minX + max(0, min(lead, frame.width)), to = frame.maxX - Self.margin
             if to > from { path.addRect(CGRect(x: from, y: y, width: to - from, height: Self.thickness)) }
         }

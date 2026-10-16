@@ -270,6 +270,8 @@ public final class ExactView: NSView {
                     return event
                 }
                 if event.type != .keyDown && event.type != .keyUp {
+                    // A click is a new place for Tab to start from (`tabStart`): the window's, as before.
+                    if event.type == .leftMouseDown || event.type == .rightMouseDown { self.session.presenter.tabStart = nil }
                     self.session.presenter.menus.pointer(event)
                     // A click on the window behind a `closedby="any"` sheet is the sheet's.
                     return self.session.presenter.dialogs.pointer(event) ? nil : event

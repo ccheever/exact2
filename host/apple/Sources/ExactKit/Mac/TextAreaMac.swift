@@ -184,7 +184,7 @@ package final class TextArea: NSTextView {
             let rect = NSRect(x: origin.x, y: origin.y, width: textContainer?.containerSize.width ?? bounds.width, height: bounds.height - origin.y)
             (placeholder as NSString).draw(in: rect, withAttributes: [
                 .font: font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize),
-                .foregroundColor: placeholderColor ?? (owner?.isNativeTextControl == true ? NSColor.placeholderTextColor : (textColor ?? SystemColor.canvasText).withAlphaComponent(0.3)),
+                .foregroundColor: placeholderColor ?? (owner?.isNativeTextControl == true ? ThemeRoles.color("placeholder", or: NSColor.placeholderTextColor) : (textColor ?? SystemColor.canvasText).withAlphaComponent(0.3)),
             ])
         }
     }
@@ -311,7 +311,9 @@ extension NodeView {
         textAreaScroll?.borderType = native ? .bezelBorder : .noBorder
         textAreaScroll?.focusRingType = native && !outlineNone ? .default : .none
         textAreaScroll?.drawsBackground = native
+        textAreaScroll?.backgroundColor = ThemeRoles.color("Field", or: .controlBackgroundColor)
         f.drawsBackground = native
+        f.backgroundColor = ThemeRoles.color("Field", or: .textBackgroundColor)
         f.focusRingType = outlineNone ? .none : native ? .default : .exterior
         restyleFieldFocus()
         f.textContainerInset = native ? FieldChromeCache.textareaInset(for: effectiveAppearance, scale: window?.backingScaleFactor ?? 1) : .zero
@@ -431,11 +433,16 @@ extension NSTextView {
 /// `controlTextDidEndEditing`, which AppKit sends whenever the editor leaves.
 /// Its cell serves the node's ARIA attributes (`FieldCell`, Accessibility.swift).
 final class Field: NSTextField {
-    private var numberOwner: NodeView? {
+    /// A `type="number"` input's node: the field is AppKit's stepper (incrementor) to accessibility.
+    var numberOwner: NodeView? {
         guard let node = delegate as? NodeView, node.props["type"]?.lowercased() == "number" else { return nil }
         return node
     }
-    override func accessibilityRole() -> NSAccessibility.Role? { numberOwner != nil ? .incrementor : super.accessibilityRole() }
+    /// Once overridden, this is the role another process (VoiceOver) is
+    /// served, and `super`'s is `NSView`'s `AXUnknown`: an `NSTextField`'s
+    /// role is its cell's (`AXTextField`), so that is the answer for any
+    /// field but a number's.
+    override func accessibilityRole() -> NSAccessibility.Role? { numberOwner != nil ? .incrementor : cell?.accessibilityRole() ?? super.accessibilityRole() }
     override func accessibilityMinValue() -> Any? {
         guard let owner = numberOwner else { return super.accessibilityMinValue() }
         return NumberStepping(owner.props).min.map { NSDecimalNumber(decimal: $0) }

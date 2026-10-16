@@ -45,9 +45,14 @@ pub struct Bridge<D: DataSource> {
     links: crate::HostLinks<D>,
     /// A `pan` contact's samples, for its release velocity (LLP 1057 §10.6).
     pan: crate::pan_velocity::PanVelocity,
+    /// The page's clock while it owns time, kept for every boot (`clock.rs`)
+    live_clock: Option<fn() -> f64>,
     input: Vec<u8>,
     output: Vec<u8>,
 }
+
+mod clock;
+mod mode;
 
 impl<D: DataSource> Bridge<D> {
     /// Empty; `boot` fills it.
@@ -62,6 +67,7 @@ impl<D: DataSource> Bridge<D> {
             launch_facts: exact_runner::time::Launch::NONE,
             links: crate::HostLinks::CORE,
             pan: crate::pan_velocity::PanVelocity::new(),
+            live_clock: None,
             input: Vec::new(),
             output: Vec::new(),
         }
@@ -103,18 +109,13 @@ impl<D: DataSource> Bridge<D> {
     /// (LLP 1078 D4, D6) above them — bit 8 `folded`, bits 9–16 the columns,
     /// bits 17–24 the rows (0 reads as 1). The browser resolves the
     /// `env(viewport-segment-*)` lengths itself; the runner answers the
-    /// three `exactViewport` fields. Bit 25 is the page's look (LLP 1115.000
-    /// D4 part B): set where its stylesheet is the neutral one, and every
-    /// role then falls back to the table's neutral column and every metric
-    /// reads its neutral cell. Bits 26–27 carry gamut, 28 HDR, and 29–31
-    /// display mode; unpack these above the low byte for the runner.
+    /// three `exactViewport` fields. Bit 25 is reserved. Bits 26–27 carry
+    /// gamut, 28 HDR, and 29–31 display mode; unpack these above the low
+    /// byte for the runner.
     pub fn set_preferences(&mut self, bits: u32) {
         self.preferences =
             exact_runner::Preferences::from_bits((bits & 0xff) | ((bits >> 26) << 8));
         self.fold = fold_bits(bits);
-        if bits & (1 << 25) != 0 {
-            exact_kernel::style::roles::set_column(exact_kernel::style::roles::Column::Neutral);
-        }
     }
 
     /// UTF-8 launch location carried after optional plan bytes.
@@ -313,6 +314,7 @@ impl<D: DataSource> Bridge<D> {
         match booted {
             Ok((host, batch)) => {
                 self.host = Some(host);
+                self.give_clock();
                 self.emit(batch)
             }
             Err(e) => self.emit(format!(
@@ -350,6 +352,7 @@ impl<D: DataSource> Bridge<D> {
         match booted {
             Ok((host, batch)) => {
                 self.host = Some(host);
+                self.give_clock();
                 self.emit(batch)
             }
             Err(e) => self.emit(format!(
@@ -1154,6 +1157,8 @@ macro_rules! host {
             })
         }
 
+        $crate::live_clock_export!(EXACT_BRIDGE);
+
         /// Metadata for the optional browser module loader.
         #[no_mangle]
         pub extern "C" fn exact_logic() -> u32 {
@@ -1285,6 +1290,13 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_changed(len: u32) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().changed(len as usize))
+        }
+
+        /// App modes, `axis=value` pins in the input buffer (LLP 1121 D5);
+        /// returns the batch length.
+        #[no_mangle]
+        pub extern "C" fn exact_set_mode(len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().set_mode(len as usize))
         }
 
         /// The locale and time zone: `locale NUL timeZone` in the input buffer.

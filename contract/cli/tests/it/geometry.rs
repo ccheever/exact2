@@ -504,7 +504,7 @@ fn query_selector_all_reads_mounted_data_words_in_tree_order() {
     column
       text "first" id="first" data-paint="accent muted"
       text "other" id="other" data-paint="muted"
-      when show
+      if show
         text "second" id="second" data-paint="accent"
       text "hidden" id="hidden" data-paint="accent" display="none"
       column inert=true
@@ -711,10 +711,13 @@ fn top_layer_uses_presented_frames_and_stack_order() {
     };
     let back = view("back");
     let front = view("front");
-    r.top_layer_frames(&[
-        (back, [120.0, 10.0, 50.0, 50.0]),
-        (front, [120.0, 10.0, 50.0, 50.0]),
-    ]);
+    r.top_layer_frames(
+        &[
+            (back, [120.0, 10.0, 50.0, 50.0]),
+            (front, [120.0, 10.0, 50.0, 50.0]),
+        ],
+        None,
+    );
     r.act("probe", vec![]).unwrap();
     assert_eq!(
         r.slot("hits"),

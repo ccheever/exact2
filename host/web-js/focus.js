@@ -1,7 +1,7 @@
 // `autofocus` at mount on the JS target (LLP 1035.000 D9; LLP 1102 §3.19), as the wasm host's
 // focusController (host/web/navigation.js): after each commit, the first `[autofocus]` not yet
 // offered that is shown, enabled and not inert is offered once, and takes the focus when the focus
-// is on the body or on the control just pressed (a `when` that mounts a field after a tap).
+// is on the body or on the control just pressed (an `if` that mounts a field after a tap).
 // A carried restart (checkpoint.js, which holds `focus` while it rebuilds) marks every field it
 // rebuilt offered (`offerAll`), so none takes the focus later; a fresh boot's hidden or disabled
 // field may still take it when it is shown.

@@ -1,19 +1,13 @@
 //! Actual presenter failure fallback and physical dispatch over retained pixels.
 use super::*;
 use crate::content_region::ContentRegionRegistration;
-use exact_runner::{DataError, Value};
+use exact_runner::Value;
 use std::time::Instant;
 
 #[path = "fail_backend.rs"]
 mod fail_backend;
 #[path = "projection_discriminator_tests.rs"]
 mod projection_discriminator;
-struct Empty;
-impl DataSource for Empty {
-    fn query(&mut self, n: &str, _: &[Value]) -> Result<Value, DataError> {
-        Err(DataError::UnknownSource(n.into()))
-    }
-}
 const APP: &str = r#"component App
   state title = "old picture"
   state link = "https://old.example/"
@@ -42,21 +36,21 @@ const APP: &str = r#"component App
         text "hide"
       input value=draft input=edit testId="input" height=32
       text `${count}` testId="count" height=24
-      when showing
+      if showing
         view id="owner" width=400 height=200 overflow-x="hidden" overflow-y="hidden"
           scroll id="content" testId="scroll" width=400 height=200
             view height=600
               text title href=link press=activate testId="paragraph" font-size=20 color="light-dark(#ff0000,#0000ff)"
           text "Preparing content" id="pending" position="absolute"
 "#;
-fn id(p: &Presenter<Empty>, name: &str) -> ViewId {
+fn id(p: &Presenter<()>, name: &str) -> ViewId {
     p.host
         .kernel()
         .node_by_key(p.host.kernel().find_by_test_id(name)[0])
         .unwrap()
         .id
 }
-fn ready(p: &mut Presenter<Empty>) {
+fn ready(p: &mut Presenter<()>) {
     let end = Instant::now() + Duration::from_secs(90);
     while !p.host.content_region().unwrap().receipt().unwrap().current {
         assert!(Instant::now() < end, "font/publication watchdog");
@@ -73,7 +67,7 @@ fn non_cpu_region_refuses_before_plan_font_or_device_work() {
     for choice in [PainterChoice::Auto, PainterChoice::Gpu] {
         let result = Presenter::boot_with_content_region(
             &[],
-            Empty,
+            (),
             (400., 500.),
             1.,
             PathBuf::from("/nonexistent"),
@@ -106,8 +100,8 @@ fn retained_pointer_eligibility_changes_only_when_its_picture_is_acknowledged() 
         };
         let source = APP.replace("testId=\"paragraph\"", &format!("testId=\"paragraph\" pointer-events=(title == \"old picture\" ? \"{old}\" : \"{new}\")"));
         let (mut p, error) = Presenter::boot_with_content_region(
-            &contract::compile(&source).unwrap().encode(),
-            Empty,
+            &crate::test_plan(&source),
+            (),
             (400., 500.),
             1.,
             PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
@@ -161,8 +155,8 @@ fn retained_pointer_eligibility_changes_only_when_its_picture_is_acknowledged() 
 fn failed_frame_retains_source_hits_and_rejects_live_replacement_actions() {
     let _service = crate::content_region::test_service();
     let (mut p, error) = Presenter::boot_with_content_region(
-        &contract::compile(APP).unwrap().encode(),
-        Empty,
+        &crate::test_plan(APP),
+        (),
         (400., 500.),
         1.,
         PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
@@ -280,8 +274,8 @@ fn failed_frame_retains_source_hits_and_rejects_live_replacement_actions() {
 fn held_old_source_latest_demand_and_destroy_retire_without_publishing_stale_pixels() {
     let _service = crate::content_region::test_service();
     let (mut p, error) = Presenter::boot_with_content_region(
-        &contract::compile(APP).unwrap().encode(),
-        Empty,
+        &crate::test_plan(APP),
+        (),
         (400., 500.),
         1.,
         PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
@@ -394,8 +388,8 @@ fn held_old_source_latest_demand_and_destroy_retire_without_publishing_stale_pix
 fn exact_scale_prepared_index_refuses_changed_dpr_before_stale_adoption_or_replay() {
     let _service = crate::content_region::test_service();
     let (mut p, error) = Presenter::boot_with_content_region(
-        &contract::compile(APP).unwrap().encode(),
-        Empty,
+        &crate::test_plan(APP),
+        (),
         (400., 500.),
         1.25,
         PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
@@ -499,7 +493,7 @@ fn malformed_region_scale_refuses_before_plan_fonts_or_worker_admission() {
     for scale in [0., -1., f32::NAN, f32::INFINITY] {
         let result = Presenter::boot_with_content_region(
             &[],
-            Empty,
+            (),
             (400., 500.),
             scale,
             PathBuf::from("/nonexistent"),
@@ -524,8 +518,8 @@ fn unsupported_region_query_preserves_previous_pixels_and_recovers() {
         .replace("view id=\"owner\"", "view id=\"owner\" scale=ownerScale")
         .replace("button press=hide", "button press=collapse testId=\"collapse\" height=20\n        text \"collapse\"\n      button press=restore testId=\"restore\" height=20\n        text \"restore\"\n      button press=hide");
     let (mut p, error) = Presenter::boot_with_content_region(
-        &contract::compile(&app).unwrap().encode(),
-        Empty,
+        &crate::test_plan(&app),
+        (),
         (400., 500.),
         1.,
         PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
@@ -569,8 +563,8 @@ fn uncertain_ink_coordinates_refuse_full_glyph_fallback_and_recover() {
         .replace("view height=600", "view height=600 padding-top=inset")
         .replace("button press=hide", "button press=move testId=\"move\" height=20\n        text \"move\"\n      button press=restore testId=\"restore\" height=20\n        text \"restore\"\n      button press=hide");
     let (mut p, error) = Presenter::boot_with_content_region(
-        &contract::compile(&app).unwrap().encode(),
-        Empty,
+        &crate::test_plan(&app),
+        (),
         (400., 500.),
         1.,
         PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
@@ -610,7 +604,7 @@ fn uncertain_ink_coordinates_refuse_full_glyph_fallback_and_recover() {
 }
 
 // Unlike APP's fixed 600px child, all overflow here comes from real text.
-fn natural_scroll_fixture(short: bool) -> Presenter<Empty> {
+fn natural_scroll_fixture(short: bool) -> Presenter<()> {
     let tall = "Natural paragraph line with distinct words and wrap. ".repeat(80);
     let app = format!(
         r#"component App
@@ -632,7 +626,7 @@ fn natural_scroll_fixture(short: bool) -> Presenter<Empty> {
         text "Toggle"
       view id="owner" width=400 height=200 overflow-x="hidden" overflow-y="hidden"
         view id="content" width="100%" height="100%" display="flex" flex-direction="column"
-          when showing
+          if showing
             scroll testId="natural-scroll" flex=1 min-height=0 width="100%" overflow-x="hidden"
               column width="100%" padding=8 box-sizing="border-box"
                 text text testId="natural-text" font-size=20
@@ -641,8 +635,8 @@ fn natural_scroll_fixture(short: bool) -> Presenter<Empty> {
         if short { "Short paragraph." } else { &tall }
     );
     let (mut p, error) = Presenter::boot_with_content_region(
-        &contract::compile(&app).unwrap().encode(),
-        Empty,
+        &crate::test_plan(&app),
+        (),
         (400., 500.),
         1.,
         PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
@@ -663,12 +657,12 @@ fn natural_scroll_fixture(short: bool) -> Presenter<Empty> {
     p
 }
 
-fn natural_point(p: &mut Presenter<Empty>, port: ViewId) -> (f32, f32) {
+fn natural_point(p: &mut Presenter<()>, port: ViewId) -> (f32, f32) {
     let b = p.box_of(port).unwrap();
     (b.rect.0 + b.rect.2 / 2., b.rect.1 + b.rect.3 / 2.)
 }
 
-fn natural_replace(p: &mut Presenter<Empty>, action: &str) {
+fn natural_replace(p: &mut Presenter<()>, action: &str) {
     let target = id(p, action);
     assert!(p.host.dispatch_at(target, Event::Press, 1.).is_none());
     assert!(p.after_commit().is_none());

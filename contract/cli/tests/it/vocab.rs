@@ -269,11 +269,36 @@ fn contextual_attributes_are_refused_elsewhere() {
         .collect();
     let tested: Vec<&str> = cases.iter().map(|(n, _, _)| *n).collect();
     assert_eq!(listed, tested, "every CONTEXTUAL entry needs a case");
-    for (_, tag, attr) in cases.iter().chain([&("robots", "view", "robots=\"x\"")]) {
+    for (name, tag, attr) in cases.iter().chain([&("robots", "view", "robots=\"x\"")]) {
         let source =
             format!("component App\n  action done\n    let x = 1\n  action got(data: string)\n    let y = data\n  view\n    {tag} {attr}\n");
         let error = contract::compile(&source).unwrap_err();
-        assert_eq!(error.id, "lower-attr-tag", "{tag} {attr}: {error}");
+        let id = if matches!(*name, "reachstart" | "reachend") {
+            "lower-collection-edge"
+        } else {
+            "lower-attr-tag"
+        };
+        assert_eq!(error.id, id, "{tag} {attr}: {error}");
+    }
+}
+
+#[test]
+fn collection_edges_name_the_required_shape_and_the_plain_feed_alternative() {
+    for event in ["reachstart", "reachend"] {
+        let output = stdout(&vocab(&[event]));
+        assert!(
+            output.contains("only on `list virtualized=true` with one direct `each`"),
+            "{output}"
+        );
+        assert!(
+            output.contains(&contract::collection_edge_refusal(event)),
+            "{output}"
+        );
+        let json: Value = serde_json::from_str(&stdout(&vocab(&["--json", event]))).unwrap();
+        assert_eq!(
+            json["attribute"]["note"],
+            contract::collection_edge_refusal(event)
+        );
     }
 }
 
@@ -318,7 +343,7 @@ fn a_function_shows_its_signature_rules_and_example() {
     );
     let slice = stdout(&vocab(&["slice"]));
     assert!(
-        slice.contains("  signature: slice(any, number[, number]) -> any\n"),
+        slice.contains("  signature: any.slice(number[, number]) -> any\n"),
         "{slice}"
     );
     assert_eq!(
@@ -352,7 +377,7 @@ fn a_name_that_is_an_attribute_and_a_function_shows_both() {
     let out = stdout(&vocab(&["filter"]));
     assert!(out.contains("filter: style attribute"), "{out}");
     assert!(
-        out.contains("filter: standard function\n  signature: filter(any, any) -> any"),
+        out.contains("filter: standard function\n  signature: any.filter(any) -> any"),
         "{out}"
     );
 }
@@ -388,7 +413,7 @@ fn the_functions_are_listed_and_in_the_json() {
         "{all}"
     );
     assert!(
-        all.contains("  split(string, string) -> list<string>\n"),
+        all.contains("  string.split(string) -> string[]\n"),
         "{all}"
     );
     assert!(
@@ -726,11 +751,11 @@ fn concepts_answer_together_after_the_tags_of_their_name() {
 
 /// LLP 1116.007 D1: the grammar's own words answer in one lookup, each in
 /// under a kilobyte, so a builder does not grep `contract-grammar.md` for
-/// `each` or get a 404 for `task`.
+/// `for` or get a 404 for `task`.
 #[test]
 fn the_grammars_words_each_answer_in_under_a_kilobyte() {
     for word in [
-        "task", "every", "after", "send", "match", "each", "when", "let", "fn", "shape", "persist",
+        "task", "every", "after", "send", "match", "for", "if", "let", "fn", "shape", "persist",
         "props", "derive", "action", "resource", "mutation", "stepper", "notfound",
     ] {
         let one: Value = serde_json::from_str(&stdout(&vocab(&["--json", word]))).unwrap();
@@ -785,8 +810,8 @@ fn every_concepts_code_compiles_and_its_names_are_its_own() {
         "mutation",
         "resource",
         "match",
-        "each",
-        "when",
+        "for",
+        "if",
         "let",
         "fn",
         "shape",

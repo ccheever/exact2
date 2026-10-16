@@ -194,7 +194,13 @@ test('opaque sandbox loads app text like Chrome, while sandboxed PDFs report err
     for (const [name, text] of [['notes.txt', literal], ['notes.html', literal], ['doc.pdf', pdf]])
       await files.writeFile(`app:/data/${name}`, new TextEncoder().encode(text));
   }, {literal, pdf});
-  // The browser owns opaque origins: inspect through Playwright, never by granting same-origin.
+  // The browser owns opaque origins: inspect through Playwright, never by granting same-origin. A frame's text is read
+  // from its tree, without its scripts and styles: `innerText` would depend on whether the frame had been laid out yet
+  const read = frame => frame.evaluate(() => {
+    const body = document.body.cloneNode(true);
+    for (const hidden of body.querySelectorAll('script, style')) hidden.remove();
+    return {type: document.contentType, text: body.textContent, executed: window.executed === true, url: location.href};
+  });
   for (const [name, type, text] of [['notes.txt', 'text/plain', literal], ['notes.html', 'text/html', literal], ['doc.pdf', 'application/pdf', pdf]]) {
     for (const sandbox of ['allow-scripts', 'allow-same-origin']) {
       await page.evaluate(async ({type, text, sandbox}) => {
@@ -203,7 +209,7 @@ test('opaque sandbox loads app text like Chrome, while sandboxed PDFs report err
         await new Promise(resolve => { oracle.onload = resolve; document.querySelector('main').append(oracle); });
       }, {type, text, sandbox});
       const oracle = await (await page.$('#oracle')).contentFrame();
-      const observed = await oracle.evaluate(() => ({type: document.contentType, text: document.body.innerText, executed: window.executed === true, url: location.href}));
+      const observed = await read(oracle);
       if (type === 'application/pdf') expect(observed.url).toBe('chrome-error://chromewebdata/');
       else {
         expect(observed.type).toBe(type);
@@ -226,8 +232,8 @@ test('opaque sandbox loads app text like Chrome, while sandboxed PDFs report err
       } else {
         expect(await page.evaluate(() => events)).toEqual(['load']);
         const guest = await (await page.$('#app-frame')).contentFrame();
-        expect(await guest.evaluate(() => ({type: document.contentType, text: document.body.innerText, executed: window.executed === true})))
-          .toEqual({type: observed.type, text: observed.text, executed: observed.executed});
+        const seen = await read(guest);
+        expect({type: seen.type, text: seen.text, executed: seen.executed}).toEqual({type: observed.type, text: observed.text, executed: observed.executed});
       }
       await page.evaluate(() => { rt.end(scope); frame.remove(); const oracle = document.querySelector('#oracle'); URL.revokeObjectURL(oracle.src); oracle.remove(); });
     }

@@ -8,17 +8,8 @@
 use crate::pin_font;
 use exact_linux::presenter::PainterChoice;
 use exact_linux::Presenter;
-use exact_runner::{DataError, DataSource, Value};
 use std::path::PathBuf;
 use tiny_skia::Pixmap;
-
-#[derive(Default)]
-pub(crate) struct NoData;
-impl DataSource for NoData {
-    fn query(&mut self, s: &str, _: &[Value]) -> Result<Value, DataError> {
-        Err(DataError::UnknownSource(s.into()))
-    }
-}
 
 fn fixtures() -> PathBuf {
     PathBuf::from(concat!(
@@ -44,23 +35,16 @@ const CASES: [&str; 12] = [
 ];
 
 /// A parity page from `scripts/fixtures`, booted at 390×460 and 1×.
-pub(crate) fn boot(choice: PainterChoice, page: &str) -> Presenter<NoData> {
+pub(crate) fn boot(choice: PainterChoice, page: &str) -> Presenter<()> {
     pin_font();
     let src = std::fs::read_to_string(fixtures().join(page)).unwrap();
     let plan = contract::compile(&src).unwrap();
-    Presenter::boot_with(
-        &plan.encode(),
-        NoData,
-        (390.0, 460.0),
-        1.0,
-        fixtures(),
-        choice,
-    )
-    .unwrap()
-    .0
+    Presenter::boot_with(&plan.encode(), (), (390.0, 460.0), 1.0, fixtures(), choice)
+        .unwrap()
+        .0
 }
 
-pub(crate) fn view(p: &Presenter<NoData>, test_id: &str) -> u32 {
+pub(crate) fn view(p: &Presenter<()>, test_id: &str) -> u32 {
     let k = p.host().kernel();
     k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
 }
@@ -160,7 +144,7 @@ fn thin_dot_phase_matches_chrome(
 
 /// Each case's box against Chrome's picture; the failures, named.
 pub(crate) fn held_to_chrome(
-    p: &mut Presenter<NoData>,
+    p: &mut Presenter<()>,
     reference: &str,
     painter: &str,
     cases: &[&str],
@@ -169,7 +153,7 @@ pub(crate) fn held_to_chrome(
 }
 
 fn held_to_chrome_with_band(
-    p: &mut Presenter<NoData>,
+    p: &mut Presenter<()>,
     reference: &str,
     painter: &str,
     cases: &[&str],
@@ -215,7 +199,7 @@ fn every_border_case_matches_chrome_light_then_flipped_and_dark() {
             let id = view(&p, target);
             p.tap(id).unwrap();
         }
-        p.run_commands(NoData::default);
+        p.run_commands(<()>::default);
         failures.extend(held_to_chrome(
             &mut p,
             "borders.web-dark.png",

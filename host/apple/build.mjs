@@ -2,7 +2,7 @@
 // Build the macOS app — or, with --ios, the iOS app: the app's static
 // library (cargo, release), then the presenter (swift build) linked against
 // it. Usage:
-//   bun host/apple/build.mjs [crate=caltrain-apple] [--run]                 macOS
+//   bun host/apple/build.mjs [crate=caltrain-apple] [--run]                 macOS (--run assembles and launches the .app)
 //   bun host/apple/build.mjs [crate] --test                                  the Swift host tests
 //   bun host/apple/build.mjs [crate] --test --ios [--sim <udid|name>]        all tests compiled for UIKit on a simulator
 //   bun host/apple/build.mjs --ios [crate] [--run] [--sim <udid|name>]        iOS, on a simulator
@@ -48,13 +48,13 @@ import { copyStaticTreeIfPresent, listAssets } from '../web/serve.mjs';
 import { startSweep } from '../../scripts/sweep.mjs';
 import { guardFlags } from '../../scripts/help.mjs';
 import { writeDataKeys } from './data-keys.mjs';
-import { macTests, withoutPerformanceChecker } from './xctest.mjs';
-import { appIcon, buildInfo, iosAssets, appleAssets, appleAssetCatalogInventory, copyMacResources, signingOrder, plistFile, wrapFramework, signedGpuProduct, assertArchiveFrameworks } from './assets.mjs';
+import { iosTestRuns, macTests } from './xctest.mjs';
+import { appIcon, buildInfo, iosAssets, appleAssets, appleAssetCatalogInventory, copyMacResources, signingOrder, helperEntitlements, plistFile, wrapFramework, signedGpuProduct, assertArchiveFrameworks } from './assets.mjs';
 import { keptModules } from './modules.mjs';
 import { keptCrates } from './crates.mjs';
-import { appleComposition, assertLinkedSdk, linksByPlan } from './link.mjs';
+import { appleComposition, assertCapabilityFrameworks, assertLinkedSdk, linksByPlan } from './link.mjs';
 export { appIcon, iosAssets };
-import { allows, deviceLaunchArgs, developmentLaunchEnvironment, identity, macIdentity, phone, profile, showSimulator, simulator, simulators, useXcode } from './devices.mjs';
+import { IPAD_ORIENTATIONS, orientationKeys, allows, deviceLaunchArgs, developmentLaunchEnvironment, identity, macIdentity, phone, profile, showSimulator, simulator, simulators, useXcode } from './devices.mjs';
 const root = resolve(new URL('../..', import.meta.url).pathname);
 const run = (cmd, args, opts = {}) => {
   const r = spawnSync(cmd, args, { cwd: root, ...opts,
@@ -360,20 +360,6 @@ export function writeUsageStrings(reach, dir) {
   }
 }
 
-/** The hardened-runtime entitlements `exact release` signs the Mac app with:
- * the bake's derivation from the app's `device.*` grants (a usage string
- * alone is not enough; a hardened app without the entitlement is silently
- * refused). Null when the app grants no such device. */
-export const macReleaseEntitlements = (compat) => {
-  const names = compat?.reach?.entitlements ?? [];
-  // An https auth callback's `webcredentials:` domain (LLP 1069.006 D2),
-  // which a Developer ID build signs only with a profile that grants it.
-  const domains = compat?.reach?.auth?.associatedDomains ?? [];
-  if (!names.length && !domains.length) return null;
-  return plistFile({ ...Object.fromEntries(names.map((name) => [name, true])),
-    ...(domains.length ? { 'com.apple.developer.associated-domains': domains } : {}) });
-};
-
 /** `NSAppTransportSecurity` from `host.<platform>.appTransportSecurity` and the build's own `keys`; none of either, no key. `allowsArbitraryLoadsInWebContent` relaxes ATS for web views only (an `iframe` loads `http://` from a named host, as a browser does); a module's `URLSession` stays under ATS. */
 const transportSecurity = (section, keys = {}) => {
   const ats = { ...(section?.appTransportSecurity?.allowsArbitraryLoadsInWebContent ? { NSAllowsArbitraryLoadsInWebContent: true } : {}), ...keys };
@@ -422,7 +408,7 @@ export const infoPlist = (app, device = false, { executable = executableName(app
   Object.assign(dict, openingLinks(app, 'ios', development));
   Object.assign(dict, usageKeys(reach));
   Object.assign(dict, icon);
-  if (distribution) Object.assign(dict, distribution);
+  Object.assign(dict, distribution, orientationKeys(app.manifest.orientation));
   return plistFile(dict);
 };
 
@@ -451,7 +437,7 @@ export function distributionKeys(sdkName = 'iphoneos') {
     // What iOS assumes when the key is absent, written out: App Store Connect
     // requires it (all four on iPad, for multitasking).
     UISupportedInterfaceOrientations: ['UIInterfaceOrientationPortrait', 'UIInterfaceOrientationLandscapeLeft', 'UIInterfaceOrientationLandscapeRight'],
-    'UISupportedInterfaceOrientations~ipad': ['UIInterfaceOrientationPortrait', 'UIInterfaceOrientationPortraitUpsideDown', 'UIInterfaceOrientationLandscapeLeft', 'UIInterfaceOrientationLandscapeRight'],
+    'UISupportedInterfaceOrientations~ipad': IPAD_ORIENTATIONS,
     // Export compliance is the developer's declaration, so it is written only
     // when EXACT_NON_EXEMPT_ENCRYPTION says it (`false` for HTTPS alone).
     ...(['true', 'false'].includes(process.env.EXACT_NON_EXEMPT_ENCRYPTION) ? { ITSAppUsesNonExemptEncryption: process.env.EXACT_NON_EXEMPT_ENCRYPTION === 'true' } : {}),
@@ -922,7 +908,7 @@ async function main(args) {
   // the resolver's app-owned `embed` directory, with `ExactKit` at
   // `host/apple`. With --archive it also builds the IPA; --embed alone
   // builds no Swift. The sample hosts prove that the same pieces link.
-  const { link: appleLink, products: swiftCapabilities } = appleComposition(buildReceipt.graph, linksByPlan(production, args), app.manifest.link);
+  const { link: appleLink, products: swiftCapabilities } = appleComposition(buildReceipt.graph, linksByPlan(production, args), app.manifest.link, bakedCompat.reach?.auth?.sessions === true);
   if (args.includes('--embed')) {
     const platform = ios ? (device ? 'ios' : 'ios-simulator') : 'macos';
     const gpu = hasGpu ? (ipa ? 'ExactGpu.framework/ExactGpu' : loadName) : null;
@@ -1145,8 +1131,8 @@ async function main(args) {
       const executable = resolve(binDir, p === product ? paths.executable : p);
       copyFileSync(resolve(swiftBinDir, p), executable);
       assertAppleIdentity(app, executable, bakedCompat.id);
-      const platform = ios ? 'ios' : 'macos';
-      assertLinkedSdk(executable, designCompatible(app, platform) ? COMPATIBLE_SDK[platform] : read('xcrun', ['--sdk', sdkName, '--show-sdk-version']).stdout.trim());
+      assertLinkedSdk(executable, designCompatible(app, ios ? 'ios' : 'macos') ? COMPATIBLE_SDK[ios ? 'ios' : 'macos'] : read('xcrun', ['--sdk', sdkName, '--show-sdk-version']).stdout.trim());
+      assertCapabilityFrameworks(executable, swiftCapabilities);
       if (ipa) stripped = stripForDistribution(executable, `${ipa.replace(/\.ipa$/, '')}.dSYM`);
     }
   } finally { releaseSwift(); }
@@ -1251,8 +1237,8 @@ async function main(args) {
     for (const p of products.slice(1)) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', '--identifier', `${app.id}.${p.toLowerCase()}`, resolve(binDir, p)], { stdio: 'ignore' });
     // The receipt beside it (LLP 1030 D2).
     writeFileSync(resolve(binDir, 'receipt.json'), receipt(app, { compatibilityId:bakedCompat.id, build:buildReceipt, composition, platform: 'macos', target: process.arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin', sdk, identity: sha1 ?? 'ad-hoc', profile: null, entitlements: null, gpu: hasGpu ? dylib : null, development }));
-    // A local .app gives Launch Services an owner for development links.
-    if (args.includes('--bundle') || buildReceipt.binary.metadata.appleAssetCatalogs?.length) {
+    // A local .app gives Launch Services an owner for development links, and is what `--run` launches (a bare executable has no Info.plist).
+    if (args.includes('--bundle') || args.includes('--run') || buildReceipt.binary.metadata.appleAssetCatalogs?.length) {
       const bundleDestination = appleArtifacts(app).bundle;
       const output = resolve(bundleDestination, '..');
       mkdirSync(output, { recursive: true });
@@ -1275,8 +1261,10 @@ async function main(args) {
       // Preserve the GPU artifact signatures that the baked receipt names.
       for (const file of [...loaded, ...(canvasGpuBuilt ? [canvasGpuLoadName] : []), ...(modulesBuilt ? [modulesLoadName] : [])]) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(executables, file)], { stdio: 'ignore' });
       copyMacResources(app, contents, buildReceipt.binary.metadata.nativeResources ?? []);
-      const nativeRoots = (app.manifest.host?.macos?.resources ?? []).map(({to}) => resolve(contents, to));
-      for (const file of signingOrder(bundle, bakedCompat).filter(file => nativeRoots.some(root => file === root || file.startsWith(root + '/')))) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', file], { stdio: 'ignore' });
+      const nativeRoots = (app.manifest.host?.macos?.resources ?? []).map(({to}) => resolve(contents, to)), order = signingOrder(bundle, bakedCompat);
+      // A runtime exception's target is checked here, not first at release (LLP 1069.008 D9); a development build signs without the hardened runtime, so with no entitlements.
+      helperEntitlements(bundle, app.manifest, bakedCompat, order);
+      for (const file of order.filter(file => nativeRoots.some(root => file === root || file.startsWith(root + '/')))) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', file], { stdio: 'ignore' });
       run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', bundle], { stdio: 'ignore' });
       const placed = bundleDestination;
       assertAppleIdentity(app, resolve(executables, paths.executable), bakedCompat.id);
@@ -1399,6 +1387,14 @@ async function main(args) {
  *  session may be driving a booted one), shut down again only if booted here.
  *  Swift availability guards decide which shared methods run on iOS. */
 async function test(args) {
+  // The fixtures tests boot (scripts/fixtures), compiled at this commit and named in `env` as `<prefix>_<KEY>_PLAN`:
+  // a plan carries the kernel schema's digest, so one compiled once and kept in a test goes stale.
+  const compileFixtures = (env, dir, prefix) => {
+    for (const [name, key] of [['native-navigation-scroll', 'NATIVE_SCROLL'], ['intersect', 'INTERSECT'], ['native-buttons', 'BUTTONS'], ['keyboard-form', 'KEYBOARD'], ['tab-edge', 'TAB_EDGE'], ['repaint', 'REPAINT'], ['still-title', 'STILL_TITLE'], ['navigation-bars', 'NAVIGATION_BARS'], ['large-title', 'LARGE_TITLE'], ['bar-band', 'BAR_BAND'], ['pad-bar', 'PAD_BAR'], ['pushed-title', 'PUSHED_TITLE'], ['inline-frame', 'INLINE_FRAME'], ['fieldless', 'FIELDLESS'], ['web-documents', 'WEB_DOCUMENTS'], ['tab-owner', 'TAB_OWNER']]) {
+      const plan = env[`${prefix}_${key}_PLAN`] = resolve(dir, `${name}.plan`);
+      run('cargo', ['run', '-q', '-p', 'contract', '--bin', 'contract', '--manifest-path', resolve(root, 'Cargo.toml'), '--', 'build', resolve(root, `scripts/fixtures/${name}.contract`), '-o', plan]);
+    }
+  };
   const ios = args.includes('--ios');
   const app = resolveApp(args.find((a, i) => !a.startsWith('--') && args[i - 1] !== '--sim'));
   app.prepare?.();
@@ -1431,6 +1427,7 @@ async function test(args) {
       // here as `cargo build` would, never assumed from an earlier build.
       run('cargo', ['build', '-q', '-p', 'contract', '--bin', 'contract', '--manifest-path', resolve(root, 'Cargo.toml')]);
       env.EXACT_CONTRACT = resolve(process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(root, 'target'), 'debug', 'contract');
+      compileFixtures(env, paths.namespace, 'EXACT');
       const swiftEnv = { ...env, MACOSX_DEPLOYMENT_TARGET: '14.0' }, scratch = resolve(paths.namespace, 'tests');
       runApple('swift', ['build', '--build-tests', '--scratch-path', scratch], { cwd: pkg, stdio: 'inherit', env: swiftEnv });
       return await macTests(pkg, scratch, swiftEnv);
@@ -1453,7 +1450,23 @@ async function test(args) {
     runApple('xcrun', ['--sdk', 'iphonesimulator', 'swiftc', '-parse-as-library', '-emit-library', '-O', '-swift-version', '5', '-module-name', 'ExactAppModules',
       '-module-cache-path', resolve(fixtureDir, 'cache'), resolve(root, 'host/apple/modules/ExactNativeModule.swift'), resolve(fixtureDir, 'ExactDataKeys.swift'),
       ...fixture.modules.apple, '-target', iosTriple, '-o', env.TEST_RUNNER_EXACT_FIXTURE_MODULE]);
-    for (const [name, key] of [['native-navigation-scroll', 'NATIVE_SCROLL'], ['intersect', 'INTERSECT'], ['native-buttons', 'BUTTONS'], ['keyboard-form', 'KEYBOARD'], ['tab-edge', 'TAB_EDGE'], ['repaint', 'REPAINT'], ['still-title', 'STILL_TITLE'], ['navigation-bars', 'NAVIGATION_BARS'], ['large-title', 'LARGE_TITLE'], ['bar-band', 'BAR_BAND'], ['pad-bar', 'PAD_BAR'], ['pushed-title', 'PUSHED_TITLE']]) { const plan = env[`TEST_RUNNER_EXACT_${key}_PLAN`] = resolve(fixtureDir, `${name}.plan`); run('cargo', ['run', '-q', '-p', 'contract', '--bin', 'contract', '--manifest-path', resolve(root, 'Cargo.toml'), '--', 'build', resolve(root, `scripts/fixtures/${name}.contract`), '-o', plan]); }
+    compileFixtures(env, fixtureDir, 'TEST_RUNNER_EXACT');
+    // The optional modules tests drive, built for the simulator as a build embeds them and named
+    // to the runner: the WebKit arm, the video arm and the Canvas 2D GPU module. A test without
+    // one is a missing prerequisite, which fails under EXACT_REQUIRED (Coverage.swift).
+    const arm = (name, sources, frameworks) => {
+      const out = resolve(fixtureDir, `lib${name}.dylib`);
+      runApple('xcrun', ['--sdk', 'iphonesimulator', 'swiftc', '-parse-as-library', '-emit-library', '-O', '-module-name', name,
+        '-module-cache-path', resolve(fixtureDir, 'cache'), ...sources, ...frameworks.flatMap(f => ['-framework', f]), '-target', iosTriple, '-o', out]);
+      return out;
+    };
+    env.TEST_RUNNER_EXACT_TEST_WEB_MODULE = arm('ExactWebArm', [resolve(root, 'host/apple/webarm/WebArm.swift'), '-D', 'EXACT_DEVELOPMENT'], ['WebKit']);
+    env.TEST_RUNNER_EXACT_VIDEO_DYLIB = arm('ExactVideoArm', ['VideoArm.swift', 'NowPlaying.swift'].map(f => resolve(root, 'host/apple/videoarm', f)), ['AVKit', 'MediaPlayer']);
+    const modules = resolve(process.env.CARGO_TARGET_DIR ?? resolve(root, 'target'), 'apple-modules');
+    run('cargo', ['build', '--profile', HOST_DEV, '-p', 'exact-canvas-vello', '--lib', '--target', iosTarget, '--target-dir', modules, '--manifest-path', resolve(root, 'Cargo.toml')],
+      { env: { ...cargoEnv, [`CARGO_PROFILE_${HOST_DEV.toUpperCase().replace(/-/g, '_')}_STRIP`]: 'false' } });
+    const canvasGpu = resolve(modules, iosTarget, HOST_DEV, 'libexact_canvas_vello.dylib');
+    if (process.env.EXACT_REQUIRED) env.TEST_RUNNER_EXACT_REQUIRED = process.env.EXACT_REQUIRED;
     const pick = args.includes('--sim') ? args[args.indexOf('--sim') + 1] : process.env.EXACT_SIM;
     const before = simulators();
     const idle = before.filter(d => /SimRuntime\.iOS/.test(d.runtime) && /^iPhone \d+ Pro$/.test(d.name) && d.state !== 'Booted');
@@ -1463,9 +1476,7 @@ async function test(args) {
     try {
       const destination = `platform=iOS Simulator,id=${dev.udid}`, derived = resolve(paths.namespace, 'ios-tests'), xcodeEnv = { ...env, IPHONEOS_DEPLOYMENT_TARGET: '17.0' };
       runApple('xcodebuild', ['build-for-testing', '-scheme', 'Exact', '-destination', destination, '-derivedDataPath', derived], { cwd: pkg, stdio: 'inherit', env: xcodeEnv });
-      // Run the destination's compiled tests, including shared UIKit classes.
-      runApple('xcodebuild', ['test-without-building', '-xctestrun', withoutPerformanceChecker(resolve(derived, 'Build/Products')), '-destination', destination,
-        '-collect-test-diagnostics', 'never', '-parallel-testing-enabled', 'YES', '-parallel-testing-worker-count', '2'], { cwd: pkg, stdio: 'inherit', env: xcodeEnv });
+      iosTestRuns({ pkg, products: resolve(derived, 'Build/Products'), destination, udid: dev.udid, env: xcodeEnv, canvasGpu, hostSource: resolve(root, 'host/apple/testhost/TestHost.swift'), triple: iosTriple, runApple, run });
     } finally { if (bootedHere) read('xcrun', ['simctl', 'shutdown', dev.udid]); }
   } finally { cargoRelease?.(); release(); }
 }

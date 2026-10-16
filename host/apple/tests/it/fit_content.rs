@@ -25,7 +25,7 @@ fn a_fit_content_route_reports_its_rows_and_not_its_box() {
     let src = r##"component Menu
   state rows = [0, 1]
   action more
-    rows = concat(rows, [length(rows)])
+    rows = rows.concat([rows.length])
   view
     column position="relative" width="100%" height="100%"
       column testId="plain" position="absolute" top=0 right=0 bottom=0 left=0
@@ -33,7 +33,7 @@ fn a_fit_content_route_reports_its_rows_and_not_its_box() {
       column testId="sheet" navigationDetent="fit-content" position="absolute" top=0 right=0 bottom=0 left=0 display="flex" flex-direction="column" padding=16
         button press=more testId="more" height=44
           text "More"
-        each i in rows key=i
+        for i in rows key=i
           row height=44
             text `Row ${i}`
 "##;
@@ -119,13 +119,13 @@ fn rows_that_may_shrink_still_grow_the_extent() {
     let src = r##"component Menu
   state rows = [0, 1]
   action more
-    rows = concat(rows, [length(rows)])
+    rows = rows.concat([rows.length])
   view
     column position="relative" width="100%" height="100%"
       column testId="sheet" navigationDetent="fit-content" position="absolute" top=0 right=0 bottom=0 left=0 display="flex" flex-direction="column" padding=16
         button press=more testId="more" height=44
           text "More"
-        each i in rows key=i
+        for i in rows key=i
           row height=44
             text `Row ${i}`
       column testId="grows" navigationDetent="fit-content" position="absolute" top=0 right=0 bottom=0 left=0 display="flex" flex-direction="column"
@@ -239,19 +239,19 @@ fn a_nested_scroller_grows_the_extent_unless_its_height_is_fixed() {
     let src = r##"component Menu
   state rows = [0]
   action more
-    rows = concat(rows, [length(rows)])
+    rows = rows.concat([rows.length])
   view
     column position="relative" width="100%" height="100%"
       button press=more testId="more" height=44
         text "More"
       column testId="flexed" navigationDetent="fit-content" position="absolute" top=44 right=0 bottom=0 left=0
         scroll flex=1 min-height=0
-          each i in rows key=i
+          for i in rows key=i
             row height=44 flex-shrink=0
               text `Row ${i}`
       column testId="fixed" navigationDetent="fit-content" position="absolute" top=44 right=0 bottom=0 left=0
         scroll height=100
-          each i in rows key=i
+          for i in rows key=i
             row height=44 flex-shrink=0
               text `Row ${i}`
 "##;
@@ -480,7 +480,7 @@ fn the_window_is_every_sheets() {
     column position="relative" width="100%" height="100%"
       button press=show testId="show" height=44
         text "Show"
-{}{}      when shown
+{}{}      if shown
         column testId="late" navigationDetent="fit-content" position="absolute" top=0 right=0 bottom=0 left=0
           box height="50vh" flex-shrink=0
 "##,

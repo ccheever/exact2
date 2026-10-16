@@ -2,19 +2,9 @@
 use exact_kernel::MonospaceMeasurer;
 use exact_linux::Host;
 use exact_motion::{HoldEnd, Property, Value};
-use exact_runner::{DataError, DataSource, Event};
+use exact_runner::Event;
 
-struct NoData;
-impl DataSource for NoData {
-    fn query(
-        &mut self,
-        name: &str,
-        _: &[exact_runner::Value],
-    ) -> Result<exact_runner::Value, DataError> {
-        Err(DataError::UnknownSource(name.into()))
-    }
-}
-fn fixture() -> Host<NoData> {
+fn fixture() -> Host<()> {
     let plan = contract::compile(r#"component App
   state target = 0
   state showing = true
@@ -28,13 +18,13 @@ fn fixture() -> Host<NoData> {
         text "retarget"
       button testId="remove" press=remove
         text "remove"
-      when showing
+      if showing
         box testId="row" opacity=(target == 0 ? 1 : 0.25) swiperight=retarget transition="opacity 180ms ease-out, translate -exact-spring(300, 30, 1)"
           text "row"
 "#).unwrap().encode();
     Host::boot(
         &plan,
-        NoData,
+        (),
         Box::new(MonospaceMeasurer::default()),
         400.,
         600.,
@@ -42,7 +32,7 @@ fn fixture() -> Host<NoData> {
     .unwrap()
     .0
 }
-fn view(h: &Host<NoData>, name: &str) -> u32 {
+fn view(h: &Host<()>, name: &str) -> u32 {
     let k = h.kernel();
     k.node_by_key(k.find_by_test_id(name)[0]).unwrap().id
 }
@@ -175,7 +165,7 @@ fn overdue_timers_keep_runner_order_without_rewinding_held_or_unrelated_motion()
     .encode();
     let mut h = Host::boot(
         &plan,
-        NoData,
+        (),
         Box::new(MonospaceMeasurer::default()),
         400.,
         600.,

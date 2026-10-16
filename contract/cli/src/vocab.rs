@@ -318,6 +318,9 @@ fn one_text(name: &str, shown: &mut Vec<&'static str>) -> bool {
         if matches!(name, "intersect" | "intersect-margin") {
             println!("  IntersectionObserver: nearest scroller or viewport, threshold 0; mount and enter/leave. Optional final IntersectionObserverEntry: isIntersecting (bool), intersectionRatio (number). intersect-margin is a literal 1–4 px/% rootMargin, default 0px. Browser executors and shared AppKit/UIKit/Linux layout/scroll delivery; native geometry qualification remains open, see LLP 1001 for geometry deviations (LLP 1005).");
         }
+        if matches!(name, "reachstart" | "reachend") {
+            println!("  {}", vocab::collection_edge_refusal(name));
+        }
         if name == "resize" {
             println!("  given an action, the element resize event: ResizeObserver's, after layout, with the content box's width and height and its `DOMRectReadOnly`");
         }
@@ -485,7 +488,8 @@ fn command_text(name: &str) -> String {
     let what = match name {
         "showNotification" => "; `showNotification(title=…, body=…, tag=…, showTrigger=…, navigate=…)` posts a local notification; its plain click opens `navigate=` through the navigation root (warm event or cold launch location). Needs `device.notifications` (docs/reference.md#notifications)",
         "setRangeText" => "; `setRangeText(id, text[, start, end[, selectionMode]])`: web/macOS/iOS/Linux plain text field replacement; UTF-16 offsets, selectionMode preserve (default), select, start or end; one input (InputEvent.inputType insertReplacementText), no undo step. Markdown, Windows, Android and terminal are not supported yet (LLP 1069.001)",
-        "setRootFontSize" => "; `setRootFontSize(px)` sets CSS's `:root { font-size }`, the size every `rem` follows (px above 0), over the host's own; `setRootFontSize(\"medium\")` hands it back (LLP 1069.000 D3)",
+        "setMode" => "; `setMode(\"dark-style\", \"dim\")` sets one of the window's app modes, an axis of the app's design (`app.tamber`) and one of its values; a subtree pins its own with `-exact-mode` (LLP 1121 D5)",
+        "setRootFontSize" => "; `setRootFontSize(px)` sets CSS's `:root { font-size }`, the size every `rem` follows (px above 0), over the host's own; `setRootFontSize(\"125%\")` sets a percentage of the host's size that keeps following it (Dynamic Type, the browser's setting); `setRootFontSize(\"medium\")` hands it back (LLP 1069.000 D3, LLP 1121 D6)",
         _ => "",
     };
     format!("host command, an action statement (docs/contract-grammar.md#host-commands){what}")
@@ -519,6 +523,8 @@ fn prop_type(p: PropId) -> String {
 /// What `metadata=` takes (LLP 1098 D1): the Media Session's record.
 const METADATA: &str = "MediaMetadata(title=, artist=, album=, artwork=), each a string";
 
+/// `border-radius` on a sheet route (ModalIOS.swift `cornerRadius(of:)`).
+const SHEET_RADIUS: &str = "on iOS a sheet route's (`navigationPresentation=\"modal\"`) top-left radius is also its sheet's corner radius (`preferredCornerRadius`), which seats a large sheet flat on the bottom edge. Unsaid, the sheet is UIKit's: on iOS 26 and later rounded like the display and inset from the bottom edge, as Apple's own sheets are";
 const APPEARANCE: &str = "Explicit none on a header or root tablist keeps the authored bar; on a header button it keeps only that button authored in place while the rest of the header projects. A title button keeps its contents; an authored Back replaces UIKit Back. Search or a header tablist can opt out on that element; a tab button alone keeps its parent segmented. Tabs retain their panels and navigation stacks. Auto restores platform projection.";
 
 /// Where an attribute is admitted, if not on every tag.
@@ -605,8 +611,14 @@ fn attr_json(name: &str, a: &AttrTarget) -> Value {
     if name == "appearance" {
         doc["note"] = APPEARANCE.into();
     }
+    if name == "border-radius" {
+        doc["note"] = SHEET_RADIUS.into();
+    }
     if name == "transform" {
         doc["note"] = vocab::BOX_TRANSFORM_REFUSAL.into();
+    }
+    if matches!(name, "reachstart" | "reachend") {
+        doc["note"] = vocab::collection_edge_refusal(name).into();
     }
     doc
 }
@@ -700,6 +712,9 @@ fn attr_detail(name: &str, a: &AttrTarget) -> Vec<String> {
             }
             if name == "appearance" {
                 lines.push(APPEARANCE.into());
+            }
+            if name == "border-radius" {
+                lines.push(SHEET_RADIUS.into());
             }
             if name == "transform" {
                 lines.push(vocab::BOX_TRANSFORM_REFUSAL.into());

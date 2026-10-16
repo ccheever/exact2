@@ -102,7 +102,7 @@ impl Parser {
         let span = self.expect_word("task")?;
         let name = self.named_ident(span)?;
         // @ref LLP 1092 D7 — `mount`, or a gate: `when cond [key=expr]`, or
-        // `key=expr` alone (`when true`), spelled as `each` spells its key.
+        // `key=expr` alone (`when true`), spelled as `for` spells its key.
         let (mut gate, mut key) = (None, None);
         if self.at_ident("when") {
             self.next();

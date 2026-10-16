@@ -40,8 +40,8 @@ function splitOf([r]) {
   splitRoots.add(r); return parseFloat(said) > 0 ? parseFloat(said) : 320;
 }
 /** Whether a root's tablist is a bar whose placement the app left unsaid, read while the root is not yet a sidebar. */
-const unsaidBar = (nav, list) => list?.parentElement === nav && getComputedStyle(list).appearance !== "none" && list.getAttribute("aria-orientation") !== "vertical" && (nav.hasAttribute("data-exact-sidebar")
-  || (([n, l]) => /flex/.test(n.display) && n.flexDirection.startsWith("column") && /^(static|relative)$/.test(l.position) && l.flexDirection.startsWith("row"))([getComputedStyle(nav), getComputedStyle(list)]));
+const unsaidBar = (nav, list) => list?.parentElement === nav && getComputedStyle(list).appearance !== "none" && list.getAttribute("aria-orientation") !== "vertical"
+  && (([n, l]) => /flex/.test(n.display) && n.flexDirection.startsWith("column") && /^(static|relative)$/.test(l.position) && l.flexDirection.startsWith("row"))([getComputedStyle(nav), getComputedStyle(list)]);
 /** Routes and panels excluded from input or document fields. Only input keeps a visible split list live. */
 function unselectedWithin(nav, keepList) {
   const key = nav.getAttribute("navigationKey"), panels = panelsOf(nav), stacks = panels.length ? panels.map(routesIn) : [routesIn(nav)];
@@ -278,6 +278,7 @@ export const navigation = {
   project(root, log) {
     for (const nav of root.querySelectorAll("[navigationBack]")) {
       let key = nav.getAttribute("navigationKey"), [list, panels] = tabsOf(nav);
+      nav.removeAttribute("data-exact-sidebar"); // Read authored placement, including changes on retained nodes.
       nav.toggleAttribute("data-exact-sidebar", wide() && unsaidBar(nav, list));
       for (const panel of managed.get(nav) ?? []) {
         if (!panels.includes(panel)) { panel.style.visibility = ""; panel.inert = !!panel.authoredInert; }
@@ -791,8 +792,8 @@ export function foldEnv() {
   const f = fold();
   return { "device-posture": f.posture, "horizontal-viewport-segments": f.cols, "vertical-viewport-segments": f.rows, "viewport-segments": f.rects.map((r) => r.map(r2)) };
 }
-/** The fold as `exact_resize`'s facts word carries it beside the preference bits (LLP 1078 D6): bit 8 `folded`, bits 9–16 the columns, 17–24 the rows. Bit 25 is the page's look (LLP 1115.000 D4 part B): set where its stylesheet is the neutral one, which says so on the root (`--exact-look`, neutral.css), so the wasm page's kernel shows the role table's neutral column. */
-let neutralLook; export function foldBits() { const f = fold(); return (f.posture === "folded" ? 256 : 0) | ((f.cols & 255) << 9) | ((f.rows & 255) << 17) | ((neutralLook ??= getComputedStyle(document.documentElement).getPropertyValue("--exact-look").trim() === "neutral") ? 1 << 25 : 0); }
+/** The fold as `exact_resize`'s facts word carries it beside the preference bits (LLP 1078 D6): bit 8 `folded`, bits 9–16 the columns, 17–24 the rows. Bit 25 is reserved. */
+export function foldBits() { const f = fold(); return (f.posture === "folded" ? 256 : 0) | ((f.cols & 255) << 9) | ((f.rows & 255) << 17); }
 export function onFold(changed) {
   globalThis.navigator?.devicePosture?.addEventListener?.("change", changed);
   addEventListener("resize", changed);
@@ -857,22 +858,22 @@ export function pageReporter(agent, platform = globalThis) {
       else throw new Error(`prefer: ${name}: ${value} is not a page fact this host sets`);
     }
     Object.assign(facts, next);
-    if (page?.["root-font-size"] !== undefined) platform.document.documentElement.style.fontSize = `${facts["root-font-size"]}px`;
+    if (page?.["root-font-size"] !== undefined) { const { style } = platform.document.documentElement; style.fontSize = `${facts["root-font-size"]}px`; style.setProperty("--exact-host-font-size", style.fontSize); } // the size an app's percentage is of
   };
   const onChange = (changed) => { if (agent) return; platform.document.addEventListener("visibilitychange", changed); for (const name of ["online", "offline", "focus", "blur"]) platform.addEventListener(name, changed); };
   return { bits, read: () => ({ ...read(), "root-font-size": rootFontSize(), "display-scale": displayScale() }), prefer, onChange, rootFontSize, displayScale };
 }
-// @ref LLP 1069.000 D3 — the app's `setRootFontSize(px)`: `:root { font-size: <px> !important }`, an author rule over
-// the root element's own size (the browser's setting, or the agent's `prefer root-font-size`), which can change beneath
-// it; `"medium"` removes the rule. The wasm runner checked the value; the JS target checks it here.
-const APP_ROOT = "exact-root-font-size";
+// @ref LLP 1069.000 D3, LLP 1121 D6 — the app's `setRootFontSize(px)`: `:root { font-size: <px> !important }`, an author rule over the root element's own size (the browser's setting, or the agent's
+// `prefer root-font-size`), which can change beneath it; a percentage is a share of that size which follows it (CSS's `125%` of `medium`, or of the agent's substitute); `"medium"` removes the rule. The wasm runner checked the value; the JS target checks it here, by the runner's grammar (exact_num's `css_percent`) and its share, `host * ratio` as an f32 above 0.
+const APP_ROOT = "exact-root-font-size", PERCENT = /^[+-]?(\d+|\d*\.\d+)(e[+-]?\d+)?%$/i;
 export function appRootFontSize(value, say, platform = globalThis) {
-  const doc = platform.document;
+  const doc = platform.document, host = platform.getComputedStyle ? beneathApp(platform, () => parseFloat(platform.getComputedStyle(doc.documentElement).fontSize) || 16) : 16;
   let rule = doc.getElementById(APP_ROOT);
   if (value === "medium") return void rule?.remove();
-  if (typeof value !== "number" || !(Math.fround(value) > 0) || !Number.isFinite(Math.fround(value))) return say?.(`setRootFontSize(${JSON.stringify(value) ?? ""}) refused: the root font size is a number of px above 0, or "medium"`);
+  const ratio = typeof value === "string" && PERCENT.test(value) ? parseFloat(value) / 100 : NaN, share = Math.fround(host * ratio), px = typeof value === "number" && Math.fround(value) > 0 && Number.isFinite(Math.fround(value));
+  if (!px && !(share > 0 && Number.isFinite(share))) return say?.(`setRootFontSize(${JSON.stringify(value) ?? ""}) refused: the root font size is a number of px above 0, a percentage of the host's above 0 ("125%"), or "medium"`);
   if (!rule) { rule = doc.createElement("style"); rule.id = APP_ROOT; doc.head.append(rule); }
-  rule.textContent = `:root{font-size:${value}px!important}`;
+  rule.textContent = px ? `:root{font-size:${value}px!important}` : `:root{font-size:calc(var(--exact-host-font-size, 100%) * ${ratio})!important}`;
 }
 // @ref LLP 1116.001 D1.4 — `-exact-fit: shrink`. The browser lays the page out, so it picks the scale the kernel would,
 // by the kernel's rule (kernel/src/ layout/fit.rs): the text's min-content width against its room, down to half its
@@ -962,7 +963,6 @@ export function launchLocation(platform = globalThis) {
 const launched = () => new URL(globalThis.performance?.getEntriesByType?.('navigation')[0]?.name ?? location.href).searchParams;
 let pageTime;
 export const reportTime = (elapsed) => (pageTime ??= timeReporter(launched()))(elapsed);
-
 let pagePlace;
 export function reportPlace() {
   pagePlace ??= placeReporter(launched());
@@ -1340,8 +1340,7 @@ const sourceTuple = source => {
   if (capability === 'storage.kv') return ['storage-kv', target];
   return null;
 };
-const exactOnly = source => source.startsWith('#') || source.startsWith('surface.read ')
-  || source.startsWith('surface.write ') || source.startsWith('device.') || source.startsWith('auth.');
+const exactOnly = source => /^(#|surface\.read |surface\.write |device\.|runtime\.|auth\.)/.test(source);
 const entryMatchesSource = ([, source, grant, error]) => {
   if (grant === null) return error !== null || exactOnly(source);
   return error === null && JSON.stringify(sourceTuple(source)) === JSON.stringify(grant);

@@ -470,6 +470,7 @@ final class TextGeometryTests: XCTestCase {
         node.style = ["font_size": 16.0, "line_height": "20px", "padding_left": 8.0,
                       "padding_right": 12.0, "padding_top": 11.0, "padding_bottom": 7.0,
                       "border_width": 2.0]
+        node.applyContentBox(padding: [11, 12, 7, 8], border: [2, 2, 2, 2])
         func breaks(_ paragraph: Paragraph) -> [Int] {
             paragraph.lines.map { CTLineGetStringRange($0).length }
         }
@@ -478,12 +479,15 @@ final class TextGeometryTests: XCTestCase {
         XCTAssertEqual(breaks(first), breaks(session.text.paragraph(node.paragraphSpec(), width: 276)))
         // The outer frame is unchanged; the cache must still use the new content width.
         node.style["padding_left"] = 24.0
+        node.applyContentBox(padding: [11, 12, 7, 24], border: [2, 2, 2, 2])
         let changed = try XCTUnwrap(node.paragraphLayout())
         XCTAssertFalse(first === changed)
         XCTAssertEqual(breaks(changed), breaks(session.text.paragraph(node.paragraphSpec(), width: 260)))
         node.style["padding_left"] = 8.0
+        node.applyContentBox(padding: [11, 12, 7, 8], border: [2, 2, 2, 2])
         XCTAssertEqual(breaks(try XCTUnwrap(node.paragraphLayout())), breaks(first))
         node.style = ["font_size": 16.0, "line_height": "20px"]
+        node.applyFieldContent(["rect": NSNull()])
         XCTAssertEqual(breaks(try XCTUnwrap(node.paragraphLayout())),
                        breaks(session.text.paragraph(node.paragraphSpec(), width: 300)))
     }
@@ -541,6 +545,7 @@ final class TextGeometryTests: XCTestCase {
             node.style = ["font_size": 16.0, "line_height": "20px", "text_align": .string(alignment),
                           "padding_left": 20.0, "padding_top": 25.0, "padding_right": 30.0,
                           "border_width": 2.0, "white_space": "pre-wrap"]
+            node.applyContentBox(padding: [25, 30, 0, 20], border: [2, 2, 2, 2])
             node.invalidateText()
             let paragraph = try XCTUnwrap(node.paragraphLayout())
             let line = paragraph.lines[1]

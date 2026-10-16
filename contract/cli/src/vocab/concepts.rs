@@ -1,8 +1,8 @@
 //! The concepts `contract vocab` answers with a whole idiom (LLP 1116.004
 //! D5.1): scrolling to a place, loading before data, a count's plural, a
 //! choice of one value, a modal, the date, a kept setting, swipe actions, a
-//! confirmation, and the grammar's words (`task`, `send`, `match`, `each`,
-//! `when`, `let`, `fn`, `shape`, `props`, `derive`, `action`, `resource`,
+//! confirmation, and the grammar's words (`task`, `send`, `match`, `for`,
+//! `if`, `let`, `fn`, `shape`, `props`, `derive`, `action`, `resource`,
 //! `mutation`, `stepper`; LLP 1116.007 D1). Builders who found no recipe read
 //! `contract-grammar` for these; one lookup now holds the repair. The entries
 //! are `concepts.md`'s sections, data rather than code, so a new concept is

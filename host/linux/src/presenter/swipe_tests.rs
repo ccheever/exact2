@@ -2,17 +2,6 @@ use super::*;
 use exact_motion::{HoldEnd, Property, Value};
 use exact_runner::DataError;
 
-#[derive(Default)]
-struct NoData;
-impl DataSource for NoData {
-    fn query(
-        &mut self,
-        name: &str,
-        _: &[exact_runner::Value],
-    ) -> Result<exact_runner::Value, DataError> {
-        Err(DataError::UnknownSource(name.into()))
-    }
-}
 fn source() -> String {
     r#"component App
   state count = 0
@@ -27,7 +16,7 @@ fn source() -> String {
     showing = true
   view
     column width=400 height=500
-      when showing
+      if showing
         box testId="row" width=400 height=100 swiperight=reply touch-action="pan-y" opacity=(target == 0 ? 1 : 0.25) transition="translate -exact-spring(300, 30, 1)"
           box testId="indicator" swipeIndicator=true opacity=0 scale=0 transition="opacity 100ms ease-out, scale 100ms ease-out" width=10 height=10
           text "swipe me" testId="label"
@@ -38,10 +27,10 @@ fn source() -> String {
       text `${count}` testId="count"
 "#.into()
 }
-fn boot(src: &str) -> Presenter<NoData> {
+fn boot(src: &str) -> Presenter<()> {
     let (p, error) = Presenter::boot_with(
-        &contract::compile(src).unwrap().encode(),
-        NoData,
+        &crate::test_plan(src),
+        (),
         (400., 500.),
         1.,
         PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
@@ -51,11 +40,11 @@ fn boot(src: &str) -> Presenter<NoData> {
     assert!(error.is_none(), "{error:?}");
     p
 }
-fn id(p: &Presenter<NoData>, name: &str) -> ViewId {
+fn id(p: &Presenter<()>, name: &str) -> ViewId {
     let k = p.host.kernel();
     k.node_by_key(k.find_by_test_id(name)[0]).unwrap().id
 }
-fn count(p: &Presenter<NoData>) -> &str {
+fn count(p: &Presenter<()>) -> &str {
     p.host
         .kernel()
         .node(id(p, "count"))
@@ -64,7 +53,7 @@ fn count(p: &Presenter<NoData>) -> &str {
         .str(PropId::Text)
         .unwrap()
 }
-fn recognize(p: &mut Presenter<NoData>) {
+fn recognize(p: &mut Presenter<()>) {
     assert!(p.pointer_down(20., 40., 0.).unwrap());
     assert!(p.pointer_move(30., 40., 10.).unwrap());
 }
@@ -192,8 +181,7 @@ fn deletion_remount_and_runtime_replacement_cannot_receive_old_release() {
         .unwrap()
         .primary
         .token;
-    p.reload(&contract::compile(&src).unwrap().encode(), NoData)
-        .unwrap();
+    p.reload(&crate::test_plan(&src), ()).unwrap();
     assert!(!p.host.hold_update(token, Value::ZERO, f64::NAN).unwrap());
     assert!(!p.pointer_up(150., 40., 200.).unwrap());
     assert_eq!(count(&p), "0");
@@ -499,7 +487,7 @@ component App
   state showing = true
   state replying = ""
   state draft = ""
-  resource rows = rows(revision, changed) as shape list<Message>
+  resource rows = rows(revision, changed) as shape Message[]
   action body
     revision = revision + 1
   action curry
@@ -531,7 +519,7 @@ component App
       text replying testId="replying" height=20
       view id="owner" width=360.25 height=200.5 overflow-x="hidden" overflow-y="hidden"
         list id="content" testId="transcript" virtualized=true width=360.25 height=200.5 padding-left=1.3 border-width=0.7 border-style="solid" box-sizing="border-box"
-          each m in rows key=m.rowKey
+          for m in rows key=m.rowKey
             column width="100%" padding=5.3 disabled=disabled display=(showing ? "flex" : "none")
               box testId=`reply-hit-${{m.id}}` swiperight=replyTo(m.id) touch-action="pan-y" retainFocus=true transition="translate -exact-spring(300, 30, 1)" width="100%" padding=0 border-width=0 background-color="#00000000" text-align="left"
                 MessageBubble(message=m)
@@ -779,7 +767,7 @@ component MessageBubble
     fn budget_source() -> &'static str {
         r##"component App
   state replying = ""
-  resource extras = extras() as shape list<string>
+  resource extras = extras() as shape string[]
   action replyTo(id: string)
     replying = id
   view
@@ -787,7 +775,7 @@ component MessageBubble
       scroll id="content" width=400 height=500
         column
           text "one complete paragraph"
-          each value in extras key=value
+          for value in extras key=value
             box width=1 height=1 press=replyTo(value)
       text "Preparing" id="pending"
 "##
@@ -930,9 +918,7 @@ component MessageBubble
         let before = clocks(&p);
         // Existing region sessions explicitly refuse in-place reload; do not
         // invent a carrier policy or weaken that refusal for this adapter.
-        assert!(p
-            .reload(&contract::compile(&src).unwrap().encode(), Rows::default())
-            .is_err());
+        assert!(p.reload(&crate::test_plan(&src), Rows::default()).is_err());
         assert_eq!(clocks(&p), before);
         p.pointer_cancel(20.).unwrap();
         assert!(!p.host.has_hold(token));
@@ -961,10 +947,10 @@ component MessageBubble
         let _service = crate::content_region::test_service();
         let src = source().replace("  action hide", "  action show\n    showing = true\n  action hide")
             .replace("      input value=draft", "      button press=show testId=\"show\" height=20\n        text \"Show\"\n      input value=draft")
-            .replace("  resource rows = rows(revision, changed) as shape list<Message>", "  resource rows = rows(revision, changed) as shape list<Message>\n  resource emptyRows = extras() as shape list<Message>")
-            .replace("each m in rows key=m.rowKey", "each m in (showing ? rows : emptyRows) key=m.rowKey");
+            .replace("  resource rows = rows(revision, changed) as shape Message[]", "  resource rows = rows(revision, changed) as shape Message[]\n  resource emptyRows = extras() as shape Message[]")
+            .replace("for m in rows key=m.rowKey", "for m in (showing ? rows : emptyRows) key=m.rowKey");
         // Default Rows has an empty extras list. The typed conditional removes
-        // actual keyed rows while keeping the required direct each and handlers.
+        // actual keyed rows while keeping the required direct `for` and handlers.
         let mut p = boot(&src, true, Rows::default());
         let row = id(&p, "reply-message-0");
         let at = point(&mut p, row);

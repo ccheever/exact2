@@ -20,7 +20,7 @@ component FocusBubble
     column testId="root" gap=8 padding=8
       input id="before" testId="before"
       column id="wrapper" focusin=entered focusout=left testId="wrapper"
-        when showA
+        if showA
           input id="a" key=removeA testId="a"
         input id="b" testId="b"
       input id="after" testId="after"
