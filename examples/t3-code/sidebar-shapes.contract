@@ -119,6 +119,7 @@ shape Thread
   regenerating: bool
   label: string
   hoverKey: string
+  rowKey: string // the thread with its environment, kept when the window moves there (sidebar-view.ts scopedRowKey)
   glyph: ProjectGlyph
   idleRecede: bool
   idleTitleColor: string
@@ -184,6 +185,7 @@ shape SidebarView
   scopeFirst: string
   renameId: string
   renameTitle: string
+  renameHeld: bool // a double-click's rename waits for its row's environment (sidebar-rename-wait.ts)
   selectionCount: number
   undoText: string
   undoLabel: string

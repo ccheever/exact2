@@ -782,7 +782,7 @@ component T3Code
           focus("app-confirm-cancel")
         if result.message == "terminal:focus-composer"
           focus("composer")
-        if result.message.startsWith("focus:") and (result.message != "focus:composer" or (data.sidebar.renameId == "" and renameAfterOp == "")) // an opening rename owns focus over its row's late thread-open result
+        if result.message.startsWith("focus:") and (result.message != "focus:composer" or (data.sidebar.renameId == "" and renameAfterOp == "" and not data.sidebar.renameHeld)) // an opening rename owns focus over its row's late thread-open result
           focus(result.message.slice(6))
         if result.message.startsWith("sidebar:pr-page:") // with no thread open, the pull request on the Pull Requests page (before any branch below sets utilityPage: openPage reads it)
           openPage("pull-requests")

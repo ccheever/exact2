@@ -16,7 +16,8 @@ import { applyDeviceSetting } from './settings-core';
 import { archive, deleteThreads, markUnread, remember, rename } from './sidebar-commands';
 import { buildMultiSelectThreadContextMenuItems, clampSidebarThreadPreviewCount, legacyProjectMenuItems, legacyThreadMenuItems, memberActionLabel, resolveProjectExpanded } from './legacy-sidebar-model';
 import { emptyDialog, expansionKeys, legacyGroups, legacySession, previewCount, sortedGroups, type LegacyGroup } from './legacy-sidebar-view';
-import { openBranchDraft, openRowPullRequest, rowIdNow, rowThread } from './legacy-sidebar-links';
+import { openBranchDraft, openRowPullRequest, rowThread } from './legacy-sidebar-links';
+import { startRename } from './sidebar-rename-wait';
 import { openRowPort } from './legacy-sidebar-ports';
 import { archiveBackground, backgroundProjectThreads, backgroundRef, backgroundThreadPath, forgetBackgroundDrafts, isBackground, markUnreadBackground,
   openBackgroundDraft, renameBackground, writeBackgroundProject } from './legacy-sidebar-fleet';
@@ -57,12 +58,7 @@ export function legacyLocal(client: T3Client, op: string, id: string, value: str
   else if (op === 'dialog-close') session.dialog = emptyDialog();
   else if (op === 'dialog-grouping') { if (['inherit', 'repository', 'repository_path', 'separate'].includes(value)) session.dialog = { ...session.dialog, grouping: value }; }
   else if (op === 'dialog-title') session.dialog = { ...session.dialog, title: value };
-  else if (op === 'rename-start') {
-    // startThreadRename on any row, a background environment's included (sidebar-commands' own reads the focused shell).
-    id = rowIdNow(client, id); // a double-click's rename starts once its first click's open has landed (app.contract)
-    const thread = threadOf(client, id), rename = sidebarSession(client);
-    if (thread && rename.renameId !== id) { rename.renameId = id; rename.renameTitle = str(thread.title); }
-  }
+  else if (op === 'rename-start') startRename(client, id); // any row, a background environment's included (sidebar-rename-wait.ts)
   else throw new ClientError(`Unknown sidebar action: legacy-${op}`);
   return '';
 }
