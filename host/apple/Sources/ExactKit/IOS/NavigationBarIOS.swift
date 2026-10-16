@@ -50,6 +50,10 @@ struct HeaderShape: Equatable {
         /// A native button's prominent style: a prominent bar item (iOS 26),
         /// as LLP 1069.011.000 D2 maps `NSToolbarItem`.
         let prominent: Bool
+        /// A native button's `glass` or `clear-glass` style: a glass capsule
+        /// of its own, not the one iOS 26 shares among adjacent items
+        /// (`sharesBackground`). A bar item has no clear variant.
+        let ownGlass: Bool
         /// The colour the author gave the item's face, light and dark: a
         /// symbol's tint, else a `color` written on the button itself. Nil
         /// (UIKit's tint, the platform default) for a colour the button
@@ -85,6 +89,7 @@ struct HeaderShape: Equatable {
             disabled = button.disabled
             accessibilityDisabled = button.ariaUnavailable
             prominent = ["filled", "bordered-prominent", "prominent-glass", "prominent-clear-glass"].contains(face?.style ?? "")
+            ownGlass = ["glass", "clear-glass"].contains(face?.style ?? "")
             // The platform's tint unless the author said otherwise (LLP
             // 1115.000 D2): a tint written on the symbol, else a `color`
             // written on the button, a platform colour as much as a literal.
@@ -98,7 +103,7 @@ struct HeaderShape: Equatable {
             }
         }
         /// Everything a bar item is made from.
-        var source: String { "\(id):\(title):\(symbol ?? ""):\(label ?? ""):\(disabled):\(accessibilityDisabled):\(prominent):\(badge?.source ?? ""):\(menu):\(menuTitle):\(tint ?? []):\(testId ?? "")" }
+        var source: String { "\(id):\(title):\(symbol ?? ""):\(label ?? ""):\(disabled):\(accessibilityDisabled):\(prominent):\(ownGlass):\(badge?.source ?? ""):\(menu):\(menuTitle):\(tint ?? []):\(testId ?? "")" }
     }
     let header: NodeView
     let title: String
@@ -974,6 +979,7 @@ extension NavigationHost {
             // A drawn face is its own shape: no glass capsule around it.
             #if !os(tvOS)
             if i.badge != nil { item.hidesSharedBackground = true }
+            else if i.ownGlass { item.sharesBackground = false }
             #endif
         }
         return item

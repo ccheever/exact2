@@ -1656,7 +1656,10 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   of the header still projects. A title button keeps its contents; an authored Back
   replaces UIKit’s Back. Search or a header tablist can opt out on that element
   (a tab button alone does not opt its parent out of segments). Tabs retain their
-  panels and stacks; other styling alone does not opt a header out.
+  panels and stacks; other styling alone does not opt a header out. On iOS 26 and
+  later neighbouring bar items share one glass capsule, as UIKit groups them;
+  `buttonStyle="glass"` on a header button gives that item a capsule of its own
+  (`sharesBackground = false`).
 - Each tab names its panel with `aria-controls`; the panels are the stacks, and every
   tab's stack stays mounted, so a pushed screen, a draft and a scroll offset survive
   a visit to another tab. A tab is `select(nav, name)`; selecting the shown tab
