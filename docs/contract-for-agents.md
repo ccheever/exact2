@@ -1754,9 +1754,13 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   false, reason: "transition"` says it had not. `--timing platform` leaves that to
   `clock settle`.
 - A sheet's heights are `navigationDetent`, space-separated words: `large`,
-  `medium`, a point height or `fit-content` (the route's content height; a menu or
-  a short dialog), which goes alone or as `"fit-content large"`. A literal with
-  another word is refused. `fit-content` measures the route laid out alone, its
+  `medium`, a point height, a percentage of the sheet's maximum height (`"45%"`,
+  React Native's `sheetAllowedDetents: [0.45]`; above 0% and at most 100%) or
+  `fit-content` (the route's content height; a menu or
+  a short dialog), which goes alone or as `"fit-content large"`. Write a share of
+  the screen as a percentage, never points computed from a measure. A literal with
+  another word is refused; a bound one iOS cannot use is journaled (`logs`) with
+  the route, and the sheet keeps its other detents or opens `large`. `fit-content` measures the route laid out alone, its
   height left to its children, so nothing sized from the sheet counts; on iOS every
   viewport unit (`vw`, `vh`, `vmin`, `vmax`, and kin) is the window's in every sheet, never the
   sheet's, so `min-height: 100vh` opens the sheet at its maximum; a route

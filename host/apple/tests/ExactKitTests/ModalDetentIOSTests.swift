@@ -33,6 +33,29 @@ final class ModalDetentIOSTests: XCTestCase {
         XCTAssertTrue(ModalHost.detents(nil) { nil }.isEmpty)
     }
 
+    /// LLP 1075.003 §9.13: a percentage is that share of UIKit's maximum
+    /// detent value, as RN's `sheetAllowedDetents: [0.45]` is.
+    func testAPercentageIsAShareOfTheMaximum() {
+        let detents = ModalHost.detents("45% 100% large") { nil }
+        XCTAssertEqual(detents.map(\.identifier.rawValue), ["authored-0", "authored-1", UISheetPresentationController.Detent.Identifier.large.rawValue])
+        XCTAssertEqual(detents[0].resolvedValue(in: Context(700)), 315)
+        XCTAssertEqual(detents[0].resolvedValue(in: Context(600)), 270, "read at each resolution, as the maximum changes")
+        XCTAssertEqual(detents[1].resolvedValue(in: Context(700)), 700)
+    }
+
+    /// A bound value can carry what the compiler refuses in a literal; the
+    /// words that name no detent are handed back for the journal, and the
+    /// line names the value, the route and what the sheet uses.
+    func testWordsThatNameNoDetentAreRefusedAloud() {
+        var refused: [Substring] = []
+        let detents = ModalHost.detents("0 -4 NaN nan inf 0% 150% x% 300 large", refused: { refused.append($0) }) { nil }
+        XCTAssertEqual(refused, ["0", "-4", "NaN", "nan", "inf", "0%", "150%", "x%"])
+        XCTAssertEqual(detents.count, 2)
+        XCTAssertEqual(
+            ModalHost.refusal(detent: "-12", words: ["-12"], route: "3", kept: false),
+            "navigationDetent \"-12\" on route \"3\": \"-12\" is not large, medium, fit-content, a positive point height or a percentage above 0% and at most 100%; the sheet uses the platform's large detent")
+    }
+
     func testFitContentIsTheContentHeightWithinTheMaximum() {
         var content: CGFloat? = 180.4
         let detent = ModalHost.detents("fit-content") { content }[0]

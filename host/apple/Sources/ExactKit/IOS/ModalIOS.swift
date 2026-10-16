@@ -65,8 +65,10 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
             // several (`"300 large"`, LLP 1075.003 from James's review) make
             // the sheet resizable among them, from the first, with its grabber.
             if newDetents {
-                let detents = ModalHost.detents(value, content: content)
+                var refused: [Substring] = []
+                let detents = ModalHost.detents(value, refused: { refused.append($0) }, content: content)
                 sheet.detents = detents.isEmpty ? [.large()] : detents
+                if !refused.isEmpty, let route = self.route { self.host?.presenter.session?.log(ModalHost.refusal(detent: value ?? "", words: refused, route: route.props["navigationKey"] ?? "", kept: !detents.isEmpty)) }
                 sheet.selectedDetentIdentifier = sheet.detents.first?.identifier
             }
             // `navigationGrabber` says; unsaid, a sheet that resizes has
@@ -305,10 +307,11 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     init(presenter: Presenter) { self.presenter = presenter }
 
     #if os(iOS)
-    /// A `navigationDetent`'s words as UIKit detents, in order; an unknown
-    /// word is skipped. `content` is the route's laid-out content height,
+    /// A `navigationDetent`'s words as UIKit detents, in order; a word that
+    /// names none (a bound value the compiler did not see) is skipped and
+    /// handed to `refused`. `content` is the route's laid-out content height,
     /// nil or zero before it is measured.
-    static func detents(_ value: String?, content: @escaping () -> CGFloat?) -> [UISheetPresentationController.Detent] {
+    static func detents(_ value: String?, refused: ((Substring) -> Void)? = nil, content: @escaping () -> CGFloat?) -> [UISheetPresentationController.Detent] {
         (value ?? "").split(separator: " ").enumerated().compactMap { index, word in
             switch word {
             case "large": return .large()
@@ -321,11 +324,23 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
                     guard let height = content(), height > 0 else { return context.maximumDetentValue }
                     return min(height.rounded(.up), context.maximumDetentValue)
                 }
+            case _ where word.hasSuffix("%"):
+                // @ref LLP 1075.003 §9.13 — a share of the sheet's maximum,
+                // as `.custom { $0.maximumDetentValue * 0.45 }` is in UIKit.
+                guard let share = Double(word.dropLast()), share.isFinite, share > 0, share <= 100 else { refused?(word); return nil }
+                return .custom(identifier: .init("authored-\(index)")) { context in context.maximumDetentValue * CGFloat(share) / 100 }
             default:
-                guard let height = Double(word), height.isFinite, height > 0 else { return nil }
+                guard let height = Double(word), height.isFinite, height > 0 else { refused?(word); return nil }
                 return .custom(identifier: .init("authored-\(index)")) { context in min(CGFloat(height), context.maximumDetentValue) }
             }
         }
+    }
+
+    /// The journal's line for a bound `navigationDetent` with words that name
+    /// no detent: the value, the route, and what the sheet uses instead.
+    static func refusal(detent value: String, words: [Substring], route: String, kept: Bool) -> String {
+        let named = words.map { "\"\($0)\"" }.joined(separator: ", ")
+        return "navigationDetent \"\(value)\" on route \"\(route)\": \(named) is not large, medium, fit-content, a positive point height or a percentage above 0% and at most 100%; the sheet uses \(kept ? "its other detents" : "the platform's large detent")"
     }
     #endif
 

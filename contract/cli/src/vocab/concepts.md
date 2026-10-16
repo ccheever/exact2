@@ -267,7 +267,7 @@ component App
 ```
 
 - In tests, `clock settle` after the push and after Save. A sheet's height:
-  `navigationDetent="medium"` (or `"fit-content"`).
+  `navigationDetent="medium"` (or `"fit-content"`, or `"45%"` of the sheet's maximum).
 
 More: docs/recipes/navigation-stack.md (a list, its detail, a create sheet, a delete alert)
 

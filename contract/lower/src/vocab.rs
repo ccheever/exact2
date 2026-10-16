@@ -15,7 +15,7 @@ use exact_kernel::{PropId, StyleCodec, StyleId};
 /// A prop's literal value grammar, shared by its refusal and `contract vocab`.
 pub fn accepts(prop: PropId) -> Option<&'static str> {
     match prop {
-        PropId::NavigationDetent => Some("space-separated large, medium, or finite positive point heights; fit-content alone or as fit-content large"),
+        PropId::NavigationDetent => Some("space-separated large, medium, finite positive point heights, or percentages of the sheet's maximum height above 0% and at most 100%; fit-content alone or as fit-content large"),
         _ => None,
     }
 }

@@ -1247,7 +1247,8 @@ and browser history.
 
 A row with `navigationPresentation="modal"` is a sheet on iOS; `navigationDetent`
 sets its resting heights, space-separated: `large` (the default), `medium`, a
-point height (`"300"`), or `fit-content`, the route's content height, which
+point height (`"300"`), a percentage of the sheet's tallest (`"45%"`, above 0%
+and at most 100%), or `fit-content`, the route's content height, which
 follows the content as rows arrive or text wraps. A point height and
 `fit-content` stop at the sheet's tallest and leave out the bottom safe area,
 which UIKit adds below; so under `viewport-fit="cover"` a route that pads

@@ -333,6 +333,9 @@ fn one_text(name: &str, shown: &mut Vec<&'static str>) -> bool {
         if name == "navigationBar" {
             println!("  on a route (LLP 1115.000 D5.2). \"none\": the screen has no navigation bar on iOS, a full-bleed screen that draws its own chrome and way back (a photo viewer, a header laid out by hand); its `header` paints as written and the edge swipe still goes back. \"auto\", the default, is the platform's bar: the route's `header` when it is one (`contract vocab header`), else the system Back button alone on a pushed route, and no bar on a stack's first route. A `navigationBack` control drawn in a pushed route's page without it is a second Back (warning `lower-back-twice`). On the navigation root or off a route it is refused. docs/recipes/navigation-stack.md");
         }
+        if name == "navigationDetent" {
+            println!("  {DETENT}");
+        }
         if name == "navigationGrabber" {
             println!("  on a sheet route (`navigationPresentation=\"modal\"`). \"visible\" shows the sheet's grabber, the short bar at its top edge, \"hidden\" hides it; \"auto\", the default, is the platform's: iOS shows one on a sheet with several detents (`navigationDetent=\"medium large\"`), which the grabber resizes, and none on a sheet of one height. UIKit's `prefersGrabberVisible`. Draw no grabber of your own: say this. Hosts whose sheets have none ignore it");
         }
@@ -528,6 +531,7 @@ const METADATA: &str = "MediaMetadata(title=, artist=, album=, artwork=), each a
 
 /// `border-radius` on a sheet route (ModalIOS.swift `cornerRadius(of:)`).
 const SHEET_RADIUS: &str = "on iOS a sheet route's (`navigationPresentation=\"modal\"`) top-left radius is also its sheet's corner radius (`preferredCornerRadius`), which seats a large sheet flat on the bottom edge. Unsaid, the sheet is UIKit's: on iOS 26 and later rounded like the display and inset from the bottom edge, as Apple's own sheets are";
+const DETENT: &str = "on a sheet route (`navigationPresentation=\"modal\"`), its resting heights, the first to start: `\"45%\"` is that share of the sheet's maximum (UIKit's maximumDetentValue; React Native's `sheetAllowedDetents: [0.45]`), so a share of the screen needs no measure. A point height and fit-content stop at that maximum. A bound value iOS cannot use is journaled (`logs`) with the route, and the sheet keeps its other detents or opens large. iOS alone sizes a sheet; other hosts ignore it (LLP 1075.003 §9.11, §9.13)";
 const APPEARANCE: &str = "Explicit none on a header or root tablist keeps the authored bar; on a header button it keeps only that button authored in place while the rest of the header projects. A title button keeps its contents; an authored Back replaces UIKit Back. Search or a header tablist can opt out on that element; a tab button alone keeps its parent segmented. Tabs retain their panels and navigation stacks. Auto restores platform projection.";
 
 /// Where an attribute is admitted, if not on every tag.
@@ -613,6 +617,9 @@ fn attr_json(name: &str, a: &AttrTarget) -> Value {
     }
     if name == "appearance" {
         doc["note"] = APPEARANCE.into();
+    }
+    if name == "navigationDetent" {
+        doc["note"] = DETENT.into();
     }
     if name == "border-radius" {
         doc["note"] = SHEET_RADIUS.into();
