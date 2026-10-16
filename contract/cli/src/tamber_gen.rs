@@ -260,8 +260,10 @@ pub fn admitted(folding: &exact_tamber::Folding) -> Result<(), String> {
     // with a digit.
     for name in &names {
         let mapped = camel(name);
+        // `__proto__` in an object literal sets its prototype, no property.
         if !mapped.contains(|c: char| c.is_ascii_alphabetic())
             || mapped.starts_with(|c: char| c.is_ascii_digit())
+            || mapped == "__proto__"
         {
             refused.push(format!("`{name}` is `{mapped}` in camelCase, which no binding can name: rename it (LLP 1121 D12)"));
         }

@@ -69,8 +69,13 @@ fn run() -> ExitCode {
         Some("verify") => verify::run(&args[1..]),
         Some("vocab") => vocab::run(&args[1..]),
         Some("tamber") => tamber::run(&args[1..]),
-        Some("types") => types(&args[1..], "types", "app.d.ts", contract::typescript),
-        Some("rust") => types(&args[1..], "rust", "shapes.rs", contract::rust),
+        // The union of tokens a binding may name follows the design's `exports` (LLP 1121 D7).
+        Some("types") => types(&args[1..], "types", "app.d.ts", |plan, path| {
+            contract::typescript_exporting(plan, contract::design_exports(path).as_deref())
+        }),
+        Some("rust") => types(&args[1..], "rust", "shapes.rs", |plan, _| {
+            contract::rust(plan)
+        }),
         _ => {
             eprintln!("{USAGE}");
             ExitCode::from(2)
@@ -188,7 +193,7 @@ fn types(
     args: &[String],
     command: &str,
     out: &str,
-    generate: fn(&exact_plan::Plan) -> Result<String, String>,
+    generate: fn(&exact_plan::Plan, &std::path::Path) -> Result<String, String>,
 ) -> ExitCode {
     let usage = format!(
         "usage: contract {command} <file.contract> [-o <{out}>]{}",
@@ -229,7 +234,7 @@ fn types(
     }
     let result = contract::compile_path_all_unchecked(path, false)
         .map_err(|mut all| all.swap_remove(0).to_string())
-        .and_then(|(plan, _)| generate(&plan).map_err(|e| format!("{}: {e}", args[0])));
+        .and_then(|(plan, _)| generate(&plan, path).map_err(|e| format!("{}: {e}", args[0])));
     match result {
         Ok(declarations) => {
             if check {

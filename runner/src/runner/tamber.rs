@@ -107,9 +107,10 @@ impl<D: DataSource> Tamber<'_, D> {
         self.row_name(name).is_some()
     }
 
-    /// The plan's name for token `name`: itself, or a role override's as the
-    /// design wrote it (`secondary-label`) when `name` is the role's spelling
-    /// (`-exact-secondary-label`, as the IR and the generators name it).
+    /// What a row names token `name` by: a role override's role spelling
+    /// (`-exact-link`, `CanvasText`), which reads the session's override
+    /// (a tint role stays the role, as a row keeps it), whether `name` is
+    /// that spelling or the name the design wrote (`link`); else `name`.
     fn row_name(&self, name: &str) -> Option<String> {
         let plan = &self.runner.plan;
         let row = plan
@@ -121,7 +122,15 @@ impl<D: DataSource> Tamber<'_, D> {
                     .iter()
                     .find(|t| !plan.str(t.role).is_empty() && plan.str(t.role) == name)
             })?;
-        Some(plan.str(row.name).to_string())
+        let role = plan.str(row.role);
+        Some(
+            if role.is_empty() {
+                plan.str(row.name)
+            } else {
+                role
+            }
+            .to_string(),
+        )
     }
 
     /// Colour token `name` at `place`: what a row naming it there reads (a

@@ -191,11 +191,54 @@ fn roles_are_generated_as_they_resolve_and_read_outside_exact() {
         "/",
     )
     .unwrap();
-    assert!(r
-        .tamber()
-        .color("-exact-secondary-label", Place::Root)
-        .is_some());
+    let spelled = r.tamber().color("-exact-secondary-label", Place::Root);
+    assert_eq!(
+        spelled,
+        Some(ColorValue::Fixed(
+            exact_kernel::Color::parse("#202020").unwrap()
+        ))
+    );
+    assert_eq!(r.tamber().color("secondary-label", Place::Root), spelled);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The tint's override (`AccentColor`, the one tint role a theme may
+/// replace), which a row keeps as the role: its constant resolves to the
+/// role, which the host resolves with the session's override.
+#[test]
+fn the_tints_override_resolves_to_the_role() {
+    let dir = app(
+        "tint",
+        "tamber t\n\ntheme\n  AccentColor = #ff00ff\n",
+        "component App\n  view\n    column\n      map-view\n",
+    );
+    std::fs::write(
+        dir.join("app.json"),
+        r#"{"name": "T", "app": {"id": "com.exact.t", "name": "T"}, "modules": ["map-view"]}"#,
+    )
+    .unwrap();
+    let (ok, said) = gen("rust", &dir);
+    assert!(ok, "{said}");
+    let rust = std::fs::read_to_string(dir.join(".exact/tamber/tamber.rs")).unwrap();
+    assert!(
+        rust.contains(r#"pub const ACCENT_COLOR: Token<Color> = Token::new("AccentColor");"#),
+        "{rust}"
+    );
+    let plan = contract::compile_path(&dir.join("app.contract")).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    let mut r = Runner::boot(
+        contract::bake(plan, NoData).unwrap(),
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let accent = exact_kernel::style::roles::accent();
+    assert_eq!(
+        r.tamber().color("AccentColor", Place::Root),
+        Some(ColorValue::Role(accent))
+    );
 }
 
 /// The generated directory is the app's, wherever its design file is.
@@ -244,5 +287,28 @@ fn exports_bound_the_generated_names() {
     let rust = std::fs::read_to_string(dir.join(".exact/tamber/tamber.rs")).unwrap();
     assert!(rust.contains("pub const BADGE_INK: Token<Color>"), "{rust}");
     assert!(!rust.contains("BRAND"), "{rust}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `contract types` bounds its union by the design's `exports`, as the
+/// builds' declarations do.
+#[test]
+fn contract_types_follows_exports() {
+    let dir = app(
+        "types-exports",
+        "tamber t\n\nexports\n  badge.ink\n\ntheme\n  brand = #c8102e\n  badge.ink = #123456\n",
+        "component App\n  view\n    column\n      text \"a\" color=\"brand\"\n",
+    );
+    std::fs::write(dir.join("app.ts"), "export const answer = () => null;\n").unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_contract"))
+        .args(["types"])
+        .arg(dir.join("app.contract"))
+        .output()
+        .unwrap();
+    let types = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        types.contains(r#"export type ColorToken = "badge.ink";"#),
+        "{types}"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }

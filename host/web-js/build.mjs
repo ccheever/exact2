@@ -170,7 +170,7 @@ const gpuSurfaces = existsSync(gpuLib) ? [...readFileSync(gpuLib, 'utf8').matchA
 // changed (module.mjs `fresh`; `cargo run`'s own check costs ~0.4 s an edit),
 // or as the one another checkout of this machine built from these sources.
 const compiler = webCompiler();
-const cargo = spawnSync(compiler.cmd, [...compiler.pre, 'js', input, '-o', gen, ...(production ? [] : ['--sites']), ...(devReload ? ['--dev-reload'] : [])], { cwd: root, stdio: 'inherit', env: { ...process.env, EXACT_JS_GPU_SURFACES: gpuSurfaces.join(',') } });
+const cargo = spawnSync(compiler.cmd, [...compiler.pre, 'js', input, '-o', gen, '--app', appDir, ...(production ? [] : ['--sites']), ...(devReload ? ['--dev-reload'] : [])], { cwd: root, stdio: 'inherit', env: { ...process.env, EXACT_JS_GPU_SURFACES: gpuSurfaces.join(',') } });
 if (cargo.status !== 0) process.exit(cargo.status ?? 1);
 compiler.done();
 for (const f of ['rt.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'shape.js', 'pointer.js', 'document.js', 'media.js', 'commands.js', 'focus.js', 'backdrop.js', 'persist.js', 'modes.js', 'beat.js', 'regions.js']) cpSync(resolve(here, f), resolve(gen, f));
