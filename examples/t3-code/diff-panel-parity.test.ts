@@ -212,87 +212,55 @@ describe('the scope menu', () => {
   test('Latest turn with no turns only closes the menu', async () => {
     const { client, command, previews } = harness();
     await command('diff');
-    await command('diff-view', 'menu', 'scope');
     const asked = previews().length;
     await command('diff-scope', '', 'latest');
     const view = snapshot(client);
-    expect(view).toMatchObject({ diffMenu: '', diffScope: 'branch', diffError: '', diffTurns: [] });
+    expect(view).toMatchObject({ diffScope: 'branch', diffError: '', diffTurns: [] });
     expect(previews()).toHaveLength(asked);
+    // The choice closes the popover itself (popovertargetaction="hide"); the data module keeps no menu state.
+    expect(view).not.toHaveProperty('diffMenu');
   });
 
-  // Reopened from its focused trigger, the
-  // menu mounted but no row took the focus (macOS skipped the reopened popup's autofocus). The opening action now
-  // shows the menu for the turn the data module takes and focuses the real entry itself, on every opening.
-  test('↓ and ↑ on the focused trigger open the menu at its first or last row every time, also after Escape', async () => {
-    const { contractComponent, value } = await import('./contract-action-fixture');
-    const { contractFn } = await import('./contract-fn-fixture');
-    const keys = 'menu-keys.contract';
-    const kmOpenKey = await contractFn(keys, 'kmOpenKey', ['k']);
-    const kmKeyEnd = await contractFn(keys, 'kmKeyEnd', ['k'], { kmOpenKey });
-    const kmArrow = await contractFn(keys, 'kmArrow', ['k']);
-    const kmOpenTarget = await contractFn(keys, 'kmOpenTarget', ['menuId', 'end']);
+  // DiffPanel's DropdownMenu: a popover the trigger opens by popovertarget, and by its keys at the first or last row.
+  test('the trigger opens it at its first or last row; the Turn row opens its submenu beside it', async () => {
+    const { contractComponent } = await import('./contract-action-fixture');
     const source = await Bun.file(new URL('./diff.contract', import.meta.url)).text();
-    const shownExpr = source.match(/^  derive scopeShown = (.+)$/m)![1]!;
-    const panel = contractComponent('diff.contract', 'DiffPanelBody'), toolbar = contractComponent('diff.contract', 'DiffToolbar');
-    const state = panel.state(), calls: unknown[][] = [];
-    const record = (name: string) => (...args: unknown[]) => calls.push([name, ...args]);
-    let data = { revision: 7, diffMenu: '' };
-    const shown = () => Boolean(value(shownExpr, { data, ...state }));
-    const panelScope = () => ({ data, kmOpenTarget, command: record('command'), focus: record('focus') });
-    const press = (k: string, extra = {}) => {
-      calls.length = 0;
-      const e = { metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, repeat: false, ...extra };
-      toolbar.call('scopeKey', {}, { data, kmKeyEnd, kmArrow, preventDefault: record('preventDefault'), blur: record('blur'),
-        scopeEnd: (end: string) => panel.call('setScopeEnd', state, panelScope(), [end]),
-        scopeOpen: (end: string) => panel.call('openScope', state, panelScope(), [end]), scopeShown: shown(), end: state.scopeEnd }, [k, e]);
-    };
-    for (const [round, k, target] of [[1, 'ArrowDown', 'diff-scope-keys-first'], [2, 'ArrowUp', 'diff-scope-keys-last'], [3, 'ArrowDown', 'diff-scope-keys-first']] as const) {
-      // The trigger holds the focus (Escape returned it): its focus cleared the end, nothing is open.
-      panel.call('setScopeEnd', state, panelScope(), ['']);
-      expect(shown()).toBe(false);
-      press(k);
-      expect(calls).toEqual([['preventDefault'], ['command', 'diff-view', 'menu', 'scope', 0], ['focus', target]]);
-      // Drawn before the data module answers, then held by its answer (the next revision).
-      expect(shown()).toBe(true);
-      data = { revision: data.revision + 1, diffMenu: 'scope' };
-      expect(shown()).toBe(true);
-      // A second arrow while it shows opens nothing again (the menu's keys own it).
-      press(k);
-      expect(calls).toEqual([]);
-      // Escape (closeMenus → closeScope): the focus goes back to the trigger, the panel's own opening ends,
-      // and the data module's answer closes the menu.
-      calls.length = 0;
-      panel.call('closeScope', state, panelScope(), []);
-      expect(calls).toEqual([['command', 'diff-view', 'menu', '', 0], ['focus', 'diff-scope']]);
-      expect(state.scopeOpenedAt).toBe(-1);
-      data = { revision: data.revision + 1, diffMenu: '' };
-      expect(shown()).toBe(false);
-      expect(round).toBeGreaterThan(0);
+    const line = (needle: string) => source.split('\n').find(candidate => candidate.includes(needle)) ?? '';
+    expect(source).not.toContain('-187.5rem');
+    expect(source).not.toContain('diff-scope-escape');
+    expect(line('button id="diff-scope"')).toContain('popovertarget="diff-scope-menu" key=scopeKey');
+    const menu = line('column id="diff-scope-menu"');
+    for (const part of ['popover="auto"', 'position-area="bottom span-right"', 'margin-top="0.25rem"', 'toggle=toggled', 'focusin=dialogMenuEntered("diff-scope-menu", "diff-scope")']) expect(menu).toContain(part);
+    expect(line('KeyMenu(menuId="diff-scope-keys"')).toContain('items=items, keyed=0, gap="0px", modal=true)');
+    const turns = line('column id="diff-turns-menu"');
+    for (const part of ['popover="auto"', 'position-area="right span-bottom"', 'position-try-fallbacks="flip-inline"', 'margin-top="-0.3125rem"']) expect(turns).toContain(part);
+    expect(line('button id="diff-scope-turns"')).toContain('popovertarget=(data.diffTurns.length > 0 ? "diff-turns-menu" : "")');
+    expect(line('button id=testId press=choose')).toContain('popovertarget=menuId popovertargetaction="hide"');
+    const toolbar = contractComponent('diff.contract', 'DiffToolbar');
+    const items = [{ id: 'diff-scope-branch', label: 'Changes' }, { id: 'diff-scope-turns', label: 'Turn' }];
+    const kmTriggerKey = (k: string) => ['ArrowDown', 'ArrowUp', 'Enter', ' ', 'Space'].includes(k);
+    const kmTriggerTarget = (rows: { id: string }[], k: string) => (k === 'ArrowUp' ? rows.slice(-1) : rows.slice(0, 1)).map(row => row.id).join('');
+    for (const [k, target] of [['ArrowDown', 'diff-scope-branch'], ['ArrowUp', 'diff-scope-turns'], ['Enter', 'diff-scope-branch']] as const) {
+      const calls: unknown[][] = [];
+      const record = (name: string) => (...args: unknown[]) => calls.push([name, ...args]);
+      toolbar.call('scopeKey', {}, { scopeItems: items, kmTriggerKey, kmTriggerTarget, preventDefault: record('preventDefault'), stopPropagation: record('stopPropagation'),
+        showPopover: record('showPopover'), focus: record('focus') }, [k, { metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, repeat: false }]);
+      expect(calls).toEqual([['preventDefault'], ['stopPropagation'], ['showPopover', 'diff-scope-menu', { source: 'diff-scope' }], ['focus', target]]);
     }
-    // The entry boxes hand the focus on to the real first and last rows (KeyMenu).
-    const menu = contractComponent('menu-keys.contract', 'KeyMenu'), focused: unknown[] = [];
-    const rows = [{ id: 'diff-scope-branch', label: 'Changes' }, { id: 'diff-scope-turns', label: 'Turn' }];
-    const menuScope = { items: rows, first: (list: unknown[]) => list[0], focus: (id: string) => focused.push(id) };
-    menu.call('enteredFirst', menu.state(), menuScope, []);
-    menu.call('enteredLast', menu.state(), menuScope, []);
-    expect(focused).toEqual(['diff-scope-branch', 'diff-scope-turns']);
-    // Modified arrows stay the window's; a pointer press focuses the popup itself.
-    for (const modifier of ['metaKey', 'ctrlKey', 'altKey']) {
-      press('ArrowDown', { [modifier]: true });
-      expect(calls.filter(call => call[0] !== 'focus')).toEqual([]);
+    const state = toolbar.state();
+    toolbar.call('scopeToggled', state, {}, [{ newState: 'open' }]);
+    expect(state.scopeOpen).toBe(true);
+    toolbar.call('scopeToggled', state, {}, [{ newState: 'closed' }]);
+    expect(state.scopeOpen).toBe(false);
+    // → on Turn opens the submenu, only when the thread has turns.
+    const row = contractComponent('diff.contract', 'DiffTurnsItem');
+    for (const [turns, expected] of [[[{ id: 't1' }], [['preventDefault'], ['stopPropagation'], ['showPopover', 'diff-turns-menu', { source: 'diff-scope-turns' }]]], [[], []]] as const) {
+      const calls: unknown[][] = [];
+      const record = (name: string) => (...args: unknown[]) => calls.push([name, ...args]);
+      row.call('key', row.state(), { data: { diffTurns: turns }, preventDefault: record('preventDefault'), stopPropagation: record('stopPropagation'), showPopover: record('showPopover') },
+        ['ArrowRight', { metaKey: false, ctrlKey: false, altKey: false }]);
+      expect(calls).toEqual(expected);
     }
-    panel.call('setScopeEnd', state, panelScope(), ['']);
-    calls.length = 0;
-    toolbar.call('openScope', {}, { scopeOpen: (end: string) => panel.call('openScope', state, panelScope(), [end]), end: '' }, []);
-    expect(calls).toEqual([['command', 'diff-view', 'menu', 'scope', 0], ['focus', 'diff-scope-keys']]);
-    // The menu and its backdrop follow scopeShown; the data module's answer is a new revision.
-    expect(source).toContain('      if scopeShown\n        box position="absolute" left="-187.5rem"');
-    const { client, command } = harness();
-    await command('diff');
-    const before = snapshot(client).revision;
-    await command('diff-view', 'menu', 'scope');
-    expect(snapshot(client)).toMatchObject({ diffMenu: 'scope' });
-    expect(snapshot(client).revision).toBeGreaterThan(before);
   });
 });
 

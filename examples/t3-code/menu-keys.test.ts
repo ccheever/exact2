@@ -129,19 +129,14 @@ describe('the shared menu keyboard (Base UI Menu)', () => {
 
   test('a popover menu is modal while it shows, so Escape closes it before a page\'s own Escape shortcut (Usage\'s Back, Settings\')', async () => {
     for (const [file, line] of [['pages-usage.contract', 'KeyMenu(menuId="usage-environment-keys"'], ['pages-pr-actions.contract', 'KeyMenu(menuId="pr-more-keys"'],
-      ['settings-kit.contract', 'KeyMenu(menuId=`${menuId}-keys`'], ['settings-b-kit.contract', 'KeyMenu(menuId=`${menuId}-keys`'], ['sidebar-row.contract', 'KeyMenu(menuId=`snooze-${t.id}-keys`']] as const)
+      ['settings-kit.contract', 'KeyMenu(menuId=`${menuId}-keys`'], ['settings-b-kit.contract', 'KeyMenu(menuId=`${menuId}-keys`'], ['sidebar-row.contract', 'KeyMenu(menuId=`snooze-${t.id}-keys`'],
+      ['diff.contract', 'KeyMenu(menuId="diff-scope-keys"'], ['diff.contract', 'KeyMenu(menuId="diff-turns-keys"'], ['shell-details.contract', 'KeyMenu(menuId="details-editors-keys"'],
+      ['r4-surfaces-files.contract', 'KeyMenu(menuId="file-editors-keys"'], ['r4-surfaces-files.contract', 'KeyMenu(menuId="crumb-menu-keys"'],
+      ['r4-surfaces.contract', 'KeyMenu(menuId="linked-pr-menu-keys"'], ['requests.contract', 'KeyMenu(menuId=`approval-menu-${approval.id}-keys`']] as const)
       expect((await source(file)).split('\n').find(l => l.includes(line))).toContain('modal=true)');
     // A menu its owner mounts from state keeps its backdrop's Escape (outside the menu): not modal.
-    for (const [file, line] of [['shell-panels.contract', 'KeyMenu(menuId="title-menu-keys"'], ['diff.contract', 'KeyMenu(menuId="diff-scope-keys"']] as const)
+    for (const [file, line] of [['shell-panels.contract', 'KeyMenu(menuId="title-menu-keys"']] as const)
       expect((await source(file)).split('\n').find(l => l.includes(line))).toContain('modal=false)');
-    // The diff scope menu: the right panel's toggle declares Escape too (and wins among non-modal shortcuts), so the
-    // menus' box scopes the shortcuts while it shows and closes the menus on Escape itself (the base closed the panel).
-    const scope = await component('diff.contract', 'DiffScopeMenu');
-    expect(scope).toContain('column aria-modal=true position="absolute"');
-    // Its own Escape is a shortcut inside that scope, so it closes the menus even when nothing inside holds the focus.
-    expect(scope).toContain('button press=closeMenus aria-keyshortcuts="Escape" aria-label="Close diff scope menu" tabindex=-1 aria-hidden=true');
-    expect(scope).toContain('  action closeMenus\n    dismiss()');
-    expect(await component('diff.contract', 'DiffPanelBody')).toContain('  action closeScope\n    scopeOpenedAt = -1\n    command("diff-view", "menu", "", 0)\n    focus("diff-scope")');
   });
 
   test('a row the keys move to has an id: every menuitem in a file with a keyboard menu', async () => {
@@ -196,7 +191,7 @@ describe('public popover triggers execute one ordered command sequence', () => {
     ['providers-setup.contract', 'ProviderAccountRow', 'triggerKey'], ['r4-git.contract', 'R4GitRows', 'gitMenuKey'],
     ['pages-usage-prices.contract', 'UsagePricesApply', 'triggerKey'], ['r6-polish.contract', 'R6ScriptRow', 'triggerKey'],
     ['shell-details.contract', 'OpenInRow', 'triggerKey'], ['r4-surfaces-files.contract', 'R4FileHeader', 'editorsKey'],
-    ['requests.contract', 'ApprovalActions', 'menuKey'],
+    ['requests.contract', 'ApprovalActions', 'menuKey'], ['diff.contract', 'DiffToolbar', 'scopeKey'],
   ];
   test('the inventory includes every opener and no retired invoker, focus redirect, watcher or counter remains', async () => {
     const found: string[] = [];
@@ -300,10 +295,6 @@ describe('↓ and ↑ on a closed trigger open its menu at the first or the last
     // The folder menu is a popover whose rows mount once the data module lists the folder: they read the end then.
     expect(files.split('\n').find(l => l.includes('KeyMenu(menuId="crumb-menu-keys"'))).toContain('keyed=kmEndKeyed(menuEnd)');
     expect(await source('r4-surfaces.contract')).toContain('R4LinkedMenu(row=row, menuId=`linked-pr-menu-${row.key}`, local=local, command=command, keyed=kmEndKeyed(menuEnd))');
-    const diff = await source('diff.contract');
-    expect(diff).toContain('DiffScopeMenu(data=data, command=command, dismiss=closeScope, keyed=kmEndKeyed(scopeEnd))');
-    expect(diff).toContain('button id="diff-scope" press=openScope key=scopeKey focus=scopeEnd("") ');
-    expect(await component('diff.contract', 'DiffToolbar')).not.toContain('blur()');
     // The table's Copy menu mounts at the window: the request itself carries the end, and the menu reads it as `menu.keyed`.
     const copy = await component('markdown.contract', 'TableCopyButton');
     expect(copy).toContain('button press=openMenu key=menuKey ');

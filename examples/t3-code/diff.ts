@@ -34,7 +34,6 @@ export class DiffState {
   defaultExpanded = false;
   truncated = false;
   scopeKey = '';
-  menu = '';
   /** The tree's closed folders by scope (trailing slash), and the file it shows selected. */
   treeCollapsed: Record<string, string[]> = {};
   treeSelected = '';
@@ -102,7 +101,6 @@ export function selectTurn(client: T3Client, runId: string, filePath = ''): void
 }
 /** selectGitScope: Changes takes back the thread's comparison target; leaving Changes keeps it for later. */
 export function selectScope(client: T3Client, value: string): void {
-  client.diffState.menu = '';
   if (value === 'unstaged' || value === 'branch') {
     const key = threadKey(client), previous = client.diffState.selections[key];
     if (previous?.kind === 'branch') client.diffState.branchBaseRefs[key] = previous.baseRef;
@@ -117,7 +115,6 @@ export function selectScope(client: T3Client, value: string): void {
 /** selectBranchBaseRef: the comparison target (blank or Automatic is null) selects Changes and is kept for the thread. */
 export function selectBaseRef(client: T3Client, value: string): void {
   const baseRef = value === AUTOMATIC_BASE_REF ? null : normalizeBaseRef(value), key = threadKey(client);
-  client.diffState.menu = '';
   client.diffState.branchBaseRefs[key] = baseRef;
   select(client, { kind: 'branch', runId: '', filePath: '', baseRef });
 }
@@ -161,8 +158,7 @@ export function adoptDiff(client: T3Client, request: { scope: string; source: st
 }
 export function diffView(client: T3Client, action: string, value: string, paths: string[]): void {
   const state = client.diffState, scope = state.scopeKey;
-  if (action === 'menu') state.menu = client.diffOpen && ['scope', 'turns'].includes(value) && value !== state.menu ? value : '';
-  else if (action === 'layout' && (value === 'stacked' || value === 'split')) state.layout = value;
+  if (action === 'layout' && (value === 'stacked' || value === 'split')) state.layout = value;
   else if (action === 'wrap') state.wrap = !state.wrap;
   else if (action === 'tree') state.tree = !state.tree;
   else if (action === 'file') state.expanded[`${scope}::${value}`] = !(state.expanded[`${scope}::${value}`] ?? state.defaultExpanded);
@@ -426,7 +422,7 @@ export function diffSnapshot(client: T3Client, now: number) {
   return {
     diffCompare: !!branchSource?.baseRef, diffHead: branchSource?.headRef || 'HEAD', diffBase: branchSource?.baseRef ?? '',
     diffBaseRefs: picker.rows, diffBaseAutomatic: picker.automatic, diffBaseEmpty: picker.empty,
-    diffScopeLabel: scopeLabel, diffMenu: client.diffOpen ? state.menu : '', diffScope: selection.kind === 'turn' ? `turn:${selection.runId}` : selection.kind,
+    diffScopeLabel: scopeLabel, diffScope: selection.kind === 'turn' ? `turn:${selection.runId}` : selection.kind,
     diffTurns: turns.map(entry => ({ id: `turn:${entry.runId}`, label: `Turn ${entry.count}`, time: messageTime(entry.completedAt, now, client.local.deviceSettings.timestampFormat), selected: selection.kind === 'turn' && selection.runId === entry.runId })),
     diffLatestSelected: selection.kind === 'turn' && selection.runId === turns[0]?.runId,
     diffCanRefresh: selection.kind !== 'turn' && !notGit, diffLayout: state.layout, diffWrap: state.wrap, diffIgnoreWhitespace: state.ignoreWhitespace, diffTree: state.tree,
