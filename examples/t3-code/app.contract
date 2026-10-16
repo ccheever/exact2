@@ -1489,7 +1489,26 @@ component T3Code
       send changed = command(op == "ui:new-thread" ? "new-thread" : op, target, value, 0)
     else if op == "ui:custom-snooze" // Snooze › Custom… opens the sidebar's Custom snooze for this thread (useThreadActionMenu's requestCustomSnooze)
       sidebarRun("snooze:custom", target, "title")
+  // A removal asked from a focused Remove gives the focus away first, to that Remove on Cancel or to where the
+  // removal leaves it on Confirm, and the dialog goes after the 200 ms its popup takes to leave (Base UI's finalFocus
+  // runs as the dialog closes; dialog-styles.ts' duration-200 exit keeps it mounted meanwhile). VoiceOver, after a
+  // VO-Space destroyed the button its cursor was on with the focus still there, took the cursor and the focus to the
+  // window's first element instead of following the focus given back after the dialog had gone.
+  state confirmHanding = ""
+  task confirmHand when confirmHanding != "" key=confirmHanding
+    after(200, confirmHanded)
+  action confirmHanded
+    let accept = confirmHanding == "accept"
+    confirmHanding = ""
+    confirmClose(accept)
   action confirmUi(accept: bool)
+    if confirmOp == "remove-snapshot" and confirmValue != ""
+      if confirmHanding == ""
+        confirmHanding = accept ? "accept" : "cancel"
+        focus(accept ? confirmValue : `remove-snapshot-${confirmTarget}`)
+    else
+      confirmClose(accept)
+  action confirmClose(accept: bool)
     confirmOp = ""
     if confirmOp == "terminallocal:close" or confirmOp == "terminalpanellocal:close" or confirmOp == "shelllocal:surface-close-confirmed"
       terminalCloseHandled = shell.panel.terminalClose.serial // a terminal close asked while it was open is dropped, as the reference refuses it
