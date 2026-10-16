@@ -990,7 +990,7 @@ D9 as written, with the orchestrator's fourteen rulings for the stage
 - **After review** (Astra, Grok; round 1): the band starts strictly after
   the hold's edge, so a note due exactly 50 ms out, handed already, is
   neither taken back nor queued again. Following, the transport keeps the
-  hits it issued in the last second by `(beat, track, step)`, and a refill
+  hits it issued by `(beat, track, step)`, and a refill
   issues none of those again: a hit kept within the hold at one re-anchor
   belongs to an older segment, whose beats the next anchor's band need not
   order, and was otherwise issued twice. A refill starts at the first beat
@@ -999,6 +999,11 @@ D9 as written, with the orchestrator's fourteen rulings for the stage
   once does nothing and the ticks after it wait their own 50 ms. A
   sequence that followed a clock and stopped (its gate, the background,
   its end) answers `clock: "internal"` again.
+  Round 2: only a re-anchor's cut excludes its edge; Start and Continue
+  while playing take back the hits from their delivery's time, its own
+  included. The hits kept are let go by position, not age: once the ticks
+  counted pass a hit's beat by one, and no hit more than a beat behind them
+  is issued, so a clock that stalls and comes back plays no beat twice.
 - **Rules beyond the text and the rulings** (each the simplest
   deterministic one, in the module's comment):
   - Start's predicted tick is never before Start's own stamp; Start again

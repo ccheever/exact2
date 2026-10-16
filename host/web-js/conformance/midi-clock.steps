@@ -29,13 +29,20 @@ midi clk fa
 midi clk clock 100 300
 # Start again, then ticks 10 ms apart: each re-anchor keeps what the last
 # one kept, and a note at the hold's edge is neither taken back nor queued
-# again (review round 1).
+# again (review round 1). Start again exactly at the count-in's first hit
+# takes it back; after a gap no beat played is played again (round 2).
+midi clk fa
+clock +25
 midi clk fa
 clock +10
 midi clk f8
 clock +10
 midi clk f8
 clock +30
+midi clk f8
+clock +1500
+midi clk f8
+clock +10
 midi clk f8
 clock +200
 tap stop

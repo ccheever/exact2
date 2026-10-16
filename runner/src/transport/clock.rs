@@ -33,8 +33,12 @@
 //!   the hits as they are. Nothing within the hold moves, its edge
 //!   included: a note due there is handed. A hit kept may have been timed
 //!   by an older segment, whose beats the band need not order, so the hits
-//!   issued in the last second are kept by `(beat, track, step)` and a
-//!   refill issues none of them again.
+//!   issued are kept by `(beat, track, step)` and a refill issues none of
+//!   them again. They are let go once the ticks counted pass their beat by
+//!   one, before which no hit is issued: a clock that stalls and comes back
+//!   revisits no beat it played, however long the gap. Start and Continue
+//!   while playing take back the hits from their delivery's time, its own
+//!   included.
 //! - **Stop** silences the sequence as its gate turning false would (D4) and
 //!   leaves it `waiting` with reason `clock`, still following (rulings #3);
 //!   the app hears Stop as a `midimessage` and ends its take itself. No
@@ -54,7 +58,7 @@
 use super::{Fill, Out, Segment, State, Transport};
 use crate::agent::num;
 use crate::midi::HOLD;
-use crate::sound::By;
+use crate::sound::{By, Cut};
 use exact_plan::Plan;
 use std::collections::VecDeque;
 
@@ -141,6 +145,15 @@ impl Follow {
     /// The last tick's stamp.
     pub fn last_tick(&self) -> Option<f64> {
         self.last_tick
+    }
+
+    /// The beat the ticks counted since Start reached (`from` before one).
+    pub fn position(&self) -> f64 {
+        if self.next > 0.0 {
+            self.base + (self.next - 1.0) / 24.0
+        } else {
+            self.base
+        }
     }
 
     /// The tempo: the estimate, else the prior.
@@ -313,7 +326,6 @@ impl Transport {
         let t = msgs.iter().map(|m| m.0).fold(now, f64::max);
         let early = self.early();
         self.clock_to = t + LOOKAHEAD + early;
-        self.clock_hits.retain(|e| e.3 >= t - 1000.0);
         for h in heard {
             match h {
                 Heard::Start { at, beat, cont } => {
@@ -325,8 +337,9 @@ impl Transport {
                     ));
                     if self.state != State::Waiting {
                         // Start again while playing: what was issued for later goes.
-                        out.sounds.batch(|s| s.retract_seq(t, t, By::Clock, log));
-                        out.midi.retract_seq(t, t, "clock", log);
+                        out.sounds
+                            .batch(|s| s.retract_seq(t, Cut::At(t), By::Clock, log));
+                        out.midi.retract_seq(t, Cut::At(t), "clock", log);
                     }
                     let bpm = self.follow.as_ref().map_or(0.0, Follow::tempo);
                     self.segment(Segment { at, beat, bpm });
@@ -350,6 +363,15 @@ impl Transport {
                 Heard::Anchor(_) => {}
             }
         }
+        // A beat more than one behind the ticks counted is never issued, so
+        // the hits kept are those at or after it: a clock that stalls and
+        // comes back revisits none it played (by position, not by age).
+        let floor = self
+            .follow
+            .as_ref()
+            .map_or(f64::NEG_INFINITY, |f| f.position() - 1.0);
+        self.hits_floor = floor;
+        self.clock_hits.retain(|e| e.0 >= floor);
         if self.state != State::Waiting {
             self.timing(t);
             self.fill(plan, out, t, live, Fill::Clock, log);
@@ -386,8 +408,9 @@ impl Transport {
         let from = if issued > band {
             // Only hits after the hold's edge: one at it is handed (D7).
             let edge = t + HOLD + early;
-            out.sounds.batch(|s| s.retract_seq(t, edge, By::Clock, log));
-            out.midi.retract_seq(t, edge, "clock", log);
+            out.sounds
+                .batch(|s| s.retract_seq(t, Cut::After(edge), By::Clock, log));
+            out.midi.retract_seq(t, Cut::After(edge), "clock", log);
             // From the first beat taken back, which an older segment may
             // have timed before the band; what was kept is not issued again.
             let from = self

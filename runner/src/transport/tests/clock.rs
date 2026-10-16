@@ -675,3 +675,59 @@ fn a_stopped_follower_answers_internal() {
         );
     }
 }
+
+/// Review round 2 (Grok): Start or Continue while playing, in a delivery
+/// whose newest stamp is a hit's time, takes that hit back with the rest:
+/// its sample and its note (60 ms late, still waiting) play once, from the
+/// new downbeat.
+#[test]
+fn start_again_on_a_hit_s_time_takes_it_back() {
+    for byte in [0xFA, 0xFB] {
+        let mut r = boot(&SOURCE.replace("offset=0", "offset=60"));
+        r.act("start", vec![]).unwrap();
+        r.land_then();
+        clock(&mut r, 125.0, 100.0);
+        now(&mut r, 0xFA);
+        // Beat 1 falls at the tick after Start plus 480 ms.
+        let one = r.now_ms() + 20.0 + 480.0;
+        clock(&mut r, 125.0, 480.0);
+        r.advance(one).unwrap();
+        deliver(&mut r, &[(one, 0xF8), (one, byte)]);
+        clock(&mut r, 125.0, 200.0);
+        once(&r);
+        assert!(
+            kicks(&r).contains(&(one + 60.0, By::Clock)),
+            "{byte:x}: {:?}",
+            kicks(&r)
+        );
+    }
+}
+
+/// Review round 2 (Astra): a clock that stalls and comes back revisits no
+/// beat it played, however long the gap.
+#[test]
+fn a_gap_revisits_no_beat_played() {
+    let source = SOURCE
+        .replace("Track(beats=1,", "Track(beats=0.125,")
+        .replace("prior = 120", "prior = 125");
+    let mut r = boot(&source);
+    r.act("start", vec![]).unwrap();
+    r.land_then();
+    now(&mut r, 0xFA);
+    for t in [20.0, 40.0, 50.0, 1550.0, 1560.0] {
+        r.advance(t).unwrap();
+        deliver(&mut r, &[(t, 0xF8)]);
+    }
+    r.advance(1700.0).unwrap();
+    let (kicks, ons) = played(&r);
+    for list in [&kicks, &ons] {
+        assert!(
+            list.iter().any(|&at| (at - 130.0).abs() < 1.0),
+            "beat 0.25 played at 130: {list:?}"
+        );
+        assert!(
+            !list.iter().any(|&at| (at - 1600.0).abs() < 15.0),
+            "and not again: {list:?}"
+        );
+    }
+}

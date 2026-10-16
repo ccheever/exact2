@@ -56,7 +56,7 @@
 
 use crate::agent::num;
 use crate::midi::{Midi, Queued, HOLD, TICKS_PER_SECOND};
-use crate::sound::{Added, By, Sounds};
+use crate::sound::{Added, By, Cut, Sounds};
 use exact_plan::{ActionsId, Plan, Value};
 use std::collections::VecDeque;
 
@@ -648,10 +648,14 @@ pub struct Transport {
     published: clock::Published,
     /// Where a clock in's hits are issued to: past the last delivery.
     clock_to: f64,
-    /// Following a clock, the hits issued and not taken back in the last
-    /// second, by `(beat, track, step)` and their step's time: a refill
-    /// issues none of them again, whichever segment timed them.
+    /// Following a clock, the hits issued and not taken back at or after
+    /// [`Transport::hits_floor`], by `(beat, track, step)` and their step's
+    /// time: a refill issues none of them again, whichever segment timed
+    /// them.
     clock_hits: Vec<(f64, usize, usize, f64)>,
+    /// Following a clock, one beat behind the ticks counted: no hit before
+    /// it is issued.
+    hits_floor: f64,
 }
 
 impl Transport {
@@ -691,6 +695,7 @@ impl Transport {
             },
             clock_to: 0.0,
             clock_hits: Vec::new(),
+            hits_floor: f64::NEG_INFINITY,
         }
     }
 
@@ -803,8 +808,9 @@ impl Transport {
                     self.stop(plan, out, t, "gate", log);
                 } else if s.key != was_key || refollow {
                     // A restart: Stop, then Start at its new beat 0 (rulings #9).
-                    out.sounds.batch(|so| so.retract_seq(t, t, By::Edit, log));
-                    out.midi.retract_seq(t, t, "edit", log);
+                    out.sounds
+                        .batch(|so| so.retract_seq(t, Cut::At(t), By::Edit, log));
+                    out.midi.retract_seq(t, Cut::At(t), "edit", log);
                     out.midi.end_seq(t, log);
                     self.arm(plan, out, i, t, live, s.args, log);
                 } else if self.raw.len() != s.args.len()
@@ -870,7 +876,7 @@ impl Transport {
             }
             out.midi.clock_to("", 0.0, t, log);
             self.follow = Some(clock::Follow::new(&play.clock, play.bpm, play.from));
-            self.clock_hits.clear();
+            (self.clock_hits, self.hits_floor) = (Vec::new(), f64::NEG_INFINITY);
             (self.clocked, self.state, self.reason) = (true, State::Waiting, "");
             (self.refill_due, self.phase_due, self.ended_due) =
                 (f64::INFINITY, f64::INFINITY, f64::INFINITY);
@@ -948,8 +954,9 @@ impl Transport {
         } else {
             log.push(format!("sequence {name} edited"));
         }
-        out.sounds.batch(|s| s.retract_seq(t, t, By::Edit, log));
-        out.midi.retract_seq(t, t, "edit", log);
+        out.sounds
+            .batch(|s| s.retract_seq(t, Cut::At(t), By::Edit, log));
+        out.midi.retract_seq(t, Cut::At(t), "edit", log);
         self.clock_hits.retain(|e| e.3 < t);
         let first = (seg.beat_at(t) * 24.0).ceil();
         out.midi.clock_to(&play.clock_out, first, t, log);
@@ -1197,12 +1204,12 @@ impl Transport {
         let midi = &mut *out.midi;
         // Following a clock, a hit issued already (kept at a re-anchor) is
         // not issued again (`clock_hits`).
-        let kept = std::mem::take(&mut self.clock_hits);
+        let (kept, floor) = (std::mem::take(&mut self.clock_hits), self.hits_floor);
         let mut fresh = Vec::new();
         let full = out.sounds.batch(|s| {
             for (k, hit) in hits.iter().enumerate() {
                 let id = (hit.beat, hit.track, hit.step);
-                if following && kept.iter().any(|e| (e.0, e.1, e.2) == id) {
+                if following && (hit.beat < floor || kept.iter().any(|e| (e.0, e.1, e.2) == id)) {
                     continue;
                 }
                 let (offset, output) = play.track(hit);

@@ -14,6 +14,8 @@ export const WINDOW = 48, MIN_TICKS = 13, GAP = 500, BATCH = 50, LOOKAHEAD = BAT
 /** A follower of `input`, `prior` its tempo before an estimate, Start putting beat `from` at the next tick. */
 export const follower = (input, prior, from) => ({ input, stamps: [], estimate: null, prior, from, running: false, base: 0, next: 0, spp: null, held: null, lastTick: null, ticks: 0, seen: null });
 export const tempo = f => f.estimate ?? f.prior;
+/** The beat the ticks counted since Start reached (`from` before one). */
+export const position = f => f.next > 0 ? f.base + (f.next - 1) / 24 : f.base;
 
 // One tick's stamp into the window (euxy's `engine.ts`).
 function stamp(f, at) {

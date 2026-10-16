@@ -20,7 +20,7 @@
 import { journal, clock, Sounds, Mutations, Resources, R, data, drive, untracked, Refusal } from './rt.js';
 import { plain } from './format.js';
 import { Midi } from './midi.js';
-import { follower, feed, tempo, LOOKAHEAD as CLOCK_AHEAD, DRIFT } from './clockin.js';
+import { follower, feed, tempo, position, LOOKAHEAD as CLOCK_AHEAD, DRIFT } from './clockin.js';
 
 const LOOKAHEAD = 1000, REFILL = 500, SEGMENTS = 1024, LOOPS_PER_SECOND = 1000, FROM_LIMIT = 2147483648, SHORTEST = 1 / 1048576, EXACT = 4503599627370496, OFFSET_LIMIT = 500, HOLD = 50, TICKS_PER_SECOND = 1000;
 const KINDS = ['selection', 'impact', 'impact-light', 'impact-medium', 'impact-heavy', 'impact-soft', 'impact-rigid', 'success', 'warning', 'error'];
@@ -42,9 +42,9 @@ let IssuedTo = 0, Skip = 0, Issued = [-Infinity, 0], RefillDue = Infinity, Phase
 // Clock in (D9): the follower while the owner follows an input; the last arming followed one, so `exactTransport` answers
 // `Pub`; where its hits are issued to, past the last delivery.
 let Follow = null, Clocked = false, Pub = { state: 'stopped', reason: '', bpm: 0, at: 0, beat: 0 }, ClockTo = 0;
-// Following, the hits issued and not taken back in the last second, `[beat, track, step, step time]`: a refill issues none
+// Following, the hits issued and not taken back at or after HitsFloor, `[beat, track, step, step time]`: a refill issues none
 // of them again, whichever segment timed them (the runner's `clock_hits`).
-let ClockHits = [];
+let ClockHits = [], HitsFloor = -Infinity; // and one beat behind the ticks counted: no hit before it is issued
 const T = () => Sounds.seq;
 const Answer = { name: 'transport', requests: 0, e: () => null, due: Infinity, next: Infinity, then: () => { for (const r of Resources) if (r.source === 'exactTransport') R(r); } };
 let End = null; // the armed end's `clock.timers` entry: a new one per arming, so one being fired keeps the kind it was chosen as
@@ -153,7 +153,7 @@ function fill(at, how) {
   const full = T().batch(() => {
     for (let k = 0; k < list.length; k++) {
       const h = list[k];
-      if (following && kept.some(e => e[0] === h.beat && e[1] === h.track && e[2] === h.step)) continue;
+      if (following && (h.beat < HitsFloor || kept.some(e => e[0] === h.beat && e[1] === h.track && e[2] === h.step))) continue;
       const s = stepOf(Play, h), [offset, output] = trackOf(Play, h), when = h.at + offset;
       let counted = late;
       // Played now at the arming, skipped at an edit, late only at a stalled live wake (more than REFILL past).
@@ -210,7 +210,7 @@ function arm(i, t, args) {
     say(`sequence ${name} waits for clock from ${p.clockIn}`);
     if (!Clocked) { const a = answer(); Pub = { state: a.state, reason: a.reason, bpm: a.bpm, at: a.anchorAt, beat: a.anchorBeat }; }
     Midi.clockTo('', 0, t);
-    Follow = follower(p.clockIn, p.bpm, p.from); ClockHits = []; Clocked = true; State = 'waiting'; Reason = '';
+    Follow = follower(p.clockIn, p.bpm, p.from); ClockHits = []; HitsFloor = -Infinity; Clocked = true; State = 'waiting'; Reason = '';
     RefillDue = PhaseDue = EndedDue = Infinity; Play = p;
     return;
   }
@@ -297,7 +297,6 @@ function follow(msgs, now) {
   const name = Seqs[Owner].name, heard = feed(Follow, msgs, name, say), t = msgs.reduce((m, [at]) => Math.max(m, at), now);
   const early = Play ? Play.tracks.reduce((m, tr) => Math.max(m, -tr.offset), 0) : 0;
   ClockTo = t + CLOCK_AHEAD + early;
-  ClockHits = ClockHits.filter(e => e[3] >= t - 1000);
   for (const h of heard) {
     if (h.start) {
       const { at, beat, cont } = h.start;
@@ -310,6 +309,10 @@ function follow(msgs, now) {
     } else if (h.stop) { silence(t, 'clock'); State = 'waiting'; ClockHits = []; }
     else if (State !== 'waiting') anchor(t, h.anchor, early, name);
   }
+  // A beat more than one behind the ticks counted is never issued, so the hits kept are those at or after it: a clock that
+  // stalls and comes back revisits none it played (by position, not by age; clock.rs).
+  HitsFloor = Follow ? position(Follow) - 1 : -Infinity;
+  ClockHits = ClockHits.filter(e => e[0] >= HitsFloor);
   if (State !== 'waiting') { timing(t); fill(t, 'clock'); }
 }
 // A run of ticks gave `next` at `t`: kept out while every revocable hit is within DRIFT of it, else the segment, the band
@@ -325,7 +328,7 @@ function anchor(t, next, early, name) {
     // Only hits after the hold's edge: one at it is handed (D7). From the first beat taken back, which an older segment
     // may have timed before the band; what was kept is not issued again.
     const edge = t + HOLD + early;
-    T().batch(() => T().retract(t, edge, 'clock')); Midi.retractSeq(t, edge, 'clock');
+    T().batch(() => T().retract(t, edge, 'clock', true)); Midi.retractSeq(t, edge, 'clock', true);
     from = ClockHits.filter(e => e[3] > edge).reduce((m, e) => Math.min(m, e[0]), band);
     ClockHits = ClockHits.filter(e => e[3] <= edge);
     Issued = [from, 0]; Skip = 0;

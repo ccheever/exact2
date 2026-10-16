@@ -172,10 +172,10 @@ export const Midi = {
     push({ output, data: [0x80 | (on[0] & 0x0F), on[1], 0], at: offAt, stepAt, seq: true, onAt }, t);
     return 'done';
   },
-  // An edit at `t`, or a clock's new anchor (`by` 'clock', LLP 1125 D9): what waits, for a step from `from`.
-  retractSeq(t, from = t, by = 'edit') {
+  // An edit at `t`, or a clock's Start or new anchor (`by` 'clock', LLP 1125 D9; `strict` at the hold's edge): what waits, for a step from `from`.
+  retractSeq(t, from = t, by = 'edit', strict = false) {
     let n = 0;
-    for (const s of [...Queue]) if (s.seq && waits(s, t) && (by === 'clock' ? s.stepAt > from : s.stepAt >= from) && !offOfHanded(s, t)) { if (s.tick != null && Clock) Clock.next = Math.min(Clock.next, s.tick); else n++; retract(s, by); }
+    for (const s of [...Queue]) if (s.seq && waits(s, t) && (strict ? s.stepAt > from : s.stepAt >= from) && !offOfHanded(s, t)) { if (s.tick != null && Clock) Clock.next = Math.min(Clock.next, s.tick); else n++; retract(s, by); }
     if (n) say(`midi retracted: ${n} (${by})`);
   },
   stopSeq(t) {

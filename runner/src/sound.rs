@@ -237,14 +237,23 @@ pub(crate) enum Added {
     Full,
 }
 
-/// Whether a step at `step_at` is one a retraction `by` from `from` takes:
-/// at or after it, but a clock's only after it (LLP 1125 D9: `from` is the
-/// hold's edge, and a note at it is handed already).
-pub(crate) fn after(step_at: f64, from: f64, by: &str) -> bool {
-    if by == "clock" {
-        step_at > from
-    } else {
-        step_at >= from
+/// Where a retraction of a sequence's outputs starts, by their step's time.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Cut {
+    /// Steps at or after it: an edit's, a stop's, a clock's Start.
+    At(f64),
+    /// Steps after it only: a clock's re-anchor at the hold's edge, where a
+    /// note is handed already (LLP 1125 D9).
+    After(f64),
+}
+
+impl Cut {
+    /// Whether it takes a step at `step_at`.
+    pub(crate) fn takes(self, step_at: f64) -> bool {
+        match self {
+            Cut::At(from) => step_at >= from,
+            Cut::After(edge) => step_at > edge,
+        }
     }
 }
 
@@ -361,7 +370,7 @@ impl Sounds {
             let n = s.end_live(t, None, false);
             log.push(format!("sounds stopped: {n} (reload)"));
         });
-        self.retract_haptics(t, f64::NEG_INFINITY, "cancelled", log);
+        self.retract_haptics(t, Cut::At(f64::NEG_INFINITY), "cancelled", log);
     }
 
     /// Changes made by `f`, whose ops for the output are queued once, at the
@@ -424,18 +433,18 @@ impl Sounds {
         }
     }
 
-    /// Haptics still waiting at `t` (`at >= t`) for a step at or after
-    /// `from`, retracted with why; one line when any was.
+    /// Haptics still waiting at `t` (`at >= t`) for a step `from` takes,
+    /// retracted with why; one line when any was.
     pub(crate) fn retract_haptics(
         &mut self,
         t: f64,
-        from: f64,
+        from: Cut,
         by: &'static str,
         log: &mut Vec<String>,
     ) {
         let mut n = 0;
         for h in self.haptics.iter_mut() {
-            if h.by.is_none() && h.at >= t && after(h.step_at, from, by) {
+            if h.by.is_none() && h.at >= t && from.takes(h.step_at) {
                 h.by = Some(by);
                 self.ops.push(SoundOp::Unhaptic { id: h.id });
                 n += 1;
@@ -446,16 +455,16 @@ impl Sounds {
         }
     }
 
-    /// An edit at `t` (LLP 1125 D3; `from` is `t`, `by` [`By::Edit`]), or a
-    /// clock's new anchor (D9; `by` [`By::Clock`]): every sequence voice not
-    /// started by `t` for a step at or after `from` ends as `by` at its
+    /// An edit at `t` (LLP 1125 D3; `from` at `t`, `by` [`By::Edit`]), or a
+    /// clock's Start or new anchor (D9; `by` [`By::Clock`]): every sequence
+    /// voice not started by `t` for a step `from` takes ends as `by` at its
     /// start, and so leaves the bound; so do its haptics still to come (a
     /// track's offset can put an earlier step's output after `from`: it
     /// stays, LLP 1125 D7). Inside [`Sounds::batch`].
-    pub(crate) fn retract_seq(&mut self, t: f64, from: f64, by: By, log: &mut Vec<String>) {
+    pub(crate) fn retract_seq(&mut self, t: f64, from: Cut, by: By, log: &mut Vec<String>) {
         let mut n = 0;
         for v in self.voices.iter_mut() {
-            if v.seq && v.by.sounds() && v.at >= t && after(v.step_at, from, by.word()) {
+            if v.seq && v.by.sounds() && v.at >= t && from.takes(v.step_at) {
                 (v.ends, v.by) = (v.at, by);
                 n += 1;
             }
@@ -480,7 +489,7 @@ impl Sounds {
             }
         }
         log.push(format!("sounds stopped: {n} (sequence {name})"));
-        self.retract_haptics(t, f64::NEG_INFINITY, "cancelled", log);
+        self.retract_haptics(t, Cut::At(f64::NEG_INFINITY), "cancelled", log);
     }
 
     fn queue(&mut self, before: Vec<(u64, f64)>, first_new: u64) {
