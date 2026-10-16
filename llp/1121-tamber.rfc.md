@@ -2247,3 +2247,60 @@ D13 named this reference, and stage 3 didn't write it. It now describes `tamber/
 
 Each stage that changes the wire changes this page in the same commit. Stage 4 adds the live
 table and the build channel (LLP 1122 D4).
+
+### Stage 4, commit 1: reclaimable `Wide` storage (`5624bb911`, reviews `3e06b2776`)
+
+LLP 1121 §5 stage 4 and D13 said "reference-counted". **It is built as mark and sweep instead.**
+`ColorValue` is `Copy`, and `Wide` ids are copied into rows, composite rows, transitions,
+keyframes and the runner's token values, so a count would have meant un-`Copy`ing it
+everywhere.
+- **Ids carry a generation.** Each u16 holds the slot in its low 12 bits (the cap is 4,096) and
+  the slot's generation in the top 4. A stale id reads as nothing, never as another colour. In a
+  debug build a stale read asserts and writes a journal line, since it means a missed holder.
+  Generations wrap after 16 sweeps of one slot, which is acceptable only because of that
+  assertion.
+- **Holders publish marks.** Only kernels and runners hold ids.
+  - **A kernel** publishes a 4,096-bit mark at the end of each commit that changed it, from the
+    shared style table's cached union. It costs 0.16 µs, and nothing while the table is empty.
+    Measured on a 1,000-row P3 list, the Dim switch, a one-text commit and a window shift are all
+    within noise of main.
+  - **A `Keep`** stands beside anything else that keeps ids across a commit: role overrides, a
+    runner's saved overrides and queued reorders, its kernel-free document, a decoded export.
+  - **An idle holder** answers from its last mark, so it never holds a sweep up.
+  - **A painting host's accent scope** is not a holder. It lasts only within a paint of a
+    borrowed kernel, whose mark covers it.
+- **Ids in flight** stand in for theme1's "ids minted after the sweep's request are kept",
+  because the sweep runs at once in `intern`, from the marks already published.
+  - A kernel thread's batch protects everything interned since its last publish, up to `SPAN` =
+    3,072 interns. Export decode and the document fold open a `wide::Batch` explicitly.
+  - Anything else is protected by recency: nothing interned within the last `GRACE` = 1,024 is
+    freed.
+  - An id in flight past both is a missed holder. **Invariant:** outside an open batch, no path
+    holds an id unmarked across more than `GRACE` interns.
+- **The sweep** runs when fewer than a quarter of the slots are free. With no holder registered
+  (a compiler, a tool), nothing is swept.
+- **A full table** of held colours refuses the new colour: the row keeps its value, and the
+  refusal is counted (`wide::refusals()`, for commit 4's `unsupported` report) and journaled.
+  A refusal ages the table as an intern does.
+- **No host holds an id.** Apple and the web take text. The Linux host converts what it retains
+  at capture:
+  - svg scenes become 8-bit colours or `light-dark()` pairs;
+  - paragraph sources keep both appearances resolved;
+  - lookahead scratch ops drop their colours;
+  - gradients keep their stops' values (`wide::Values`), read through `placed_with` and
+    `resolved_with`, rather than 8-bit stops, which would move a polar ramp's hue.
+
+### Stage 4, commit 2: live or rebuild by the whole closure (`bfa479e88`..`a99331d5f`, reviews `c180f8c04`, reference `687419133`)
+
+- **`propose` and transactions now re-fold the app's synthetic tokens** with the design. The
+  compiler records every candidate, and whether a colour row writes it
+  (`contract_lower::synthetic_candidates`); the server caches that list per Contract sources,
+  import resolution and design token names.
+- **An edit is `live`** when the shape is unchanged, no role override is reached, and the same
+  synthetic tokens fold on both sides. The synthetic tokens whose values change are returned
+  per tuple (`synthetic`) for the batch.
+- **An edit is `rebuild`** when it changes a role override or anything one reaches (hosts take
+  role tables at boot), gains or loses a synthetic token, leaves a strict one unfoldable,
+  involves a profile colour, has an unknown closure (the app's build stops before its design),
+  or changes structure.
+- `propose`'s answer is now the closure's, not the design's shape alone.
