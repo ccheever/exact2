@@ -138,6 +138,7 @@ Colours are `light-dark()` pairs of §2's values.
 - A wheel on the list, on a row it draws or on a carried view scrolls the collection view, wherever the hidden node lies.
 - A row whose node or ancestor (its section included) is `inert` takes no tap: its cell takes no touch and is no accessibility element. The agent's tap is refused under the software keyboard, as `Agent.obscured` refuses one.
 - A custom row is its own views: the agent's ordinary tap path finds them, a nested control included.
+- Before `tap` or `type`, reveal locates a row by its model identity, scrolls the collection and lays it out, even when the cell has not been realized. A custom row's views are carried into the cell before the ordinary hit test.
 - `layout <list>` reports `groupedList: {view: UICollectionView, listStyle, sections, rows, offset, content, insets}`, and a row reports its cell and accessory.
 - The inspection walk (LLP 1080.001 D3) accounts for the collection view (`grouped-list`), names this host as the hider of the authored rows, and skips a carried row as projected.
 
@@ -189,6 +190,7 @@ This adds to `rules/DEFERRED.md` as Charlie approved, without a take: one tag me
   - the wheel;
   - a list that goes.
 - **Fixture.** `scripts/fixtures/grouped-list.contract` is a settings screen with a profile card (custom), symbol rows, a value, a subtitle, a detail button, a switch, a checkmark choice, a destructive row, and a segmented control for the three styles.
+- **Sheet insertion.** `GroupedRevealTests` drives `scripts/fixtures/grouped-list-reveal.contract`: a sheet inserts an offscreen custom row, then reveal and tap reach its nested button and set `removed`. UIKit also checks that the collection scrolled and carried the button into a visible cell; AppKit exercises its ordinary scroll hierarchy.
 - **Seen.** The fixture was driven beside §2's scratch UIKit app, in light and dark, on the iOS 27 simulator, the web (Chrome) and Linux.
   - On iOS the agent tapped rows, the detail button, the switch and the choice, and wheeled the list to tap a row below the fold.
   - Plain footers stay under their rows.

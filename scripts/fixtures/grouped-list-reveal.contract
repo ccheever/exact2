@@ -1,0 +1,47 @@
+routes nav
+  home "/"
+    add "/add"
+component ListReturn
+  state added = false
+  state removed = false
+  derive current = top(nav)
+  action back
+    nav = back(nav)
+  action openAdd
+    nav = push(nav, "/add")
+  action save
+    added = true
+    nav = back(nav)
+  action remove
+    removed = true
+  view
+    main navigationKey=`${current.id}` navigationBack="back" height="100%"
+      for e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` navigationScroll=`list-${e.id}` navigationPresentation=(e.name == "add" ? "modal" : "") position="absolute" inset=0 display="flex" flex-direction="column"
+          header
+            text (e.name == "home" ? "List" : "Add") role="heading" aria-level=(e.name == "home" ? 1 : 2)
+            if e.name == "home"
+              button press=openAdd testId="add"
+                text "Add"
+            if e.name == "add"
+              button id="back" press=back
+                text "Cancel"
+              button press=save testId="save"
+                text "Save"
+          list id=`list-${e.id}` appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+            if e.name == "home"
+              section
+                for n in [1,2,3,4,5,6,7,8,9,10,11,12,13,14] key=n
+                  text `Row ${n}`
+              if added
+                section
+                  text "New section"
+                  row gap=16
+                    button press=remove buttonStyle="plain" testId="remove"
+                      text "Remove"
+              section
+                button press=openAdd testId="add-footer"
+                  text "Add section"
+            else
+              section
+                text "Adds a section to the covered list."
