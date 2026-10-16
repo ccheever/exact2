@@ -144,12 +144,10 @@ package final class Presenter {
     /// its height is `safe-area-inset-top`). @ref LLP 1008 §9
     private(set) var viewportFit: String?
     var onViewportFit: (() -> Void)?
-    /// The safe-area insets the kernel was given: the titlebar under
-    /// `viewport-fit=cover`, zero when the viewport is the content view
-    /// below it. Reported to the agent as `env`.
-    var insets = NSEdgeInsetsZero
-    /// The layout regions the kernel was given (LLP 1123 D10), `nil` for none.
-    var regions: [CGFloat]?
+    /// The safe-area insets the kernel was given (the titlebar under `viewport-fit=cover`, zero
+    /// when the viewport is the content view below it) and its layout regions (LLP 1123 D10,
+    /// `nil` for none). Reported to the agent as `env`.
+    var insets = NSEdgeInsetsZero, regions: [CGFloat]?
     /// The posture and the viewport segments last told (LLP 1078 D5): flat, unless an agent preferred otherwise.
     var fold = ViewportFold.flat
 

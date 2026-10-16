@@ -975,7 +975,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
         // The JS target keeps no runner to name its plan: it is the plan this carrier serves.
         if (reply.node && carrier.host === 'web' && reply.node.site != null && !reply.node.planDigest && mapLocator && existsSync(mapLocator)) reply.node.planDigest = createHash('sha256').update(readFileSync(mapLocator)).digest('hex');
         if (reply.node) sourceMaps.attach(reply.node);
-        delete reply.nodes; return reply; // the answer is the target (its box: node.space.viewport); every view's box beside it let an assertion over `nodes` pass whatever the target was (Depot)
+        withRegions(reply.env); delete reply.nodes; return reply; // the answer is the target (its box: node.space.viewport); every view's box beside it let an assertion over `nodes` pass whatever the target was (Depot)
       }
       const mapped = await sourceMaps.refresh();
       const [l, t] = await Promise.all([s.op(req), s.op({ op: 'tree', ...(mapped ? { plan: true } : {}) })]);
