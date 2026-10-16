@@ -18,6 +18,33 @@ final class TextBoxTests: XCTestCase {
         CTFontGetCapHeight(engine.font(size: size, weight: 400, family: 0, italic: false) as CTFont)
     }
 
+    func testEmptyParagraphHasNoLineBox() {
+        for whiteSpace in 0...4 {
+            for lineHeight: CGFloat? in [nil, 48] {
+                var s = spec("", trim: 0)
+                s.whiteSpace = whiteSpace
+                s.runs[0].lineHeight = lineHeight
+                s.strut = s.runs[0]
+                let variants = [[], s.runs, s.runs + s.runs]
+                for width: CGFloat in [0, 200, .infinity] {
+                    for runs in variants {
+                        s.runs = runs
+                        let p = engine.paragraph(s, width: width)
+                        XCTAssertEqual(p.width, 0)
+                        XCTAssertEqual(p.height, 0)
+                        XCTAssertTrue(p.lines.isEmpty)
+                        XCTAssertTrue(p.baselines.isEmpty)
+                        XCTAssertTrue(p.lineBottoms.isEmpty)
+                    }
+                }
+            }
+        }
+        var s = spec("\n", trim: 0)
+        s.whiteSpace = 1
+        s.runs[0].lineHeight = 24
+        XCTAssertEqual(engine.paragraph(s, width: 200).height, 24, "a preserved break still makes a line")
+    }
+
     /// Text that is all a 10 pt span in a 20 pt paragraph is cut to the
     /// 20 pt cap height and baseline, as CSS cuts the root inline box.
     func testTheRootInlineBoxsFontSetsTheTrim() {

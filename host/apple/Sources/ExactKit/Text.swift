@@ -1132,12 +1132,6 @@ package final class TextEngine {
             lines.append(line)
             start += count
         }
-        if lines.isEmpty {
-            // Empty editors retain the paragraph's own line box.
-            baselines.append(minimum.0)
-            y = minimum.0 + minimum.1
-            explicit = strut?.lineHeight != nil
-        }
         // An authored CSS line height fixes the line box, including fractions;
         // a `normal` one is whole pixels on macOS and CoreText's sum, rounded
         // up once, on iOS (CSSLineBox). A width rounds up to the browser's

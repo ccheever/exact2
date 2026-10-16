@@ -66,6 +66,7 @@ final class TextRepaintIOSTests: XCTestCase {
         spin(0.2)
         // Each line's box in the page, a little wider than its text.
         let rects = [status, count, lap].map { page.convert($0.bounds, from: $0).insetBy(dx: -8, dy: -2) }
+        let statusHeight = status.bounds.height
         XCTAssertGreaterThan(ink(page, rects[0]), 50, "'3 laps' is painted before Reset")
         XCTAssertGreaterThan(ink(page, rects[2]), 50, "'Lap 3' is painted before Reset")
         let countBefore = pixels(page, rects[1])
@@ -75,16 +76,24 @@ final class TextRepaintIOSTests: XCTestCase {
         p.paintVisibleText()
         spin(0.2)
 
-        // The status line is a collapsed space now: its box has no width.
+        // The status line is a collapsed space now: it has no line box.
         XCTAssertEqual(status.bounds.width, 0, "a collapsed space lays out to nothing")
+        XCTAssertEqual(status.bounds.height, 0)
         XCTAssertNil(status.textRasterLayer?.superlayer, "the empty status line keeps no raster layer")
-        XCTAssertEqual(ink(page, rects[0]), 0, "'3 laps' is gone from the screen with the text")
+        let countAfter = page.convert(count.bounds, from: count).insetBy(dx: -8, dy: -2)
+        XCTAssertEqual(countAfter.minY, rects[1].minY - statusHeight, accuracy: 0.01)
+        // The count now occupies part of the old status frame. Its uncovered
+        // portion must be clear, and the count is sampled at its new position.
+        var vacatedStatus = rects[0]
+        vacatedStatus.size.height = max(0, min(vacatedStatus.maxY, countAfter.minY) - vacatedStatus.minY)
+        XCTAssertGreaterThan(vacatedStatus.height, 0)
+        XCTAssertEqual(ink(page, vacatedStatus), 0, "'3 laps' is gone from the screen with the text")
         // The `if`'s line left the page, and its pixels with it.
         XCTAssertNil(lap.window, "the `if` removed 'Lap 3'")
         XCTAssertEqual(ink(page, rects[2]), 0, "'Lap 3' is gone from the screen")
         // The count shows its new text, not its old pixels.
-        XCTAssertGreaterThan(ink(page, rects[1]), 50, "the count is painted after Reset")
-        XCTAssertNotEqual(pixels(page, rects[1]), countBefore, "the count's pixels are its new text's")
+        XCTAssertGreaterThan(ink(page, countAfter), 50, "the count is painted after Reset")
+        XCTAssertNotEqual(pixels(page, countAfter), countBefore, "the count's pixels are its new text's")
         if let key = count.textRasterKey { XCTAssertEqual(key.spec.runs.map(\.text).joined(), "0 in all") }
     }
 }

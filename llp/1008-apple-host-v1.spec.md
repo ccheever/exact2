@@ -124,8 +124,9 @@ The Swift side is CoreText and nothing else. A **`Paragraph`** is a
 width-specific snapshot — the wrapped `CTLine`s from a `CTTypesetter`, each
 line's baseline from the top, and its layout dimensions — cached by `(spec,
 width)`. An authored line height retains the fractional sum of its line boxes,
-including empty and clamped paragraphs. Intrinsic width and `normal` paragraph
-height retain their existing whole-point ceiling: changing those measurements
+including clamped paragraphs. Empty text has no line box, so its intrinsic height is zero.
+Intrinsic width and `normal` paragraph height retain their existing whole-point
+ceiling: changing those measurements
 requires a separate wrapping/host-parity comparison. The measure callback answers
 from the paragraph, and `NodeView.draw` paints those same lines: one `CTLineDraw`
 per line, flush by alignment inside the CSS content box. Borders and padding
