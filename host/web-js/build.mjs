@@ -536,9 +536,10 @@ if (how !== 'none') await bundle({ entrypoints: [resolve(gen, 'main-server.js')]
     return (getModuleInfo(id)?.importers ?? []).some(parent => fromData(parent, getModuleInfo, seen));
   };
   // The entry leads with V8's explicit compile hint (LLP 1071 §7, generated
-  // code at scale): Chrome compiles every function in it as the module
-  // streams in, on a background thread, not each on the main thread at its
-  // first call, as a large app's mount calls most of them (the Bluesky
+  // code at scale): Chrome compiles every function in it eagerly, and a
+  // module it fetches (not `--inline`'s) as it streams in, on a background
+  // thread, not each on the main thread at its first call, as a large
+  // app's mount calls most of them (the Bluesky
   // clone's release page: runtime up at 1.7–1.9 s, 0.5 s with it; ~23 MB
   // more heap). Other browsers read a comment.
   const built = await b.write({ dir: out, format: 'esm', minify: true, comments: false, entryFileNames: 'app.js', chunkFileNames: '[name]-[hash].js',

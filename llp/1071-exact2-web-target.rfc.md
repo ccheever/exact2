@@ -1804,7 +1804,9 @@ loops 192 KB; the rest is per-element code (19,949 elements).
 Two levers, in order:
 1. *Compile hint.* The entry chunk leads with `//# allFunctionsCalledOnLoad`
    (build.mjs, a `postBanner`: after the minifier, which drops comments), so
-   Chrome compiles the module eagerly on its streaming thread. Release page,
+   Chrome compiles the module eagerly, a fetched one on its streaming thread
+   (an `--inline` page's module is compiled eagerly on the main thread, with
+   no streaming to hide it behind). Release page,
    runtime up (no DevTools attached, five runs): 1.67–1.94 s → 0.48–0.53 s,
    ~23 MB more JS heap (44 → 67 MB). Caltrain and RealWorld: no difference
    past noise (60–110 ms either way). Other browsers ignore the comment.
