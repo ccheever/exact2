@@ -103,7 +103,7 @@ pub fn typescript(plan: &Plan) -> Result<String, String> {
            function authCallback(): string;\n\
          }\n\
          export interface NativeModule { readonly available: boolean; call(request: Record<string, unknown>): Record<string, unknown>; later(request: Record<string, unknown>): Promise<Record<string, unknown>>; watch(topic: string): void }\n\
-         /** A resource-owned WebSocket, currently on the web JS TypeScript target only (LLP 1016.000 D7). Methods are synchronous-mutation-only; refresh or disposal invalidates it. */\n\
+         /** A resource-owned WebSocket, for TypeScript on the web JS target and native hosts (LLP 1016.000 D7). Methods are synchronous-mutation-only; refresh or disposal invalidates it. */\n\
          export interface StreamSocket { readonly readyState: number; readonly bufferedAmount: number; send(data: string | ArrayBuffer | ArrayBufferView): void; close(code?: number, reason?: string): void }\n\
          export interface StreamEvent { readonly type: string; readonly data: string | ArrayBuffer; readonly lastEventId: string; readonly coalesced: number; readonly kind?: string; readonly message?: string; readonly status?: number; readonly code?: number; readonly reason?: string; readonly wasClean?: boolean }\n\
          declare global {\n\

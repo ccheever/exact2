@@ -1,0 +1,62 @@
+//! A mutation's socket operations (LLP 1016.000 D7). The prelude's handle
+//! checks and copies each `send` and `close` while the mutation's source
+//! runs, then hands the batch through the door (op 14) when the answer is
+//! given now. Each is addressed by the prelude's ticket for the stream's
+//! `fetch`; here it becomes the resource that owns the stream, staged on
+//! the runner's store for the commit to publish.
+use super::Module;
+use exact_runner::{SocketOp, Store, Target};
+use serde_json::Value as Json;
+
+/// One operation as the prelude records it: `{"op":"text","data":…}`,
+/// `{"op":"binary","data":base64}` or `{"op":"close","code":…,"reason":…}`.
+pub(crate) fn op_from_json(text: &str) -> Result<SocketOp, String> {
+    let j: Json = serde_json::from_str(text).map_err(|e| e.to_string())?;
+    let data = || j.get("data").and_then(Json::as_str).unwrap_or("");
+    match j.get("op").and_then(Json::as_str) {
+        Some("text") => Ok(SocketOp::Text(data().to_string())),
+        Some("binary") => exact_runner::agent::unbase64(data())
+            .map(SocketOp::Binary)
+            .ok_or_else(|| "socket: binary data that is not base64".into()),
+        Some("close") => Ok(SocketOp::Close {
+            code: j
+                .get("code")
+                .and_then(Json::as_u64)
+                .and_then(|c| u16::try_from(c).ok())
+                .ok_or("socket: a close code that is not a number")?,
+            reason: j
+                .get("reason")
+                .and_then(Json::as_str)
+                .unwrap_or("")
+                .to_string(),
+        }),
+        _ => Err("socket: an operation that is not text, binary or close".into()),
+    }
+}
+
+impl Module {
+    /// Stage the operations a mutation's answer made on `store`, by the
+    /// resource that owns each socket. A ticket that names no open stream
+    /// of a resource is a handle the module kept past its socket's life.
+    pub(crate) fn stage_sockets(
+        &self,
+        store: &mut Store,
+        ops: Vec<(u64, SocketOp)>,
+    ) -> Result<(), String> {
+        let mut staged = Vec::with_capacity(ops.len());
+        for (ticket, op) in ops {
+            let owner = self.streams.iter().find_map(|(key, parked)| match key.0 {
+                Some(Target::Resource(i)) if parked.ticket == ticket => Some(i),
+                _ => None,
+            });
+            staged.push((
+                owner.ok_or("InvalidStateError: the socket is not open")?,
+                op,
+            ));
+        }
+        for (resource, op) in staged {
+            store.stage_socket(resource, op);
+        }
+        Ok(())
+    }
+}

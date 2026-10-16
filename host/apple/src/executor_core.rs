@@ -2,8 +2,7 @@
 //! Only explicitly independent HTTP leaves the ordered lane. Each worker has
 //! its own bindings and transport, so held data cannot consume control leases.
 use exact_runner::{
-    FailureKind, HttpScheduling, Message, Outcome, Reply, Request, RequestOut, Response,
-    Work as OwnedWork,
+    FailureKind, HttpScheduling, Outcome, Reply, Request, RequestOut, Response, Work as OwnedWork,
 };
 use ibex2::stdlib::abort::AbortController;
 use std::collections::VecDeque;
@@ -176,6 +175,8 @@ struct Shared {
     /// boot: opening makes the directories, and a cold boot opens no app
     /// storage (fieldnotes' `apple_module_replacement_…` test).
     roots: std::sync::OnceLock<Result<ibex2::stdlib::app_fs::AppDirectories, String>>,
+    /// Open two-way sockets by stream ticket (LLP 1016.000 D7; `stream.rs`).
+    sockets: Mutex<std::collections::HashMap<u64, stream::Socket>>,
 }
 
 impl Shared {
@@ -291,6 +292,7 @@ impl Core {
             abort: AbortController::new(),
             root_paths: std::sync::OnceLock::new(),
             roots: std::sync::OnceLock::new(),
+            sockets: Mutex::default(),
         });
         let count = if lanes.is_some() {
             asynch::THREADS
@@ -622,7 +624,7 @@ impl Core {
     /// None of it holds a later ordered completion back, and each releases
     /// its count and bytes when it ends.
     pub(super) fn forget(&self, held: impl Fn(u64) -> bool) {
-        let mut aborts = Vec::new();
+        let (mut aborts, mut released) = (Vec::new(), Vec::new());
         let mut cancels = Vec::new();
         {
             let mut guard = self.shared.state.lock().unwrap();
@@ -671,6 +673,7 @@ impl Core {
                 if !run.forgotten && !held(run.ticket) {
                     run.forgotten = true;
                     aborts.extend(run.abort.clone());
+                    released.extend(run.stream.then_some(run.ticket));
                     // On the machine, cancelling a safe read claims it now.
                     if self.machine.is_some() && asynch::cancel(run) {
                         cancels.push((run.lane, (run.ticket, run.generation)));
@@ -710,6 +713,7 @@ impl Core {
                 machine.cancelled(lane, run);
             }
         }
+        stream::close_sockets(&self.shared, Some(&released));
         for abort in aborts {
             abort.abort();
         }
@@ -832,6 +836,7 @@ impl Core {
         if let Some(machine) = &self.machine {
             machine.retire();
         }
+        stream::close_sockets(&self.shared, None);
         self.shared.abort.abort();
         // Never join arbitrary native work on the UI thread. Its WorkerSlot
         // remains charged until return, including across repeated replacement.
@@ -1020,60 +1025,6 @@ fn complete(shared: &Shared, ticket: u64, outcome: Outcome) {
     if has_ready(&state) {
         wake(&mut state);
     }
-}
-
-/// One message of the open stream `ticket`, false once nobody wants more
-/// (forgotten, retired, ended). The newest undelivered message per ticket is
-/// kept and the ones it replaces are counted on it (LLP 1016.000 D4): display
-/// data coalesces, and a log sees the gap and re-asks from its cursor.
-fn message(shared: &Shared, ticket: u64, mut message: Message) -> bool {
-    let mut state = shared.state.lock().unwrap();
-    if state.retired {
-        return false;
-    }
-    let Some((lane, elapsed_ms)) = state
-        .running
-        .iter()
-        .find(|run| run.ticket == ticket && !run.forgotten)
-        .map(|run| {
-            (
-                run.lane,
-                run.started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
-            )
-        })
-    else {
-        return false;
-    };
-    let waiting = state.completed[lane]
-        .iter_mut()
-        .find(|done| done.ticket == ticket && done.message);
-    match waiting {
-        Some(done) => {
-            if let Outcome::Message(older) = &done.outcome {
-                message.coalesced = message
-                    .coalesced
-                    .saturating_add(older.coalesced)
-                    .saturating_add(1);
-            }
-            done.outcome = Outcome::Message(message);
-            done.elapsed_ms = elapsed_ms;
-        }
-        None => state.completed[lane].push_back(Completed {
-            elapsed_ms,
-            ticket,
-            outcome: Outcome::Message(message),
-            // Charged to the running stream: its ceiling covers one message.
-            bytes: 0,
-            message: true,
-            stream: true,
-            light: false,
-            again: false,
-        }),
-    }
-    if has_ready(&state) {
-        wake(&mut state);
-    }
-    true
 }
 
 /// A continuation a worker hands to the module's owner instead of running,

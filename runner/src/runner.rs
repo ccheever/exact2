@@ -79,6 +79,8 @@ pub use queue::QUEUE_BOUND;
 pub mod router;
 pub use lists::{ListTextPolicy, ListTextPosition};
 mod settlement;
+mod sockets;
+pub use sockets::SocketState;
 mod split;
 mod surface_record;
 mod time;
@@ -310,6 +312,8 @@ pub struct StreamCount {
     pub messages: u64,
     /// Messages the host dropped for a newer one before delivery.
     pub coalesced: u64,
+    /// A two-way socket's state (LLP 1016.000 D7); `None` for a listener.
+    pub socket: Option<SocketState>,
 }
 
 impl PendingReq {
@@ -415,6 +419,8 @@ pub struct Runner<D: DataSource> {
     held_edges: Vec<u32>,
     /// Requests for the host, since the last take.
     requests: Vec<RequestOut>,
+    /// Socket operations of commits that stood, since the last take (D7).
+    sockets: Vec<crate::SocketSend>,
     /// Resources an action asked to re-request; consumed by the next settle
     /// that can ask them (LLP 1054.000.000 D2).
     refresh_next: Vec<usize>,
@@ -847,6 +853,7 @@ impl<D: DataSource> Runner<D> {
             deferred_edges: Vec::new(),
             held_edges: Vec::new(),
             requests: Vec::new(),
+            sockets: Vec::new(),
             refresh_next: Vec::new(),
             writes: writes::Writes::default(),
             overlays: Vec::new(),

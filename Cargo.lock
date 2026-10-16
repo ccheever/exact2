@@ -1128,6 +1128,7 @@ dependencies = [
  "exact-textflow",
  "ibex2",
  "serde_json",
+ "url",
 ]
 
 [[package]]
@@ -1383,6 +1384,7 @@ dependencies = [
  "skrifa",
  "swash",
  "tiny-skia",
+ "url",
  "vello",
  "wgpu 29.0.4",
  "windows-sys 0.61.2",

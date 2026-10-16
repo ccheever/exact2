@@ -9,9 +9,11 @@
 //! by `net.websocket`: each text message is one `Message`, and the far
 //! side's close, a binary message or one over the ceiling ends it. Nothing
 //! is sent: the request's method, headers and body are not used, as a
-//! browser's `WebSocket` could not send them either.
+//! browser's `WebSocket` could not send them either. A request that says
+//! `socket` owns a two-way socket instead (LLP 1016.000 D7; `socket.rs`).
 use super::{
-    check_headers, complete, failed, fetch_failure, fetch_request, message, Shared, MAX_BODY,
+    check_headers, complete, failed, fetch_failure, fetch_request, has_ready, wake, Completed,
+    Shared, MAX_BODY,
 };
 use exact_runner::{FailureKind, HttpScheduling, Message, Outcome, Request, Response};
 use ibex2::stdlib::{
@@ -25,6 +27,7 @@ enum Opened {
     Events(StreamingResponse, usize),
     Socket(Box<dyn MessageSource>),
 }
+pub(super) use socket::{close as close_sockets, Socket};
 
 /// A WebSocket's URL (the scheme is the whole spelling: LLP 1069.004).
 pub(super) fn is_socket(url: &str) -> bool {
@@ -51,6 +54,7 @@ pub(super) fn run(
     if shared.abort.signal().aborted() {
         abort.abort();
     }
+    let two_way = request.socket;
     let opened = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         // A source's scope narrows the app's grants, as on the workers.
         let admitted = match request.grants.as_deref() {
@@ -83,6 +87,9 @@ pub(super) fn run(
         // The bindings live as long as the body they opened.
         Ok((Opened::Events(response, limit), _bindings)) => {
             read_events(shared, ticket, response, limit, abort)
+        }
+        Ok((Opened::Socket(socket), _bindings)) if two_way => {
+            socket::read(shared, ticket, socket, abort)
         }
         Ok((Opened::Socket(socket), _bindings)) => read_socket(shared, ticket, socket, abort),
         Err(outcome) => complete(shared, ticket, outcome),
@@ -147,6 +154,60 @@ fn read_socket(
     .unwrap_or_else(|_| failed(FailureKind::Aborted, "the stream reader panicked"));
     drop(socket);
     complete(shared, ticket, run);
+}
+
+/// One message of the open stream `ticket`, false once nobody wants more
+/// (forgotten, retired, ended). The newest undelivered message per ticket is
+/// kept and the ones it replaces are counted on it (LLP 1016.000 D4): display
+/// data coalesces, and a log sees the gap and re-asks from its cursor.
+fn message(shared: &Shared, ticket: u64, mut message: Message) -> bool {
+    let mut state = shared.state.lock().unwrap();
+    if state.retired {
+        return false;
+    }
+    let Some((lane, elapsed_ms)) = state
+        .running
+        .iter()
+        .find(|run| run.ticket == ticket && !run.forgotten)
+        .map(|run| {
+            (
+                run.lane,
+                run.started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
+            )
+        })
+    else {
+        return false;
+    };
+    let waiting = state.completed[lane]
+        .iter_mut()
+        .find(|done| done.ticket == ticket && done.message);
+    match waiting {
+        Some(done) => {
+            if let Outcome::Message(older) = &done.outcome {
+                message.coalesced = message
+                    .coalesced
+                    .saturating_add(older.coalesced)
+                    .saturating_add(1);
+            }
+            done.outcome = Outcome::Message(message);
+            done.elapsed_ms = elapsed_ms;
+        }
+        None => state.completed[lane].push_back(Completed {
+            elapsed_ms,
+            ticket,
+            outcome: Outcome::Message(message),
+            // Charged to the running stream: its ceiling covers one message.
+            bytes: 0,
+            message: true,
+            stream: true,
+            light: false,
+            again: false,
+        }),
+    }
+    if has_ready(&state) {
+        wake(&mut state);
+    }
+    true
 }
 
 /// How a socket's close reads, on every host: `the socket closed (1000)`,
@@ -342,6 +403,7 @@ impl EventStream {
                 id: self.id.clone(),
                 data,
                 coalesced: 0,
+                binary: None,
             }));
         }
         if line.starts_with(':') {
@@ -367,6 +429,9 @@ impl EventStream {
         Ok(None)
     }
 }
+
+#[path = "executor_socket.rs"]
+mod socket;
 
 #[cfg(test)]
 #[path = "executor_stream_tests.rs"]

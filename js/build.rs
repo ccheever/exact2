@@ -140,6 +140,7 @@ fn main() {
         "spin",
         "shared-load",
         "overlay",
+        "socket",
     ] {
         let source = manifest.join(format!("tests/fixtures/{name}.ts"));
         println!("cargo:rerun-if-changed={}", source.display());

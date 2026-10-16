@@ -31,22 +31,56 @@ independent; refresh invalidates the old handle. It also compares frames
 and close details with a direct browser WebSocket. Explicit AbortController
 cancellation maps Aborted on a still-held WebSocket or SSE resource.
 
+## Native slice — 2026-10-15
+
+TypeScript sources on Apple (one Rust bridge for AppKit and UIKit) and the
+Linux host now have D7, over ibex2's transport (URLSession on Apple, the
+portable one elsewhere). The seam: the prelude stages a mutation's `send`
+and `close` on its call and hands them over (door op 14) only with an
+answer given now; `exact-js` stages them on the runner's `Store` by the
+resource that owns each socket; the runner addresses them to that
+resource's open stream ticket (`SocketSend`, in the commit's checkpoint);
+after the commit the bridge lets go of released tickets, then the executor
+checks each batch whole (open, wanted, 1 MiB with the transport's buffer)
+and sends it in order. The reader delivers `open`, every frame in order
+(text and binary, never coalesced, 256 frames and 1 MiB queued), and a
+`Closed` end with code, reason and `wasClean`. Release and retirement close
+with 1000. `state.streams` shows `readyState`, `bufferedAmount` and `sent`;
+`logs` show `socket send: N bytes (feed)`, `socket close`, and refusals.
+LLP 1016.000 D7 "As built" declares where the native hosts differ from the
+web JS target (the handle's `bufferedAmount` reads 0; the buffer check is at
+publication; a sending mutation may not also `fetch`; a process exit reads
+1006 at the server).
+
+Verified: `runner/tests/it/sockets.rs` (staging, refused commits, open and
+release), `js/tests/it/socket.rs` (the prelude's handle, its refusals, a
+stale handle), `host/apple/src/executor_socket_tests.rs` (scripted
+transport: order, binary, close, buffer refusal, overflow, ceiling, let go).
+The issue's X21 app, rewritten to send from mutations, driven with
+`agent macos` and `agent linux` against a Bun echo server: the server logged
+`received ping from module`, `received bytes 1,2,3` and `close 4001
+finished`; the view showed `echo ping from module` and `bytes 3,2,1`;
+`state.streams` read `"readyState":1,"bufferedAmount":3,"sent":2`; a send
+after close logged `send sent failed: the socket is not open`; `refresh`
+closed the old socket with 1000 and sent on the new one.
+
 What remains:
 
-- Web wasm and the native runner: a resource-incarnation command seam from
-  the TypeScript mapper handle through mutation publication, with grant and
-  lifetime checks. Rust source access to the same operation is not built.
-- Apple (AppKit/UIKit), Linux and wasm transports: outbound text/binary,
-  ordered bounded receive frames, open and close metadata, inspection.
-  Their existing receive-only paths are unchanged; the host differences
-  are declared in LLP 1016.000 D7.
-- Native echo/overflow/disposal tests, AppKit drive/XCTests, UIKit simulator
-  drive/tests, Linux headless drive, and wasm/JS conformance after those
-  adapters implement D7. Worker-placed TypeScript streams remain unsupported.
+- iOS simulator and device drive (the bridge is shared; not yet run), and
+  a Linux drive on Linux itself, where the portable transport sends.
+- Web wasm: its module realm passes the mapper a handle that never opens,
+  and its host's reader is still the listener. It needs `open`, ordered
+  frames, binary, `Closed` and the mutation flag in `module-glue.js`, and
+  the op-14 door there.
+- Rust sources: no handle or send operation.
+- Worker-placed TypeScript streams.
+- A Chrome-oracle conformance case across hosts (text and binary both
+  ways, order, close code and reason, `bufferedAmount` back to 0), and an
+  async-lane echo test on the platform transport.
 
-The JS slice restricts sends to synchronous mutation sources. Extending
-that to a continuation needs ownership across awaits; ambient WebSocket
-constructors remain refused.
+The JS slice restricts sends to synchronous mutation sources; so does the
+native one. Extending that to a continuation needs ownership across awaits;
+ambient WebSocket constructors remain refused.
 
 ## Original report
 

@@ -775,6 +775,11 @@ impl<D: DataSource> Presenter<D> {
                 self.run_dispatch(r, dispatch);
             }
         }
+        // Socket frames of the commits that stood (LLP 1016.000 D7).
+        let executor = &self.executor;
+        self.host
+            .runner_mut()
+            .publish_sockets(|batch| executor.socket(batch));
         let commands = self.host.take_commands();
         if !commands.is_empty() {
             self.commands.extend(commands);

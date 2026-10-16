@@ -43,6 +43,11 @@ pub struct Store {
     /// Device topics the answer being made watches (`native.watch`, LLP
     /// 1016.002): taken by the runner after each answer.
     topics: std::cell::RefCell<Vec<String>>,
+    /// Socket operations the mutation being answered staged, by the index
+    /// of the resource that owns each socket (LLP 1016.000 D7): taken by
+    /// the runner after each mutation's answer, which publishes them only
+    /// if the answer stands.
+    sockets: Vec<(usize, crate::SocketOp)>,
     /// Each entry's value before its first write since the open checkpoint:
     /// what a refused transaction puts back. A checkpoint costs what the
     /// transaction writes, not the store's size. Checkpoints do not nest.
@@ -204,6 +209,7 @@ impl Store {
             reads: std::cell::Cell::new(0),
             entropy: std::cell::Cell::new(0),
             topics: Default::default(),
+            sockets: Vec::new(),
             undo: Vec::new(),
             copied: 0,
         }
@@ -441,6 +447,17 @@ impl Store {
         if !topics.iter().any(|t| t == topic) {
             topics.push(topic.to_owned());
         }
+    }
+
+    /// Stage `op` on the socket of resource `resource` for the mutation
+    /// being answered (LLP 1016.000 D7).
+    pub fn stage_socket(&mut self, resource: usize, op: crate::SocketOp) {
+        self.sockets.push((resource, op));
+    }
+
+    /// The socket operations staged since the last take.
+    pub fn take_sockets(&mut self) -> Vec<(usize, crate::SocketOp)> {
+        std::mem::take(&mut self.sockets)
     }
 
     /// The topics watched since the last take.
