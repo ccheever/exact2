@@ -435,14 +435,12 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
                 let context = UILongPressGestureRecognizer(target: self, action: #selector(longPressed(_:)))
                 context.delegate = self
                 value.addGestureRecognizer(context)
-                value.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+                value.autoresizingMask = [.flexibleWidth, .flexibleTopMargin, .flexibleBottomMargin]
                 owner.addSubview(value)
                 controls[owner.id] = value
                 return value
             }()
             if control.superview !== owner { owner.addSubview(control) }
-            let frame = owner.contentBox()
-            if control.frame != frame { control.frame = frame }
             assign(control, \.isEnabled, available(owner))
             control.accessibilityLabel = owner.props["accessibilityLabel"]
             if control.numberOfSegments != tabs.count {
@@ -464,6 +462,14 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             let pending = control.isTracking || control.selectedSegmentIndex != control.settled
             if control.selectedSegmentIndex != selected, !pending { control.selectedSegmentIndex = selected }
             if control.selectedSegmentIndex == selected { control.settled = selected }
+            // As wide as the content box and its own height, centred in it
+            // (LLP 1116.019 D1): a taller box (an authored height, a stretch)
+            // does not stretch UIKit's control, as a hand-built screen's
+            // never is.
+            let box = owner.contentBox()
+            let height = min(box.height, natural(owner.id, control).height)
+            let frame = CGRect(x: box.minX, y: box.midY - height / 2, width: box.width, height: height)
+            if control.frame != frame { control.frame = frame }
             owner.bringSubviewToFront(control)
             measure(owner, control)
             // Equal segments where they fit; in a narrower box UIKit gives
