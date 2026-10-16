@@ -41,6 +41,8 @@ public struct Batch {
     /// structure or refused; and whether a colour met a full wide table.
     public var live: String? = nil
     public var unsupported = false
+    /// The design digest the runner runs after it (the build channel's `design`, LLP 1122 D4).
+    public var design: String? = nil
     /// The kernel transactions it carries, while the runner measures (LLP 1079 D3).
     public var seq: (UInt64, UInt64)?
     init(ops: [BatchOp], timers: Bool, motion: Bool, clock: Double?, error: String?, timerDueMs: Double? = nil, pending: Bool = false) {

@@ -107,8 +107,8 @@ Each request is `POST /__tamber` with `{"method": "…", …}`.
 
 **`hello`** answers:
 - `protocol` and `format`;
-- `builds`: the connected development builds, each with an id. This is empty until LLP 1121
-  stage 4's build channel;
+- `builds`: the registered development builds with an open stream, each `{id, host,
+  capabilities, plan, design, status, pin}` (see [The build channel](#the-build-channel-llp-1122-d4));
 - `files`;
 - `app`: the app's directory, absolute (*1.1*);
 - `epoch`: this run of the server, the same value its events carry (*1.1*);
@@ -187,7 +187,7 @@ design.
   - the component-param operations (`set-param`, `unset-param`; stage 7);
   - state parts (`set-state`; stage 8);
   - `set-row` (LLP 1122 T5);
-  - `preview` (stage 4, as the build channel's `pin`).
+  - `preview` as an operation (it is a request instead: see the build channel).
 
 ### `propose`
 
@@ -373,12 +373,17 @@ Every event carries `seq` (rising, per run) and `epoch` (this run). The server k
 | `proposal` | the held proposal: `proposal`, `client`, `diff`, `changed`, `class`, `expires`, `ops`, `replaces?`, `review?` |
 | `proposal-dropped` | `proposal`, `client` (null when it `expired`, went `stale` or was one `too many held`), `reason`: `accepted`, `dropped`, `replaced` (with `replacedBy`), `stale`, `expired` or `too many held` |
 | `down` | `message`: the design server stopped or never started |
+| `builds` | `builds`: the registered builds, as `hello` lists them, after one registers, goes, or its pins change |
+| `build-status` | `build`: one build, after its `status` report |
+| `unsupported` | `build`, `what` (a command's kind, `pin.mode`, `pin.contrast`, `batch`), `detail` |
+| `selected` | `build`, `selected` (LLP 1122 D5; its sender is T2b's) |
 
 - **A write is announced once,** from its reply. A hand edit made just before a write is announced
   first, as its own event.
-- **`POST /__tamber/subscribe`** opens with `{event: "subscribed", seq, epoch, files, proposals}`,
-  then sends one `data:` line per later event. It replays nothing kept. Catching up is the long
-  poll's job.
+- **`POST /__tamber/subscribe`** opens with `{event: "subscribed", seq, epoch, files, proposals,
+  builds}`, then sends one `data:` line per later event. It replays nothing kept. Catching up is
+  the long poll's job. Its body may be `{client}`: the client's commands (`pin`) last as long as
+  a subscription naming it.
 - **`POST /__tamber/events`** `{after, epoch?, wait?}` answers `{events, seq, epoch, missed, files,
   proposals}`:
   - with the events after `after`, once there is one, or after 25 s with none;
@@ -425,7 +430,49 @@ A write reaches every running development build at once. Release builds take non
   connect, after value-only edits, and in place of a batch too large for a frame (32 KiB). A
   native build fetches the snapshot after each plan it applies, and Linux polls it with its plan.
 - **A full wide colour table** refuses a colour with a journal line. The row keeps its value, and
-  the build reports it `unsupported` (the build channel, commit 5).
+  the build reports it `unsupported` (see the build channel).
+
+## The build channel (LLP 1122 D4)
+
+The dev loop's running development builds register with it, report up and take commands down.
+The tool drives no input into an app; a command changes only what `prefer` would.
+
+- **Registration.** A build's dev stream hello (`/__dev`; the JS target's `/__dev/page`) carries
+  a `nonce` when the loop has a design. The build answers with one `POST /__dev/report`:
+  `{nonce, kind: "register", id, host, capabilities, plan, design}`.
+  - `id` is the build's own, stable across its reconnects (a tab's, a process's), so its pins
+    are replayed when it registers again.
+  - A report whose nonce is no open stream's is refused (403): the dev loop takes other POSTs
+    with no token. A report before a registration is 409.
+  - A build with no stream opens a polled one: `GET /__dev/hello` gives a nonce, and `GET
+    /__dev/commands?nonce=` answers the frames since its last poll (a nonce unpolled for 30
+    seconds is forgotten). Linux does this, and so does the JS loop's resident `--serve-as`
+    producer, which relays the frames onto its devices' streams; their reports go to the main
+    loop directly.
+- **Reports up** (`POST /__dev/report`, each with the nonce), told to every client as events:
+  - `status`: the effective `scheme`, `contrast`, `mode` (`{axis: value}`) and `rootFontSize`,
+    the `plan` and `design` digests, and the pin `revision` it applied. Sent on connect and on
+    any change.
+  - `unsupported`: a command or batch it can't apply, by name (`what`).
+  - `selected`: LLP 1122 D5's; its route is here, its sender comes with T2b.
+- **Commands down**, each a frame whose `kind` the host dispatches before any generation:
+  - `pin` `{revision, pin}`: `pin` is `{scheme?: "light"|"dark", contrast?:
+    "more"|"less"|"no-preference", mode?: {axis: value}, rootFontSize?: px}`, the facts `prefer`
+    pins, or null to hand them back. Each pin replaces the whole set: a fact it doesn't name is
+    what the first pin replaced.
+  - `inspect`, `outline` and `hold` are reserved (T2b, stage 8). A host answers them
+    `unsupported`.
+- **`pin`** `{client, build?, pin}` (write scope, as the wire's POSTs are) sends one to a build, or
+  to every registered build without `build`. `preview` `{client, build, axis, value}` is the
+  same as pinning that build's mode for that axis. Answered `{builds, revision}`.
+  - The client must hold an open subscription naming it, or it is refused (400). When its last
+    subscription closes, its pins are handed back on every build.
+- **On each host:**
+  - the web page and the JS target set the mode and the root font size as `prefer` does, and the
+    scheme through the root's `color-scheme`. They answer a contrast pin `unsupported`, since a
+    page can't override the browser's `prefers-contrast`;
+  - Apple and Linux pin what the agent's `prefer` pins, on every session, and set a held pin
+    again on a session or generation that boots under it.
 
 ## The design tool's files (*1.1*)
 
@@ -439,8 +486,6 @@ A write reaches every running development build at once. Release builds take non
 ## Not yet in the protocol
 
 - **LLP 1121 stage 4, with LLP 1122 D4:**
-  - the build channel (registration, the `status`, `unsupported` and `selected` reports, the
-    `pin` command, `builds` in `hello`);
   - scrub sessions;
   - `uses`.
 - **LLP 1121 stage 4's gate also names `resolve-on`.** LLP 1122 defers it to T2b, where a build's

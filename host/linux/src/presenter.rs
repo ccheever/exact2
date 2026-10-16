@@ -39,6 +39,7 @@ mod arrange_geometry;
 mod arrive;
 mod back;
 pub mod bars;
+mod build_channel;
 mod clock;
 mod collection;
 mod commands;

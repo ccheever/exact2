@@ -214,7 +214,10 @@ const restored=document.querySelector('script[type="application/vnd.exact.dev-ch
 if(restored){const restoredSeq=Number(restored.dataset.seq);console.info('exact dev reload: restored',restoredSeq);const t=setInterval(()=>{const b=document.getElementById('exact-root')?.dataset.bootMs;if(b!=null){clearInterval(t);Promise.resolve(globalThis.exact?.ready).then(()=>{console.info('exact dev reload: runtime up',restoredSeq);fetch('/__dev/reloaded?seq='+restoredSeq+'&boot='+b+'&at='+Date.now(),{method:'POST'})})}},2)}
 const ready=()=>globalThis.exact?Promise.resolve(globalThis.exact.ready):new Promise(ok=>{const t=setInterval(()=>{if(globalThis.exact){clearInterval(t);Promise.resolve(globalThis.exact.ready).then(ok)}},2)});
 let liveQ=Promise.resolve();const live=m=>{liveQ=liveQ.then(async()=>{const x=await ready().then(()=>globalThis.exact);const out=x?.design?.(m);if(out?.live==='stale'){const r=await fetch('/__dev/design',{cache:'no-store'});if(r.status===200)x.design(await r.json())}}).catch(e=>console.error('exact dev:',e))};
-es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==='tamber-snapshot'){live(m);return}if(m.error!==undefined)show(m.error);if(m.reload>seq&&!reloading){reloading=true;if(!globalThis.exact){location.reload();return}ready().then(async()=>{const checkpoint=capture(m.revision!==logicRevision),id=crypto.getRandomValues(new Uint32Array(4)).join('-');console.info('exact dev reload: checkpoint',m.reload);const saved=await fetch('/__dev/checkpoint?id='+id+'&seq='+m.reload+'&revision='+encodeURIComponent(m.revision??''),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(checkpoint)});if(!saved.ok)throw new Error('checkpoint handoff answered '+saved.status);const next=new URL(location.href);next.searchParams.set('__exactDev',id);if(admission)for(const [k,v]of admission)if(!next.searchParams.has(k))next.searchParams.set(k,v);location.replace(next.href)}).catch(e=>{reloading=false;console.error('exact dev reload: current page retained; checkpoint handoff failed',e)})}}})()</script>`;
+const ch={nonce:null,revision:null,before:null},bid=(()=>{try{let i=sessionStorage.getItem('exact.dev.build');if(!i)sessionStorage.setItem('exact.dev.build',i='web-js-'+crypto.getRandomValues(new Uint32Array(2)).join(''));return i}catch{return 'web-js-'+Date.now()}})(),rep=b=>ch.nonce&&fetch('/__dev/report',{method:'POST',body:JSON.stringify({nonce:ch.nonce,...b})}).catch(()=>{});
+const status=()=>{const s=getComputedStyle(document.documentElement),cs=s.colorScheme,x=globalThis.exact;rep({kind:'status',scheme:/dark/.test(cs)&&!/light/.test(cs)?'dark':/light/.test(cs)&&!/dark/.test(cs)?'light':matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light',contrast:matchMedia('(prefers-contrast: more)').matches?'more':matchMedia('(prefers-contrast: less)').matches?'less':'no-preference',mode:x?.modes?.read?.()??null,rootFontSize:parseFloat(s.fontSize),revision:ch.revision})};
+const pin=m=>{liveQ=liveQ.then(async()=>{await ready();const r=document.documentElement.style,p=m.pin,x=globalThis.exact;ch.before??={scheme:r.colorScheme,fontSize:r.fontSize,mode:x?.modes?.read?.()??{}};r.colorScheme=p?.scheme??ch.before.scheme;r.fontSize=p?.rootFontSize?p.rootFontSize+'px':ch.before.fontSize;const mode=Object.entries({...ch.before.mode,...(p?.mode??{})});if(mode.length&&x?.modes?.set){const why=x.modes.set(mode);if(why)rep({kind:'unsupported',what:'pin.mode',detail:why})}if(p?.contrast)rep({kind:'unsupported',what:'pin.contrast',detail:"a web page cannot pin the browser's contrast"});if(!p)ch.before=null;ch.revision=m.revision;status()}).catch(e=>console.error('exact dev:',e))};
+es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==='tamber-snapshot'){live(m);return}if(m.kind==='pin'){pin(m);return}if(m.kind==='inspect'||m.kind==='outline'||m.kind==='hold'){rep({kind:'unsupported',what:m.kind});return}if(m.nonce&&m.nonce!==ch.nonce){ch.nonce=m.nonce;ready().then(async()=>{await rep({kind:'register',id:bid,host:'web-js',capabilities:['pin'],plan:null,design:null});status()})}if(m.error!==undefined)show(m.error);if(m.reload>seq&&!reloading){reloading=true;if(!globalThis.exact){location.reload();return}ready().then(async()=>{const checkpoint=capture(m.revision!==logicRevision),id=crypto.getRandomValues(new Uint32Array(4)).join('-');console.info('exact dev reload: checkpoint',m.reload);const saved=await fetch('/__dev/checkpoint?id='+id+'&seq='+m.reload+'&revision='+encodeURIComponent(m.revision??''),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(checkpoint)});if(!saved.ok)throw new Error('checkpoint handoff answered '+saved.status);const next=new URL(location.href);next.searchParams.set('__exactDev',id);if(admission)for(const [k,v]of admission)if(!next.searchParams.has(k))next.searchParams.set(k,v);location.replace(next.href)}).catch(e=>{reloading=false;console.error('exact dev reload: current page retained; checkpoint handoff failed',e)})}}})()</script>`;
   const checkpoints = new Map();
   // The install pages (LLP 1030.003 D6a) and, from a loopback page on a Mac,
   // the local iOS build (D6b): this server's, since only it sees the real
@@ -229,9 +232,30 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
     if (!url) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
     if (tamber && await tamber.handle(req, res, url, access)) return;
     if (await installer.handle(req, res, url, access)) return;
+    // The build channel (LLP 1122 D4): the page's stream gives it a nonce;
+    // reports come up by POST; a build with no stream here (the resident
+    // loop's devices, Linux) opens a polled one.
+    if (url.pathname === '/__dev/report' && req.method === 'POST') {
+      if (!tamber) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
+      const chunks = []; let size = 0;
+      for await (const chunk of req) { size += chunk.length; if (size > 64 * 1024) { res.writeHead(413); res.end(); return; } chunks.push(chunk); }
+      const answer = tamber.channel.report(Buffer.concat(chunks).toString('utf8'));
+      res.writeHead(answer.status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+      res.end(answer.body == null ? undefined : JSON.stringify(answer.body));
+      return;
+    }
+    if ((url.pathname === '/__dev/hello' || url.pathname === '/__dev/commands') && req.method === 'GET') {
+      if (!tamber) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
+      const answer = url.pathname === '/__dev/hello' ? { hello: true, nonce: tamber.channel.openPolled().nonce } : tamber.channel.poll(url.searchParams.get('nonce') ?? '');
+      res.writeHead(answer ? 200 : 403, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+      res.end(JSON.stringify(answer ?? { message: 'no open dev stream holds this nonce' }));
+      return;
+    }
     if (url.pathname === '/__dev/page') {
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
-      res.write(`data: ${JSON.stringify(error ? { error, reload: seq, revision: logicRevision } : { reload: seq, revision: logicRevision })}\n\n`);
+      const opened = tamber?.channel.open(frame => res.write(`data: ${JSON.stringify(frame)}\n\n`));
+      req.on('close', () => opened?.close());
+      res.write(`data: ${JSON.stringify({ ...(error ? { error } : {}), reload: seq, revision: logicRevision, ...(opened ? { nonce: opened.nonce } : {}) })}\n\n`);
       // The design the pages run, after value-only edits since the build.
       if (snapshot) res.write(`data: ${JSON.stringify(notice(snapshot))}\n\n`);
       clients.add(res);

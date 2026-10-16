@@ -46,6 +46,7 @@ import { acceptsHTML, webRequestURL } from '../../scripts/origin.mjs';
 import { guardFlags } from '../../scripts/help.mjs';
 import { localInstaller } from './local-install.mjs';
 import { designPath, tamberServer } from '../../scripts/tamber-server.mjs';
+import { relayChannel } from '../../scripts/tamber-builds.mjs';
 import { applyShaderTreeChange, sendStaticBody, watchLauncher, applyStaticChange, applyStaticTreeChange, builtAppMatches, developmentOpenPage, readDevGenerationAsync, readStaticFileAsync, readWebRequest, reflectShaderFiles, saveTrace, retainDevGeneration, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope, MODULE_FILES, moduleCards } from './serve.mjs';
 
 const argv = guardFlags('web', process.argv.slice(2)); // --help, or a flag it does not take, before anything starts
@@ -295,7 +296,7 @@ const announcement = () => current ? {
   epoch, program, seq: current.seq, generation: current.generation,
   digest: current.envelope.plan.sha256, envelope: current.url,
 } : { epoch, ready: false };
-const hello = () => JSON.stringify({ hello: true, ...announcement() });
+const hello = (nonce) => JSON.stringify({ hello: true, ...announcement(), ...(nonce ? { nonce } : {}) });
 let retentionToken = null;
 function captureGeneration(reuseCurrentAssets = false) {
   // A mixed app publishes one complete candidate. A producer may finish
@@ -1138,6 +1139,26 @@ const server = createServer(async (req, res) => {
   if (!url) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
   if (tamber && await tamber.handle(req, res, url, access)) return;
   const devBeacon = url.pathname === '/__dev/reloaded' || url.pathname === '/__dev/painted' || url.pathname === '/__dev/gpu';
+  // The build channel (LLP 1122 D4): a build's reports up, with its stream's
+  // nonce; a build that holds no stream (Linux) opens a polled one.
+  if (url.pathname === '/__dev/report' && req.method === 'POST') {
+    if (!tamber) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
+    const chunks = []; let size = 0;
+    for await (const chunk of req) { size += chunk.length; if (size > 64 * 1024) { res.writeHead(413); res.end(); return; } chunks.push(chunk); }
+    const answer = tamber.channel.report(Buffer.concat(chunks).toString('utf8'));
+    res.writeHead(answer.status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    res.end(answer.body == null ? undefined : JSON.stringify(answer.body));
+    return;
+  }
+  if ((url.pathname === '/__dev/hello' || url.pathname === '/__dev/commands') && req.method === 'GET') {
+    if (!tamber) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
+    const answer = url.pathname === '/__dev/hello'
+      ? { hello: true, ...announcement(), nonce: tamber.channel.openPolled().nonce }
+      : tamber.channel.poll(url.searchParams.get('nonce') ?? '');
+    res.writeHead(answer ? 200 : 403, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    res.end(JSON.stringify(answer ?? { message: 'no open dev stream holds this nonce' }));
+    return;
+  }
   const localInstall = url.pathname === LOCAL_IOS_INSTALL_ENDPOINT;
   const trace = url.pathname === '/__exact/trace';
   if (req.method !== 'GET' && req.method !== 'HEAD' && !(req.method === 'POST' && (devBeacon || localInstall || trace))) { res.writeHead(405); res.end(); return; }
@@ -1191,7 +1212,12 @@ const server = createServer(async (req, res) => {
   if (url.pathname === '/__dev') {
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
     res.write(':\n\n');
-    res.write(`data: ${hello()}\n\n`);
+    // A build's nonce for the build channel: this loop's own, or, serving as
+    // another loop's producers, that loop's, whose commands are relayed.
+    const write = frame => res.write(`data: ${JSON.stringify(frame)}\n\n`);
+    const opened = tamber?.channel.open(write) ?? (servedAs != null ? await relayChannel(`http://127.0.0.1:${servedAs}`, write) : null);
+    req.on('close', () => opened?.close());
+    res.write(`data: ${hello(opened?.nonce)}\n\n`);
     for (const [stem, version] of gpuSides) res.write(`data: ${JSON.stringify({gpu:version, ...(stem === 'gpu' ? {} : {module:stem.slice(4)})})}\n\n`);
     // A build that connects learns the design to run; one that runs another
     // fetches the snapshot (/__dev/design).

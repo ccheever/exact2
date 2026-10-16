@@ -234,7 +234,7 @@ public final class ExactApp {
             if let old = self.devProgram { return old == program }
             self.devProgram = program
             return true
-        }, current: { [weak self] in self?.devGeneration }, waiting: { [weak self] in self?.generationPending == true }, design: { [weak self] in self?.design($0) ?? "closed" }, apply: { [weak self] candidate, label in
+        }, current: { [weak self] in self?.devGeneration }, waiting: { [weak self] in self?.generationPending == true }, design: { [weak self] in self?.design($0) ?? "closed" }, channel: { [weak self] in self?.channel($0) }, apply: { [weak self] candidate, label in
             guard let self else { return false }
             let resolver = candidate.assets
             return self.applyTogether(candidate.plan, label: label, resolver: resolver, token: 0, identity: candidate.identity, module: candidate.module, commit: { true })

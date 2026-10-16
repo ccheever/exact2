@@ -362,12 +362,12 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
 
     /// The app owns the identity: replacing a connection must not restart an
     /// already current app, while another kind of apply invalidates the identity.
-    static func open(_ page: String, acceptProgram: @escaping (String?) -> Bool, current: @escaping () -> String?, waiting: @escaping () -> Bool = { false }, design: @escaping (String) -> String = { _ in "unsupported" }, apply: @escaping (Generation, String) -> Bool) -> PlanURL? {
+    static func open(_ page: String, acceptProgram: @escaping (String?) -> Bool, current: @escaping () -> String?, waiting: @escaping () -> Bool = { false }, design: @escaping (String) -> String = { _ in "unsupported" }, channel: @escaping ([String: Any]) -> Void = { _ in }, apply: @escaping (Generation, String) -> Bool) -> PlanURL? {
         guard let u = URL(string: page), u.host != nil, sameOrigin(u, u) else {
             fputs("exact url: not an HTTP app URL: \(page)\n", stderr)
             return nil
         }
-        let connection = PlanURL(u, acceptProgram: acceptProgram, current: current, waiting: waiting, design: design, apply: apply)
+        let connection = PlanURL(u, acceptProgram: acceptProgram, current: current, waiting: waiting, design: design, channel: channel, apply: apply)
         connection.resolveAndBoot()
         return connection
     }
@@ -378,6 +378,9 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
     /// A live design batch or snapshot (LLP 1121 stage 4) applied to the
     /// app; answers applied, stale, structure or refused.
     private let applyDesign: (String) -> String
+    /// A build-channel frame (LLP 1122 D4): a hello with a new nonce, or a
+    /// command (`BuildChannel.commands`).
+    private let channel: ([String: Any]) -> Void
     private let preparationPending: () -> Bool
     private let acceptProgram: (String?) -> Bool
     var terminal: String?
@@ -399,12 +402,13 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
         return URLSession(configuration: config, delegate: self, delegateQueue: .main)
     }()
 
-    private init(_ page: URL, acceptProgram: @escaping (String?) -> Bool, current: @escaping () -> String?, waiting: @escaping () -> Bool = { false }, design: @escaping (String) -> String, apply: @escaping (Generation, String) -> Bool) {
+    private init(_ page: URL, acceptProgram: @escaping (String?) -> Bool, current: @escaping () -> String?, waiting: @escaping () -> Bool = { false }, design: @escaping (String) -> String, channel: @escaping ([String: Any]) -> Void, apply: @escaping (Generation, String) -> Bool) {
         self.page = page
         self.acceptProgram = acceptProgram
         currentGeneration = current
         applyGeneration = apply
         applyDesign = design
+        self.channel = channel
         preparationPending = waiting
     }
 
@@ -427,6 +431,8 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
         beginResolution()
         stream?.cancel()
         stream = nil
+        reports.removeAll()
+        reporting?.cancel()
         session.invalidateAndCancel()
     }
 
@@ -752,6 +758,9 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
     private func subscribe(_ url: URL) {
         stream?.cancel()
         buffer.removeAll()
+        // A new stream's nonce comes with its hello; reports wait for it.
+        nonce = nil
+        reports.removeAll()
         var request = URLRequest(url: url)
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         let task = session.dataTask(with: request)
@@ -833,6 +842,14 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
             design(frame)
             return
         }
+        // The build channel (LLP 1122 D4): a command before any generation;
+        // a new stream's hello registers again, under the same id.
+        if let kind = frame["kind"] as? String, BuildChannel.commands.contains(kind) { channel(frame); return }
+        if frame["hello"] as? Bool == true, let next = frame["nonce"] as? String, next != nonce, next.utf8.count <= 128 {
+            nonce = next
+            reports.removeAll()
+            channel(frame)
+        }
         if frame["ready"] as? Bool == false { return }
         guard let revision = PlanURL.revision(frame), terminal == nil, observe(revision) else { return }
         if currentGeneration() == revision.identity { beginResolution(); return }
@@ -881,6 +898,48 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
                 if self.applyDesign(text) == "stale" { self.syncDesign() }
             }
         }
+    }
+
+    // MARK: the build channel (LLP 1122 D4)
+
+    /// The nonce the stream's hello gave, which every report carries.
+    private(set) var nonce: String?
+    private var reports: [Data] = []
+    private var reporting: BoundedFetch?
+
+    /// A `POST /__dev/report` with the nonce, and the plan for a register or
+    /// a status: one at a time, in order (a status after its register), at
+    /// most 16 waiting, on the page's origin; none before a hello.
+    func report(_ body: [String: Any]) {
+        guard let nonce, reports.count < 16 else { return }
+        var body = body
+        body["nonce"] = nonce
+        if body["kind"] as? String == "register" || body["kind"] as? String == "status" { body["plan"] = currentGeneration() ?? NSNull() }
+        guard let data = try? JSONSerialization.data(withJSONObject: body) else { return }
+        reports.append(data)
+        sendReport()
+    }
+
+    private func sendReport() {
+        guard reporting == nil, !closed, !reports.isEmpty, let url = URL(string: "/__dev/report", relativeTo: page)?.absoluteURL else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = reports.removeFirst()
+        // Its own rung: a new generation's `beginResolution` does not cancel it.
+        let fetch = BoundedFetch(origin: page, limit: 4096) { [weak self] result in
+            guard let self else { return }
+            self.reporting = nil
+            switch result {
+            case let .success((data, response)) where response.statusCode >= 300:
+                self.status("build channel: report refused (\(response.statusCode)): \(String(decoding: data, as: UTF8.self))")
+            case let .failure(failure): self.status("build channel: report failed: \(failure.message)")
+            default: break
+            }
+            self.sendReport()
+        }
+        reporting = fetch
+        fetch.start(request)
     }
 
     private func status(_ message: String) { fputs("exact url: \(message)\n", stderr) }

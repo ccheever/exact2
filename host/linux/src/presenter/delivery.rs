@@ -20,6 +20,10 @@ impl<D: DataSource> Presenter<D> {
     /// Connect the existing development URL loop; polling starts after first pixel.
     pub fn set_development(&mut self, url: Option<String>, identity: Option<String>) {
         self.dev = url.map(|url| crate::fetch::Poller::new(url, self.compat.clone(), identity));
+        // What the build channel's registration names (LLP 1122 D4).
+        if let Some(link) = self.dev.as_mut().and_then(|dev| dev.link.as_mut()) {
+            link.design = Some(self.host.runner().design());
+        }
     }
 
     /// Apply a finished URL generation without blocking the presentation thread.
@@ -34,7 +38,11 @@ impl<D: DataSource> Presenter<D> {
         }
         if let Some(generation) = self.pending_dev.take() {
             match self.reload_module(&generation.plan, data(), generation.module.clone()) {
-                Ok(_) => self.dev.as_mut().unwrap().identity = Some(generation.identity),
+                Ok(_) => {
+                    self.dev.as_mut().unwrap().identity = Some(generation.identity);
+                    self.repin();
+                    self.report_status();
+                }
                 Err(HostError::PreparingModule) => self.pending_dev = Some(generation),
                 Err(error) => eprintln!("exact url: candidate refused: {error}"),
             }
@@ -44,12 +52,14 @@ impl<D: DataSource> Presenter<D> {
         if self.pending_dev.is_none() {
             if let Some(frame) = self.dev.as_mut().and_then(|dev| dev.design.take()) {
                 match self.apply_live(&frame) {
-                    None => {}
+                    None => self.report_design(),
                     Some(why) if why == "structure" => {}
                     Some(why) => eprintln!("exact url: live: {why}"),
                 }
             }
         }
+        // The build channel (LLP 1122 D4): the frames the tick took.
+        self.serve_build_channel();
     }
 
     pub(super) fn prepare_logic(

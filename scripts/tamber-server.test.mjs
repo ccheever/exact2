@@ -106,6 +106,34 @@ test('hello says live, and a slow write is answered, not timed out', async () =>
   tamber.close();
 });
 
+// LLP 1122 D4: the dev loop's builds in `hello`, and a pin a client may
+// set only while it subscribes by name, cleared on every build when it goes.
+test('a pin is its client\'s while it subscribes, and builds are in hello', async () => {
+  const port = 8804;
+  const gate = developmentGate([{ origin: `http://127.0.0.1:${port}` }], port);
+  const tamber = tamberServer({ appDir: '/nowhere', spawnServe: fakeServe, log: () => {} });
+  const headers = { host: `127.0.0.1:${port}`, 'x-exact-tamber-token': tamber.token };
+  const post = body => ask(tamber, gate, { path: '/__tamber', method: 'POST', headers, body: JSON.stringify(body) });
+  const frames = [];
+  const build = tamber.channel.open(f => frames.push(f));
+  tamber.channel.report(JSON.stringify({ nonce: build.nonce, kind: 'register', id: 'web-1', host: 'web', capabilities: ['pin'] }));
+  expect((await post({ method: 'hello' })).body.ok.builds.map(b => b.id)).toEqual(['web-1']);
+  // Not subscribed: refused.
+  expect((await post({ method: 'pin', client: 'tool', build: 'web-1', pin: { scheme: 'dark' } })).status).toBe(400);
+  // Subscribed by name: taken, and a frame goes to that build.
+  const req = Object.assign(new PassThrough(), { method: 'POST', headers, socket: { remoteAddress: '127.0.0.1' } });
+  const res = Object.assign(new EventEmitter(), { destroyed: false, writableEnded: false, writeHead() {}, write() {}, end() {} });
+  queueMicrotask(() => req.end(JSON.stringify({ client: 'tool' })));
+  await tamber.handle(req, res, new URL('/__tamber/subscribe', 'http://x'), gate.check(req));
+  const taken = await post({ method: 'preview', client: 'tool', build: 'web-1', axis: 'dark-style', value: 'dim' });
+  expect(taken.status).toBe(200);
+  expect(frames.at(-1)).toMatchObject({ kind: 'pin', pin: { mode: { 'dark-style': 'dim' } } });
+  // The client goes: its pin is handed back.
+  res.emit('close');
+  expect(frames.at(-1)).toMatchObject({ kind: 'pin', pin: null });
+  tamber.close();
+});
+
 // The real server (`contract tamber serve`, built once by cargo) behind an
 // HTTP listener and the development gate, as a dev loop mounts it.
 let dir, server, tamber, origin, headers;
