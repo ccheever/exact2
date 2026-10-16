@@ -1,6 +1,7 @@
 # Pointer events do not bubble: a node's `pointermove` takes its ancestors' `pointerdown`, and on macOS a press in a popover reaches no ancestor
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed: Charlie chose option 1 (2026-10-15); `pointerdown` and `pointerup` bubble on every host, and the repro reads 6 of 6 on the web and macOS
 **Systems:** Contract, pointer events, GUI hosts, host/apple macOS
 **Severity:** P2
 **Author:** daehyeon-mun (T3 Code clone)
@@ -9,7 +10,9 @@
 
 ## Current scope
 
-2026-10-12, #461: part 2 is fixed. On macOS, `pointerPressed` now walks the authored tree (`menus.parent(of:)`), so a press on Row C reaches the root's `pointerdown`. The repro's macOS count is now 4, the same as the web's (`PopoverMacTests.testAPressInAPopoverReachesItsAuthoredAncestorsPointerdown`). Part 1 remains and waits on the decision below.
+2026-10-12, #461: part 2 is fixed. On macOS, `pointerPressed` now walks the authored tree (`menus.parent(of:)`), so a press on Row C reaches the root's `pointerdown`. The repro's macOS count is now 4, the same as the web's (`PopoverMacTests.testAPressInAPopoverReachesItsAuthoredAncestorsPointerdown`).
+
+2026-10-15: part 1 is fixed by option 1 (Decision, below).
 
 ## Summary
 
@@ -141,3 +144,59 @@ How a press reaches ancestors:
    `pointermove` no longer takes the press from its ancestors.
 3. **Keep the rule, declared.** Apps forward presses to the window themselves (in the clone that grew the plan
    from 27.1 to 33.7 MB).
+
+## Decision
+
+**Charlie, 2026-10-15: option 1, DOM bubbling.** `pointerdown` and `pointerup` go to the innermost
+node that hears them, then to every ancestor that declares them, innermost first, as `key` and
+`wheel` do. The innermost node that hears any of the three pointer events still holds the pointer
+for its moves until it lifts (the canvas-stroke hold, LLP 1056 §8.6). #281 and #327 stay true: a
+contact inside a popover never reaches a page node that is only under it, while the popover's authored
+ancestors hear the bubbled press, as in the DOM. Chrome's behaviour is the oracle.
+
+What was built to it:
+
+- **The up's path is the down's.** Each node the down passed that hears `pointerup` hears the up,
+  innermost first, wherever the pointer lifts: the nodes are fixed at the down, as a DOM pointer capture
+  fixes its target. A node the tree removes while the pointer is down is skipped; its ancestors still
+  hear the up. A node that heard the down hears the up even if it was disabled since, so what the down
+  began ends.
+- **No `stopPropagation()`.** As for `wheel`, no handler stops the bubbling; `stopPropagation()`
+  stays the key and focus events'. Admitting it for pointers is a separate decision.
+- **Disabled.** A node disabled when the pointer goes down (a control or any node with `disabled`)
+  hears neither event; its enabled ancestors still do. Each host checks at each node's turn, so an inner
+  handler that disables an ancestor keeps the down from it.
+- **Recognizers take nothing.** On the web a `pan`, a swipe or a transform stops its contact's
+  `pointerdown` so that ancestors' recognizers do not also arm; the pointer events therefore no longer
+  ride DOM bubbling. One listener at the root's capture walks the event's path, innermost first, before
+  any element's own listener (`input-glue.js`, `pointer.js`), as the native hosts deliver them beside
+  their recognizers.
+- **Hosts.** The JS target (`host/web-js/pointer.js`) and the wasm host (`host/web/input-glue.js`
+  `pointer`): an ancestor holds only its up, and tracks the pointer's latest point for an up that a
+  window blur ends. macOS (`MouseChainMac`, `Presenter.pointerPath`; a press in a native `NSPopover`'s
+  window reaches the page with the point converted into the page's window), iOS (`PointerRecognizer`:
+  the innermost sends the down and up for every node from it up through authored parents, a lifted
+  popover's included) and Linux (`presenter/pointer.rs`, `pointer_path`).
+- **Text.** LLP 1005 §Events, `docs/contract-grammar.md` §Pointer, LLP 1056 §8.6 and
+  `rules/DEFERRED.md`'s admission.
+
+Verified 2026-10-15 (macOS 27.0, Xcode 27.0; the agent's Chrome), the repro above with a `presses`
+count added to `pick`:
+
+| Host | Root `pointerdown` before | after | Row presses after |
+|---|---|---|---|
+| Web (JS target) | 4 | 6 | 4 of 4 (A, B, C, D once each) |
+| macOS | 4 | 6 | 4 of 4 |
+
+`pointermove` still counts (web 4, macOS 2: the agent's hover differs by host, unchanged by this).
+A canvas with `pointerdown pointermove pointerup touch-action=none` inside the root, dragged 260
+points: root 1, begin 1, held moves 16 (web) and 15 (macOS) past the canvas's right edge, up 1. #281's
+repro reads `under 0 · downs 1` on macOS with the root's `pointerdown` counting both presses.
+
+Tests: `host/web/tests/pointer.test.mjs` (Chrome: bubbling, a `pointermove` child, a pan, a blur, a
+removed ancestor), `host/web-js/conformance/pointer-bubble` (the JS target against the wasm runner),
+`GesturePrecedenceMacTests.testPointerDownAndUpBubbleWhileTheInnermostHoldsTheMoves`,
+`PopoverMacTests.testAPressInAPopoverReachesItsAuthoredAncestorsPointerdown` and
+`PopoverNativeMacTests.testAPressInThePopoverReachesThePageWithThePagesPoint` (macOS),
+`GesturePrecedenceIOSTests.testTheInnermostEnabledPointerNodeTakesTheTouch` (iOS), and
+`touch_tests.rs`'s `the_down_and_the_up_bubble_and_the_innermost_holds_the_moves` (Linux).

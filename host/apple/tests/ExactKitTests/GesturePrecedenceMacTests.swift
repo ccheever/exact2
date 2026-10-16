@@ -71,6 +71,47 @@ final class GesturePrecedenceMacTests: XCTestCase {
         XCTAssertNil(p.pointerHeld)
     }
 
+    /// The down and the up bubble, innermost first (Charlie, 2026-10-15):
+    /// a box hearing only `pointermove` holds the drags and takes nothing
+    /// from its ancestors' down and up (#20261010, X71). The up still
+    /// reaches an ancestor after the held node is destroyed under the hold.
+    func testPointerDownAndUpBubbleWhileTheInnermostHoldsTheMoves() {
+        let p = host([
+            ["op": "create", "id": 1, "kind": "view", "handlers": ["pointerdown", "pointerup"]],
+            ["op": "create", "id": 2, "kind": "view", "handlers": ["pointermove"]],
+            ["op": "create", "id": 3, "kind": "view", "handlers": ["pointerdown", "pointerup"]],
+            ["op": "create", "id": 4, "kind": "view", "handlers": ["pointerup"]],
+            ["op": "children", "id": 1, "ids": [2]],
+            ["op": "children", "id": 2, "ids": [3, 4]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 200.0],
+            ["op": "frame", "id": 2, "x": 10.0, "y": 10.0, "w": 200.0, "h": 150.0],
+            ["op": "frame", "id": 3, "x": 10.0, "y": 10.0, "w": 50.0, "h": 50.0],
+            ["op": "frame", "id": 4, "x": 100.0, "y": 10.0, "w": 50.0, "h": 50.0]
+        ])
+        var log: [String] = []
+        p.onPointer = { id, kind, _ in log.append("\(kind == .down ? "down" : kind == .up ? "up" : "move") \(id)") }
+        let inner = p.views[3]!, moving = p.views[2]!
+        inner.mouseDown(with: event(.leftMouseDown, inner))
+        XCTAssertEqual(p.pointerHeld, 3)
+        inner.mouseDragged(with: event(.leftMouseDragged, inner, right: 10))
+        inner.mouseUp(with: event(.leftMouseUp, inner))
+        XCTAssertEqual(log, ["down 3", "down 1", "up 3", "up 1"], "the innermost takes no move it does not hear")
+        log = []
+        moving.mouseDown(with: event(.leftMouseDown, moving, down: 50))
+        XCTAssertEqual(p.pointerHeld, 2, "the pointermove box holds the moves")
+        moving.mouseDragged(with: event(.leftMouseDragged, moving, down: 50, right: 10))
+        moving.mouseUp(with: event(.leftMouseUp, moving, down: 50))
+        XCTAssertEqual(log, ["down 1", "move 2", "up 1"])
+        log = []
+        let up = p.views[4]!
+        up.mouseDown(with: event(.leftMouseDown, up))
+        p.apply(wireBatch([["op": "destroy", "id": 4], ["op": "children", "id": 2, "ids": [3]]]))
+        up.mouseUp(with: event(.leftMouseUp, up))
+        XCTAssertEqual(log, ["down 1", "up 1"], "the ancestor's up outlives the destroyed held node")
+        XCTAssertNil(p.pointerHeld); XCTAssertTrue(p.pointerPath.isEmpty)
+    }
+
     /// A pointer's offsets are from the content box layout sent: a padding
     /// the style rows cannot resolve (5% of a 400-point containing block) is
     /// 20 points in, as the canvas or paragraph inside it is drawn.

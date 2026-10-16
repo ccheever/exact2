@@ -106,7 +106,9 @@ final class GesturePrecedenceIOSTests: XCTestCase {
     }
 
     /// Nested pointer nodes: the innermost enabled one takes the touch, as
-    /// on the web and macOS; a disabled inner one passes it out.
+    /// on the web and macOS, and sends the down and the up to every node from
+    /// it up that hears them, innermost first (Charlie, 2026-10-15); a
+    /// disabled inner one passes it out.
     func testTheInnermostEnabledPointerNodeTakesTheTouch() throws {
         let p = host([
             ["op": "create", "id": 1, "kind": "view", "handlers": ["pointerdown", "pointerup"]],
@@ -123,6 +125,12 @@ final class GesturePrecedenceIOSTests: XCTestCase {
         XCTAssertTrue(outer.nearer(touched), "the inner pointer node is nearer")
         XCTAssertFalse(inner.nearer(touched))
         XCTAssertFalse(outer.nearer(p.views[1]), "a touch on the outer node itself is its own")
+        var log: [String] = []
+        p.onPointer = { id, kind, _ in log.append("\(kind == .down ? "down" : kind == .up ? "up" : "move") \(id)") }
+        let touch = UITouch()
+        inner.touchesBegan([touch], with: UIEvent())
+        inner.touchesEnded([touch], with: UIEvent())
+        XCTAssertEqual(log, ["down 2", "down 1", "up 1"])
         p.views[2]?.props["disabled"] = "true"
         XCTAssertFalse(outer.nearer(touched), "a disabled inner node passes it out")
     }

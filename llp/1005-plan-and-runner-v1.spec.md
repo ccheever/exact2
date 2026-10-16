@@ -550,30 +550,49 @@ free pointer's over the node), and neither is recognized: the down fires before
 any gesture has decided, and both sit beside `press`, `pan` and
 `contextmenu` without taking anything from them. On the web a cancel is
 DOM's `pointercancel`. DOM's order holds: down, up, then the click's
-`press`. The innermost enabled node that hears either one takes the pointer, on
-every host (a disabled one, a control or any node with `disabled`, passes it to an enabled ancestor), and only the
-primary pointer counts, and its
-up arrives wherever the pointer lifts: heard on the document on the web (a
+`press`, and only the primary pointer counts.
+
+Both bubble, as `key` and `wheel` do (Charlie, 2026-10-15, option 1 of
+[the issue](../issues/closed/20261010-pointer-events-reach-ancestors.md)).
+The down goes to every enabled node from the one pressed up that hears
+`pointerdown`, innermost first, through authored parents: a press in an
+open popover reaches the popover's ancestors, as in the DOM, and never a
+page node that is only under it (#281). A node disabled when the pointer
+goes down, a control or any node with `disabled`, hears neither event; its
+enabled ancestors still do. A recognizer that takes the contact (a `pan`)
+takes neither from anyone. Each node the down passed that hears `pointerup`
+hears the up, innermost first, wherever the pointer lifts, one disabled
+since included: the nodes are fixed at the down, as a DOM pointer capture
+fixes its target, so what a down began ends and an app's outside-press
+dismiss pairs every down with its up. The innermost enabled node that hears any of
+the three also holds the pointer for its `pointermove`s until it lifts (LLP
+1056 §8.6); a `pointermove` takes nothing from an ancestor's down or up.
+No handler stops the bubbling: `stopPropagation()` is the key and focus
+events' (as for `wheel`). The up is heard on the document on the web (a
 pointer capture would also retarget the click and press on a lift
 elsewhere), where the pointer leaving the document (out of the window, into
 a frame) or the window losing focus also ends it, and a node the tree has
 removed is never called, through AppKit's own mouse-up routing, and with the touch on
 UIKit.
 - **Web** (`glue.js` with `input-glue.js` `pointer`; the JS target's
-  `pointer.js`): the element's own events. The innermost claims the event
-  as it bubbles, so its ancestors' handlers leave it.
+  `pointer.js`): DOM's own events. One listener at the root's capture walks
+  the down's path, innermost first, before any element's own listener, so
+  a recognizer that stops the event (a pan, a swipe) takes nothing from
+  them. The innermost marks the event, so its ancestors hold only their up,
+  not the moves.
 - **iOS** (`IOS/PointerIOS.swift`): a gesture recognizer that only observes.
   It never recognizes and can neither prevent nor be prevented, so a press,
   a pan, a long press and the scroll view keep their touches. Each node's
-  recognizer skips a touch that a nearer enabled pointer node takes. An idle
-  one does not keep a row out of the node pool.
-- **macOS** (`MouseChainMac`): `mouseDown`/`mouseUp`, on the innermost
-  enabled node from the hit view up, held on the presenter until the button
-  comes up. A native button's own tracking loop reports both (its up
-  before the action it sends). A held node's release, or a reset, clears
-  the hold.
-- **Linux** (`presenter/pointer.rs`, 2026-10-04): beside the contact, on the
-  innermost enabled node under the press; a cancel is an up.
+  recognizer skips a touch that a nearer enabled pointer node takes; the
+  nearest sends the down and up for every node from it up through authored
+  parents. An idle one does not keep a row out of the node pool.
+- **macOS** (`MouseChainMac`): `mouseDown`/`mouseUp`, from the hit view up
+  through authored parents, held on the presenter until the button comes
+  up. A native button's own tracking loop reports both (its up before the
+  action it sends). A held node's release drops it from the hold, and a
+  reset clears the hold.
+- **Linux** (`presenter/pointer.rs`, 2026-10-04): beside the contact, from
+  the node under the press up; a cancel is an up.
 - **ABI:** dispatch kinds 29, 30 and 31 (`pointermove`), each with the
   record's line.
 - **Agent:** `tap` remains an activation (`press`). The pointer events are
@@ -581,10 +600,11 @@ UIKit.
   tests.
 
 Tests: `contract/cli/tests/it/pointer.rs` (the runner and DOM's order),
-`testAPointerNodeObservesItsTouchWithoutPreventingAnything` (iOS), and
-`testPointerDownAndUpReachTheNearestPointerNodeAroundThePress` (macOS), and
-`host/web/tests/pointer.test.mjs` (Chrome: order, a lift elsewhere, the
-secondary button, a disabled node).
+`testAPointerNodeObservesItsTouchWithoutPreventingAnything` (iOS),
+`testPointerDownAndUpReachTheNearestPointerNodeAroundThePress` and
+`PopoverMacTests` (macOS), the Linux presenter's `touch_tests.rs`, and
+`host/web/tests/pointer.test.mjs` (Chrome: order, bubbling, a lift elsewhere,
+the secondary button, a disabled node).
 
 **`keyup`, and `KeyboardEvent.code` and `.repeat`** (2026-10-07, #140: a
 coding-agent desktop app's ⌘-held hints, a held ⌘W that closes one panel,

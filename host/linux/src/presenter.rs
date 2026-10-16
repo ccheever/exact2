@@ -191,8 +191,12 @@ pub struct Presenter<D: DataSource> {
     /// Where the pointer last moved for hover (`hover_at`): a frame that
     /// moves content under it hovers again there (`follow_pointer`).
     hover_point: Option<(f32, f32)>,
-    /// The node holding the pointer's `pointerdown` until it lifts.
+    /// The node holding the pointer's `pointerdown` until it lifts: the
+    /// innermost hearing a pointer event, which hears the moves.
     pointer_held: Option<exact_kernel::NodeKey>,
+    /// The nodes from the held one up that hear `pointerdown` or
+    /// `pointerup`, innermost first: each hears the up.
+    pointer_path: Vec<exact_kernel::NodeKey>,
     /// The held pointer's buttons as DOM counts them: 1 primary, 2
     /// secondary, 4 middle (review b5-b 1).
     pointer_buttons: u8,
@@ -466,6 +470,7 @@ impl<D: DataSource> Presenter<D> {
             hovered: Vec::new(),
             hover_point: None,
             pointer_held: None,
+            pointer_path: Vec::new(),
             pointer_buttons: 0,
             control_contact: None,
             control_bindings: BTreeMap::new(),
@@ -1347,6 +1352,7 @@ impl<D: DataSource> Presenter<D> {
         self.menu = None;
         self.hovered.clear();
         self.pointer_held = None;
+        self.pointer_path.clear();
         self.hatch_reset();
         self.top_replaced();
         self.hosts += 1;

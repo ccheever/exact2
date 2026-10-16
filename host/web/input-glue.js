@@ -85,6 +85,12 @@ function roveArrow(root, event) {
   return true;
 }
 export function createInputHandlers({ root, views, retiredViews, ready, inertAncestor, editMenu, dispatch, release: dispatchRelease = () => {}, velocity = {}, agentMode = false, log = () => {}, documents = null }) {
+  // @ref LLP 1005 §Events — a pointer's down goes along the event's own path,
+  // innermost first, to each node's `exactPointerDown` (`pointer` below), from
+  // this one listener at the root's capture, before any element's: a
+  // recognizer that stops the event (a pan taking its contact) takes nothing
+  // from the pointer events, as on the native hosts.
+  root.addEventListener("pointerdown", e => { for (const n of e.composedPath()) n.exactPointerDown?.(e); }, true);
   // @ref LLP 1038 §7 — a plain click on a same-origin link to a declared
   // route stays in this document: a link with its own `press` navigates by
   // it; any other goes to the root's `navigate` handler, as popstate does.
@@ -309,7 +315,8 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     arrive, // once the piece is made (the stack as it stands), then after each commit's tree, its focus commands and its `autofocus`
     // @ref LLP 1005 §3 — `pointerdown`/`pointerup`, DOM's own: the primary
     // button or a touch going down on the node, then up or cancelled (a
-    // cancel is an up). The up is heard on the document, so it arrives
+    // cancel is an up), bubbling to every enabled ancestor that hears either
+    // (Charlie, 2026-10-15). The up is heard on the document, so it arrives
     // wherever the pointer lifts; a pointer capture would also retarget the
     // click there, a press the platforms do not make. LLP 1056 §3 stage 3 —
     // `pointermove`: a free pointer over the node (no button down), or the
@@ -318,7 +325,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     // pointerId,` the modifiers held, from the content box): `fire(29, r)` is down, 30 up, 31 a
     // move. The JS target's pointer.js is the same rule.
     pointer(el, on, fire) {
-      let held = null, last = null, move = null, frame = 0;
+      let held = null, owner = false, last = null, move = null, frame = 0;
       const wants = kind => el.exactHandlers?.includes(kind);
       const record = (e, lifted = false) => pointerLine(el, e, lifted);
       const flush = () => {
@@ -327,7 +334,9 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
         if (m && wants("pointermove") && ready()) fire(31, record(m));
       };
       const moved = e => { last = e; move = e; if (!frame) frame = requestAnimationFrame(flush); };
-      const heldMove = e => { if (e.pointerId === held) moved(e); };
+      // While held: the owner's moves, and every holder's latest point,
+      // which a blur's up reports.
+      const heldMove = e => { if (e.pointerId !== held) return; last = e; if (owner) moved(e); };
       // The end: an up or cancel anywhere in the document, or the pointer
       // leaving it (out of the window, into a frame) or the window losing
       // focus, which this document never hears the up from.
@@ -350,10 +359,13 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
         if (held === null && e.buttons === 0 && !disabled()) moved(e);
       });
       return e => {
-        // The innermost enabled pointer node takes it (the event bubbles
-        // here first from inner ones, which mark it).
         // Any button, as the DOM's (studio diary R22); `buttons` says which.
-        if (e.exactPointerOwner || !e.isPrimary || held !== null || disabled()) return;
+        // An ancestor a handler further in removed is still on the path.
+        if (!e.isPrimary || held !== null || !el.isConnected || disabled()) return;
+        // The innermost enabled pointer node holds its moves (the walk
+        // reaches it first and marks the event); an ancestor holds only its up.
+        owner = !e.exactPointerOwner;
+        if (!owner && !wants("pointerdown") && !wants("pointerup")) return;
         e.exactPointerOwner = el;
         held = e.pointerId; last = e;
         for (const [type, target] of ends) target.addEventListener(type, up, target === document);

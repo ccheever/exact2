@@ -691,6 +691,12 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
   §Events). The Signal Clone's hold-to-record mic is the consumer: recording
   starts the moment the finger lands. Unblocks hold-to-act controls. Take:
   none offered; waived by Charlie's approval. Still no multi-touch.
+  **Amended (Charlie, 2026-10-15, option 1 of
+  `issues/closed/20261010-pointer-events-reach-ancestors.md`):** both bubble
+  to every ancestor that hears them, as `key` and `wheel` do; the innermost
+  node hearing any pointer event still holds the moves. Unblocks a window's
+  outside-press dismiss beside a popup that hears `pointermove`. Take: none;
+  Charlie's ruling.
   **Built (2026-10-04, LLP 1056 §8.6; the widening confirmed by Charlie the
   same day):** stage 3's pointer coordinates, which Canvas 2D's acceptance
   admitted for a canvas's handlers, as a `PointerEvent` record (DOM's
