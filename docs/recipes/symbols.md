@@ -19,14 +19,16 @@ component Toolbar
       image "symbol:sf/cloud.sun.rain" aria-label="Showers later" width=28 height=28
 ```
 
-The roles: `add`, `close`, `back`, `forward-chevron`, `compose`, `pencil`, `delete`,
-`search`, `filter`, `sort`, `more`, `ellipsis`, `share`, `copy`, `link`, `pin`,
+The roles: `add`, `close`, `back`, `forward-chevron`, `chooser`, `compose`, `pencil`, `delete`,
+`search`, `filter` (narrowing a list: Apple's decreasing lines), `adjust` (sliders), `sort`,
+`more`, `ellipsis`, `menu` (a drawer or sidebar), `share`, `copy`, `link`, `pin`, `refresh`,
+`download`, `download-pending`, `install`, `open-app`, `package`, `mail`,
 `bookmark`, `heart`, `star` (each of these three with `-fill`), `checkmark`, `select`,
-`circle`, `minus`, `minus-circle`, `alert`, `info`, `lock`, `settings`, `home`,
+`circle`, `minus`, `minus-circle`, `alert`, `info` (each with `-fill`), `lock`, `settings`, `home`,
 `person`, `people`, `follow`, `sign-out`, `messages`, `reply`, `send`, `quote`, `at`,
 `hashtag`, `notifications`, `calendar`, `chart`, `activity`, `book`, `document`,
 `layers`, `photo`, `camera`, `microphone`, `waveform`, `speaker`, `speaker-mute`,
-`play`, `pause`, `stop`, `skip-back-15`, `skip-forward-15`, `repeat`, `reorder`,
+`play`, `pause`, `stop`, `skip-back-15`, `skip-forward-15`, `repeat`, `reorder` (a drag handle),
 `sparkles`, `moon`, and more `-fill`s (`home-fill`, `person-fill`, `play-fill`…). An
 unknown role is refused with the full list. A role also answers to its SF Symbols name and
 common aliases (`gearshape`, `gear`, `trash`, `chevron-right`, `checkmark.circle.fill`): it builds as
