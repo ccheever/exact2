@@ -1217,7 +1217,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       const paths = pickedPaths(value).map(p => resolve(p));
       const missing = paths.find(p => !existsSync(p) || !statSync(p).isFile());
       if (missing) throw new Error(`type ${target}: no such file ${missing}`);
-      const req = { op, ticket, text: paths.join('\n') };
+      const req = { op, ticket, text: paths.join('\n') + '\n' };
       if (host === 'web') req.files = paths.map(p => ({ name: basename(p), bytes: readFileSync(p).toString('base64') }));
       return s.landed(await s.op(req));
     },

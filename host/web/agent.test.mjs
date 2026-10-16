@@ -1325,9 +1325,9 @@ test('a hold is addressed by its node or capability, and an unclear name is refu
   expect(() => heldTicket([...pending, { name: 'other', ticket: 12, device: { capability: 'open-directory', args: { id: 'other' } } }], '@open-directory')).toThrow(/2 holds match/);
 });
 
-// Review A2: an authored test's `pick "photo" "my photo.png"` reaches the driver as one path per line, so a space
-// stays in its path; the CLI's `type @photo a.png b.png` still names two.
 test('a pick answer keeps a path with a space when it comes one per line', () => {
+  const paths = new Function(readFileSync(new URL('../web-js/files.js', import.meta.url), 'utf8').match(/^const paths = .*;$/m)[0] + ';return paths;')();
+  for (const input of ['/tmp/my photo.png\n', '/tmp/a b.png\n/tmp/c.png\n', 'a.png b.png', '']) expect(paths(input)).toEqual(pickedPaths(input));
   expect(pickedPaths('/tmp/my photo.png\n')).toEqual(['/tmp/my photo.png']);
   expect(pickedPaths('/tmp/a b.png\n/tmp/c.png\n')).toEqual(['/tmp/a b.png', '/tmp/c.png']);
   expect(pickedPaths('a.png b.png')).toEqual(['a.png', 'b.png']);

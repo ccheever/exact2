@@ -1346,3 +1346,10 @@ screen, 2026-10-16.)
   The complete online password example in `snapback4/README.md` demonstrates this
   alongside reload, logout and sign-in tests; an empty successful list would hide
   an authentication failure.
+
+
+- **A picker path can contain spaces.** Use `pick "attachment" "my photo.png"`
+  after the button opens `showPicker("attachment")`. Quote the whole path in
+  the interactive command. `type @attachment a.png b.png` deliberately names
+  two files; authored-test `pick` and the interactive alias preserve one quoted
+  path through both web and native delivery. (EX8, 2026-10-16.)
