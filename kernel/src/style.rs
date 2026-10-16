@@ -47,6 +47,7 @@ pub mod profiled;
 pub mod relative;
 pub mod roles;
 mod shadow;
+pub mod sides;
 pub mod space;
 pub(crate) mod stroke;
 pub mod symbols;

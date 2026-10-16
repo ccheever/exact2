@@ -814,6 +814,8 @@ export function nm(e) {
     .then(h => { h.attach(e); return h.loaded; }, err => { st.state = "unavailable"; st.error = String(err?.message ?? err); say(`native ${st.name} #${id}: unavailable: ${st.error}`); })
     .finally(() => setTimeout(() => inflight.n--));
 }
+// A computed box shorthand (`padding`, `border-radius`, …) reaches each of its rows whole: row `i` takes its own value of a two-to-four-value list, split at white space outside parentheses, as the browser expands it (kernel `style::sides::side`).
+export function boxSide(v, i) { if (typeof v !== "string") return v; const p = []; for (let j = 0, d = 0, s = -1; j <= v.length; j++) { const c = v[j]; if (j < v.length && !(d === 0 && /\s/.test(c))) { d = Math.max(0, d + (c === "(") - (c === ")")); if (s < 0) s = j; } else if (s >= 0) { p.push(v.slice(s, j)); s = -1; } } return p.length < 2 || p.length > 4 ? v : p[p.length === 2 ? i % 2 : p.length === 3 && i === 3 ? 1 : i]; }
 export function S(e, prop, unit, f) { let rendered = Adopt; effect(() => { css(e, prop, unit, f(), rendered); rendered = false; }); }
 let Scratch = null;
 const Normal = new Map(), same = v => v.replace(/\btransparent\b/g, "rgba(0, 0, 0, 0)");

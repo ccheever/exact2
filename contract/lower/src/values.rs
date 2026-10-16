@@ -4,6 +4,7 @@
 use crate::{edits, err, media, symbols, tags, vocab, FontUse, LowerError};
 use contract_syntax::{Attr, Expr, Span, UnOp};
 use contract_types::{Ref, Scope, Shapes, Ty};
+use exact_kernel::style::sides as box_sides;
 use exact_kernel::{PropId, StyleId, StyleProps, StyleValue, StyleValueError};
 use std::{cell::Cell, rc::Rc};
 /// A literal, as an author wrote it, for a message.
@@ -167,88 +168,9 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
         StyleValueError::BadBackdropFilter { reason, .. } => (*reason).into(),
     }
 }
-/// CSS's one-to-four-value box shorthands, rows in top, right, bottom, left
-/// order — `border-radius`'s corners in top-left, top-right, bottom-right,
-/// bottom-left order, which CSS fills from fewer values the same way
-/// (ledger2 Rough 5).
-const FOUR_SIDED: [[StyleId; 4]; 9] = [
-    [
-        StyleId::PaddingTop,
-        StyleId::PaddingRight,
-        StyleId::PaddingBottom,
-        StyleId::PaddingLeft,
-    ],
-    [
-        StyleId::MarginTop,
-        StyleId::MarginRight,
-        StyleId::MarginBottom,
-        StyleId::MarginLeft,
-    ],
-    [
-        StyleId::BorderWidthTop,
-        StyleId::BorderWidthRight,
-        StyleId::BorderWidthBottom,
-        StyleId::BorderWidthLeft,
-    ],
-    [
-        StyleId::BorderStyleTop,
-        StyleId::BorderStyleRight,
-        StyleId::BorderStyleBottom,
-        StyleId::BorderStyleLeft,
-    ],
-    [
-        StyleId::BorderColorTop,
-        StyleId::BorderColorRight,
-        StyleId::BorderColorBottom,
-        StyleId::BorderColorLeft,
-    ],
-    [StyleId::Top, StyleId::Right, StyleId::Bottom, StyleId::Left],
-    [
-        StyleId::ScrollPaddingTop,
-        StyleId::ScrollPaddingRight,
-        StyleId::ScrollPaddingBottom,
-        StyleId::ScrollPaddingLeft,
-    ],
-    [
-        StyleId::ScrollMarginTop,
-        StyleId::ScrollMarginRight,
-        StyleId::ScrollMarginBottom,
-        StyleId::ScrollMarginLeft,
-    ],
-    [
-        StyleId::BorderRadiusTopLeft,
-        StyleId::BorderRadiusTopRight,
-        StyleId::BorderRadiusBottomRight,
-        StyleId::BorderRadiusBottomLeft,
-    ],
-];
 /// Whether these rows are one of CSS's `<value>{1,4}` box shorthands.
 pub(crate) fn four_sided(rows: &[StyleId]) -> bool {
-    FOUR_SIDED.iter().any(|sides| rows == sides)
-}
-/// A box shorthand's one to four values, split where CSS splits them: at
-/// white space outside parentheses, so `light-dark(#fff, #000)` and
-/// `calc(50% - 4px)` are one value.
-fn side_values(text: &str) -> Vec<&str> {
-    let (mut values, mut depth, mut start) = (Vec::new(), 0usize, None);
-    for (i, c) in text.char_indices() {
-        match c {
-            '(' => depth += 1,
-            ')' => depth = depth.saturating_sub(1),
-            c if c.is_whitespace() && depth == 0 => {
-                if let Some(s) = start.take() {
-                    values.push(&text[s..i]);
-                }
-                continue;
-            }
-            _ => {}
-        }
-        start.get_or_insert(i);
-    }
-    if let Some(s) = start {
-        values.push(&text[s..]);
-    }
-    values
+    box_sides::FAMILIES.iter().any(|f| rows == f)
 }
 /// A box shorthand (`padding: <length>{1,4}`, `border-color: <color>{1,4}`,
 /// …) as four longhand expressions (top, right, bottom, left): every literal
@@ -260,7 +182,7 @@ pub(crate) fn sides(name: &str, value: &Expr) -> Result<Option<[Expr; 4]>, Lower
     fn widest(name: &str, e: &Expr) -> Result<usize, LowerError> {
         Ok(match e {
             Expr::Str(s, span) => {
-                let n = side_values(s).len();
+                let n = box_sides::values(s).len();
                 if n > 4 {
                     let order = if name == "border-radius" {
                         "top-left, top-right, bottom-right, bottom-left; no `/` elliptical radii"
@@ -284,15 +206,11 @@ pub(crate) fn sides(name: &str, value: &Expr) -> Result<Option<[Expr; 4]>, Lower
     fn side(e: &Expr, i: usize) -> Expr {
         match e {
             Expr::Str(s, span) => {
-                let v = side_values(s);
-                // CSS: top; right = top; bottom = top; left = right.
-                let pick = match (v.len(), i) {
-                    (0, _) => return e.clone(),
-                    (1, _) => 0,
-                    (2, _) => i % 2,
-                    (3, 3) => 1,
-                    (_, i) => i,
-                };
+                let v = box_sides::values(s);
+                if v.is_empty() {
+                    return e.clone();
+                }
+                let pick = box_sides::pick(v.len(), i);
                 // A length in pixels is the number it would be on its own
                 // (`border-width` takes only numbers).
                 let piece = v[pick];

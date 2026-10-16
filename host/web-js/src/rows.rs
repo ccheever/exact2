@@ -125,6 +125,12 @@ impl Em<'_> {
         let metric =
             style::metric_map(plan, plan.code(b.expr)).map(|m| format!("()=>({m})(({f})())"));
         let f = metric.as_deref().unwrap_or(f);
+        // A computed box shorthand reaches each of its rows whole: the row
+        // takes its own value of the list (kernel `style::sides`).
+        let side = exact_kernel::style::sides::family(id)
+            .filter(|_| style::literal(plan, plan.code(b.expr)).is_none())
+            .map(|(_, k)| format!("()=>{}(({f})(),{k})", self.uses.rt("boxSide")));
+        let f = side.as_deref().unwrap_or(f);
         if let Some((_, name)) = exact_web::host::template::attribute_rows(kind)
             .iter()
             .find(|(attribute, _)| *attribute == id)
@@ -1052,5 +1058,79 @@ try {{
             "{computed}"
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A computed box shorthand's rows each take their side (rt.js
+    /// `boxSide`), split as the kernel's `style::sides::side` splits it.
+    #[test]
+    fn a_computed_box_shorthand_writes_each_side_as_the_kernel_takes_it() {
+        let plan = contract::compile(
+            "component App\n  state pad = 16\n  view\n    view padding=`${pad}px 0` testId=\"p\"\n",
+        )
+        .unwrap();
+        let js = crate::emit::emit(&plan, false, false).unwrap().js;
+        for (k, name) in [
+            "padding-top",
+            "padding-right",
+            "padding-bottom",
+            "padding-left",
+        ]
+        .iter()
+        .enumerate()
+        {
+            let at = js
+                .find(&format!("\"{name}\","))
+                .unwrap_or_else(|| panic!("{name}:\n{js}"));
+            assert!(
+                js[at..].split(';').next().unwrap().contains("boxSide("),
+                "{name}"
+            );
+            assert!(
+                js[at..]
+                    .split(';')
+                    .next()
+                    .unwrap()
+                    .contains(&format!(",{k})")),
+                "{name}"
+            );
+        }
+        let rt = include_str!("../rt.js");
+        let start = rt.find("export function boxSide").unwrap();
+        let end = start + rt[start..].find('\n').unwrap();
+        let inputs = [
+            "16px",
+            "16px 0",
+            " 1px  2px\t3px ",
+            "8px 8px 0 calc(50% - 4px)",
+            "light-dark(#fff, #000) red",
+            "1px 2px 3px 4px 5px",
+            "",
+        ];
+        let script = format!(
+            "{};console.log(JSON.stringify({}.map(t=>[0,1,2,3].map(i=>boxSide(t,i)))))",
+            &rt[start + "export ".len()..end],
+            serde_json::to_string(&inputs).unwrap()
+        );
+        let bun = std::process::Command::new(std::env::var("BUN").unwrap_or_else(|_| "bun".into()))
+            .args(["-e", &script])
+            .output()
+            .expect("bun");
+        assert!(
+            bun.status.success(),
+            "{}",
+            String::from_utf8_lossy(&bun.stderr)
+        );
+        let written: Vec<[String; 4]> = serde_json::from_slice(&bun.stdout).unwrap();
+        let kernel: Vec<[String; 4]> = inputs
+            .iter()
+            .map(|t| {
+                [0, 1, 2, 3].map(|i| {
+                    exact_kernel::style::sides::side(t, i)
+                        .unwrap_or(t)
+                        .to_string()
+                })
+            })
+            .collect();
+        assert_eq!(written, kernel);
     }
 }

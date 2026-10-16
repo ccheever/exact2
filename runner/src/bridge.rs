@@ -522,7 +522,12 @@ pub fn set_style(
     }
     let style_value = match value {
         Value::Number(n) => StyleValue::Number(*n),
-        v @ exact_plan::str_value!() => match v.text() {
+        // A computed box shorthand (`padding`, `border-radius`, …) reaches
+        // each of its rows whole: the row takes its own value of the list.
+        v @ exact_plan::str_value!() => match exact_kernel::style::sides::family(style)
+            .and_then(|(_, side)| exact_kernel::style::sides::side(v.text(), side))
+            .unwrap_or(v.text())
+        {
             "auto" if style.codec() == exact_kernel::StyleCodec::Dimension => StyleValue::Auto,
             // A lone percentage is one; other text ending in `%` is a CSS
             // value (`transform-origin: 0 100%`), as the compiler reads it.

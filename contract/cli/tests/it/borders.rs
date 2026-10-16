@@ -333,3 +333,44 @@ fn a_numeric_border_says_to_quote_the_shorthand() {
         "`text-decoration`: `1` is a number, and a CSS shorthand is a string, as CSS writes it"
     );
 }
+
+/// The euxy port: a computed shorthand reaches each of its rows whole, and
+/// each row takes its own value of the list, as the browser expands it.
+#[test]
+fn a_computed_box_shorthand_sets_each_side_as_the_literal_does() {
+    let mut r = boot(
+        "fn radii(r: number): string = `${r}px ${r}px 0 0`\ncomponent A\n  state pad = 16\n  action grow\n    pad = 20\n  view\n    column\n      button testId=\"grow\" press=grow width=10 height=10\n      box testId=\"computed\" padding=`${pad}px 0` border-radius=radii(8) border-color=`#ff0000 ${pad > 16 ? \"#0000ff\" : \"#00ff00\"}`\n      box testId=\"literal\" padding=\"16px 0\" border-radius=\"8px 8px 0 0\" border-color=\"#ff0000 #00ff00\"\n      box testId=\"one\" padding=`${pad}px`\n",
+    );
+    let (computed, literal) = (style_of(&r, "computed"), style_of(&r, "literal"));
+    macro_rules! same {
+        ($($field:ident),*) => { $(assert_eq!(format!("{:?}", computed.$field), format!("{:?}", literal.$field), stringify!($field));)* };
+    }
+    same!(
+        padding_top,
+        padding_right,
+        padding_bottom,
+        padding_left,
+        border_radius_top_left,
+        border_radius_top_right,
+        border_radius_bottom_right,
+        border_radius_bottom_left
+    );
+    assert_eq!(sides(&computed), sides(&literal));
+    let one = style_of(&r, "one");
+    assert_eq!(
+        format!("{:?}", one.padding_left),
+        format!("{:?}", literal.padding_top),
+        "one value is every side's"
+    );
+    let grow = {
+        let k = r.kernel();
+        k.node_by_key(k.find_by_test_id("grow")[0]).unwrap().id
+    };
+    r.dispatch(grow, Event::Press).unwrap();
+    let (computed, one) = (style_of(&r, "computed"), style_of(&r, "one"));
+    assert_eq!(
+        format!("{:?}", computed.padding_bottom),
+        format!("{:?}", one.padding_top)
+    );
+    assert_eq!(computed.border_color_left, Some(fixed("#0000ff")));
+}

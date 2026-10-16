@@ -1534,6 +1534,16 @@ there is auto. all and contain are diagnosed at compile time
 press or keeps a selection inside its element. Border shorthands reset and
 lower to existing side rows, including `inset`, `dotted` and `dashed` under
 §1's border semantics and raster deviation; other line styles are diagnosed.
+The one-to-four-value box shorthands (`padding`, `margin`, `inset`,
+`border-width`, `border-style`, `border-color`, `scroll-padding`,
+`scroll-margin`, `border-radius`) lower a literal, or each literal arm of a
+choice, to its side rows. A computed value (`` padding=`${pad}px 0` ``, a
+`fn`'s result) is bound whole to all four rows, and each row takes its own
+value of a two-to-four-value list, split at white space outside parentheses
+as CSS expands the shorthand (`exact_kernel::style::sides`: the runner's
+bridge, and rt.js `boxSide` in the web's JS target). Declared deviation: a
+side longhand bound alone to such a list takes its side too, where CSS finds
+the declaration invalid and leaves the row unset.
 Text-decoration lowers solid currentcolor
 underline/line-through to the existing line row; other color/style/thickness
 components are diagnosed. Linux draws its UA lines from font size and glyph

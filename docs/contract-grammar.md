@@ -790,7 +790,8 @@ name, no name for the card (what an app writes, at most 8 KB), `--all` for every
 `padding`, `margin`, `inset`, `border-width`, `border-style` and `border-color` take
 CSS's one to four values (`padding="12px 40px"`: top and bottom 12, sides 40), and
 `border-radius` its one to four corners (`border-radius="18px 18px 0 0"`: top-left,
-top-right, bottom-right, bottom-left; no `/` elliptical radii).
+top-right, bottom-right, bottom-left; no `/` elliptical radii), computed ones too
+(`` padding=`${pad}px 0` ``, a `fn` that returns `` `${r}px ${r}px 0 0` ``).
 `border-style` and each `border-<side>-style` accept `none`, `hidden`, `solid`,
 `inset`, `dotted` and `dashed`. The two patterned styles keep their authored
 border widths in layout. AppKit, UIKit and Linux paint their dots and dashes;
