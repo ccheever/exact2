@@ -81,18 +81,17 @@ function build(app, dist, keep = () => false, compiler = null) {
 
 const mtimeMs = (path) => { try { return statSync(path).mtimeMs; } catch { return null; } };
 
-/** Copy the compiler at `path`, and its dep-info, to `copy`, dated as it
- * is, so `freshCompiler` reads the copy as it read the original: each file
- * written whole, dated, then renamed, and only when `path` was not built
- * again meanwhile. Where that fails, the copy stays as it was. */
-function copyCompiler(path, copy) {
+/** Copy the compiler at `path`, and its dep-info, to `copy`, dated `built`
+ * (ms), the date it must have before and after: each file written whole,
+ * dated, then renamed. Where that fails, the copy stays as it was. */
+function copyCompiler(path, copy, built) {
   const temp = `${copy}.${process.pid}.tmp`, tempDep = `${temp}.d`;
   try {
-    const built = statSync(path);
+    if (mtimeMs(path) !== built) throw new Error('built again');
     copyFileSync(path, temp);
-    utimesSync(temp, built.atime, built.mtime);
+    utimesSync(temp, new Date(built), new Date(built));
     copyFileSync(`${path}.d`, tempDep);
-    if (statSync(path).mtimeMs !== built.mtimeMs) throw new Error('built again');
+    if (mtimeMs(path) !== built) throw new Error('built again');
     renameSync(tempDep, `${copy}.d`);
     renameSync(temp, copy);
   } catch { rmSync(temp, { force: true }); rmSync(tempDep, { force: true }); }
@@ -140,7 +139,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   // a value-only edit's and a scrub's. Optimised (host-dev), built as the
   // loop starts and again after any edit that is not a design's, so it is
   // the compiler the builds use; until it is, the debug compiler answers.
-  const tool = { path: resolve(process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(root, 'target'), 'host-dev/exact-web-js'), ready: false, child: null, reading: null };
+  const tool = { path: resolve(process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(root, 'target'), 'host-dev/exact-web-js'), ready: false, built: null, child: null, reading: null };
   // Cargo and the compilers it runs, as a group (stopped together).
   const stopGroup = (child) => { if (!child) return; try { process.kill(-child.pid, 'SIGTERM'); } catch { child.kill(); } };
   // What a failed build said: each error with the lines that explain it (a
@@ -172,7 +171,10 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
       tool.ready = code === 0 && existsSync(tool.path);
       // Dated to the build's start, as Cargo dates its fingerprints: a
       // source saved while it compiled makes it stale (`fresh`).
-      if (tool.ready) { try { utimesSync(tool.path, started, started); tool.built = statSync(tool.path).mtimeMs; } catch { tool.ready = false; } }
+      if (tool.ready) { try { utimesSync(tool.path, started, started); } catch { tool.ready = false; } }
+      // For the builds' copy: the date this build gave it, while it still has
+      // it (not on a filesystem that keeps a coarser one: the debug compiler).
+      tool.built = tool.ready && mtimeMs(tool.path) === started.getTime() ? started.getTime() : null;
       if (!tool.ready && !signal) console.log(`the design reader did not build (design edits take the full build):\n${readerFailure(err)}`);
     });
   };
@@ -266,7 +268,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     const copy = resolve(app.target, `web-js-dev-compiler-${app.name.replace(/[^\w.-]/g, '_')}`);
     // Only the binary this loop's own build left (another loop on this
     // target/ may have linked one since, not yet dated to its start).
-    if (tool.ready && mtimeMs(tool.path) === tool.built && freshCompiler(tool.path)) copyCompiler(tool.path, copy);
+    if (tool.ready && tool.built !== null && freshCompiler(tool.path)) copyCompiler(tool.path, copy, tool.built);
     const compiler = freshCompiler(copy) ? copy : null;
     // Anything else may move the compiler: the design tool is built again.
     if (!designOnly) buildTool();
