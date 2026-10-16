@@ -183,6 +183,7 @@ component PrStackDialog
 
 component PsDialogPopup
   inject
+    dialogSeated: string[]
     dialogEntered: action
   props
     stack: PrStackView
@@ -207,7 +208,7 @@ component PsDialogPopup
       preventDefault()
       focus(e.shiftKey ? "pr-stack-dialog-confirm" : "pr-stack-dialog-cancel")
   view
-    column position="relative" width="100%" max-width="28rem" max-height="100%" min-height=0 box-sizing="border-box" border-radius="1.125rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow=(dark ? "inset 0 1px 0 #ffffff0a, 0 24px 72px -20px #000000e6" : "0 24px 64px -24px #000000a6") overflow="hidden" press=hold retainFocus=true role="dialog" aria-modal=true aria-label=stack.dialogTitle testId="pr-stack-dialog" id="pr-stack-dialog" data-dialog-focus="open" focusin=dialogEntered("pr-stack-dialog")
+    column position="relative" width="100%" max-width="28rem" max-height="100%" min-height=0 box-sizing="border-box" border-radius="1.125rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow=(dark ? "inset 0 1px 0 #ffffff0a, 0 24px 72px -20px #000000e6" : "0 24px 64px -24px #000000a6") overflow="hidden" press=hold retainFocus=true role="dialog" aria-modal=dialogSeated.includes("pr-stack-dialog") aria-label=stack.dialogTitle testId="pr-stack-dialog" id="pr-stack-dialog" data-dialog-focus="open" focusin=dialogEntered("pr-stack-dialog")
       DialogOpenFocus(target="pr-stack-dialog-cancel")
       column gap="0.5rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.5rem" padding-bottom="0.75rem" box-sizing="border-box"
         text stack.dialogTitle font-size="1.25rem" font-weight=600 line-height="1.25rem" color=psInk() role="heading" aria-level=2 testId="pr-stack-dialog-title"

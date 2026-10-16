@@ -16,6 +16,7 @@ use DialogOpenFocus from "./dialog-trap.contract"
 
 component ComposerFileDialog
   inject
+    dialogSeated: string[]
     dialogEntered: action
     dialogFallback: action
     rem: number
@@ -39,7 +40,7 @@ component ComposerFileDialog
   view
     column position="absolute" left=0 right=0 top=0 bottom=0 z-index=80 align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" testId="chip-file-preview-overlay"
       button press=command("editorlocal:chip-file", "close", att.id, 0) aria-label="Close file preview" tabindex=-1 position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="chip-file-preview-backdrop" title=""
-      column width="100%" max-width="56rem" height=min(windowHeight * 0.85, 52 * rem) max-height="100%" position="relative" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="dialog" aria-modal=true aria-label=att.name testId="chip-file-preview" id="chip-file-preview" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("chip-file-preview") key=dialogFallback("chip-file-preview", dialogTargets)
+      column width="100%" max-width="56rem" height=min(windowHeight * 0.85, 52 * rem) max-height="100%" position="relative" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="dialog" aria-modal=dialogSeated.includes("chip-file-preview") aria-label=att.name testId="chip-file-preview" id="chip-file-preview" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("chip-file-preview") key=dialogFallback("chip-file-preview", dialogTargets)
         ControlGuard(guardId="chip-file-preview-guard-start", targets=dialogTargets, popup="chip-file-preview")
         DialogOpenFocus(target=first)
         R5AttachmentBody(att=att, documents=documents, scheme=scheme, sheet=true, local=local, actionIds="chip-file-preview")

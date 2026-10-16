@@ -181,6 +181,7 @@ component R6PrLayers
 
 component R6MergeDialog
   inject
+    dialogSeated: string[]
     dialogEntered: action
     dialogFallback: action
   props
@@ -193,7 +194,7 @@ component R6MergeDialog
   // before an Escape declared under it (the right panel sheet's toggle) does.
   view
     column position="absolute" left=0 right=0 top=0 bottom=0 z-index=80 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" testId="pr-merge-dialog-overlay"
-      column width="100%" max-width="32rem" position="relative" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow=(dark ? "inset 0 1px 0 #ffffff0a, 0 24px 72px -20px #000000e6" : "0 24px 64px -24px #000000a6") overflow="hidden" role="alertdialog" aria-modal=true aria-describedby="pr-merge-dialog-description" aria-label="Merge pull request?" testId="pr-merge-dialog" id="pr-merge-dialog" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("pr-merge-dialog") key=dialogFallback("pr-merge-dialog", dialogTargets)
+      column width="100%" max-width="32rem" position="relative" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow=(dark ? "inset 0 1px 0 #ffffff0a, 0 24px 72px -20px #000000e6" : "0 24px 64px -24px #000000a6") overflow="hidden" role="alertdialog" aria-modal=dialogSeated.includes("pr-merge-dialog") aria-describedby="pr-merge-dialog-description" aria-label="Merge pull request?" testId="pr-merge-dialog" id="pr-merge-dialog" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("pr-merge-dialog") key=dialogFallback("pr-merge-dialog", dialogTargets)
         // The focus trap (dialog-trap.contract).
         FocusGuard(guardId="pr-merge-guard-start", targets=dialogTargets, popup="pr-merge-dialog")
         DialogOpenFocus(target="pr-merge-cancel")

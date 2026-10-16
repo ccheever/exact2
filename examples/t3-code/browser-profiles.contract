@@ -202,6 +202,7 @@ fn rowItems(row: BrowserProfileRowView, view: BrowserProfilesView): KmItem[] = v
 // root which of the wizard's elements holds the focus (app.contract importWizardFocusMoved).
 component BrowserProfileDialogs
   inject
+    dialogSeated: string[]
     dialogEntered: action
     dialogFallback: action
   props
@@ -216,7 +217,7 @@ component BrowserProfileDialogs
   view
     if view.removalOpen
       column class=BpOverlay testId="browser-profile-remove-overlay"
-        column class=BpPopup role="alertdialog" aria-describedby="browser-profile-remove-description" aria-modal=true aria-label=`Remove “${view.removalName}”?` testId="browser-profile-remove-dialog" id="browser-profile-remove-dialog" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("browser-profile-remove-dialog") key=dialogFallback("browser-profile-remove-dialog", dialogTargets)
+        column class=BpPopup role="alertdialog" aria-describedby="browser-profile-remove-description" aria-modal=dialogSeated.includes("browser-profile-remove-dialog") aria-label=`Remove “${view.removalName}”?` testId="browser-profile-remove-dialog" id="browser-profile-remove-dialog" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("browser-profile-remove-dialog") key=dialogFallback("browser-profile-remove-dialog", dialogTargets)
           // The focus trap (dialog-trap.contract): Remove profile is the last stop while it is enabled.
           FocusGuard(guardId="browser-profile-remove-guard-start", targets=dialogTargets, popup="browser-profile-remove-dialog")
           column gap="0.5rem" padding="1.5rem" box-sizing="border-box"
@@ -239,6 +240,7 @@ component BrowserProfileDialogs
 // autofocuses. Each focusable element and the popup tell the root when they take and lose the focus (`track`).
 component BrowserImportWizard
   inject
+    dialogSeated: string[]
     dialogEntered: action
     dialogFallback: action
   props
@@ -255,7 +257,7 @@ component BrowserImportWizard
       // Shift+Tab to the guard before it, which sends the focus round to its last. The popup's own
       // `key` handler did both while the Mac had no Tab from a box that is no stop (issues/closed/20261010-macos-tab-from-a-focused-box.md, fixed on main by #490).
       FocusGuard(guardId="browser-import-guard-start", targets=dialogTargets, popup="browser-import-popup")
-      column id="browser-import-popup" tabindex=-1 focus=track("browser-import-popup", true) blur=track("browser-import-popup", false) class=BpPopup role="dialog" aria-modal=true aria-label=(wizard.step == "quit" ? `Quit ${wizard.sourceName} to import` : wizard.step == "configure" ? `Import from ${wizard.sourceName}` : wizard.step == "fullDiskAccess" ? `Let T3 Code read ${wizard.sourceName}’s cookies` : wizard.step == "importing" ? "Importing cookies" : wizard.step == "checking" ? `Checking ${wizard.sourceName}` : wizard.step == "done" ? wizard.doneTitle : `Couldn’t import from ${wizard.sourceName}`) testId=`browser-import-step-${wizard.step}` data-dialog-focus="open" focusin=dialogEntered("browser-import-popup") key=dialogFallback("browser-import-popup", dialogTargets)
+      column id="browser-import-popup" tabindex=-1 focus=track("browser-import-popup", true) blur=track("browser-import-popup", false) class=BpPopup role="dialog" aria-modal=dialogSeated.includes("browser-import-popup") aria-label=(wizard.step == "quit" ? `Quit ${wizard.sourceName} to import` : wizard.step == "configure" ? `Import from ${wizard.sourceName}` : wizard.step == "fullDiskAccess" ? `Let T3 Code read ${wizard.sourceName}’s cookies` : wizard.step == "importing" ? "Importing cookies" : wizard.step == "checking" ? `Checking ${wizard.sourceName}` : wizard.step == "done" ? wizard.doneTitle : `Couldn’t import from ${wizard.sourceName}`) testId=`browser-import-step-${wizard.step}` data-dialog-focus="open" focusin=dialogEntered("browser-import-popup") key=dialogFallback("browser-import-popup", dialogTargets)
         if wizard.step == "quit"
           BiHeader(title=`Quit ${wizard.sourceName} to import`, description=`${wizard.sourceName} is open, so its cookies can’t be read yet. Quit it, then continue.`)
           BiFooter()

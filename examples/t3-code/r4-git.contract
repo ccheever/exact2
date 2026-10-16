@@ -289,6 +289,7 @@ component R4GitMenuRow
 // close button's: an Escape shortcut declared earlier outside it, such as the right panel sheet's, no longer takes it.
 component R4Dialog
   inject
+    dialogSeated: string[]
     dialogEntered: action
     dialogFallback: action
   props
@@ -303,7 +304,7 @@ component R4Dialog
   view
     column position="absolute" left=0 right=0 top=0 bottom=0 z-index=80 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" testId=`${testId}-overlay`
       button press=close aria-label="Close" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId=`${testId}-backdrop` title=""
-      column width="100%" max-width=maxWidth max-height="100%" position="relative" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="dialog" aria-modal=true aria-label=label testId=testId id=testId tabindex=-1 data-dialog-focus="open" focusin=dialogEntered(testId) key=dialogFallback(testId, dialogTargets)
+      column width="100%" max-width=maxWidth max-height="100%" position="relative" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="dialog" aria-modal=dialogSeated.includes(testId) aria-label=label testId=testId id=testId tabindex=-1 data-dialog-focus="open" focusin=dialogEntered(testId) key=dialogFallback(testId, dialogTargets)
         // The focus trap (dialog-trap.contract): the content, then the X (DialogPopup's last child).
         FocusGuard(guardId="r4-dialog-guard-start", targets=dialogTargets, popup=testId)
         DialogOpenFocus(target=first)

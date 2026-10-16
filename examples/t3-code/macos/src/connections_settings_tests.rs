@@ -382,6 +382,21 @@ fn route_remove_dialog_owns_its_shortcut_and_cancel_keeps_settings_and_routes() 
     runner.dispatch(opener, Event::Press).unwrap();
     let dialog = test_node(runner, "route-remove-dialog");
     let cancel = test_node(runner, "route-remove-cancel");
+    // Modal from the commit after the focus entered it (dialog-trap.contract), as DialogOpenFocus's focus on Cancel
+    // reaches the popup's `focusin`.
+    assert_eq!(
+        prop(runner, dialog, "accessibilityModal"),
+        Value::Bool(false)
+    );
+    runner
+        .dispatch(
+            dialog,
+            Event::Focusin {
+                target: "route-remove-cancel".to_owned(),
+                related_target: None,
+            },
+        )
+        .unwrap();
     assert_eq!(
         prop(runner, dialog, "accessibilityModal"),
         Value::Bool(true)

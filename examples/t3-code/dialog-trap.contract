@@ -90,6 +90,14 @@ component ControlGuard
 // the focus there once, when the popup is first laid out (this box's first `resize` event, ResizeObserver's first entry:
 // the layout that drew the popup, as Base UI focuses from a layout effect). A popup hidden under `display: none` lays it
 // out 0 by 0, which is no opening; it opens again when it shows.
+//
+// Such a dialog is `aria-modal` only once the focus has entered it (`dialogSeated`, app-window.contract). The Mac host
+// tells VoiceOver of a modal in the commit that first shows it and lands VoiceOver on the focused element when that is
+// inside, else on the dialog; a `focus()` runs after that commit, so a dialog modal from its first commit sent VoiceOver
+// to its group (AXLayoutChanged named the dialog while the focus was already on its first control, read from another
+// process), and VoiceOver, moving the keyboard focus with its cursor, took the focus off that control. Modal from the
+// commit after the focus entered, it is announced as "<name>, dialog" with VoiceOver on its initial focus, as Base UI's
+// Dialog is in Chrome.
 component DialogOpenFocus
   props
     target: string
