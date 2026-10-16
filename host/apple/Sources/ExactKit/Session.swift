@@ -378,7 +378,7 @@ public final class ExactSession {
     let natives = NativeViews()
     /// The file picker (LLP 1069.002).
     lazy var picker = Picker(session: self)
-    /// The voice table's output (LLP 1096 D8), made at the first `sound` op.
+    /// The voice table's output (LLP 1096 D8); settable for tests.
     lazy var sound = SoundOutput(self)
     package let frames: Frames
     /// A development session's presented frames (LLP 1079 D3); a production bake has none.
@@ -1216,7 +1216,7 @@ public final class ExactSession {
         DispatchQueue.main.async { [weak self] in
             guard let self, state != .destroyed, generation == drawnGeneration else { return }
             // Prepare before any source calls the module (LLP 1067.000 D8).
-            natives.prepareAppModule(); presenter.releaseLaunchAutofocus() // the next turn, never waiting on a loading source
+            natives.prepareAppModule(); presenter.releaseLaunchAutofocus(); sound.prepare() // the next turn, never waiting on a loading source; the Mac's sound output is made off the main thread (LLP 1096 D8)
             let batch = runtime.dataReady()
             if batch.pending {
                 pendingActivation = (drawnGeneration, token) // the generation stays activated: only the source's wake retries

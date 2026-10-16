@@ -45,4 +45,13 @@ double exact_sound_seconds(uint64_t host);
 /// frame is silence (the node's `isSilence`).
 bool exact_sound_render(ExactMixer *mixer, const AudioTimeStamp *timestamp, uint32_t frames, AudioBufferList *out);
 
+#ifdef __OBJC__
+#include <stddef.h>
+/// Run `body`; false, with the exception's name and reason in `reason`, when
+/// it raises an Objective-C exception. AVAudioEngine raises, rather than
+/// throws, for a graph it cannot make, and Swift cannot catch that
+/// (sound_try.m).
+bool exact_sound_try(void (^body)(void), char *reason, size_t size);
+#endif
+
 #endif
