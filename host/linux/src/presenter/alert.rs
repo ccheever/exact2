@@ -306,7 +306,7 @@ impl<D: DataSource> Presenter<D> {
             }
             "Enter" | " " => {
                 if let Some(id) = self.focus.filter(|id| self.alert_allows(*id)) {
-                    self.invoke(id, now);
+                    self.invoke(id, now, false);
                 }
             }
             _ => {}

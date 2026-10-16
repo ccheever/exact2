@@ -353,9 +353,9 @@ impl<D: exact_runner::DataSource> crate::Host<D> {
         let kernel = self.kernel();
         kernel
             .node(view)
-            .and_then(|n| n.props.str(PropId::Commandfor))
-            .and_then(|name| kernel.find_by_id(name).first().copied())
-            .and_then(|key| kernel.node_by_key(key))
+            .and_then(|node| exact_kernel::Invocation::of(kernel, &node))
+            .filter(|invocation| dialog_command(invocation.action))
+            .and_then(|invocation| kernel.node_by_key(invocation.target))
             .is_some_and(|n| {
                 crate::presenter::top::shape::neutral_alert(kernel, n.id, &|id| {
                     self.runner()
