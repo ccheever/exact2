@@ -936,26 +936,34 @@ open class ExactNativeScreen: ExactNativeInstance {
 #endif
 
 /// A roster entry: how to make an instance from the session's module,
-/// whether it answers snapshots, and whether a list may reuse it (LLP 1068
-/// §4.8).
+/// whether it answers snapshots, whether a list may reuse it (LLP 1068
+/// §4.8), and whether it joins the first frame its node shows in.
+///
+/// Every other tag's view attaches after the first frame has painted (LLP
+/// 1024 D3), so a slow view (a map) never delays it. `firstFrame` is for a
+/// cheap view that must be there from the first frame, such as a boot
+/// splash: its view and the session's module are made before that frame
+/// commits, and their init's time is first pixel's.
 public struct ExactNativeFactory {
     public let snapshot: Bool
     public let reuse: Bool
+    public let firstFrame: Bool
     public let make: (ExactModule, [String: String], ExactNativeEvents) throws -> ExactNativeInstance
-    public init(snapshot: Bool = false, reuse: Bool = false, make: @escaping (ExactModule, [String: String], ExactNativeEvents) throws -> ExactNativeInstance) {
+    public init(snapshot: Bool = false, reuse: Bool = false, firstFrame: Bool = false, make: @escaping (ExactModule, [String: String], ExactNativeEvents) throws -> ExactNativeInstance) {
         self.snapshot = snapshot
         self.reuse = reuse
+        self.firstFrame = firstFrame
         self.make = make
     }
     /// A view that needs nothing from the module.
-    public init(snapshot: Bool = false, reuse: Bool = false, make: @escaping ([String: String], ExactNativeEvents) throws -> ExactNativeInstance) {
-        self.init(snapshot: snapshot, reuse: reuse) { _, props, events in try make(props, events) }
+    public init(snapshot: Bool = false, reuse: Bool = false, firstFrame: Bool = false, make: @escaping ([String: String], ExactNativeEvents) throws -> ExactNativeInstance) {
+        self.init(snapshot: snapshot, reuse: reuse, firstFrame: firstFrame) { _, props, events in try make(props, events) }
     }
     /// A view of the app's module, typed: `ExactNativeFactory(for: Recorder.self)
     /// { recorder, props, events in … }`. The session's module is always the
     /// app's `exactModule`; another type is refused by name.
-    public init<M: ExactModule>(for module: M.Type, snapshot: Bool = false, reuse: Bool = false, make: @escaping (M, [String: String], ExactNativeEvents) throws -> ExactNativeInstance) {
-        self.init(snapshot: snapshot, reuse: reuse) { owner, props, events in
+    public init<M: ExactModule>(for module: M.Type, snapshot: Bool = false, reuse: Bool = false, firstFrame: Bool = false, make: @escaping (M, [String: String], ExactNativeEvents) throws -> ExactNativeInstance) {
+        self.init(snapshot: snapshot, reuse: reuse, firstFrame: firstFrame) { owner, props, events in
             guard let typed = owner as? M else { throw ExactNativeRefusal("the session's module is \(type(of: owner)), not \(M.self)") }
             return try make(typed, props, events)
         }
@@ -1379,7 +1387,7 @@ private let table: UnsafeMutableRawPointer = {
     // §4.3), so the host calls it with no word its code never compiled.
     let words = "\"hatches\":{\"words\":[" + ExactHatchKey._words.map { "\"\($0)\"" }.joined(separator: ",") + "]}"
     let text = "{" + (roster.keys.sorted().map { tag in
-        "\"\(tag)\":{\"snapshot\":\(roster[tag]!.snapshot),\"reuse\":\(roster[tag]!.reuse)}"
+        "\"\(tag)\":{\"snapshot\":\(roster[tag]!.snapshot),\"reuse\":\(roster[tag]!.reuse),\"firstFrame\":\(roster[tag]!.firstFrame)}"
     } + [words]).joined(separator: ",") + "}"
     let size = 216
     let t = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 8)

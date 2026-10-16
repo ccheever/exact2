@@ -704,6 +704,30 @@ final class NodePoolIOSTests: XCTestCase {
         XCTAssertEqual(FakeModule.made.count, 1, "the live session's view is made; the stale one's is not")
     }
 
+    /// A first-frame tag's view is made with the batch that made its node,
+    /// before the paint gate opens; another tag's waits for the gate.
+    func testAFirstFrameTagAttachesBeforeThePaintGate() throws {
+        FakeModule.reset()
+        FakeModule.table.withUnsafeBytes { NativeViews.install(table: $0.baseAddress!) }
+        defer { NativeViews.uninstallTable() }
+        let p = Presenter()
+        let natives = NativeViews()
+        natives.install(module: UnsafeMutableRawPointer(bitPattern: 1)!, gateOpen: false)
+        for (id, tag) in [(UInt32(1), "fake-plain"), (2, "fake-splash")] {
+            let v = NodeView(id: id, kind: "native", presenter: p)
+            v.frame = CGRect(x: 0, y: 0, width: 200, height: 100)
+            p.viewport.addSubview(v); p.views[id] = v
+            natives.create(owner: v)
+            v.props = ["nativeViewModuleName": tag, "nativeViewProps": "{}"]
+            natives.update(v)
+        }
+        XCTAssertEqual(FakeModule.made.count, 1, "only the first-frame tag's view is made before the gate")
+        XCTAssertTrue(FakeModule.made.first?.view.superview === p.views[2])
+        natives.activated()
+        XCTAssertEqual(FakeModule.made.count, 2, "the gate makes the other")
+        XCTAssertTrue(FakeModule.made.last?.view.superview === p.views[1])
+    }
+
     func testHeavyLeafCostsLeaveOutEachKindsFirstCreation() {
         let kind = "test-kind-\(UUID().uuidString)"
         HeavyLeaves.record(kind, 0.5)
@@ -735,7 +759,7 @@ private enum FakeModule {
     nonisolated(unsafe) static var made: [Instance] = []
     static func reset() { made = [] }
     static func instance(_ raw: UnsafeMutableRawPointer?) -> Instance { Unmanaged<Instance>.fromOpaque(raw!).takeUnretainedValue() }
-    static let roster = strdup(#"{"fake-map":{"snapshot":false,"reuse":true},"fake-plain":{"snapshot":false}}"#)!
+    static let roster = strdup(#"{"fake-map":{"snapshot":false,"reuse":true},"fake-plain":{"snapshot":false},"fake-splash":{"firstFrame":true}}"#)!
     static let table: [UInt8] = {
         var t = [UInt8](repeating: 0, count: 112)
         func put<T>(_ value: T, _ offset: Int) { withUnsafeBytes(of: value) { for (i, b) in $0.enumerated() { t[offset + i] = b } } }

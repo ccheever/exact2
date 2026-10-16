@@ -1,6 +1,7 @@
 // Native modules on Apple hosts (@ref LLP 1024 D2–D5, LLP 1067.000): one
-// NativeView arm, one app module artifact behind `dlopen`, loaded after the
-// first painted frame or at the first long call, and a versioned C function
+// NativeView arm, one app module artifact behind `dlopen` (begun off the main
+// thread when the session starts; its table read after the first painted
+// frame, at the first long call, or for a first-frame tag), and a versioned C function
 // table whose tag → factory roster is looked up by name. The artifact's
 // module is instantiated once per session (Q6): its views receive it, and a
 // source's `native.later` calls reach it through the runtime
@@ -11,7 +12,8 @@
 //
 //   0  u32 major            3
 //   4  u32 size             104 or more
-//   8  const char *roster   JSON: {"tag": {"snapshot": bool}, …}
+//   8  const char *roster   JSON: {"tag": {"snapshot": bool, "reuse": bool,
+//                          "firstFrame": bool}, …}
 //  16  create(module, tag, tagLen, props, propsLen, event, reply, ctx, nonce, err, errCap) → handle
 //  24  platform_view(handle) → NSView * / UIView *   (the module keeps ownership)
 //  32  set_props(handle, json, len, err, errCap) → 0 accepted, else refused
@@ -297,6 +299,9 @@ private enum NativeProcess {
     /// calling thread when a callback is issued (LLP 1068 §4.9).
     nonisolated(unsafe) static var live: [UInt32: UInt32] = [:]
     static let lock = NSLock()
+    /// The artifact's `dlopen`, begun off the main thread when a session
+    /// installs the app module; `table()` waits for it (a first-frame tag).
+    nonisolated(unsafe) static var preload: DispatchGroup?
     static func incarnation(_ nonce: UInt32) -> UInt32 { lock.lock(); defer { lock.unlock() }; return live[nonce] ?? 0 }
     static func set(_ nonce: UInt32, _ token: UInt32?) { lock.lock(); live[nonce] = token; lock.unlock() }
 }
@@ -433,7 +438,8 @@ final class NativeViews {
     }
 
     /// A NativeView's create commit: the box exists now; the module attaches
-    /// at the paint gate, or at once when the gate has opened (D3).
+    /// at the paint gate, or at once when the gate has opened (D3), or at the
+    /// end of its batch for a first-frame tag.
     func create(owner: NodeView) {
         entries[owner.id] = NativeEntry(owner: owner)
     }
@@ -444,6 +450,16 @@ final class NativeViews {
         guard activationRan, !gateOpen, !entries.isEmpty else { return }
         gateOpen = true
         for entry in entries.values.sorted(by: { $0.id < $1.id }) where entry.state == "loading" && !entry.name.isEmpty { attach(entry) }
+    }
+
+    /// Whether a tag's factory says it belongs in the frame its node first
+    /// shows in (`firstFrame`): a cheap view such as a boot splash, which
+    /// would otherwise start a frame late over a bare one. Its view attaches
+    /// at the end of the batch that made the node, before that batch's
+    /// commit, and the module is made then (LLP 1024 D3's first-frame tags).
+    private func joinsFirstFrame(_ name: String) -> Bool {
+        guard NativeViews.admitted(name), case .success(let table) = self.table() else { return false }
+        return table.roster[name]?["firstFrame"] as? Bool == true
     }
 
     /// Views wait for activation's frame to commit, so a slow view (a map
@@ -477,11 +493,17 @@ final class NativeViews {
         CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
     }
 
+    /// When, for the log: "12.3 ms after first pixel", or before it (a
+    /// first frame's roster read, or its first-frame tag's module).
+    private var sincePixel: String {
+        session?.firstDrawMs.map { String(format: "%.1f ms after first pixel", ExactEnv.wall() - $0) } ?? "before first pixel"
+    }
+
     private func table() -> Result<NativeTable, NativeFailure> {
         if let loaded = NativeProcess.table { return loaded }
+        NativeProcess.preload?.wait()
         let path = NativeViews.modulePath(session: session)
-        let after = session?.firstDrawMs.map { String(format: "%.1f", ExactEnv.wall() - $0) } ?? "?"
-        log("loading \(path) \(after) ms after first pixel")
+        log("loading \(path) \(sincePixel)")
         let started = CFAbsoluteTimeGetCurrent()
         let loaded = NativeTable.load(path: path)
         NativeProcess.table = loaded
@@ -534,7 +556,7 @@ final class NativeViews {
             return .failure(failure)
         }
         instance = made
-        log("module instance made (agent \(ExactEnv.agentMode))")
+        log("module instance made (agent \(ExactEnv.agentMode)) \(sincePixel)")
         if Self.hatchesOff { log("hatches: off (EXACT_HATCHES=off); no hatch is connected or called") }
         if !Self.hatchesOff, let connect = table.connect, let navigation = table.navigationHatch, let route = table.routeHatch {
             let tabs = table.tabsHatch.flatMap { tabs in table.tabContainerHatch.map { (tabs, $0) } }
@@ -574,6 +596,15 @@ final class NativeViews {
         let path = NativeViews.modulePath(session: session)
         guard FileManager.default.fileExists(atPath: path) else { return }
         hasAppModule = true
+        // The load itself (2.5–3.2 ms on the simulator) runs beside boot's
+        // runner and layout, so a first batch that asks the roster whether a
+        // tag joins the first frame finds it done. The main thread reads the
+        // table; nothing of the module runs here.
+        if NativeProcess.table == nil, NativeProcess.preload == nil {
+            let group = DispatchGroup()
+            NativeProcess.preload = group
+            DispatchQueue.global(qos: .userInitiated).async(group: group) { _ = dlopen(path, RTLD_NOW | RTLD_LOCAL) }
+        }
         let rt = session.runtime.rt
         session.runtime.on { exact_set_app_module(rt, nativeLaterCallback, nativeCallCallback, UnsafeMutableRawPointer(bitPattern: UInt(rt))) }
     }
@@ -812,7 +843,12 @@ final class NativeViews {
         if entry.name.isEmpty, entry.state == "loading" {
             entry.name = owner.props["nativeViewModuleName"] ?? ""
             log("\(entry.name) #\(owner.id): loading")
-            if gateOpen, canReuse(entry.name) || holds?(owner) != true { attach(entry) }
+            if gateOpen, canReuse(entry.name) || holds?(owner) != true { attach(entry) } else if !gateOpen, joinsFirstFrame(entry.name) {
+                owner.presenter?.afterBatch { [weak self, weak entry] in
+                    guard let self, let entry, self.entries[entry.id] === entry, entry.handle == nil, entry.state == "loading" else { return }
+                    self.attach(entry)
+                }
+            }
             return
         }
         guard let handle = entry.handle, case .success(let table)? = NativeProcess.table else { return }
