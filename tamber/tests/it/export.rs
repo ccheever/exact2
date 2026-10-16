@@ -622,6 +622,27 @@ fn a_change_on_an_app_axis_lands_on_its_when_or_the_narrowest_new_one() {
     ];
     let import = edit(&tight);
     assert!(import.unmapped.is_empty(), "{:?}", import.unmapped);
+    // `density=tight` alone would tie with `theme=loud` on loud/tight: two
+    // lines that each tell their tuple apart.
+    assert_eq!(
+        lines(&import),
+        vec![
+            (
+                vec![
+                    ("theme".into(), "calm".into()),
+                    ("density".into(), "tight".into())
+                ],
+                "#0000ff".to_string()
+            ),
+            (
+                vec![
+                    ("theme".into(), "loud".into()),
+                    ("density".into(), "tight".into())
+                ],
+                "#0000ff".to_string()
+            ),
+        ]
+    );
     let accepted = exact_tamber::apply_all(src, &import.ops, &vocab())
         .unwrap()
         .text;
@@ -637,4 +658,69 @@ fn a_change_on_an_app_axis_lands_on_its_when_or_the_narrowest_new_one() {
             ["$value"]["hex"],
         "#ff0000"
     );
+}
+
+#[test]
+fn round_four_edges() {
+    let red: Value = serde_json::from_str(RED).unwrap();
+    // A dark-only edit of `accent.soft`'s default: one op; its dim line's
+    // light is the default's light still, so it is left alone.
+    let import = edited_import(|doc| {
+        context(doc, "dark-style=black, dark")["accent"]["soft"]["$value"] = red.clone()
+    });
+    assert_eq!(
+        lines(&import),
+        vec![(vec![], "light-dark(#8ecdf8, #ff0000)".to_string())]
+    );
+    // Two new lines never tie: three tuples of a four-tuple design changed.
+    let src = "tamber t\n\naxes\n  theme = calm | loud\n  density = cozy | tight\n\ntheme\n  ink = #000000\n";
+    let (text, mut doc) = exported(src);
+    for c in [
+        "theme=calm, density=cozy",
+        "theme=calm, density=tight",
+        "theme=loud, density=cozy",
+    ] {
+        for side in ["light", "dark"] {
+            doc["modifiers"]["mode"]["contexts"][format!("{c}, {side}")][0]["ink"]["$value"] =
+                red.clone();
+        }
+    }
+    let import = reimport(&doc.to_string(), std::slice::from_ref(&text), src, &vocab()).unwrap();
+    assert!(import.unmapped.is_empty(), "{:?}", import.unmapped);
+    let accepted = exact_tamber::apply_all(src, &import.ops, &vocab())
+        .unwrap()
+        .text;
+    let (_, after) = exported(&accepted);
+    assert_eq!(
+        after["modifiers"]["mode"]["contexts"]["theme=loud, density=tight, dark"][0]["ink"]
+            ["$value"]["hex"],
+        "#000000"
+    );
+    // A new line keeps the other side as the winning line writes it.
+    let src = "tamber t\n\naxes\n  theme = calm | loud\n\ntheme\n  ink = light-dark(color-mix(in oklch, red 50%, blue), #111111)\n";
+    let (text, mut doc) = exported(src);
+    doc["modifiers"]["mode"]["contexts"]["theme=loud, dark"][0]["ink"]["$value"] = red.clone();
+    let import = reimport(&doc.to_string(), std::slice::from_ref(&text), src, &vocab()).unwrap();
+    assert_eq!(
+        lines(&import),
+        vec![(
+            vec![("theme".into(), "loud".into())],
+            "light-dark(color-mix(in oklch, red 50%, blue), #ff0000)".to_string()
+        )]
+    );
+    // A shadowed `when` under scheme=dark follows its base line's new light too.
+    let src = "tamber t\n\naxes\n  theme = calm | loud\n  dark-style = black | dim  under scheme=dark\n\ntheme\n  ink = light-dark(#111111, #222222)\n    when dark-style=dim: light-dark(#111111, #555555)\n    when theme=calm dark-style=dim: light-dark(#111111, #666666)\n    when theme=loud dark-style=dim: light-dark(#111111, #777777)\n";
+    let (text, mut doc) = exported(src);
+    for (c, _) in doc["modifiers"]["mode"]["contexts"]
+        .clone()
+        .as_object()
+        .unwrap()
+    {
+        if c.ends_with("light") {
+            doc["modifiers"]["mode"]["contexts"][c][0]["ink"]["$value"] = red.clone();
+        }
+    }
+    let import = reimport(&doc.to_string(), std::slice::from_ref(&text), src, &vocab()).unwrap();
+    assert!(import.unmapped.is_empty(), "{:?}", import.unmapped);
+    exact_tamber::apply_all(src, &import.ops, &vocab()).unwrap();
 }

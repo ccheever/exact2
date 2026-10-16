@@ -858,10 +858,33 @@ pub fn reimport(
                 now_side(context)
             }
         };
+        // A line's source, and one side of it as written: a top-level
+        // `light-dark(a, b)`'s, else the whole source.
+        let text_of = |b: Option<usize>| {
+            b.map_or(&decl.value.value, |w| &decl.whens[w].value.value)
+                .trim()
+                .to_string()
+        };
+        let side_text = |b: Option<usize>, dark: bool| {
+            let source = text_of(b);
+            sides_of(&source).map_or(source, |p| p[usize::from(dark)].clone())
+        };
+        // A side as a new line writes it: the file's where it changed, else
+        // the side of the line that wins there, as written (an expression,
+        // a reference), not its folded colour.
+        let side_of = |modes: &Modes, context: &String, dark: bool| -> Option<String> {
+            match changed(context) {
+                true => want(context).map(|(t, _)| t),
+                false => Some(side_text(branch(decl, &under, modes, dark), dark)),
+            }
+        };
         let line =
             |modes: &Modes, sides: &[String; 2], every: bool| -> Result<Op, (String, String)> {
                 let light = tuple_of(&base_of(modes)).map_or(&sides[0], |(_, s)| &s[0]);
-                let (Some((l, _)), Some((d, _))) = (want(light), want(&sides[1])) else {
+                let (Some(l), Some(d)) = (
+                    side_of(modes, light, false),
+                    side_of(modes, &sides[1], true),
+                ) else {
                     return Err((
                         sides.join(" / "),
                         "a value this importer reads no colour from".into(),
@@ -905,11 +928,6 @@ pub fn reimport(
         // its other side kept. One some of whose contexts did not change
         // cannot move without moving them: its changed tuples get the
         // narrowest `when` that holds for them and for none of its others.
-        let text_of = |b: Option<usize>| {
-            b.map_or(&decl.value.value, |w| &decl.whens[w].value.value)
-                .trim()
-                .to_string()
-        };
         let mut branches: Vec<(Option<usize>, Members)> = Vec::new();
         for (modes, sides) in &tuples {
             for dark in [false, true] {
@@ -1007,17 +1025,21 @@ pub fn reimport(
             {
                 continue;
             }
+            // Its tuples, whether it wins there or another as narrow does
+            // (the checker reads a shadowed one too).
             let Some((modes, _)) = tuples
                 .iter()
-                .find(|(m, _)| branch(decl, &under, m, true) == Some(w))
+                .find(|(m, _)| line_w.conds.iter().all(|c| m.contains(c)))
             else {
                 continue;
             };
             let base_branch = branch(decl, &under, modes, false);
-            let Some((_, light)) = moved.iter().find(|(b, _)| *b == base_branch) else {
+            let own = text_of(Some(w));
+            let Some((_, light)) = moved.iter().find(|(b, l)| {
+                *b == base_branch && sides_of(&own).map_or(own.clone(), |p| p[0].clone()) != *l
+            }) else {
                 continue;
             };
-            let own = text_of(Some(w));
             let dark = sides_of(&own).map_or(own.clone(), |p| p[1].clone());
             match token_ops
                 .iter_mut()
@@ -1071,13 +1093,26 @@ pub fn reimport(
                     let holds = |m: &Modes| conds.iter().all(|c| m.contains(c));
                     // No tie with a `when` as narrow wherever it holds: the
                     // checker refuses two that hold and name as many axes.
+                    // ... or with a `when` this import adds.
+                    let queued: Vec<&Modes> = token_ops
+                        .iter()
+                        .filter_map(|op| match op {
+                            Op::SetToken { when, .. } if !when.is_empty() => Some(when),
+                            _ => None,
+                        })
+                        .collect();
                     let ties = tuples.iter().any(|(m, _)| {
                         holds(m)
-                            && decl.whens.iter().any(|w| {
-                                w.conds.len() == conds.len()
-                                    && w.conds != conds
-                                    && w.conds.iter().all(|c| m.contains(c))
-                            })
+                            && decl
+                                .whens
+                                .iter()
+                                .map(|w| &w.conds)
+                                .chain(queued.iter().copied())
+                                .any(|w| {
+                                    w.len() == conds.len()
+                                        && *w != conds
+                                        && w.iter().all(|c| m.contains(c))
+                                })
                     });
                     if !ties && others.iter().all(|m| !holds(m)) {
                         found = Some(conds);
