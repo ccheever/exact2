@@ -587,7 +587,7 @@ impl Feed {
             // Entity/parent/visibility revisions include cameras, particles and
             // gameplay-only rows. Rebuild draw records only if their effective
             // membership changed, or a draw's own mesh/LOD/assets changed.
-            self.visibility.begin();
+            self.visibility.begin(w);
             let entities: Vec<_> = w
                 .query::<(&Mesh, &Transform)>()
                 .iter()
