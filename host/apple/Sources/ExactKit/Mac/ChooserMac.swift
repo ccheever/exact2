@@ -39,7 +39,7 @@ extension MenuHost {
         let message: [String]
         /// Chosen, cancelled or ended: no item is taken after.
         var finished = false
-        /// The action chosen, pressed on the next turn unless cancelled first.
+        /// The action chosen, pressed once the menu has closed unless cancelled first.
         var chosen: Int?
         func cancel() { finished = true; chosen = nil }
         init(source: NodeView, invoked: Bool, popover: NodeView, presentation: Int, actions: [Presented], heading: String?, message: [String]) {
@@ -148,7 +148,8 @@ extension MenuHost {
         return item
     }
 
-    /// An item chosen: recorded now, pressed on the next main-queue turn.
+    /// An item chosen: recorded now, pressed once `popUp` has returned and
+    /// the menu closed (`afterNativeTracking`).
     /// AppKit sends the action inside `popUp`, while it still tracks the
     /// menu in the invoker; a press whose batch unmounts the invoker (a
     /// confirmation that navigates back) must not run under that stack.

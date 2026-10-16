@@ -726,8 +726,12 @@ extension Presenter {
             // page's scroll view, VoiceOver went to that view's child holding
             // the element, the modal, whenever the modal had just hidden the
             // trigger its cursor was on (VO-Space): it said "<name>, dialog"
-            // and never the field that had the focus (measured).
-            let changed: NSView = (trigger == nil && focus != nil && target === focus ? modal : nil) ?? viewport
+            // and never the field that had the focus (measured). A modal
+            // that is no element (no role) hears nothing posted on it, and
+            // the scroll view serves its elements as its own children
+            // (`PageScrollView`): the change is the scroll view's.
+            let changed: NSView = (trigger == nil && focus != nil && target === focus ? modal : nil)
+                .flatMap { $0.isAccessibilityElement() ? $0 : nil } ?? viewport
             NSAccessibility.post(element: changed, notification: .layoutChanged, userInfo: target.map { [.uiElements: [$0]] })
             if let focus, target === focus, !toldByAppKit { NSAccessibility.post(element: focus, notification: .focusedUIElementChanged) }
             nameDialog(modal, landedOn: target)

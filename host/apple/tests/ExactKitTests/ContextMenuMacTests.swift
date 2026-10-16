@@ -5,7 +5,7 @@ import XCTest
 
 /// LLP 1021 §5.1 on AppKit: a context menu is its popover's menu rows as an
 /// NSMenu (a Mac's has no preview, so the `contextPreview` row is no item),
-/// and a picked item presses its row on the next turn, as a button menu's.
+/// and a picked item presses its row once the menu has closed, as a button menu's.
 final class ContextMenuMacTests: XCTestCase {
     private var windows: [NSWindow] = []
     private var sessions: [ExactSession] = []
@@ -211,6 +211,35 @@ final class ContextMenuMacTests: XCTestCase {
         XCTAssertEqual(heard, ["key ContextMenu", "context", "pick 4"])
         XCTAssertEqual(sample.prefix(4).compactMap(Double.init), [60, 15, 0, 0])
         XCTAssertEqual(sample.dropFirst(6).prefix(2).compactMap(Double.init), [80, 35])
+    }
+
+    /// A picked item presses its row in the turn its menu closed, as AppKit
+    /// sends a menu item's action before `popUp` returns: nothing the run
+    /// loop serves comes between. VoiceOver, asking where the focus was as
+    /// the menu closed, was answered before a press that opened a dialog:
+    /// it re-read the page's long draft and never named the dialog
+    /// (realinput-1017k H-9).
+    func testAPickedItemPressesInTheTurnItsMenuClosed() throws {
+        try XCTSkipIf(ExactEnv.agentMode, "the agent presents painted popovers")
+        let p = presenter(), window = try XCTUnwrap(windows.last), source = try XCTUnwrap(p.views[1])
+        window.orderFrontRegardless()
+        var heard: [String] = []
+        p.onPress = { heard.append("pick \($0)") }
+        let center = NotificationCenter.default
+        let observer = center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
+            guard let menu = note.object as? NSMenu, menu.items.first?.title == "Pin" else { return }
+            RunLoop.current.perform(inModes: [.eventTracking]) {
+                menu.performActionForItem(at: 0)
+                // Served by the run loop once tracking has ended, as a request from another process is.
+                RunLoop.main.perform(inModes: [.default]) { heard.append("next turn") }
+                menu.cancelTracking()
+            }
+        }
+        defer { center.removeObserver(observer) }
+        p.menus.context(source, at: NSPoint(x: 30, y: 30))
+        let deadline = Date(timeIntervalSinceNow: 5)
+        while heard.count < 2 && Date() < deadline { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
+        XCTAssertEqual(heard, ["pick 4", "next turn"])
     }
 
     func testContextMenuHonorsKeyCancellationAndOnlyTheUnmodifiedKeyDown() throws {
