@@ -385,6 +385,88 @@ function opOf(file: string, kind: string, target: string, when: string, value: s
 }
 const label = (kind: string, target: string, when: string, value: string) =>
   kind === 'rename-token' ? `${target} → ${value}` : kind === 'remove-token' ? `removed ${target}` : `${target}${when ? ` when ${when}` : ''} = ${value}`;
+// The scrub (LLP 1122 D6), one session at a time, from Scrub live to Keep,
+// Cancel or an end: the edit it is of (file, kind, target, branch), the
+// digests and server run it opened on, its id once the server answers, the
+// op the server last previewed (`shown`, what Keep writes) and the latest
+// the draft wants (`want`). One frame is in flight at a time, each the
+// latest wanted; an answer for a session that has ended changes nothing
+// (and a scrub the server opened for one already cancelled is cancelled).
+type Scrubbing = { ask: number; client: string; of: string; token: string; files: Record<string, string>; id: string; shown: Record<string, unknown> | null; want: Record<string, unknown> | null; sending: Promise<void> | null; error: string; errorOp: Record<string, unknown> | null; releasing: boolean };
+let scrubbing: Scrubbing | null = null;
+// The Scrub live press last seen, and how the last session ended (said
+// once it is not live). `closing`: a session ending at the server (its
+// opening answered and cancelled); the next one opens after it, so it
+// never joins the one being cancelled. `endedIds`: this client's scrubs
+// the server has ended, by id, for an opening whose answer comes after its
+// end.
+let scrubAsked = 0, scrubEnded = '', closing: Promise<void> | null = null;
+const endedIds = new Map<string, string>();
+const opKey = (op: Record<string, unknown> | null) => JSON.stringify(op);
+const endScrub = (s: Scrubbing, why: string) => { if (scrubbing === s) { scrubbing = null; scrubEnded = why; } };
+const scrubEndText = (reason: string) => `The scrub ended: ${SCRUB_ENDS[reason] ?? reason}. Nothing was written, and the running copies have the committed value back.`;
+// An answer that says the server no longer has this scrub.
+const gone = (error: string) => /the scrub ended|is not the scrub open|no such scrub/.test(error);
+/** Sends the session's latest wanted op until the server previews it (not
+ * while Keep is writing). An opening waits for any closing scrub first. */
+function pump(s: Scrubbing): Promise<void> {
+  if (s.sending) return s.sending;
+  s.sending = (async () => {
+    while (scrubbing === s && !s.releasing && s.want && opKey(s.want) !== opKey(s.shown)) {
+      if (!s.id && closing) { await closing; continue; }
+      const op = s.want;
+      const { error, reply } = await call('/__tamber', { method: 'scrub', client: s.client, ops: [op], ...(s.id ? { scrub: s.id } : { files: s.files }) }, WRITE_WAIT, s.token);
+      const ok = (reply.ok ?? {}) as { scrub?: string; ended?: string; superseded?: boolean };
+      if (scrubbing !== s) {
+        // Cancelled while it opened: the scrub the server opened goes too.
+        if (!error && !s.id && ok.scrub && !ok.ended) await call('/__tamber', { method: 'scrub-cancel', client: s.client, scrub: ok.scrub }, 15000, s.token);
+        return;
+      }
+      if (error) {
+        // Refused before it opened: said, as the server put it. Gone at the
+        // server: ended. A value refused that the draft has moved past: the
+        // next one is sent.
+        s.error = error; s.errorOp = op;
+        if (!s.id) { endScrub(s, `No scrub: ${error}`); return; }
+        if (gone(error)) { endScrub(s, scrubEndText('the server no longer has it')); return; }
+        if (opKey(s.want) !== opKey(op)) continue;
+        return;
+      }
+      if (ok.ended) { endScrub(s, scrubEndText(ok.ended)); return; }
+      // Ended at the server before this answer came (its event first).
+      if (ok.scrub && endedIds.has(ok.scrub)) { endScrub(s, scrubEndText(endedIds.get(ok.scrub)!)); void call('/__tamber', { method: 'scrub-cancel', client: s.client, scrub: ok.scrub }, 15000, s.token); return; }
+      s.error = '';
+      s.id = ok.scrub ?? s.id;
+      if (!ok.superseded) s.shown = op;
+    }
+  })().finally(() => { s.sending = null; });
+  return s.sending;
+}
+const scrubState = (draft: Record<string, unknown> | null) => {
+  const s = scrubbing;
+  if (!s) return { ok: true, error: '', live: false, open: '', ready: false, sending: false, ended: scrubEnded };
+  if (!draft) return { ok: false, error: 'Give it a value: an empty one is not previewed.', live: true, open: s.id, ready: false, sending: !!s.sending, ended: '' };
+  // A refusal is its frame's: the draft back on a value the server
+  // previews is fine again.
+  const refused = !!s.error && opKey(s.errorOp) === opKey(draft);
+  return { ok: !refused, error: refused ? s.error : '', live: true, open: s.id, ready: !!s.id && !s.sending && opKey(s.shown) === opKey(draft), sending: !!s.sending, ended: '' };
+};
+/** The session ended here: its scrub at the server cancelled (once its
+ * opening has answered), the next opening held until that is done. The
+ * cancel's error, when it did not land (the server no longer having it is
+ * fine). */
+function closeScrub(s: Scrubbing): Promise<string> {
+  const done = (async () => {
+    if (s.sending) await s.sending;
+    if (!s.id) return '';
+    const { error } = await call('/__tamber', { method: 'scrub-cancel', client: s.client, scrub: s.id }, 15000, s.token);
+    return error && !gone(error) ? error : '';
+  })();
+  const fence: Promise<void> = done.then(() => { if (closing === fence) closing = null; }, () => { if (closing === fence) closing = null; });
+  closing = fence;
+  return done;
+}
+const SCRUB_ENDS: Record<string, string> = { 'competing write': 'another write came first', disconnected: 'this tool stopped being present', idle: 'nothing moved for 30 s', 'server lost': 'the design server stopped' };
 /** An edit's identity, as the view spells its draft (`draftKey`). */
 const keyOf = (file: string, kind: string, target: string, when: string, value: string) => [file, kind, target, when, value].join('␟');
 
@@ -681,13 +763,13 @@ const plain = (n: Noted) => n.gap ? 'Some changes were missed here (the server k
 const sources: Sources = {
   loadHello: async () => {
     const { error, reply } = await call('/__tamber', { method: 'hello' });
-    if (error) return { ok: false, error, protocol: '', format: 0, app: '', files: [], page: '' };
+    if (error) return { ok: false, error, protocol: '', format: 0, app: '', files: [], page: '', live: false };
     const ok = reply.ok ?? {};
     liveTable = ok.live === true;
     designFile = String(ok.design ?? '');
     // `page`: the dev loop's own origin, which the canvas frames; "" with no
     // dev loop (tamber/1.3).
-    return { ok: true, error: '', protocol: String(ok.protocol ?? ''), format: Number(ok.format ?? 0), app: String(ok.app ?? ''), files: files(ok.files), page: pageOf(ok.page) };
+    return { ok: true, error: '', protocol: String(ok.protocol ?? ''), format: Number(ok.format ?? 0), app: String(ok.app ?? ''), files: files(ok.files), page: pageOf(ok.page), live: liveTable };
   },
   loadDesign: async ([file]) => {
     const number = ++issued;
@@ -827,6 +909,78 @@ const sources: Sources = {
     if (inverse) { undoStack.push({ inverse, ops: [op], label: label(kind, target, when, value), token: read.token }); redoStack.length = 0; wroteMine(reply.ok); }
     return stacks(true, '', kind.split('-')[0], key);
   },
+  scrubFrame: async ([ask, , file, kind, target, when, value, client, review]) => {
+    // Scrub live pressed: a session for this edit, opened on the digests
+    // and server run its proposal read. Then each value the draft takes is
+    // wanted, if it is still this edit; the state as it stands is answered.
+    const scrubbable = (kind === 'set-dial' || kind === 'set-token') && !!value;
+    const op = scrubbable ? opOf(file, kind, target, when, value) : null;
+    const of = [file, kind, target, when].join('␟');
+    if (ask > scrubAsked) {
+      scrubAsked = ask;
+      let read: { files?: Record<string, string>; token?: string } = {};
+      try { read = JSON.parse(review || '{}'); } catch { /* none */ }
+      if (scrubbing) return scrubState(op);
+      if (!op || !read.files || !read.token) { scrubEnded = 'Review the change before scrubbing it.'; return scrubState(op); }
+      scrubEnded = '';
+      const s = { ask, client, of, token: read.token, files: read.files, id: '', shown: null, want: op, sending: null, error: '', errorOp: null, releasing: false };
+      scrubbing = s;
+      // The last one gone at the server first.
+      if (closing) await closing;
+      if (scrubbing !== s) return scrubState(op);
+    }
+    const s = scrubbing;
+    if (s && s.of !== of) return { ...scrubState(op), ok: false, error: 'This scrub is of another edit: Keep or cancel it first.' };
+    if (s && op) { s.want = op; await pump(s); }
+    return scrubState(op);
+  },
+  releaseScrub: async ([draftFile, draftKind, draftTarget, draftWhen, draftValue]) => {
+    // The one write: this draft's value (fixed when Keep is pressed or the
+    // slider let go) once the server previews it, no further frame sent
+    // meanwhile; only for the edit the scrub is of. Checked against the
+    // digests the scrub opened with: a file moved since is refused, naming
+    // who moved it, and nothing is written. Undone as any write.
+    const at = session;
+    const s = scrubbing;
+    if (!s) return stacks(false, scrubEnded || 'No scrub is open: it ended before Keep.', '');
+    if (s.of !== [draftFile, draftKind, draftTarget, draftWhen].join('␟') || !draftValue) return stacks(false, 'This scrub is of another edit: Keep or cancel it there.', '');
+    const kept = opOf(draftFile, draftKind, draftTarget, draftWhen, draftValue);
+    s.want = kept;
+    await pump(s);
+    s.releasing = true;
+    while (s.sending) await s.sending;
+    if (scrubbing !== s || !s.id || !s.shown) { s.releasing = false; return stacks(false, scrubEnded || 'No scrub is open: it ended before Keep.', ''); }
+    if (opKey(s.shown) !== opKey(kept)) { s.releasing = false; void pump(s); return stacks(false, s.error || 'That value is not previewed: Keep it once it is, or cancel.', ''); }
+    scrubbing = null;
+    scrubEnded = '';
+    const op = kept, [file, kind, target, when] = s.of.split('␟');
+    const value = draftValue;
+    const { error, reply } = await call('/__tamber', { method: 'scrub-release', client: s.client, scrub: s.id }, WRITE_WAIT, s.token);
+    // No answer from the server (not a refusal): the scrub may still be
+    // open there, so it stays, to keep or cancel again.
+    if (error && !reply.error && error !== RESTARTED) { s.releasing = false; if (!scrubbing) scrubbing = s; return stacks(false, `Keep did not reach the server (${error}): keep or cancel again.`, ''); }
+    if (error === RESTARTED) forget();
+    if (session !== at) return stacks(false, RESTARTED, '');
+    if (error) return stacks(false, byWhom(reply) ? `Not written: ${byWhom(reply)} since the scrub opened; the running copies have the committed value back.` : error, '');
+    const inverse = (reply.ok as { inverse: string | null }).inverse;
+    if (inverse) { undoStack.push({ inverse, ops: [op], label: label(kind, target, when, value), token: s.token }); redoStack.length = 0; wroteMine(reply.ok); }
+    return stacks(true, '', kind.split('-')[0], keyOf(file, kind, target, when, value));
+  },
+  cancelScrub: async ([ask]) => {
+    // Ended without a write: the server sends every copy the committed
+    // design. One still opening is cancelled once its answer comes; this
+    // answers when the server has let it go.
+    const note = 'Cancelled: nothing was written, and the running copies have the committed value back.';
+    // A Scrub live press not yet taken up is cancelled with it.
+    scrubAsked = Math.max(scrubAsked, ask);
+    const s = scrubbing;
+    scrubbing = null;
+    scrubEnded = '';
+    const error = s ? await closeScrub(s) : '';
+    // It did not land: the scrub stays, to cancel again.
+    if (error && s) { if (!scrubbing) scrubbing = s; return stacks(false, `Cancel did not reach the server (${error}): the running copies may still show the preview; cancel again.`, ''); }
+    return { ...stacks(true, '', ''), note };
+  },
   undoLast: async ([client]) => {
     const at = session;
     const top = undoStack.at(-1);
@@ -920,7 +1074,16 @@ const sources: Sources = {
     // session's inverses: undo and redo start again too.
     // Another run's session has none of this one's writes to commit: the
     // changeset starts again with it.
-    if (place.epoch && r.epoch !== place.epoch) { forget(); changeset = []; reads.clear(); buildsNow = new Map(); }
+    // Another run of the server has none of this run's scrub: it ended
+    // there, and a new one is chosen again.
+    if (place.epoch && r.epoch !== place.epoch) { forget(); changeset = []; reads.clear(); buildsNow = new Map(); endedIds.clear(); if (scrubbing) endScrub(scrubbing, scrubEndText('server lost')); }
+    // Events missed: an end among them would be lost, so a scrub open is
+    // ended here (cancelled, if the server still has it).
+    if (epoch && r.missed && r.epoch === place.epoch && scrubbing) {
+      const s = scrubbing;
+      endScrub(s, 'The scrub was ended: some changes were missed, so its state was not known. Nothing was written.');
+      void closeScrub(s);
+    }
     if ((place.epoch && r.epoch !== place.epoch) || r.missed) recent = [];
     // The session's changeset: every write since the tool opened (not the
     // backlog the first answer carries).
@@ -937,6 +1100,12 @@ const sources: Sources = {
     for (const e of (r.events ?? []) as any[]) {
       if (e.event === 'builds') takeBuilds(e.builds);
       else if (e.event === 'build-status' && e.build?.id) buildsNow.set(String(e.build.id), buildOf(e.build, buildsNow.get(String(e.build.id))));
+      // This tool's scrub, ended by the server (another write, idle, the
+      // tool gone, the server lost): said, and a new one is chosen again.
+      else if (e.event === 'scrub' && !['opened', 'released', 'cancelled'].includes(e.reason)) {
+        if (e.client === client) { endedIds.set(String(e.scrub), String(e.reason)); if (endedIds.size > 32) endedIds.delete(endedIds.keys().next().value!); }
+        if (scrubbing?.id && e.scrub === scrubbing.id) endScrub(scrubbing, scrubEndText(String(e.reason)));
+      }
       else if (e.event === 'unsupported') { const b = buildsNow.get(String(e.build)); if (b) b.unsupported = { what: String(e.what ?? ''), detail: e.detail ?? null }; }
     }
     // Starting again, the builds are the server's list now (its events

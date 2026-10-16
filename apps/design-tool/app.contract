@@ -16,6 +16,9 @@ shape Hello
   files: FileDigest[]
   // The dev loop's own origin, which the canvas frames; "" with none.
   page: string
+  // A dev loop serves the wire: a value edit applies in place, and a
+  // scrub previews on the running copies.
+  live: bool
 
 shape Change
   seq: number
@@ -255,6 +258,21 @@ shape Branch
   answer: number
 
 // An edit before it is written: `propose`'s answer.
+// The scrub as the data module keeps it (LLP 1122 D6): `live` from Scrub
+// live until Keep, Cancel or an end; `open` its id once the server opened
+// it; `ready` when the server previews the draft as it is now (Keep writes
+// that); `ended`, how the last one ended without a write, said once it is
+// not live.
+shape Scrub
+  ok: bool
+  error: string
+  live: bool
+  open: string
+  ready: bool
+  // A frame is on its way.
+  sending: bool
+  ended: string
+
 shape Proposal
   ok: bool
   error: string
@@ -416,6 +434,19 @@ component DesignTool
   state renameTo = ""
   resource branch = loadBranch(file, selToken, selColumn, design.answer) as shape Branch else empty(ok=true)
   resource proposal = proposeEdit(file, editKind, editTarget, editWhen, editValue, since, epoch) as shape Proposal else empty(ok=true)
+  // Scrubbing, chosen explicitly (D6, never the default): each value the
+  // draft takes is a frame previewed on every running copy, written to no
+  // file; Keep (or a slider let go) writes it once, Cancel puts the
+  // committed value back. `scrubAsk` counts Scrub live presses, `scrubTick`
+  // each Keep or Cancel; the module keeps the session, and the poll's
+  // answers bring an end the server made.
+  state scrubAsk = 0
+  state scrubTick = 0
+  // From Scrub live to Keep or Cancel: the panel shows while the opening
+  // frame is still on its way.
+  state scrubWant = false
+  resource scrub = scrubFrame(scrubAsk, scrubTick, file, editKind, editTarget, editWhen, editValue, client, proposal.review, changes.answer) as shape Scrub else empty(ok=true)
+  derive scrubShown = scrub.live or (scrubWant and pending(scrub))
   // The changeset follows the long poll and each design read (which
   // measures what changed); history is read when shown.
   resource changeset = loadChangeset(file, since, design.answer) as shape Changeset else empty(ok=true)
@@ -481,20 +512,46 @@ component DesignTool
       renaming = false
   action changeName
     // The tool stays itself while the name is retyped: its long poll keeps
-    // naming it, so its pins hold.
+    // naming it, so its pins hold. A scrub open is its own: it ends first.
+    if scrubShown
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = cancelScrub(scrubAsk)
     draftName = person
     renaming = true
   action dialNumber(name: string, n: number)
+    // A scrub open on another edit ends first.
+    if scrubShown and not (editKind == "set-dial" and editTarget == name)
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = cancelScrub(scrubAsk)
     editKind = "set-dial"
     editTarget = name
     editWhen = ""
     editValue = `${n}`
+  action dialReleased(name: string, n: number)
+    // A slider let go: the scrub on it writes its last value, once that is
+    // previewed.
+    if scrubShown and editKind == "set-dial" and editTarget == name and not pending(written)
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = releaseScrub(file, editKind, editTarget, editWhen, editValue)
   action dialText(name: string, v: string)
+    // A scrub open on another edit ends first.
+    if scrubShown and not (editKind == "set-dial" and editTarget == name)
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = cancelScrub(scrubAsk)
     editKind = "set-dial"
     editTarget = name
     editWhen = ""
     editValue = v.trim()
   action selectCell(token: string, column: string)
+    // A scrub open is of another edit: it ends first.
+    if scrubShown
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = cancelScrub(scrubAsk)
     selToken = token
     selColumn = column
     pinning = false
@@ -525,6 +582,10 @@ component DesignTool
   action editNewValue(v: string)
     newValue = v
   action addToken
+    if scrubShown
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = cancelScrub(scrubAsk)
     editKind = "add-token"
     editTarget = newName.trim()
     editWhen = ""
@@ -532,21 +593,47 @@ component DesignTool
   action editRename(v: string)
     renameTo = v
   action renameToken
+    if scrubShown
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = cancelScrub(scrubAsk)
     editKind = "rename-token"
     editTarget = selToken
     editWhen = ""
     editValue = renameTo.trim()
   action removeToken
+    if scrubShown
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = cancelScrub(scrubAsk)
     editKind = "remove-token"
     editTarget = selToken
     editWhen = ""
     editValue = ""
   action cancelEdit
+    if scrubShown
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = cancelScrub(scrubAsk)
     editKind = ""
     scopeOwn = false
+  action startScrub
+    if not scrub.live and not pending(written)
+      scrubAsk = scrubAsk + 1
+      scrubWant = true
+  action keepScrub
+    // The one write: what the server previews, once it is the draft.
+    if scrub.live and scrub.ready and not pending(scrub) and not pending(written)
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = releaseScrub(file, editKind, editTarget, editWhen, editValue)
+  action cancelScrub
+    scrubTick = scrubTick + 1
+    scrubWant = false
+    send written = cancelScrub(scrubAsk)
   action apply
     // Only the proposal shown, for the edit drafted, is written.
-    if proposal.ok and proposal.active and not pending(proposal) and proposal.key == draftKey and not draftStale and not pending(written)
+    if proposal.ok and proposal.active and not pending(proposal) and proposal.key == draftKey and not draftStale and not pending(written) and not scrubShown
       send written = writeEdit(file, editKind, editTarget, editWhen, editValue, client, proposal.review)
   action afterWrite
     // The draft written is done with; one drafted since stays.
@@ -641,6 +728,10 @@ component DesignTool
   action toggleMore(group: string)
     opened = opened.includes(group) ? opened.filter(g => g != group) : opened.concat([group])
   action chooseFile(f: string)
+    if scrubShown
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = cancelScrub(scrubAsk)
     // An edit drafted in one file is not carried to another.
     file = f
     editKind = ""
@@ -783,13 +874,13 @@ component DesignTool
                   column gap=8 padding=12 border-radius=10 background-color="-exact-secondary-background" testId=`group-${g.name}`
                     text (g.name == "" ? "Dials" : g.name) role="heading" aria-level=3
                     for c in g.dials key=c.name
-                      DialControl(c=c, focused=(focusDial == c.name), onNumber=dialNumber(c.name), onText=dialText(c.name))
+                      DialControl(c=c, focused=(focusDial == c.name), onNumber=dialNumber(c.name), onText=dialText(c.name), onRelease=dialReleased(c.name))
                     if g.more.length > 0
                       button press=toggleMore(g.name) testId=`more-${g.name}`
                         text (opened.includes(g.name) ? "Fewer" : `More (${g.more.length})`)
                       if opened.includes(g.name)
                         for c in g.more key=c.name
-                          DialControl(c=c, focused=(focusDial == c.name), onNumber=dialNumber(c.name), onText=dialText(c.name))
+                          DialControl(c=c, focused=(focusDial == c.name), onNumber=dialNumber(c.name), onText=dialText(c.name), onRelease=dialReleased(c.name))
               column gap=8 testId="tokens"
                 text "Tokens" role="heading" aria-level=2
                 column overflow-x="auto" align-items="flex-start" testId="grid"
@@ -873,11 +964,30 @@ component DesignTool
                       text (proposal.chip == "live" ? "Live" : "Rebuilds") font="-exact-footnote" padding="2px 8px" border-radius=8 background-color="-exact-tertiary-background" testId="chip"
                       text proposal.tokens.join(", ") color="-exact-secondary-label" font="-exact-footnote" flex=1 testId="proposal-tokens"
                     text proposal.diff font="-exact-caption1" font-family="ui-monospace, monospace" white-space="pre" testId="proposal-diff"
-                  row gap=8
-                    button press=apply disabled=(not proposal.ok or not proposal.active or pending(proposal) or proposal.key != draftKey or draftStale or pending(written)) buttonStyle="filled" testId="apply"
-                      text "Apply"
-                    button press=cancelEdit testId="cancel-edit"
-                      text "Cancel"
+                  if scrubShown
+                    column gap=4 testId="scrub"
+                      if not scrub.ok
+                        text scrub.error color="-exact-system-red" white-space="pre-wrap" testId="scrub-error"
+                      else if scrub.open != ""
+                        text (scrub.ready ? "Previewing: the running copies show this value, and the files are unchanged until Keep." : scrub.sending ? "Previewing: sending this value to the running copies…" : "Previewing the last value sent: this one is not previewed.") color="-exact-system-orange" testId="scrub-previewing"
+                      row gap=8
+                        button press=keepScrub disabled=(not scrub.ok or not scrub.ready or pending(scrub) or pending(written)) buttonStyle="filled" testId="scrub-keep"
+                          text "Keep"
+                        button press=cancelScrub aria-keyshortcuts="Escape" testId="scrub-cancel"
+                          text "Cancel scrub"
+                  else
+                    row gap=8
+                      button press=apply disabled=(not proposal.ok or not proposal.active or pending(proposal) or proposal.key != draftKey or draftStale or pending(written)) buttonStyle="filled" testId="apply"
+                        text "Apply"
+                      if editKind == "set-dial" or editKind == "set-token"
+                        button press=startScrub disabled=(not hello.live or not proposal.ok or not proposal.active or pending(proposal) or proposal.key != draftKey or proposal.chip != "live" or draftStale or pending(written)) testId="scrub-start"
+                          text "Scrub live"
+                      button press=cancelEdit testId="cancel-edit"
+                        text "Cancel"
+                    if (editKind == "set-dial" or editKind == "set-token") and proposal.ok and proposal.active and proposal.chip != "live"
+                      text (hello.live ? "This edit rebuilds the app, so it can't be scrubbed: Apply writes it." : "Scrubbing previews on the running copies: open the tool through a dev loop (tamber tool --via).") color="-exact-secondary-label" font="-exact-footnote" testId="scrub-unavailable"
+              if not scrubShown and scrub.ended != ""
+                text scrub.ended color="-exact-secondary-label" testId="scrub-note"
               row gap=8 align-items="center" testId="undo-bar"
                 button press=undo disabled=(stack.undo == 0 or pending(written)) testId="undo"
                   text `Undo (${stack.undo})`
@@ -1068,6 +1178,7 @@ component DialControl
     focused: bool
     onNumber: action
     onText: action
+    onRelease: action
   view
     column gap=4 padding=4 border-radius=6 background-color=(focused ? "-exact-tertiary-background" : "transparent") testId=`dial-${c.name}`
       row gap=8 align-items="center"
@@ -1078,7 +1189,8 @@ component DialControl
           view width=28 height=28 border-radius=6 background-color=c.value border="1px solid -exact-separator"
           input value=c.value change=onText aria-label=c.label flex=1 min-width=0 testId=`dial-${c.name}-field`
       else if c.control == "slider"
-        input type="range" min=c.min max=c.max step=c.step value=c.number change=onNumber aria-label=c.label testId=`dial-${c.name}-slider`
+        // Each value while it is dragged; let go, a scrub open on it is kept.
+        input type="range" min=c.min max=c.max step=c.step value=c.number input=onNumber change=onRelease aria-label=c.label testId=`dial-${c.name}-slider`
       else if c.control == "stepper"
         input type="number" min=c.min max=c.max step=c.step value=`${c.number}` input=onText aria-label=c.label testId=`dial-${c.name}-stepper`
       else if c.control == "select"

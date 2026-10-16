@@ -560,6 +560,186 @@ test "builds: a preview replaces a build's pin; an unsupported pin is named unti
   expect tree missing "build-web-1"
   request POST "/__stub/restart" {} as ada
 
+test "a scrub, chosen explicitly: each value previews, the files unchanged, and Keep writes the value previewed once, undone in one step"
+  request POST "/__stub/live" {"live": true} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  reload
+  clock data
+  type "dial-hue-stepper" "210"
+  clock data
+  expect text "chip" == "Live"
+  expect tree missing "scrub"
+  tap "scrub-start"
+  clock data
+  expect text "scrub-previewing" == "Previewing: the running copies show this value, and the files are unchanged until Keep."
+  expect tree missing "apply"
+  type "dial-hue-stepper" "215"
+  clock data
+  type "dial-hue-stepper" "220"
+  clock data
+  expect text "undo" == "Undo (0)"
+  tap "scrub-keep"
+  clock data
+  expect tree missing "scrub"
+  expect tree missing "proposal"
+  expect text "undo" == "Undo (1)"
+  clock +1
+  clock data
+  expect text "change-2" == "app.tamber · design-tool:Ada"
+  clock +1
+  clock data
+  // What was written is the last value previewed (the stub's digest names it).
+  expect text "digest-app.tamber" == "220000000000"
+  tap "undo"
+  clock data
+  expect text "undo" == "Undo (0)"
+  request POST "/__stub/restart" {} as ada
+
+test "a scrub cancelled writes nothing; one the server ends says why, and the next starts afresh; a refused Keep names who moved the file"
+  request POST "/__stub/live" {"live": true} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  reload
+  clock data
+  type "dial-hue-stepper" "210"
+  clock data
+  tap "scrub-start"
+  clock data
+  type "dial-hue-stepper" "215"
+  clock data
+  tap "scrub-cancel"
+  clock data
+  expect text "write-note" == "Cancelled: nothing was written, and the running copies have the committed value back."
+  expect text "undo" == "Undo (0)"
+  expect tree has "apply"
+  // Another write came first: the server ended it.
+  tap "scrub-start"
+  clock data
+  expect tree has "scrub-previewing"
+  request POST "/__stub/end-scrub" {"reason": "competing write"} as ada
+  clock +1
+  clock data
+  expect text "scrub-note" == "The scrub ended: another write came first. Nothing was written, and the running copies have the committed value back."
+  expect tree missing "scrub"
+  // The next one is not ended by the last one's end.
+  tap "scrub-start"
+  clock data
+  clock +1
+  clock data
+  expect tree has "scrub-previewing"
+  expect tree missing "scrub-note"
+  // A value refused, then back to the one previewed: Keep is fine again.
+  type "dial-hue-stepper" ""
+  clock data
+  expect text "scrub-error" == "Give it a value: an empty one is not previewed."
+  expect disabled "scrub-keep"
+  type "dial-hue-stepper" "210"
+  clock data
+  expect tree missing "scrub-error"
+  // A file moved since it opened: Keep writes nothing, and says who.
+  request POST "/__stub/refuse-release" {"by": "agent:codex"} as ada
+  tap "scrub-keep"
+  clock data
+  expect text "write-error" == "Not written: app.tamber was changed by agent:codex since the scrub opened; the running copies have the committed value back."
+  expect text "undo" == "Undo (0)"
+  request POST "/__stub/restart" {} as ada
+
+test "a scrub ends with its edit: another cell chosen cancels it, Cancel while it opens leaves none open, and a new server run ends it"
+  request POST "/__stub/live" {"live": true} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  reload
+  clock data
+  type "dial-hue-stepper" "210"
+  clock data
+  tap "scrub-start"
+  clock data
+  expect tree has "scrub-previewing"
+  tap "cell-surface.page-0-light"
+  clock data
+  expect text "write-note" == "Cancelled: nothing was written, and the running copies have the committed value back."
+  expect tree missing "scrub"
+  // Another control moved while one is open: that scrub ends first, and
+  // nothing is written for it.
+  type "dial-hue-stepper" "212"
+  clock data
+  tap "scrub-start"
+  clock data
+  tap "more-Tone"
+  type "dial-fine-slider" "0.004"
+  clock data
+  expect text "write-note" == "Cancelled: nothing was written, and the running copies have the committed value back."
+  expect text "undo" == "Undo (0)"
+  // Cancelled before the server answered its opening: Scrub live waits
+  // until the server has let that one go, so the next opens as its own and
+  // the old one's cancel never ends it.
+  request POST "/__stub/slow-preview" {"ms": 1500} as ada
+  type "dial-hue-stepper" "215"
+  clock data
+  tap "scrub-start"
+  tap "scrub-cancel"
+  clock data
+  expect tree missing "scrub"
+  request POST "/__stub/slow-preview" {"ms": 0} as ada
+  tap "scrub-start"
+  clock data
+  clock +1
+  clock data
+  expect tree has "scrub-previewing"
+  expect tree missing "scrub-note"
+  // Events missed: an end among them could be lost, so it ends here.
+  request POST "/__stub/miss" {} as ada
+  clock +1
+  clock data
+  expect text "scrub-note" == "The scrub was ended: some changes were missed, so its state was not known. Nothing was written."
+  expect tree missing "scrub"
+  tap "scrub-start"
+  clock data
+  expect tree has "scrub-previewing"
+  // A new run of the server: the scrub ended there.
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/live" {"live": true} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "scrub-note" == "The scrub ended: the design server stopped. Nothing was written, and the running copies have the committed value back."
+  expect tree missing "scrub"
+  // The new run's first scrub (its ids start again) opens and stays.
+  reload
+  clock data
+  type "dial-hue-stepper" "214"
+  clock data
+  tap "scrub-start"
+  clock data
+  clock +1
+  clock data
+  expect tree has "scrub-previewing"
+  request POST "/__stub/restart" {} as ada
+
+test "no scrub for an edit that rebuilds, nor without a dev loop: said before the gesture"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  type "dial-hue-stepper" "210"
+  clock data
+  expect disabled "scrub-start"
+  expect text "scrub-unavailable" == "Scrubbing previews on the running copies: open the tool through a dev loop (tamber tool --via)."
+  request POST "/__stub/live" {"live": true} as ada
+  reload
+  clock data
+  tap "more-Tone"
+  type "dial-warmth-slider" "0.5"
+  clock data
+  expect text "chip" == "Rebuilds"
+  expect disabled "scrub-start"
+  expect text "scrub-unavailable" == "This edit rebuilds the app, so it can't be scrubbed: Apply writes it."
+  request POST "/__stub/restart" {} as ada
+
 test "the pin form offers the app's own axes whichever file is open, and retyping the name keeps the tool's client while it is typed"
   type "name" "Ada"
   tap "save-name"
