@@ -1,0 +1,29 @@
+// The Tamber binding's sample (LLP 1121 D12, stage 5): a native module
+// (`exact-swatch`, modules/apple) fills itself with the design's
+// `swatch.fill` through `ExactTamber(view).color(…)` and says each colour it
+// applies, which the texts below show, with how many times it applied. One
+// swatch takes the window's mode, the other sits under a pin (`tone=cool`);
+// the button moves the window's mode. The stage 5 gate drives it: a mode, a
+// pin above, a Dynamic Type change and a live edit.
+component TamberHost
+  state windowSaid = ""
+  state windowTimes = 0
+  state pinnedSaid = ""
+  state pinnedTimes = 0
+  action flip
+    setMode("tone", "cool")
+  action windowMessage(m: string)
+    windowSaid = m
+    windowTimes = windowTimes + 1
+  action pinnedMessage(m: string)
+    pinnedSaid = m
+    pinnedTimes = pinnedTimes + 1
+  view
+    column padding=16 gap=12 background-color="page"
+      button press=flip testId="flip"
+        text "Flip the tone"
+      exact-swatch testId="window" height=60 message=windowMessage
+      text `${windowSaid} ×${windowTimes}` testId="window-said"
+      column -exact-mode="tone=cool"
+        exact-swatch testId="pinned" height=60 message=pinnedMessage
+      text `${pinnedSaid} ×${pinnedTimes}` testId="pinned-said"

@@ -293,7 +293,7 @@ Ports    none. Runs to completion.`,
   },
   tamber: {
     line: 'the app\'s design (app.tamber): checked, its tokens in one mode, its IR',
-    usage: 'bun exact.mjs tamber check <app> | eval <app> [--mode <axis>=<value>] | ir <app> [-o <tamber.json>] | fmt <app> [--check] | gen ts|rust <app> [-o <dir>] | serve <app> [--port <n>] [--lan] | op <url> <request JSON>|subscribe | import shadcn|tailwind|dtcg|astryx <source> <url> [--app <app>] [--prefix <p>] | tool [<app>] [--via <dev url>] [--no-open]   (<app>: its directory, app.contract or a .tamber file; a flag before or after it)',
+    usage: 'bun exact.mjs tamber check <app> | eval <app> [--mode <axis>=<value>] | ir <app> [-o <tamber.json>] | fmt <app> [--check] | gen ts|rust|swift <app> [-o <dir>] | serve <app> [--port <n>] [--lan] | op <url> <request JSON>|subscribe | import shadcn|tailwind|dtcg|astryx <source> <url> [--app <app>] [--prefix <p>] | tool [<app>] [--via <dev url>] [--no-open]   (<app>: its directory, app.contract or a .tamber file; a flag before or after it)',
     flags: [
       ['--mode <axis>=<value>[,…]', 'eval: the mode to print the tokens in; the rest at their defaults'],
       ['-o <file>', 'ir: write the IR (tamber.json, generated, never committed) there; gen: the directory (else the app\'s .exact/tamber/)'],
@@ -309,7 +309,8 @@ serve is the design server (the dev loops mount it too, at /__tamber): reads, ed
 undo and a change stream, with a token only this machine's loopback can have. gen writes
 bindings from the IR, generated and never committed (LLP 1121 D12): ts, tamber.ts (a
 ColorToken union, each token's CSS per mode) and tamber.css; rust, tamber.rs, a
-Token<Color> constant a token (SURFACE_CARD), which session.tamber().get resolves. op takes
+Token<Color> constant a token (SURFACE_CARD), which session.tamber().get resolves; swift,
+tamber.swift, ExactTamberToken.surfaceCard for a native view's ExactTamber(view). op takes
 that token and sends one request, or prints the change stream (subscribe). import reads
 another system's theme and holds it on the server as proposals to accept: the tokens as
 one, each role override apart; every source value is mapped or reported, counted.

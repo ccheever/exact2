@@ -55,6 +55,9 @@
 //        the window toolbar Exact installed (LLP 1075.003.000 §3.7)
 // 208  module_will_quit(module, ctx, done)            size ≥ 216; macOS:
 //        the quit's work (LLP 1069.010 Q4); done(ctx) once, from any thread
+// 216  module_tamber(module)                         size ≥ 224; nullable:
+//        after a batch that moved what a binding reads (LLP 1121 D12), the
+//        module asks its observed places again (ExactTamber.swift)
 //
 //   event(ctx, nonce, kind, bytes, len)          kind: EventKind 0–8 — press,
 //     change, hover, focus, blur, key, submit, load, message; change, key and
@@ -141,6 +144,8 @@ private final class NativeTable {
     var tickHatch: HatchTickFn?
     /// The quit's work (macOS), in a table of 216 bytes or more.
     var willQuit: WillQuitFn?
+    /// The bindings' moved inputs (LLP 1121 D12), in one of 224 or more.
+    var tamber: ModuleDestroyFn?
     var agentInput: SetFn?
     var focusTarget: ViewFn?
 
@@ -216,6 +221,7 @@ private final class NativeTable {
         }
         if size >= 208 { loaded.tickHatch = pointer(200).map { unsafeBitCast($0, to: HatchTickFn.self) } }
         if size >= 216 { loaded.willQuit = pointer(208).map { unsafeBitCast($0, to: WillQuitFn.self) } }
+        if size >= 224 { loaded.tamber = pointer(216).map { unsafeBitCast($0, to: ModuleDestroyFn.self) } }
         return .success(loaded)
     }
 }
@@ -678,6 +684,13 @@ final class NativeViews {
         guard !quitAsked else { return }
         quitAsked = true
         askQuit()
+    }
+
+    /// After a batch: the module asks the places it observes again, when it
+    /// has the entry (LLP 1121 D12). Main thread.
+    func tamberMoved() {
+        guard let instance, case .success(let table)? = NativeProcess.table, let tamber = table.tamber else { return }
+        tamber(instance)
     }
 
     private func askQuit() {

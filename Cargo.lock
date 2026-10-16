@@ -4876,6 +4876,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "tamber-host-apple"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-apple",
+ "exact-bake",
+ "exact-logic",
+ "tamber-host-data",
+]
+
+[[package]]
+name = "tamber-host-data"
+version = "0.1.0"
+dependencies = [
+ "exact-plan",
+ "exact-runner",
+]
+
+[[package]]
 name = "tap"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -3038,8 +3038,10 @@ Code outside a view names a token by its name too (LLP 1121 D12): a data module
 returns a `ColorToken` (`contract types` declares the design's, so an unknown
 one fails `tsc`), and `bun exact.mjs tamber gen ts|rust .` writes bindings into
 `.exact/tamber/` (never committed): `tamber.ts` and `tamber.css` (each token's
-CSS per mode), or `tamber.rs` (`pub const SURFACE_CARD: Token<Color>`, which
-`session.tamber().get(SURFACE_CARD, place)` resolves in a running session).
+CSS per mode), `tamber.rs` (`pub const SURFACE_CARD: Token<Color>`, which
+`session.tamber().get(SURFACE_CARD, place)` resolves in a running session), or
+`tamber.swift` (`ExactTamberToken.surfaceCard`, for a native view's
+`ExactTamber(view).color(.surfaceCard)`; Android's names a token by its name).
 Recipe:
 [a brand](recipes/tamber.md).
 `color-scheme="dark"` (or `"light"`) on a node makes that subtree resolve

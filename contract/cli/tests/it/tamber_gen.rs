@@ -312,3 +312,32 @@ fn contract_types_follows_exports() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// `gen swift` writes an `ExactTamberToken` member per colour token, a Swift
+/// keyword backquoted, for a native view's `ExactTamber(view).color(_:)`.
+#[test]
+fn swift_names_each_token_as_a_member() {
+    let dir = app(
+        "swift",
+        "tamber t\n\ntheme\n  surface.card = #ffffff\n  default = #000000\n",
+        "component App\n  view\n    column\n",
+    );
+    let (ok, said) = gen("swift", &dir);
+    assert!(ok, "{said}");
+    let swift = std::fs::read_to_string(dir.join(".exact/tamber/tamber.swift")).unwrap();
+    assert!(
+        swift.contains("public extension ExactTamberToken {"),
+        "{swift}"
+    );
+    assert!(
+        swift.contains(r#"    static let surfaceCard = ExactTamberToken("surface.card")"#),
+        "{swift}"
+    );
+    assert!(
+        swift.contains(r#"    static let `default` = ExactTamberToken("default")"#),
+        "{swift}"
+    );
+    let (ok, said) = gen("swift", &dir);
+    assert!(ok && said.is_empty(), "unchanged, not written: {said}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
