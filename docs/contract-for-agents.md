@@ -1331,8 +1331,9 @@ outside the header. iOS needs a swipe row's content exactly the scroll's size
 ([pitfalls](agent-pitfalls.md), "There is no `swipeleft`"). Its swipe actions
 are UIKit's, drawn by UIKit (rounded on iOS 26 and later) whatever the buttons
 paint; when every control the row names says `appearance="none"`, the paint is
-kept instead: the row swipes by its own scroll, as on the web, with one row
-open at a time, a full swipe past half the row pressing the outermost action
+kept instead, in a grouped list too: the row swipes by its own scroll, as on
+the web, with one row open at a time (a native swipe row's opening closes it,
+and its drag closes a native one), a full swipe past half the row pressing the outermost action
 (a haptic as it arms), and each action a VoiceOver custom action of the row's
 content.
 

@@ -59,6 +59,13 @@ package final class SwipeActionsHost {
         #endif
     }
     #if os(iOS)
+    /// A painted row began a drag (PaintedSwipesIOS.swift): every native
+    /// row closes, one row of either kind open at a time.
+    func closeNative() {
+        for row in rows.values { row.table?.setEditing(false, animated: true) }
+    }
+    #endif
+    #if os(iOS)
     /// A grouped list row's actions on one side, as its list cell offers
     /// them (LLP 1116.001 D1); nil for a row that names none there, or that
     /// is no grouped list's swipe row.
@@ -150,8 +157,10 @@ package final class SwipeActionsHost {
             refusals.removeValue(forKey: owner.id)
             #if os(iOS)
             // Actions that say `appearance="none"` keep their paint: the row
-            // swipes by its scroll, with UIKit's swipe's behaviours.
-            if !grouped, PaintedSwipes.keepsPaint(controls) {
+            // swipes by its scroll, with UIKit's swipe's behaviours. In a
+            // grouped list too: its cell then offers no swipe actions
+            // (`configuration` finds no row) and carries the scroll.
+            if PaintedSwipes.keepsPaint(controls) {
                 rows.removeValue(forKey: owner.id)?.discard()
                 painted.adopt(owner, body: body, leading: Array(controls.prefix(leadingNames.count)),
                               trailing: Array(controls.dropFirst(leadingNames.count)), label: label)
@@ -329,7 +338,7 @@ package final class SwipeActionsHost {
         private var logicalFrame = CGRect.zero
         private var priorSize = CGSize.zero
         /// The projection, only while a swipe can start or is shown.
-        private var table: UITableView?
+        private(set) var table: UITableView?
         private var cell: Cell?
         private var touching = false
         /// UIKit is presenting this row's actions (between its begin and end editing).
@@ -526,6 +535,7 @@ package final class SwipeActionsHost {
         func tableView(_ tableView: UITableView, willBeginEditingRowAt indexPath: IndexPath) {
             open = true
             for other in host.rows.values where other !== self { other.table?.setEditing(false, animated: true) }
+            host.painted.closeAll()
             DispatchQueue.main.async { [weak self] in self?.nameActions() }
         }
         func tableView(_ tableView: UITableView, didEndEditingRowAt indexPath: IndexPath?) {

@@ -148,6 +148,20 @@ final class SwipeActionsIOSTests: XCTestCase {
         scroll.contentOffset.x = 90
         p.swipeActions.painted.began(try XCTUnwrap(p.views[1]))
         XCTAssertEqual(scroll.contentOffset.x, 90, "its own drag leaves it open")
+        // A native row opening closes it (one row of either kind open).
+        p.swipeActions.painted.closeAll()
+        XCTAssertEqual(scroll.contentOffset.x, 0, accuracy: 0.5, "closed")
+
+        // No longer a swipe action: what the row installed goes, and its
+        // old VoiceOver action, still held, presses nothing.
+        var unswipe = BatchOp(op: .props, nodeID: 1)
+        unswipe.clear = ["swipeTrailing"]
+        apply(p, [unswipe])
+        XCTAssertNil(body.accessibilityCustomActions, "no action left on the content")
+        XCTAssertFalse(delete.accessibilityElementsHidden, "the button is VoiceOver's again")
+        pressed = []
+        XCTAssertEqual(action.actionHandler?(action), false)
+        XCTAssertEqual(pressed, [], "the stale action presses nothing")
     }
 
     /// The agent's tap on an action no swipe revealed (an authored test's

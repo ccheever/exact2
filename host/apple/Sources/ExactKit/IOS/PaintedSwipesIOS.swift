@@ -6,7 +6,8 @@
 // row stays the authored horizontal snap scroll the web shows, and this keeps
 // what UIKit's swipe would have given it:
 //
-// - one row open at a time: a drag on one closes the others;
+// - one row open at a time: a drag on one closes the others, the native
+//   swipe rows' included, and a native row opening closes these;
 // - the full swipe: dragged on past its actions, more than half the row's
 //   width, it presses the outermost action (a haptic when it would), and
 //   the row closes, as `performsFirstActionWithFullSwipe` does;
@@ -36,11 +37,16 @@ final class PaintedSwipes {
 
     /// After a batch: `owner` swipes by its scroll, its actions painted.
     func adopt(_ owner: NodeView, body: NodeView, leading: [NodeView], trailing: [NodeView], label: (NodeView) -> String) {
-        rows[owner.id] = Row(owner: owner, body: body, leading: leading.map { Weak(node: $0) }, trailing: trailing.map { Weak(node: $0) })
+        let row = Row(owner: owner, body: body, leading: leading.map { Weak(node: $0) }, trailing: trailing.map { Weak(node: $0) })
+        if let old = rows[owner.id] { release(old, keeping: row) }
+        rows[owner.id] = row
         owner.needScroll()
+        let id = owner.id
         let actions = (trailing + leading).map { control in
             UIAccessibilityCustomAction(name: label(control)) { [weak self, weak control] _ in
-                guard let self, let control, self.presenter.views[control.id] === control, !control.disabled else { return false }
+                // Still one of this row's actions, as when it was offered.
+                guard let self, let control, self.presenter.views[control.id] === control, !control.disabled,
+                      self.rows[id].map({ ($0.leading + $0.trailing).contains { $0.node === control } }) == true else { return false }
                 self.presenter.press(control.id)
                 return true
             }
@@ -48,11 +54,41 @@ final class PaintedSwipes {
         for element in [body] + Self.elements(under: body) { element.accessibilityCustomActions = actions }
         for control in leading + trailing { control.accessibilityElementsHidden = true }
     }
-    /// Keep only the rows the batch still has.
+    /// Keep only the rows the batch still has; one that is no longer a
+    /// painted row gives back what it took (its VoiceOver actions, its
+    /// controls' visibility to VoiceOver).
     func retain(_ owners: Set<UInt32>) {
+        for (id, row) in rows where !owners.contains(id) || row.owner == nil { release(row, keeping: nil) }
         rows = rows.filter { owners.contains($0.key) && $0.value.owner != nil }
     }
-    func reset() { rows.removeAll(); armed = nil }
+    func reset() {
+        for row in rows.values { release(row, keeping: nil) }
+        rows.removeAll(); armed = nil
+    }
+    /// What `row` installed and `next` (its row from this batch) does not.
+    private func release(_ row: Row, keeping next: Row?) {
+        if let body = row.body, next?.body !== body {
+            for element in [body] + Self.elements(under: body) { element.accessibilityCustomActions = nil }
+        }
+        let kept = (next?.leading ?? []) + (next?.trailing ?? [])
+        for control in (row.leading + row.trailing).compactMap(\.node) where !kept.contains(where: { $0.node === control }) {
+            control.accessibilityElementsHidden = control.hidesAccessibility
+        }
+    }
+    /// A native swipe row opened (SwipeActionsIOS.swift): every painted row closes.
+    func closeAll() {
+        for row in rows.values { close(row) }
+    }
+    private func close(_ row: Row) {
+        guard let sv = row.owner?.scrollView else { return }
+        let x = rest(row, sv)
+        guard abs(sv.contentOffset.x - x) > 0.5 else { return }
+        // At rest at once, the slide animated over it, as a cell closes: what
+        // asks next (a drag, the agent) reads the row closed.
+        UIView.animate(withDuration: ExactEnv.agentFreezes ? 0 : 0.3, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
+            sv.contentOffset = CGPoint(x: x, y: sv.contentOffset.y)
+        }
+    }
 
     private static func elements(under node: NodeView) -> [NodeView] {
         node.container.subviews.compactMap { $0 as? NodeView }.flatMap { [$0] + elements(under: $0) }
@@ -75,15 +111,12 @@ final class PaintedSwipes {
         return nil
     }
 
-    /// A drag begins on `owner`: any other open row closes.
+    /// A drag begins on `owner`: any other open row closes, a native one too.
     func began(_ owner: NodeView) {
         guard rows[owner.id] != nil else { return }
         armed = nil
-        for (id, row) in rows where id != owner.id {
-            guard let sv = row.owner?.scrollView else { continue }
-            let x = rest(row, sv)
-            if abs(sv.contentOffset.x - x) > 0.5 { sv.setContentOffset(CGPoint(x: x, y: sv.contentOffset.y), animated: true) }
-        }
+        for (id, row) in rows where id != owner.id { close(row) }
+        presenter.swipeActions.closeNative()
     }
     /// As it is dragged: a haptic once past the full swipe, as UIKit's.
     func scrolled(_ owner: NodeView) {
