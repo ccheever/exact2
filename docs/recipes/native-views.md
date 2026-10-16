@@ -62,7 +62,6 @@ final class Strip: ExactNativeInstance {
   The agent's plain `tap` runs no recognizer: use `agent ios --touch platform`.
 - **Size:** `intrinsicSize` is the natural size; an authored `width`, `height` wins.
 - **Accessibility:** [native views](../contract-for-agents.md#native-views-accessibility).
-- **First frame:** a view attaches after first paint, so a slow one never delays it. A cheap
-  one the first frame shows (a splash) says `ExactNativeFactory(firstFrame: true)`; a tag
-  that draws nothing (an engine) never does. Its module is made with its first view, on
-  main: make an `AVAudioEngine` or player on first use, not in `init`.
+- **First frame:** views attach after first paint. Only a cheap one it shows (a splash)
+  says `ExactNativeFactory(firstFrame: true)`, never an engine's. The module is made with
+  it, on main: make an `AVAudioEngine` on first use, not in `init`.
