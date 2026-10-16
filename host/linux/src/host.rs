@@ -74,8 +74,7 @@ impl std::fmt::Display for HostError {
     }
 }
 
-/// Plan bytes to boot: a copy of the caller's, or bytes that live as long as the
-/// program (a plan linked into it), whose data pool the decoded plan keeps in place.
+/// Caller-owned plan bytes, or linked bytes whose data pool stays in place.
 #[derive(Clone, Copy)]
 pub(crate) enum PlanBytes<'a> {
     Copied(&'a [u8]),
@@ -115,8 +114,7 @@ pub struct Host<D: DataSource> {
     #[cfg(test)]
     layout_calls: usize,
     data_activated: bool,
-    /// The reader plays [`lower::LOWERED`] animations (the Canvas host);
-    /// those nodes and what it plays, and a count of changes to them.
+    /// Reader-owned [`lower::LOWERED`] animations and their change count.
     lowering: bool,
     lowered: std::collections::HashMap<u64, u8>,
     /// Whether colour transitions are lowered too (`lower.rs`).
@@ -128,8 +126,7 @@ pub struct Host<D: DataSource> {
         u64,
         Vec<(exact_motion::Property, exact_motion::PlayedTransition)>,
     >,
-    /// The executor's wake, which a pending activation leaves with the data
-    /// source, so the display loop doesn't poll.
+    /// A pending activation's executor wake, so the display loop does not poll.
     preload_wake: exact_runner::PreloadWake,
     router_op: Option<exact_runner::RouterChange>,
     navigation: crate::navigation::Navigation,
