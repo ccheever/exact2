@@ -706,11 +706,6 @@ fn every_content_part_ends_with_one_working_call() {
                     .map(|e| format!("{part}: [{}] {}", e.id, e.message)),
             );
         }
-        let warnings = if *part == "RoundButton" {
-            super::text_px_width::without_round_button_widths(warnings)
-        } else {
-            warnings
-        };
         failures.extend(
             warnings
                 .iter()
