@@ -396,14 +396,6 @@ and VoiceOver sessions G, H and I. Each item
 says what is wrong or missing; the open framework issues that someone using the app runs into are
 in the section above.
 
-**Fails:**
-
-- A press outside the Thread details card (the timeline, the sidebar, the prompt) does not close
-  its 'Open in' menu. The menu is an app-drawn layer whose click-away backdrop covers only the
-  card. Making it a `popover="auto"` anchored to its row and opened by `popovertarget`, as the
-  project scripts menu is (R6ScriptMenu), would let the host light-dismiss it since exact2 PR
-  #676; that is left for later.
-
 **Known difference:** the font picker opened by a pointer press with VoiceOver elsewhere: its
 search field is always read, the dialog's name ('Interface font family, dialog') in about half the
 runs (2 of 5).
@@ -504,8 +496,17 @@ menu, not TISSelectInputSource, before they judge IME rows.
   for another thread now goes at once; only one thread's mid-turn updates are throttled, as a data
   source has no clock to run the reference's trailing timer on (LLP 1027). Checked by an agent
   drive (open, open another, Mark unread, reopen).
-- Escape closes Thread details' 'Open in' menu wherever the focus is, and gives the focus back to
-  the chevron when the menu held it (Base UI Menu). Checked by an agent drive.
+- Menus the reference draws as Base UI Menus whose click-away layer covered only their card or
+  panel are now `popover="auto"` popovers opened by `popovertarget`, modal while they show, so
+  the host light-dismisses them (exact2 PR #676): Thread details' 'Open in' (under its row, as
+  wide), the file subheader's 'Open in' and folder crumbs, a linked pull request's actions, an
+  approval's 'More approval options', the diff scope menu and its Turn submenu, and the device
+  rail's Text size, Rotate (Android) and More menus. An agent drive at 1280x840 with mouse clicks:
+  'Open in' closes on a press in the sidebar's Search, the timeline and the prompt, and on Escape
+  after Enter opened it, which gives the focus back to the chevron; the diff scope menu and the
+  file 'Open in' close on a press in the sidebar, the folder menu on one in the prompt. Real
+  clicks, and the approval, linked pull request and device menus (no approval, link or device in
+  the drive's fixture), are still to check.
 - macOS VoiceOver (exact2 PR #664, session G's rows 3, 5, 6, 10, 11, 12 and 14): VoiceOver lands
   where a commit's `focus()` or the focus given back puts it, a dialog drawn in the page is named
   after the focused control's words at low priority, and a painted menu opened with VO-Space and
