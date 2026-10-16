@@ -382,3 +382,18 @@ test "an undo goes only to the server run that issued it: after a restart it is 
   clock data
   expect text "write-error" == "The design server restarted (or another took its port) since this session began: nothing was written, and undo and redo start again."
   expect text "undo" == "Undo (0)"
+
+test "a gap in the long poll is said in Changes"
+  request POST "/__stub/restart" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"], "changed": [{"file": "app.tamber", "token": "surface.card"}], "files": {"app.tamber": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"}} as ada
+  request POST "/__stub/miss" {} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "entry-text-1" == "Some changes were missed here (the server keeps the last 256), so this list may be incomplete."

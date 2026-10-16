@@ -420,7 +420,7 @@ const conflict = (reply: Reply) => (reply.error as { conflict?: boolean } | unde
 // new run). A design read is kept by its file's digest, so a change is
 // measured, file by file, between two reads of exactly those states,
 // whenever each was read; a state no read saw leaves its tokens named only.
-type Noted = { seq: number; who: string; acceptedBy: string; write: number; changed: { file: string; token: string }[]; files: string[]; before: Record<string, string>; after: Record<string, string>; mine: boolean; diff: string; values: Map<string, string[]>; committed: boolean };
+type Noted = { seq: number; who: string; acceptedBy: string; write: number; changed: { file: string; token: string }[]; files: string[]; before: Record<string, string>; after: Record<string, string>; mine: boolean; diff: string; values: Map<string, string[]>; committed: boolean; gap?: boolean };
 let changeset: Noted[] = [];
 // The tool's own writes not yet matched to their events, by write number.
 const mine: { write: number; diff: string }[] = [];
@@ -603,7 +603,7 @@ function measure() {
 const fileWords = (n: Noted, f: string) => `${f}: ${n.values.get(f)?.join('; ') || tokensIn(n, f).join(', ') || 'edited'} · ${n.who}${n.acceptedBy ? `, accepted by ${n.acceptedBy}` : ''}`;
 /** An entry in plain words: each file and what moved in it (its tokens
  * named, until measured), who. */
-const plain = (n: Noted) => `${n.files.map(f => `${f}: ${n.values.get(f)?.join('; ') || tokensIn(n, f).join(', ') || 'edited'}`).join('; ') || 'the design: edited'} · ${n.who}${n.acceptedBy ? `, accepted by ${n.acceptedBy}` : ''}`;
+const plain = (n: Noted) => n.gap ? 'Some changes were missed here (the server keeps the last 256), so this list may be incomplete.' : `${n.files.map(f => `${f}: ${n.values.get(f)?.join('; ') || tokensIn(n, f).join(', ') || 'edited'}`).join('; ') || 'the design: edited'} · ${n.who}${n.acceptedBy ? `, accepted by ${n.acceptedBy}` : ''}`;
 
 const sources: Sources = {
   loadHello: async () => {
@@ -839,6 +839,10 @@ const sources: Sources = {
     // starts again (the first answer, a gap it says it missed, a new run).
     const anew = !epoch || r.missed || (place.epoch && r.epoch !== place.epoch);
     if (anew) { lastFiles = (r as { files?: Record<string, string> }).files ?? {}; if (r.missed) mine.length = 0; }
+    // A gap in this run: said in the list, which is no longer complete.
+    if (epoch && r.missed && r.epoch === place.epoch) {
+      changeset.unshift({ seq: Number(r.seq ?? 0), who: '', acceptedBy: '', write: 0, changed: [], files: [], before: {}, after: {}, mine: false, diff: '', values: new Map(), committed: false, gap: true });
+    }
     if (epoch && !r.missed) for (const e of (r.events ?? []) as any[]) noted(e);
     const fresh = (r.events ?? []).map(change).filter((c): c is Change => c !== null).reverse();
     recent = [...fresh, ...recent].slice(0, 50);

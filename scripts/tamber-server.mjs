@@ -420,6 +420,9 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       // A write in flight would land beside the commit's reading of the files.
       if (writing) return { status: 409, error: { message: 'a write is in flight; commit again once it lands' } };
       const done = session.commit({ client: request.client, message: request.message, dry: request.dry === true, scope: request.scope });
+      // A scope the session has written past is a conflict, as a write in
+      // flight is.
+      if (done.error?.stale) return { status: 409, error: done.error };
       if (done.ok && !request.dry) send({ event: 'committed', seq: ++seq, epoch, client: request.client, ...done.ok });
       return done;
     }

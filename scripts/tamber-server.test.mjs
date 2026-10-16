@@ -385,7 +385,8 @@ test("commit takes the session's files only, keeps other staging, and never push
   const early = await post({ method: 'commit', client: 'person', dry: true });
   const done = await post({ method: 'transaction', client: 'agent', files: { 'app.tamber': disk('app.tamber') }, ops: [{ op: 'set-token', name: 'edge', value: '#171717' }] });
   expect(done.status).toBe(200);
-  expect((await post({ method: 'commit', client: 'person', scope: early.ok.scope })).error.stale).toBe(true);
+  const stale = await post({ method: 'commit', client: 'person', scope: early.ok.scope });
+  expect([stale.status, stale.error.stale]).toEqual([409, true]);
   // A dry run: what the commit would take, each edit with its write's
   // number, and nothing written.
   const dry = await post({ method: 'commit', client: 'person', dry: true });

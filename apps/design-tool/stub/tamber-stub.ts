@@ -16,6 +16,8 @@ let TOKEN = 'stub-token';
 let EPOCH = 'stub-epoch', restarts = 0, writes = 0;
 // The next commit's answer: refused, naming why, when a test asks.
 let refuseCommit = '';
+// The next poll says it missed events (more than the server keeps).
+let miss = false;
 // Held proposals, as a test holds them (`/__stub/hold`).
 let held: Record<string, unknown>[] = [], holds = 0;
 let FILES: Record<string, string> = { 'app.tamber': 'a'.repeat(64), 'brand.tamber': 'b'.repeat(64) };
@@ -95,7 +97,8 @@ Bun.serve({ hostname, port: Number(port), routes: {
     POST: async (req) => {
       if (!authorized(req)) return send({ message: 'Not found.' }, 404);
       const { after = 0, epoch } = await req.json().catch(() => ({}));
-      const missed = epoch !== undefined && epoch !== EPOCH;
+      const missed = (epoch !== undefined && epoch !== EPOCH) || miss;
+      miss = false;
       return send({ events: missed ? [] : log.filter(e => e.seq > after), seq: seq(), epoch: EPOCH, missed, files: FILES, proposals: held });
     },
   },
@@ -116,6 +119,13 @@ Bun.serve({ hostname, port: Number(port), routes: {
     POST: async (req) => {
       if (!driver(req)) return send({ message: 'Not found.' }, 404);
       held.push(await req.json().catch(() => ({})));
+      return send({ ok: true });
+    },
+  },
+  '/__stub/miss': {
+    POST: (req) => {
+      if (!driver(req)) return send({ message: 'Not found.' }, 404);
+      miss = true;
       return send({ ok: true });
     },
   },
