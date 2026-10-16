@@ -136,8 +136,10 @@ test "add, open, delete after asking"
   expect state lib == []
 ```
 
-- The alert holds text, closing buttons and one Cancel; any other modal is a sheet (`push`,
-  `back`), closed in `then` only on an ok reply ([after-a-write](after-a-write.md)).
+- The alert holds text, closing buttons and one Cancel; Escape or Back chooses Cancel and a
+  press outside does nothing. Linux draws this confirmation as a centred Neutral modal; any
+  other modal is a sheet (`push`, `back`), closed in `then` only on an ok reply
+  ([after-a-write](after-a-write.md)).
 - Covered routes stay mounted: no two screens share a `testId`. Tests: `clock settle` after a
   push, sheet or alert; `clock data` before a save's read.
 - A wide window (900 px up) shows a list beside its detail when rows push (a `link` or a
