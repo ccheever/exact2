@@ -671,8 +671,9 @@ impl<'a> Lowerer<'a> {
     ) -> Result<(), LowerError> {
         match n {
             Node::Element { .. } => {
-                let step =
-                    self.prepare_element(n, parent, arm, order, scope, locals, parent_tag)?;
+                let step = self
+                    .prepare_element(n, parent, arm, order, scope, locals, parent_tag)
+                    .map_err(|e| native::name_the_fix(n, e))?;
                 self.svg_depth += step.enters as u32;
                 let parent_positioned =
                     std::mem::replace(&mut self.parent_positioned, step.positioned);
