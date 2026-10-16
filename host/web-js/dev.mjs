@@ -19,7 +19,7 @@ import { acceptsHTML, appDocumentPath, webRequestURL } from '../../scripts/origi
 import { compilerWarnings, INPUT_TREE, OUTPUT, listenOn } from '../../scripts/agent-launch.mjs';
 import { appManifestDigest, buildFileCards, buildTreeFile, replaceBuild, saveTrace, sendStaticBody, watchLauncher, webContentType } from '../web/serve.mjs';
 import { localInstaller } from '../web/local-install.mjs';
-import { designPath, tamberServer } from '../../scripts/tamber-server.mjs';
+import { designPath, frameOnlyByTool, tamberServer } from '../../scripts/tamber-server.mjs';
 import { serveCommands, serveReport } from '../../scripts/tamber-builds.mjs';
 import { fresh, webCompiler } from './module.mjs';
 
@@ -421,10 +421,13 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
   // peer (a forwarded request's is loopback).
   const installer = localInstaller({ app: () => app, origins, port, gate, listener: { host, port } });
   // The design server's wire (LLP 1121 D13), when the app has a design.
-  tamber = designPath(app.dir) ? tamberServer({ appDir: app.dir, live: true, scrub: { preview: scrubPreview, restore: scrubRestore, released: () => { released = scrubbed != null; } } }) : null;
+  // `page`: this loop's own origin, which the design tool frames (LLP 1122 T2).
+  tamber = designPath(app.dir) ? tamberServer({ appDir: app.dir, live: true, page: `http://127.0.0.1:${port}`, scrub: { preview: scrubPreview, restore: scrubRestore, released: () => { released = scrubbed != null; } } }) : null;
   // A polled stream (Linux, the resident loop's relay) is told the design to run.
   tamber?.channel.greet(() => snapshot && notice(snapshot));
   const server = createServer(async (req, res) => {
+    // Every HTML answer is framed by the design tool only (LLP 1122 T2).
+    frameOnlyByTool(res);
     const access = gate.check(req);
     if (!access.allowed) { res.writeHead(421, { 'cache-control': 'no-store' }); res.end(); return; }
     const url = webRequestURL(req.url);

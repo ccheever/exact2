@@ -16,6 +16,9 @@ let TOKEN = 'stub-token';
 let EPOCH = 'stub-epoch', restarts = 0, writes = 0;
 // The next commit's answer: refused, naming why, when a test asks.
 let refuseCommit = '';
+// The dev loop's page hello names, as a test sets it (`/__stub/page`): none
+// by default, as `tamber tool` alone.
+let PAGE: string | null = null;
 // The next poll says it missed events (more than the server keeps).
 let miss = false;
 // Held proposals, as a test holds them (`/__stub/hold`).
@@ -43,7 +46,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
     POST: async (req) => {
       if (!authorized(req)) return send({ message: 'Not found.' }, 404);
       const request = await req.json().catch(() => ({}));
-      if (request.method === 'hello') return send({ ok: { protocol: 'tamber/1.1', format: 1, builds: [], app: '/stub/theme-fixture', files: FILES, epoch: EPOCH, design: 'app.tamber' } });
+      if (request.method === 'hello') return send({ ok: { protocol: 'tamber/1.1', format: 1, builds: [], app: '/stub/theme-fixture', files: FILES, epoch: EPOCH, design: 'app.tamber', page: PAGE } });
       // stub/dials.tamber as the real server read it (stub/dials.json;
       // scripts/design-tool.test.mjs checks the two still agree).
       // Only app.tamber has a canned design; another file is refused, as a
@@ -129,6 +132,13 @@ Bun.serve({ hostname, port: Number(port), routes: {
     POST: async (req) => {
       if (!driver(req)) return send({ message: 'Not found.' }, 404);
       held.push(await req.json().catch(() => ({})));
+      return send({ ok: true });
+    },
+  },
+  '/__stub/page': {
+    POST: async (req) => {
+      if (!driver(req)) return send({ message: 'Not found.' }, 404);
+      PAGE = (await req.json().catch(() => ({}))).page ?? null;
       return send({ ok: true });
     },
   },

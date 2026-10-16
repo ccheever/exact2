@@ -14,6 +14,13 @@ URL>` if that app's dev loop is running. A second `tamber tool` for the same
 app reuses the running one; for another app it is refused, naming the app
 whose design the port serves.
 
+- The canvas (T2, LLP 1122 D3) frames the running app at its dev loop's own
+  URL (`hello.page`), at a phone, tablet or desktop size, with a link to open
+  it in a tab. The frame is sandboxed short of navigating the tool, and the
+  tool never scripts it; only a loopback origin is framed. A dev loop's HTML
+  may be framed by the tool's origin and its own, no other. With no dev loop
+  (`tamber tool` alone), it says how to start one and open the tool through
+  it (`--via`, after stopping this tool).
 - `app.ts` is the `tamber/1` client: the token from `GET /__tamber/token`
   once, every request a `POST /__tamber`, and changes followed by the long
   poll, `POST /__tamber/events`. Its grants name the tool's one origin.

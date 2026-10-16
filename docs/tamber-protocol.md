@@ -1,7 +1,7 @@
 # The Tamber protocol, `tamber/1`
 
 The reference for the design server's wire (LLP 1121 D13), versioned with it. This page
-describes **`tamber/1.2`**, the version `hello` reports. The design and the reasons are in LLP 1121
+describes **`tamber/1.3`**, the version `hello` reports. The design and the reasons are in LLP 1121
 D13 and LLP 1122 D2, D9 and D10; what was built and how it differs from them is in each RFC's §10.
 The recipe is `docs/recipes/tamber.md`. Each change to the wire changes this page in the same
 commit.
@@ -11,7 +11,7 @@ on macOS and Linux.
 
 ## Versions
 
-- `hello` reports the protocol (`"tamber/1.2"`) and the IR's format number (`format`).
+- `hello` reports the protocol (`"tamber/1.3"`) and the IR's format number (`format`).
 - **A minor version** adds requests or fields. A client ignores fields it doesn't know.
 - **No request carries a client's version.** A client checks `hello`'s `protocol` itself and stops
   on a major version it doesn't speak.
@@ -30,6 +30,10 @@ on macOS and Linux.
   - `uses`, scrub sessions (`scrub`, `scrub-release`, `scrub-cancel`, the `scrub` event) and
     `propose`'s `texts` (stage 4, commit 6);
   - the items marked *1.2* below.
+- `tamber/1.3` (LLP 1122 T2) added:
+  - `hello`'s `page`;
+  - `frame-ancestors` on a dev loop's HTML;
+  - the items marked *1.3* below.
 
 ## Where it runs
 
@@ -37,6 +41,11 @@ on macOS and Linux.
   at their own origin when the app has a design. The JS loop's resident `--serve-as` producer
   mounts none: it relays the main loop's batches and commands to its devices (see the build
   channel).
+- **Framed by the design tool.** Every HTML response a dev loop sends (the page, its install
+  pages, the auth callback, `/__dev/open`) carries
+  `Content-Security-Policy: frame-ancestors 'self' http://127.0.0.1:7740` (*1.3*): the tool's
+  origin and the page's own may frame it, no other. `'self'` lets a page the canvas shows frame
+  its own pages. No `X-Frame-Options`. Development only; the tool never scripts the frame.
 - **Alone.** `bun exact.mjs tamber serve <app> [--port <n>] [--lan]` runs it with no app running.
   It binds loopback unless `--lan`, and a client reaching it over the LAN still can't get the token.
 - **One writer per project.** The design process holds `.exact/tamber.lock`. When a second server
@@ -126,7 +135,10 @@ Each request is `POST /__tamber` with `{"method": "…", …}`.
 - `live` (*1.2*): true when a dev loop serves the wire, whose running builds take a value-only edit in
   place, with no reload (LLP 1121 stage 4; see [The live table](#the-live-table-llp-1121-stage-4)).
   False from a server no dev loop runs.
-- `design`: the app's design file, the one an operation with no `file` edits (*1.1*).
+- `design`: the app's design file, the one an operation with no `file` edits (*1.1*);
+- `page` (*1.3*): the dev loop's own origin (`http://127.0.0.1:<port>`), which the design tool
+  frames, or null from a server no dev loop runs (`tamber serve`, `tamber tool` without `--via`).
+  Through `tamber tool --via`, the forwarded `hello` is the loop's, so `page` is the loop's.
 
 A `client` given in a hello is not a write's attribution (see `transaction`).
 

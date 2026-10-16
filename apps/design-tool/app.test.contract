@@ -401,3 +401,53 @@ test "a gap in the long poll is said in Changes"
   clock +1
   clock data
   expect text "entry-text-1" == "Some changes were missed here (the server keeps the last 256), so this list may be incomplete."
+
+test "the canvas frames the dev loop's page at the size chosen, and says how to start one when there is none"
+  request POST "/__stub/page" {"page": null} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  expect tree has "no-app"
+  expect text "no-app-how" == "The canvas shows the app from its dev loop. Start one (bun exact.mjs web, in the app's directory), then open the tool through it: bun exact.mjs tamber tool --via <its URL>. Stop this tool first: it holds the design server, and --via refuses while it runs."
+  expect tree missing "canvas-frame"
+  expect tree missing "canvas-open"
+  request POST "/__stub/page" {"page": "http://127.0.0.1:8765"} as ada
+  reload
+  clock data
+  expect tree has "canvas-frame"
+  expect tree has "canvas-open"
+  expect tree missing "no-app"
+  type "canvas-size" "tablet"
+  expect state canvasSize == "tablet"
+  reload
+  clock data
+  expect state canvasSize == "tablet"
+  request POST "/__stub/page" {"page": null} as ada
+
+test "the canvas frames only a loopback origin: another host, a path, or the tool's own origin is no page"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/page" {"page": "http://example.com:8765"} as ada
+  reload
+  clock data
+  expect tree has "no-app"
+  expect tree missing "canvas-frame"
+  request POST "/__stub/page" {"page": "http://127.0.0.1:8765/elsewhere"} as ada
+  reload
+  clock data
+  expect tree has "no-app"
+  request POST "/__stub/page" {"page": "http://127.0.0.1:70000"} as ada
+  reload
+  clock data
+  expect tree has "no-app"
+  expect text "app" == "/stub/theme-fixture"
+  request POST "/__stub/page" {"page": "http://127.0.0.1:7740"} as ada
+  reload
+  clock data
+  expect tree has "no-app"
+  request POST "/__stub/page" {"page": "http://[::1]:8765"} as ada
+  reload
+  clock data
+  expect tree has "canvas-frame"
+  request POST "/__stub/page" {"page": null} as ada

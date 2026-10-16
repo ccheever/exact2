@@ -10,7 +10,7 @@ import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync }
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
-import { TOOL_ORIGIN } from './tamber-server.mjs';
+import { TOOL_DIST, TOOL_ORIGIN } from './tamber-server.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 
@@ -61,7 +61,7 @@ test('the tool opens on the theme fixture, shows its hello, and an agent\'s writ
     expect(drive.exitCode, driveSaid).toBe(0);
     const replies = out.seen.filter(l => l.startsWith('{')).map(l => JSON.parse(l));
     const { hello, changes } = replies.findLast(r => r.resources).resources;
-    expect(hello).toMatchObject({ ok: true, protocol: 'tamber/1.2', app });
+    expect(hello).toMatchObject({ ok: true, protocol: 'tamber/1.3', app });
     expect(hello.files.map(f => f.path)).toEqual(['app.tamber']);
     expect(changes.recent[0]).toMatchObject({ kind: 'changed', who: 'agent:codex', files: ['app.tamber'], tokens: ['surface.card'] });
     // One tool per machine: while it runs, another app's is refused, naming
@@ -76,6 +76,11 @@ test('the tool opens on the theme fixture, shows its hello, and an agent\'s writ
     const reused = again(app);
     expect(reused.status, reused.stderr).toBe(0);
     expect(reused.stdout).toContain('already running');
+    // Through a dev loop, it is not: it holds the design server, so --via
+    // to any loop is refused rather than given its page (none).
+    const through = spawnSync(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--via', 'http://127.0.0.1:9', '--no-open'], { cwd: ROOT, encoding: 'utf8' });
+    expect(through.status, through.stderr).toBe(1);
+    expect(through.stderr).toContain(`already serves this design, not through http://127.0.0.1:9; stop it first`);
   } finally {
     if (drive) await stop(drive);
     await stop(tool);
@@ -111,6 +116,15 @@ test('--via reaches only a loopback dev loop serving this app, and forwards to i
     const hello = await (await fetch(`${TOOL_ORIGIN}/__tamber`, { method: 'POST', headers: { 'x-exact-tamber-token': token }, body: '{"method":"hello"}' })).json();
     expect(hello.ok.app).toBe(mine);
     expect((await fetch(`${TOOL_ORIGIN}/__tamber/tool/`)).status).toBe(200);
+    // The same --via again reuses it (it forwards to that server's run);
+    // another is refused, and the tool's own port never taken.
+    const again = run([mine, '--via', at]);
+    expect(again.status, again.stderr).toBe(0);
+    expect(again.stdout).toContain('already running');
+    const elsewhere = run([mine, '--via', 'http://127.0.0.1:9']);
+    expect(elsewhere.status).toBe(1);
+    expect(elsewhere.stderr).toContain('already serves this design, not through http://127.0.0.1:9; stop it first');
+    expect(run([mine, '--via', TOOL_ORIGIN]).status).toBe(2);
   } finally {
     if (tool) await stop(tool);
     await stop(serve);
@@ -644,6 +658,46 @@ test('T1a: an import reviewed through the file picker, overrides off until ticke
   } finally {
     await tool.close();
     rmSync(app, { recursive: true, force: true });
+  }
+}, 900_000);
+
+test('T2: the canvas frames the dev loop\'s page, sandboxed, at the size chosen, with a link to open it', async () => {
+  const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-canvas-'));
+  for (const f of ['app.contract', 'app.tamber', 'app.json']) cpSync(resolve(ROOT, 'apps/theme-fixture', f), join(app, f));
+  const listener = (await import('node:http')).createServer();
+  await new Promise(ok => listener.listen(0, '127.0.0.1', ok));
+  const port = listener.address().port;
+  await new Promise(ok => listener.close(ok));
+  const dist = mkdtempSync(join(tmpdir(), 'exact-design-tool-canvas-dist-'));
+  const dev = spawn(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_APP_DIR: app, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
+  let tool;
+  try {
+    const base = `http://127.0.0.1:${port}`;
+    const devSaid = lines(dev);
+    await devSaid.until(l => l.includes(`127.0.0.1:${port}/`), 600_000);
+    tool = spawn(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--via', base, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+    const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000);
+    const replies = await drive(url, `design-tool-canvas-${process.pid}`, ['type name Ada', 'tap save-name', 'clock data', 'tree canvas', 'layout', 'type canvas-size tablet', 'layout', 'type canvas-size desktop', 'layout', 'clock +2000 real']);
+    const [tree] = replies.filter(r => r.nodes && !('x' in (r.nodes[0] ?? {})));
+    const of = id => tree.nodes.find(n => n.props.testId === id);
+    expect(of('canvas-frame')).toMatchObject({ type: 'WebView', url: base });
+    expect(of('canvas-open').type).toBe('Pressable');
+    // Its size, inside a 1px border: a phone's, a tablet's, a desktop's.
+    const sizes = replies.filter(r => r.nodes?.some(n => 'x' in n)).map(r => r.nodes.find(n => n.testId === 'canvas-frame')).map(n => [n.w - 2, n.h - 2]);
+    expect(sizes).toEqual([[390, 844], [820, 1180], [1280, 800]]);
+    // The sandbox the tool built: scripts, its own origin, forms, popups
+    // (sandboxed too), dialogs and downloads, never navigating the tool.
+    expect(readFileSync(resolve(TOOL_DIST, 'app.plan'), 'latin1')).toContain('allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads');
+    // The framed page ran: it opened its dev stream (while the tool was
+    // open: the drive waits on the real clock for it).
+    await devSaid.until(l => l.startsWith('page connected'), 1);
+    // The page itself lets the tool's origin frame it.
+    expect((await fetch(`${base}/`, { headers: { accept: 'text/html' } })).headers.get('content-security-policy')).toBe(`frame-ancestors 'self' ${TOOL_ORIGIN}`);
+  } finally {
+    if (tool) await stop(tool);
+    await stop(dev);
+    rmSync(app, { recursive: true, force: true });
+    rmSync(dist, { recursive: true, force: true });
   }
 }, 900_000);
 

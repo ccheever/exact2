@@ -81,6 +81,13 @@ async function call(path: string, body: unknown, timeout = 15000, bound?: string
   return { error: NO_SERVER, reply: {}, used: '' };
 }
 
+// A dev loop's page the canvas may frame: a loopback origin, no path
+// (hello's `page`), never the tool's own (a frame of its own origin could
+// lift its sandbox); anything else is none.
+const pageOf = (page: unknown) => {
+  if (typeof page !== 'string' || !/^http:\/\/(127\.0\.0\.1|\[::1\]):\d{1,5}$/.test(page)) return '';
+  try { return new URL(page).origin !== new URL(API).origin ? page : ''; } catch { return ''; }
+};
 const files = (digests: Record<string, string> = {}) => Object.entries(digests).map(([path, digest]) => ({ path, digest }));
 
 type Change = Result<'waitChanges'>['recent'][number];
@@ -642,11 +649,13 @@ const plain = (n: Noted) => n.gap ? 'Some changes were missed here (the server k
 const sources: Sources = {
   loadHello: async () => {
     const { error, reply } = await call('/__tamber', { method: 'hello' });
-    if (error) return { ok: false, error, protocol: '', format: 0, app: '', files: [] };
+    if (error) return { ok: false, error, protocol: '', format: 0, app: '', files: [], page: '' };
     const ok = reply.ok ?? {};
     liveTable = ok.live === true;
     designFile = String(ok.design ?? '');
-    return { ok: true, error: '', protocol: String(ok.protocol ?? ''), format: Number(ok.format ?? 0), app: String(ok.app ?? ''), files: files(ok.files) };
+    // `page`: the dev loop's own origin, which the canvas frames; "" with no
+    // dev loop (tamber/1.3).
+    return { ok: true, error: '', protocol: String(ok.protocol ?? ''), format: Number(ok.format ?? 0), app: String(ok.app ?? ''), files: files(ok.files), page: pageOf(ok.page) };
   },
   loadDesign: async ([file]) => {
     const number = ++issued;

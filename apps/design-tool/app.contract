@@ -14,6 +14,8 @@ shape Hello
   format: number
   app: string
   files: FileDigest[]
+  // The dev loop's own origin, which the canvas frames; "" with none.
+  page: string
 
 shape Change
   seq: number
@@ -326,6 +328,8 @@ shape Contrast
 component DesignTool
   // Who this person is, asked once: every write is `design-tool:<person>`.
   state person = "" persist
+  // The canvas's size: a bare frame never sizes to its guest (LLP 1020 D1).
+  state canvasSize = "phone" persist
   state draftName = ""
   // The long poll's place: the last sequence number seen, in which run, and
   // one more ask per answer, so an answer with nothing new asks again.
@@ -513,6 +517,8 @@ component DesignTool
       send written = redoLast(client)
   action reloadDesign
     refresh design
+  action chooseCanvasSize(size: string)
+    canvasSize = size
   action chooseKind(k: string)
     importKind = k
   action pickImport
@@ -604,6 +610,25 @@ component DesignTool
                 row gap=12
                   text f.path flex=1 testId=`file-${f.path}`
                   text f.digest.slice(0, 12) color="-exact-secondary-label" font="-exact-footnote" testId=`digest-${f.path}`
+            // The canvas (LLP 1122 D3): the running app, at the dev loop's own
+            // URL, in a frame the tool never scripts; every control goes
+            // through the design server. Sandboxed short of navigating the tool.
+            column gap=8 testId="canvas"
+              row gap=8 align-items="center"
+                text "Canvas" role="heading" aria-level=2 flex=1
+                select value=canvasSize change=chooseCanvasSize aria-label="Canvas size" testId="canvas-size"
+                  option "Phone" value="phone"
+                  option "Tablet" value="tablet"
+                  option "Desktop" value="desktop"
+                if hello.page != ""
+                  link href=hello.page target="_blank" testId="canvas-open"
+                    text "Open in a tab"
+              if hello.page != ""
+                iframe src=hello.page width=(canvasSize == "phone" ? 390 : canvasSize == "tablet" ? 820 : 1280) height=(canvasSize == "phone" ? 844 : canvasSize == "tablet" ? 1180 : 800) border="1px solid -exact-separator" border-radius=12 flex-shrink=0 sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads" testId="canvas-frame"
+              else
+                column gap=4 padding=16 border-radius=12 background-color="-exact-secondary-background" testId="no-app"
+                  text "No app running" role="heading" aria-level=3
+                  text "The canvas shows the app from its dev loop. Start one (bun exact.mjs web, in the app's directory), then open the tool through it: bun exact.mjs tamber tool --via <its URL>. Stop this tool first: it holds the design server, and --via refuses while it runs." color="-exact-secondary-label" testId="no-app-how"
             if hello.files.length > 1
               select value=file change=chooseFile aria-label="Design file" testId="file"
                 option "The app's design" value=""
