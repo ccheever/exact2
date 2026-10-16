@@ -7,6 +7,7 @@
 #include <hermes/hermes.h>
 #include <jsi/jsi.h>
 #include <ibex2_jsi.h>
+#include <jsi/instrumentation.h>
 
 #include <cstdint>
 #include <cstdlib>
@@ -293,6 +294,12 @@ int exact_js_harden(void *h, const uint8_t *harden, size_t harden_len, char **ou
   auto *state = static_cast<State *>(h);
   try {
     state->adapter->capture_intrinsics();
+    // Hermes' young generation is one heap segment that keeps every page it
+    // has touched, so its footprint is the furthest point allocation reaches
+    // between two collections. The freeze below allocates about 1.3 MB,
+    // nearly all of it garbage; collecting what the runtime and prelude
+    // allocated first (0.65 MB, half of it live) lets it reuse their pages.
+    state->rt->instrumentation().collectGarbage("bootstrap");
     ibex2::jsi_adapter::CompiledScript script{"harden", harden, harden_len};
     state->adapter->harden(script);
     return 0;
