@@ -210,7 +210,8 @@ fn frame(shared: &Shared, ticket: u64, message: Message) -> Frame {
         .iter()
         .filter(|done| done.ticket == ticket && done.message)
         .fold((0, 0), |(n, bytes), done| match &done.outcome {
-            Outcome::Message(m) => (n + 1, bytes + size(m)),
+            // `open` is no protocol frame: only those count against the bound.
+            Outcome::Message(m) if m.event != "open" => (n + 1, bytes + size(m)),
             _ => (n, bytes),
         });
     if frames >= RECEIVE_FRAMES || bytes + size(&message) > RECEIVE_BYTES {
@@ -280,7 +281,7 @@ impl Core {
                 return Err("QuotaExceededError: socket buffer exceeds 256 frames".into());
             }
         }
-        for (ticket, _, op) in &batch.ops {
+        for (done, (ticket, _, op)) in batch.ops.iter().enumerate() {
             let socket = sockets.get_mut(ticket).ok_or_else(not_open)?;
             let sent = match op {
                 SocketOp::Text(text) => socket.sender.send_text(text),
@@ -290,7 +291,9 @@ impl Core {
                     socket.sender.close(Some(*code), reason)
                 }
             };
-            sent.map_err(|e| e.to_string())?;
+            // The transport failed partway: what it took is gone, and the
+            // journal says how much.
+            sent.map_err(|e| format!("{e} (after {done} of {} operations)", batch.ops.len()))?;
             if !matches!(op, SocketOp::Close { .. }) {
                 let total = totals.iter_mut().find(|(t, ..)| t == ticket);
                 total.expect("totalled above").2 += 1;

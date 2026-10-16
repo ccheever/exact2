@@ -357,3 +357,30 @@ fn a_socket_let_go_refuses_its_batch_and_closes() {
     }
     assert!(core.shared.sockets.lock().unwrap().is_empty());
 }
+
+#[test]
+fn open_takes_no_place_among_the_256_frames() {
+    let (core, peer, woke) = setup();
+    core.run_owned(socket(1), None).unwrap();
+    let wire = feed(&peer, 0);
+    for n in 0..256 {
+        wire.send(frame(&n.to_string())).unwrap();
+    }
+    let close = Event::Close {
+        code: 1000,
+        reason: String::new(),
+        was_clean: true,
+    };
+    wire.send(Ok(close)).unwrap();
+    ended(&core);
+    assert!(
+        matches!(next(&core, &woke), Outcome::Message(Message { ref event, .. }) if event == "open")
+    );
+    for n in 0..256 {
+        assert_eq!(text(&next(&core, &woke)), n.to_string());
+    }
+    assert!(matches!(
+        next(&core, &woke),
+        Outcome::Closed { code: 1000, .. }
+    ));
+}
