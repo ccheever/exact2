@@ -4,7 +4,8 @@
 // tracks of 3 and 4 beats against each other (polymeter), a count-in of
 // four hats from beat -4, a haptic on the 3-beat track, a step edited, a
 // tempo change, a key restart, the gate's stop, `stopSounds` while it plays,
-// and a finite take whose `ended=` action reads the time it ended. The
+// a finite take whose `ended=` action reads the time it ended, a `from` past
+// exact counting, and a take whose end is already past at its arming. The
 // journal's `sound`, `sequence` and `haptic` lines, `state.sounds`,
 // `state.transport` and `exactTransport()`'s answer compare on every
 // target. (No slot shares a name with Caltrain's: the wasm page carries its
@@ -48,6 +49,7 @@ component Seq
   state seqLoops = 0
   state seqAccent = 1
   state seqEndedAt = -1
+  state seqFrom = -4
   resource transport = exactTransport() as shape Transport
   derive seqTracks = [Track(beats=3, loops=seqLoops, offset=0, output="", steps=[hit(0, "assets/kick.wav", seqAccent), buzz(1)]), Track(beats=4, loops=seqLoops, offset=0, output="", steps=[hit(0, "assets/hat.wav", 0.5), hit(2, "assets/hat.wav", 0.5), hit(5, "assets/hat.wav", 1)])]
   action seqStart
@@ -65,11 +67,18 @@ component Seq
   action seqFinite
     seqLoops = 1
     seqPlaying = true
+  action seqFar
+    seqFrom = 100000000000000000000
+    seqPlaying = true
+  action seqLate
+    seqFrom = 8
+    seqLoops = 1
+    seqPlaying = true
   action seqEnded
     seqEndedAt = performanceNow()
     seqPlaying = false
   sequence groove when seqPlaying key=seqTake
-    play(seqTracks, bpm=seqBpm, from=-4, countIn=[hit(0, "assets/hat.wav", 1), hit(1, "assets/hat.wav", 0.5), hit(2, "assets/hat.wav", 0.5), hit(3, "assets/hat.wav", 0.5)], ended=seqEnded)
+    play(seqTracks, bpm=seqBpm, from=seqFrom, countIn=[hit(0, "assets/hat.wav", 1), hit(1, "assets/hat.wav", 0.5), hit(2, "assets/hat.wav", 0.5), hit(3, "assets/hat.wav", 0.5)], ended=seqEnded)
   view
     column testId="root"
       text `${transport.state} ${transport.reason} ${transport.bpm} ${transport.anchorBeat}` testId="transport"
@@ -81,3 +90,5 @@ component Seq
       button "restart" press=seqRestart testId="restart"
       button "quiet" press=seqQuiet testId="quiet"
       button "finite" press=seqFinite testId="finite"
+      button "far" press=seqFar testId="far"
+      button "late" press=seqLate testId="late"

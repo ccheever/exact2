@@ -26,7 +26,11 @@ private enum Arm {
     /// Every engine call's `what`.
     nonisolated(unsafe) static var engine: [UInt32] = []
     nonisolated(unsafe) static var closes = 0
-    static func reset() { opens = []; refuse = nil; refuseStart = nil; running = 0; plays = []; placed = []; engine = []; closes = 0 }
+    /// Ops the ring takes before it is full; nil is room for all.
+    nonisolated(unsafe) static var room: Int?
+    /// Every op taken: its kind and id.
+    nonisolated(unsafe) static var taken: [[UInt64]] = []
+    static func reset() { opens = []; refuse = nil; refuseStart = nil; running = 0; plays = []; placed = []; engine = []; closes = 0; room = nil; taken = [] }
     static let library = SoundLibrary(
         open: { _, _, _, _, start, reason, size in
             Arm.opens.append(start)
@@ -34,7 +38,12 @@ private enum Arm {
             Arm.running = start ? 1 : 0
             return UnsafeMutableRawPointer(bitPattern: 0x5011)
         },
-        op: { _, kind, id, _, _, _, rate, pan in if kind == 1 { Arm.plays.append(id); Arm.placed.append([rate, pan]) } },
+        op: { _, kind, id, _, _, _, rate, pan in
+            if let room = Arm.room { guard room > 0 else { return false }; Arm.room = room - 1 }
+            Arm.taken.append([UInt64(kind), id])
+            if kind == 1 { Arm.plays.append(id); Arm.placed.append([rate, pan]) }
+            return true
+        },
         counts: { _, out in out?[3] = Arm.running },
         engine: { _, what, reason, size in
             Arm.engine.append(what)
@@ -92,6 +101,26 @@ final class SoundOutputTests: XCTestCase {
         play(output, 2)
         XCTAssertEqual(Arm.opens.count, 1, "once")
         XCTAssertEqual(Arm.plays, [1, 2])
+    }
+
+    /// LLP 1125 D3: an advance across several of a sequence's fills hands
+    /// over more ops than the ring holds; each is taken, in order, as renders
+    /// make room, and none is dropped.
+    func testOpsTheRingHasNoRoomForWaitAndGoInOrder() {
+        let output = output()
+        play(output, 1)
+        Arm.room = 3
+        output.apply(["ops": (2...6).map { ["op": "play", "id": $0, "sound": 0, "at": 0, "gain": 1] } + [["op": "end", "id": 2, "at": 0]]])
+        XCTAssertEqual(Arm.plays, [1, 2, 3, 4])
+        play(output, 7)
+        XCTAssertEqual(Arm.plays, [1, 2, 3, 4], "behind the ops still waiting")
+        Arm.room = 2
+        output.drain()
+        XCTAssertEqual(Arm.plays, [1, 2, 3, 4, 5, 6])
+        Arm.room = nil
+        output.drain()
+        XCTAssertEqual(Arm.taken.suffix(3), [[1, 6], [2, 2], [1, 7]], "the end, then the later play, in the order given")
+        XCTAssertEqual(Arm.plays, [1, 2, 3, 4, 5, 6, 7])
     }
 
     func testAPlayCarriesItsPlaybackRateAndPanToTheMixer() {

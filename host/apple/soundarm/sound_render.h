@@ -41,6 +41,9 @@ void exact_sound_set(ExactMixer *mixer, uint32_t index, const float *planes, uin
 /// before a voice's start that has not started frees its slot); kind 3 ends
 /// every voice now. False when the ring is full: the op is dropped and counted.
 bool exact_sound_push(ExactMixer *mixer, uint32_t kind, uint64_t id, uint32_t sound, double at, float gain, float rate, float pan);
+/// Ops the ring has room for now: a producer that waits for room never
+/// counts a drop.
+uint32_t exact_sound_room(const ExactMixer *mixer);
 /// The source node's `outputPresentationLatency`: the delay from a buffer's
 /// render time (its `mHostTime`) to the speaker (LLP 1096 D6).
 void exact_sound_latency(ExactMixer *mixer, double seconds);

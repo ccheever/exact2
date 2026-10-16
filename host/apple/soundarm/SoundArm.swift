@@ -173,9 +173,13 @@ private final class SoundArm {
         return (plane, UInt32(frames), UInt32(file.processingFormat.channelCount))
     }
 
-    func push(_ kind: UInt32, _ id: UInt64, _ sound: UInt32, _ at: Double, _ gain: Float, _ rate: Float, _ pan: Float) {
+    /// False, the op not taken, while the ring has no room: the caller
+    /// keeps it for the next render (SoundOutput's backlog).
+    func push(_ kind: UInt32, _ id: UInt64, _ sound: UInt32, _ at: Double, _ gain: Float, _ rate: Float, _ pan: Float) -> Bool {
+        guard exact_sound_room(mixer) > 0 else { return false }
         if kind == 1 { started[id] = at }
         if !exact_sound_push(mixer, kind, id, sound, at, gain, rate, pan) { say("sound dropped: the mixer's queue is full") }
+        return true
     }
 
     /// The device check (LLP 1096 §5): a tap on `mainMixerNode` finds each
@@ -231,10 +235,11 @@ public func exact_sound_open(_ paths: UnsafePointer<UnsafePointer<CChar>?>?, _ c
 
 /// `kind` 1 plays `sound` from host second `at` times `gain`, at playback
 /// rate `rate` and pan `pan`; 2 ends voice `id` at `at`; 3 ends every voice now.
+/// False while the mixer's ring has no room: the op was not taken.
 @_cdecl("exact_sound_op")
-public func exact_sound_op(_ handle: UnsafeMutableRawPointer?, _ kind: UInt32, _ id: UInt64, _ sound: UInt32, _ at: Double, _ gain: Float, _ rate: Float, _ pan: Float) {
-    guard let handle else { return }
-    Unmanaged<SoundArm>.fromOpaque(handle).takeUnretainedValue().push(kind, id, sound, at, gain, rate, pan)
+public func exact_sound_op(_ handle: UnsafeMutableRawPointer?, _ kind: UInt32, _ id: UInt64, _ sound: UInt32, _ at: Double, _ gain: Float, _ rate: Float, _ pan: Float) -> Bool {
+    guard let handle else { return true }
+    return Unmanaged<SoundArm>.fromOpaque(handle).takeUnretainedValue().push(kind, id, sound, at, gain, rate, pan)
 }
 
 /// What `state.sounds.output` reports: live voices, dropped ops and plays, late starts.

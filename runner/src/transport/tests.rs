@@ -3,7 +3,9 @@
 //! task; an edit's retraction; tempo without a jump in phase; a dropped
 //! step; the waiting cap and the voice bound; `ended=`; `exactTransport`'s
 //! answer; a refused commit; a second sequence; `stopSounds`; the wake; and
-//! the background stop.
+//! the background stop. Then the review's cases: a refused background
+//! stop, a refused commit's derives, a `from` past exact counting, taps far
+//! ahead, an end already past, and haptics past the record's bound.
 
 use crate::sound::{By, Voice};
 use crate::{DataError, DataSource, Runner};
@@ -33,6 +35,12 @@ shape Track
   output: string
   steps: Step[]
 
+shape Hit
+  src: string
+  at: number
+  gain: number
+  group: string
+
 shape Transport
   state: string
   reason: string
@@ -56,6 +64,9 @@ component Seq
   state other = false
   resource transport = exactTransport() as shape Transport
   resource crowded = crowd(dense) as shape Step[]
+  state farN = 0
+  resource far = farTaps(farN) as shape Hit[]
+  derive double = bpm * 2
   derive tracks = dense > 0 ? [Track(beats=dense == 33 ? 4 : 2, loops=0, offset=0, output="", steps=crowded)] : [Track(beats=3, loops=loops, offset=0, output="", steps=[hit(0, "assets/kick.wav"), buzz(1)]), Track(beats=4, loops=loops, offset=0, output="", steps=[hit(0, "assets/hat.wav"), hit(2, "assets/hat.wav"), hit(stray, "assets/hat.wav")])]
   action start
     playing = true
@@ -86,6 +97,18 @@ component Seq
     other = true
   action noop
     take = take
+  action badTempo
+    bpm = 150
+    take = 0 / 0
+  action farFrom
+    from = 100000000000000000000
+  action late
+    from = 8
+    loops = 1
+  action farOn
+    farN = 256
+  action tapFar
+    playSounds(far)
   sequence groove when playing key=take
     play(tracks, bpm=bpm, from=from, countIn=[hit(0, "assets/hat.wav"), hit(1, "assets/hat.wav"), hit(2, "assets/hat.wav"), hit(3, "assets/hat.wav")], ended=finished)
   sequence other when other
@@ -103,11 +126,23 @@ struct NoData;
 
 impl DataSource for NoData {
     fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
-        assert_eq!(source, "crowd");
         let n = match args.first() {
             Some(Value::Number(n)) => *n as usize,
             _ => 0,
         };
+        // `farTaps(n)`: `n` kicks from 100 s ahead, 300 ms apart.
+        if source == "farTaps" {
+            let hit = |i: usize| {
+                Value::record(vec![
+                    Value::str("assets/kick.wav"),
+                    Value::Number(100_000.0 + 300.0 * i as f64),
+                    Value::Number(1.0),
+                    Value::str(""),
+                ])
+            };
+            return Ok(Value::list((0..n).map(hit).collect()));
+        }
+        assert_eq!(source, "crowd");
         let step = |beat: f64, src: &str| {
             let f = [beat, 0.0, 1.0, 0.0, -1.0, 100.0, 0.0, 0.25, 0.0];
             let mut v: Vec<Value> = f.iter().map(|n| Value::Number(*n)).collect();
@@ -120,6 +155,15 @@ impl DataSource for NoData {
             (0..n)
                 .map(|i| match n {
                     33 => step(0.0, "assets/kick.wav"),
+                    // 2000 haptics over 2 beats, and no sample.
+                    2000 => {
+                        let Value::Record(f) = step(2.0 * i as f64 / n as f64, "") else {
+                            unreachable!()
+                        };
+                        let mut f = f.to_vec();
+                        f[8] = Value::str("selection");
+                        Value::record(f)
+                    }
                     _ => step(2.0 * i as f64 / n as f64, "assets/click.wav"),
                 })
                 .collect(),
@@ -528,4 +572,120 @@ fn the_background_stops_it_until_its_gate_turns_true_again() {
     r.act("toggle", vec![]).unwrap();
     r.act("toggle", vec![]).unwrap();
     assert!(r.transport().playing());
+}
+
+/// Review G1: a background stop whose commit is refused (a task key that is
+/// no key while the page is hidden) leaves the sequence playing, its
+/// voices, its answer and the output's ops as they were.
+#[test]
+fn a_refused_background_stop_stops_nothing() {
+    let source = SOURCE
+        .replace(
+            "  resource transport = exactTransport() as shape Transport\n",
+            "  resource transport = exactTransport() as shape Transport\n  resource page = exactPage() as shape Page\n",
+        )
+        .replace(
+            "shape Hit\n",
+            "shape Page\n  visibilityState: string\n\nshape Hit\n",
+        )
+        .replace(
+            "  sequence groove",
+            "  task hidden when page.visibilityState == \"hidden\" key=0 / 0\n    after(1000, noop)\n  sequence groove",
+        );
+    let mut r = boot_with(&source);
+    r.act("start", vec![]).unwrap();
+    r.advance(1000.0).unwrap();
+    r.take_sounds();
+    let before = (voices(&r), r.transport().answer());
+    let page = crate::Page {
+        hidden: true,
+        suspended: true,
+        ..r.page()
+    };
+    assert!(r.set_page(page).is_err());
+    assert!(r.transport().playing());
+    assert_eq!((voices(&r), r.transport().answer()), before);
+    assert!(r.take_sounds().is_empty(), "no End reached the output");
+    assert!(!r.page().suspended);
+}
+
+/// Review A1: a refused commit with a keyed sequence and no gated task puts
+/// back what its settlement published, the derives included.
+#[test]
+fn a_refused_commit_puts_its_derives_back() {
+    let mut r = boot();
+    r.act("start", vec![]).unwrap();
+    let derives = |r: &Runner<NoData>| {
+        let state = crate::agent::handle(r, r#"{"op":"state"}"#);
+        let at = state.find("\"double\":").unwrap();
+        state[at..at + 13].to_string()
+    };
+    let before = derives(&r);
+    assert!(r.act("badTempo", vec![]).is_err());
+    assert_eq!(derives(&r), before);
+    assert_eq!(r.transport().answer().bpm, 120.0);
+}
+
+/// Review A2: a `from` past 2^31 beats, where a loop's index would stop
+/// counting exactly, does not play.
+#[test]
+fn a_from_past_exact_counting_does_not_play() {
+    let mut r = boot();
+    r.act("farFrom", vec![]).unwrap();
+    r.act("start", vec![]).unwrap();
+    assert!(!r.transport().playing());
+    assert!(
+        said(&r).contains(
+            &"sequence groove did not play: from 100000000000000000000 is beyond 2^31 beats"
+                .to_string()
+        ),
+        "{:?}",
+        said(&r)
+    );
+    r.advance(5000.0).unwrap();
+}
+
+/// Review A3: 256 taps waiting 100 s ahead do not starve the sequence: a
+/// blocked hit is issued at its own time, when it no longer waits.
+#[test]
+fn taps_far_ahead_do_not_starve_a_sequence() {
+    let mut r = boot();
+    r.act("farOn", vec![]).unwrap();
+    r.act("tapFar", vec![]).unwrap();
+    assert_eq!(r.sounds().waiting(0.0), 256);
+    r.act("noCountIn", vec![]).unwrap();
+    r.act("start", vec![]).unwrap();
+    assert_eq!(r.transport().wake_due(), 500.0);
+    r.advance(3000.0).unwrap();
+    let hats = at(&r, "assets/hat.wav");
+    assert!(hats.contains(&1000.0) && hats.contains(&2000.0), "{hats:?}");
+    assert!(at(&r, "assets/kick.wav").contains(&1500.0));
+}
+
+/// Review A6: a last track already past at the arming (`from` beyond it)
+/// ends at the arming's time, never back in time.
+#[test]
+fn an_end_already_past_ends_now() {
+    let mut r = boot();
+    r.advance(1000.0).unwrap();
+    r.act("late", vec![]).unwrap();
+    r.act("start", vec![]).unwrap();
+    assert_eq!(r.transport().ended_due(), 1000.0);
+    r.advance(1000.0).unwrap();
+    assert_eq!(slot(&r, "endedAt"), 1000.0);
+    assert_eq!(r.now_ms(), 1000.0);
+}
+
+/// Review A7: haptics still to come are kept past the record's bound, so a
+/// stop retracts every one of them.
+#[test]
+fn a_stop_retracts_every_haptic_still_to_come() {
+    let mut r = boot();
+    r.act("crowd", vec![Value::Number(2000.0)]).unwrap();
+    r.act("noCountIn", vec![]).unwrap();
+    r.act("start", vec![]).unwrap();
+    assert_eq!(r.sounds().haptics().len(), 2000);
+    r.act("halt", vec![]).unwrap();
+    assert!(said(&r).contains(&"haptics retracted: 2000 (cancelled)".to_string()));
+    assert!(r.sounds().haptics().all(|h| h.by == Some("cancelled")));
 }

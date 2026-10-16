@@ -366,8 +366,9 @@ impl Sounds {
         self.play(plan, t, args, true, log)
     }
 
-    /// One sequence step's haptic at `at`, journaled and queued.
-    pub(crate) fn issue_haptic(&mut self, kind: &str, at: f64, log: &mut Vec<String>) {
+    /// One sequence step's haptic at `at`, issued at `t`, journaled and
+    /// queued.
+    pub(crate) fn issue_haptic(&mut self, kind: &str, at: f64, t: f64, log: &mut Vec<String>) {
         self.next_haptic += 1;
         let id = self.next_haptic;
         log.push(format!("haptic {id} {kind} at {}", num(at)));
@@ -382,8 +383,13 @@ impl Sounds {
             at,
             by: None,
         });
+        // Keep the last HAPTICS, letting the oldest played or retracted go
+        // first: one still to come is kept for its retraction.
         while self.haptics.len() > HAPTICS {
-            self.haptics.pop_front();
+            let Some(i) = self.haptics.iter().position(|h| h.by.is_some() || h.at < t) else {
+                break;
+            };
+            self.haptics.remove(i);
         }
     }
 

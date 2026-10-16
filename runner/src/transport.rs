@@ -62,6 +62,12 @@ pub const REFILL: f64 = 500.0;
 pub const SEGMENTS: usize = 1024;
 /// The most times a track may loop in a second.
 pub const LOOPS_PER_SECOND: f64 = 1000.0;
+/// The farthest `from` may be from beat 0, and the shortest a track may be,
+/// in beats: with them a loop's index stays below 2^53, where every whole
+/// number is exact, for thousands of years of play (a fill steps it by 1).
+pub const FROM_LIMIT: f64 = 2147483648.0;
+/// See [`FROM_LIMIT`]: 2^-20 of a beat.
+pub const SHORTEST: f64 = 1.0 / 1048576.0;
 /// A step's `haptic` kinds: `haptic()`'s (LLP 1077 D14).
 pub const HAPTIC_KINDS: [&str; 10] = [
     "selection",
@@ -215,6 +221,9 @@ impl Play {
         if !from.is_finite() {
             return Err("from is not a number".into());
         }
+        if from.abs() > FROM_LIMIT {
+            return Err(format!("from {} is beyond 2^31 beats", num(from)));
+        }
         let mut tracks = Vec::new();
         for (i, track) in items(args.first()).iter().enumerate() {
             let f = items(Some(track));
@@ -227,6 +236,8 @@ impl Play {
                 ))
             } else if !(loops.is_finite() && loops >= 0.0 && loops.fract() == 0.0) {
                 Some(format!("loops {} is not a whole number", num(loops)))
+            } else if length < SHORTEST {
+                Some(format!("its length {} is under 2^-20 beats", num(length)))
             } else if bpm / 60.0 / length > LOOPS_PER_SECOND {
                 Some(format!(
                     "it would loop more than {} times a second",
@@ -479,6 +490,8 @@ pub struct Transport {
     pub(crate) readers: Vec<usize>,
     /// The gate step's reading, applied once its commit stands.
     pub(crate) pending: Option<Vec<Seen>>,
+    /// A background stop its commit applies once it stands (`set_page`).
+    pub(crate) suspend: bool,
 }
 
 impl Transport {
@@ -504,6 +517,7 @@ impl Transport {
                 .filter(|&i| plan.str(plan.resources[i].source) == SOURCE)
                 .collect(),
             pending: None,
+            suspend: false,
         }
     }
 
@@ -641,7 +655,7 @@ impl Transport {
         self.play = Some(play);
         self.issued_to = t;
         self.skip = 0;
-        self.timing();
+        self.timing(t);
         self.fill(plan, sounds, t, live, log);
     }
 
@@ -685,12 +699,15 @@ impl Transport {
         self.play = Some(play);
         self.issued_to = t;
         self.skip = 0;
-        self.timing();
+        self.timing(t);
         self.fill(plan, sounds, t, live, log);
     }
 
     /// The count-in's end and the last track's, under the current segment.
-    fn timing(&mut self) {
+    /// `t`: the arming's or the edit's time, before which nothing ends: a
+    /// last track already past (`from` beyond it, or an edit that shortened
+    /// it) ends at once, never back in time.
+    fn timing(&mut self, t: f64) {
         let (Some(play), Some(seg)) = (&self.play, self.segments.back()) else {
             return;
         };
@@ -699,7 +716,9 @@ impl Transport {
         } else {
             f64::INFINITY
         };
-        self.ended_due = play.end_beat().map_or(f64::INFINITY, |b| seg.time(b));
+        self.ended_due = play
+            .end_beat()
+            .map_or(f64::INFINITY, |b| seg.time(b).max(t));
     }
 
     fn segment(&mut self, seg: Segment) {
@@ -747,6 +766,11 @@ impl Transport {
         if self.owner.is_some() {
             self.stop(plan, sounds, t, "background", log);
         }
+    }
+
+    /// The `ended=` action of the sequence playing, if it has one.
+    pub(crate) fn ended_action(&self, plan: &Plan) -> Option<ActionsId> {
+        self.owner.and_then(|i| plan.sequences[i].ended)
     }
 
     /// The last finite track ended at `t`: stopped, with the `ended=`
@@ -828,7 +852,7 @@ impl Transport {
                     }
                 }
                 if !step.haptic.is_empty() {
-                    s.issue_haptic(&step.haptic, hit.at, log);
+                    s.issue_haptic(&step.haptic, hit.at, at, log);
                 }
             }
             None
@@ -845,9 +869,11 @@ impl Transport {
                 let before = hits[..k].iter().rev().take_while(|h| h.at == t).count();
                 self.issued_to = t;
                 self.skip = before + if t == from { skipped } else { 0 };
-                // WAITING voices wait: the first to start frees a place.
+                // WAITING voices wait: the first to start frees a place,
+                // and the blocked hit is due no later than its own time
+                // (then it no longer waits: taps far ahead do not starve it).
                 debug_assert!(sounds.waiting(at) >= WAITING);
-                self.refill_due = sounds.next_start(at).unwrap_or(t);
+                self.refill_due = sounds.next_start(at).map_or(t, |s| s.min(t));
             }
             None => {
                 self.issued_to = to;

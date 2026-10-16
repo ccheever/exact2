@@ -76,17 +76,29 @@ bool exact_sound_push(ExactMixer *m, uint32_t kind, uint64_t id, uint32_t sound,
 void exact_sound_latency(ExactMixer *m, double seconds) { atomic_store_explicit(&m->latency, seconds, memory_order_relaxed); }
 uint64_t exact_sound_dropped(const ExactMixer *m) { return atomic_load_explicit(&m->dropped, memory_order_relaxed); }
 uint64_t exact_sound_late(const ExactMixer *m) { return atomic_load_explicit(&m->late, memory_order_relaxed); }
+uint32_t exact_sound_room(const ExactMixer *m) {
+    uint32_t head = atomic_load_explicit(&m->head, memory_order_acquire);
+    uint32_t tail = atomic_load_explicit(&m->tail, memory_order_relaxed);
+    return EXACT_SOUND_RING - (tail - head);
+}
 uint32_t exact_sound_live(const ExactMixer *m) { return atomic_load_explicit(&m->live, memory_order_relaxed); }
 
+/// Whether a slot's voice is over by `speaker`, the buffer's speaker time:
+/// ended before this buffer, or cut before it sounded (an End this apply
+/// took counts), so a Play behind it can take its slot now.
+static bool over(const Voice *v, double speaker) {
+    return !v->live || (v->started ? v->end <= speaker : v->end <= v->start);
+}
+
 /// Every op in the ring, in order: a Play and an End for the same buffer both take effect in it.
-static void apply(ExactMixer *m) {
+static void apply(ExactMixer *m, double speaker) {
     uint32_t head = atomic_load_explicit(&m->head, memory_order_relaxed);
     uint32_t tail = atomic_load_explicit(&m->tail, memory_order_acquire);
     for (; head != tail; head++) {
         Op op = m->ring[head % EXACT_SOUND_RING];
         if (op.kind == 1) {
             Voice *free_slot = NULL;
-            for (int i = 0; i < EXACT_SOUND_SLOTS && !free_slot; i++) if (!m->slots[i].live) free_slot = &m->slots[i];
+            for (int i = 0; i < EXACT_SOUND_SLOTS && !free_slot; i++) if (over(&m->slots[i], speaker)) free_slot = &m->slots[i];
             if (!free_slot || op.sound >= m->count || !m->sounds[op.sound].planes) {
                 atomic_fetch_add_explicit(&m->dropped, 1, memory_order_relaxed);
                 continue;
@@ -134,13 +146,13 @@ double exact_sound_seconds(uint64_t host) {
 }
 
 bool exact_sound_render(ExactMixer *m, const AudioTimeStamp *ts, uint32_t frames, AudioBufferList *out) {
-    apply(m);
     bool interleaved = out->mNumberBuffers == 1 && m->channels > 1;
     for (uint32_t b = 0; b < out->mNumberBuffers; b++) memset(out->mBuffers[b].mData, 0, out->mBuffers[b].mDataByteSize);
     // When this buffer's first frame reaches the speaker (D6): its render
     // time plus the delay downstream of the node.
     double rendered = (ts && (ts->mFlags & kAudioTimeStampHostTimeValid)) ? exact_sound_seconds(ts->mHostTime) : 0;
     double speaker = rendered + atomic_load_explicit(&m->latency, memory_order_relaxed);
+    apply(m, speaker);
     bool sounded = false;
     uint32_t live = 0;
     for (int s = 0; s < EXACT_SOUND_SLOTS; s++) {

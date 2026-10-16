@@ -52,15 +52,25 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// The commit that read the gates stood: arm, restart, edit or stop.
+    /// A background stop the commit asked for (`set_page`) is applied here
+    /// too, after the gates, so a refused commit leaves it unmade.
     pub(super) fn transport_stood(&mut self) {
-        let Some(seen) = self.transport.pending.take() else {
+        let suspend = std::mem::take(&mut self.transport.suspend);
+        let seen = self.transport.pending.take();
+        if seen.is_none() && !suspend {
             return;
-        };
+        }
         let before = self.transport.answer();
         let (now, live) = (self.now_ms, self.clock_live());
         let mut lines = Vec::new();
-        self.transport
-            .stood(&self.plan, &mut self.sounds, now, live, seen, &mut lines);
+        if let Some(seen) = seen {
+            self.transport
+                .stood(&self.plan, &mut self.sounds, now, live, seen, &mut lines);
+        }
+        if suspend {
+            self.transport
+                .suspend(&self.plan, &mut self.sounds, now, &mut lines);
+        }
         self.transport_said(lines, before);
     }
 
@@ -92,16 +102,6 @@ impl<D: DataSource> Runner<D> {
         let action = self.transport.end(&self.plan, &mut lines);
         self.transport_said(lines, before);
         action
-    }
-
-    /// The host is about to suspend the app (LLP 1125 D4): a sequence
-    /// playing stops with reason `background`.
-    pub(super) fn transport_suspend(&mut self) {
-        let before = self.transport.answer();
-        let mut lines = Vec::new();
-        self.transport
-            .suspend(&self.plan, &mut self.sounds, self.now_ms, &mut lines);
-        self.transport_said(lines, before);
     }
 
     /// The transport record, for `state.transport` and a test.

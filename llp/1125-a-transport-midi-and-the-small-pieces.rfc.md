@@ -732,6 +732,20 @@ otherwise.
   included; `sounds` 30/30, `gates` 19/19, `frames` 9/9, `clock` 10/10 on all
   three. The metronome's five tests pass on the web (JS target), macOS and the
   iOS 27 simulator.
+- **After review** (Astra, Grok): a background stop is applied once its
+  commit stands; a refused commit puts back its settled derives for a plan
+  with a sequence; `from` must be within 2^31 beats and a track at least
+  2^-20 beats long, so a loop's index stays an exact whole number; an end
+  already past is the arming's or edit's time; an end that runs `ended=`
+  is held at the timer limit like a task's timer; a hit blocked by the
+  waiting cap is due no later than its own time (taps far ahead do not
+  starve it); haptics still to come outlive the record's bound; the JS
+  twin reads every gate before arming any. On Apple a stop frees its
+  voices' slots for the Plays behind it in the same render, and ops the
+  1,024-op ring has no room for wait, in order, in `SoundOutput`'s backlog
+  (`exact_sound_room`), so an advance across several fills drops none.
+  Conformance `transport` gained a `from` past exact counting and an end
+  already past: 34 of 34 equal.
 - **Not done here.** The device check (onsets on the grid with the main
   thread blocked for 300 ms) was not run; nothing in this lane played to a
   speaker. MIDI steps, `offset` and clock out are stage 3; `waiting` and

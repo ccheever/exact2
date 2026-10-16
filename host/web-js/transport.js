@@ -15,7 +15,7 @@
 import { journal, clock, Sounds, Mutations, Resources, R, data, drive, untracked, Refusal } from './rt.js';
 import { plain } from './format.js';
 
-const LOOKAHEAD = 1000, REFILL = 500, SEGMENTS = 1024, LOOPS_PER_SECOND = 1000;
+const LOOKAHEAD = 1000, REFILL = 500, SEGMENTS = 1024, LOOPS_PER_SECOND = 1000, FROM_LIMIT = 2147483648, SHORTEST = 1 / 1048576;
 const KINDS = ['selection', 'impact', 'impact-light', 'impact-medium', 'impact-heavy', 'impact-soft', 'impact-rigid', 'success', 'warning', 'error'];
 const say = line => journal.push(`t=${clock.now} ${line}`);
 const num = n => !Number.isFinite(n) ? 'null' : n < 0 ? `-${plain(-n)}` : plain(n); // the runner's `num`
@@ -54,11 +54,13 @@ function read(name, args) {
   if (!(Number.isFinite(bpm) && bpm > 0)) return { why: `bpm ${num(bpm)} is not a tempo` };
   const from = number(args[2]);
   if (!Number.isFinite(from)) return { why: 'from is not a number' };
+  if (Math.abs(from) > FROM_LIMIT) return { why: `from ${num(from)} is beyond 2^31 beats` };
   const tracks = [];
   items(args[0]).forEach((track, i) => {
     const f = items(track), length = number(f[0]), loops = number(f[1]), label = `sequence ${name}: track ${i + 1}`;
     const why = !(Number.isFinite(length) && length > 0) ? `its length ${num(length)} is not a positive number of beats`
       : !(Number.isFinite(loops) && loops >= 0 && loops % 1 === 0) ? `loops ${num(loops)} is not a whole number`
+      : length < SHORTEST ? `its length ${num(length)} is under 2^-20 beats`
       : bpm / 60 / length > LOOPS_PER_SECOND ? `it would loop more than ${num(LOOPS_PER_SECOND)} times a second` : null;
     if (why) return void say(`${label} dropped: ${why}`);
     tracks.push({ length, loops, steps: items(f[4]).map((s, j) => step(s, length, `${label} step ${j + 1}`)).filter(Boolean) });
@@ -86,10 +88,11 @@ const stepOf = (p, h) => h.track === 0 ? p.countIn[h.step] : p.tracks[h.track - 
 const seg = () => Segments.at(-1) ?? { at: 0, beat: 0, bpm: 0 };
 const answerKey = () => { const g = seg(); return [State, Reason, g.bpm, g.at, g.beat].join('\0'); };
 function segment(g) { Segments.push(g); Recorded++; if (Segments.length > SEGMENTS) Segments.shift(); }
-function timing() {
+// `t`: the arming's or the edit's time, before which nothing ends (an end already past is now, never back in time).
+function timing(t) {
   if (!Play || !Segments.length) return;
   PhaseDue = State === 'countin' ? time(seg(), 0) : Infinity;
-  const b = endBeat(Play); EndedDue = b == null ? Infinity : time(seg(), b);
+  const b = endBeat(Play); EndedDue = b == null ? Infinity : Math.max(time(seg(), b), t);
 }
 // Issue the hits in [IssuedTo, at + LOOKAHEAD); off the agent a hit already past is skipped and said once.
 function fill(at) {
@@ -104,7 +107,7 @@ function fill(at) {
       if (live && h.at < at) { late++; continue; }
       const s = stepOf(Play, h);
       if (s.src && T().issue(at, [s.src, h.at, s.gain, s.group, s.rate, s.pan]) === 'full') return k;
-      if (s.haptic) T().haptic(s.haptic, h.at);
+      if (s.haptic) T().haptic(s.haptic, h.at, at);
     }
     return null;
   });
@@ -113,7 +116,7 @@ function fill(at) {
     const t = list[full].at;
     let before = 0; while (before < full && list[full - 1 - before].at === t) before++;
     const next = T().nextStart(at);
-    IssuedTo = t; Skip = before + (t === from ? skipped : 0); RefillDue = next < Infinity ? next : t;
+    IssuedTo = t; Skip = before + (t === from ? skipped : 0); RefillDue = Math.min(next, t);
   } else { IssuedTo = to; RefillDue = to - REFILL; }
 }
 function arm(i, t, args) {
@@ -125,7 +128,7 @@ function arm(i, t, args) {
   Owner = i; Raw = args;
   segment({ at: t, beat: p.from, bpm: p.bpm });
   State = p.from < 0 ? 'countin' : 'playing'; Reason = ''; Play = p; IssuedTo = t; Skip = 0;
-  timing(); fill(t);
+  timing(t); fill(t);
 }
 function edit(t, args) {
   const name = Seqs[Owner].name, p = read(name, args);
@@ -137,7 +140,7 @@ function edit(t, args) {
   else say(`sequence ${name} edited`);
   T().batch(() => T().retract(t));
   Play = p; IssuedTo = t; Skip = 0;
-  timing(); fill(t);
+  timing(t); fill(t);
 }
 function stop(t, reason) {
   if (Owner == null) return;
@@ -151,8 +154,9 @@ function stop(t, reason) {
 function after(before) {
   T().flush();
   for (const e of [End, Wake]) { const k = clock.timers.indexOf(e); if (k >= 0) clock.timers.splice(k, 1); }
-  End.due = EndedDue; End.hatch = !(Owner != null && Seqs[Owner].ended); Wake.due = Math.min(RefillDue, PhaseDue);
-  if (End.due < Infinity) clock.timers.push(End);
+  // The end's kind is set only as it is armed: an end being fired keeps the kind it was chosen as (a timer, counted).
+  End.due = EndedDue; Wake.due = Math.min(RefillDue, PhaseDue);
+  if (End.due < Infinity) { End.hatch = !(Owner != null && Seqs[Owner].ended); clock.timers.push(End); }
   if (Wake.due < Infinity) clock.timers.push(Wake);
   if (Object.keys(Readers).length && answerKey() !== before) {
     Answer.due = Math.min(Answer.due, clock.now);
@@ -203,11 +207,11 @@ const look = q => {
 };
 Sounds.gate = () => { Pending = null; if (Seqs.length) Pending = untracked(() => Seqs.map(look)); };
 Sounds.stood = () => { const seen = Pending; Pending = null; if (seen) stood(seen); };
-/** `sequence name when gate key=key` (LLP 1125 D2): `args` makes `play`'s six arguments; armed at mount when its gate holds. */
-export function sequence(gate, key, args, ended, name) {
-  Seqs.push({ gate, key: key || null, args, ended, name, on: false, kt: undefined });
-  const seen = Seqs.map((q, k) => k === Seqs.length - 1 ? untracked(() => look(q)) : { on: q.on, key: q.kt, args: Owner === k ? Raw : [] });
-  stood(seen);
+/** Every `sequence name when gate key=key` (LLP 1125 D2), `[gate, key, args, ended, name]` each, `args` making `play`'s six
+ * arguments: all read first, then armed at mount where a gate holds, as the runner's boot does, so a refusal arms none. */
+export function sequence(list) {
+  for (const [gate, key, args, ended, name] of list) Seqs.push({ gate, key: key || null, args, ended, name, on: false, kt: undefined });
+  stood(untracked(() => Seqs.map(look)));
 }
 /** The `exactTransport` readers, by resource name: each one's fields, in its shape's order. */
 export function transport(readers) {

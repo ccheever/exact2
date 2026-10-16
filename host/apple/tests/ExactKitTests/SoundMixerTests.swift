@@ -232,9 +232,11 @@ final class SoundMixerTests: XCTestCase {
         let m = mixer()
         defer { exact_sound_mixer_free(m) }
         for i in 0..<1024 { XCTAssertTrue(exact_sound_push(m, 2, UInt64(i), 0, 0, 0, 1, 0)) }
+        XCTAssertEqual(exact_sound_room(m), 0)
         XCTAssertFalse(exact_sound_push(m, 2, 999, 0, 0, 0, 1, 0))
         XCTAssertEqual(exact_sound_dropped(m), 1)
         _ = render(m, at: 40)
+        XCTAssertEqual(exact_sound_room(m), 1024)
         XCTAssertTrue(exact_sound_push(m, 2, 999, 0, 0, 0, 1, 0), "a render empties the ring")
     }
 
@@ -254,5 +256,23 @@ final class SoundMixerTests: XCTestCase {
         _ = render(m, at: t + 512 / rate)
         XCTAssertEqual(exact_sound_live(m), 288)
         XCTAssertEqual(exact_sound_dropped(m), 1, "the new voice took the freed slot")
+    }
+
+    func testAStopFreesItsSlotsForTheVoicesBehindItInOneRender() {
+        let m = mixer(frames: 48_000)
+        defer { exact_sound_mixer_free(m) }
+        let t = exact_sound_seconds(ticks(60))
+        // 32 sounding from now, 256 waiting half a second ahead: every slot taken.
+        for i in 0..<32 { XCTAssertTrue(exact_sound_push(m, 1, UInt64(i + 1), 0, t + latency, 0.01, 1, 0)) }
+        for i in 0..<256 { XCTAssertTrue(exact_sound_push(m, 1, UInt64(i + 33), 0, t + 0.5 + Double(i) / 1000, 0.01, 1, 0)) }
+        _ = render(m, at: t)
+        XCTAssertEqual(exact_sound_live(m), 288)
+        // A stop of the sounding ones at the next buffer, and 32 replacements, before another render.
+        let next = t + 512 / rate
+        for i in 0..<32 { XCTAssertTrue(exact_sound_push(m, 2, UInt64(i + 1), 0, next + latency, 0, 1, 0)) }
+        for i in 0..<32 { XCTAssertTrue(exact_sound_push(m, 1, UInt64(i + 289), 1, next + latency, 0.01, 1, 0)) }
+        _ = render(m, at: next)
+        XCTAssertEqual(exact_sound_dropped(m), 0, "the replacements took the stopped voices' slots")
+        XCTAssertEqual(exact_sound_live(m), 288)
     }
 }

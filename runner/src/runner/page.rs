@@ -26,10 +26,10 @@ impl<D: DataSource> Runner<D> {
             .filter(|i| self.plan.str(self.plan.resources[*i].source) == SOURCE)
             .filter(|i| self.page_reads_changed(*i, previous))
             .collect();
-        // About to be suspended: a sequence stops, and the commit carries
-        // its ends to the output (LLP 1125 D4).
+        // About to be suspended: a sequence stops in this commit, once it
+        // stands, and the commit carries its ends to the output (LLP 1125 D4).
         let result = if page.suspended && !previous.suspended && self.transport.playing() {
-            self.transport_suspend();
+            self.transport.suspend = true;
             self.commit_again(which, "page").map(Some)
         } else {
             self.recommit(which, "page")

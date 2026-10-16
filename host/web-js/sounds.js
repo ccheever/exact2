@@ -121,12 +121,13 @@ const Seq = {
   batch, flush: () => flush(), waiting, declared: src => Table.some(r => r[0] === src),
   nextStart: t => Voices.filter(v => waits(v, t)).reduce((m, v) => Math.min(m, v.at), Infinity),
   issue: (t, args) => play(t, args, true),
-  haptic(kind, at) {
+  haptic(kind, at, t) {
     const id = ++NextHaptic;
     say(`haptic ${id} ${kind} at ${num(at)}`);
     Ops.push({ op: 'haptic', id, kind, at });
     Haptics.push({ id, kind, at, by: null });
-    if (Haptics.length > HAPTICS) Haptics.shift();
+    // The last HAPTICS, the oldest played or retracted first: one still to come is kept for its retraction.
+    while (Haptics.length > HAPTICS) { const i = Haptics.findIndex(h => h.by != null || h.at < t); if (i < 0) break; Haptics.splice(i, 1); }
   },
   retract(t) {
     let n = 0;

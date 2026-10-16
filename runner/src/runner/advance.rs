@@ -416,11 +416,11 @@ impl<D: DataSource> Runner<D> {
                 continue;
             }
             if let Some(at) = ended {
-                self.now_ms = if live { self.now_ms.max(at) } else { at };
-                let Some(action) = self.transport_end() else {
-                    continue;
-                };
-                if receipts.len() == TIMER_FIRE_LIMIT {
+                // An end that runs `ended=` is a timer's commit: past the limit it
+                // stays due, as a task's timer does.
+                if self.transport.ended_action(&self.plan).is_some()
+                    && receipts.len() == TIMER_FIRE_LIMIT
+                {
                     return Advanced {
                         receipts,
                         now_ms: self.now_ms,
@@ -429,6 +429,10 @@ impl<D: DataSource> Runner<D> {
                         }),
                     };
                 }
+                self.now_ms = if live { self.now_ms.max(at) } else { at };
+                let Some(action) = self.transport_end() else {
+                    continue;
+                };
                 let was_poisoned = self.poisoned;
                 let ticket = self.next_ticket;
                 match self.scheduled(at, |r| r.run_action(action, Vec::new(), &[])) {

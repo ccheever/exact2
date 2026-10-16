@@ -43,8 +43,9 @@ pub(super) struct Checkpoint {
 }
 
 /// What a settlement publishes that a refusal after it — the gate step
-/// (LLP 1092 D8) — must put back; taken only for a plan with a gated task,
-/// the one refusal that follows a settlement that stood.
+/// (LLP 1092 D8) — must put back; taken only for a plan with a gated task
+/// or a sequence (LLP 1125 D2), whose gate steps are the one refusal that
+/// follows a settlement that stood.
 pub(super) struct Published {
     settled: Option<super::settlement::Settled>,
     derives: Vec<Option<Value>>,
@@ -87,22 +88,19 @@ impl<D: DataSource> Runner<D> {
             pending: self.pending.clone(),
             queues: self.queues.save(),
             timers: self.timers.clone(),
-            published: self
-                .plan
-                .timers
-                .iter()
-                .any(|t| t.gated || t.keyed)
-                .then(|| {
-                    Box::new(Published {
-                        settled: self.settled.clone(),
-                        derives: self.derives.clone(),
-                        derive_store_dependent: self.derive_store_dependent.clone(),
-                        resource_values: self.resource_values.clone(),
-                        resources: self.resources.clone(),
-                        awaiting: self.awaiting.clone(),
-                        requests: self.requests.len(),
-                    })
-                }),
+            published: (self.plan.timers.iter().any(|t| t.gated || t.keyed)
+                || !self.plan.sequences.is_empty())
+            .then(|| {
+                Box::new(Published {
+                    settled: self.settled.clone(),
+                    derives: self.derives.clone(),
+                    derive_store_dependent: self.derive_store_dependent.clone(),
+                    resource_values: self.resource_values.clone(),
+                    resources: self.resources.clone(),
+                    awaiting: self.awaiting.clone(),
+                    requests: self.requests.len(),
+                })
+            }),
             commands: self.commands.len(),
             sockets: self.sockets.len(),
             root_font: (
@@ -193,6 +191,7 @@ impl<D: DataSource> Runner<D> {
         self.refused_unsent.clear();
         // What a refused commit's gate step read is let go (LLP 1125 D2).
         self.transport.pending = None;
+        self.transport.suspend = false;
         // After any restore: the source hears what is really in flight.
         if std::mem::take(&mut self.forgot) {
             let in_flight: Vec<InFlight<'_>> = self

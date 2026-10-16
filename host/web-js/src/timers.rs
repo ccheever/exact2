@@ -82,6 +82,8 @@ pub(super) fn sequences(em: &mut Em<'_>, body: &mut String) -> Result<bool, Stri
     }
     let _ = write!(body, "$transport({{{}}});", readers.join(","));
     let top = Scope::default();
+    // One call for them all: transport.js reads every gate before it arms any.
+    let mut entries = Vec::new();
     for q in plan.sequences.iter() {
         let name = serde_json::to_string(plan.str(q.name)).unwrap();
         let mut f = |c| {
@@ -99,11 +101,13 @@ pub(super) fn sequences(em: &mut Em<'_>, body: &mut String) -> Result<bool, Stri
             .map(&mut f)
             .collect::<Result<Vec<_>, _>>()?;
         let ended = q.ended.map_or("null".into(), |a| format!("a_{}", a.0));
-        let _ = write!(
-            body,
-            "$sequence(()=>{gate},{key},()=>[{}],{ended},{name});",
+        entries.push(format!(
+            "[()=>{gate},{key},()=>[{}],{ended},{name}]",
             args.join(",")
-        );
+        ));
+    }
+    if !entries.is_empty() {
+        let _ = write!(body, "$sequence([{}]);", entries.join(","));
     }
     Ok(true)
 }
