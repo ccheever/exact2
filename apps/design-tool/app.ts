@@ -420,16 +420,16 @@ const conflict = (reply: Reply) => (reply.error as { conflict?: boolean } | unde
 // new run). A design read is kept by its file's digest, so a change is
 // measured, file by file, between two reads of exactly those states,
 // whenever each was read; a state no read saw leaves its tokens named only.
-type Noted = { seq: number; who: string; acceptedBy: string; write: number; changed: { file: string; token: string }[]; files: string[]; before: Record<string, string>; after: Record<string, string>; mine: boolean; diff: string; values: Map<string, string[]>; committed: boolean; gap?: boolean };
+type Noted = { seq: number; who: string; acceptedBy: string; write: number; changed: { file: string; token: string }[]; files: string[]; before: Record<string, string>; after: Record<string, string>; mine: boolean; diff: string; values: Map<string, string[]>; committed: boolean; gap?: boolean; redoneBy?: string };
 let changeset: Noted[] = [];
 // The tool's own writes not yet matched to their events, by write number.
-const mine: { write: number; diff: string }[] = [];
+const mine: { write: number; diff: string; redoneBy: string }[] = [];
 /** The tool's own write, as its reply says it: matched to its event, now
  * or when the event comes. */
-function wroteMine(ok: { write?: number; diff?: string }) {
+function wroteMine(ok: { write?: number; diff?: string }, redoneBy = '') {
   if (!ok.write) return;
   const n = changeset.find(c => c.write === ok.write);
-  if (n) { n.mine = true; n.diff = ok.diff ?? ''; } else mine.push({ write: ok.write, diff: ok.diff ?? '' });
+  if (n) { n.mine = true; n.diff = ok.diff ?? ''; n.redoneBy = redoneBy; } else mine.push({ write: ok.write, diff: ok.diff ?? '', redoneBy });
 }
 // The app's design file, as hello names it: what "" reads.
 let designFile = '';
@@ -584,7 +584,7 @@ function noted(e: any) {
   changeset.unshift({
     seq: e.seq, who, acceptedBy: typeof e.acceptedBy === 'string' && e.acceptedBy !== who ? e.acceptedBy : '', write: Number(e.write ?? 0),
     changed: (e.changed ?? []).map((c: { file: string; token: string }) => ({ file: String(c.file), token: String(c.token) })), files: e.edited ?? [],
-    before, after, mine: !!own, diff: own?.diff ?? '', values: new Map(), committed: false,
+    before, after, mine: !!own, diff: own?.diff ?? '', redoneBy: own?.redoneBy ?? '', values: new Map(), committed: false,
   });
   // Only what is committed is let go of, past 200.
   while (changeset.length > 200 && changeset.findLastIndex(n => n.committed) >= 0) changeset.splice(changeset.findLastIndex(n => n.committed), 1);
@@ -634,10 +634,10 @@ function measure() {
 }
 /** One file of an entry in plain words: what moved in it (its tokens
  * named, until measured), who. */
-const fileWords = (n: Noted, f: string) => `${f}: ${n.values.get(f)?.join('; ') || tokensIn(n, f).join(', ') || 'edited'} · ${n.who}${n.acceptedBy ? `, accepted by ${n.acceptedBy}` : ''}`;
+const fileWords = (n: Noted, f: string) => `${f}: ${n.values.get(f)?.join('; ') || tokensIn(n, f).join(', ') || 'edited'} · ${n.who}${n.acceptedBy ? `, accepted by ${n.acceptedBy}` : ''}${n.redoneBy ? `, redone by ${n.redoneBy}` : ''}`;
 /** An entry in plain words: each file and what moved in it (its tokens
  * named, until measured), who. */
-const plain = (n: Noted) => n.gap ? 'Some changes were missed here (the server keeps the last 256), so this list may be incomplete.' : `${n.files.map(f => `${f}: ${n.values.get(f)?.join('; ') || tokensIn(n, f).join(', ') || 'edited'}`).join('; ') || 'the design: edited'} · ${n.who}${n.acceptedBy ? `, accepted by ${n.acceptedBy}` : ''}`;
+const plain = (n: Noted) => n.gap ? 'Some changes were missed here (the server keeps the last 256), so this list may be incomplete.' : `${n.files.map(f => `${f}: ${n.values.get(f)?.join('; ') || tokensIn(n, f).join(', ') || 'edited'}`).join('; ') || 'the design: edited'} · ${n.who}${n.acceptedBy ? `, accepted by ${n.acceptedBy}` : ''}${n.redoneBy ? `, redone by ${n.redoneBy}` : ''}`;
 
 const sources: Sources = {
   loadHello: async () => {
@@ -831,7 +831,9 @@ const sources: Sources = {
     }
     redoStack.pop();
     const inverse = (reply.ok as { inverse: string | null }).inverse;
-    if (inverse) { undoStack.push({ ...top, inverse }); wroteMine(reply.ok); }
+    // A redo of an accepted proposal is the proposer's write; its row says
+    // who redid it.
+    if (inverse) { undoStack.push({ ...top, inverse }); wroteMine(reply.ok, top.client && top.client !== client ? client : ''); }
     return stacks(true, '', 'redo');
   },
   loadContrast: async ([a, b, answer]) => {

@@ -678,3 +678,27 @@ fn a_synthetic_token_that_comes_to_fold_is_rebuild_then_live() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_write_that_makes_a_role_vary_by_an_axis_is_refused_as_the_build_would() {
+    let dir = app(
+        "role-axis",
+        "tamber t\n\naxes\n  mode = a | b\n\ntheme\n  ink = #000000\n  -exact-label = ink\n",
+    );
+    let file = dir.join("app.tamber");
+    let before = std::fs::read_to_string(&file).unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let op = json!({"op": "set-token", "name": "ink", "when": [{"axis": "mode", "value": "b"}], "value": "#111111"});
+    let (proposed, _) = s.ask(json!({"method": "propose", "ops": [op]}));
+    assert_eq!(
+        proposed["error"]["diagnostics"][0]["id"], "tamber-role-axis",
+        "{proposed}"
+    );
+    let (done, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.tamber": digest(&file)}, "ops": [op]}));
+    assert_eq!(
+        done["error"]["diagnostics"][0]["id"], "tamber-role-axis",
+        "{done}"
+    );
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), before);
+    let _ = std::fs::remove_dir_all(&dir);
+}

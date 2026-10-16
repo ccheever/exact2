@@ -253,7 +253,8 @@ A digest it carries is checked as a transaction's is, and a stale one is 409 (wi
   names who last changed each stale file: a client, or `"changed on disk"` for a hand edit or a
   checkout.
 - **Refused by the checker:** `{message: "refused", diagnostics: [{file, line, col, id,
-  message}]}`.
+  message}]}`. A write (or a propose) that would make a role override vary by an app axis is
+  refused the same way, `tamber-role-axis`, since the build would refuse it (*1.1*).
 - **An editor that ignores the lock** and saves between the server's last read and its rename is
   overwritten. The digests narrow that window but don't close it.
 
@@ -368,7 +369,8 @@ with.
 
 `{kind, source, name?, prefix?, client}`, or `{kind, sources: [{name, text}], prefix?, client}`.
 - **The source.** `source` is the file's text. `name` is its file name; a Figma export's
-  `<Collection>.<Mode>.json` names its modes. `sources` takes 1 to 256 files.
+  `<Collection>.<Mode>.json` names its modes. `sources` takes 1 to 256 files, and only for
+  `dtcg`: a stylesheet's importer reads one sheet, and several are refused (400, *1.1*).
 - **`kind`** is `shadcn`, `tailwind` or `dtcg`. `prefix` is the token prefix, by default
   `shadcn`, `tw` or `dtcg`.
 - **Astryx is refused here** and keeps its CLI (`bun exact.mjs tamber import astryx …`), since
@@ -381,7 +383,9 @@ with.
   - the first `tokens` operations are the importer's own (tokens and any `add-axis`). Each
     offer's `items` are its role overrides, which a person leaves out unless ticked (see
     `accept`).
-- **A source that doesn't parse** is refused with string `diagnostics`.
+- **A source that doesn't parse** is refused, `{message: "the source is refused", diagnostics:
+  [{file, line, col, id, message}]}` as a checker's refusal is. With several files a
+  diagnostic is `{id, message}`, its message naming the file (*1.1*).
 - **An import with nothing new** answers 200, `{proposal: null, review, message}`.
 
 ## The change stream

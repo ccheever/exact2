@@ -544,6 +544,7 @@ test('an agent\'s write arrives attributed within one poll, and held proposals a
     expect(redone.slots.written).toMatchObject({ ok: true, last: 'redo' });
     // Redone as its proposer's.
     expect(redone.resources.changeset.entries[0].who).toBe('agent:claude');
+    expect(redone.resources.changeset.entries[0].text).toContain('redone by design-tool:Ada');
     expect(faded.resources.lit.names).toEqual([]);
     const now = read();
     expect(now).toContain('text.primary = light-dark(#101010, #e7e9ea)');
