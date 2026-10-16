@@ -203,3 +203,53 @@ check('Enter in a single-line field with a submit submits once; a key handler th
   await key('Enter', '\r');
   expect(await saved()).toEqual(['25']);
 }), 60000);
+
+check('a prompt commits Return without blur and keeps focus chosen by change', () => inChrome(async (evaluate, call) => {
+  await evaluate(`(() => {
+    const dialog = document.createElement('dialog');
+    dialog.setAttribute('role', 'alertdialog');
+    dialog.innerHTML = '<input id="name" value="Kick"><button id="cancel">Cancel</button><button id="save" data-exact-on="press" disabled>Save</button>';
+    document.getElementById('exact-root').append(dialog);
+    window.events = [];
+    window.block = true;
+    const field = dialog.querySelector('input'), save = dialog.querySelector('#save');
+    field.addEventListener('keydown', e => { events.push('key ' + e.key); if (block) e.preventDefault(); });
+    field.addEventListener('blur', () => events.push('blur'));
+    field.addEventListener('change', () => {
+      events.push('change ' + field.value);
+      if (window.moveFocus) dialog.querySelector('#cancel').focus();
+      if (window.enableSave) save.disabled = false;
+    });
+    save.addEventListener('click', () => events.push('press ' + field.value));
+    dialog.showModal(); field.focus(); field.setSelectionRange(4, 4);
+  })()`);
+  const key = async (name, code, number, text) => {
+    for (const type of ['keyDown', 'keyUp']) await call('Input.dispatchKeyEvent', {
+      type, key: name, code, windowsVirtualKeyCode: number, ...(type === 'keyDown' && text ? { text } : {}),
+    });
+  };
+  const heard = () => evaluate('new Promise(ok => setTimeout(() => ok(events)))');
+  await key('7', 'Digit7', 55, '7');
+  await key('Backspace', 'Backspace', 8);
+  await key('Enter', 'Enter', 13, '\r');
+  expect(await heard()).toEqual(['key 7', 'key Backspace', 'key Enter']);
+  expect(await evaluate('document.querySelector("#name").value')).toBe('Kick');
+  await evaluate('block = false; events = []');
+  await key('7', 'Digit7', 55, '7');
+  await key('Enter', 'Enter', 13, '\r');
+  expect(await heard()).toEqual(['key 7', 'key Enter', 'change Kick7']);
+  expect(await evaluate('document.activeElement.id')).toBe('name');
+  await evaluate('events = []');
+  await key('Enter', 'Enter', 13, '\r');
+  expect(await heard()).toEqual(['key Enter']);
+  await evaluate('events = []; moveFocus = true');
+  await key('8', 'Digit8', 56, '8');
+  await key('Enter', 'Enter', 13, '\r');
+  expect(await heard()).toEqual(['key 8', 'key Enter', 'change Kick78', 'blur']);
+  expect(await evaluate('document.activeElement.id')).toBe('cancel');
+  await evaluate('moveFocus = false; enableSave = true; document.querySelector("#name").focus(); events = []');
+  await key('9', 'Digit9', 57, '9');
+  await key('Enter', 'Enter', 13, '\r');
+  expect(await heard()).toEqual(['key 9', 'key Enter', 'change Kick789', 'press Kick789']);
+  expect(await evaluate('document.activeElement.id')).toBe('name');
+}), 60000);

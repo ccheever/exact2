@@ -13,11 +13,20 @@ addEventListener("keydown", ev => {
   if (ev.key !== "Enter" || ev.isComposing || ev.defaultPrevented || ev.$submit || ev.exactSubmit || field?.localName !== "input") return;
   const dialog = field.closest('dialog[role="alertdialog"], [popover][role="alertdialog"]');
   if (!dialog) return;
-  ev.preventDefault();
-  field.blur();
-  // The `change` may have closed the prompt: then nothing is pressed.
-  if (!dialog.isConnected || !(dialog.open || dialog.matches(":popover-open")) || !dialog.contains(field)) return;
-  const action = [...dialog.querySelectorAll("button")].find(b => b.matches('[data-exact-on~="press"]:not([data-destructive="true"])'));
-  if (action && !action.disabled) action.click();
-  else field.focus();
+  // Enter's native default commits `change` without blurring. Choose after
+  // it, but before another key or edit can change what this Return submits.
+  // Its own `insertLineBreak` arrives before that `change`.
+  const run = next => {
+    if (next?.type === "beforeinput" && next.inputType === "insertLineBreak") return;
+    if (run.done) return;
+    run.done = true;
+    field.removeEventListener("keydown", run, true);
+    field.removeEventListener("beforeinput", run, true);
+    if (!dialog.isConnected || !(dialog.open || dialog.matches(":popover-open")) || !dialog.contains(field)) return;
+    const action = [...dialog.querySelectorAll("button")].find(b => b.matches('[data-exact-on~="press"]:not([data-destructive="true"])'));
+    if (action && !action.disabled) action.click();
+  };
+  field.addEventListener("keydown", run, true);
+  field.addEventListener("beforeinput", run, true);
+  setTimeout(run);
 });

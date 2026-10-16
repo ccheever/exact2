@@ -127,10 +127,10 @@ extension NSView {
 
 extension Presenter {
     /// Whether `window` holds this session's nodes: its view's window, the
-    /// sheet of one of its dialogs, or one of its popovers'.
+    /// sheet of one of its dialogs or alerts, or one of its popovers'.
     func hosts(_ window: NSWindow?) -> Bool {
         guard let window else { return false }
-        return window === viewport.window || dialogs.entries.contains { $0.sheet?.window === window } || menus.hosts(window)
+        return window === viewport.window || window === alerts.sheet || dialogs.entries.contains { $0.sheet?.window === window } || menus.hosts(window)
     }
     /// The window a new sheet goes on and the keyboard is in: the open
     /// dialog's sheet, else the page's.

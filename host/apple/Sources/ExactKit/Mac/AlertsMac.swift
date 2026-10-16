@@ -293,9 +293,9 @@ final class AlertHost {
     /// `change`; then its `submit` if it has one, and that is all; else the
     /// default button, as it is once the `change` has run. Whether that
     /// button may then be pressed.
-    private func returnThroughField(_ owner: Presented, _ node: NodeView) -> Bool {
+    private func returnThroughField(_ owner: Presented, _ node: NodeView, keyHeard: Bool = false) -> Bool {
         guard let presenter, presenter.views[node.id] === node else { return false }
-        if presenter.keyDown(at: node, "Enter") { return false }
+        if !keyHeard && presenter.keyDown(at: node, "Enter") { return false }
         presenter.commitEdit(node.id, node.fieldText, change: node.handlers.contains("change"))
         if node.handlers.contains("submit") { presenter.submit(node.id); return false }
         // What the `change` did may have ended the alert or changed its button.
@@ -317,13 +317,12 @@ final class AlertHost {
         }
         pressDefault(owner)
     }
-    /// Return in the prompt's field when no enabled button took it first (its
-    /// default disabled, or none): through the field, then the default button
-    /// if the `change` enabled it (`FieldEditingMac`). False when `node` is no
-    /// field of an alert that is up.
-    func fieldReturned(_ node: NodeView) -> Bool {
+    /// Return from the prompt's field or the key monitor: commit, then press
+    /// the default if enabled. The monitor has already dispatched the key.
+    /// False when `node` is no field of an alert that is up.
+    func fieldReturned(_ node: NodeView, keyHeard: Bool = false) -> Bool {
         guard let owner = presented, owner.fields.contains(where: { $0 === node }) else { return false }
-        if returnThroughField(owner, node) { pressDefault(owner) }
+        if returnThroughField(owner, node, keyHeard: keyHeard) { pressDefault(owner) }
         return true
     }
     /// `focus(id)` of a prompt's input: its field in the alert takes the keyboard.

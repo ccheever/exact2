@@ -27,13 +27,14 @@ final class AlertMacTests: XCTestCase {
     private func fixture(label: String? = "Remove Book?", lines: [String] = ["“Piranesi” will be removed from your library."],
                          actions: [String] = ["Remove"], props: [Int: [String: String]] = [10: ["destructive": "true"]],
                          filled: Set<UInt32> = [], cancel: Bool = true, popover: Bool = false, extra: Bool = false,
-                         field: Bool = false, closedby: String = "closerequest") -> Presenter {
+                         field: Bool = false, closedby: String = "closerequest", session: ExactSession? = nil) -> Presenter {
         _ = NSApplication.shared
-        let p = Presenter()
+        let p = session?.presenter ?? Presenter()
         p.buttonFace = { id in var face = ButtonFace(); if filled.contains(id) { face.style = "filled" }; return face }
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        window.contentView = p.viewport
+        if let session { window.contentView = ExactView(session: session) }
+        else { window.contentView = p.viewport }
         let closing: [String: String] = popover ? ["popovertarget": "ask", "popovertargetaction": "hide"] : ["commandfor": "ask", "command": "close"]
         var dialog: [String: String] = ["id": "ask", "accessibilityRole": "alertdialog"]
         if popover { dialog["popover"] = "auto" } else { dialog["semanticTag"] = "dialog"; dialog["closedby"] = closedby }
@@ -422,6 +423,53 @@ final class AlertMacTests: XCTestCase {
         XCTAssertEqual(events.first, "change 51 Kick")
         XCTAssertTrue(events.contains("press 10"), "the change enabled Save, which Return then pressed: \(events)")
         window.close()
+    }
+
+    func testAPromptHearsPreventableKeysThroughTheSessionsMonitorOnce() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession()
+        defer { session.destroy() }
+        let p = fixture(label: "Rename", lines: [], actions: ["Save"], props: [:], field: true, session: session)
+        let node = try XCTUnwrap(p.views[51])
+        node.handlers.formUnion(["key", "keyup"])
+        var events: [String] = []
+        var prevent = true
+        p.onKey = { _, key in
+            events.append("\(key.up ? "up" : "down") \(key.chord)")
+            if !key.up && prevent { p.defaultPrevented = true }
+        }
+        p.onSubmit = { _ in events.append("submit") }
+        p.onChange = { _, _ in events.append("change") }
+        p.onInput = { _, _ in }
+        window.makeKeyAndOrderFront(nil)
+        p.press(2)
+        defer { p.alerts.reset() }
+        let sheet = try XCTUnwrap(p.alerts.sheet)
+        let field = try XCTUnwrap(node.field)
+        XCTAssertTrue(sheet.makeFirstResponder(field))
+        let editor = try XCTUnwrap(field.currentEditor())
+        editor.selectedRange = NSRange(location: editor.string.utf16.count, length: 0)
+        func send(_ chars: String, _ code: UInt16) {
+            for type in [NSEvent.EventType.keyDown, .keyUp] {
+                NSApp.sendEvent(NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [], timestamp: 0,
+                    windowNumber: sheet.windowNumber, context: nil, characters: chars,
+                    charactersIgnoringModifiers: chars, isARepeat: false, keyCode: code)!)
+            }
+        }
+        send("7", 26)
+        XCTAssertEqual(editor.string, "Untitled", "a prevented digit does not insert")
+        send("\u{7f}", 51)
+        XCTAssertEqual(editor.string, "Untitled", "a prevented Backspace does not delete")
+        send("\r", 36)
+        XCTAssertEqual(events, ["down 7", "up 7", "down Backspace", "up Backspace", "down Enter", "up Enter"])
+        XCTAssertEqual(editor.string, "Untitled", "prevented keys neither edit nor submit")
+        events.removeAll()
+        prevent = false
+        send("7", 26)
+        send("\r", 36)
+        XCTAssertEqual(events, ["down 7", "up 7", "down Enter", "change", "submit", "up Enter"])
+        XCTAssertEqual(field.stringValue, "Untitled7")
+        XCTAssertTrue(field.currentEditor() === editor, "Return commits without ending editing")
     }
 
     func testAPromptOpensWithSaveDisabledAndItsFieldFollowsTheInput() throws {

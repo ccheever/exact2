@@ -328,6 +328,121 @@ final class ConfirmationAlertIOSTests: XCTestCase {
         XCTAssertNil(try XCTUnwrap(p.views[20]).headerField, "the authored field is its own again")
     }
 
+    private final class PromptKey: UIKey {
+        var text = "7"
+        var code = UIKeyboardHIDUsage.keyboard7
+        override var characters: String { text }
+        override var charactersIgnoringModifiers: String { text }
+        override var keyCode: UIKeyboardHIDUsage { code }
+        override var modifierFlags: UIKeyModifierFlags { [] }
+    }
+    private final class PromptPress: UIPress {
+        let value = PromptKey()
+        override var key: UIKey? { value }
+    }
+    // A synthetic press has no UIKit hardware event. Its native default is
+    // this probe's, while the real alert below exercises UIKeyInput itself.
+    private final class KeyProbe: UITextField {
+        var forwarded: [String] = []
+        var composing = false
+        private let marked = UITextRange()
+        override var markedTextRange: UITextRange? { composing ? marked : nil }
+        override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+            forwarded.append("down")
+            if presses.first?.key?.keyCode == .keyboardDeleteOrBackspace { deleteBackward() }
+            if presses.first?.key?.keyCode == .keyboardReturnOrEnter { _ = delegate?.textFieldShouldReturn?(self) }
+        }
+        override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) { forwarded.append("up") }
+        override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) { forwarded.append("cancel") }
+        override func deleteBackward() { forwarded.append("delete") }
+    }
+
+    func testAPromptKeepsTheFieldsDefaultsAndHearsEachHardwareKeyOnce() throws {
+        let p = Presenter()
+        p.apply(wireBatch([["op": "create", "id": 20, "kind": "input", "handlers": ["key", "keyup", "submit"], "props": ["value": "Kick"]]]))
+        let bridge = PromptField(try XCTUnwrap(p.views[20]), presenter: p)
+        defer { bridge.end() }
+        let probe = KeyProbe()
+        let field: UITextField = probe
+        bridge.attach(field)
+        var events: [String] = []
+        var prevent = true
+        p.onKey = { _, key in
+            events.append("\(key.up ? "up" : "down") \(key.chord)")
+            if !key.up && prevent { p.defaultPrevented = true }
+        }
+        p.onSubmit = { _ in events.append("submit") }
+        let press = PromptPress()
+        field.pressesBegan([press], with: nil)
+        field.pressesEnded([press], with: nil)
+        XCTAssertEqual(events, ["down 7", "up 7"])
+        XCTAssertEqual(probe.forwarded, ["up"], "a prevented digit never reaches the field's default")
+        events.removeAll(); probe.forwarded.removeAll(); prevent = false
+        press.value.text = "\u{8}"
+        press.value.code = .keyboardDeleteOrBackspace
+        field.pressesBegan([press], with: nil)
+        field.pressesEnded([press], with: nil)
+        XCTAssertEqual(events, ["down Backspace", "up Backspace"])
+        XCTAssertEqual(probe.forwarded, ["down", "delete", "up"])
+        events.removeAll(); probe.forwarded.removeAll()
+        press.value.text = "\r"
+        press.value.code = .keyboardReturnOrEnter
+        field.pressesBegan([press], with: nil)
+        field.pressesEnded([press], with: nil)
+        XCTAssertEqual(events, ["down Enter", "submit", "up Enter"], "the hardware Return's delegate does not dispatch its key twice")
+        XCTAssertEqual(probe.forwarded, ["down", "up"])
+        events.removeAll(); probe.forwarded.removeAll()
+        field.pressesBegan([press], with: nil)
+        field.pressesCancelled([press], with: nil)
+        _ = field.delegate?.textFieldShouldReturn?(field)
+        XCTAssertEqual(events, ["down Enter", "submit", "down Enter", "submit"], "cancellation clears the heard hardware key")
+        XCTAssertEqual(probe.forwarded, ["down", "cancel"])
+        events.removeAll(); probe.forwarded.removeAll()
+        probe.composing = true
+        press.value.text = "7"
+        press.value.code = .keyboard7
+        field.pressesBegan([press], with: nil)
+        field.pressesEnded([press], with: nil)
+        XCTAssertEqual(events, [], "composition belongs to the displayed field, not the input left on the page")
+        XCTAssertEqual(probe.forwarded, ["down", "up"])
+    }
+
+    func testAPromptCanPreventSoftwareBackspaceAndReturn() throws {
+        let (p, controller, scene) = confirmation(label: "Rename", texts: [], actions: ["Save"], cancel: true)
+        defer { dismiss(p, controller) }
+        if !scene { try missing("scene", "a prompt's keyboard needs an app scene") }
+        p.apply(wireBatch([
+            ["op": "create", "id": 20, "kind": "input", "handlers": ["key", "keyup", "input", "change", "submit"], "props": ["value": "Kick"]],
+            ["op": "frame", "id": 20, "x": 0, "y": 0, "w": 200, "h": 30],
+            ["op": "children", "id": 2, "ids": [20, 3, 9]],
+        ]))
+        XCTAssertEqual(p.menus.activate(try XCTUnwrap(p.views[1])), true)
+        let alert = try XCTUnwrap(controller.presentedViewController as? UIAlertController)
+        let field = try XCTUnwrap(alert.textFields?.first)
+        spin { !p.menus.inTransition }
+        XCTAssertTrue(field.becomeFirstResponder())
+        field.selectedTextRange = field.textRange(from: field.endOfDocument, to: field.endOfDocument)
+        var events: [String] = []
+        var prevent = true
+        p.onKey = { _, key in
+            events.append("\(key.up ? "up" : "down") \(key.chord)")
+            if !key.up && prevent { p.defaultPrevented = true }
+        }
+        p.onSubmit = { _ in events.append("submit") }
+        p.onChange = { _, _ in events.append("change") }
+        field.deleteBackward()
+        _ = field.delegate?.textFieldShouldReturn?(field)
+        XCTAssertEqual(events, ["down Backspace", "down Enter"])
+        XCTAssertEqual(field.text, "Kick", "a prevented Backspace leaves the text alone")
+        XCTAssertTrue(field.isFirstResponder)
+        events.removeAll(); prevent = false
+        field.deleteBackward()
+        _ = field.delegate?.textFieldShouldReturn?(field)
+        XCTAssertEqual(events, ["down Backspace", "down Enter", "change", "submit"])
+        XCTAssertEqual(field.text, "Kic")
+        XCTAssertTrue(field.isFirstResponder)
+    }
+
     /// Return in a prompt's field is its delegate's: it presses the first
     /// action that is not destructive, nothing while that one is disabled,
     /// and draws none bold. The one prominent action its author marked is
