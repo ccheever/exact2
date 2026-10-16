@@ -193,10 +193,13 @@ final class Delegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         finishLaunching()
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
-    /// A quit with a session's storage still landing waits for it, five
-    /// seconds at most (LLP 1097 D10).
+    /// A quit waits while a session's storage is still landing or its native
+    /// module's quit work runs, five seconds at most for all of it (LLP 1097
+    /// D10, LLP 1069.010 Q4); a repeated quit joins that hold.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        let hold = StorageHold(bound: 5, pending: { sessions.contains { $0.1.storageOperations > 0 } },
+        if quitting?.holding == true { return .terminateLater }
+        for (_, s) in sessions { s.willQuit() }
+        let hold = StorageHold(bound: 5, pending: { sessions.contains { $0.1.storageOperations > 0 || $0.1.quitWorkPending } },
                                begin: { _ in }, end: { NSApp.reply(toApplicationShouldTerminate: true) })
         guard hold.hold() else { return .terminateNow }
         quitting = hold
