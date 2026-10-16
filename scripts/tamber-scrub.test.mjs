@@ -20,12 +20,13 @@ const op = value => [{ op: 'set-token', name: 'ink', value }];
 /** A session over stand-ins: `class` the server's answer, every preview,
  * restore, write and end kept. */
 function sessions({ cls = 'live', writeOk = true, idleMs } = {}) {
-  const seen = { previews: [], restores: 0, writes: [], ended: [] };
+  const seen = { previews: [], restores: 0, writes: [], ended: [], released: 0 };
   const s = scrubSessions({
     ask: async r => ({ ok: { class: cls, texts: { 'app.tamber': `ink = ${r.ops[0].value}` }, changed: [], synthetic: [], files: r.files } }),
-    write: async r => { seen.writes.push(r); return writeOk ? { ok: { inverse: 'inv-1' } } : { error: { conflict: true, message: 'moved' } }; },
+    write: async r => { seen.writes.push({ ...r, released: seen.released }); return writeOk ? { ok: { inverse: 'inv-1' } } : { error: { conflict: true, message: 'moved' } }; },
     preview: async texts => { seen.previews.push(texts['app.tamber']); return {}; },
     restore: () => { seen.restores++; },
+    released: () => { seen.released++; },
     ended: e => seen.ended.push(e.reason),
     idleMs,
   });
@@ -41,7 +42,8 @@ test('a scrub previews each value and writes once, on release, on the digests it
   expect(seen.writes).toEqual([]);
   const released = await s.release({ client: 'tool', scrub: 'scrub-1' });
   expect(released.ok.scrub).toBe('scrub-1');
-  expect(seen.writes).toEqual([{ method: 'transaction', client: 'tool', files: { 'app.tamber': 'd0' }, ops: op('#222222') }]);
+  // The builds were told to keep the preview before the write.
+  expect(seen.writes).toEqual([{ method: 'transaction', client: 'tool', files: { 'app.tamber': 'd0' }, ops: op('#222222'), released: 1 }]);
   expect(seen.restores).toBe(0);
   expect(s.current()).toBe(null);
 });
@@ -91,22 +93,43 @@ test('30 s with no update ends a scrub and restores; each update\'s arrival coun
   await new Promise(ok => setTimeout(ok, 60));
   restored(t, 'idle');
 });
-test('an end while the first update previews: no scrub opens, and the builds are restored', async () => {
+test('an end while the first update previews: no scrub opens or is announced, and the builds are restored', async () => {
   let release;
-  const seen = { restores: 0 };
+  const seen = { restores: 0, opened: 0, ended: 0 };
   const s = scrubSessions({
     ask: async r => ({ ok: { class: 'live', texts: { f: r.ops[0].value } } }),
     write: async () => ({ ok: {} }),
     preview: async () => { await new Promise(ok => { release = ok; }); return {}; },
     restore: () => { seen.restores++; },
+    opened: () => { seen.opened++; },
+    ended: () => { seen.ended++; },
   });
   const first = s.update({ client: 'tool', ops: op('#1'), files: {} });
   await new Promise(ok => setTimeout(ok, 5));
+  const queued = s.update({ client: 'tool', ops: op('#2') });
   s.compete();
   release();
   expect((await first).status).toBe(409);
+  expect((await queued).ok.ended).toBe('competing write');
   expect(s.current()).toBe(null);
-  expect(seen.restores).toBe(1);
+  expect(seen).toEqual({ restores: 1, opened: 0, ended: 0 });
+});
+
+test('idle counts from the last update\'s arrival, however long its preview', async () => {
+  const t0 = Date.now();
+  let at = null;
+  const s = scrubSessions({
+    ask: async r => ({ ok: { class: 'live', texts: { f: r.ops[0].value } } }),
+    write: async () => ({ ok: {} }),
+    preview: async () => { await new Promise(ok => setTimeout(ok, 50)); return {}; },
+    restore: () => {},
+    ended: e => { if (e.reason === 'idle') at = Date.now() - t0; },
+    idleMs: 80,
+  });
+  await s.update({ client: 'tool', ops: op('#1'), files: {} });
+  await new Promise(ok => setTimeout(ok, 150));
+  expect(at).toBeGreaterThanOrEqual(75);
+  expect(at).toBeLessThan(125);
 });
 
 test('a release that conflicts writes nothing and restores', async () => {
@@ -259,7 +282,7 @@ test('through the server: a propose-scope client opens no scrub, and an absent o
   expect((await post({ method: 'scrub', client: 'nobody', ops: op('#666666'), files })).status).toBe(409);
 });
 
-test('through the server: a hand edit ends a scrub and restores; a release after one is refused naming it', async () => {
+test('through the server: a hand edit ends a scrub and restores', async () => {
   const file = join(dir, 'app.tamber');
   const tool = await present('tool');
   const files = () => ({ 'app.tamber': sha(readFileSync(file, 'utf8')) });
@@ -270,19 +293,47 @@ test('through the server: a hand edit ends a scrub and restores; a release after
   await new Promise(ok => setTimeout(ok, 600));
   expect(restores).toBe(at + 1);
   expect((await post({ method: 'scrub-release', client: 'tool', scrub: a.ok.scrub })).status).toBe(409);
-  // Edited by hand after the scrub opened and before the watcher says so:
-  // the release conflicts, writes nothing, names who moved it, restores.
-  const b = await post({ method: 'scrub', client: 'tool', ops: op('#565656'), files: files() });
-  expect(b.ok?.scrub, JSON.stringify(b)).toBeString();
-  writeFileSync(file, readFileSync(file, 'utf8').replace(/ink = .*/, 'ink = #787878'));
-  const released = await post({ method: 'scrub-release', client: 'tool', scrub: b.ok.scrub });
-  expect(released.error?.conflict, JSON.stringify(released)).toBe(true);
-  expect(released.error.by).toEqual({ 'app.tamber': 'changed on disk' });
-  expect(readFileSync(file, 'utf8')).toContain('ink = #787878');
-  expect(restores).toBe(at + 2);
   tool.close();
   await new Promise(ok => setTimeout(ok, 300));
 }, 60_000);
+
+// A file edited by hand after the scrub opened, which the watcher has not
+// said yet (its settle long here): the release conflicts, writes nothing,
+// names who moved it, and restores.
+test('through the server: a release whose file moved conflicts naming who moved it', async () => {
+  const app = mkdtempSync(join(tmpdir(), 'exact-tamber-scrub-conflict-'));
+  writeFileSync(join(app, 'app.contract'), 'component App\n  view\n    text "a" color="ink"\n');
+  writeFileSync(join(app, 'app.tamber'), 'tamber t\n\ntheme\n  ink = #000000\n');
+  let restored = 0;
+  const local = createServer();
+  await new Promise(ok => local.listen(0, '127.0.0.1', ok));
+  const port = local.address().port;
+  const gate = developmentGate([{ origin: `http://127.0.0.1:${port}` }], port);
+  const wire = tamberServer({ appDir: app, log: () => {}, settle: 30_000, scrub: { preview: async () => ({}), restore: () => { restored++; } } });
+  local.on('request', async (req, res) => { if (!(await wire.handle(req, res, new URL(req.url, 'http://x'), gate.check(req)))) { res.writeHead(404); res.end(); } });
+  const at = `http://127.0.0.1:${port}`;
+  const { token } = await (await fetch(`${at}/__tamber/token`)).json();
+  const h = { 'content-type': 'application/json', 'x-exact-tamber-token': token };
+  const ask = async q => { const r = await fetch(`${at}/__tamber`, { method: 'POST', headers: h, body: JSON.stringify(q) }); return { status: r.status, ...(await r.json()) }; };
+  await wire.ready;
+  const abort = new AbortController();
+  const sub = await fetch(`${at}/__tamber/subscribe`, { method: 'POST', headers: h, body: JSON.stringify({ client: 'tool' }), signal: abort.signal });
+  void sub.body.getReader().read().catch(() => {});
+  const file = join(app, 'app.tamber');
+  const opened = await ask({ method: 'scrub', client: 'tool', ops: op('#565656'), files: { 'app.tamber': sha(readFileSync(file, 'utf8')) } });
+  expect(opened.ok?.scrub, JSON.stringify(opened)).toBeString();
+  writeFileSync(file, readFileSync(file, 'utf8').replace(/ink = .*/, 'ink = #787878'));
+  const released = await ask({ method: 'scrub-release', client: 'tool', scrub: opened.ok.scrub });
+  expect(released.status).toBe(409);
+  expect(released.error?.conflict, JSON.stringify(released)).toBe(true);
+  expect(released.error.by).toEqual({ 'app.tamber': 'changed on disk' });
+  expect(readFileSync(file, 'utf8')).toContain('ink = #787878');
+  expect(restored).toBe(1);
+  abort.abort();
+  await wire.close();
+  local.close();
+  rmSync(app, { recursive: true, force: true });
+}, 600_000);
 
 test('through the server: a cancel ends a scrub and restores', async () => {
   const file = join(dir, 'app.tamber');

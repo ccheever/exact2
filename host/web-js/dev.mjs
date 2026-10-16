@@ -114,7 +114,9 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   // A scrub (LLP 1121 stage 4, commit 6): the design the pages run while it
   // previews, and the snapshot it put aside; the next build, or its end,
   // sends them on from it.
-  let scrubbed = null, aside = null;
+  // `released`: that scrub is being written; the build of what it writes
+  // goes from it, and ends it.
+  let scrubbed = null, aside = null, released = false;
   // The files edited since the last build, by path: only design files may
   // be a value-only edit.
   const edited = new Set(), appeared = new Set();
@@ -136,9 +138,8 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
       && next.tokens.every((t, i) => t.name === design.tokens[i].name && String(t.accent) === String(design.tokens[i].accent));
     built = await build(app, dist, keep); error = built.error;
     // The design the pages run now (a scrub's preview, or its end, may have
-    // come while it built); a build that lands ends a preview.
+    // come while it built).
     const from = scrubbed ?? design;
-    if (!error) { scrubbed = null; aside = null; }
     watchPackages(built.packages);
     if (error) {
       for (const p of pendingEdits) edited.add(p);
@@ -148,8 +149,12 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     else if (built.kept) {
       const tokens = built.design.tokens.filter((t, i) => !same(t, from.tokens[i]));
       design = built.design;
-      snapshot = { kind: 'tamber-snapshot', structure: design.shape, base: null, design: design.digest, tokens: design.tokens };
-      if (tokens.length) {
+      const committed = { kind: 'tamber-snapshot', structure: design.shape, base: null, design: design.digest, tokens: design.tokens };
+      // While a scrub previews the pages stay on it: this changes only what
+      // its end restores. A released scrub's build goes from it, and ends it.
+      if (scrubbed && released) { scrubbed = null; aside = null; released = false; }
+      if (scrubbed) aside = committed; else snapshot = committed;
+      if (tokens.length && !scrubbed) {
         console.log(`edit → batch ready ${Date.now() - at} ms (built in ${Date.now() - t} ms) · ${tokens.length} token${tokens.length === 1 ? '' : 's'} to ${clients.size} page${clients.size === 1 ? '' : 's'}, no reload`);
         const batch = framed({ kind: 'tamber-batch', structure: design.shape, base: from.digest, design: design.digest, tokens });
         push(batch);
@@ -159,6 +164,8 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
       }
     }
     else {
+      // A reload ends a scrub's preview: the pages boot the committed design.
+      scrubbed = null; aside = null; released = false;
       const next = built.design ?? null;
       // The page reloads; a native build on the resident producer, whose
       // plan this edit may leave as it was (an accent's companion rules are
@@ -289,6 +296,7 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
   }
   /** A scrub ended without its write: the pages back on the committed design. */
   function scrubRestore() {
+    released = false;
     if (!scrubbed || !design) return;
     const from = scrubbed;
     scrubbed = null;
@@ -306,7 +314,7 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
   // peer (a forwarded request's is loopback).
   const installer = localInstaller({ app: () => app, origins, port, gate, listener: { host, port } });
   // The design server's wire (LLP 1121 D13), when the app has a design.
-  tamber = designPath(app.dir) ? tamberServer({ appDir: app.dir, live: true, scrub: { preview: scrubPreview, restore: scrubRestore } }) : null;
+  tamber = designPath(app.dir) ? tamberServer({ appDir: app.dir, live: true, scrub: { preview: scrubPreview, restore: scrubRestore, released: () => { released = scrubbed != null; } } }) : null;
   // A polled stream (Linux, the resident loop's relay) is told the design to run.
   tamber?.channel.greet(() => snapshot && notice(snapshot));
   const server = createServer(async (req, res) => {

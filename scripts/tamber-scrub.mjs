@@ -23,9 +23,12 @@ export const SCRUB_IDLE_MS = 30_000;
  * `ask` sends the design server a request; `write` makes a write as the
  * wire's own do (announced, attributed); `preview(texts)` shows a scrub's
  * texts on the builds (resolves `{error}` when it cannot); `restore()` sends
- * them the committed design; `ended(e)` is told each end.
+ * them the committed design; `released()`, before a release's write, has the
+ * builds keep the preview until the build of what it writes (a refused
+ * write restores); `opened(e)` is told a scrub's first preview,
+ * `ended(e)` each end of one that previewed.
  */
-export function scrubSessions({ ask, write, preview, restore, ended = () => {}, idleMs = SCRUB_IDLE_MS }) {
+export function scrubSessions({ ask, write, preview, restore, released = () => {}, opened = () => {}, ended = () => {}, idleMs = SCRUB_IDLE_MS }) {
   // The scrub open (from its first update: one opening is open, and ends
   // as one does) and `ends`, a count of ends, by which a preview that
   // lands after one is taken back.
@@ -68,9 +71,9 @@ export function scrubSessions({ ask, write, preview, restore, ended = () => {}, 
     // Ended while it previewed: the committed design again, after it.
     if (ends !== at || open?.id !== id) { void restore(); return refused(409, 'the scrub ended'); }
     if (shown?.error) { failed(id); return refused(502, `the builds could not preview it: ${shown.error}`); }
+    if (!open.shown) opened({ scrub: id, client: open.client });
     open.shown = true;
     open.ops = request.ops;
-    idle();
     return { ok: { scrub: id, class: 'live', changed: planned.ok.changed, synthetic: planned.ok.synthetic, files: planned.ok.files } };
   }
 
@@ -123,6 +126,8 @@ export function scrubSessions({ ask, write, preview, restore, ended = () => {}, 
       open = null;
       ends++;
       releasing = true;
+      // The builds keep the preview until the build of what it writes.
+      await released();
       let result;
       try { result = await write({ method: 'transaction', client: request.client, files, ops }); } finally { releasing = false; }
       // Refused (a file moved since it opened; `by` names who moved it):

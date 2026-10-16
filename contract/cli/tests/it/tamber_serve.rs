@@ -791,3 +791,26 @@ fn uses_sites_are_the_same_on_the_js_plan_and_the_native_bake() {
         assert_eq!(of(&native), ours, "{token} on the native bake");
     }
 }
+
+/// `uses` follows a value into what it is stored in and compared with: an
+/// action storing the name into one slot does not make another a use; a
+/// slot copied from one holding it is one; a comparison however built, and
+/// an element id (`url(#brand)`), are none.
+#[test]
+fn uses_follows_stores_and_skips_comparisons_and_ids() {
+    let dir = app("uses-flow", "tamber app\n\ntheme\n  brand = #0a7aff\n");
+    std::fs::write(
+        dir.join("app.contract"),
+        "component App\n  state label = \"x\"\n  state ink = \"#000000\"\n  state pick = \"brand\"\n  state copy = \"#000000\"\n  state p = \"br\"\n  action set\n    label = \"brand\"\n    ink = \"#ffffff\"\n  action take\n    copy = pick\n  view\n    column\n      text \"a\" color=ink press=set\n      text \"b\" color=copy press=take\n      text \"c\" color=(\"brand\" == p + \"and\" ? \"#111111\" : \"#222222\")\n      text \"d\" fill=\"url(#brand)\"\n",
+    )
+    .unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let (uses, _) = s.ask(json!({"method": "uses", "token": "brand"}));
+    let sites = uses["ok"]["sites"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{uses}"));
+    assert_eq!(sites.len(), 1, "{uses}");
+    assert_eq!(sites[0]["line"], 15, "{uses}");
+    assert_eq!(sites[0]["via"], json!({"slot": "copy"}));
+    let _ = std::fs::remove_dir_all(&dir);
+}

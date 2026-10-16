@@ -162,7 +162,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   const waiting = new Map(), subscribers = new Set(), polls = new Set(), watchers = new Map(), events = [];
   // Each file's digest as last announced: what a later change is told from.
   const known = new Map();
-  let opened = null, next = 0, seq = 0, out = '', stderr = '', down = null, writing = 0, again = false, timer = null, first = true, proposalCount = 0;
+  let next = 0, seq = 0, out = '', stderr = '', down = null, writing = 0, again = false, timer = null, first = true, proposalCount = 0;
   // What `commit` needs of the session, and who last changed each file.
   const session = designSession(appDir), lastBy = new Map();
   const design = basename(designPath(appDir) ?? 'app.tamber');
@@ -184,6 +184,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     write: r => write(r),
     preview: texts => scrub.preview(texts),
     restore: () => scrub?.restore(),
+    released: () => scrub?.released?.(),
+    opened: e => send({ event: 'scrub', seq: ++seq, epoch, ...e, reason: 'opened' }),
     ended: e => send({ event: 'scrub', seq: ++seq, epoch, ...e }),
     idleMs: scrubIdleMs,
   });
@@ -504,12 +506,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     if (request.method === 'scrub-cancel') return scrubs.cancel(request);
     if (request.method === 'scrub-release') return scrubs.release(request);
     if (!present(request.client)) return { status: 409, error: { message: `scrub: \`${request.client}\` is not present: hold a long poll or a subscription that names it first; a scrub lives while its client is present` } };
-    const reply = await scrubs.update(request);
-    if (reply.ok?.scrub && !reply.ok.superseded && reply.ok.scrub !== opened) {
-      opened = reply.ok.scrub;
-      send({ event: 'scrub', seq: ++seq, epoch, scrub: opened, client: request.client, reason: 'opened' });
-    }
-    return reply;
+    return scrubs.update(request);
   }
 
   /** A write, announced from the server's reply, even one that comes after

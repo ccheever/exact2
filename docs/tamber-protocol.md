@@ -177,19 +177,23 @@ given build (`resolve-on`) comes with LLP 1122 T2b, from that build's `selected`
 runner resolves it.
 
 **`uses`** `{token, file?}` (*1.2*, stage 4 commit 6) says where the app reads a token,
-statically: every style row of the plan whose expression names it, directly, through a token
-whose value names it, or through a synthetic token (a row's expression over tokens) that reads
-it. It answers `{token, plan, sites, aliases, files}`:
+statically: every row of the plan that takes a colour and whose expression names it, directly,
+through a token whose value names it, through a synthetic token (a row's expression over
+tokens) that reads it, or through a slot or derive that may hold it (a slot whose initial
+value, or a value an action stores in it, names it). A value compared (`mode == "brand"`) is no
+read, nor an element id (`url(#brand)`). It answers `{token, plan, sites, aliases, files}`:
 - `sites: [{site, row, file, line, col, end_col, component, via?}]`: the plan node (`site`), the
   row, and its source span from the plan's source map. `via` is absent for a direct read, `{token}`
-  through a token naming it, and `{synthetic, through}` through a synthetic token's expression
-  (`through` null, or the `{token}` it reads it by);
+  through a token naming it, `{synthetic, through}` through a synthetic token's expression
+  (`through` null, or the `{token}` it reads it by), and `{slot}` or `{derive}` through one;
 - `plan`: the digest of the plan the sites index, compiled from the sources as they are, before
   any bake. A build joins the spans through its own source map (LLP 1122 T2b's `outline`);
 - `aliases`: the tokens whose values name it, directly or through another;
 - `files`: the digests it read.
 
-How many instances of each site are mounted on a build is not answered: that needs a report the
+A `file` that is not the design the app builds has no sites. The JS target's plan and a native
+bake of the same sources have the same sites. How many instances of each site are mounted on a
+build is not answered: that needs a report the
 build channel does not carry (a LLP 1121 §9 candidate). A design token no row reads has no sites.
 The app's build failing is an error (`the app does not build: …`).
 
@@ -267,18 +271,25 @@ to no file while the gesture lasts, and is written once, on release. The wire ru
     design it runs, as a value-only edit sends one; the snapshot it serves (`/__dev/design`) is the
     scrub's while it lasts.
   - **Updates that come while one previews** wait; only the latest is previewed, and the others
-    are answered `{scrub, superseded: true}`.
+    are answered `{scrub, superseded: true}`. An update back to the committed value previews the
+    committed design, and the scrub stays open.
+  - **A value-only build while one previews** (another write's, a hand edit's) leaves the builds
+    on the preview and changes what its end restores; a build that reloads the builds ends the
+    preview there.
   - It answers `{scrub, class: "live", changed, synthetic, files}`.
   - **A rebuild-class edit has no scrub** (409): it applies on release, as a `transaction`.
 - **`scrub-release`** `{client, scrub}` writes once: one transaction checked against the digests
-  the scrub opened with, its reply a transaction's. A file moved since is a conflict: nothing is
-  written, and the builds get the committed design back.
+  the scrub opened with, its reply a transaction's. A file moved since is a conflict naming who
+  moved it (`by`): nothing is written, and the builds get the committed design back. While a
+  release is written no scrub opens (409). The builds keep the preview until the build of what
+  it wrote, whose batch goes from it.
 - **`scrub-cancel`** `{client, scrub}` ends it without a write.
 - **It ends without a write** on a cancel, a competing write (any write, or a hand edit the
   watcher sees, cancels it first), its client no longer present, the design server's loss, and
-  30 s with no update. On each, every build gets the **latest committed** design, not the
+  30 s with no update (counted from each update's arrival). On each, every build gets the **latest committed** design, not the
   gesture's first, and a build that connects later gets the committed snapshot.
-- **The `scrub` event** `{scrub, client, reason}` says each opening (`opened`) and each end
+- **The `scrub` event** `{scrub, client, reason}` says each opening (`opened`, at its first
+  preview; one that ends before it previews is never announced) and each end
   (`released`, `refused`, `cancelled`, `competing write`, `disconnected`, `server lost`, `idle`).
   While one is open the files and the running builds differ: the tool says "previewing".
 - **Scope:** the local tool's token writes. A paired client's scoped token (LLP 1122 D6) names

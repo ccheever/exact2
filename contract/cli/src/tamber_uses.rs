@@ -11,39 +11,51 @@ use serde_json::{json, Value};
 use std::collections::BTreeSet;
 
 /// Whether `text` names `name` as a whole token name: not inside a longer
-/// one (`accent.fill` is not in `accent.fill-2`).
+/// one (`accent.fill` is not in `accent.fill-2`), nor an id (`#name`).
 pub fn names(text: &str, name: &str) -> bool {
     let part = |c: char| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_');
+    // After `#` it is an element's id (`url(#brand)`) or a hex colour.
     text.match_indices(name).any(|(i, _)| {
-        !text[..i].chars().next_back().is_some_and(part)
+        !text[..i]
+            .chars()
+            .next_back()
+            .is_some_and(|c| part(c) || c == '#')
             && !text[i + name.len()..].chars().next().is_some_and(part)
     })
 }
 
 /// What a piece of code reads: the strings it pushes as values, and the
-/// slots and derives it loads. A value compared (`mode == "brand"`) is no
-/// read: one an `Eq`-like op takes next, or next but one after a single
-/// push, is left out. Empty when the code does not walk whole.
+/// slots and derives it loads, with what each `StoreSlot` stores. A value
+/// compared (`mode == "brand"`, `"brand" == a + b`) is no read: a stack walk
+/// over each straight run of ops follows values into comparisons; across a
+/// jump or a call it keeps them, as reads. Empty when the code does not walk
+/// whole.
 #[derive(Default)]
 struct Reads<'a> {
     strings: Vec<&'a str>,
     slots: Vec<usize>,
     derives: Vec<usize>,
+    /// Each `StoreSlot`: the slot, and what the value it stores reads.
+    stores: Vec<(usize, Reads<'a>)>,
 }
 
-/// One op of a walk: the string it pushed, and the slot (`true`) or derive
-/// it loaded.
-type Step<'a> = (Opcode, Option<&'a str>, Option<(bool, usize)>);
+/// One op of a walk: the op, the string it pushed, the slot (`true`) or
+/// derive it loaded, and the slot it stored.
+type Step<'a> = (
+    Opcode,
+    Option<&'a str>,
+    Option<(bool, usize)>,
+    Option<usize>,
+);
 
 fn reads<'a>(plan: &'a Plan, code: &[u8]) -> Reads<'a> {
     let mut r = exact_plan::bytes::Reader::new(code);
-    // Each op, with the string it pushed and the slot or derive it loaded.
     let mut ops: Vec<Step<'a>> = Vec::new();
     while !r.is_empty() {
         let Some(op) = r.u8().ok().and_then(Opcode::from_wire) else {
             return Reads::default();
         };
-        let (mut pushed, mut loaded) = (None, None);
+        let (mut pushed, mut loaded, mut stored) = (None, None, None);
         for operand in op.operands() {
             let ok = match operand {
                 Operand::U8 | Operand::Enum(_) => r.u8().is_ok(),
@@ -51,10 +63,12 @@ fn reads<'a>(plan: &'a Plan, code: &[u8]) -> Reads<'a> {
                 Operand::U32 => r.u32().is_ok(),
                 Operand::Idx(table) => r
                     .u32()
-                    .map(|v| {
-                        if matches!(op, Opcode::LoadSlot | Opcode::LoadDerive) {
+                    .map(|v| match op {
+                        Opcode::LoadSlot | Opcode::LoadDerive => {
                             loaded = Some((*table == "slots", v as usize));
                         }
+                        Opcode::StoreSlot => stored = Some(v as usize),
+                        _ => {}
                     })
                     .is_ok(),
                 Operand::F64 => r.f64().is_ok(),
@@ -71,44 +85,105 @@ fn reads<'a>(plan: &'a Plan, code: &[u8]) -> Reads<'a> {
                 return Reads::default();
             }
         }
-        ops.push((op, pushed, loaded));
+        ops.push((op, pushed, loaded, stored));
     }
-    let compares = |op: Option<&(Opcode, _, _)>| {
-        op.is_some_and(|(o, _, _)| {
-            matches!(
-                o,
-                Opcode::Eq | Opcode::Ne | Opcode::Lt | Opcode::Le | Opcode::Gt | Opcode::Ge
-            )
-        })
-    };
-    let single = |o: &Opcode| {
-        matches!(
-            o,
-            Opcode::Number
-                | Opcode::Bool
-                | Opcode::Str
-                | Opcode::None
-                | Opcode::LoadSlot
-                | Opcode::LoadDerive
-                | Opcode::LoadParam
-                | Opcode::LoadItem
-                | Opcode::LoadBound
-                | Opcode::LoadLocal
-        )
-    };
-    let mut out = Reads::default();
-    for (i, (_, pushed, loaded)) in ops.iter().enumerate() {
-        let compared = compares(ops.get(i + 1))
-            || ops.get(i + 1).is_some_and(|(o, _, _)| single(o)) && compares(ops.get(i + 2));
-        if let Some(s) = pushed.filter(|_| !compared) {
-            out.strings.push(s);
-        }
-        match loaded.filter(|_| !compared) {
-            Some((true, n)) => out.slots.push(n),
-            Some((false, n)) => out.derives.push(n),
-            None => {}
+    // The stack: each value, the ops (strings, loads) it carries.
+    let mut stack: Vec<Vec<usize>> = Vec::new();
+    let mut compared = vec![false; ops.len()];
+    // Each store: its slot and the run of ops whose value it stores.
+    let mut runs: Vec<(usize, usize, usize)> = Vec::new();
+    let mut start = 0;
+    for (i, (op, pushed, loaded, stored)) in ops.iter().enumerate() {
+        let pop = |stack: &mut Vec<Vec<usize>>| stack.pop().unwrap_or_default();
+        use Opcode as O;
+        match op {
+            O::Number
+            | O::Bool
+            | O::Str
+            | O::None
+            | O::Unit
+            | O::LoadSlot
+            | O::LoadDerive
+            | O::LoadResource
+            | O::LoadParam
+            | O::LoadItem
+            | O::LoadBound
+            | O::LoadLocal
+            | O::PendingResource
+            | O::PendingMutation
+            | O::FailedResource
+            | O::FailureResource => {
+                stack.push(if pushed.is_some() || loaded.is_some() {
+                    vec![i]
+                } else {
+                    Vec::new()
+                });
+            }
+            O::Neg | O::Some | O::Unwrap | O::Field | O::LoadIndex => {
+                let v = pop(&mut stack);
+                stack.push(v);
+            }
+            O::Not => {
+                pop(&mut stack);
+                stack.push(Vec::new());
+            }
+            O::Add | O::Sub | O::Mul | O::Div | O::Rem | O::Concat => {
+                let (b, mut a) = (pop(&mut stack), pop(&mut stack));
+                a.extend(b);
+                stack.push(a);
+            }
+            O::Eq | O::Ne | O::Lt | O::Le | O::Gt | O::Ge => {
+                for j in pop(&mut stack).into_iter().chain(pop(&mut stack)) {
+                    compared[j] = true;
+                }
+                stack.push(Vec::new());
+            }
+            O::List => {
+                // `List(n)`: its items stay reads.
+                stack.clear();
+                stack.push(Vec::new());
+            }
+            O::StoreSlot => {
+                pop(&mut stack);
+                runs.push((stored.unwrap_or(usize::MAX), start, i));
+                start = i + 1;
+            }
+            O::Pop | O::BindLocal | O::DropLocal => {
+                pop(&mut stack);
+                start = i + 1;
+            }
+            // A jump, a call, a command: values on the stack are kept, as reads.
+            _ => {
+                stack.clear();
+                if matches!(op, O::Command | O::Send | O::Return) {
+                    start = i + 1;
+                }
+            }
         }
     }
+    let read = |range: std::ops::Range<usize>| {
+        let mut out = Reads::default();
+        for j in range {
+            if compared[j] {
+                continue;
+            }
+            let (_, pushed, loaded, _) = &ops[j];
+            if let Some(s) = pushed {
+                out.strings.push(s);
+            }
+            match loaded {
+                Some((true, n)) => out.slots.push(*n),
+                Some((false, n)) => out.derives.push(*n),
+                None => {}
+            }
+        }
+        out
+    };
+    let mut out = read(0..ops.len());
+    out.stores = runs
+        .into_iter()
+        .map(|(slot, a, b)| (slot, read(a..b)))
+        .collect();
     out
 }
 
@@ -150,52 +225,52 @@ pub fn sites(
         })
     };
     // The slots and derives that may hold the token: a slot whose initial
-    // value or a write to it (an action's body) names it, a derive whose
-    // body names it or loads one that may.
-    let holds: Vec<Option<Value>> = plan
+    // value or a value stored into it (an action's) names it, or loads one
+    // that may; a derive whose body names it or loads one that may.
+    let inits: Vec<Reads> = plan
         .slots
         .iter()
-        .enumerate()
-        .map(|(n, slot)| {
-            named(&reads(plan, plan.code(slot.init)))
-                .or_else(|| {
-                    plan.actions.iter().find_map(|a| {
-                        let writes = &plan.writes
-                            [a.writes.start as usize..(a.writes.start + a.writes.len) as usize];
-                        writes
-                            .iter()
-                            .any(|w| w.slot.0 as usize == n)
-                            .then(|| named(&reads(plan, plan.code(a.body))))
-                            .flatten()
-                    })
-                })
-                .map(|_| json!({"slot": plan.str(slot.name)}))
-        })
+        .map(|s| reads(plan, plan.code(s.init)))
+        .collect();
+    let bodies: Vec<Reads> = plan
+        .actions
+        .iter()
+        .map(|a| reads(plan, plan.code(a.body)))
         .collect();
     let derive_reads: Vec<Reads> = plan
         .derives
         .iter()
         .map(|d| reads(plan, plan.code(d.body)))
         .collect();
+    let mut holds: Vec<Option<Value>> = vec![None; plan.slots.len()];
     let mut derived: Vec<Option<Value>> = vec![None; plan.derives.len()];
+    let carried = |rd: &Reads, holds: &[Option<Value>], derived: &[Option<Value>]| {
+        named(rd).is_some()
+            || rd
+                .slots
+                .iter()
+                .any(|s| holds.get(*s).is_some_and(Option::is_some))
+            || rd
+                .derives
+                .iter()
+                .any(|d| derived.get(*d).is_some_and(Option::is_some))
+    };
     loop {
         let mut moved = false;
-        for (n, rd) in derive_reads.iter().enumerate() {
-            if derived[n].is_some() {
-                continue;
+        for n in 0..plan.slots.len() {
+            if holds[n].is_none()
+                && (carried(&inits[n], &holds, &derived)
+                    || bodies
+                        .iter()
+                        .flat_map(|b| &b.stores)
+                        .any(|(slot, rd)| *slot == n && carried(rd, &holds, &derived)))
+            {
+                holds[n] = Some(json!({"slot": plan.str(plan.slots[n].name)}));
+                moved = true;
             }
-            let found = named(rd)
-                .or_else(|| {
-                    rd.slots
-                        .iter()
-                        .find_map(|s| holds.get(*s).cloned().flatten())
-                })
-                .or_else(|| {
-                    rd.derives
-                        .iter()
-                        .find_map(|d| derived.get(*d).cloned().flatten())
-                });
-            if found.is_some() {
+        }
+        for (n, rd) in derive_reads.iter().enumerate() {
+            if derived[n].is_none() && carried(rd, &holds, &derived) {
                 derived[n] = Some(json!({"derive": plan.str(plan.derives[n].name)}));
                 moved = true;
             }

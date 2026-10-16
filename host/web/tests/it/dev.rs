@@ -627,18 +627,33 @@ fn a_scrub_previews_without_writing_and_restores_the_committed_design() {
     assert_eq!(back.tokens[0].value, "#111111ff");
     assert_eq!(back.design, committed.design);
     assert!(s.restore().is_none(), "restored once");
-    // A save while a scrub previews: its batch is based on the preview.
+    // A save while a scrub previews: the builds stay on the preview (an
+    // empty batch), and its end restores the saved design.
     let (shown, _) = s
         .scrub::<NoData>(tamber.replace("#111111", "#444444"))
         .unwrap();
     save(&design, &tamber.replace("#111111", "#555555"), 1);
     let saved = s.poll::<NoData>().expect("a design edit").unwrap();
     let live = saved.live.expect("value-only");
+    assert!(live.batch.tokens.is_empty());
+    let (back, _) = s.restore().expect("still previewing");
+    let back = back.expect("to the saved design");
+    assert_eq!(back.base.as_deref(), Some(shown.unwrap().design.as_str()));
+    assert_eq!(back.tokens[0].value, "#555555ff");
+    // A released scrub: the build of what it wrote goes from it, and ends it.
+    let (shown, _) = s
+        .scrub::<NoData>(tamber.replace("#111111", "#666666"))
+        .unwrap();
+    s.release();
+    save(&design, &tamber.replace("#111111", "#666666"), 2);
+    let written = s.poll::<NoData>().expect("the release's write").unwrap();
+    let live = written.live.expect("value-only");
     assert_eq!(
         live.batch.base.as_deref(),
         Some(shown.unwrap().design.as_str())
     );
-    assert!(s.restore().is_none(), "the save ended the scrub");
+    assert!(live.batch.tokens.is_empty(), "the builds already show it");
+    assert!(s.restore().is_none(), "ended");
     let _ = std::fs::remove_dir_all(dir);
 }
 

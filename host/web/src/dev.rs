@@ -70,6 +70,9 @@ pub struct Session {
     /// An open scrub's last preview (LLP 1121 stage 4, commit 6): its
     /// design shape and the design the builds run while it lasts.
     scrub: Option<(String, Vec<exact_runner::design::Token>)>,
+    /// That scrub is being written: the next build batches from it and
+    /// ends it.
+    released: bool,
 }
 
 /// A used file as it reads: its time and a fingerprint of its bytes, so a
@@ -136,6 +139,7 @@ impl Session {
             source_map: true,
             design: None,
             scrub: None,
+            released: false,
         }
     }
 
@@ -238,18 +242,34 @@ impl Session {
         let structure = exact_runner::design::structure(&baked);
         let shape = exact_runner::design::shape(&baked);
         let tokens = exact_runner::design::tokens(&baked);
-        // The builds run a scrub's design while one previews; any build ends it.
-        let scrubbed = self.scrub.take().map(|(_, t)| t);
+        // While a scrub previews, the builds stay on it: a value-only build
+        // changes only what its end restores (an empty batch, which the loop
+        // does not send); a new plan ends it. A released one's build (what
+        // it wrote) goes from it, and ends it.
+        if self.released {
+            self.released = false;
+            let shown = self.scrub.take().map(|(_, t)| t);
+            if let (Some(shown), Some((_, committed))) = (shown, self.design.as_mut()) {
+                *committed = shown;
+            }
+        }
+        let previewing = self.scrub.as_ref().map(|(_, t)| t.clone());
         let live = design_only
             .then(|| {
                 let (published, committed) = self.design.as_ref()?;
-                let from = scrubbed.as_ref().unwrap_or(committed);
+                let (from, to) = match &previewing {
+                    Some(shown) => (shown, shown),
+                    None => (committed, &tokens),
+                };
                 let batch = (*published == structure)
-                    .then(|| exact_runner::design::batch(&shape, from, &tokens))??;
-                let snapshot = exact_runner::design::snapshot(&shape, &tokens);
+                    .then(|| exact_runner::design::batch(&shape, from, to))??;
+                let snapshot = exact_runner::design::snapshot(&shape, to);
                 Some(Live { batch, snapshot })
             })
             .flatten();
+        if live.is_none() {
+            self.scrub = None;
+        }
         let bytes = baked.encode();
         exact_bake::write_development_artifacts(&baked)?;
         // Publish the map first, then its plan. Readers must check the digest
@@ -313,9 +333,15 @@ impl Session {
         Ok((batch, snapshot))
     }
 
+    /// A scrub being written: the build of what it writes goes from it.
+    pub fn release(&mut self) {
+        self.released = self.scrub.is_some();
+    }
+
     /// A scrub ended without its write: the batch back to the committed
     /// design and its snapshot, if one previewed.
     pub fn restore(&mut self) -> Option<Scrubbed> {
+        self.released = false;
         let (shape, scrubbed) = self.scrub.take()?;
         let (_, committed) = self.design.as_ref()?;
         let batch = exact_runner::design::batch(&shape, &scrubbed, committed)
@@ -374,11 +400,12 @@ fn write_atomic(out: &Path, bytes: &[u8]) -> Result<(), String> {
 /// `design <saved_ms> <compile_ms> <bake_ms> <ready_ms> {"batch":…,"snapshot":…}`
 /// for a value-only design edit (no plan written), or `error <message as a
 /// JSON string>`, its lines kept — for `dev.mjs` to relay. On stdin, a scrub
-/// (LLP 1121 stage 4, commit 6): `scrub <id> <design text as a JSON string>`
-/// and `restore <id>`, each answered `scrubbed <id> {"batch":…,"snapshot":…}` (null when
-/// nothing the builds read moved) or `scrubbed <id> {"error":…}`, no file
-/// written. Polls every 10 ms; a stat
-/// is microseconds. `--once` builds the plan a single time and exits —
+/// (LLP 1121 stage 4, commit 6): `scrub <id> <design text as a JSON string>`,
+/// `restore <id>` and `release <id>` (the scrub is being written: the build
+/// of what it writes goes from it), each answered `scrubbed <id>
+/// {"batch":…,"snapshot":…}` (each null when there is none) or `scrubbed
+/// <id> {"error":…}`, no file written. Polls every 10 ms; a stat is
+/// microseconds. `--once` builds the plan a single time and exits —
 /// `build.mjs` uses it so `dist/` carries `app.plan` for a static host
 /// (LLP 1023 D2: the envelope points at a file that must exist).
 pub fn main<D: DataSource + Default>() -> std::process::ExitCode {
@@ -427,6 +454,10 @@ pub fn main<D: DataSource + Default>() -> std::process::ExitCode {
                 (Some("restore"), _) => Ok(session
                     .restore()
                     .map_or((None, None), |(b, s)| (b, Some(s)))),
+                (Some("release"), _) => {
+                    session.release();
+                    Ok((None, None))
+                }
                 _ => Err(format!("unknown command {}", json_string(&line))),
             };
             let json =

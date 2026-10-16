@@ -291,7 +291,7 @@ const scrubAsk = (line, apply) => new Promise((done) => {
   child.stdin.write(`${line(id)}\n`);
 });
 // The design the builds run while a TypeScript app's scrub previews.
-let moduleScrubbed = null;
+let moduleScrubbed = null, moduleReleased = false;
 /** Preview a scrub's texts on every build: the batch from the design they
  * run; nothing written. */
 async function scrubPreview(texts) {
@@ -317,10 +317,17 @@ async function scrubPreview(texts) {
   });
 }
 /** A scrub ended without its write: every build back on the committed design. */
+/** A scrub being written: the build of what it writes goes from it. */
+async function scrubReleased() {
+  if (typescript) { moduleReleased = moduleScrubbed != null; return; }
+  if (portableRust) return;
+  await scrubAsk((id) => `release ${id}`, () => {});
+}
 async function scrubRestore() {
   if (typescript) {
     const live = moduleScrubbed && moduleDesign && scrubBatch(moduleScrubbed, moduleDesign);
     moduleScrubbed = null;
+    moduleReleased = false;
     if (live?.batch.tokens.length) pushDesign(live); else if (live) designSnapshot = live.snapshot;
     return;
   }
@@ -338,7 +345,7 @@ const installer = localInstaller({ app: () => app, origins, port: servedAs ?? po
 // Live while a value-only edit has its path here: the resident compiler's or
 // the TypeScript producer's. A Rust-data app's own producer publishes every
 // plan, so its design edits reload.
-const tamber = servedAs == null && designPath(app.dir) ? tamberServer({ appDir: app.dir, live: () => typescript || !portableRust, scrub: { preview: scrubPreview, restore: scrubRestore } }) : null;
+const tamber = servedAs == null && designPath(app.dir) ? tamberServer({ appDir: app.dir, live: () => typescript || !portableRust, scrub: { preview: scrubPreview, restore: scrubRestore, released: scrubReleased } }) : null;
 // A polled stream (Linux) is told the design to run when it opens.
 tamber?.channel.greet(() => designSnapshot && designNotice(designSnapshot));
 const generationCache = resolve(root, 'target/dev-generations', createHash('sha256').update(canonicalBytes({ app: app.id, path: app.dir, dist })).digest('hex'));
@@ -669,10 +676,13 @@ function startModuleCompiler() {
         // The executables, not the receipt, which names the plan's digest.
         const sameModule = currentModule && [MODULE_FILES.native, MODULE_FILES.web].every(name => currentModule.get(name)?.equals(candidate.get(name)));
         const live = sameModule && moduleDesign && reply.design && designBatch(moduleDesign, reply.design);
-        // The builds run a scrub's design while one previews; an edit ends it.
-        if (live && moduleScrubbed) live.batch = scrubBatch(moduleScrubbed, reply.design)?.batch ?? live.batch;
-        moduleScrubbed = null;
+        // While a scrub previews, the builds stay on it: a value-only edit
+        // changes only what its end restores; a generation ends it. A
+        // released scrub's edit (what it wrote) goes from it, and ends it.
+        if (live && moduleScrubbed && moduleReleased) live.batch = scrubBatch(moduleScrubbed, reply.design)?.batch ?? live.batch;
+        if (!live || moduleReleased) { moduleScrubbed = null; moduleReleased = false; }
         if (reply.design) moduleDesign = reply.design;
+        if (live && moduleScrubbed) continue;
         if (live) {
           if (live.batch.tokens.length) {
             console.log(`edit → batch ready ${Date.now() - request.saved} ms · ${live.batch.tokens.length} token${live.batch.tokens.length === 1 ? '' : 's'} to ${clients.size} build${clients.size === 1 ? '' : 's'}, no generation`);

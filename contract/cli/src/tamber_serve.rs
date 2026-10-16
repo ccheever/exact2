@@ -800,6 +800,12 @@ impl Server {
         if !folding.tokens.iter().any(|t| t.name == name) {
             return Err(json!({"message": format!("no token `{name}`")}));
         }
+        // A design file the app does not build has no sites.
+        if optional(request, "file")?.is_some_and(|f| f != self.design) {
+            return Ok(
+                json!({"token": name, "plan": null, "sites": [], "aliases": [], "files": files_json(&snap)}),
+            );
+        }
         let aliases = contract::tamber_uses::aliases(
             &name,
             folding
