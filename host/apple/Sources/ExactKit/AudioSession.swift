@@ -15,41 +15,22 @@ package enum AudioSession {
     /// What wants the app's category now: the sound arm and a canvas's audio
     /// for as long as they run, and each video while it has sound. A want
     /// whose activation failed (during a call) stays, and is activated again
-    /// when the interruption ends.
+    /// when the interruption ends with `shouldResume`.
     nonisolated(unsafe) private static var holders: Set<ObjectIdentifier> = []
     /// Every live media player, muted or not: deactivating the session would
     /// stop a running one, so the session is only given up when none is left.
     nonisolated(unsafe) private static var players: Set<ObjectIdentifier> = []
     nonisolated(unsafe) private static var observing = false
-    /// The sound arm's and a canvas's hold, which they never give back.
+    /// A canvas's hold, which it never gives back.
     private final class Forever {}
     private static let forever = Forever()
     /// For tests: the next activation fails with this, as it can during a call.
     nonisolated(unsafe) static var nextHoldFailure: Error?
 
-    /// Set the app's category and activate the session, for good (the sound
-    /// arm, a canvas's audio).
+    /// Set the app's category and activate the session, for good (a
+    /// canvas's audio).
     package static func activate() throws {
         try hold(ObjectIdentifier(forever))
-    }
-
-    /// The sound arm's want, taken on the main thread: the app's category,
-    /// and a test's injected failure. The arm's queue then activates it with
-    /// `activate(_:)`; an output that does not come up gives it back
-    /// (`release`), one that does keeps it.
-    package static func want(_ holder: ObjectIdentifier) -> (AVAudioSession.Category, Error?) {
-        holders.insert(holder)
-        observeInterruptions()
-        defer { nextHoldFailure = nil }
-        return (category, nextHoldFailure)
-    }
-
-    /// Sets `category` and activates the session from any thread: only
-    /// AVAudioSession's own calls, which can block (the sound arm's queue).
-    package static func activate(_ category: AVAudioSession.Category) throws {
-        let session = AVAudioSession.sharedInstance()
-        if session.category != category { try session.setCategory(category) }
-        try session.setActive(true)
     }
 
     /// `holder` plays sound: the session takes the app's category and is
@@ -102,12 +83,16 @@ package enum AudioSession {
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
+    /// An interruption's end takes the session back only with
+    /// `shouldResume`: without it the person started other audio, and the
+    /// next want activates the session instead.
     private static func observeInterruptions() {
         guard !observing else { return }
         observing = true
         NotificationCenter.default.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { note in
             guard let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
-                  AVAudioSession.InterruptionType(rawValue: raw) == .ended else { return }
+                  AVAudioSession.InterruptionType(rawValue: raw) == .ended,
+                  AVAudioSession.InterruptionOptions(rawValue: note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0).contains(.shouldResume) else { return }
             try? reconcile()
         }
     }

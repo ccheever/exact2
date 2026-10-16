@@ -11,8 +11,8 @@
 // call that can raise is made inside sound_engine.m's @try, so no exception
 // unwinds through Swift, and comes back from `exact_sound_open` and
 // `exact_sound_engine` as text. A process abort inside CoreAudio
-// (AURemoteIO's RPC timeout) cannot be caught; SoundModule.swift never opens
-// the output at boot, and on iOS and tvOS not before the first voice.
+// (AURemoteIO's RPC timeout) cannot be caught; SoundModule.swift opens the
+// output at the first voice, never at boot.
 import AVFoundation
 import Foundation
 
@@ -22,7 +22,8 @@ public typealias SoundLog = @convention(c) (UnsafeMutableRawPointer?, UnsafePoin
 private func text(_ reason: [CChar]) -> String { String(cString: reason) }
 
 private final class SoundArm {
-    let engine: AVAudioEngine
+    /// Let go in `deinit` before the mixer it renders from is freed.
+    var engine: AVAudioEngine!
     let format: AVAudioFormat
     let mixer: OpaquePointer
     var source: AVAudioSourceNode?
@@ -33,7 +34,9 @@ private final class SoundArm {
     var checking = false
     var silentFor = 1.0
     var changed: NSObjectProtocol?
-    /// The media services were reset: the engine is invalid and is not messaged again.
+    /// The media services were reset: the engine is invalid (Apple QA1749),
+    /// so a raise from its disposal is ignored rather than kept as a reason
+    /// to leave the mixer allocated.
     var orphaned = false
 
     private init(engine: AVAudioEngine, format: AVAudioFormat, mixer: OpaquePointer, context: UnsafeMutableRawPointer?, log: SoundLog?) {
@@ -84,13 +87,15 @@ private final class SoundArm {
 
     deinit {
         if let changed { NotificationCenter.default.removeObserver(changed) }
-        // An orphan is never messaged again, deallocation included (Apple's
-        // reset guidance: its objects are invalid); it, and the mixer its
-        // render block reads, are left as they are. An engine that raised even
-        // on stop may still render from the mixer, which is left allocated too.
-        // Both are rare enough that the kit left behind costs less than a crash.
-        if orphaned { _ = Unmanaged.passRetained(engine); return }
-        guard exact_sound_engine_stop(engine) else { return }
+        // A live engine that raised even on stop may still render from the
+        // mixer, so the mixer and planes are left allocated: rare enough that
+        // the kit left behind costs less than a crash. An orphan's engine is
+        // disposed whatever its stop says (QA1749: dispose of orphaned
+        // objects, then make new ones), and the engine and its source node
+        // are let go before the mixer is freed.
+        guard exact_sound_engine_stop(engine) || orphaned else { return }
+        source = nil
+        engine = nil
         exact_sound_mixer_free(mixer)
         planes.forEach { $0.deallocate() }
     }
@@ -196,9 +201,7 @@ private final class SoundArm {
 
 /// The output, its engine started when `start` (else by `exact_sound_engine`
 /// 1), or nil with why not in `reason` (`size` bytes, NUL-terminated).
-/// `exact_sound_open`, `exact_sound_engine` and `exact_sound_close` are
-/// called on one serial queue; `exact_sound_op` and `exact_sound_counts` on
-/// the main thread, the mixer ring's one producer.
+/// Every call is the main thread's, the mixer ring's one producer.
 @_cdecl("exact_sound_open")
 public func exact_sound_open(_ paths: UnsafePointer<UnsafePointer<CChar>?>?, _ count: Int, _ context: UnsafeMutableRawPointer?, _ log: SoundLog?, _ start: Bool, _ reason: UnsafeMutablePointer<CChar>?, _ size: Int) -> UnsafeMutableRawPointer? {
     let list = (0..<count).compactMap { paths?[$0].map { String(cString: $0) } }
@@ -229,7 +232,8 @@ public func exact_sound_counts(_ handle: UnsafeMutableRawPointer?, _ out: Unsafe
 
 /// 0 pauses the engine (an interruption began), 1 starts it, 2 starts the
 /// device check, 3 marks it orphaned (the media services were reset), so its
-/// close never messages it: false, with why in `reason`, when it failed.
+/// close disposes of it whatever stopping it raises: false, with why in
+/// `reason`, when it failed.
 @_cdecl("exact_sound_engine")
 public func exact_sound_engine(_ handle: UnsafeMutableRawPointer?, _ what: UInt32, _ reason: UnsafeMutablePointer<CChar>?, _ size: Int) -> Bool {
     guard let handle else { return false }

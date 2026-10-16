@@ -1216,7 +1216,7 @@ public final class ExactSession {
         DispatchQueue.main.async { [weak self] in
             guard let self, state != .destroyed, generation == drawnGeneration else { return }
             // Prepare before any source calls the module (LLP 1067.000 D8).
-            natives.prepareAppModule(); presenter.releaseLaunchAutofocus(); sound.prepare() // the next turn, never waiting on a loading source; the Mac's sound output is made off the main thread (LLP 1096 D8)
+            natives.prepareAppModule(); presenter.releaseLaunchAutofocus() // the next turn, never waiting on a loading source
             let batch = runtime.dataReady()
             if batch.pending {
                 pendingActivation = (drawnGeneration, token) // the generation stays activated: only the source's wake retries
@@ -1490,7 +1490,7 @@ public final class ExactSession {
         presenter.reset()
         ExactSession.live.removeValue(forKey: runtime.rt)
         forgetDocuments()
-        rasters.shutdown()
+        rasters.shutdown(); sound.shutdown() // the sound arm stopped and let go, its session claim given back (LLP 1096 D8)
         textPressure?.cancel(); textPressure = nil
         runtime.destroy()
         natives.destroyModule()
