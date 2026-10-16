@@ -2030,9 +2030,10 @@ all, as a hand-built field whose delegate handles Return; any other commits
 its edit and presses the first action that is not destructive,
 whatever `buttonStyle` says; while that action is disabled Return does nothing, so a Save with `disabled=(draft == "")`
 opens dimmed and enables as a name is typed. iOS draws no action bold, as a
-hand-built alert does not, unless one action that is not destructive says
-`buttonStyle="filled"` (or `"bordered-prominent"`): that one is the alert's
-preferred action, as it is the Mac's default button. Only the alert's shape takes
+hand-built alert does not, unless the action Return presses says
+`buttonStyle="filled"`: then it is the alert's preferred action, bold. (An alert
+with no field prefers its one filled action that is not destructive, as the Mac
+makes it the default button.) Only the alert's shape takes
 one field at a time: with it, a cancel and at most three buttons, no `for`
 (`lower-alertdialog` says which row breaks it).
 

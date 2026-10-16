@@ -363,12 +363,18 @@ final class ConfirmationAlertIOSTests: XCTestCase {
         p.buttonFace = { id in var f = ButtonFace(); f.title = [3: "Delete", 4: "Save", 9: "Cancel"][id]; if id == 4 { f.style = "filled" }; return f }
         XCTAssertEqual(p.menus.activate(try XCTUnwrap(p.views[1])), true)
         let marked = try XCTUnwrap(controller.presentedViewController as? UIAlertController)
-        XCTAssertEqual(marked.preferredAction?.title, "Save", "the author's one prominent action")
+        XCTAssertEqual(marked.preferredAction?.title, "Save", "the author's one filled action, the one Return presses")
         let actions = [p.views[3], p.views[4]].compactMap { $0 }
         p.buttonFace = { id in var f = ButtonFace(); f.title = [3: "Delete", 4: "Save", 9: "Cancel"][id]; f.style = "filled"; return f }
-        XCTAssertEqual(MenuHost.preferredAction(actions), 1, "a destructive one is never preferred")
+        XCTAssertEqual(MenuHost.preferredAction(actions, prompt: true), 1, "a destructive one is never preferred")
+        p.buttonFace = { id in var f = ButtonFace(); f.title = [3: "Delete", 4: "Save", 9: "Cancel"][id]; if id == 4 { f.style = "bordered-prominent" }; return f }
+        XCTAssertNil(MenuHost.preferredAction(actions, prompt: false), "only `filled`, as the Mac's default button")
         p.apply(wireBatch([["op": "props", "id": 3, "clear": ["destructive"]]]))
-        XCTAssertNil(MenuHost.preferredAction(actions), "emphasis never picks among several")
+        p.buttonFace = { id in var f = ButtonFace(); f.title = [3: "Keep", 4: "Save", 9: "Cancel"][id]; if id == 4 { f.style = "filled" }; return f }
+        XCTAssertNil(MenuHost.preferredAction(actions, prompt: true), "a prompt's Return presses Keep: Save is not drawn bold")
+        XCTAssertEqual(MenuHost.preferredAction(actions, prompt: false), 1, "an alert with no field: its one filled action")
+        p.buttonFace = { id in var f = ButtonFace(); f.title = [3: "Keep", 4: "Save", 9: "Cancel"][id]; f.style = "filled"; return f }
+        XCTAssertNil(MenuHost.preferredAction(actions, prompt: false), "emphasis never picks among several")
     }
 
     /// A prompt opens with every action disabled (Save, until a name is
