@@ -321,6 +321,20 @@ refused (studio diary R14; notes diary). When nothing takes the path, the
 host says why — no `open-file` field, or the `change` the app refused, and the
 refusal — on stderr and in the journal. `exact uninstall <app>` takes both halves away.
 
+App icons come from `app.json`'s Web App Manifest `icons` array: Apple uses
+the first square raster of at least 512 px. To select an
+[Icon Composer project](https://developer.apple.com/documentation/xcode/creating-your-app-icon-using-icon-composer),
+set `host.ios.icon` or `host.macos.icon` to its app-relative `.icon` directory,
+for example `"host": { "ios": { "icon": "art/Primary.icon" }, "macos": { "icon": "art/Primary.icon" } }`.
+Each platform selects independently; tvOS keeps its asset catalogs and does
+not inherit the iOS selection. There is no `.icon` discovery. The selected
+project must be inside the app and cannot coexist with an `.appiconset`
+in that platform's catalogs. Missing paths
+and paths that are not `.icon` directories fail by name. The project and its
+layers compile in the same `actool` pass as the app's catalogs; changing them
+requires a new native build. `icons` still supplies the web and the native
+raster fallback when the platform has no `icon` selection.
+
 Apple products live under the resolved app's target directory, scoped by
 canonical source directory, manifest id, destination, composition and trust
 policy. The Swift host is compiled once per destination for every app, in

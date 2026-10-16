@@ -2118,6 +2118,12 @@ or `NSImage(named: "donut")`; SwiftUI uses `Image("donut", bundle: .main)`.
 accent section above). Catalog changes require a
 new native build; they are not web assets or live update payloads.
 
+An Icon Composer project is selected explicitly by `host.ios.icon` or
+`host.macos.icon` in `app.json`, as an app-relative `.icon` directory; tvOS
+does not inherit it. It compiles with the catalogs and replaces the native
+raster icon from `icons`, which still supplies the web. See the
+[icon inputs in the reference](reference.md) for conflicts and fallback.
+
 An iOS native module that uses `canOpenURL` to check for another app lists
 its schemes in `app.json`: `"host": { "ios": { "queriesSchemes":
 ["comgooglemaps", "waze"] } }`. The build writes `LSApplicationQueriesSchemes`.

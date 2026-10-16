@@ -164,6 +164,16 @@ a configured app's frame under its bundle identity. Bare development executables
 read the existing adjacent Info.plist. Agent/smoke runs skip restoration and use
 the existing viewport unless `EXACT_WINDOW_WIDTH`/`EXACT_WINDOW_HEIGHT` overrides it.
 
+**Icon Composer (2026-10-16, issue #467):** `host.ios.icon` and `host.macos.icon`
+explicitly select one app-owned `.icon` directory relative to `app.json`.
+Its stem is the primary icon's name in the single `actool` pass alongside
+the app's catalogs. A selected project conflicts with an `.appiconset`
+in those catalogs; missing paths and non-`.icon` directories
+are refused by name. The project and every layer are native binary inputs:
+their hashes enter the bake receipt and asset cache, and packaging refuses
+changed sources. tvOS keeps asset catalogs and never inherits this selection.
+The web keeps `icons`, also the Apple raster fallback without a selection.
+
 **App Transport Security (2026-10-06, issue #106):** `host.macos.appTransportSecurity`
 and `host.ios.appTransportSecurity` are typed, not a pass-through: one key,
 `allowsArbitraryLoadsInWebContent`, baked as `NSAppTransportSecurity ›

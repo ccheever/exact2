@@ -19,6 +19,7 @@ const run = (cmd, args, opts = {}) => {
  * `CFBundleIcons` on iOS, an `.icns` built by `iconutil` on macOS. Returns
  * the plist keys to merge; nothing when the app declares no such icon. */
 export function appIcon(app, dir, platform, { catalog = false } = {}) {
+  if (app.manifest.host?.[platform]?.icon) return {};
   const icon = (app.manifest.icons ?? []).find((i) => { const m = /^(\d+)x(\d+)$/.exec(i.sizes ?? ''); return m && m[1] === m[2] && Number(m[1]) >= 512; });
   if (!icon) return {};
   const source = resolve(app.dir, icon.src);
@@ -48,16 +49,29 @@ export function appIcon(app, dir, platform, { catalog = false } = {}) {
   return { CFBundleIconFile: 'AppIcon' };
 }
 
-/** Catalogs follow the app's native module directory selection. Their bytes
+/** Catalogs follow the app's native module directory selection; Icon Composer
+ * projects are explicitly selected per platform. Their bytes
  * are native binary inputs, not portable plan assets or live update payloads. */
 export function appleAssetCatalogInventory(app, platform) {
-  const own = resolve(app.dir, platform, 'modules');
+  const own = resolve(app.dir, platform === 'tvos' ? 'ios' : platform, 'modules');
   const folder = existsSync(own) ? own : resolve(app.dir, 'modules/apple');
-  if (!existsSync(folder)) return [];
-  return readdirSync(folder).filter(name => name.endsWith('.xcassets')).sort().map(name => {
+  const catalogs = (existsSync(folder) ? readdirSync(folder) : []).filter(name => name.endsWith('.xcassets')).sort().map(name => {
     const path = resolve(folder, name);
     return { path: relative(app.dir, path), files: catalogFiles(path) };
   });
+  const selected = ['ios', 'macos'].includes(platform) && app.manifest?.host?.[platform]?.icon;
+  if (selected) {
+    const path = resolve(app.dir, selected), field = `host.${platform}.icon: ${selected}`;
+    if (!existsSync(path)) throw new Error(`${field} does not exist`);
+    if (!selected.endsWith('.icon') || !lstatSync(path).isDirectory()) throw new Error(`${field} must name an .icon directory`);
+    if (isAbsolute(selected) || !path.startsWith(resolve(app.dir) + '/') || !realpathSync(path).startsWith(realpathSync(app.dir) + '/')) throw new Error(`${field} must be inside the app`);
+    for (const entry of catalogs) {
+      const primary = readdirSync(resolve(app.dir, entry.path), { recursive: true }).sort().find(name => name.endsWith('.appiconset'));
+      if (primary) throw new Error(`${field} conflicts with ${entry.path}/${primary}; select one primary icon`);
+    }
+    catalogs.push({ path: relative(app.dir, path), files: catalogFiles(path) });
+  }
+  return catalogs;
 }
 function catalogFiles(root) {
   const files = [];
@@ -73,7 +87,7 @@ function catalogFiles(root) {
   return files;
 }
 
-/** One actool pass includes the app's catalogs, generated icon and launch
+/** One actool pass includes the app's catalogs, selected or generated icon and launch
  * colours: separate passes silently replace Assets.car. No unchanged build
  * reruns actool; the cache key includes source bytes, target and toolchain. */
 export function iosAssets(app, dir, device, options = {}) {
@@ -81,7 +95,8 @@ export function iosAssets(app, dir, device, options = {}) {
 }
 export function appleAssets(app, dir, { platform = 'macos', device = false, catalog = false, kept = null, expected, launch = 'system' } = {}) {
   const sourcePlatform = platform === 'tvos' ? 'ios' : platform;
-  const catalogs = appleAssetCatalogInventory(app, sourcePlatform);
+  const catalogs = appleAssetCatalogInventory(app, platform);
+  const selected = catalogs.find(entry => entry.path.endsWith('.icon'));
   if (expected !== undefined && JSON.stringify(catalogs) !== JSON.stringify(expected))
     throw new Error('Apple asset catalogs changed after the bake; rebuild before packaging');
   if (platform !== 'ios' && !catalogs.length) { rmSync(resolve(dir, 'Assets.car'), { force: true }); return {}; }
@@ -119,7 +134,8 @@ export function appleAssets(app, dir, { platform = 'macos', device = false, cata
     const assets = resolve(work, 'Generated.xcassets');
     const keys = platform === 'ios' ? { ...appIcon(app, dir, 'ios', { catalog: catalog ? assets : false }), ...launchScreen(app, assets, launch) } : {};
     const hasIcon = existsSync(resolve(assets, 'AppIcon.appiconset'));
-    if (catalog && platform === 'ios' && !hasIcon) throw new Error(`host/apple: ${app.name}'s distribution bundle requires an AppIcon; declare a square icon of at least 512 px`);
+    const iconName = selected ? basename(selected.path, '.icon') : hasIcon ? 'AppIcon' : null;
+    if (catalog && platform === 'ios' && !iconName) throw new Error(`host/apple: ${app.name}'s distribution bundle requires an AppIcon; declare host.ios.icon or a square icon of at least 512 px`);
     if (hasIcon || keys.UILaunchScreen) {
       writeFileSync(resolve(assets, 'Contents.json'), JSON.stringify({ info: { author: 'exact', version: 1 } }));
       sources.push(assets);
@@ -135,14 +151,14 @@ export function appleAssets(app, dir, { platform = 'macos', device = false, cata
       run('xcrun', ['actool', ...sources, '--compile', dir, '--platform', target,
         '--minimum-deployment-target', app.manifest.host?.[sourcePlatform]?.minimumOS ?? (platform === 'macos' ? '14.0' : '17.0'),
         ...(platform === 'macos' ? [] : ['--target-device', ...(platform === 'tvos' ? ['tv'] : ['iphone', '--target-device', 'ipad'])]),
-        ...(hasIcon ? ['--app-icon', 'AppIcon'] : []),
+        ...(iconName ? ['--app-icon', iconName] : []),
         ...(accent ? ['--accent-color', 'AccentColor'] : []),
         '--output-partial-info-plist', partial, '--output-format', 'human-readable-text'], { stdio: 'ignore' });
       Object.assign(keys, JSON.parse(run('plutil', ['-convert', 'json', '-o', '-', partial], { encoding: 'utf8', stdio: 'pipe' }).stdout));
     }
     if (catalog && platform === 'ios') {
       const contents = JSON.parse(run('xcrun', ['assetutil', '--info', resolve(dir, 'Assets.car')], { encoding: 'utf8', stdio: 'pipe' }).stdout);
-      if (!contents.some(asset => asset.Name === 'AppIcon')) throw new Error(`host/apple: ${dir}/Assets.car has no AppIcon`);
+      if (!contents.some(asset => asset.Name === iconName)) throw new Error(`host/apple: ${dir}/Assets.car has no ${iconName}`);
     }
     return keys;
   } finally { rmSync(work, { recursive: true, force: true }); }

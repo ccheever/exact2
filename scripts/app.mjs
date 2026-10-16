@@ -1176,8 +1176,8 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
     }
   }
   const nativeResources = platform === 'macos' ? macResourceInventory(app) : [];
-  const assetCatalogApp = ['macos', 'ios'].includes(platform) ? { dir: app.dir, platform } : null;
-  const appleAssetCatalogs = assetCatalogApp ? appleAssetCatalogInventory(app, platform) : [];
+  const assetCatalogApp = ['macos', 'ios'].includes(platform) ? { dir: app.dir, platform: target.includes('-tvos') ? 'tvos' : platform, manifest: { host: app.manifest.host } } : null;
+  const appleAssetCatalogs = assetCatalogApp ? appleAssetCatalogInventory(assetCatalogApp, assetCatalogApp.platform) : [];
   if (assetCatalogApp) for (const path of [resolve(app.dir, platform, 'modules'), resolve(app.dir, 'modules/apple')]) {
     if (existsSync(path)) directories.set(nameOf(path), {path, names: readdirSync(path).sort()});
     else absent.set(nameOf(path), path);

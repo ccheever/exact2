@@ -450,6 +450,103 @@ test('exact hatch writes each target\'s stub, wires it in, and declares the word
 });
 
 // Catalogs are native inputs even when the app declares no native view tags.
+function composerFixture(dir) {
+  cpSync(resolve(import.meta.dir, 'fixtures/Primary.icon'), resolve(dir, 'Primary.icon'), { recursive: true });
+  return { dir, name: 'Composer', manifest: { host: { ios: { icon: 'Primary.icon' }, macos: { icon: 'Primary.icon' } } } };
+}
+
+test('Icon Composer selection is an explicit per-platform manifest field', () => inDir(dir => {
+  const { readManifest } = require('./app.mjs');
+  const app = composerFixture(dir);
+  writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: app.name, app: { id: 'com.exact.composer', name: app.name }, ...app.manifest }));
+  assert.deepEqual(readManifest(dir, 'composer').host, app.manifest.host);
+}));
+
+test('Icon Composer layers are native receipt inputs; unselected projects and tvOS are excluded', () => inDir(dir => {
+  const { appleAssetCatalogInventory } = require('../host/apple/assets.mjs');
+  const { pendingBuildInputs } = require('./app.mjs');
+  const app = composerFixture(dir);
+  const inventory = appleAssetCatalogInventory(app, 'ios');
+  const build = { binary: { assetCatalogApp: { ...app, platform: 'ios' }, metadata: { appleAssetCatalogs: inventory }, inputs: [], directories: [], missing: [] } };
+  assert.deepEqual(pendingBuildInputs(build), []);
+  writeFileSync(resolve(dir, 'Primary.icon/Assets/square.svg'), '<svg/>');
+  assert.deepEqual(pendingBuildInputs(build), ['Apple asset catalogs']);
+  assert.notDeepEqual(appleAssetCatalogInventory(app, 'ios'), inventory);
+  assert.deepEqual(inventory.map(entry => entry.path), ['Primary.icon']);
+  assert.deepEqual(appleAssetCatalogInventory(app, 'tvos'), []);
+  delete app.manifest.host.ios.icon;
+  assert.deepEqual(appleAssetCatalogInventory(app, 'ios'), []);
+  assert.deepEqual(appleAssetCatalogInventory(app, 'macos').map(entry => entry.path), ['Primary.icon']);
+}));
+
+for (const [name, path, prepare, error] of [
+  ['missing', 'Missing.icon', () => {}, /host\.ios\.icon.*Missing\.icon.*does not exist/],
+  ['file', 'File.icon', dir => writeFileSync(resolve(dir, 'File.icon'), '{}'), /host\.ios\.icon.*File\.icon.*\.icon directory/],
+  ['extension', 'Folder', dir => mkdirSync(resolve(dir, 'Folder')), /host\.ios\.icon.*Folder.*\.icon directory/],
+  ['conflict', 'Primary.icon', dir => { mkdirSync(resolve(dir, 'modules/apple/Art.xcassets/AppIcon.appiconset'), { recursive: true }); writeFileSync(resolve(dir, 'modules/apple/Art.xcassets/AppIcon.appiconset/Contents.json'), '{}'); }, /Primary\.icon.*Art\.xcassets\/AppIcon\.appiconset/],
+  ['named catalog conflict', 'Primary.icon', dir => { mkdirSync(resolve(dir, 'modules/apple/Art.xcassets/Brand.appiconset'), { recursive: true }); writeFileSync(resolve(dir, 'modules/apple/Art.xcassets/Brand.appiconset/Contents.json'), '{}'); }, /Primary\.icon.*Art\.xcassets\/Brand\.appiconset/],
+  ['empty catalog conflict', 'Primary.icon', dir => mkdirSync(resolve(dir, 'modules/apple/Art.xcassets/AppIcon.appiconset'), { recursive: true }), /Primary\.icon.*Art\.xcassets\/AppIcon\.appiconset/],
+]) test(`Icon Composer refuses a selected ${name} by name`, () => inDir(dir => {
+  const { appleAssetCatalogInventory } = require('../host/apple/assets.mjs');
+  const app = composerFixture(dir);
+  app.manifest.host.ios.icon = path;
+  prepare(dir);
+  assert.throws(() => appleAssetCatalogInventory(app, 'ios'), error);
+}));
+
+test('Icon Composer refuses paths outside the app even through an alias back inside', () => inDir(dir => {
+  const { appleAssetCatalogInventory } = require('../host/apple/assets.mjs');
+  const folder = resolve(dir, 'app'); mkdirSync(folder);
+  const app = composerFixture(folder);
+  symlinkSync(folder, resolve(dir, 'alias'));
+  app.manifest.host.ios.icon = '../alias/Primary.icon';
+  assert.throws(() => appleAssetCatalogInventory(app, 'ios'), /host\.ios\.icon.*inside the app/);
+}));
+
+test.skipIf(process.platform !== 'darwin')('Icon Composer supplies the primary icon, caches layer bytes, and removal restores raster icons', () => inDir(dir => {
+  const { useXcode } = require('../host/apple/devices.mjs');
+  const { appleAssets, iosAssets, appleAssetCatalogInventory, appIcon } = require('../host/apple/assets.mjs');
+  const { readdirSync } = require('node:fs');
+  useXcode();
+  const app = composerFixture(dir), out = resolve(dir, 'out'), second = resolve(dir, 'second'), mac = resolve(dir, 'mac');
+  for (const folder of [out, second, mac]) mkdirSync(folder);
+  const kept = { dir: resolve(dir, 'cache'), stamp: 'fixture-toolchain' };
+  const inventory = appleAssetCatalogInventory(app, 'ios');
+  const keys = iosAssets(app, out, false, { catalog: true, kept, expected: inventory });
+  assert.equal(keys.CFBundleIcons.CFBundlePrimaryIcon.CFBundleIconName, 'Primary');
+  const inspect = folder => {
+    const result = spawnSync('xcrun', ['assetutil', '--info', resolve(folder, 'Assets.car')], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    return JSON.parse(result.stdout);
+  };
+  assert.ok(inspect(out).some(asset => asset.AssetType === 'IconImageStack'));
+  const cached = () => readdirSync(kept.dir).find(name => name.startsWith('assets-ios-'));
+  const first = cached(), mtime = statSync(resolve(kept.dir, first, 'Assets.car'), { bigint: true }).mtimeNs;
+  assert.deepEqual(iosAssets(app, second, false, { catalog: true, kept, expected: inventory }), keys);
+  assert.equal(statSync(resolve(kept.dir, first, 'Assets.car'), { bigint: true }).mtimeNs, mtime);
+  assert.deepEqual(readFileSync(resolve(out, 'Assets.car')), readFileSync(resolve(second, 'Assets.car')));
+  const layer = resolve(dir, 'Primary.icon/Assets/square.svg');
+  writeFileSync(layer, readFileSync(layer, 'utf8').replace('#ffffff', '#ff0000'));
+  assert.throws(() => iosAssets(app, second, false, { catalog: true, kept, expected: inventory }), /changed after the bake/);
+  iosAssets(app, second, false, { catalog: true, kept });
+  assert.notEqual(cached(), first);
+  assert.notDeepEqual(readFileSync(resolve(out, 'Assets.car')), readFileSync(resolve(second, 'Assets.car')));
+  const macKeys = appleAssets(app, mac, { platform: 'macos', kept });
+  assert.equal(macKeys.CFBundleIconName, 'Primary');
+  assert.ok(inspect(mac).some(asset => asset.AssetType === 'IconImageStack'));
+  writeFileSync(resolve(dir, 'raster.png'), Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64'));
+  app.manifest.icons = [{ src: 'raster.png', sizes: '1024x1024' }];
+  assert.deepEqual(appIcon(app, mac, 'macos'), {}, 'the raster must not overwrite the selected Mac icon');
+  delete app.manifest.host.ios.icon;
+  assert.throws(() => iosAssets(app, second, false, { catalog: true, expected: inventory }), /changed after the bake/);
+  assert.equal(iosAssets(app, second, false, { catalog: true, kept }).CFBundleIcons.CFBundlePrimaryIcon.CFBundleIconName, 'AppIcon');
+  assert.ok(inspect(second).some(asset => asset.Name === 'AppIcon'));
+  delete app.manifest.host.macos.icon;
+  assert.deepEqual(appleAssets(app, mac, { platform: 'macos', kept }), {});
+  assert.ok(!existsSync(resolve(mac, 'Assets.car')));
+  assert.deepEqual(appIcon(app, mac, 'macos'), { CFBundleIconFile: 'AppIcon' });
+}), 60000);
+
 test('Apple asset catalogs select platform modules and invalidate native receipts on additions and deletions', () => inDir(dir => {
   const { appleAssetCatalogInventory } = require('../host/apple/assets.mjs');
   const { pendingBuildInputs } = require('./app.mjs');
