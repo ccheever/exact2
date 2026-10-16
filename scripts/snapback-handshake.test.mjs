@@ -322,7 +322,7 @@ test('test web advances time only for mutation requests and preserves action tim
       text performanceNow().toString() testId="time"
 `);
     writeFileSync(join(app,'app.ts'),`import type {Answer} from './app.contract.d.ts';
-export const appId='com.example.app'; export const grants='';
+export const appId=${JSON.stringify(JSON.parse(readFileSync(join(app,'app.json'),'utf8')).app.id)}; export const grants='';
 export const answer:Answer=(_source,[now])=>now;
 `);
     writeFileSync(join(app,'app.test.contract'),`test "only mutations move the test clock"
@@ -381,6 +381,9 @@ for (const online of [false,true]) test(`README ${online ? 'online' : 'synced'} 
     run([join(sdk,'scripts/exact.mjs'),'new',app,'--snapback',...(online ? ['--online'] : []),'--port',String(port)]);
     // The examples themselves remain byte-for-byte: runtime backend input selects the test server.
     for(const [i,file] of ['app.contract','app.ts','app.test.contract'].entries()) writeFileSync(join(app,file),blocks[i+1]+'\n');
+    const manifest=JSON.parse(readFileSync(join(app,'app.json'),'utf8'));
+    manifest.app.id=/export const appId\s*=\s*['"]([^'"]+)['"]/.exec(blocks[2])[1];
+    writeFileSync(join(app,'app.json'),JSON.stringify(manifest,null,2)+'\n');
     const authored=['app.contract','app.ts','app.test.contract'].map(f=>readFileSync(join(app,f),'utf8'));
     run(['exact.mjs','snapback','--port',String(port)],app);
     if (!online) { const update=run(['exact.mjs','update'],app); assert.match(update.stdout,/rebuilt; app sources and mounts kept unchanged/); }

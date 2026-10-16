@@ -290,7 +290,7 @@ shape Board
   message: string
   latest: string
   sending: number
-  notes: list<Note>
+  notes: Note[]
 shape Ack
   ok: bool
   message: string
@@ -318,7 +318,7 @@ component Guestbook
   action editDraft(value: string)
     draft = value
   action postNote
-    send posted = post(persona, trim(draft), time.epochAtZero + performanceNow())
+    send posted = post(persona, draft.trim(), time.epochAtZero + performanceNow())
   action afterPost
     match posted
       case some(result)
@@ -341,7 +341,7 @@ component Guestbook
         text `${board.sending} sending` testId="sending"
         row gap=8
           input value=draft input=editDraft testId="draft" placeholder="Say something" aria-label="Note" flex=1
-          button appearance="auto" press=postNote disabled=(trim(draft) == "") testId="post"
+          button appearance="auto" press=postNote disabled=(draft.trim() == "") testId="post"
             text "Post"
         text notice testId="notice"
         text board.latest testId="latest"

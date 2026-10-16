@@ -482,7 +482,7 @@ fn ambient_check_resolves_extensionless_mounted_modules() {
     );
     fixture.write(
         "app.json",
-        r#"{"typescript":{"sources":{"backend":"generated"}}}"#,
+        r#"{"app":{"id":"com.example.mounted"},"typescript":{"sources":{"backend":"generated"}}}"#,
     );
     std::fs::create_dir_all(fixture.0.join("generated")).unwrap();
     fixture.write("generated/api.ts", "export const value = 42;\n");

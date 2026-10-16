@@ -523,13 +523,14 @@ test('the JS dev loop rebuilds backend selection creation, edits and removal',as
   try {
     createApp(app);
     writeFileSync(join(app,'app.contract'),'component App\n  resource chosen = chosen() as shape string else empty()\n  view\n    text chosen\n');
-    const authored="import type {Answer} from './app.contract.d.ts';\nexport const appId='com.example.app';const origin='http://127.0.0.1:4400';export const grants=`net.fetch ${origin}`;export const answer:Answer=()=>origin;\n";
+    const appId=JSON.parse(readFileSync(join(app,'app.json'),'utf8')).app.id;
+    const authored="import type {Answer} from './app.contract.d.ts';\nexport const appId="+JSON.stringify(appId)+";const origin='http://127.0.0.1:4400';export const grants=`net.fetch ${origin}`;export const answer:Answer=()=>origin;\n";
     writeFileSync(join(app,'app.ts'),authored);
     const env={...process.env,EXACT_APP_DIR:app};delete env.EXACT_BACKEND_ORIGIN;
     child=spawn(process.execPath,[resolve(import.meta.dir,'../dev.mjs'),'--app','app'],{env,stdio:['ignore','pipe','pipe']});
     for(const stream of [child.stdout,child.stderr])stream.on('data',b=>{log+=b.toString();});
     await until('http://127.0.0.1:4400');
-    mkdirSync(join(app,'.exact'));const selection=join(app,'.exact/backend-origin');
+    mkdirSync(join(app,'.exact'),{recursive:true});const selection=join(app,'.exact/backend-origin');
     writeFileSync(selection,'http://127.0.0.1:4412');await until('http://127.0.0.1:4412');
     writeFileSync(selection,'http://127.0.0.1:4413');await until('http://127.0.0.1:4413');
     rmSync(selection);await until('http://127.0.0.1:4400');
