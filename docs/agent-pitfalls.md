@@ -1255,6 +1255,21 @@ screen, 2026-10-16.)
 
 ## Access hatches
 
+- **A native view's frame ticket left on costs CPU on a still screen.** A
+  live `context.frames` ticket keeps the display link running at the
+  display's rate, whether or not the view changes: euxy's step strips, beat
+  ticker and chip sweep each took one for life, 0.8% CPU idle on an iPhone 17
+  simulator, 0.0% once each stopped its ticket at rest and took a new one
+  when its engine started moving (docs/recipes/native-views.md). A view that
+  is not shown needs none; a Core Animation animation needs none; chain
+  `after(ms)` only while there is work.
+- **A layer that draws holds a bitmap of its whole bounds, drawing or not.**
+  A `draw(in:)` layer keeps 36 bytes a point² on a 3× iPhone once it has
+  displayed, even when it drew nothing. euxy's five step strips each kept a
+  full-size playhead layer that is empty while stopped: hidden with its
+  `contents` dropped until the playhead shows, 3.2 MB of its 38 MB idle
+  footprint went. Give what moves a small layer of its own.
+
 - **A view a hatch adds on macOS hears no click while its window is not key.**
   The click reaches the view by hit test and nothing happens: AppKit spends a
   first click on activating the window unless the view says otherwise, and an

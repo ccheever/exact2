@@ -6,16 +6,11 @@ that the app's module (`modules/apple/*.swift`) makes. The Contract places, name
 ```text
 component Pad
   state last = ""
-  state playing = false
   action picked(step: string)
     last = step
-  action toggle
-    playing = not playing
   view
     column
-      step-strip steps="16" playing=(playing ? "true" : "false") message=picked aria-label="Kick steps" height=48
-      button press=toggle testId="play"
-        text (playing ? "Stop" : "Play")
+      step-strip steps="16" message=picked aria-label="Kick steps" height=48
       text last testId="last"
 ```
 
@@ -31,27 +26,18 @@ let exactModule: ExactModule.Type = Pad.self
 
 final class Strip: ExactNativeInstance {
     private let strip = StripView() // a UIView that draws and has a tap recognizer
-    private let pad: Pad
     private var ticket: ExactTicket?
     init(_ pad: Pad, _ props: [String: String], _ events: ExactNativeEvents) {
-        self.pad = pad
         super.init(events: events)
         try? setProps(props)
         strip.tapped = { events.message(String($0)) }
         events.intrinsicSize(CGSize(width: 320, height: 48))
-    }
-    override var view: ExactNativeView { strip }
-    override func setProps(_ props: [String: String]) throws {
-        strip.steps = Int(props["steps"] ?? "") ?? 16
-        strip.playing = props["playing"] == "true"
-        if strip.playing, ticket == nil {
-            // Frames only while the strip moves; it stops them once it has drawn its rest.
-            ticket = pad.context.frames { [weak self] frame in
-                guard let self else { return }
-                if !self.strip.advance(to: frame.now) { self.ticket?.stop(); self.ticket = nil }
-            }
+        ticket = pad.context.frames { [weak self] f in
+            if self?.strip.advance(to: f.now) == false { self?.ticket?.stop() }
         }
     }
+    override var view: ExactNativeView { strip }
+    override func setProps(_ props: [String: String]) throws { strip.steps = Int(props["steps"] ?? "") ?? 16 }
     override func destroy() { ticket?.stop() }
 }
 ```
@@ -63,18 +49,6 @@ final class Strip: ExactNativeInstance {
 - **Time is the session's:** `context.frames` and `context.after(ms)`, never a
   `CADisplayLink` or a `DispatchQueue` timer, so the agent's `clock +N` moves the animation
   and a drive repeats.
-- **Frames only while something moves.** A live ticket keeps the display link running at
-  the display's rate, so a ticket left on costs CPU on a still screen (one app's idle
-  0.8% was its strips' tickets; stopped, 0.0%). Take one when motion starts (a prop, the
-  module's engine starting) and `stop()` it once the view has drawn where it rests; a
-  view that is not shown (`active` false, another tab) takes none. A Core Animation
-  animation needs no ticket. Chain `after(ms)` only while there is something to do.
-- **Memory:** a layer that draws (`draw(in:)`) holds a bitmap of its whole bounds at the
-  screen's scale, 36 bytes a point² on a 3× iPhone, whether or not it shows anything.
-  Hide one that has nothing to show (`isHidden = true`, `contents = nil`) and draw it
-  again when it does; give a layer no more bounds than it draws, and what moves a small
-  layer of its own. One app's five strips held 6.3 MB in ten such layers; hiding the
-  five playhead layers while stopped saved 3.2 MB.
 - **Touches:** recognizers on the view. A touch its hit test declines (a `point(inside:)`
   that follows the drawn shape) goes to what is under the box, so a capsule smaller than its
   box blocks nothing; the box keeps it with `press=` or `isUserInteractionEnabled = false`.
