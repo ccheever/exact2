@@ -7,6 +7,7 @@
 // host's sound-glue.js, fetched after the first frame (D7); under the agent
 // nothing plays and `state.sounds.output` is `"agent"` (D10).
 import { journal, clock, Sounds } from './rt.js';
+import { plain } from './format.js';
 
 const LIVE = 32, RECORD = 1024, SHOWN = 64;
 const say = line => journal.push(`t=${clock.now} ${line}`);
@@ -14,6 +15,8 @@ let Table = [], Voices = [], Next = 0, Evicted = 0, EvictedThrough = 0, Ops = []
 const sounds = by => by !== 'cut' && by !== 'cancelled';
 const live = (v, t) => sounds(v.by) && v.ends > t;
 const given = v => v ?? null;
+// A finite number as the runner's journal writes it (`agent::num`): shortest digits, never exponential.
+const num = n => n < 0 ? `-${plain(-n)}` : plain(n);
 const finite = (v, d) => v == null ? d : typeof v === 'number' && Number.isFinite(v) ? v : null;
 
 // A hit's `playbackRate` and `pan` (LLP 1125 D10): clamped as `gain` is; the rate divides the file's length.
@@ -45,11 +48,11 @@ function play(t, [src, asked0, gain0, group0, rate0, pan0]) {
   if (Voices.filter(v => live(v, t)).length + (live(voice, t) ? 1 : 0) > LIVE) {
     Voices.forEach((w, i) => { [w.ends, w.by] = saved[i]; });
     Next--;
-    return say(`sound dropped: ${LIVE} voices sound or wait (${src} at ${at})`);
+    return say(`sound dropped: ${LIVE} voices sound or wait (${src} at ${num(at)})`);
   }
-  say(`sound ${id} ${src} at ${at} gain ${voice.gain}${group ? ` group ${group}` : ''}${playbackRate !== 1 ? ` playbackRate ${playbackRate}` : ''}${pan !== 0 ? ` pan ${pan}` : ''}${asked < t ? ` (asked ${asked})` : ''}`);
+  say(`sound ${id} ${src} at ${num(at)} gain ${num(voice.gain)}${group ? ` group ${group}` : ''}${playbackRate !== 1 ? ` playbackRate ${num(playbackRate)}` : ''}${pan !== 0 ? ` pan ${num(pan)}` : ''}${asked < t ? ` (asked ${num(asked)})` : ''}`);
   Voices.push(voice);
-  for (const [cut, ends] of cuts.sort((a, b) => a[0] - b[0])) say(`sound ${cut} ends at ${ends} (group ${group})`);
+  for (const [cut, ends] of cuts.sort((a, b) => a[0] - b[0])) say(`sound ${cut} ends at ${num(ends)} (group ${group})`);
   // Keep the last RECORD voices, the oldest no longer live first.
   while (Voices.length > RECORD) {
     const i = Voices.findIndex(v => !live(v, t));

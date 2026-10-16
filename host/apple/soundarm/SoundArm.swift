@@ -3,9 +3,10 @@
 // connected to `mainMixerNode` in the output's own format, so nothing converts
 // downstream of it (a sample time downstream of a converter is not valid).
 // Every declared sound is read once and converted to that format: a mono file
-// is copied to every output channel, a stereo file going to a mono output is
-// averaged. The mixer is told the file's own channel count, which decides how
-// a pan places it (LLP 1125 D10). Loaded on demand (SoundModule.swift), never linked into ExactKit;
+// is copied to every output channel; a stereo file going to a mono output
+// keeps its two channels, which the mixer pans and then averages. The mixer
+// is told the file's own channel count, which decides how a pan places it
+// (LLP 1125 D10). Loaded on demand (SoundModule.swift), never linked into ExactKit;
 // the session is ExactKit's (AudioSession.swift), not the arm's.
 //
 // An output that cannot open is a reason, never a crash: every AVAudioEngine
@@ -160,13 +161,13 @@ private final class SoundArm {
             pcm = out
         }
         guard let data = pcm.floatChannelData, pcm.frameLength > 0 else { return nil }
-        let frames = Int(pcm.frameLength), channels = Int(format.channelCount), inChannels = Int(pcm.format.channelCount)
+        let frames = Int(pcm.frameLength), inChannels = Int(pcm.format.channelCount)
+        // Planes as sound_render.h's `exact_sound_set` reads them.
+        let channels = format.channelCount == 1 && inChannels >= 2 ? 2 : Int(format.channelCount)
         let plane = UnsafeMutablePointer<Float>.allocate(capacity: frames * channels)
         for c in 0..<channels {
             for f in 0..<frames {
-                plane[c * frames + f] = inChannels == 1 ? data[0][f]
-                    : channels == 1 ? (data[0][f] + data[1][f]) / 2
-                    : data[min(c, inChannels - 1)][f]
+                plane[c * frames + f] = data[min(c, inChannels - 1)][f]
             }
         }
         return (plane, UInt32(frames), UInt32(file.processingFormat.channelCount))

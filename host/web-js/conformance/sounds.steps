@@ -15,4 +15,7 @@ clock +2000
 tap tape
 tap clamped
 tap nanrate
+tap tinypan
+tap tinyleft
+tap tinygain
 clock +100

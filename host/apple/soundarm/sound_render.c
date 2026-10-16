@@ -93,8 +93,8 @@ static void apply(ExactMixer *m) {
             }
             Voice v = { .live = true, .id = op.id, .sound = op.sound, .start = op.at, .end = INFINITY, .gain = op.gain,
                         .rate = isfinite(op.rate) && op.rate > 0 ? op.rate : 1 };
-            // A pan only where there are two speakers to place it between; 0 leaves the voice as it was.
-            if (isfinite(op.pan) && op.pan != 0 && m->channels >= 2) {
+            // A pan of 0 leaves the voice as it was: no panner, its level unchanged.
+            if (isfinite(op.pan) && op.pan != 0) {
                 // Web Audio 1.1, StereoPannerNode: a mono input's x is (pan + 1) / 2; a stereo
                 // input's is pan + 1 left of centre and pan right of it, its far side kept whole.
                 float pan = fminf(fmaxf(op.pan, -1), 1);
@@ -115,6 +115,13 @@ static void apply(ExactMixer *m) {
         }
     }
     atomic_store_explicit(&m->head, head, memory_order_release);
+}
+
+/// Plane `c` of `sound` between frame `k` and `k + 1`, `fraction` of the way.
+static inline float sample(const Sound *sound, uint32_t c, uint32_t k, float fraction) {
+    const float *plane = sound->planes + (size_t)c * sound->frames;
+    float a = plane[k], b = k + 1 < sound->frames ? plane[k + 1] : 0;
+    return a + (b - a) * fraction;
 }
 
 /// Host ticks (mach_absolute_time, CACurrentMediaTime's base) as seconds.
@@ -155,41 +162,41 @@ bool exact_sound_render(ExactMixer *m, const AudioTimeStamp *ts, uint32_t frames
         // Cut before it sounded here, or ended in an earlier buffer.
         if (stop <= begin) { v->live = false; continue; }
         v->started = true;
+        // A stereo sound for a mono output keeps both its planes (exact_sound_set).
+        uint32_t stored = m->channels == 1 && sound->source >= 2 ? 2 : m->channels;
         for (int64_t i = begin; i < stop && v->position < sound->frames; i++, v->position += v->rate) {
             // Between frame k and k + 1 by linear interpolation; past the last frame is silence.
             // At the file's own rate the fraction is 0, and the frame is read as it is.
             uint32_t k = (uint32_t)v->position;
             float fraction = (float)(v->position - k);
-            float l = 0, r = 0;
-            for (uint32_t c = 0; c < m->channels; c++) {
-                const float *plane = sound->planes + (size_t)c * sound->frames;
-                float a = plane[k], b = k + 1 < sound->frames ? plane[k + 1] : 0;
-                float x = a + (b - a) * fraction;
-                if (v->panned) {
-                    if (c == 0) l = x;
-                    else if (c == 1) r = x;
-                    continue;
+            if (!v->panned && stored == m->channels) {
+                for (uint32_t c = 0; c < m->channels; c++) {
+                    float x = sample(sound, c, k, fraction) * v->gain;
+                    if (interleaved) ((float *)out->mBuffers[0].mData)[i * m->channels + c] += x;
+                    else if (c < out->mNumberBuffers) ((float *)out->mBuffers[c].mData)[i] += x;
                 }
-                x *= v->gain;
-                if (interleaved) ((float *)out->mBuffers[0].mData)[i * m->channels + c] += x;
-                else if (c < out->mNumberBuffers) ((float *)out->mBuffers[c].mData)[i] += x;
+                sounded = true;
+                continue;
             }
+            // A mono sound's planes are copies of it, so its left is all of it.
+            float l = sample(sound, 0, k, fraction), r = stored > 1 ? sample(sound, 1, k, fraction) : l;
+            float outL = l, outR = r;
             if (v->panned) {
-                // A mono sound's planes are copies of it. The channels past the second take
-                // nothing, as a destination up-mixing the panner's stereo output gives them.
-                float outL, outR;
                 if (sound->source < 2) { outL = l * v->left; outR = l * v->right; }
                 else if (v->pan <= 0) { outL = l + r * v->left; outR = r * v->right; }
                 else { outL = l * v->left; outR = r + l * v->right; }
-                outL *= v->gain;
-                outR *= v->gain;
-                if (interleaved) {
-                    ((float *)out->mBuffers[0].mData)[i * m->channels] += outL;
-                    ((float *)out->mBuffers[0].mData)[i * m->channels + 1] += outR;
-                } else {
-                    ((float *)out->mBuffers[0].mData)[i] += outL;
-                    if (out->mNumberBuffers > 1) ((float *)out->mBuffers[1].mData)[i] += outR;
-                }
+            }
+            if (m->channels == 1) {
+                // Web Audio 1.1's speaker down-mix of stereo to mono: 0.5 × (L + R).
+                ((float *)out->mBuffers[0].mData)[i] += 0.5f * (outL + outR) * v->gain;
+            } else if (interleaved) {
+                // The channels past the second take nothing, as a destination up-mixing the
+                // panner's stereo output gives them.
+                ((float *)out->mBuffers[0].mData)[i * m->channels] += outL * v->gain;
+                ((float *)out->mBuffers[0].mData)[i * m->channels + 1] += outR * v->gain;
+            } else {
+                ((float *)out->mBuffers[0].mData)[i] += outL * v->gain;
+                if (out->mNumberBuffers > 1) ((float *)out->mBuffers[1].mData)[i] += outR * v->gain;
             }
             sounded = true;
         }

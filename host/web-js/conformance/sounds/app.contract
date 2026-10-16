@@ -6,7 +6,8 @@
 // Caltrain's three nearest stations; a choke by start time, a tie included;
 // a stop that ends what sounds and cancels what waits; the bound of 32 live
 // voices; the drops a computed call can make; and a voice's playback rate
-// and pan, literal, clamped and non-finite (LLP 1125 D10). The journal's `sound`
+// and pan, literal, clamped, non-finite and small enough that JavaScript's
+// own text for it is exponential (LLP 1125 D10). The journal's `sound`
 // lines and `state.sounds` compare on every target, and the JS target
 // never refuses one of the three commands. (No slot shares a name with
 // Caltrain's: the wasm page carries its first world into this plan by slot
@@ -114,3 +115,6 @@ component Sounds
       button "tape" press=tape testId="tape"
       button "clamped" press=warp(9, -4) testId="clamped"
       button "nan rate" press=warp(-1, 0) testId="nanrate"
+      button "tiny pan" press=warp(0.2500001, 0.0000001) testId="tinypan"
+      button "tiny left" press=warp(1, -0.0000002) testId="tinyleft"
+      button "tiny gain" press=odd("assets/hat.wav", 0, 0.0000001) testId="tinygain"

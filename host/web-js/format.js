@@ -32,7 +32,7 @@ export function x_formatDate(ms, off, style) {
   return style === "month-year" ? `${name} ${year}` : `${name.slice(0, 3)} ${day}, ${year}`;
 }
 /** A non-negative number's shortest round-trip digits, never exponential (Rust's `{}`). */
-function plain(x) {
+export function plain(x) {
   const s = String(x), e = s.indexOf("e");
   if (e < 0) return s;
   const [i, f = ""] = s.slice(0, e).split("."), digits = i + f, point = i.length + Number(s.slice(e + 1));

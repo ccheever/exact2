@@ -26,14 +26,16 @@ typedef struct ExactMixer ExactMixer;
 /// A mixer for `channels` deinterleaved float channels at `rate` frames a second.
 ExactMixer *exact_sound_mixer(uint32_t channels, double rate);
 void exact_sound_mixer_free(ExactMixer *mixer);
-/// Sound `index`'s samples, converted to the output format: `channels`
-/// planes of `frames` floats, one after another. `source` is the file's own
-/// channel count (1 or 2), which decides how a pan places it. The caller
-/// keeps the planes alive.
+/// Sound `index`'s samples, converted to the output's rate: planes of
+/// `frames` floats, one after another, one per output channel, except that a
+/// stereo file for a mono output keeps its two (the mixer down-mixes them,
+/// after a pan). `source` is the file's own channel count (1 or 2), which
+/// decides how a pan places it. The caller keeps the planes alive.
 void exact_sound_set(ExactMixer *mixer, uint32_t index, const float *planes, uint32_t frames, uint32_t source);
 /// Push an op: kind 1 plays `sound` from `at` times `gain`, read at `rate`
 /// (Web Audio's `playbackRate`, 1 the file's own) and placed at `pan` (−1
-/// left to 1 right; 0 is the voice as it was, unpanned); kind 2 ends voice
+/// left to 1 right; 0 is the voice as it was, unpanned), on a mono output
+/// panned in stereo and then down-mixed as Web Audio does; kind 2 ends voice
 /// `id` at `at` (an end for a slot already freed is ignored); kind 3 ends
 /// every voice now. False when the ring is full: the op is dropped and counted.
 bool exact_sound_push(ExactMixer *mixer, uint32_t kind, uint64_t id, uint32_t sound, double at, float gain, float rate, float pan);
