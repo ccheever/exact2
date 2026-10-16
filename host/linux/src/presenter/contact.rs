@@ -1012,7 +1012,7 @@ impl<D: DataSource> Presenter<D> {
         });
         result = result.and(ended);
         if contact.group {
-            result = self.end_group(false, now_ms).map(|_| ());
+            result = result.and(self.end_group(false, now_ms).map(|_| ()));
         }
         if let (true, Some(Candidate::Pan(key))) = (contact.panning, contact.candidate) {
             if let Some(error) = self.release_pan(key, (0., 0.), now_ms) {
