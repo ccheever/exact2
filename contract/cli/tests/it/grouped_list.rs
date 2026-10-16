@@ -679,6 +679,46 @@ fn the_sheets_text_follows_the_root_font_size() {
     }
 }
 
+/// LLP 1116.019 D1: a label beside a field keeps its words' width; the
+/// field is 8rem at the far edge, and where both do not fit (iOS's
+/// accessibility sizes) the row wraps the field under the label, as large
+/// as the line, rather than squeezing the label to nothing. An author's
+/// `flex=1` title keeps its line at the default sizes.
+#[test]
+fn a_field_goes_under_its_label_when_both_do_not_fit() {
+    let body = "list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    row testId=\"qty-row\"\n      text \"Quantity\" testId=\"qty-label\"\n      input type=\"number\" value=\"25\" min=1 max=99 step=1 testId=\"qty\"\n    row\n      text \"Focus minutes\" flex=1 testId=\"focus-label\"\n      input value=\"25\" testId=\"focus\"\n    row\n      text \"Birthday\" testId=\"date-label\"\n      input type=\"date\" value=\"2026-10-16\" testId=\"date\"";
+    for (root, wraps) in [(13.0f32, false), (16.0, false), (17.0, false), (53.0, true)] {
+        let mut r = boot(body);
+        r.set_root_font_size(root.into()).unwrap();
+        let k = r.kernel_mut();
+        let page = k.node_by_key(k.find_by_test_id("root")[0]).unwrap().id;
+        k.compute_layout(page, Offer::definite(402.0, 874.0))
+            .unwrap();
+        let k = r.kernel();
+        let frame = |t: &str| k.node(id(&r, t)).unwrap().frame;
+        for (label, field) in [("qty-label", "qty"), ("focus-label", "focus")] {
+            let (l, f) = (frame(label), frame(field));
+            assert!(l.width > 0.0, "{root}: {label} keeps its words");
+            assert_eq!(
+                f.y >= l.y + l.height,
+                wraps,
+                "{root}: {field} under {label}"
+            );
+            if wraps {
+                assert_eq!(f.x, l.x, "{root}: {field} starts under its label");
+            } else {
+                assert_eq!(f.width, 8.0 * root, "{root}: {field} is 8rem");
+                assert!(l.height < 1.5 * root * 1.3, "{root}: {label} on one line");
+            }
+        }
+        let (l, f) = (frame("date-label"), frame("date"));
+        assert!(
+            l.x + l.width <= f.x || f.y >= l.y + l.height,
+            "{root}: the date does not overlap its label"
+        );
+    }
+}
+
 #[test]
 fn a_hidden_text_in_a_subtitle_column_and_a_hidden_first_line() {
     let mut r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go\n      column testId=\"stack\"\n        text \"Gone\" display=\"none\"\n        text \"Privacy\"\n        text \"Screen lock\"\n    button press=go testId=\"row\"\n      column\n        if dark\n          text \"Privacy\"\n        text \"Screen lock\" testId=\"lock\"");
