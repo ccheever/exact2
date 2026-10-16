@@ -66,6 +66,8 @@ public final class Agent {
     /// cannot hold one and says so.
     var contact: CGPoint? = nil
     #if os(macOS)
+    /// The window that received down owns every phase, even without a target id.
+    var contactWindow: NSWindow?
     /// The held contact's event time, seconds on `systemUptime`'s clock.
     var contactClock: Double = 0
     /// The modifiers held through the contact: its `down`'s, until a
