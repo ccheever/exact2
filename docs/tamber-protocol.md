@@ -515,13 +515,16 @@ Module 2025.10, as `bun exact.mjs tamber export dtcg <app>` writes it, from the 
     declares a token wins, and a source may be a reference to a set of the same document, as the
     resolver says. An unchanged token proposes nothing, its source kept
     (an expression, a role); so does one the design has already.
-  - **A changed tuple** proposes one `set-token`, its `when` naming every axis of the tuple and its
-    value the tuple's light and dark: the file's side where it changed, the design's as it is where
-    it did not (an expression, an HDR colour the file holds clipped). An axis `under scheme=dark` is named only on a tuple off its
-    default, since the light side is the line without it; a light value edited only in such a
-    tuple is reported. Each token's operations are applied and folded as the design would take
-    them: a tuple a changed line reaches that the file left alone (one whose value followed the
-    default) is pinned to the design's value with a line naming every axis, until every context
+  - **A change edits the line that wins for its tuple** (LLP 1121 D6, as `explain` names it): the
+    default or the `when` it is. A line whose contexts on a side all changed, to one value, takes
+    it, its other side kept as written (`light-dark(new, kept)`). A line some of whose contexts did
+    not change cannot move without moving them: its changed tuples get the narrowest `when` that
+    holds for them and for no tuple that should keep another value, never one that ties with an
+    existing `when` as narrow. An axis `under scheme=dark` keeps the light side of the line without
+    it, so a `when` naming one follows that line's new light; a light value edited only in such a
+    tuple is reported. Each side the file did not change is the design's as it is.
+  - **Checked as the design would take it.** Each token's operations are applied and folded: a
+    tuple they reach that the file left alone is pinned to the design's value, until every context
     renders as wanted. A token no lines can give that, or that the design would refuse, alone or
     with the tokens before it in one transaction, is reported with the reason or the checker's id.
   - **Reported in `unmapped`, not added or removed:** a token the export did not have, one the file

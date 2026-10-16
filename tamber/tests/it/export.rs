@@ -385,7 +385,7 @@ fn an_edit_reaches_only_the_contexts_it_changed() {
             serde_json::json!({"accent": {"fill": {"$type": "color", "$value": red.clone()}}}),
         );
     });
-    assert_eq!(import.ops.len(), 2, "{:?}", import.ops);
+    assert_eq!(import.ops.len(), 1, "{:?}", import.ops);
 }
 
 #[test]
@@ -522,4 +522,119 @@ fn an_unchanged_lossy_side_keeps_the_design_value() {
         panic!("{import:?}")
     };
     assert_eq!(value, "light-dark(#ff0000, color(srgb-linear 2 2 2))");
+}
+
+/// Each operation as its `when` and value.
+fn lines(import: &exact_tamber::import::Import) -> Vec<(Vec<(String, String)>, String)> {
+    import
+        .ops
+        .iter()
+        .map(|o| match o {
+            Op::SetToken { when, value, .. } => (when.clone(), value.clone()),
+            o => panic!("{o:?}"),
+        })
+        .collect()
+}
+
+#[test]
+fn a_change_edits_the_line_that_wins_for_its_tuple() {
+    let red: Value = serde_json::from_str(RED).unwrap();
+    let dim = vec![("dark-style".to_string(), "dim".to_string())];
+    // `accent.soft`'s dim dark comes from its `when dark-style=dim` line: the
+    // edit lands there, its light side kept as written.
+    let import = edited_import(|doc| {
+        context(doc, "dark-style=dim, dark")["accent"]["soft"]["$value"] = red.clone()
+    });
+    assert_eq!(
+        lines(&import),
+        vec![(dim.clone(), "light-dark(#8ecdf8, #ff0000)".to_string())]
+    );
+    // Every context of `accent.fill`'s one line, to one value: that line.
+    let import = edited_import(|doc| {
+        for (_, c) in doc["modifiers"]["mode"]["contexts"]
+            .as_object_mut()
+            .unwrap()
+        {
+            c[0]["accent"]["fill"]["$value"] = red.clone();
+        }
+    });
+    assert_eq!(lines(&import), vec![(vec![], "#ff0000".to_string())]);
+    // Its dark side in every tuple: the default line, its light side kept.
+    let import = edited_import(|doc| {
+        for c in ["dark-style=black, dark", "dark-style=dim, dark"] {
+            context(doc, c)["accent"]["fill"]["$value"] = red.clone();
+        }
+    });
+    assert_eq!(
+        lines(&import),
+        vec![(vec![], "light-dark(#1d9bf0, #ff0000)".to_string())]
+    );
+    // One tuple of a line others share: the narrowest `when` for it alone.
+    let import = edited_import(|doc| {
+        context(doc, "dark-style=dim, dark")["accent"]["fill"]["$value"] = red.clone()
+    });
+    assert_eq!(
+        lines(&import),
+        vec![(dim, "light-dark(#1d9bf0, #ff0000)".to_string())]
+    );
+}
+
+#[test]
+fn a_change_on_an_app_axis_lands_on_its_when_or_the_narrowest_new_one() {
+    let src = "tamber t\n\naxes\n  theme = calm | loud\n  density = cozy | tight\n\ntheme\n  ink = #000000\n    when theme=loud: #ff0000\n";
+    let (text, doc) = exported(src);
+    let blue = serde_json::json!({"colorSpace": "srgb", "components": [0, 0, 1], "hex": "#0000ff"});
+    let edit = |contexts: &[&str]| {
+        let mut doc = doc.clone();
+        for c in contexts {
+            doc["modifiers"]["mode"]["contexts"][*c][0]["ink"]["$value"] = blue.clone();
+        }
+        reimport(&doc.to_string(), std::slice::from_ref(&text), src, &vocab()).unwrap()
+    };
+    let loud = vec![("theme".to_string(), "loud".to_string())];
+    // Every context `when theme=loud` wins: that line.
+    let all_loud = [
+        "theme=loud, density=cozy, light",
+        "theme=loud, density=cozy, dark",
+        "theme=loud, density=tight, light",
+        "theme=loud, density=tight, dark",
+    ];
+    assert_eq!(lines(&edit(&all_loud)), vec![(loud, "#0000ff".to_string())]);
+    // One of its tuples: a new `when` that tells it from the other.
+    let import = edit(&all_loud[2..]);
+    assert_eq!(
+        lines(&import),
+        vec![(
+            vec![
+                ("theme".into(), "loud".into()),
+                ("density".into(), "tight".into())
+            ],
+            "#0000ff".to_string()
+        )]
+    );
+    exact_tamber::apply_all(src, &import.ops, &vocab()).unwrap();
+    // Every tight tuple, across both lines: `density=tight` alone separates them.
+    let tight = [
+        "theme=calm, density=tight, light",
+        "theme=calm, density=tight, dark",
+        "theme=loud, density=tight, light",
+        "theme=loud, density=tight, dark",
+    ];
+    let import = edit(&tight);
+    assert!(import.unmapped.is_empty(), "{:?}", import.unmapped);
+    let accepted = exact_tamber::apply_all(src, &import.ops, &vocab())
+        .unwrap()
+        .text;
+    let (_, after) = exported(&accepted);
+    for c in tight {
+        assert_eq!(
+            after["modifiers"]["mode"]["contexts"][c][0]["ink"]["$value"]["hex"], "#0000ff",
+            "{c}"
+        );
+    }
+    assert_eq!(
+        after["modifiers"]["mode"]["contexts"]["theme=loud, density=cozy, dark"][0]["ink"]
+            ["$value"]["hex"],
+        "#ff0000"
+    );
 }

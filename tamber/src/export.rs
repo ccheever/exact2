@@ -415,12 +415,19 @@ fn context_map(doc: &Value) -> Option<Vec<(String, Modes, bool)>> {
             .as_object()?
             .iter()
             .map(|(name, c)| {
-                let modes = c["modes"]
+                // In the design's axis order, as the header lists the axes.
+                let order = |a: &str| {
+                    h["axes"]
+                        .as_array()
+                        .and_then(|all| all.iter().position(|x| x["name"] == a))
+                };
+                let mut modes: Modes = c["modes"]
                     .as_object()
                     .into_iter()
                     .flatten()
                     .map(|(a, v)| (a.clone(), v.as_str().unwrap_or_default().to_string()))
                     .collect();
+                modes.sort_by_key(|(a, _)| order(a));
                 (name.clone(), modes, c["scheme"] == "dark")
             })
             .collect();
@@ -588,6 +595,9 @@ fn same(a: &Value, b: &Value) -> bool {
 /// A tuple: every axis and its value.
 type Modes = Vec<(String, String)>;
 
+/// A line's contexts: each tuple, side and context name.
+type Members<'a> = Vec<(&'a Modes, bool, &'a String)>;
+
 /// The baseline an incoming export is compared with: the kept one its
 /// header's digest names, or the design's own export when that is the
 /// digest. With no header, the one candidate (a kept export, or the design's)
@@ -629,16 +639,15 @@ fn baseline_for(incoming: &Value, kept: &[String], fresh: &str) -> Result<String
 /// Re-import a Tamber export (`incoming`) against the baseline it came from
 /// (one of `kept`, newest first; or a fresh export of `current`, the design
 /// as it is). A token whose `$value` is unchanged in every context proposes
-/// nothing, its source kept. A changed one proposes a `set-token` per tuple
-/// whose value changed, its `when` naming every axis of that tuple (an axis
-/// `under scheme=dark` only on a tuple off its default, whose light side is
-/// the line without it), each side the file's where it changed and the
-/// design's as it is where it did not. The operations are applied and folded
-/// as the design would take them: a tuple they reach that the file left
-/// alone is pinned to the design's value, until every context renders as
-/// wanted. A token the design would refuse, alone or with the others, one the
-/// baseline lacks or the file removes, one missing from a context, a context
-/// the export did not have, or a value no colour is read from, is reported.
+/// nothing, its source kept. A changed one edits the line that wins for the
+/// changed tuples (D6's target branch), or, where that line's other tuples
+/// did not change, adds the narrowest `when` that tells the changed ones
+/// apart; a side the file did not change keeps the design's. The operations
+/// are applied and folded as the design would take them, and a tuple they
+/// reach that the file left alone is pinned to the design's value. A token
+/// the design would refuse, alone or with the others, one the baseline lacks
+/// or the file removes, one missing from a context, a context the export did
+/// not have, or a value no colour is read from, is reported.
 pub fn reimport(
     incoming: &str,
     kept: &[String],
@@ -879,34 +888,222 @@ pub fn reimport(
                     comment: None,
                 })
             };
-        let mut token_ops = Vec::new();
+        let mut token_ops: Vec<Op> = Vec::new();
         let mut why = None;
+        // A light side under an axis under scheme=dark shows its base's: an
+        // edit there alone is no value of the design.
         for (modes, sides) in &tuples {
             let light = tuple_of(&base_of(modes)).map_or(&sides[0], |(_, s)| &s[0]);
-            // A light side under an axis under scheme=dark shows its base's:
-            // an edit there alone is no value of the design.
             if light != &sides[0] && changed(&sides[0]) && !changed(light) {
                 why = Some((sides[0].clone(), format!("the light side here is `{light}`'s: an axis under scheme=dark varies the dark side only")));
                 break;
             }
-            if !changed(light) && !changed(&sides[1]) {
+        }
+        // D6's target branch: each context's side comes from the line that
+        // wins for its tuple (`explain`), the default or a `when`. A branch
+        // whose contexts on a side all changed, to one value, takes it there,
+        // its other side kept. One some of whose contexts did not change
+        // cannot move without moving them: its changed tuples get the
+        // narrowest `when` that holds for them and for none of its others.
+        let text_of = |b: Option<usize>| {
+            b.map_or(&decl.value.value, |w| &decl.whens[w].value.value)
+                .trim()
+                .to_string()
+        };
+        let mut branches: Vec<(Option<usize>, Members)> = Vec::new();
+        for (modes, sides) in &tuples {
+            for dark in [false, true] {
+                let b = branch(decl, &under, modes, dark);
+                let member = (modes, dark, &sides[usize::from(dark)]);
+                match branches.iter_mut().find(|(x, _)| *x == b) {
+                    Some((_, all)) => all.push(member),
+                    None => branches.push((b, vec![member])),
+                }
+            }
+        }
+        let mut narrow: Vec<&Modes> = Vec::new();
+        for (b, members) in &branches {
+            if why.is_some() {
+                break;
+            }
+            if !members.iter().any(|(_, _, c)| changed(c)) {
                 continue;
             }
-            // A tuple off an axis under scheme=dark whose dark side follows
-            // its base's, before and after, takes the base's new line (the
-            // fold below pins it if not).
-            if let Some((_, b)) = tuple_of(&base_of(modes)).filter(|(m, _)| m != modes) {
-                let follows = |tokens: &ByContext| matches!((value(tokens, &sides[1], name), value(tokens, &b[1], name)), (Some(x), Some(y)) if same(&x, &y));
-                if follows(&theirs) && follows(&ours) {
-                    continue;
+            // Per side: none of its contexts changed (kept), or all to one value.
+            let side_new = |dark: bool| -> Result<Option<String>, ()> {
+                let on: Vec<&String> = members
+                    .iter()
+                    .filter(|(_, d, _)| *d == dark)
+                    .map(|(_, _, c)| *c)
+                    .collect();
+                let moved: Vec<&String> = on.iter().copied().filter(|c| changed(c)).collect();
+                if moved.is_empty() {
+                    return Ok(None);
+                }
+                if moved.len() != on.len() {
+                    return Err(());
+                }
+                let texts: Vec<Option<String>> =
+                    moved.iter().map(|c| want(c).map(|(t, _)| t)).collect();
+                match texts.first() {
+                    Some(Some(t)) if texts.iter().all(|x| x.as_ref() == Some(t)) => {
+                        Ok(Some(t.clone()))
+                    }
+                    _ => Err(()),
+                }
+            };
+            match (side_new(false), side_new(true)) {
+                (Ok(l), Ok(d)) => {
+                    let source = text_of(*b);
+                    let kept = |dark: bool| {
+                        sides_of(&source).map_or(source.clone(), |p| p[usize::from(dark)].clone())
+                    };
+                    let l = l.unwrap_or_else(|| kept(false));
+                    let d = d.unwrap_or_else(|| kept(true));
+                    token_ops.push(Op::SetToken {
+                        name: written.clone(),
+                        when: b.map_or(Vec::new(), |w| decl.whens[w].conds.clone()),
+                        value: if l == d {
+                            l
+                        } else {
+                            format!("light-dark({l}, {d})")
+                        },
+                        at: None,
+                        comment: None,
+                    });
+                }
+                _ => {
+                    for (modes, _, c) in members {
+                        if changed(c) && !narrow.contains(modes) {
+                            narrow.push(modes);
+                        }
+                    }
+                }
+            }
+        }
+        // A `when` naming an axis under scheme=dark keeps the light side of
+        // the line its tuples show light from: when that line's light moved,
+        // its own light follows.
+        let moved: Vec<(Option<usize>, String)> = token_ops
+            .iter()
+            .filter_map(|op| match op {
+                Op::SetToken { when, value, .. } => {
+                    let b = if when.is_empty() {
+                        None
+                    } else {
+                        decl.whens.iter().position(|w| &w.conds == when)
+                    };
+                    let light = sides_of(value).map_or(value.clone(), |p| p[0].clone());
+                    Some((b, light))
+                }
+                _ => None,
+            })
+            .collect();
+        for (w, line_w) in decl.whens.iter().enumerate() {
+            if !line_w
+                .conds
+                .iter()
+                .any(|(a, _)| under.contains(&a.as_str()))
+            {
+                continue;
+            }
+            let Some((modes, _)) = tuples
+                .iter()
+                .find(|(m, _)| branch(decl, &under, m, true) == Some(w))
+            else {
+                continue;
+            };
+            let base_branch = branch(decl, &under, modes, false);
+            let Some((_, light)) = moved.iter().find(|(b, _)| *b == base_branch) else {
+                continue;
+            };
+            let own = text_of(Some(w));
+            let dark = sides_of(&own).map_or(own.clone(), |p| p[1].clone());
+            match token_ops
+                .iter_mut()
+                .find(|op| matches!(op, Op::SetToken { when, .. } if *when == line_w.conds))
+            {
+                Some(Op::SetToken { value, .. }) => {
+                    let d = sides_of(value).map_or(value.clone(), |p| p[1].clone());
+                    *value = format!("light-dark({light}, {d})");
+                }
+                _ => token_ops.push(Op::SetToken {
+                    name: written.clone(),
+                    when: line_w.conds.clone(),
+                    value: format!("light-dark({light}, {dark})"),
+                    at: None,
+                    comment: None,
+                }),
+            }
+        }
+        for modes in narrow {
+            if why.is_some() {
+                break;
+            }
+            let Some((_, sides)) = tuple_of(modes) else {
+                continue;
+            };
+            // Only the dark side moved: a `when` may name an axis under
+            // scheme=dark; a light side can be told apart by the others only.
+            let light_moved = changed(&sides[0]);
+            let others: Vec<&Modes> = tuples
+                .iter()
+                .map(|(m, _)| m)
+                .filter(|m| *m != modes)
+                .filter(|m| {
+                    // A tuple it must leave alone: one whose wanted value on a
+                    // side differs from this tuple's.
+                    let (_, s) = tuple_of(m).expect("a tuple");
+                    [0, 1].iter().any(|&i| !matches!((want(&s[i]), want(&sides[i])), (Some((a, _)), Some((b, _))) if a == b))
+                })
+                .collect();
+            let axes: Vec<&(String, String)> = modes
+                .iter()
+                .filter(|(a, _)| !(light_moved && under.contains(&a.as_str())))
+                .collect();
+            let mut found: Option<Modes> = None;
+            'size: for size in 0..=axes.len() {
+                for pick in subsets(axes.len(), size) {
+                    let conds: Modes = pick.iter().map(|&k| axes[k].clone()).collect();
+                    if conds.is_empty() {
+                        continue;
+                    }
+                    let holds = |m: &Modes| conds.iter().all(|c| m.contains(c));
+                    // No tie with a `when` as narrow wherever it holds: the
+                    // checker refuses two that hold and name as many axes.
+                    let ties = tuples.iter().any(|(m, _)| {
+                        holds(m)
+                            && decl.whens.iter().any(|w| {
+                                w.conds.len() == conds.len()
+                                    && w.conds != conds
+                                    && w.conds.iter().all(|c| m.contains(c))
+                            })
+                    });
+                    if !ties && others.iter().all(|m| !holds(m)) {
+                        found = Some(conds);
+                        break 'size;
+                    }
                 }
             }
             match line(modes, sides, false) {
-                Ok(op) => token_ops.push(op),
-                Err(w) => {
-                    why = Some(w);
-                    break;
+                Ok(Op::SetToken { name, value, .. }) => {
+                    let when = found.unwrap_or_else(|| modes.clone());
+                    // Another changed tuple's narrowest line may be this one.
+                    if !token_ops
+                        .iter()
+                        .any(|op| matches!(op, Op::SetToken { when: w, .. } if *w == when))
+                    {
+                        token_ops.push(Op::SetToken {
+                            name,
+                            when,
+                            value,
+                            at: None,
+                            comment: None,
+                        });
+                    }
                 }
+                Ok(_) => {}
+                Err(w) => why = Some(w),
             }
         }
         // Applied and folded as the design would take them: a tuple a changed
@@ -1028,4 +1225,72 @@ pub fn reimport(
 /// An unchanged token: mapped, no operations.
 fn mapped_unchanged(accepted: &mut Vec<(String, Vec<Op>)>, name: &str) {
     accepted.push((name.to_string(), Vec::new()));
+}
+
+/// The line of token `t` a tuple's side takes (`None` the default), as the
+/// checker selects it: the `when` naming the most axes among those that
+/// hold; for the light side of one naming an axis `under scheme=dark`, the
+/// line without such axes.
+fn branch(t: &Token, under: &[&str], modes: &Modes, dark: bool) -> Option<usize> {
+    let select = |base: bool| {
+        let holding = (0..t.whens.len()).filter(|&i| {
+            let w = &t.whens[i];
+            !(base && w.conds.iter().any(|(a, _)| under.contains(&a.as_str())))
+                && w.conds.iter().all(|c| modes.contains(c))
+        });
+        let most = holding.clone().map(|i| t.whens[i].conds.len()).max()?;
+        holding
+            .into_iter()
+            .find(|&i| t.whens[i].conds.len() == most)
+    };
+    let chosen = select(false);
+    if !dark
+        && chosen.is_some_and(|w| {
+            t.whens[w]
+                .conds
+                .iter()
+                .any(|(a, _)| under.contains(&a.as_str()))
+        })
+    {
+        return select(true);
+    }
+    chosen
+}
+
+/// The two sides of a top-level `light-dark(a, b)`, as written.
+fn sides_of(text: &str) -> Option<[String; 2]> {
+    let inner = text.strip_prefix("light-dark(")?.strip_suffix(')')?;
+    let mut depth = 0;
+    for (i, c) in inner.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            ',' if depth == 0 => {
+                return Some([
+                    inner[..i].trim().to_string(),
+                    inner[i + 1..].trim().to_string(),
+                ])
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Each choice of `size` of `n` indices, in order.
+fn subsets(n: usize, size: usize) -> Vec<Vec<usize>> {
+    if size == 0 {
+        return vec![Vec::new()];
+    }
+    (0..n)
+        .flat_map(|first| {
+            subsets(n - first - 1, size - 1)
+                .into_iter()
+                .map(move |rest| {
+                    std::iter::once(first)
+                        .chain(rest.into_iter().map(|r| r + first + 1))
+                        .collect()
+                })
+        })
+        .collect()
 }
