@@ -8,6 +8,7 @@ mod animation;
 mod arrange;
 mod colors;
 mod field_align;
+mod focus;
 mod height;
 mod height_binding;
 mod holds;

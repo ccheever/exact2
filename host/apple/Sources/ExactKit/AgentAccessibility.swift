@@ -493,9 +493,9 @@ extension Presenter {
                       "AXCheckBox": f.subrole == "AXSwitch" ? "switch" : "checkbox", "AXRadioButton": "radio", "AXRadioGroup": "radiogroup",
                       "AXSlider": "slider", "AXPopUpButton": "combobox", "AXStaticText": "text", "AXImage": "image", "AXList": "list",
                       "AXMenu": "menu", "AXMenuBar": "menubar", "AXMenuItem": "menuitem",
-                      // A live-region or dialog role is a group by its subrole, as WebKit serves one.
+                      // A live-region, dialog or region role is a group by its subrole, as WebKit serves one.
                       "AXGroup": ["AXApplicationStatus": "status", "AXApplicationAlert": "alert", "AXApplicationDialog": "dialog",
-                                  "AXApplicationAlertDialog": "alertdialog"][f.subrole ?? ""] ?? "group",
+                                  "AXApplicationAlertDialog": "alertdialog", "AXLandmarkRegion": "region"][f.subrole ?? ""] ?? "group",
                       "AXBusyIndicator": "progressbar", "AXProgressIndicator": "progressbar",
                       "AXLevelIndicator": "meter", "AXScrollBar": "scrollbar", "AXIncrementor": "spinbutton"][r]
         e["role"] = forced ?? mapped ?? r

@@ -56,7 +56,7 @@ fn signal_restores(mode: &str, signal: i32, pending: bool) {
 
     let mut command = if pending {
         let mut command = Command::new(std::env::current_exe().unwrap());
-        command.args(["--exact", "pending_data_child", "--nocapture"]);
+        command.args(["--exact", "cli::pending_data_child", "--nocapture"]);
         command.env("EXACT_TERMINAL_PENDING_TEST", mode);
         command
     } else {
@@ -194,7 +194,7 @@ fn signal_restores_raw_mode_when_output_is_blocked() {
     let slave = unsafe { File::from_raw_fd(slave_fd) };
     assert_eq!(unsafe { libc::tcflow(slave.as_raw_fd(), libc::TCOOFF) }, 0);
     let mut child = Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", "blocked_output_child", "--nocapture"])
+        .args(["--exact", "cli::blocked_output_child", "--nocapture"])
         .env("EXACT_TERMINAL_BLOCKED_OUTPUT_TEST", "1")
         .stdin(slave.try_clone().unwrap())
         .stdout(slave.try_clone().unwrap())

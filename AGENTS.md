@@ -179,7 +179,7 @@ For all prose: comments, commit messages, guides, LLPs, issues and PR text.
   and `print`, `screenshot` read its screen (`print --all` the scrollback, `document`
   the whole laid-out document). Develop it in `host-dev`: a debug build lays out a long
   document hundreds of times slower. `exact-terminal` is in `default-members`
-  (`tests/screen.rs` drives inline mode through the emulator); `harness-data` is not,
+  (`tests/it/screen.rs` drives inline mode through the emulator); `harness-data` is not,
   so when you touch the harness run `cargo test -p harness-data`.
   `examples/replay.rs` replays a recorded session through the same emulator.
   The LLP reader is the other terminal app (LLP 1101.004): `cargo build --profile

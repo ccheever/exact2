@@ -127,8 +127,13 @@ test('async builds, tests and lints the T3 Code clone, whose workspace the six c
   expect(steps.find(([name]) => name === 't3-code-clippy')).toEqual(['t3-code-clippy', 'cargo', ['clippy', ...t3, '--all-targets', '--keep-going', '--', '-D', 'warnings']]);
 });
 
-test('async glue runs the capture fixtures', () => {
-  expect(glueTests(resolve(import.meta.dir, '..'))).toContain('./scripts/app-workspace.test.mjs');
+test('async glue runs the capture fixtures and the web JS target\'s tests, less those it leaves out', () => {
+  const glue = glueTests(resolve(import.meta.dir, '..'));
+  expect(glue).toContain('./scripts/app-workspace.test.mjs');
+  expect(glue).toContain('./host/web-js/conformance/net.test.mjs');
+  expect(glue).toContain('./host/web-js/live-clock.test.js');
+  expect(glue).not.toContain('./host/web-js/bundle-size.test.mjs');
+  expect(glue).not.toContain('./host/web-js/document-agent.test.mjs');
 });
 
 const parent = realpathSync.native(tmpdir());
