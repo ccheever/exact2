@@ -486,7 +486,6 @@ function ensureMessageListener() {
   if (messageListening) return;
   messageListening = true;
   window.addEventListener("message", (event) => {
-    if (!inputReady) return;
     for (const el of messageFrames) {
       if (event.source !== el.contentWindow) continue;
       if (!guestMessageAuthorized(el, event.origin)) return;
@@ -496,9 +495,8 @@ function ensureMessageListener() {
       }
       if (typeof payload !== "string") return;
       const id = Number(el.dataset.view);
-      if (views.get(id) !== el) return;
-      const n = writeIn(payload);
-      send(wasm.exact_dispatch(id, 9, n, now()));
+      const go = () => { if (views.get(id) === el && !retiredViews.has(el) && messageFrames.has(el) && guestMessageAuthorized(el, event.origin)) send(wasm.exact_dispatch(id, 9, writeIn(payload), now())); };
+      if (inputReady) go(); else moduleReady.then(() => inputReady && go());
       return;
     }
   });
