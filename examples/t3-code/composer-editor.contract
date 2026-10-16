@@ -356,8 +356,8 @@ component ImageDraftTile
     column position="relative" width="4rem" height="4rem" flex-shrink=0 box-sizing="border-box" overflow="hidden" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7cc, #ffffff0d)" background-color="light-dark(#fcfcfc, #0a0a0a)" testId=`image-draft-${id}`
       ImagePreviewButton(id=id, name=name, command=command)
       row position="absolute" top="0.25rem" right="0.25rem"
-        // Asking first, a focused Remove names where the focus goes once the confirmed removal lands (the removal's
-        // `focus:` result); Cancel gives the focus back to it (the confirm's DialogFinalFocus, by its id).
+        // Asking first, a focused Remove names where the focus goes after the confirmed removal; the confirm moves the
+        // focus there on Confirm, or back to this Remove on Cancel, before it closes (app.contract confirmUi).
         if referenced
           button id=`remove-snapshot-${id}` press=ask(removeFocused ? `ui:confirm:${after}` : "ui:confirm", id, "remove-snapshot", `Remove ${name} from the message?`, "It is referenced in your text; removing it also removes every reference.", true) focus=removeFocus(true) blur=removeFocus(false) disabled=disabled aria-label=`Remove ${name}` testId=`remove-snapshot-${id}` width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 box-shadow="0 1px 2px #0000000d, 0 0 0 1px #ffffff33" background-color="#000000a6" display="flex" align-items="center" justify-content="center" title=""
             StashGlyph(name="x", size=14, color="#ffffff")
