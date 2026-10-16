@@ -391,16 +391,15 @@ could not, the comment at the fix says what happened and why the code is so.
 ## Work left
 
 As of 2026-10-16, after merging main's macOS fixes of that day (exact2 PRs #636 to #640, #646,
-#647 and #651) and a session with real keys on the terminal. Each item says what is wrong or
+#647, #651 and #655) and a session with real keys on the terminal. Each item says what is wrong or
 missing; the open framework issues that someone using the app runs into are in the section above.
 
 **Fails:**
 
-- The flat sidebar opens no context menu on a background environment's row, and dragging a
-  background row does not reorder it on its environment.
-- The image preview's zoomable image is a labelled group, read as "group"; the reference's
-  `role="region"` is an AXLandmarkRegion read as "region". The Mac host maps no `region` role
-  and Contract carries no `aria-roledescription` (host).
+- A press in the composer (or in any text field) does not close an open popover menu, such as
+  the Project scripts or Git options menu: the Mac host light-dismisses only on a
+  mouse-down/mouse-up pair its event monitor sees, and NSTextView's tracking loop takes the
+  mouse-up (host).
 
 The items below that were fixed since the 2026-10-15 session still want real keys, a pointer and
 VoiceOver.
@@ -430,6 +429,15 @@ VoiceOver.
 
 **Checked with real keys** (2026-10-16):
 
+- Terminal, Korean 2-Set with VoiceOver on (C9): VoiceOver was not the cause. When another
+  process selects the input source with TISSelectInputSource (an input switcher, or the
+  real-input harness's own tool) while the terminal has the focus, WebKit's input context can be
+  left with no input method, and keys reached the shell as the layout's characters (ㅎ ㅏ ㄴ or
+  g k s). The terminal now reconnects its input context when the selected source changes
+  (T3TerminalInputSource.swift). T3 Code under Chromium loses at most the first key in that
+  case. Not yet investigated: in a freshly launched lane the native composer once sent the first
+  2-Set syllable as jamo (ㅎㅏㄴ한글).
+
 - Terminal, Korean 2-Set, first syllable: in an app it has not yet met, macOS's Korean input
   method edits Hangul in place without marked text (it inserts the jamo and then replaces the
   syllable before the caret). It switches to marked text only once the app's text stops holding
@@ -448,9 +456,39 @@ VoiceOver.
   not drawn, in the clone as in T3 Code, whose terminal input is a hidden textarea.
 
 Real-input sessions should type IME rows with held keys: orca's zero-dwell press-key can make the
-input method commit a jamo at once.
+input method commit a jamo at once. They should switch input sources with the system shortcut or
+menu, not TISSelectInputSource, before they judge IME rows.
 
 **Fixed, not checked with real input or VoiceOver:**
+
+- macOS VoiceOver (exact2 PR #655, rows 8, 10 and 13 of session F): an `inert` page is out of
+  VoiceOver's reach. After Escape closes a painted menu over Settings, the host gives the focus
+  back to the trigger before it says the menu closed, then sends VoiceOver there, so VoiceOver no
+  longer lands on the chat behind Settings. A dialog drawn in the page, such as Rename project,
+  is announced before the focus moves into its field, and VoiceOver is then sent to the field.
+  The font picker lands VoiceOver on 'Search fonts', not on the dialog. The image preview's
+  zoomable image is `role="region"`, as the reference's is, read as 'region'
+  (AXLandmarkRegion). Checked only by AX reads and notification observers, not by VoiceOver.
+- A dialog that reports its focus to the window becomes `aria-modal` only once the focus has
+  entered it (`dialogSeated`, dialog-trap.contract): the legacy Rename project and Project
+  grouping dialogs, the confirmations, the file preview and the composer and timeline image and
+  video previews. The Mac host therefore lands VoiceOver on the dialog's initial focus (the
+  Project title field, Disable word wrap, Close image preview) and announces "<name>, dialog";
+  before, it landed on the dialog group and moved the focus there (rows 13 and 7 of session F
+  and C14; read from another process with AXObserver). Other `aria-modal` popups that do not
+  report through `dialogEntered` (Add environment, the font picker, the This machine dialog, the
+  network dialogs) still announce the popup before their focus moves.
+- A focused Remove on the composer's shelf (VO-Space, keys) hands the focus to the next tile's
+  button or the prompt, where the reference's next Tab goes (the reference leaves it on the
+  body). A pointer press leaves the focus where it was.
+- The flat sidebar's rows of a background environment have their context menu, built from that
+  environment's capabilities and acting there, and a drag writes each pin and order key on its
+  thread's own environment (agent drive; a native menu choice and a real drag are still to
+  check).
+- At a narrow window with the right panel as a sheet, Escape closes the Git dialog, then the
+  Thread details popover drawn above the sheet, then the sheet; a Git options menu item gives the
+  focus to its chevron as it closes, so the Commit or Publish dialog returns the focus there
+  (agent drive at 903x840).
 
 - While an `aria-modal` view is shown (the keybinding recorder, a Connections "More actions"
   menu or another key-scoped menu, the colour picker, the font picker, an `alertdialog`), another
@@ -558,15 +596,23 @@ input method commit a jamo at once.
 in text order, `sample.py` included, and none before the text area); rows 5, 10, 13 and 15 of
 realinput-1016a (VoiceOver's speech for an opening confirmation, a menu, a group and the font
 picker's search); rows 2 and 26 of session C and session D's Tab from the window (with Keyboard
-Navigation on, open a menu with the pointer, close it, then press Tab and Shift-Tab). For
+Navigation on, open a menu with the pointer, close it, then press Tab and Shift-Tab); rows 7, 8,
+10 and 13 of session F and C14 (exact2 PR #655 and `dialogSeated`: VoiceOver stays on Settings'
+trigger after Escape closes a menu, and lands on Rename project's field, the font picker's search
+and the image preview's Close, each dialog announced first), and the zoomable image read as
+"region". For
 exact2 PR #651, with VoiceOver: "edit text" on "Search fonts", a keybinding recorder and Rename
 project's "Project title"; "Add Environment, dialog" and Rename project's announcement as each
 opens, before the first field, and not again after a dialog over it closes; a painted menu's
 focused row read as its selection as ↓/↑ move it, its close, and the trigger read again after
 Escape. With real keys: a new binding in Settings › Keybindings (focus stays on Add keybinding,
 recording starts on focus, Escape restores, a press outside ends it), Escape on a git dialog
-over a narrow window's right panel sheet, and the project scripts menu's Escape and outside
-press. With the pointer and VoiceOver: a composer image thumbnail's Preview button and its Remove.
+over a narrow window's right panel sheet (then the Thread details popover, then the sheet), the
+focus back on the Git options chevron after a Commit or Publish dialog it opened, and the project
+scripts menu's Escape and outside press. With the pointer and VoiceOver: a composer image
+thumbnail's Preview button and its Remove (VO-Space on Remove moves the focus to the next tile or
+the prompt). With the pointer: a background environment's flat sidebar row's context menu and a
+drag that reorders it.
 
 **Passed with real keys, pointer or VoiceOver** (2026-10-15): the keybinding recorder's Escape,
 Snooze's focus return, Return on the fixed menus, the launcher's letters after a remount, the
