@@ -22,11 +22,11 @@ component KeyboardBar
   action dismiss
     blur()
   view
-    main testId="root" viewport-fit="cover" interactive-widget="resizes-content" display="flex" flex-direction="column" width="100%" height="100%" box-sizing="border-box" background-color="#12081f" padding-top="env(safe-area-inset-top)" padding-right="env(safe-area-inset-right)" padding-bottom="env(safe-area-inset-bottom)" padding-left="env(safe-area-inset-left)"
+    main testId="root" viewport-fit="cover" interactive-widget="resizes-content" display="flex" flex-direction="column" width="100%" height="100%" box-sizing="border-box" padding-top="env(safe-area-inset-top)" padding-right="env(safe-area-inset-right)" padding-bottom="env(safe-area-inset-bottom)" padding-left="env(safe-area-inset-left)"
       column testId="content" flex=1 min-height=0 gap=12 padding=16 box-sizing="border-box"
-        text "Keyboard bar" testId="title" font-size=20 font-weight=700 color="#ffffff"
-        button press=dismiss testId="dismiss" padding=10 border-radius=8 background-color="#7c4dff"
-          text "Dismiss the keyboard" font-size=14 color="#ffffff"
-        input appearance="none" value=note input=setNote focus=focusIn blur=focusOut placeholder="A note" testId="note" padding=12 border-radius=8 border-style="solid" border-width=1 border-color="#5b4a7a" background-color="#ffffff"
-      row testId="bar" width="100%" padding=14 box-sizing="border-box" justify-content="center" background-color="#ffd60a"
-        text "This bar rides on the keyboard" testId="bar-note" font-size=14 font-weight=700 color="#12081f"
+        text "Keyboard bar" testId="title" font-size=20 font-weight=700
+        button press=dismiss testId="dismiss" padding=10 border-radius=8 background-color="-exact-tertiary-fill"
+          text "Dismiss the keyboard" font-size=14 color="AccentColor"
+        input appearance="none" value=note input=setNote focus=focusIn blur=focusOut placeholder="A note" testId="note" padding=12 border-radius=8 border-style="solid" border-width=1 border-color="-exact-separator"
+      row testId="bar" width="100%" padding=14 box-sizing="border-box" justify-content="center" background-color="-exact-secondary-background"
+        text "This bar rides on the keyboard" testId="bar-note" font-size=14 font-weight=700
