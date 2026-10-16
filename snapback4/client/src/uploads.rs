@@ -24,9 +24,14 @@ async fn blocked(io: &Io, entry: &Json, why: Json) -> Stop {
     }
 }
 
-pub(crate) async fn prepare(io: &Io, entry: &Json) -> Result<Json, Stop> {
+pub(crate) enum Prepared {
+    Ready(Json),
+    Cancelled,
+}
+
+pub(crate) async fn prepare(io: &Io, entry: &Json) -> Result<Prepared, Stop> {
     let Some(upload) = entry.get("upload") else {
-        return Ok(entry.clone());
+        return Ok(Prepared::Ready(entry.clone()));
     };
     let state = io
         .device(json!({"op":"sync_state", "capture":false}))
@@ -44,8 +49,30 @@ pub(crate) async fn prepare(io: &Io, entry: &Json) -> Result<Json, Stop> {
         )
         .await);
     }
+    if upload["state"] == "cancelling" {
+        let id = encoded(entry["id"].as_str().unwrap_or(""));
+        let store = encoded(upload["store_id"].as_str().unwrap_or(""));
+        let (_, body, why) = read(
+            io.fetch(Fetch::post(
+                format!("/assets/intent/{id}/cancel?store_id={store}"),
+                json!({}),
+            ))
+            .await,
+        )?;
+        if let Some(why) = why {
+            return Err(refused(why));
+        }
+        if body["ok"] != true {
+            return Err(Stop::Retry(refusal(
+                "E_HTTP_RESPONSE",
+                "link",
+                "upload cancellation was not acknowledged; keep local custody",
+            )));
+        }
+        return Ok(Prepared::Cancelled);
+    }
     if upload["state"] == "placing" {
-        return Ok(entry.clone());
+        return Ok(Prepared::Ready(entry.clone()));
     }
     if upload["state"] == "blocked" && upload["why"]["retryable"] != true {
         return Err(Stop::Denied(upload["why"].clone()));
@@ -131,10 +158,43 @@ pub(crate) async fn prepare(io: &Io, entry: &Json) -> Result<Json, Stop> {
         )));
     }
     // Facts, byte disposal and dependency release commit together before begin_send.
-    io.device(
-        json!({"op":"upload_ready", "id":entry["id"], "viewer":entry["viewer"],
+    match io
+        .device(
+            json!({"op":"upload_ready", "id":entry["id"], "viewer":entry["viewer"],
         "store_id":upload["store_id"], "asset":body["asset"]}),
-    )
-    .await
-    .map_err(Stop::Denied)
+        )
+        .await
+    {
+        Ok(entry) => Ok(Prepared::Ready(entry)),
+        Err(why) => Err(blocked(io, entry, why).await),
+    }
+}
+
+/// A pre-program refusal has no /m receipt. Finish the declared intent on the
+/// server before releasing local custody; lost finish replies retry the same id.
+pub(crate) async fn finish(io: &Io, entry: &Json, why: &Json) -> Result<Json, Stop> {
+    let id = encoded(entry["id"].as_str().unwrap_or(""));
+    let store = encoded(entry["upload"]["store_id"].as_str().unwrap_or(""));
+    let body = json!({"op":entry["op"], "args":entry["args"], "why":why});
+    let (_, receipt, denied) = read(
+        io.fetch(Fetch::post(
+            format!("/assets/intent/{id}/finish?store_id={store}"),
+            body,
+        ))
+        .await,
+    )?;
+    if let Some(why) = denied
+        .as_ref()
+        .filter(|_| !matches!(receipt["state"].as_str(), Some("sent" | "failed")))
+    {
+        return Err(refused(why.clone()));
+    }
+    if !matches!(receipt["state"].as_str(), Some("sent" | "failed")) {
+        return Err(Stop::Retry(refusal(
+            "E_HTTP_RESPONSE",
+            "link",
+            "upload finish returned no bound receipt; keep the placing dependency",
+        )));
+    }
+    Ok(receipt)
 }

@@ -1106,7 +1106,10 @@ record fits its 16 MiB storage/call boundary. Larger files may use online
 partition resumes queued bytes without the picked path. Lost upload or placement
 responses retry the same server intent and mutation id. `uploads()` lists kept
 states; a nonretryable refusal stays blocked with its bytes, and
-`retryUpload(id)` requeues it for the next sync. A retained terminal receipt
+`retryUpload(id)` requeues it for the next sync. `discardUpload(id)` durably
+requests cancellation; a sync retires the bytes only after server acknowledgement.
+After placement dispatch starts, recover its receipt instead. A blocked upload
+leaves the round unsuccessful but does not hold up independent ordinary writes. A retained terminal receipt
 prevents different bytes or arguments reusing the same key. Keep the same viewer
 and backend store; switching either cannot send the old intent elsewhere.
 

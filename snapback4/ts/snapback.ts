@@ -148,6 +148,7 @@ export interface Device { call(request: Request): Promise<Request>; close?(): Pr
 /** What the server established about an uploaded file (`POST /assets`):
  * pass `{ id }` as an `image` or `video` argument. */
 export interface Asset { id: string; type: string; bytes: number; name?: string; width?: number | null; height?: number | null; duration?: number | null }
+export interface UploadIntent {id: string; state: 'queued' | 'uploading' | 'blocked' | 'placing' | 'cancelling'; why?: Refusal | null; asset?: Asset | null}
 export interface UploadAndPlaceOptions extends UploadOptions { argument: string; id?: string }
 export interface UploadOptions { file?: { type: string; name: string } }
 /** `upload`'s answer: the asset, or why not (`E_ASSET_TYPE`,
@@ -892,16 +893,22 @@ export class Snapback {
   }
 
   /** Inspect a kept dependency or its terminal write; retry a blocked upload via retryUpload. */
-  async uploads(): Promise<Json[]> {
+  async uploads(): Promise<UploadIntent[]> {
     const entries = ok<Json[]>(await this.call({op:'queued'}));
     return entries.filter(e => !!e && typeof e==='object' && !Array.isArray(e) && !!e.upload).map(e => {
       const entry=e as Request, upload=entry.upload as Request;
-      return {id:entry.id, state:upload.state, why:upload.why ?? null, asset:upload.asset ?? null};
+      return {id:entry.id, state:upload.state, why:upload.why ?? null, asset:upload.asset ?? null} as unknown as UploadIntent;
     });
   }
   async retryUpload(id: string): Promise<void> {
     ok(await this.call({op:'upload_state', id, viewer:this.partition.viewer, state:'queued'}));
   }
+  /** Keep cancellation intent until the server acknowledges it; sync then retires local custody.
+   * Once placement dispatch began, recover its receipt instead of discarding it. */
+  async discardUpload(id: string): Promise<void> {
+    ok(await this.call({op:'upload_state', id, viewer:this.partition.viewer, state:'cancelling'}));
+  }
+
 
   /** Upload a file's bytes (`POST /assets`, under this client's `headers`):
    * an app file by path (the picked `app:/tmp/picked/…`; the host sends it,

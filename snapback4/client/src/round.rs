@@ -640,6 +640,7 @@ async fn recover(
 async fn flush(io: &Io, shared: &Mutex<Shared>) -> Result<bool> {
     let entries = io.device(json!({"op": "queued"})).await.map_err(denied)?;
     let mut settled = false;
+    let mut blocked_upload = None;
     for entry in entries.as_array().cloned().unwrap_or_default() {
         let id = entry["id"].as_str().unwrap_or_default().to_owned();
         let Some(entry) = queued_entry(io, &id).await? else {
@@ -666,13 +667,42 @@ async fn flush(io: &Io, shared: &Mutex<Shared>) -> Result<bool> {
             // No store identity yet: the next sync supplies it.
             break;
         };
-        let entry = crate::uploads::prepare(io, &entry).await?;
+        let entry = match crate::uploads::prepare(io, &entry).await {
+            Ok(crate::uploads::Prepared::Ready(entry)) => entry,
+            Ok(crate::uploads::Prepared::Cancelled) => {
+                let outcome = json!({"id":id, "state":"failed", "why":{"code":"E_UPLOAD_CANCELLED", "family":"asset", "message":"upload discarded after server cancellation", "retryable":false}});
+                settle(io, shared, &id, outcome, None, Some(&binding)).await?;
+                settled = true;
+                continue;
+            }
+            Err(Stop::Denied(why))
+                if entry.get("upload").is_some()
+                    && !matches!(
+                        why["code"].as_str(),
+                        Some("E_AUTH" | "E_STORE_REPLACED" | "E_STORE")
+                    ) =>
+            {
+                blocked_upload = Some(why);
+                continue; // A held upload must not starve independent ordinary writes.
+            }
+            Err(stop) => return Err(stop),
+        };
         io.device(json!({"op": "begin_send", "id": id}))
             .await
             .map_err(denied)?;
         let body = json!({"id": id, "args": entry["args"], "newIds": entry["new_ids"], "store_id": binding});
         let op = entry["op"].as_str().unwrap_or_default();
-        let (status, json, why) = read(io.fetch(Fetch::post(format!("/m/{op}"), body)).await)?;
+        let (status, mut json, mut why) =
+            read(io.fetch(Fetch::post(format!("/m/{op}"), body)).await)?;
+        if entry.get("upload").is_some() {
+            if let Some(reason) = why
+                .as_ref()
+                .filter(|w| w["retryable"] != true && w["code"] != "E_AUTH")
+            {
+                json = crate::uploads::finish(io, &entry, reason).await?;
+                why = json.get("why").or_else(|| json.get("denied")).cloned();
+            }
+        }
         let sent = json["state"] == "sent";
         if let Some(why) = &why {
             // A retryable refusal leaves the write queued; so does a refused
@@ -705,6 +735,9 @@ async fn flush(io: &Io, shared: &Mutex<Shared>) -> Result<bool> {
             (json["replayed"] == true && json["store_id"] == binding).then_some(&binding);
         settle(io, shared, &id, outcome, revalidated, Some(&binding)).await?;
         settled = true;
+    }
+    if let Some(why) = blocked_upload {
+        return Err(Stop::Denied(why));
     }
     Ok(settled)
 }
