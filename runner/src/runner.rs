@@ -642,6 +642,10 @@ impl<D: DataSource> Runner<D> {
                 .filter(|(s, _)| s.owner.is_none())
                 .map(|(s, v)| (self.plan.str(s.name).to_string(), v.clone()))
                 .collect(),
+            panels: self.tree.as_ref().map_or_else(
+                || self.ids.panels.clone(),
+                |tree| tree.carry_panels(&self.plan, &self.ids.panels),
+            ),
             resources: self
                 .plan
                 .resources
@@ -1049,6 +1053,7 @@ impl<D: DataSource> Runner<D> {
         runner.transport_stood();
         // First frame.
         let mut ids = std::mem::take(&mut runner.ids);
+        ids.panels = carried.map(|c| c.panels.clone()).unwrap_or_default();
         let (tree, ops, surfaces, notes, shown) = {
             let mut u = Update::new(runner.env(&[], &[]), &runner.sites, &mut ids);
             u.fonts = Some(runner.fonts.clone());

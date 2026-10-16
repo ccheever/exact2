@@ -35,7 +35,9 @@ const READ: [PropId; 6] = [
 /// `"tabpanel"` and whose nearest ancestor with a `navigationKey` binding is
 /// a navigation root (it binds `navigationBack` too), not a route — the
 /// panels a root's tablist names (`head.rs` `tab_panels`) when the app
-/// writes them as the recipe does. The web JS target defers the same sites.
+/// writes them as the recipe does. The web JS target defers the same sites,
+/// and the inliner makes their contents one arm (`contract_syntax::inline`),
+/// but for a virtualized list's, whose one `for` owns its rows' state.
 pub fn panel_sites(plan: &Plan) -> Vec<NodesId> {
     let binds = |n: NodesId, prop: PropId| {
         plan.node(n)
@@ -43,20 +45,25 @@ pub fn panel_sites(plan: &Plan) -> Vec<NodesId> {
             .iter()
             .any(|b| plan.binding(b).kind == BindingKind::Prop && plan.binding(b).id == prop as u16)
     };
-    let tabpanel = |n: NodesId| {
-        plan.node(n).bindings.iter().any(|b| {
+    // A prop's binding that is a literal: its opcode and first operand.
+    let literal = |n: NodesId, prop: PropId| {
+        plan.node(n).bindings.iter().find_map(|b| {
             let b = plan.binding(b);
-            b.kind == BindingKind::Prop
-                && b.id == PropId::AccessibilityRole as u16
-                && matches!(
-                    crate::vm::instructions(plan.code(b.expr))
-                        .collect::<Result<Vec<_>, _>>()
-                        .as_deref(),
-                    Ok([s, r]) if s.op == exact_plan::Opcode::Str
-                        && r.op == exact_plan::Opcode::Return
-                        && plan.str(exact_plan::StrId(s.args[0] as u32)) == "tabpanel"
-                )
+            if b.kind != BindingKind::Prop || b.id != prop as u16 {
+                return None;
+            }
+            match crate::vm::instructions(plan.code(b.expr))
+                .collect::<Result<Vec<_>, _>>()
+                .as_deref()
+            {
+                Ok([v, r]) if r.op == exact_plan::Opcode::Return => Some((v.op, v.args[0])),
+                _ => None,
+            }
         })
+    };
+    let tabpanel = |n: NodesId| {
+        matches!(literal(n, PropId::AccessibilityRole), Some((exact_plan::Opcode::Str, s))
+            if plan.str(exact_plan::StrId(s as u32)) == "tabpanel")
     };
     // A site's enclosing node: its parent, else its arm's region's.
     let up = |parent: Option<NodesId>, mut arm: Option<ArmsId>| {
@@ -291,6 +298,119 @@ impl Tree {
     }
 }
 
+/// The state of components in tab panels a reload carries (LLP 1075.003
+/// §9.14): each value with its panel's `id` and its slot's name, until that
+/// panel is built again. A panel's contents are one arm, which owns that
+/// state (`contract_syntax::inline`); no other arm's state is carried.
+pub type CarriedPanels = Vec<(String, String, Value)>;
+
+/// A panel's contents, made now: its one arm, whose state is what a reload
+/// carried for this panel where that still conforms, else its initializers'.
+fn open_panel(
+    u: &mut Update<'_>,
+    n: &NodeInst,
+    frames: &[Frame],
+) -> Result<Vec<Child>, InstanceError> {
+    let plan = u.env.plan;
+    let arm = plan.node(n.node).arm;
+    let (region, contents) = match u.sites.children(Some(n.node), arm) {
+        &[(_, Site::Region(r))] if plan.region(r).kind == RegionKind::When => {
+            match plan.region(r).arms.iter().next() {
+                Some(contents) => (r, contents),
+                None => return realize(u, Some(n.node), arm, frames),
+            }
+        }
+        _ => return realize(u, Some(n.node), arm, frames),
+    };
+    let id = n
+        .bound_prop(plan, PropId::Id)
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    let mut frame = ArmFrame::default();
+    if plan.slots.iter().any(|s| s.owner == Some(contents)) {
+        let slots: RowSlots = Rc::new(RefCell::new(BTreeMap::new()));
+        frame.region = Some(region.0);
+        frame.row = Some(slots.clone());
+        let inner = with_frame(frames, frame.scope());
+        for (i, s) in plan.slots.iter().enumerate() {
+            if s.owner != Some(contents) {
+                continue;
+            }
+            let name = plan.str(s.name);
+            let carried = id.as_deref().and_then(|id| {
+                let at = u
+                    .ids
+                    .panels
+                    .iter()
+                    .position(|(p, n, _)| p == id && n == name)?;
+                Some(u.ids.panels.remove(at).2)
+            });
+            let v = match carried.filter(|v| v.conforms(plan, s.ty)) {
+                Some(v) => v,
+                None => u.eval(s.init, &inner)?,
+            };
+            if !v.conforms(plan, s.ty) {
+                return Err(InstanceError::SlotType {
+                    slot: name.to_string(),
+                });
+            }
+            slots.borrow_mut().insert(i as u32, v);
+        }
+    }
+    let roots = realize(u, None, Some(contents), &with_frame(frames, frame.scope()))?;
+    Ok(vec![Child::Region(RegionInst {
+        region,
+        subject: None,
+        active: Active::Arm {
+            arm: Some(0),
+            frame,
+            roots,
+        },
+    })])
+}
+
+impl Tree {
+    /// The state of each built tab panel's contents, for a reload to carry,
+    /// with what an earlier reload carried for panels not built since.
+    pub(crate) fn carry_panels(&self, plan: &Plan, left: &CarriedPanels) -> CarriedPanels {
+        let sites = panel_sites(plan);
+        let mut out = Vec::new();
+        let mut stack: Vec<&Child> = self.children.iter().collect();
+        while let Some(c) = stack.pop() {
+            match c {
+                Child::Node(n) => {
+                    let id = n.bound_prop(plan, PropId::Id).and_then(Value::as_str);
+                    if let ([Child::Region(r)], Some(id)) = (n.children.as_slice(), id) {
+                        if let Active::Arm {
+                            frame:
+                                ArmFrame {
+                                    row: Some(slots), ..
+                                },
+                            ..
+                        } = &r.active
+                        {
+                            if sites.binary_search(&n.node).is_ok() {
+                                for (i, v) in slots.borrow().iter() {
+                                    let name = plan.str(plan.slots[*i as usize].name);
+                                    out.push((id.to_owned(), name.to_owned(), v.clone()));
+                                }
+                            }
+                        }
+                    }
+                    stack.extend(&n.children);
+                }
+                Child::Region(r) => match &r.active {
+                    Active::Arm { roots, .. } => stack.extend(roots),
+                    Active::Rows { rows } => stack.extend(rows.iter().flat_map(|r| &r.roots)),
+                },
+            }
+        }
+        let built: Vec<String> = out.iter().map(|(p, _, _)| p.clone()).collect();
+        out.extend(left.iter().filter(|(p, _, _)| !built.contains(p)).cloned());
+        out
+    }
+}
+
 /// Make the contents of the panels `open` names, found under `children`
 /// in `frames`, as [`NodeInst::create`] would have made them.
 fn open_in(
@@ -309,10 +429,19 @@ fn open_in(
                 let saved = n.enter(u, n.tuple);
                 let done = if open.contains(&n.view) {
                     *left -= 1;
-                    let arm = u.env.plan.node(n.node).arm;
-                    realize(u, Some(n.node), arm, frames).map(|made| {
-                        n.children = made;
-                        n.emit_children(u);
+                    // A virtualized list that is a panel makes its window's
+                    // rows now, as it would have when made.
+                    match u.env.lists {
+                        Some(lists) => (lists.create)(u, n.node, n.view, frames)
+                            .map(|made| n.collection = made),
+                        None => Ok(()),
+                    }
+                    .and_then(|()| match n.collection {
+                        Some(_) => Ok(()),
+                        None => open_panel(u, n, frames).map(|made| {
+                            n.children = made;
+                            n.emit_children(u);
+                        }),
                     })
                 } else if n.collection.is_none() {
                     open_in(u, &mut n.children, frames, open, left)

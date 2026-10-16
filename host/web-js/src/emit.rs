@@ -1363,6 +1363,13 @@ impl Em<'_> {
             let (bind, name) = (bind.unwrap_or_default(), h.event.name());
             let _ = write!(self.out, "{on}({e},\"{name}\",{handler}{bind});");
         }
+        // @ref LLP 1075.003 §3.7 — a tab's contents are made when it is first
+        // selected: a virtualized list's rows as well.
+        let panel = self.panels.binary_search(&exact_plan::NodesId(i)).is_ok();
+        if panel {
+            let tp = self.uses.rt("tp");
+            let _ = write!(self.out, "{tp}({e},()=>{{");
+        }
         if virtualized {
             let opts = self.list_options(i, scope, &edges)?;
             let &[Site::Region(r)] = self.sites.of_node(i) else {
@@ -1376,15 +1383,10 @@ impl Em<'_> {
                 ));
             }
             self.list = true;
-            return self.each(r, &e, scope, Some(opts));
+            self.each(r, &e, scope, Some(opts))?;
+        } else {
+            self.children(self.sites.of_node(i), &e, scope)?;
         }
-        // @ref LLP 1075.003 §3.7 — a tab's contents are made when it is first selected.
-        let panel = self.panels.binary_search(&exact_plan::NodesId(i)).is_ok();
-        if panel {
-            let tp = self.uses.rt("tp");
-            let _ = write!(self.out, "{tp}({e},()=>{{");
-        }
-        self.children(self.sites.of_node(i), &e, scope)?;
         if panel {
             self.out.push_str("});");
         }

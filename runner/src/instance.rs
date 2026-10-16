@@ -35,7 +35,7 @@ pub use foresee::Mount;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
-pub use tabs::panel_sites;
+pub use tabs::{panel_sites, CarriedPanels};
 
 /// List engine entries (LLP 1047 D3; LLP 1047.000 §9), reached only through
 /// [`LISTS`]. `RunnerLinks::ALL` and the web collections capability name it;
@@ -260,6 +260,7 @@ pub struct Ids {
     pub(crate) work: crate::perf::Work,
     /// Every row that read a theme token (LLP 1121 D7).
     pub theme: theme::ThemeIndex,
+    pub(crate) panels: tabs::CarriedPanels, // what a reload carried, until each is built
 }
 
 impl Ids {
@@ -914,11 +915,12 @@ impl NodeInst {
         let saved = inst.enter(u, inst.tuple);
         let lists = u.env.lists;
         let realized = (|| {
+            let panel = u.sites.panels.binary_search(&node).is_ok();
             inst.collection = match lists {
-                Some(lists) => (lists.create)(u, node, view, frames)?,
-                None => None,
+                Some(lists) if !panel => (lists.create)(u, node, view, frames)?,
+                _ => None,
             };
-            if u.sites.panels.binary_search(&node).is_ok() {
+            if panel {
                 u.waiting.push(view);
             } else if inst.collection.is_none() {
                 inst.children = realize(u, Some(node), row.arm, frames)?;

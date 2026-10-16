@@ -230,3 +230,125 @@ component Editor
     let tree = agent::tree(&r);
     assert!(tree.contains("\"text\":\"b:later\""), "{tree}");
 }
+
+/// A virtualized list may itself be a tab panel: it compiles as before, and
+/// makes its window's rows when its tab is first selected.
+#[test]
+fn a_virtualized_list_panel_waits_for_its_tab() {
+    let source = "routes nav
+  tab a \"/\"
+  tab b \"/b\"
+
+component App
+  state items = [1, 2, 3]
+  action pick(name: string)
+    nav = select(nav, name)
+  view
+    main navigationKey=`${top(nav).id}` navigationBack=\"back\"
+      column height=400
+        for t in nav.tabs key=t.name
+          if t.name == \"a\"
+            column role=\"tabpanel\" id=\"panel-a\" testId=\"panel-a\"
+              for e in t.stack key=e.id
+                column navigationKey=`${e.id}`
+                  text e.name
+          else
+            list role=\"tabpanel\" id=\"panel-b\" testId=\"panel-b\" virtualized=true height=200
+              for item in items key=item
+                text `item ${item}` testId=`item-${item}`
+      row role=\"tablist\"
+        button press=pick(\"a\") role=\"tab\" aria-controls=\"panel-a\" aria-selected=(nav.tab == \"a\")
+          text \"A\"
+        button press=pick(\"b\") role=\"tab\" aria-controls=\"panel-b\" aria-selected=(nav.tab == \"b\")
+          text \"B\"
+";
+    let mut r = boot(source, "/");
+    let tree = agent::tree(&r);
+    assert!(unopened(&tree, "b") && !has(&tree, "item-1"), "{tree}");
+    r.act("pick", vec![Value::str("b")]).unwrap();
+    let tree = agent::tree(&r);
+    assert!(!panel(&tree, "b").contains("\"unopened\""), "{tree}");
+    assert!(has(&tree, "item-1"), "{tree}");
+}
+
+/// A reload keeps the state of a component in a tab panel: rebuilt with its
+/// tab when that tab is selected at the reload, else when it next is.
+#[test]
+fn a_reload_keeps_a_panel_components_state() {
+    let source = "routes nav
+  tab a \"/\"
+  tab b \"/b\"
+
+component App
+  action pick(name: string)
+    nav = select(nav, name)
+  view
+    main navigationKey=`${top(nav).id}` navigationBack=\"back\"
+      column
+        for t in nav.tabs key=t.name
+          column role=\"tabpanel\" id=`panel-${t.name}` testId=`panel-${t.name}`
+            Editor(label=t.name)
+            for e in t.stack key=e.id
+              column navigationKey=`${e.id}`
+                text e.name
+      row role=\"tablist\"
+        button press=pick(\"a\") role=\"tab\" aria-controls=\"panel-a\" aria-selected=(nav.tab == \"a\")
+          text \"A\"
+        button press=pick(\"b\") role=\"tab\" aria-controls=\"panel-b\" aria-selected=(nav.tab == \"b\")
+          text \"B\"
+
+component Editor
+  props
+    label: string
+  state draft = \"\"
+  action edit
+    draft = \"hello\"
+  view
+    button press=edit testId=`edit-${label}`
+      text `${label}:${draft}`
+";
+    let press = |r: &mut Runner<NoData>, test_id: &str| {
+        let found = agent::handle(
+            r,
+            &format!("{{\"op\":\"tree\",\"target\":\"{test_id}\",\"shallow\":true}}"),
+        );
+        let id = found
+            .split("{\"id\":")
+            .nth(1)
+            .unwrap()
+            .split(',')
+            .next()
+            .unwrap();
+        r.dispatch(id.parse().unwrap(), Event::Press).unwrap();
+    };
+    let reload = |r: &Runner<NoData>| {
+        let plan = contract::compile(source).unwrap();
+        let carried = r.carry();
+        Runner::boot_carrying(
+            plan,
+            NoData,
+            Kernel::with_monospace(),
+            &carried,
+            Default::default(),
+            "/",
+        )
+        .unwrap()
+    };
+    let shows =
+        |r: &Runner<NoData>, text: &str| agent::tree(r).contains(&format!("\"text\":\"{text}\""));
+    let mut r = boot(source, "/");
+    r.act("pick", vec![Value::str("b")]).unwrap();
+    press(&mut r, "edit-b");
+    assert!(shows(&r, "b:hello"));
+    // Reloaded with B selected: B is built with its draft.
+    let mut r = reload(&r);
+    assert!(shows(&r, "b:hello"), "{}", agent::tree(&r));
+    // Reloaded with A selected, twice: B waits, and is built with its draft
+    // when it is selected.
+    r.act("pick", vec![Value::str("a")]).unwrap();
+    let mut r = reload(&reload(&r));
+    assert!(!has(&agent::tree(&r), "edit-b"));
+    r.act("pick", vec![Value::str("b")]).unwrap();
+    assert!(shows(&r, "b:hello"), "{}", agent::tree(&r));
+    assert!(shows(&r, "a:"));
+}

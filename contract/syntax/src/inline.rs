@@ -496,10 +496,16 @@ fn inline_nodes(
                     })
                     .collect();
                 let has = |name: &str| attrs.iter().any(|a| a.name == name);
+                // A virtualized list that is a panel waits whole
+                // (`exact_runner::instance::panel_sites`); its one `for`
+                // already owns its rows' state, and must stay its one child.
                 let panel = ctx.tabs
                     && !children.is_empty()
                     && attrs.iter().any(|a| {
                         a.name == "role" && matches!(&a.value, Expr::Str(r, _) if r == "tabpanel")
+                    })
+                    && attrs.iter().all(|a| {
+                        a.name != "virtualized" || matches!(a.value, Expr::Bool(false, _))
                     });
                 let tabs = ctx.tabs;
                 if has("navigationKey") {
