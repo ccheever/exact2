@@ -196,6 +196,7 @@ describe('public popover triggers execute one ordered command sequence', () => {
     ['settings-scheduled.contract', 'TaskRow', 'triggerKey'], ['settings-scheduled.contract', 'ScheduledEditor', 'environmentKey'],
     ['providers-setup.contract', 'ProviderAccountRow', 'triggerKey'], ['r4-git.contract', 'R4GitRows', 'gitMenuKey'],
     ['pages-usage-prices.contract', 'UsagePricesApply', 'triggerKey'], ['r6-polish.contract', 'R6ScriptRow', 'triggerKey'],
+    ['shell-details.contract', 'OpenInRow', 'triggerKey'],
   ];
   test('the inventory includes every opener and no retired invoker, focus redirect, watcher or counter remains', async () => {
     const found: string[] = [];
@@ -290,9 +291,6 @@ describe('↓ and ↑ on a closed trigger open its menu at the first or the last
     const title = await component('chat.contract', 'ChatHeader');
     expect(title).toContain('action titleKey(k: string, e: KeyboardEvent)\n    titleEnd = kmKeyEnd(k)\n    if kmArrow(k) and not e.metaKey and not e.ctrlKey and not e.altKey\n      preventDefault()\n      title("open", "")\n      focus(kmOpenTarget("title-menu-keys", kmKeyEnd(k)))');
     expect(await source('requests.contract')).toContain('      menuOpen = true\n      focus(kmOpenTarget(`approval-menu-${approval.id}-keys`, kmKeyEnd(k)))');
-    const details = await source('shell-details.contract');
-    expect(details).toContain('press=toggleEditors key=editorsKey focus=clearEditorsEnd ');
-    expect(details.split('\n').find(l => l.includes('KeyMenu(menuId="details-editors-keys"'))).toContain('keyed=kmEndKeyed(menuEnd)');
     // A press that toggles reads the state as it began: the focus moves in only when the menu opens.
     expect(await source('requests.contract')).toContain('    menuOpen = not menuOpen\n    // An action reads the state as it began: `not menuOpen` is the menu opening.\n    if not menuOpen\n');
     // Menus the data module mounts: the trigger's keys ask for the end, its taking the focus clears it (no `pointerdown`: that would

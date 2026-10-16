@@ -3,6 +3,7 @@
 // it gives up its shortcut while that dialog shows. Base UI closes only the topmost popup. Read from the Contract
 // sources; the keys are driven on macOS.
 import { describe, expect, test } from 'bun:test';
+import { contractComponent } from './contract-action-fixture';
 
 const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
 const line = (text: string, needle: string) => text.split('\n').find(candidate => candidate.includes(needle)) ?? '';
@@ -10,7 +11,7 @@ const line = (text: string, needle: string) => text.split('\n').find(candidate =
 describe('the thread details card gives Escape to the dialogs it opens', () => {
   test('a git dialog or the Merge confirmation keeps Escape from the card\'s backdrop', async () => {
     const card = await source('shell-details.contract');
-    expect(line(card, 'testId="thread-details-backdrop"')).toContain('aria-keyshortcuts=(details.git.dialog != "" or details.prRows.merge.open or editorsOpen ? "" : "Escape")');
+    expect(line(card, 'testId="thread-details-backdrop"')).toContain('aria-keyshortcuts=(details.git.dialog != "" or details.prRows.merge.open ? "" : "Escape")');
     // The dialogs' own Escape buttons, inside them.
     const git = await source('r4-git.contract');
     expect(line(git, 'testId=`${testId}-close`')).toContain('aria-keyshortcuts="Escape"');
@@ -19,19 +20,34 @@ describe('the thread details card gives Escape to the dialogs it opens', () => {
   });
 });
 
-// OpenInPicker's Menu: Escape closes it wherever the focus is, the prompt included (Base UI's dismiss listens on the
-// document), above the popover card that holds it; the chevron gets the focus back only from the menu.
-describe('the "Open in" menu closes on Escape', () => {
-  test('its click-away layer declares Escape, and the card gives Escape up while the menu shows', async () => {
+// OpenInPicker's Menu (panel form, MenuPopup align="end" anchored at the row, w-(--anchor-width)): a press anywhere
+// outside it or Escape closes it, as Base UI's Menu does; the host light-dismisses a `popover="auto"` (exact2 PR #676).
+describe('the "Open in" menu is a popover', () => {
+  test('opened by its chevron, under the row at its width, modal while it shows, with no click-away layer', async () => {
     const card = await source('shell-details.contract');
-    const layer = line(card, 'testId="details-editors-backdrop"');
-    expect(layer).toContain('aria-keyshortcuts="Escape"');
-    expect(layer).toContain('press=closeEditors');
-    expect(line(card, 'testId="details-editors"')).toContain('focusin=editorsFocus(true) focusout=editorsFocus(false)');
-    expect(line(card, 'testId="details-choose-editor"')).toContain('id="details-choose-editor"');
-    const close = card.slice(card.indexOf('  action closeEditors'), card.indexOf('  view', card.indexOf('  action closeEditors')));
-    expect(close).toContain('if editorsFocused\n      editorsFocused = false\n      focus("details-choose-editor")');
-    expect(close).toContain('act("editors", "", "")');
+    const menu = line(card, 'column id="details-editors-menu"');
+    for (const part of ['popover="auto"', 'position-area="bottom span-left"', 'margin-top="0.25rem"', 'width=width', 'toggle=toggled',
+      'data-dialog-return="menu"', 'focusin=dialogMenuEntered("details-editors-menu", "details-choose-editor")']) expect(menu).toContain(part);
+    const chevron = line(card, 'button id="details-choose-editor"');
+    for (const part of ['popovertarget="details-editors-menu"', 'key=triggerKey', 'aria-haspopup="menu"', 'aria-expanded=open']) expect(chevron).toContain(part);
+    expect(chevron).not.toContain('press=');
+    expect(line(card, 'KeyMenu(menuId="details-editors-keys"')).toContain('keyed=0, gap="0px", modal=true)');
+    expect(line(card, 'button id=`details-editor-${editor.id}`')).toContain('popovertarget="details-editors-menu" popovertargetaction="hide"');
+    expect(line(card, 'OpenInRow(')).toContain('menuWidth=((inline ? 262 : 246) * rem / 16)');
+    for (const gone of ['details-editors-backdrop', 'editorsOpen', 'closeEditors', 'act("editors"']) expect(card).not.toContain(gone);
+    // Nothing above the card keeps the menu's state any more.
+    for (const file of ['app.contract', 'app-window.contract', 'app-main.contract', 'app-overlays.contract'])
+      expect(await source(file)).not.toMatch(/detailsEditors|editorsOpen|"editors"/);
+  });
+
+  test("the chevron's tint and expanded state follow the popover's toggle", () => {
+    const row = contractComponent('shell-details.contract', 'OpenInRow');
+    const state = row.state();
+    expect(state.open).toBe(false);
+    row.call('toggled', state, {}, [{ newState: 'open', oldState: 'closed' }]);
+    expect(state.open).toBe(true);
+    row.call('toggled', state, {}, [{ newState: 'closed', oldState: 'open' }]);
+    expect(state.open).toBe(false);
   });
 });
 
