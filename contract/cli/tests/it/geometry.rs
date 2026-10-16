@@ -967,3 +967,26 @@ fn intersect_compiles_and_dispatches_its_entry_after_authored_arguments() {
         "{error:?}"
     );
 }
+
+/// The euxy port read `measure("root").height` to size its sheets and got 0:
+/// `measure` is the box at `height: auto`, its content's height, and a root
+/// whose children are all absolutely positioned (its routes) has none in
+/// flow. `frame` is the laid-out box. A mount task's timer, fired after the
+/// host's first layout as on a native host, reads both.
+#[test]
+fn measure_is_the_contents_height_and_frame_the_laid_out_box() {
+    let src = "component App\n  state natural = -1\n  state drawn = -1\n  state answered = false\n  task boot mount\n    after(1, read)\n  action read\n    natural = measure(\"root\").height\n    drawn = frame(\"root\").height\n    answered = not measure(\"root\").unavailable\n  view\n    main id=\"root\" height=\"100%\"\n      column position=\"absolute\" inset=0\n        text \"route\"\n";
+    let plan = contract::compile(src).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    lay_out(&mut r);
+    r.advance(1.0).unwrap();
+    assert!(flag(&r, "answered"));
+    assert_eq!((num(&r, "natural"), num(&r, "drawn")), (0.0, 800.0));
+}

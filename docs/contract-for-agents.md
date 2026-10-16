@@ -2042,7 +2042,13 @@ every `translate`, `rotate` and `scale` on it and above it (the bounding box of 
 turned box), with every scroll offset above it (the page's too) applied, so a drop
 target needs no scroll bookkeeping and a dragged card is where it shows. Natively a
 transform in flight counts at its end value; the web reads it mid-flight. `measure`
-reads an auto-height hypothetical layout at the same origin.
+reads an auto-height hypothetical layout at the same origin: the box's content's
+height, not its own, so a box whose children are all absolutely positioned (a
+navigation root, a route) measures 0 however tall it is laid out. Read a laid-out
+size, the screen's included, with `frame`, and size a sheet as a share of the
+screen with `navigationDetent="45%"`. Before the first layout both answer
+`unavailable` with zeros, as on the web until the page's geometry code loads after
+first paint; natively a mount task's `after(1, …)` runs after that layout.
 Neither is a computed style binding to run every render.
 `elementFromPoint(x, y)` names the front-most of the same boxes at a viewport
 point by its nearest `id` (`option<string>`), through the same transforms. For a
