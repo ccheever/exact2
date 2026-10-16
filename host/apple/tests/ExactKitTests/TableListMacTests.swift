@@ -792,9 +792,9 @@ extension TableListMacTests {
                 return old.key != row.node.props["listItemKey"] && old.root == row.root
             }
         }
-        let rebound = try XCTUnwrap(rebound, "a visible wrapper and its authored root were rebound to another item")
-        let row = try XCTUnwrap(f.presenter.views[rebound.root])
-        XCTAssertTrue(row.isDescendant(of: rebound.node))
+        let reusedRow = try XCTUnwrap(rebound, "a visible wrapper and its authored root were rebound to another item")
+        let row = try XCTUnwrap(f.presenter.views[reusedRow.root])
+        XCTAssertTrue(row.isDescendant(of: reusedRow.node))
 
         func press(_ id: String) throws {
             f.presenter.press(try f.node(id).id)
