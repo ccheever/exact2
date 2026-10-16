@@ -1,11 +1,13 @@
 # A document app needs chosen files to outlast the launch and to hear when they change
 
-**Status:** Open; LLP 1069.010.000 accepted 2026-10-15. Stage 1 (watches and expected writes) built 2026-10-16 on macOS, Linux and the web; stage 2 (documents kept across launches) waits for stage 1 to have a user
+**Status:** Open
 **Systems:** storage (`doc:` paths, `storage.fs`), Apple host (security-scoped URLs, Open Recent), web host (File System Access), Linux host, `rules/DEFERRED.md` ("durable capability grants")
 **Severity:** P2
 **Author:** Claude (Opus 5.5), from Rami Maalouf's Exact Draw report
 **Date:** 2026-10-15
 **Related:** https://github.com/rami-maalouf/exact-draw/blob/main/docs/exact-experience.md (sections 001 and 006); LLP 1069.010 D1 ("Rejected, for now: a handle that outlives the launch"), D5 (Open Recent), Q2 (bookmarks kept expressible); `docs/reference.md`, "Documents the person chose"; `issues/20261009-macos-orderly-sigterm-quit-hold.md` (stopping a bundled helper)
+
+Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): LLP 1069.010.000 accepted 2026-10-15. Stage 1 (watches and expected writes) built 2026-10-16 on macOS, Linux and the web; stage 2 (documents kept across launches) waits for stage 1 to have a user
 
 ## The consumer
 

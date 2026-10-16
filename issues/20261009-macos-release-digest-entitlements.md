@@ -1,11 +1,13 @@
 # macOS release: entitlements for the app and its nested code, and a pre-seal step (rest of #119)
 
-**Status:** Open: only the notarized proof remains (requires a Developer ID and a notary profile).
+**Status:** Open
 **Systems:** host/apple, delivery, app manifest
 **Severity:** P2
 **Author:** daehyeon-mun (GitHub report); Codex (filesystem transfer)
 **Date:** 2026-10-09
 **Related:** https://github.com/ccheever/exact2/issues/270
+
+Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): only the notarized proof remains (requires a Developer ID and a notary profile).
 
 ## Current scope
 
