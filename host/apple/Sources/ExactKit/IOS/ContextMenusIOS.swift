@@ -306,6 +306,8 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate {
         // Asked again, the same controller: the row is already in it.
         if owner.preview != nil, let controller = owner.controller { return controller }
         guard let pop = current(owner) else { return nil }
+        // Laid out first: a closed popover has no box (`MenuHost.layOut`).
+        menus?.layOut(pop)
         let rows = pop.container.subviews.compactMap { $0 as? NodeView }.filter { $0.props["contextPreview"] == "true" }
         guard rows.count <= 1 else { log("context menu \(owner.name) refused a preview: \(rows.count) contextPreview rows; at most one"); return nil }
         guard let row = rows.first, !row.isHidden, row.bounds.width > 0, row.bounds.height > 0 else { return nil }
@@ -323,6 +325,7 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate {
 
     /// The lifted row back in its popover, hidden with it.
     private func restore(_ owner: Open) {
+        menus?.coverClosed()
         if let pop = owner.popover, owner.toggled { owner.toggled = false; presenter?.popoverEvents.changed(pop, open: false) }
         guard let row = owner.preview else { return }
         owner.preview = nil

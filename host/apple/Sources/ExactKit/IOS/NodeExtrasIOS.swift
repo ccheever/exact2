@@ -66,6 +66,7 @@ final class NodeExtras {
     #endif
     var textArea: UITextView?
     var field: UITextField?
+    var fieldWaits = false
     weak var headerField: UITextField?
     #if os(iOS)
     /// A number input's stepper (`NumberStepperIOS.swift`).
@@ -181,6 +182,8 @@ extension NodeView {
     #endif
     package var textArea: UITextView? { get { extras?.textArea } set { if newValue != nil || extras != nil { more.textArea = newValue } } }
     package var field: UITextField? { get { extras?.field } set { if newValue != nil || extras != nil { more.field = newValue } } }
+    /// An `input` whose field waits for its closed box (`makeWaitingField`).
+    var fieldWaits: Bool { get { extras?.fieldWaits ?? false } set { if newValue || extras != nil { more.fieldWaits = newValue } } }
     /// UIKit's field standing in for this one while it shows: the bar's
     /// search field (`HeaderSearch`), a prompt's (`PromptField`).
     var headerField: UITextField? { get { extras?.headerField } set { if newValue != nil || extras != nil { more.headerField = newValue } } }

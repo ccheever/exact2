@@ -29,6 +29,7 @@ final class PromptField: NSObject, UITextFieldDelegate {
     /// `enterkeyhint`, which the authored field holds as UIKit spells them).
     func attach(_ field: UITextField) {
         guard let node else { return }
+        node.makeWaitingField()
         self.field = field
         field.text = node.fieldText.isEmpty ? node.props["value"] : node.fieldText
         if let own = node.field {

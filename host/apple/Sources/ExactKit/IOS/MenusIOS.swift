@@ -548,9 +548,84 @@ final class MenuHost {
         #if os(iOS)
         context.reset()
         #endif
+        laidOut.removeAll()
     }
 
     /// Whether `node` is an open popover in the top layer (the agent's).
+    /// The top-layer boxes given back to layout to show in Exact's views.
+    /// The Apple host covers each `dialog` and popover whole while it is
+    /// closed (`host/apple/src/closed.rs`), as a browser lays out neither:
+    /// UIKit's alert and menu read their rows, never their frames.
+    private var laidOut = Set<UInt32>()
+    private var coverPending = false
+    /// `box` laid out now, before it shows in Exact's views: a sheet, the
+    /// top layer, a context menu's preview.
+    func layOut(_ box: NodeView) {
+        guard let session = presenter?.session, laidOut.insert(box.id).inserted else { return }
+        session.apply(session.runtime.covers([(box.id, nil)]))
+        var stack: [UIView] = [box]
+        while let view = stack.popLast() {
+            (view as? NodeView)?.makeWaitingField()
+            stack.append(contentsOf: view.subviews)
+        }
+    }
+    /// The `input`s `batch` makes inside a closed `dialog` or popover: the
+    /// kernel lays out neither, and their UIKit fields wait for it to show
+    /// (`NodeView.makeWaitingField`). Their boxes are found from the batch's
+    /// children ops and the views there are.
+    func waitingFields(_ batch: Batch) -> Set<UInt32> {
+        guard let presenter, batch.ops.contains(where: { $0.op == .create && $0.kind == "input" }) else { return [] }
+        var parents: [UInt32: UInt32] = [:], made: [UInt32: [String: String]] = [:]
+        for op in batch.ops {
+            if op.op == .children { for child in op.ids { parents[child] = op.id } }
+            else if op.op == .create { made[op.id] = op.props }
+        }
+        func parent(_ id: UInt32) -> UInt32? {
+            if let p = parents[id] { return p }
+            return sequence(first: presenter.views[id]?.superview, next: { $0?.superview }).lazy.compactMap { $0 as? NodeView }.first?.id
+        }
+        var waiting = Set<UInt32>()
+        for op in batch.ops where op.op == .create && op.kind == "input" {
+            var at = parent(op.id)
+            while let id = at {
+                let props = made[id] ?? presenter.views[id]?.props ?? [:]
+                if props["popover"] != nil || props["semanticTag"] == "dialog" {
+                    if !laidOut.contains(id) { waiting.insert(op.id) }
+                    break
+                }
+                at = parent(id)
+            }
+        }
+        return waiting
+    }
+    /// After one closes: what shows in Exact's views no more is covered
+    /// again, after this turn, unless it has stopped being a box of the top
+    /// layer (the host gave it back for good).
+    func coverClosed() {
+        guard !laidOut.isEmpty, !coverPending else { return }
+        coverPending = true
+        DispatchQueue.main.async { [weak self] in self?.coverClosedNow() }
+    }
+    private func coverClosedNow() {
+        coverPending = false
+        guard let presenter, let session = presenter.session else { return }
+        var covers: [(UInt32, HostCover?)] = []
+        for id in laidOut {
+            guard let node = presenter.views[id] else { laidOut.remove(id); continue }
+            guard !showsInViews(node) else { continue }
+            laidOut.remove(id)
+            if node.props["popover"] != nil || isDialog(node) { covers.append((id, .whole)) }
+        }
+        if !covers.isEmpty { session.apply(session.runtime.covers(covers)) }
+    }
+    private func showsInViews(_ node: NodeView) -> Bool {
+        if sheets.owns(node) || agentOpen.values.contains(where: { $0.popover === node }) { return true }
+        #if os(iOS)
+        return context.open?.popover === node
+        #else
+        return false
+        #endif
+    }
     func lifted(_ node: NodeView) -> Bool {
         #if os(iOS)
         if context.lifts(node) { return true }
@@ -609,6 +684,7 @@ final class MenuHost {
     private func drop(_ name: String) {
         for (nested, entry) in agentOpen where entry.ancestor == name { drop(nested) }
         guard let entry = agentOpen.removeValue(forKey: name) else { return }
+        coverClosed()
         entry.popover?.endEditing(true)
         entry.layer.removeFromSuperview()
         guard let pop = entry.popover else { return }
@@ -676,6 +752,8 @@ final class MenuHost {
         }
     }
     private func agentShow(_ pop: NodeView, named name: String, from source: UInt32?) {
+        layOut(pop)
+        guard live(pop) else { return }
         // Nested in the latest open popover holding its opener or itself.
         let opener = source.flatMap { presenter?.views[$0] }
         let ancestor = agentOpen.filter { _, open in

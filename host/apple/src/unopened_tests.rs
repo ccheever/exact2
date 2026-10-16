@@ -472,3 +472,81 @@ fn a_waiting_panel_moved_into_flow_still_owes_its_scroll_positions() {
         "{opened:?}"
     );
 }
+
+const BOXES: &str = r##"component App
+  state name = "Untitled"
+  state more = false
+  action edit(value: string)
+    name = value
+  action add
+    more = true
+  view
+    column testId="page"
+      button commandfor="rename" command="show-modal" testId="open"
+        text "Rename"
+      button press=add testId="add"
+        text "Add"
+      dialog id="rename" role="alertdialog" aria-label="Rename" testId="rename"
+        input value=name input=edit testId="field"
+        button commandfor="rename" command="close" testId="cancel"
+          text "Cancel"
+        button press=add commandfor="rename" command="close" testId="save"
+          text "Save"
+      column id="menu" popover="auto" role="menu" testId="menu"
+        button testId="row"
+          text "Row"
+      if more
+        dialog id="later" testId="later"
+          text "Later" testId="later-text"
+"##;
+
+fn size(host: &Host<NoData>, test_id: &str) -> (f32, f32) {
+    let frame = host
+        .runner()
+        .kernel()
+        .node(id(host, test_id))
+        .unwrap()
+        .frame;
+    (frame.width, frame.height)
+}
+
+/// A closed `dialog` and a closed popover are made but not laid out, as a
+/// browser lays out neither (`closed.rs`); the presenter gives one back to
+/// show it in its views, and it is laid out then.
+#[test]
+fn a_closed_top_layer_box_is_made_but_not_laid_out_until_given_back() {
+    closed::CLOSED_WAIT.set(true);
+    let (mut host, made) = boot_app(BOXES, false);
+    for test_id in ["rename", "field", "cancel", "menu", "row"] {
+        assert_eq!(
+            named(&host, &made, "create", test_id).len(),
+            1,
+            "{test_id} is made"
+        );
+        assert_eq!(
+            size(&host, test_id),
+            (0.0, 0.0),
+            "{test_id} is not laid out"
+        );
+    }
+    assert_ne!(size(&host, "open"), (0.0, 0.0));
+    let rename = id(&host, "rename");
+    let opened = ops(&host.set_covers(&[(rename, None)]));
+    assert_ne!(size(&host, "field"), (0.0, 0.0), "{opened:?}");
+    assert!(!named(&host, &opened, "frame", "field").is_empty());
+    assert_eq!(size(&host, "row"), (0.0, 0.0), "the menu stays closed");
+    // One made after boot waits too.
+    press(&mut host, "add", 10.0);
+    assert_eq!(size(&host, "later-text"), (0.0, 0.0));
+    closed::CLOSED_WAIT.set(false);
+}
+
+/// Where the platform shows nothing of its own (the Mac), closed boxes are
+/// laid out as before.
+#[test]
+fn elsewhere_a_closed_top_layer_box_is_laid_out() {
+    let (host, _) = boot_app(BOXES, false);
+    for test_id in ["field", "row"] {
+        assert_ne!(size(&host, test_id), (0.0, 0.0), "{test_id}");
+    }
+}

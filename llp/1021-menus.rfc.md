@@ -230,6 +230,17 @@ nonmodal browser declaration and native confirmation projection.
 > alert's shape implies `closedby="closerequest"` (Escape and Back cancel it, a tap outside
 > does nothing), and `any` is implied only for a chooser's shape. `closedby="any"` written on
 > an alert's shape asks for the platform's dismissible form.
+>
+> **And on iOS and tvOS (2026-10-16): a closed `dialog` or popover is not laid out**, as a
+> browser lays out neither (`dialog:not([open])` and `[popover]:not(:popover-open)` are
+> `display: none`). The Apple host covers each whole from its creation
+> (`host/apple/src/closed.rs`), so nothing in it is measured, and an `input` in it gets its
+> UIKit field when the box first shows or a prompt takes its keyboard. The platform's alert
+> and `UIMenu` read the rows, never their frames. A box shown in Exact's own views (a
+> dialog's sheet, a content popover, a context menu's preview, every popover under the
+> agent) is laid out before it shows and covered again once it has closed
+> (`MenuHost.layOut`). The agent's `tree` is unchanged. macOS, Linux and the web lay a
+> closed box out as before, hidden by its view.
 
 Messages removes `confirmDelete` and its authored cancellation overlay. Four
 physical cases on the rebuilt iPhone app cover one/two selections in light/dark:

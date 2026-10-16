@@ -1,5 +1,7 @@
 //! Layout receipts survive silent list settling until the presenter sees them.
 use super::*;
+#[path = "closed.rs"]
+mod closed;
 #[path = "unopened.rs"]
 pub(super) mod unopened;
 #[cfg(test)]

@@ -230,6 +230,8 @@ pub struct Host<D: DataSource> {
     /// The root font size and the window's modes as a batch last said them (`Host::facts_moved`).
     facts_told: Option<(f64, Vec<(String, String)>)>,
     unopened: layout::unopened::Unopened,
+    /// The top-layer boxes covered while closed (`closed.rs`).
+    closed: IdSet<NodeKey>,
 }
 
 /// A plan's bytes at boot: copied from while decoding, or linked into the
@@ -531,11 +533,13 @@ impl<D: DataSource> Host<D> {
             colors_seen: None,
             facts_told: None,
             unopened: Default::default(),
+            closed: IdSet::default(),
         };
         let mut batch = Batch::new();
         host.native_prepare_candidate().map_err(HostError::Layout)?;
         host.close_unopened_tabs();
         let order = host.preorder();
+        host.close_top_layer(&order);
         let handlers = host.runner.handlers();
         for id in &order {
             host.create(*id, handlers.get(id).map_or(&[], Vec::as_slice), &mut batch);
@@ -1222,6 +1226,7 @@ impl<D: DataSource> Host<D> {
             > 1)
         .then(|| self.runner.handlers());
         self.close_new_tabs(receipts);
+        self.close_new_top_layer(receipts);
         for t in receipts {
             let r = &t.receipt;
             // Flights capture their leavers before an exit takes them

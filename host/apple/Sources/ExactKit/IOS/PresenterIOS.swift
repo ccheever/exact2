@@ -101,6 +101,8 @@ package final class Presenter {
     lazy var accent = AppAccent(self)
     /// The native menu arm (LLP 1021 D3).
     lazy var menus = MenuHost(presenter: self)
+    /// The `input`s the batch being applied makes in a closed box (`MenuHost.waitingFields`).
+    var fieldsWaiting = Set<UInt32>()
     lazy var keyboardToolbars = KeyboardToolbars(self)
     lazy var segments = SegmentHost(self)
     /// Present only when the composition links them (LLP 1047.001 D4).
@@ -745,6 +747,8 @@ package final class Presenter {
 
     func apply(_ batch: Batch) {
         session?.fieldChrome.presented(batch.layoutProvisional)
+        let outerWaiting = fieldsWaiting; fieldsWaiting = menus.waitingFields(batch)
+        defer { fieldsWaiting = outerWaiting }
         defer { applyLanguage(batch) }
         if applySnapshots(batch) { return }
         PaintOrder.begin()
@@ -853,6 +857,7 @@ package final class Presenter {
                 // An inert leaf box is a layer in its parent's (LLP 1068 §6.1).
                 if flats.create(op) { continue }
                 let reused = pool.take(id)
+                if let reused, !fieldsWaiting.contains(id) { reused.makeWaitingField() }
                 let v = reused ?? NodeView(id: id, kind: op.kind, presenter: self)
                 #if os(iOS)
                 v.groupedOwner = op.kind == "list" && op.props["listStyle"] != nil
@@ -1116,6 +1121,7 @@ package final class Presenter {
             v.frame = CGRect(x: op.x, y: op.y, width: op.w, height: op.h)
             v.textRasterGeometryChanged()
             v.scroll?.frame = v.bounds
+            if v.fieldWaits, op.w > 0 || op.h > 0 { v.makeWaitingField() } // its box laid out (MenuHost.waitingFields)
             v.layoutField()
             v.layoutTextArea()
             v.metal?.frame = v.bounds
