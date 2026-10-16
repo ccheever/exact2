@@ -161,11 +161,11 @@ shape Step
   note: number        -- a MIDI note 0–127, or -1 for none (D7)
   velocity: number    -- 1–127
   channel: number     -- 0–15
-  length: number      -- beats until the note-off
+  duration: number    -- beats until the note-off (`length` is a list's, As built)
   haptic: string      -- a haptic kind (LLP 1077 D14), or ""
 
 shape Track
-  length: number      -- beats; the track loops at this length
+  beats: number       -- the track loops at this many beats
   loops: number       -- times it plays; 0 is forever
   offset: number      -- milliseconds added to its times: an output's latency
   output: string      -- a MIDI output's id for its notes, or ""
@@ -188,7 +188,7 @@ component Euxy
   by value. An equal value changes nothing; a different one is an edit (D3).
   A refused commit changes nothing that sounds.
 - **A track loops at its own length**, `loops` times or forever. That gives
-  polymeter with no common loop. A step outside `[0, length)` is dropped and
+  polymeter with no common loop. A step outside `[0, beats)` is dropped and
   journaled. Steps at one beat play in list order.
 - **`from=` below 0 is a count-in.** `countIn=` is a list of steps played
   once over `[from, 0)`. Tracks start at beat 0.
