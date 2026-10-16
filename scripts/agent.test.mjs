@@ -77,6 +77,22 @@ test('accepted pointer, wheel, media and zero-time forms still reach the carrier
   }
 });
 
+// A hold is the clock's (euxy FRICTION §2: a dice charge did nothing while held): the carrier is told it is virtual, no
+// wall time passes, and the app's clock moves by it; under --timing platform it stays real time.
+test('a held contact\'s hold moves the app\'s clock by its length', async () => {
+  for (const timing of ['agent', 'platform']) {
+    const calls = [], carrier = { host: 'web', browser: 'chrome', launchFacts: launchFacts({}), reset() {},
+      async ask(req) { calls.push(req); return req.op === 'clock' ? { clock: req.to ?? 0 } : {}; },
+      async input(id, kind, opts) { calls.push([id, kind, opts]); return { phase: kind, at: [1, 2], delivery: 'platform' }; } };
+    const s = await open({ reuse: carrier, timing });
+    s.landed = async r => r;
+    s.contact = { x: 1, y: 2 };
+    await s.pointer('hold', { ms: 800 });
+    if (timing === 'agent') assert.deepEqual(calls, [[null, 'hold', { ms: 800, virtual: true }], { op: 'clock', to: 800 }]);
+    else assert.deepEqual(calls, [[null, 'hold', { ms: 800 }]]);
+  }
+});
+
 test('held request answers bypass tap and key delivery validation', async () => {
   const calls = [], carrier = { host: 'web', browser: 'chrome', launchFacts: launchFacts({}), reset() {},
     async ask(req) {

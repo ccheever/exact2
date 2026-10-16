@@ -694,6 +694,15 @@ extension Agent {
         // A finger on a number input's stepper steps it (LLP 1116.007 D4).
         if plain, req["at"] != nil, let stepped = steppedTap(v, hit: hit, at: p, tapped: at) { return stepped }
         #endif
+        // A finger's `pointerdown` as it lands and `pointerup` as it lifts,
+        // before what the lift does (DOM's order), as `PointerRecognizer`
+        // hears a real touch before the node does; a held contact's lift
+        // has sent its own (`fingerPhase`).
+        let fingers = req["lift"] == nil ? Agent.fingerPath(from: hit) : []
+        fingerPointer(.down, fingers, at: p)
+        fingerPointer(.up, fingers, at: p)
+        // Their handlers may have moved what is under the finger.
+        if !fingers.isEmpty { hit = win.hitTest(p, with: nil) ?? v }
         var n: UIView? = hit
         while let cur = n, !(cur is NodeView) { n = cur.superview }
         // What a touch up does first (`NodeView.touchesEnded`, up the

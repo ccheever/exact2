@@ -116,6 +116,13 @@ impl<D: DataSource> Presenter<D> {
             ));
         }
         let mark = self.hatch_pointer_mark(crate::hatches::Phase::Down, x, y);
+        // The pointer's `pointerdown` and `pointerup` there before the press,
+        // in DOM's order, as `pointer_down` and `pointer_up` send a real one's.
+        let down = self.pointer_pressed(x, y, now);
+        let up = self.pointer_lifted(Some((x, y)), now);
+        if let Some(error) = down.or(up) {
+            return Err(error);
+        }
         let activated = self.press_at(x, y, now);
         self.hatch_tapped(mark, x, y);
         if actual.is_some() && activated.is_none() {

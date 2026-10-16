@@ -55,6 +55,43 @@ final class AgentClockIOSTests: XCTestCase {
         XCTAssertEqual(events, ["down", "up"])
     }
 
+    /// The agent's tap is what a finger there delivers (LLP 1012 §1): its
+    /// `pointerdown` and `pointerup`, bubbled, then the press; a finger held
+    /// off any `pan` node is the same with time between, and a lift beside
+    /// its target presses nothing, as a touch up outside a control.
+    func testATapAndAHeldFingerDeliverThePointerEventsBeforeThePress() throws {
+        let session = try booted(), p = session.presenter
+        let outer = NodeView(id: UInt32.max - 1, kind: "view", presenter: p), node = NodeView(id: UInt32.max, kind: "view", presenter: p)
+        for v in [outer, node] { p.views[v.id] = v }
+        outer.frame = CGRect(x: 0, y: 200, width: 300, height: 300)
+        node.frame = CGRect(x: 0, y: 0, width: 100, height: 100)
+        p.viewport.addSubview(outer)
+        outer.addSubview(node)
+        outer.handlers = ["pointerdown"]
+        node.handlers = ["press", "pointerdown", "pointerup"]
+        let agent = Agent(session: session)
+        var events: [String] = []
+        p.onPointer = { id, kind, sample in
+            events.append("\(kind == .down ? "down" : kind == .up ? "up" : "move") \(id == outer.id ? "outer" : "node")")
+            XCTAssertEqual(sample.type, "touch")
+        }
+        p.onPress = { _ in events.append("press") }
+        XCTAssertNil(agent.tap(["id": Int(node.id)])["error"])
+        XCTAssertEqual(events, ["down node", "down outer", "up node", "press"])
+        events = []
+        XCTAssertEqual(agent.recognizedPan("down", ["id": Int(node.id)])?["delivery"] as? String, "recognized")
+        XCTAssertEqual(events, ["down node", "down outer"], "down as it lands")
+        _ = agent.recognizedPan("hold", ["ms": 800.0])
+        let up = try XCTUnwrap(agent.recognizedPan("up", [:]))
+        XCTAssertEqual(events, ["down node", "down outer", "up node", "press"], "\(up)")
+        events = []
+        _ = agent.recognizedPan("down", ["id": Int(node.id)])
+        _ = agent.recognizedPan("move", ["dx": 200.0, "ms": 16.0])
+        _ = agent.recognizedPan("up", [:])
+        XCTAssertEqual(events, ["down node", "down outer", "up node"], "lifted beside it: no press")
+        XCTAssertNil(agent.recognizedPan("down", ["id": Int(node.id), "pan": true]), "a drag's contact is a pan's or none")
+    }
+
     /// The motion engine at the wall, as a running animation leaves it, then a hold.
     private func holdAfter(_ session: ExactSession, _ op: [String: Any]) throws -> (wall: Double, reply: [String: Any], held: Bool) {
         session.apply(session.runtime.tick(now: session.now()))

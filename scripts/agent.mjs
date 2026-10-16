@@ -9,7 +9,7 @@
 //   the other engines with: bunx playwright@1.63.0 install firefox webkit
 //   tree | layout | state | logs | check [light|dark|both] | screenshot <png> [window] | screenshot <png|apng> over <ms> every <ms> | screenshot <path> <canvas> save
 //   tap <target> [at <x> <y> (a press at a point; plain, it presses what it names) | wheel <dx> <dy> [gesture] [at <x> <y>] [modifiers <Control…>] | drop <path…> | into <key> [block <v>] [inline <v>] | hover | history <n> | {"history":n} | mouse | dblclick | contextmenu | auxclick | clicks <1-3> (each [at <x> <y>] [modifiers <Shift+Meta…>]) | modifiers <Shift+Meta…> | pinch <scale> [at <x> <y>] | mediasession <action> [seconds] | drag <dx> <dy> [from <x> <y>] [mouse] [modifiers <M>] [press <ms>] [over <ms>] [hold <ms>] [during "<op>" …, inside the hold under --touch platform] | drag to <target> [at <x> <y>] […]] | type <target> <text…> | type <target> key <Name> | type <target> copy|cut|paste <text…>
-//   tap <target> down [at <x> <y>] [modifiers <M>] · tap move [by] <x> <y> [over <ms>] [modifiers <M>] · tap hold <ms> · tap up [modifiers <M>] · tap cancel   (a held contact, LLP 1035.003 D1; its modifiers held until another names others)
+//   tap <target> down [at <x> <y>] [modifiers <M>] · tap move [by] <x> <y> [over <ms>] [modifiers <M>] · tap hold <ms> · tap up [modifiers <M>] · tap cancel   (a held contact, LLP 1035.003 D1; its modifiers held until another names others; a hold moves the app's clock by <ms>; a plain tap is pointerdown, pointerup, then the press)
 //   A word a form does not use is refused by name; a form a carrier cannot deliver as a hand's answers `delivery: "unsupported"` (#107).
 //   tap @N <choice> | type @N <value>   (a held device request, by ticket: LLP 1069.007 D4)
 //   tap @<id> <choice> | type @<id> <value>   (by the node it answers at, or its capability: files F11)
@@ -774,7 +774,8 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
         const guest = { selector: opts.selector, x: opts.x, y: opts.y, entity: opts.entity, world: opts.world, under: opts.under, phase: opts.phase };
         if (['down', 'move', 'hold', 'up', 'cancel'].includes(kind)) {
           if (kind === 'down' || canvasContact) {
-            const r = await ask({ op: 'tap', phase: kind, ...(id != null ? { id } : {}), x: opts.x, y: opts.y, dx: opts.dx, dy: opts.dy, ms: opts.ms });
+            // `pan`: a pan's or a canvas's contact alone, for a drag and under real touches (no recognized finger among real ones).
+            const r = await ask({ op: 'tap', phase: kind, ...(id != null ? { id } : {}), x: opts.x, y: opts.y, dx: opts.dx, dy: opts.dy, ms: opts.ms, ...(opts.pan || touch !== 'agent' ? { pan: true } : {}) });
             if (r.error) throw new Error(r.error);
             if (r.delivery !== 'unsupported' || canvasContact) {
               canvasContact = !['up', 'cancel'].includes(kind);
@@ -815,7 +816,6 @@ const CLOCK_STEP_MS = 1000, CLOCK_BUDGET_MS = 3000, CLOCK_SPAN_MS = 600_000, REA
 /** `fail fetch <url-prefix> [times <n>]` and `pass fetch <url-prefix>` as the `prefer` request with `faults` every carrier answers (LLP 1103 D3): the network is the environment, so this is a form of `prefer`, not another operation (LLP 1012 §1). */
 export { faultRequest } from './agent-prefer.mjs';
 export const clockSpan = (span, elapsedMs) => Math.max(CLOCK_STEP_MS, Math.min(span * 4, CLOCK_SPAN_MS, span * CLOCK_BUDGET_MS / Math.max(1, elapsedMs)));
-// ---------------------------------------------------------------- the eight operations
 /** Open a session on `host` ('web' | 'macos' | 'ios' | 'linux'); `url` opens
  * the same app address on each host; `plan` boots a local compiled contract;
  * `env` adds to a native host's environment. @ref LLP 1030.000 §7 */
@@ -1003,9 +1003,9 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
      * and how each form is delivered — `platform` (a real input event through the platform's own path),
      * `recognized` (an already-recognized event injected), `activation` (a hit-test and a direct call),
      * `presenter` (seekable native recognition without OS input injection), or `unsupported`. iOS activates and
-     * injects; it synthesizes no touch (LLP 1008 §9). */
+     * injects; it synthesizes no touch (LLP 1008 §9), so its held contact is recognized (AgentPanIOS.swift). */
     input: host === 'ios' || host === 'host-ios'
-      ? { contact: false, hold: false, delivery: (kind) => (['contextmenu', 'dblclick', 'hover', 'pinch'].includes(kind) ? 'recognized' : ['down', 'move', 'hold', 'up', 'cancel'].includes(kind) ? 'unsupported' : (kind === 'drag' && carrier.touches || kind === 'press' && carrier.touch === 'platform') ? 'platform' : kind === 'drag' ? 'unsupported' : 'activation') }
+      ? { contact: true, hold: true, delivery: (kind) => (['contextmenu', 'dblclick', 'hover', 'pinch', 'down', 'move', 'hold', 'up', 'cancel'].includes(kind) ? 'recognized' : (kind === 'drag' && carrier.touches || kind === 'press' && carrier.touch === 'platform') ? 'platform' : kind === 'drag' ? 'unsupported' : 'activation') }
       : host === 'linux' || host === 'windows' || host === 'android'
         ? { contact: true, hold: true, delivery: (kind) => (['down', 'move', 'hold', 'up', 'cancel', 'contextmenu', 'mouse'].includes(kind) ? 'presenter' : 'platform') }
         : { contact: true, hold: true, delivery: () => 'platform' },
@@ -1130,6 +1130,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     async pointer(phase, opts = {}) {
       pointerArguments(phase, opts);
       if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`);
+      if (phase === 'hold' && timing !== 'platform' && opts.virtual === undefined) opts = { ...opts, virtual: true }; // the clock's, as a drag's; real time under --timing platform, for UIKit's recognizers
       // Modifiers that a move or an up names are held from that event on (#107), where the carrier can hold them.
       if (opts.modifiers !== undefined) {
         if (!['move', 'up'].includes(phase)) throw new MalformedOperation(`tap ${phase}: modifiers are held through a down, a move or an up`);

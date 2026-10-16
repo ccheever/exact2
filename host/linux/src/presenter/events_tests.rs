@@ -588,6 +588,42 @@ fn the_pointer_events_carry_their_record_from_the_content_box() {
     assert!(log(&p).ends_with(" d20,10/1"), "{}", log(&p));
 }
 
+/// The agent's `tap` is what a press there delivers (LLP 1012 §1): the
+/// pointer's down and up, bubbled, then the press, in DOM's order, so a
+/// control that holds on `pointerdown` (a hold-to-repeat stepper) works
+/// under the agent too.
+#[test]
+fn the_agents_tap_delivers_the_pointer_events_before_the_press() {
+    const STEPPER: &str = r#"component App
+  state seen = ""
+  action down(e: PointerEvent)
+    seen = `${seen} down${e.offsetX},${e.offsetY}`
+  action up(e: PointerEvent)
+    seen = `${seen} up${e.buttons}`
+  action outer(e: PointerEvent)
+    seen = `${seen} outer`
+  action step
+    seen = `${seen} press`
+  view
+    column width=400 height=400 pointerdown=outer
+      box pointerdown=down pointerup=up press=step testId="plus" width=40 height=40
+      text seen testId="log" height=20
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &crate::test_plan(STEPPER),
+        Keeps,
+        (400., 400.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let plus = id(&p, "plus");
+    p.tap(plus).unwrap();
+    assert_eq!(log(&p), " down20,20 outer up0 press");
+}
+
 /// An `svg` paints its content where its hits land: inside the padding
 /// layout resolved, a percentage of the containing block's width (CSS Box
 /// Model 3 §4.1), so x 20 here and not 10.

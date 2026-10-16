@@ -1,15 +1,23 @@
 #if os(iOS) || os(tvOS)
 import UIKit
 
-/// @ref LLP 1057 §10.6 — the iOS carrier's one held contact (LLP 1035.003 D1),
-/// on a `pan` node only. UIKit synthesizes no touch (LLP 1008 §9), so the
-/// contact is `recognized`: its deltas take the presenter's pan path, as
+/// @ref LLP 1057 §10.6 — the iOS carrier's one held contact (LLP 1035.003 D1).
+/// UIKit synthesizes no touch (LLP 1008 §9), so the contact is `recognized`.
+/// On a `pan` node its deltas take the presenter's pan path, as
 /// `ContactLayoutPan`'s do, and `up` releases at the engine's tracker over the
 /// synthesized samples, spaced `ms / steps` apart on the contact's own clock,
-/// never the wall time between requests (LLP 1057.001 §3). Every other contact stays `unsupported`.
+/// never the wall time between requests (LLP 1057.001 §3). Anywhere else it is
+/// a finger held where it went down: its `pointerdown`, `pointermove`s and
+/// `pointerup` as a real touch's, and on `up` the press a finger lifted there
+/// makes, still on its target; the driver seeks the clock through a hold.
 struct AgentPan {
+    /// The `pan` node, or nil for a finger that presses on its lift.
     weak var node: NodeView?
     weak var pointer: NodeView?
+    /// The nodes its `pointerdown` went to, which hear its `pointerup`.
+    var path: [NodeView] = []
+    /// A pressing contact's target: what the lift presses where the finger is.
+    weak var target: NodeView?
     /// The contact in the viewport's space, and its synthetic time in seconds.
     var at: CGPoint
     var t: Double
@@ -53,15 +61,51 @@ extension Agent {
         return nil
     }
 
-    private func panPointer(_ contact: AgentPan, _ kind: PointerKind) {
-        guard let node = contact.pointer, presenter.views[node.id] === node, !node.disabled else { return }
-        let name = kind == .down ? "pointerdown" : kind == .up ? "pointerup" : "pointermove"
-        guard node.handlers.contains(name) else { return }
-        let local = node.convert(contact.at, from: presenter.viewport), box = node.contentBox()
-        let client = presenter.client(presenter.viewport.convert(contact.at, to: nil))
-        presenter.pointer(node.id, kind, PointerSample(x: Double(local.x - box.minX), y: Double(local.y - box.minY),
+    /// The nodes a finger on `view` sends its `pointerdown` and `pointerup`
+    /// to, as `PointerRecognizer` resolves a real touch's: from the innermost
+    /// enabled node hearing the pointer up, each that hears either.
+    static func fingerPath(from view: UIView) -> [NodeView] {
+        #if os(iOS)
+        return pointerNode(from: view).map(PointerRecognizer.bubbling(from:)) ?? []
+        #else
+        return [] // tvOS touches no node (PointerIOS.swift)
+        #endif
+    }
+
+    /// A viewport point (`box`'s space) in the window.
+    func windowPoint(_ at: CGPoint) -> CGPoint {
+        let vp = presenter.viewport
+        return vp.convert(CGPoint(x: at.x + vp.contentOffset.x, y: at.y + vp.contentOffset.y), to: nil)
+    }
+
+    /// A finger's `pointerdown` or `pointerup` at `window` (a window point)
+    /// to `path`, innermost first, as `PointerRecognizer` sends a real
+    /// touch's: to each node still the tree's, enabled and hearing it, until
+    /// a handler stops it.
+    func fingerPointer(_ kind: PointerKind, _ path: [NodeView], at window: CGPoint) {
+        let name = kind == .down ? "pointerdown" : "pointerup"
+        let nodes = path.filter { $0.handlers.contains(name) }
+        guard !nodes.isEmpty else { return }
+        presenter.propagating {
+            for n in nodes where presenter.views[n.id] === n && !n.disabled {
+                presenter.pointer(n.id, kind, fingerSample(kind, n, at: window))
+                if presenter.propagationStopped { break }
+            }
+        }
+    }
+
+    private func fingerSample(_ kind: PointerKind, _ node: NodeView, at window: CGPoint) -> PointerSample {
+        let local = node.convert(window, from: nil), box = node.contentBox(), client = presenter.client(window)
+        return PointerSample(x: Double(local.x - box.minX), y: Double(local.y - box.minY),
             buttons: kind == .up ? 0 : 1, pressure: kind == .up ? 0 : 0.5, type: "touch", id: 2,
-            clientX: Double(client.x), clientY: Double(client.y)))
+            clientX: Double(client.x), clientY: Double(client.y))
+    }
+
+    private func panPointer(_ contact: AgentPan, _ kind: PointerKind) {
+        let window = windowPoint(contact.at)
+        if kind != .move { fingerPointer(kind, contact.path, at: window); return }
+        guard let node = contact.pointer, presenter.views[node.id] === node, !node.disabled, node.handlers.contains("pointermove") else { return }
+        presenter.pointer(node.id, .move, fingerSample(.move, node, at: window))
     }
 
     /// `tap <scroller> drag <dx> <dy>` without real touches (LLP 1116.003; r5
@@ -105,18 +149,33 @@ extension Agent {
         let point = { (p: CGPoint) in [Agent.r2(p.x), Agent.r2(p.y)] }
         if phase == "down" {
             guard panContact == nil else { return ["error": "a contact is already down; use `tap up` or `tap cancel` first"] }
-            guard let v = view(req), v.window != nil, let node = Agent.panNode(from: v) else { return nil }
+            guard let v = view(req), let win = v.window else { return nil }
             let b = box(v)
             let at = CGPoint(x: (req["x"] as? Double) ?? b.midX, y: (req["y"] as? Double) ?? b.midY)
             guard at.x.isFinite, at.y.isFinite else { return ["error": "tap down: the point must be finite"] }
             let t = CACurrentMediaTime()
+            guard let node = Agent.panNode(from: v) else {
+                // A drag's contact (`pan`) is a pan's or none: a finger held elsewhere moves nothing.
+                if req["pan"] != nil { return nil }
+                // A finger held still: it lands only where the target is seen, as a tap's does.
+                let p = windowPoint(at), seen = win.hitTest(p, with: nil)
+                if let why = offscreen(v, box: CGRect(origin: at, size: .zero), hit: seen) ?? seen.flatMap({ obscured(v, at: p, hit: $0) }) {
+                    return ["error": "tap #\(v.id) down: \(why)"]
+                }
+                let touched = seen ?? v
+                let contact = AgentPan(node: nil, pointer: Agent.pointerNode(from: touched), path: Agent.fingerPath(from: touched), target: v, at: at, t: t)
+                panContact = contact
+                panPointer(contact, .down)
+                return ["contact": Int(v.id), "phase": "down", "at": point(at), "delivery": "recognized"]
+            }
             presenter.onPanSample?(true, Double(at.x), Double(at.y), t)
-            let contact = AgentPan(node: node, pointer: Agent.pointerNode(from: v), at: at, t: t)
+            let contact = AgentPan(node: node, pointer: Agent.pointerNode(from: v), path: Agent.fingerPath(from: v), at: at, t: t)
             panContact = contact
             panPointer(contact, .down)
             return ["contact": Int(node.id), "phase": "down", "at": point(at), "delivery": "recognized"]
         }
         guard var contact = panContact else { return nil }
+        if contact.node == nil { return fingerPhase(phase, req, &contact) }
         guard let node = contact.node, presenter.views[node.id] === node, node.handlers.contains("pan"), SwipeInput.allows(node) else {
             // The node went or stopped panning: the contact is over, at rest.
             panContact = nil
@@ -176,6 +235,48 @@ extension Agent {
             panPointer(contact, .up)
             if contact.began { presenter.panRelease(node.id, 0, 0) }
             return ["phase": "cancel", "at": point(contact.at), "delivery": "recognized"]
+        default:
+            return nil
+        }
+    }
+
+    /// A finger held where it went down, off any `pan` node: a move is its
+    /// `pointermove`s (nothing scrolls: `tap <scroller> drag` does), a hold
+    /// moves its own time, and `up` is its `pointerup`, then the press a
+    /// finger lifted there makes if it is still on its target (a lift beside
+    /// it presses nothing, as a touch up outside a control does).
+    private func fingerPhase(_ phase: String, _ req: [String: Any], _ contact: inout AgentPan) -> [String: Any]? {
+        let point = { (p: CGPoint) in [Agent.r2(p.x), Agent.r2(p.y)] }
+        let ms = max(0, (req["ms"] as? Double) ?? 0)
+        switch phase {
+        case "move":
+            let to = CGPoint(x: (req["x"] as? Double) ?? Double(contact.at.x) + ((req["dx"] as? Double) ?? 0),
+                             y: (req["y"] as? Double) ?? Double(contact.at.y) + ((req["dy"] as? Double) ?? 0))
+            guard to.x.isFinite, to.y.isFinite, ms.isFinite else { return ["error": "tap move: the point and duration must be finite"] }
+            let steps = max(1, Int((ms / 16).rounded())), from = contact.at
+            for i in 1...steps {
+                let f = CGFloat(i) / CGFloat(steps)
+                contact.at = i == steps ? to : CGPoint(x: from.x + (to.x - from.x) * f, y: from.y + (to.y - from.y) * f)
+                contact.t += ms / 1000 / Double(steps)
+                panPointer(contact, .move)
+            }
+            panContact = contact
+            return ["phase": "move", "at": point(to), "delivery": "recognized"]
+        case "hold":
+            contact.t += ms.isFinite ? ms / 1000 : 0
+            panContact = contact
+            return ["phase": "hold", "at": point(contact.at), "delivery": "recognized"]
+        case "up", "cancel":
+            panContact = nil
+            panPointer(contact, .up)
+            var reply: [String: Any] = ["phase": phase, "at": point(contact.at), "delivery": "recognized"]
+            guard phase == "up", let target = contact.target, presenter.views[target.id] === target, target.window != nil else { return reply }
+            let b = box(target)
+            guard b.contains(contact.at) else { return reply }
+            // The plain tap's press at that point, its pointer events already sent.
+            let lifted = tap(["id": Int(target.id), "at": [Double(contact.at.x - b.minX), Double(contact.at.y - b.minY)], "lift": true])
+            if let error = lifted["error"] { reply["pressError"] = error } else { reply["pressed"] = lifted["pressed"] ?? NSNull() }
+            return reply
         default:
             return nil
         }
