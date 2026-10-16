@@ -1,6 +1,6 @@
 import {test, expect} from 'bun:test';
 import {createHash} from 'node:crypto';
-import {cpSync, existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, renameSync} from 'node:fs';
+import {cpSync, existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, realpathSync, renameSync} from 'node:fs';
 import {resolve, dirname} from 'node:path';
 import {tmpdir} from 'node:os';
 import {buildInputHash, ensureBuildReceipt, ensureLinuxReceipts, pinInputs, proofInputFiles, proofInputReader, proofInputs} from './proof.mjs';
@@ -235,6 +235,7 @@ function provenanceFixture(root, generated) {
   writeFixtureFile(root, 'game/engine/src/lib.rs', 'shared SDK');
   for (const [file, bytes] of Object.entries({
     'logic/src/lib.rs':'pub fn value() {}', 'app.contract':'authored plan',
+    'logic/tests/sim.rs':'#[test] fn simulation() {}', 'logic/examples/demo.rs':'fn main() {}',
     'art/crate.gltf':'authored model', 'art/hit.ogg':'authored sound',
     'assets/handmade.astc.tex':'unowned texture', 'assets/handmade.sound':'unowned sound',
   })) writeFixtureFile(app, file, bytes);
@@ -328,7 +329,8 @@ test('repin records portable source provenance separately and still refuses mixe
 }, 15000);
 
 test('proof summaries record both identities from the completed bake', async () => {
-  const dir = mkdtempSync(resolve(tmpdir(), 'proof-summary-provenance-'));
+  // Match the child's import.meta URL when macOS's temporary root is a symlink.
+  const dir = realpathSync(mkdtempSync(resolve(tmpdir(), 'proof-summary-provenance-')));
   const root = resolve(import.meta.dir, '..'), app = provenanceFixture(dir, 'before bake');
   const target = resolve(app, 'target'), out = resolve(app, 'artifacts/linux');
   try {
@@ -349,7 +351,8 @@ test('proof summaries record both identities from the completed bake', async () 
         resolveApp:() => ({dir:app, target, crate:kind => 'sample-' + kind}),
         buildBake:(_app, _host, triple, {profile}) => {
           const product = resolve(target, triple, profile); mkdirSync(product, {recursive:true});
-          for (const name of ['sample-linux', 'libsample_gpu.so']) writeFileSync(resolve(product, name), 'product');
+          const library = 'libsample_gpu.' + (process.platform === 'darwin' ? 'dylib' : 'so');
+          for (const name of ['sample-linux', library]) writeFileSync(resolve(product, name), 'product');
           const manifest = {}, bytes = 'after bake';
           for (const name of ['textures/crate.astc.tex', 'hit.sound']) {
             writeFileSync(resolve(app, 'assets', name), bytes);

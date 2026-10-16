@@ -349,6 +349,8 @@ export function facilityReport(replies) {
 /// A game's own scripts (bench.mjs, a proxy, a probe) are tools, not bake inputs:
 /// no bake reads a .mjs/.js outside its logic, data, gpu, render and asset folders.
 export function proofInputExcluded(file, name, appPrefix = `game/games/${name}/`) {
+  const gameFile = file.startsWith(appPrefix) ? file.slice(appPrefix.length)
+    : file.startsWith('game/') ? file.slice('game/'.length) : null;
   return /^(issues|\.claude)\//.test(file)
     || /(^|\/)(pins\.json|proof\.mjs|.*\.test\.mjs|.*\.md)$/.test(file)
     || (file.startsWith(appPrefix) && gameNonInput(file.slice(appPrefix.length)))
@@ -360,7 +362,7 @@ export function proofInputExcluded(file, name, appPrefix = `game/games/${name}/`
     || ['node_modules/', 'target/', '.shells/', 'dist/', 'dist.previous/', 'dist-windows/', 'artifacts/'].some(output => file.startsWith(output) || file.startsWith('game/' + output) || file.startsWith(appPrefix + output))
     || /^(host\/web\/dist(?:\.previous)?|host\/apple\/\.build|game\/render\/target)\//.test(file)
     || (file.startsWith('apps/') && !file.startsWith(appPrefix))
-    || (file.startsWith('game/') && /\/(tests|examples)\//.test(file));
+    || (gameFile !== null && /(^|\/)(tests|examples)\//.test(gameFile));
 }
 export function proofInputFiles(root, app, inventory) {
   const top = inventory ? {status:0, stdout:root} : spawnSync('git', ['rev-parse','--show-toplevel'], {cwd:root, encoding:'utf8'});
