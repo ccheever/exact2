@@ -103,7 +103,7 @@ final class BuildChannelTests: XCTestCase {
     }
 
     func testRegistrationUsesTheAcceptedGenerationIdentity() throws {
-        let connection = try XCTUnwrap(PlanURL.open("http://127.0.0.1:1", acceptProgram: { _ in true }, current: { "accepted-generation" }, plan: { "running-plan" }, apply: { _, _ in false }))
+        let connection = try XCTUnwrap(PlanURL.open("http://127.0.0.1:1", acceptProgram: { _ in true }, current: { "accepted-generation" }, plan: { "running-plan" }, apply: { _, _, _ in false }))
         defer { connection.close() }
         XCTAssertEqual(connection.plan, "accepted-generation")
     }
