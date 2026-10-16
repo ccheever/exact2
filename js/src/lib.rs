@@ -857,7 +857,11 @@ impl Module {
             (Ok(Step::Done(Ok(v))), Some(store)) if !socket_ops.is_empty() => {
                 match self.stage_sockets(store, socket_ops) {
                     Ok(()) => Ok(Step::Done(Ok(v))),
-                    Err(why) => Ok(Step::Done(Err(DataError::Failed(FailureCode::Error, why)))),
+                    Err(why) => Ok(Step::Done(Err(DataError::Failed(
+                        FailureCode::Error,
+                        why,
+                        String::new(),
+                    )))),
                 }
             }
             (result, _) => result,
