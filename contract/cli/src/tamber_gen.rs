@@ -90,9 +90,10 @@ fn tokens(folding: &exact_tamber::Folding) -> Vec<Token> {
         folding.design.exports.as_ref().is_none_or(|exports| {
             exports
                 .iter()
-                .any(|x| x.value == t.name || t.role.as_deref() == Some(x.value.as_str()))
+                .any(|x| exact_tamber::exports_names(&x.value, &t.name, t.role.as_deref()))
         })
     };
+    let vocab = contract_lower::tamber_vocab();
     folding
         .tokens
         .iter()
@@ -101,9 +102,30 @@ fn tokens(folding: &exact_tamber::Folding) -> Vec<Token> {
         .map(|(t, declared)| Token {
             name: t.name.clone(),
             kind: declared.kind.clone().unwrap_or_else(|| "color".into()),
-            css: t.values.iter().map(|v| v.css()).collect(),
+            css: t.values.iter().map(|v| standalone(v, &vocab)).collect(),
         })
         .collect()
+}
+
+/// A value as CSS outside Exact: an Exact role (`-exact-label`) or a
+/// platform colour is no colour a browser reads, so it is its fallback pair
+/// (D7); a CSS system colour (`CanvasText`, `AccentColor`) stays.
+fn standalone(value: &exact_tamber::Folded, vocab: &exact_tamber::Vocab) -> String {
+    use exact_tamber::{Folded, Host};
+    let fallback = || {
+        exact_tamber::fallback(value, vocab).map_or_else(
+            || value.css(),
+            |[l, d]| match l == d {
+                true => l,
+                false => format!("light-dark({l}, {d})"),
+            },
+        )
+    };
+    match value {
+        Folded::Host(Host::Role(row)) if row.starts_with("-exact-") => fallback(),
+        Folded::Host(Host::Platform(..)) => fallback(),
+        _ => value.css(),
+    }
 }
 
 /// Each full tuple's key, `axis=value` by commas, in tuple order.
@@ -166,29 +188,24 @@ pub fn typescript(folding: &exact_tamber::Folding, source: &str) -> String {
         "/** Each full app tuple, `axis=value` by commas: the index of a token's `css`. */\nexport const tuples = [{}] as const;",
         tuple_keys(folding).iter().map(|k| quoted(k)).collect::<Vec<_>>().join(", ")
     );
+    // Each token a property of `tokens`, by its camelCase name: a property
+    // may be any word, a declaration of its own could clash.
+    out.push_str("export const tokens = {\n");
     for t in &tokens {
         let css: Vec<String> = t.css.iter().map(|c| quoted(c)).collect();
         let _ = writeln!(
             out,
-            "export const {} = {{ name: {}, css: [{}] }} as const;",
+            "  {}: {{ name: {}, css: [{}] }},",
             camel(&t.name),
             quoted(&t.name),
             css.join(", ")
         );
     }
-    let _ = writeln!(
-        out,
-        "export const tokens = {{ {} }} as const;",
-        tokens
-            .iter()
-            .map(|t| camel(&t.name))
-            .collect::<Vec<_>>()
-            .join(", ")
-    );
+    out.push_str("} as const;\n");
     out
 }
 
-/// `tamber.css`: each token as `--<name>` per tuple, the first tuple's on
+/// `tamber.css`: each token as `--<camelName>` per tuple, the first tuple's on
 /// `:root` too; a page picks a tuple with `data-tamber="axis=value,…"`.
 pub fn css(folding: &exact_tamber::Folding) -> String {
     let tokens = tokens(folding);
@@ -206,19 +223,9 @@ pub fn css(folding: &exact_tamber::Folding) -> String {
                 selector
             }
         );
+        // By its camelCase name, which no two tokens share (`admitted`).
         for t in &tokens {
-            let property: String = t
-                .name
-                .chars()
-                .map(|c| {
-                    if c.is_ascii_alphanumeric() || c == '-' {
-                        c
-                    } else {
-                        '-'
-                    }
-                })
-                .collect();
-            let _ = write!(out, "--{}:{};", property.trim_start_matches('-'), t.css[i]);
+            let _ = write!(out, "--{}:{};", camel(&t.name), t.css[i]);
         }
         out.push_str("}\n");
     }
@@ -249,52 +256,13 @@ pub fn admitted(folding: &exact_tamber::Folding) -> Result<(), String> {
     let tokens = tokens(folding);
     let names: Vec<&str> = tokens.iter().map(|t| t.name.as_str()).collect();
     let mut refused = Vec::new();
-    // What no language takes as a name: a word TypeScript reserves, or one
-    // that starts with a digit.
-    const RESERVED: &[&str] = &[
-        "break",
-        "case",
-        "catch",
-        "class",
-        "const",
-        "continue",
-        "debugger",
-        "default",
-        "delete",
-        "do",
-        "else",
-        "enum",
-        "export",
-        "extends",
-        "false",
-        "finally",
-        "for",
-        "function",
-        "if",
-        "import",
-        "in",
-        "instanceof",
-        "let",
-        "new",
-        "null",
-        "return",
-        "static",
-        "super",
-        "switch",
-        "this",
-        "throw",
-        "true",
-        "try",
-        "typeof",
-        "var",
-        "void",
-        "while",
-        "with",
-        "yield",
-    ];
+    // What no constant can be named: one with no letter, or that starts
+    // with a digit.
     for name in &names {
         let mapped = camel(name);
-        if RESERVED.contains(&mapped.as_str()) || mapped.starts_with(|c: char| c.is_ascii_digit()) {
+        if !mapped.contains(|c: char| c.is_ascii_alphabetic())
+            || mapped.starts_with(|c: char| c.is_ascii_digit())
+        {
             refused.push(format!("`{name}` is `{mapped}` in camelCase, which no binding can name: rename it (LLP 1121 D12)"));
         }
     }
@@ -362,12 +330,14 @@ pub fn run(args: &[String]) -> ExitCode {
         eprintln!("{}: {why}", path.display());
         return ExitCode::from(1);
     }
-    let dir = out.unwrap_or_else(|| {
-        path.parent()
-            .unwrap_or(Path::new("."))
-            .join(".exact")
-            .join("tamber")
-    });
+    // The app's own `.exact/`: the directory named, or the one its
+    // `app.contract` (or, given a design file alone, that file) is in.
+    let app = Path::new(&input);
+    let root = match app.is_dir() {
+        true => app.to_path_buf(),
+        false => app.parent().unwrap_or(Path::new(".")).to_path_buf(),
+    };
+    let dir = out.unwrap_or_else(|| root.join(".exact").join("tamber"));
     let source = path
         .file_name()
         .map_or_else(String::new, |n| n.to_string_lossy().into_owned());

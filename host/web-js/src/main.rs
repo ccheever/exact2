@@ -284,9 +284,14 @@ fn main() -> ExitCode {
             }
             // What `app.ts` is type-checked against, as the native bake
             // checks it (host/web-js/build.mjs; calendar F9).
-            if let Err(e) = contract::typescript(&plan).and_then(|d| {
-                std::fs::write(dir.join("app.contract.d.ts"), d).map_err(|e| e.to_string())
-            }) {
+            let exports = (!input.ends_with(".plan"))
+                .then(|| contract::design_exports(std::path::Path::new(&input)))
+                .flatten();
+            if let Err(e) =
+                contract::typescript_exporting(&plan, exports.as_deref()).and_then(|d| {
+                    std::fs::write(dir.join("app.contract.d.ts"), d).map_err(|e| e.to_string())
+                })
+            {
                 eprintln!("app.contract.d.ts: {e}");
                 return ExitCode::from(1);
             }

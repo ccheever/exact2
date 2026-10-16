@@ -1131,9 +1131,16 @@ impl<'a> Lowerer<'a> {
 
 /// @ref LLP 1121 D7, D12 — whether an app can name a design token outside its
 /// views, so its plan keeps every token (or its design's `exports`) for the
-/// bindings: it reads a data module (the seam's sources; a TypeScript
-/// `app.ts` or a Rust data crate) or shows a native module (a custom
-/// element, LLP 1024). The one test for "an app with generated bindings".
+/// bindings: the one test for "an app with generated bindings". It has a
+/// data module (an `app.ts` or a Rust data crate beside it, or a source of
+/// the seam it reads, not one the runner answers) or a native module (a
+/// custom element its views show, or modules or hatches its `app.json`
+/// declares). The driver finds what is on disk (`DesignSource::bindable`).
 pub fn names_tokens_outside_views(file: &File, root: &contract_types::ComponentTypes) -> bool {
-    !root.sources.is_empty() || !native::module_tags(file).is_empty()
+    file.design.as_ref().is_some_and(|d| d.bindable)
+        || root
+            .sources
+            .keys()
+            .any(|s| !exact_plan::runner_owned_source(s))
+        || !native::module_tags(file).is_empty()
 }

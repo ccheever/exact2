@@ -316,3 +316,73 @@ fn exports_bound_what_the_bindings_may_name() {
     );
     assert_eq!(names(&native), ["brand", "badge.ink", "CanvasText"]);
 }
+
+/// What counts as code that can name a token outside the views (D7's one
+/// test): an `app.ts` or hatches beside the app do; a source the runner
+/// answers (`exactViewport()`) does not.
+#[test]
+fn the_retention_test_reads_what_is_beside_the_app() {
+    let view = "component App\n  view\n    column\n      text \"a\" color=\"brand\"\n";
+    let with = |name: &str, file: &str, text: &str| {
+        let dir =
+            std::env::temp_dir().join(format!("exact2-binding-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("app.tamber"), KEPT).unwrap();
+        std::fs::write(dir.join("app.contract"), view).unwrap();
+        std::fs::write(dir.join(file), text).unwrap();
+        let plan = contract::compile_path(&dir.join("app.contract")).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        names(&plan)
+    };
+    let all = ["brand", "badge.ink", "CanvasText"];
+    assert_eq!(
+        with("ts", "app.ts", "export const answer = () => null;\n"),
+        all
+    );
+    assert_eq!(
+        with(
+            "hatch",
+            "app.json",
+            r#"{"name": "T", "app": {"id": "com.exact.t", "name": "T"}, "hatches": {"badge": ["ios"]}}"#
+        ),
+        all
+    );
+    let runner = plan_of(
+        "runner-source",
+        KEPT,
+        "shape Viewport\n  pointer: string\n\ncomponent App\n  resource size = exactViewport() as shape Viewport\n  view\n    column\n      text \"a\" color=\"brand\"\n",
+    );
+    assert_eq!(
+        names(&runner),
+        ["brand", "CanvasText"],
+        "the runner's source is no data module"
+    );
+}
+
+/// The `ColorToken` union is the bindable set: the design's `exports`, when
+/// it lists them, though a view names more.
+#[test]
+fn the_token_union_follows_exports() {
+    let design =
+        "tamber t\n\nexports\n  badge.ink\n\ntheme\n  brand = #c8102e\n  badge.ink = #123456\n";
+    let dir = std::env::temp_dir().join(format!("exact2-binding-union-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("app.tamber"), design).unwrap();
+    std::fs::write(dir.join("app.ts"), "export const answer = () => null;\n").unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        "component App\n  view\n    column\n      text \"a\" color=\"brand\"\n",
+    )
+    .unwrap();
+    let contract = dir.join("app.contract");
+    let plan = contract::compile_path(&contract).unwrap();
+    let exports = contract::design_exports(&contract);
+    let types = contract::typescript_exporting(&plan, exports.as_deref()).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(
+        types.contains(r#"export type ColorToken = "badge.ink";"#),
+        "{types}"
+    );
+}

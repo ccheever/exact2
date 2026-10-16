@@ -300,7 +300,7 @@ impl Lowerer<'_> {
             folding.design.exports.as_ref().is_none_or(|exports| {
                 exports
                     .iter()
-                    .any(|x| x.value == e.name || e.role.as_deref() == Some(x.value.as_str()))
+                    .any(|x| tamber::exports_names(&x.value, &e.name, e.role.as_deref()))
             })
         };
         for e in &self.theme {

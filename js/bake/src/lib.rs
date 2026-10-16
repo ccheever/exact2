@@ -954,7 +954,8 @@ fn bake_in(
             .map_err(|e| e.to_string())?
             .as_bytes(),
     )?;
-    let mut declarations = contract::typescript(&plan)?;
+    let exported = contract::design_exports(&app.join("app.contract"));
+    let mut declarations = contract::typescript_exporting(&plan, exported.as_deref())?;
     // Canvas 2D (LLP 1056 D1): a module that exports `draw` and `surfaces`
     // speaks ABI 2, and only it carries the recorder.
     let app_ts = String::from_utf8_lossy(&captured[Path::new("app.ts")]).into_owned();

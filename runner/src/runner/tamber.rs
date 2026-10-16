@@ -104,8 +104,24 @@ impl<D: DataSource> Tamber<'_, D> {
 
     /// Whether the plan has token `name`.
     pub fn has(&self, name: &str) -> bool {
+        self.row_name(name).is_some()
+    }
+
+    /// The plan's name for token `name`: itself, or a role override's as the
+    /// design wrote it (`secondary-label`) when `name` is the role's spelling
+    /// (`-exact-secondary-label`, as the IR and the generators name it).
+    fn row_name(&self, name: &str) -> Option<String> {
         let plan = &self.runner.plan;
-        plan.theme.iter().any(|t| plan.str(t.name) == name)
+        let row = plan
+            .theme
+            .iter()
+            .find(|t| plan.str(t.name) == name)
+            .or_else(|| {
+                plan.theme
+                    .iter()
+                    .find(|t| !plan.str(t.role).is_empty() && plan.str(t.role) == name)
+            })?;
+        Some(plan.str(row.name).to_string())
     }
 
     /// Colour token `name` at `place`: what a row naming it there reads (a
@@ -115,10 +131,10 @@ impl<D: DataSource> Tamber<'_, D> {
     /// that does not parse), each said once in the journal; the caller
     /// keeps its fallback.
     pub fn color(&mut self, name: &str, place: Place) -> Option<ColorValue> {
-        if !self.has(name) {
+        let Some(row) = self.row_name(name) else {
             self.say_once(name, "no token `{name}` in this plan");
             return None;
-        }
+        };
         let tuple = self.tuple(place);
         let runner = &*self.runner;
         let _roles = runner.bind_roles();
@@ -129,7 +145,7 @@ impl<D: DataSource> Tamber<'_, D> {
             crate::bridge::set_plan_style(
                 &mut patch,
                 StyleId::TextColor as u16,
-                &exact_plan::Value::str(name),
+                &exact_plan::Value::str(&row),
                 &runner.plan,
             )
         });

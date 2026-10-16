@@ -522,6 +522,7 @@ fn the_element_lint_finds_nothing_in_any_app() {
                     path: design.display().to_string(),
                     text,
                     source_id: 1,
+                    bindable: false,
                 });
         let found = contract_lower::lint(&file);
         assert!(found.is_empty(), "{}: {found:?}", path.display());

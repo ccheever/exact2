@@ -255,6 +255,16 @@ pub fn ratio(fg: &str, bg: &str) -> Option<f64> {
     Some((x.max(y) + 0.05) / (x.min(y) + 0.05))
 }
 
+/// Whether an `exports` line (D7) names token `name`, which overrides `role`
+/// if it does: its name, or the role in any spelling a row may write
+/// (`canvastext`, `secondary-label` for `-exact-secondary-label`).
+pub fn exports_names(line: &str, name: &str, role: Option<&str>) -> bool {
+    let spelled = |a: &str, b: &str| {
+        a.eq_ignore_ascii_case(b) || a.eq_ignore_ascii_case(b.trim_start_matches("-exact-"))
+    };
+    line == name || role.is_some_and(|r| spelled(line, r) || spelled(line, name))
+}
+
 /// A value's fallback pair (D7): light and dark, roles at theirs.
 pub fn fallback(value: &Folded, vocab: &Vocab) -> Option<[String; 2]> {
     match value {

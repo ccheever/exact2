@@ -213,7 +213,31 @@ fn design(
         path: path.display().to_string(),
         text,
         source_id: (sources.paths.len() - 1) as u32,
+        bindable: code_beside(root),
     }))
+}
+
+/// @ref LLP 1121 D7 — whether the app at `root` (its `app.contract`) has code
+/// beside it that can name a design token outside its views: a TypeScript
+/// data module (`app.ts`), a Rust data crate (`data/Cargo.toml`), or native
+/// modules or hatches its `app.json` declares. The driver's half of
+/// `contract_lower::names_tokens_outside_views`.
+fn code_beside(root: &Path) -> bool {
+    let dir = root.parent().unwrap_or(Path::new("."));
+    if dir.join("app.ts").is_file() || dir.join("data/Cargo.toml").is_file() {
+        return true;
+    }
+    let manifest = std::fs::read_to_string(dir.join("app.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok());
+    manifest.is_some_and(|m| {
+        let declared = |key: &str| match &m[key] {
+            serde_json::Value::Array(a) => !a.is_empty(),
+            serde_json::Value::Object(o) => !o.is_empty(),
+            _ => false,
+        };
+        declared("modules") || declared("hatches")
+    })
 }
 
 /// The `use` lines each file of the program rooted at `path` lacks (LLP

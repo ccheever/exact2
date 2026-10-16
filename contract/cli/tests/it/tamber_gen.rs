@@ -61,8 +61,8 @@ fn the_generated_files_are_byte_stable_in_the_apps_exact_directory() {
         ts.contains(r#"export type ColorToken = "brand" | "surface.card" | "CanvasText";"#),
         "{ts}"
     );
-    assert!(ts.contains(r#"export const surfaceCard = { name: "surface.card", css: ["light-dark(#ffffffff, #000000ff)", "light-dark(#ffffffff, #161e27ff)"] } as const;"#), "{ts}");
-    assert!(css.contains(r#"[data-tamber="dark-style=dim"]{--brand:#c8102eff;--surface-card:light-dark(#ffffffff, #161e27ff);"#), "{css}");
+    assert!(ts.contains(r#"  surfaceCard: { name: "surface.card", css: ["light-dark(#ffffffff, #000000ff)", "light-dark(#ffffffff, #161e27ff)"] },"#), "{ts}");
+    assert!(css.contains(r#"[data-tamber="dark-style=dim"]{--brand:#c8102eff;--surfaceCard:light-dark(#ffffffff, #161e27ff);"#), "{css}");
     // Again: nothing written, nothing said.
     let (ok, said) = gen("ts", &dir);
     assert!(ok && said.is_empty(), "{said}");
@@ -113,8 +113,8 @@ fn the_rust_constants_resolve_through_the_binding_core() {
     assert_eq!(t.get(golden::CANVAS_TEXT, Place::Root), parsed("#101010"));
 }
 
-/// Names that collide after mapping are refused, naming both; so is a name
-/// no binding can take.
+/// Names that collide after mapping are refused, naming both; a reserved
+/// word is a property like any other.
 #[test]
 fn a_collision_after_mapping_is_refused() {
     let dir = app(
@@ -138,11 +138,76 @@ fn a_collision_after_mapping_is_refused() {
         "tamber t\n\ntheme\n  default = #ffffff\n",
         "component App\n  view\n    column\n",
     );
-    let (ok, said) = gen("rust", &dir);
-    assert!(
-        !ok && said.contains("`default` is `default` in camelCase"),
-        "{said}"
+    let (ok, said) = gen("ts", &dir);
+    assert!(ok, "{said}");
+    let ts = std::fs::read_to_string(dir.join(".exact/tamber/tamber.ts")).unwrap();
+    assert!(ts.contains("  default: { name: \"default\""), "{ts}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A role override named bare (`secondary-label`) is generated as the IR
+/// names it (`-exact-secondary-label`) and resolves; an `exports` line may
+/// spell a role any way a row may (`canvastext`); an Exact role a token
+/// names is its fallback outside Exact, a CSS system colour itself.
+#[test]
+fn roles_are_generated_as_they_resolve_and_read_outside_exact() {
+    let design = "tamber t\n\nexports\n  canvastext\n  secondary-label\n  text.label\n\ntheme\n  CanvasText = #101010\n  secondary-label = #202020\n  text.label = -exact-label\n  secret.ink = #303030\n";
+    let dir = app(
+        "roles",
+        design,
+        "component App\n  view\n    column\n      map-view\n",
     );
+    std::fs::write(
+        dir.join("app.json"),
+        r#"{"name": "T", "app": {"id": "com.exact.t", "name": "T"}, "modules": ["map-view"]}"#,
+    )
+    .unwrap();
+    let (ok, said) = gen("rust", &dir);
+    assert!(ok, "{said}");
+    let rust = std::fs::read_to_string(dir.join(".exact/tamber/tamber.rs")).unwrap();
+    assert!(
+        rust.contains(r#"pub const CANVAS_TEXT: Token<Color> = Token::new("CanvasText");"#),
+        "{rust}"
+    );
+    assert!(
+        rust.contains(r#"Token::new("-exact-secondary-label")"#),
+        "{rust}"
+    );
+    assert!(!rust.contains("SECRET_INK"), "{rust}");
+    let (ok, said) = gen("ts", &dir);
+    assert!(ok, "{said}");
+    let css = std::fs::read_to_string(dir.join(".exact/tamber/tamber.css")).unwrap();
+    assert!(
+        !css.contains(":-exact-label"),
+        "an Exact role is no CSS value: {css}"
+    );
+    assert!(css.contains("--canvasText:#101010ff;"), "{css}");
+    let plan = contract::compile_path(&dir.join("app.contract")).unwrap();
+    let mut r = Runner::boot(
+        contract::bake(plan, NoData).unwrap(),
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert!(r
+        .tamber()
+        .color("-exact-secondary-label", Place::Root)
+        .is_some());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The generated directory is the app's, wherever its design file is.
+#[test]
+fn the_generated_directory_is_the_apps() {
+    let dir = app("dir", DESIGN, "component App\n  view\n    column\n");
+    std::fs::create_dir_all(dir.join("design")).unwrap();
+    std::fs::rename(dir.join("app.tamber"), dir.join("design/theme.tamber")).unwrap();
+    std::fs::write(dir.join("app.json"), r#"{"name": "T", "app": {"id": "com.exact.t", "name": "T"}, "tamber": "design/theme.tamber"}"#).unwrap();
+    let (ok, said) = gen("rust", &dir);
+    assert!(ok, "{said}");
+    assert!(dir.join(".exact/tamber/tamber.rs").is_file(), "{said}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

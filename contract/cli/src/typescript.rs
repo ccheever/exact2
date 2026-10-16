@@ -12,6 +12,13 @@ use std::fmt::Write;
 /// @ref LLP 1039 D1
 /// This is a build-time artifact, never a runtime import or committed file.
 pub fn typescript(plan: &Plan) -> Result<String, String> {
+    typescript_exporting(plan, None)
+}
+
+/// [`typescript`], its `ColorToken` union bounded by the design's `exports`
+/// when it lists them ([`design_exports`]): what a binding may name (LLP
+/// 1121 D7), though a view may name more.
+pub fn typescript_exporting(plan: &Plan, exports: Option<&[String]>) -> Result<String, String> {
     // Public callers may construct a Plan directly. Refuse malformed tables
     // before following any indices, just as the runtime decoder does.
     Plan::decode(&plan.encode()).map_err(|e| format!("invalid plan: {e:?}"))?;
@@ -132,19 +139,36 @@ pub fn typescript(plan: &Plan) -> Result<String, String> {
          /** What a resource shows while writes affect it: its answer with them laid over it. Synchronous, with no effects; `undefined` shows the answer and stops showing every answered write. */\n\
          export type Overlay = <S extends Source>(source: S, args: Args<S>, answer: Result<S>, writes: readonly Write[]) => Result<S> | undefined;\n",
     );
-    tokens(plan, &mut out);
+    tokens(plan, exports, &mut out);
     Ok(out)
+}
+
+/// The `exports` lines of the design of the app whose `app.contract` is
+/// `contract`, when it has a design that lists them (LLP 1121 D7).
+pub fn design_exports(contract: &std::path::Path) -> Option<Vec<String>> {
+    let path = crate::design_path(contract)?;
+    let design = exact_tamber::parse(&std::fs::read_to_string(path).ok()?).ok()?;
+    Some(design.exports?.into_iter().map(|e| e.value).collect())
 }
 
 /// @ref LLP 1121 D12 — the design's colour tokens as a string-literal
 /// union, so a data module returning a token's name is checked
-/// (`ColorToken`); none without a design. A synthetic token (an expression
+/// (`ColorToken`): those its `exports` lists, else every one the plan keeps;
+/// none without a design. A synthetic token (an expression
 /// a row writes) is no name a module returns.
-fn tokens(plan: &Plan, out: &mut String) {
+fn tokens(plan: &Plan, exports: Option<&[String]>, out: &mut String) {
     let mut names: Vec<&str> = Vec::new();
     for row in &plan.theme {
-        let name = plan.str(row.name);
-        if !name.contains('(') && !names.contains(&name) {
+        let role = Some(plan.str(row.role)).filter(|r| !r.is_empty());
+        // A role override by the role's spelling, as a row writes it and the
+        // generators name it (`CanvasText`, `-exact-secondary-label`).
+        let name = role.unwrap_or(plan.str(row.name));
+        let exported = exports.is_none_or(|lines| {
+            lines
+                .iter()
+                .any(|line| exact_tamber::exports_names(line, name, role))
+        });
+        if exported && !name.contains('(') && !names.contains(&name) {
             names.push(name);
         }
     }
