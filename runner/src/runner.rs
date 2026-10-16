@@ -361,7 +361,7 @@ pub struct Runner<D: DataSource> {
     derives: Vec<Option<Value>>,
     resources: Vec<Option<ResourceState>>,
     resource_values: Vec<Option<crate::held::Held>>,
-    tree: Option<Tree>,
+    pub(crate) tree: Option<Tree>,
     reorder_owner: Option<exact_kernel::NodeKey>,
     reorder_ops: Vec<exact_kernel::Op>,
     /// The wide colours the queued patches hold, kept from the table's sweep.

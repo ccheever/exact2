@@ -20,6 +20,7 @@ mod reorder_codec;
 mod replay;
 mod router;
 mod sockets;
+mod tabs;
 mod transform_binding;
 mod uses;
 mod viewport;

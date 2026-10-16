@@ -19,6 +19,7 @@ mod document;
 mod find;
 mod foresee;
 mod region;
+mod tabs;
 mod text;
 pub mod theme;
 
@@ -34,6 +35,7 @@ pub use foresee::Mount;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
+pub use tabs::panel_sites;
 
 /// List engine entries (LLP 1047 D3; LLP 1047.000 §9), reached only through
 /// [`LISTS`]. `RunnerLinks::ALL` and the web collections capability name it;
@@ -433,6 +435,8 @@ pub struct Update<'a> {
     /// Journal lines for what the data got wrong and the tree absorbed: an
     /// invalid style or prop value, a repeated key. Written with the commit.
     pub notes: Vec<String>,
+    /// Tab panels made empty by this update ([`tabs`]).
+    waiting: Vec<ViewId>,
     /// No kernel mirrors the tree (a detached kernel's runner, LLP
     /// 1048.004): bindings are evaluated and kept, and no style or prop op
     /// is built. The document is written from the tree ([`Tree::document`]).
@@ -486,6 +490,7 @@ impl<'a> Update<'a> {
             on_path: true,
             in_written: false,
             notes: Vec::new(),
+            waiting: Vec::new(),
             discard: false,
             text_styled: false,
             renewed: Vec::new(),
@@ -632,6 +637,8 @@ pub struct SiteIndex {
     /// binding index, instead of once per instance.
     constants: Vec<std::cell::OnceCell<Value>>,
     projections: Vec<vm::Prepared>,
+    /// The tab panels made empty until first selected ([`tabs::panel_sites`]).
+    panels: Vec<NodesId>,
 }
 
 impl SiteIndex {
@@ -686,6 +693,7 @@ impl SiteIndex {
                 .iter()
                 .map(|b| vm::Prepared::new(plan.code(b.expr)))
                 .collect(),
+            panels: tabs::panel_sites(plan),
         };
         index.deps = Deps::new(plan, &index);
         index
@@ -910,7 +918,9 @@ impl NodeInst {
                 Some(lists) => (lists.create)(u, node, view, frames)?,
                 None => None,
             };
-            if inst.collection.is_none() {
+            if u.sites.panels.binary_search(&node).is_ok() {
+                u.waiting.push(view);
+            } else if inst.collection.is_none() {
                 inst.children = realize(u, Some(node), row.arm, frames)?;
                 inst.emit_children(u);
             }
@@ -1317,6 +1327,8 @@ pub struct Tree {
     has_collections: bool,
     children: Vec<Child>,
     last_roots: Vec<ViewId>,
+    /// Tab panels whose contents wait for their first selection ([`tabs`]).
+    waiting: Vec<ViewId>,
     /// The inputs the kernel shows, as of the last create or update.
     seen: Seen,
     /// Work performed by the last instance update.
@@ -1340,9 +1352,11 @@ impl Tree {
             }),
             children,
             last_roots: Vec::new(),
+            waiting: Vec::new(),
             seen: Seen::of(&u.env),
             last_work: u.work,
         };
+        tree.open_tabs(u)?;
         tree.emit_roots(u);
         Ok(tree)
     }
@@ -1356,6 +1370,7 @@ impl Tree {
         if roots? {
             self.emit_roots(u);
         }
+        self.open_tabs(u)?;
         if self.has_collections && (u.text_styled || u.ops.iter().any(|op| matches!(op, Op::SetStyle { patch, .. } if patch.mask.intersects(exact_kernel::StyleMask::TEXT)))) {
             if let Some(lists) = u.env.lists {
                 (lists.typography)(&mut self.children, u, &[])?;

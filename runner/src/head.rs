@@ -111,6 +111,13 @@ impl<D: DataSource> Runner<D> {
         }
         out
     }
+
+    /// The tab panels whose contents wait for their first selection: empty
+    /// in the runner until their root selects them (LLP 1075.003 §3.7). The
+    /// agent's `tree` marks each `unopened`.
+    pub fn unopened_tabs(&self) -> &[ViewId] {
+        self.tree.as_ref().map_or(&[], |tree| tree.waiting())
+    }
 }
 
 pub(crate) fn inactive(kernel: &Kernel, id: ViewId) -> bool {
@@ -347,7 +354,7 @@ fn under_a_sheet<'a>(
 /// A navigation root's tabpanels, in tab order: those its own tablist's
 /// tabs name with `aria-controls` (the browser's `panelsOf`; the Linux
 /// host's `tab_panels`). A tablist inside a route is that route's.
-fn tab_panels<'a>(
+pub(crate) fn tab_panels<'a>(
     node: &impl Fn(ViewId) -> Option<HeadNode<'a>>,
     children: &[ViewId],
 ) -> Vec<ViewId> {
