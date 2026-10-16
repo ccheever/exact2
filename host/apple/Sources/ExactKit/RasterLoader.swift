@@ -103,7 +103,10 @@ private final class RasterBackend: @unchecked Sendable {
         if let id = byName[key], let source = sources[id]?.value, source.resolver === resolver,
            !source.cancellation.isCancelled {
             cold.removeAll { $0 === source }
-            source.users += 1; return .source(source)
+            source.users += 1
+            // Released before its header was read: a worker reads it now.
+            if source.users == 1 && source.metadata == nil && source.failure == nil { exact_raster_session_control(id, 5) }
+            return .source(source)
         }
         var live = sources.values.compactMap(\.value)
         // Cold metadata is a cache, never what keeps a shown image out at the
@@ -339,7 +342,10 @@ final class RasterWorkers: @unchecked Sendable {
                 let work = exact_raster_next_decode(0)
                 if work.permit != 0 { metadataFirst = true; deliver(work); return }
                 if metadataTurn() { return }
-                let waited = exact_raster_next_decode(50)
+                // Work wakes the gate: a decode admitted or freed, a source
+                // acquired, a session resumed. The timeout is a backstop, long
+                // enough not to be a poll, so an idle app's workers sleep.
+                let waited = exact_raster_next_decode(1000)
                 if waited.permit != 0 { metadataFirst = true; deliver(waited) }
             }
         }
