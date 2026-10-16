@@ -1210,8 +1210,7 @@ impl<D: DataSource> Host<D> {
         self.springs.track_hold(serial, now_ms / 1000.0, shown)
     }
 
-    /// Release at the velocity the engine measured over the hold's values,
-    /// for input the platform gives no velocity (LLP 1057.001 §3).
+    /// Release at the engine's velocity, or without one when the platform gives none (LLP 1057.001 §3).
     pub fn end_hold_measured(
         &mut self,
         serial: u64,
