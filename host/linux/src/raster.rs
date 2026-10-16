@@ -7,6 +7,8 @@
 mod backdrop;
 mod canvas;
 mod mask;
+#[cfg(target_arch = "x86_64")]
+mod solid_rect;
 
 use crate::image::Bitmap;
 use crate::paint::border::{BorderFill, PathOp};
@@ -543,6 +545,10 @@ impl Backend for Raster {
             return;
         };
         let mut dev = self.device(ts);
+        #[cfg(target_arch = "x86_64")]
+        if self.fill_solid_middle(shape, color, &path, dev) {
+            return;
+        }
         if shape.rounded() && color[3] == 255 {
             if let Some(rect) = self.covered_damage(shape, dev) {
                 if let Some(target) = self.target.as_mut() {
