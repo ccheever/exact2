@@ -23,7 +23,7 @@ bun exact.mjs agent ios --storage s1 "tap add-item" "clock settle" \
 | Flag or op | What it does |
 | --- | --- |
 | `check`, `check dark`, `check both` | What is wrong with the screen, one line each: clipped text, a control covered (a bar, the keyboard, a sheet) or overlapping, a target under 44 pt, a view past the screen's side, low contrast, a card that does not show. |
-| `--chrome agent` | Paints the authored header and tablist in place of UIKit's bars (the default, as the app shows them). |
+| `--chrome agent` | Opt-in: paints the authored header and tablist. `exact.mjs` drives with UIKit's bars, as the app shows them. |
 | `--scale 3` | Screenshots at the device's pixels; `agent` takes 1 pixel a point (402×874). |
 | `screenshot <file> window` | The whole screen, bars included; a plain one is the window's too while an alert or sheet is up. |
 | `clock settle` | Ends a push's, sheet's or alert's transition: after opening or closing one, and before tapping inside an alert. |

@@ -1679,8 +1679,9 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   software keyboard, another window, is not drawn.
 - On the Mac a root tablist placed as above (the root column's last child) is the
   window's sidebar: AppKit's source list, one row a tab, with its button in the
-  toolbar and View ▸ Show Sidebar. Under the agent the authored tablist paints, as on
-  iOS; `--chrome platform` on `macos` shows the sidebar, and a tap naming a tab
+  toolbar and View ▸ Show Sidebar. Under the agent on `macos` the authored tablist
+  paints (on iOS only when `scripts/agent.mjs` runs alone: `exact.mjs` shows UIKit's
+  bars); `--chrome platform` on `macos` shows the sidebar, and a tap naming a tab
   presses its row (`native: "sidebar-row"`).
 - On the Mac a route's `header` is the window's title bar and toolbar: its heading the
   window's title (under a `head title`, over the app's name; there is no large title),
