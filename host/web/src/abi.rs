@@ -228,16 +228,10 @@ impl<D: DataSource> Bridge<D> {
 
     /// The input concatenates plan, pairing receipt, and browser environment id.
     /// The JS loader prepares that private environment before this synchronous swap.
+    /// Requests still in flight do not refuse it: the glue gave them a settle
+    /// window, and the candidate boots carrying state as [`Self::boot_plan`]
+    /// does, asking again for what the old runner had not settled.
     pub fn boot_module(&mut self, lengths: [usize; 3], admitted: D) -> u32 {
-        if self
-            .host
-            .as_ref()
-            .is_some_and(|host| host.runner().has_pending())
-        {
-            return self.emit(exact_runner::agent::error(
-                "module replacement waits for in-flight requests to settle; retry the update",
-            ));
-        }
         let [plan, receipt, module] = lengths;
         if plan
             .checked_add(receipt)

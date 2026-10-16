@@ -1074,7 +1074,7 @@ function tree(request) {
   }
   return reply;
 }
-const SETTLE_DEADLINE_MS = 20_000;
+const SETTLE_DEADLINE_MS = 20_000, REPLACE_SETTLE_MS = 1000;
 const mediaAttached = deadline => Promise.race([Promise.all(mediaAttaching).then(() => true), new Promise(resolve => setTimeout(() => resolve(false), Math.max(0, deadline - performance.now())))]); // the media glue's attaches (syncMedia), bounded as requests are
 async function waitForInflight(deadline) {
   if (!waiting().length) return true;
@@ -1292,12 +1292,12 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   const shaderCommit = assets !== null && globalThis.exact.gpu ? await globalThis.exact.gpu.prepareShaders(assets) : null;
   // A retiring optional instance cannot delay boot; its generation guard disposes it.
   if (!current() || request !== bootAttempt) return null;
-  // A replacement must let the current executor finish its answers before
-  // the synchronous swap. Initial module readiness does not drain requests.
+  // A replacement gives the current executor a moment to finish its answers, then swaps anyway: an app
+  // may always have a request out. What is still out is let go as a plan restart lets it go, and the new
+  // runner asks again for what it has not settled (LLP 1007 §6). Initial module readiness drains nothing.
+  let left = 0;
   if (module) {
-    if (!(await waitForInflight(performance.now() + SETTLE_DEADLINE_MS))) {
-      throw new Error('module replacement waits for in-flight requests to settle; retry the update');
-    }
+    if (!(await waitForInflight(performance.now() + REPLACE_SETTLE_MS))) left = waiting().length;
     if (!current() || request !== bootAttempt) return null;
   }
   const launch = encoder.encode(launchLocation()); if (wasm.exact_set_launch) { const [epoch, offset] = reportTime(now()); wasm.exact_set_launch(epoch, offset, writeIn(reportPlace())); } // @ref LLP 1038 D5; then the date and place the boot's first settle reads (LLP 1027.000.000)
@@ -1322,7 +1322,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   const batch = JSON.parse(readOut(len));
   if (batch.error) throw new Error(batch.error);
   frameSampler?.reset(); // a new runner numbers its transactions afresh (LLP 1079 D3)
-  if (module) { activeModule?.realm?.dispose(); activeModule = module; setInputReady(true); }
+  if (module) { activeModule?.realm?.dispose(); activeModule = module; setInputReady(true); if (left) log(`module replacement let go of ${left} request${left === 1 ? '' : 's'} still in flight after ${REPLACE_SETTLE_MS} ms`); }
   navigation.reset(batch.ops.find(op => op.op === "router"));
   const oldAssets = devAssets;
   devAssets = assets;
