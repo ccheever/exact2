@@ -1010,8 +1010,10 @@ impl<'a> Lowerer<'a> {
                 if rows == [StyleId::FontFamily] {
                     let stacks = self.family_stacks(&a.value)?;
                     let (code, ty) = self.typed_code(&stacks, scope, locals)?;
+                    // Literal families are stack numbers, an empty one `none`.
+                    let literal = Self::literal_family_arms(&a.value);
                     if ty != Ty::String
-                        && !(ty == Ty::Number && Self::literal_family_arms(&a.value))
+                        && !(literal && matches!(ty, Ty::Number | Ty::Option(_)))
                         && !matches!(ty, Ty::Option(ref inner) if **inner == Ty::String)
                     {
                         return err("lower-attr-type", "`font-family` needs a string", a.span);

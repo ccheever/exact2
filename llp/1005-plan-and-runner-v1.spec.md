@@ -409,7 +409,8 @@ so a value its prop or style row refuses (a colour that is not one,
 keeps the earlier declaration: the view would then depend on history rather
 than state. An empty string declares nothing, as CSSOM's
 `setProperty(p, "")` removes the declaration: on any style row it unsets
-the row with no journal line, bound or literal, so a component's prop of
+the row with no journal line, bound or literal (`font-family=""` too; the
+web's JS target reads it as no value before a row's map does), so a component's prop of
 `""` is a colour its `if dot != ""` need not replace with `"transparent"`
 (`StyleValue::text_unsets`; 2026-10-16, the euxy port). A repeated key in an `each` or a virtualized list is the
 data's error too (Charlie, 2026-09-22, a separate decision): the later

@@ -283,7 +283,7 @@ fn border_radius_takes_one_to_four_corners() {
     )
     .unwrap_err();
     assert!(
-        format!("{e}").contains("`border-radius` takes one to four values (top-left"),
+        format!("{e}").contains("is an elliptical radius (`/`), which no host draws"),
         "{e}"
     );
 }
@@ -401,4 +401,87 @@ fn an_empty_colour_declares_nothing() {
         r.journal().collect::<Vec<_>>()
     );
     assert!(contract::compile("component A\n  view\n    box background-color=\"\"\n").is_ok());
+}
+
+/// A side of `0` is a length, as CSS's unitless zero is (`border-width` is
+/// a number row); a part a row refuses refuses the whole shorthand, every
+/// side unset with a journal line, as CSS drops the declaration; and
+/// `border-radius`'s `/` is refused whole, as no row holds an ellipse.
+#[test]
+fn a_computed_shorthand_takes_a_bare_zero_and_is_refused_whole() {
+    let r = boot(
+        "component A\n  state w = 2\n  state p = \"10px -5px\"\n  state round = \"10px / 20px\"\n  view\n    column\n      box testId=\"w\" border-style=\"solid\" border-width=`${w}px 0`\n      box testId=\"p\" padding=p\n      box testId=\"r\" border-radius=round\n",
+    );
+    let w = style_of(&r, "w");
+    assert_eq!(w.border_widths(), [2.0, 0.0, 2.0, 0.0]);
+    let p = style_of(&r, "p");
+    for row in [
+        StyleId::PaddingTop,
+        StyleId::PaddingRight,
+        StyleId::PaddingBottom,
+        StyleId::PaddingLeft,
+    ] {
+        assert!(!p.mask.has(row), "{row:?} is unset with the rest");
+    }
+    let radius = style_of(&r, "r");
+    for row in exact_kernel::style::sides::FAMILIES[8] {
+        assert!(!radius.mask.has(row), "{row:?} is unset with the rest");
+    }
+    let journal: Vec<_> = r.journal().collect();
+    assert!(
+        journal.iter().any(|l| l.contains("10px -5px"))
+            && journal.iter().any(|l| l.contains("10px / 20px")),
+        "{journal:?}"
+    );
+}
+
+/// An empty `font-family`, literal, a choice's arm or a component's prop,
+/// declares nothing, as an empty colour does.
+#[test]
+fn an_empty_font_family_declares_nothing() {
+    let mut r = boot(
+        "component A\n  state plain = false\n  action flip\n    plain = not plain\n  view\n    column\n      button testId=\"flip\" press=flip width=10 height=10\n      text \"a\" testId=\"empty\" font-family=\"\"\n      text \"b\" testId=\"choice\" font-family=(plain ? \"\" : \"Georgia\")\n      Fam(f=\"\")\n\ncomponent Fam\n  props\n    f: string\n  view\n    text \"c\" testId=\"prop\" font-family=f\n",
+    );
+    assert!(!style_of(&r, "empty").mask.has(StyleId::FontFamily));
+    assert!(!style_of(&r, "prop").mask.has(StyleId::FontFamily));
+    assert!(style_of(&r, "choice").mask.has(StyleId::FontFamily));
+    let flip = {
+        let k = r.kernel();
+        k.node_by_key(k.find_by_test_id("flip")[0]).unwrap().id
+    };
+    r.dispatch(flip, Event::Press).unwrap();
+    assert!(!style_of(&r, "choice").mask.has(StyleId::FontFamily));
+}
+
+/// A longhand bound alone to a list is not split: two lengths on a corner
+/// are the elliptical radius no row holds, unset with a journal line. A
+/// keyword is ASCII case-insensitive (`0 Auto` centres, as CSS's does); a
+/// literal `/` is the elliptical refusal, whatever its count.
+#[test]
+fn a_longhand_list_is_not_split_and_keywords_ignore_case() {
+    let r = boot(
+        "component A\n  state c = \"10px 20px\"\n  state m = \"0 Auto\"\n  view\n    column\n      box testId=\"corner\" border-top-left-radius=c\n      box testId=\"auto\" margin=m width=10 height=10\n",
+    );
+    assert!(!style_of(&r, "corner")
+        .mask
+        .has(StyleId::BorderRadiusTopLeft));
+    let journal: Vec<_> = r.journal().collect();
+    assert!(
+        journal.iter().any(|l| l.contains("10px 20px")),
+        "{journal:?}"
+    );
+    let auto = style_of(&r, "auto");
+    assert_eq!(auto.margin_left, exact_kernel::Dimension::Auto);
+    assert_eq!(auto.margin_right, exact_kernel::Dimension::Auto);
+    assert_eq!(auto.margin_top, exact_kernel::Dimension::Points(0.0));
+    for literal in ["10px / 20px", "10px/20px"] {
+        let e = contract::compile(&format!(
+            "component A\n  view\n    box border-radius=\"{literal}\"\n"
+        ))
+        .unwrap_err();
+        assert!(
+            e.message.contains("elliptical radius (`/`)"),
+            "{literal}: {e}"
+        );
+    }
 }

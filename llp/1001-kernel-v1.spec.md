@@ -1539,11 +1539,22 @@ The one-to-four-value box shorthands (`padding`, `margin`, `inset`,
 `scroll-margin`, `border-radius`) lower a literal, or each literal arm of a
 choice, to its side rows. A computed value (`` padding=`${pad}px 0` ``, a
 `fn`'s result) is bound whole to all four rows, and each row takes its own
-value of a two-to-four-value list, split at white space outside parentheses
-as CSS expands the shorthand (`exact_kernel::style::sides`: the runner's
-bridge, and rt.js `boxSide` in the web's JS target). Declared deviation: a
-side longhand bound alone to such a list takes its side too, where CSS finds
-the declaration invalid and leaves the row unset.
+value of a two-to-four-value list, split at CSS white space (space, tab, LF,
+CR, FF) outside parentheses as CSS expands the shorthand
+(`exact_kernel::style::sides`: the runner's bridge, and rt.js `boxSide` in
+the web's JS target). The whole value is checked first: a part its row
+refuses (`padding="10px -5px"`), more than four, or a `/` outside
+parentheses (`border-radius`'s elliptical form, which no row holds; a
+literal one is refused by name) unsets all four rows with a journal line,
+as CSS drops the declaration. On the web the check is the browser's
+(`CSS.supports`), and a part of `border-color` that is a name is left to the
+colour map. Only a shorthand is split: a side longhand bound alone to a list
+keeps it, and the row refuses it with a journal line, as CSS finds
+`padding-left: 10px 20px` invalid; on a corner (`border-top-left-radius:
+10px 20px`, CSS's horizontal and vertical radii) it is the elliptical corner
+no row holds. A bare `0` on a length row other than `line-height` is the
+length 0 (CSS Values 4 §6.1), so `` border-width=`${w}px 0` `` draws no side
+borders, and a keyword is ASCII case-insensitive (`margin="0 Auto"`).
 Text-decoration lowers solid currentcolor
 underline/line-through to the existing line row; other color/style/thickness
 components are diagnosed. Linux draws its UA lines from font size and glyph

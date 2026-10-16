@@ -183,6 +183,13 @@ pub(crate) fn sides(name: &str, value: &Expr) -> Result<Option<[Expr; 4]>, Lower
         Ok(match e {
             Expr::Str(s, span) => {
                 let n = box_sides::values(s).len();
+                if name == "border-radius" && box_sides::elliptical(s) {
+                    return err(
+                        "lower-attr-value",
+                        format!("`border-radius` takes one to four corners, each one length (top-left, top-right, bottom-right, bottom-left); \"{s}\" is an elliptical radius (`/`), which no host draws"),
+                        *span,
+                    );
+                }
                 if n > 4 {
                     let order = if name == "border-radius" {
                         "top-left, top-right, bottom-right, bottom-left; no `/` elliptical radii"

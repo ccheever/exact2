@@ -327,6 +327,22 @@ pub(crate) fn pixels_text(
     Ok(Some(StyleValue::Number(n as f64)))
 }
 
+/// CSS's unitless zero, a length (CSS Values 4 §6.1), on a pixel row: the
+/// number 0, which the row's codec reads. A computed shorthand's side is
+/// one (`border-width=`${w}px 0``). Not `line-height`, whose bare number
+/// is a multiplier.
+fn unitless_zero(id: StyleId, value: &StyleValue) -> Option<StyleValue<'static>> {
+    let StyleValue::Text(text) = value else {
+        return None;
+    };
+    let stroke = matches!(id, StyleId::StrokeWidth | StyleId::StrokeDashoffset);
+    if id.codec() == StyleCodec::LineHeight || !(admits_relative(id) || stroke) {
+        return None;
+    }
+    let n = exact_num::parse_f64(text.trim_matches(['\t', '\n', '\u{c}', '\r', ' '])).ok()?;
+    (n == 0.0).then_some(StyleValue::Number(0.0))
+}
+
 type PreparedLength = (Option<(Unit, f32)>, Option<StyleValue<'static>>);
 
 /// Convert the one length spelling `value` can contain. The accepted
@@ -359,6 +375,7 @@ pub(crate) fn prepare(id: StyleId, value: &StyleValue) -> Result<PreparedLength,
         }
         Some(b'h' | b'H') => Ok((None, super::cells::of(id, value)?)),
         Some(b'x' | b'X') => Ok((None, pixels_text(id, value)?)),
+        Some(b'0'..=b'9' | b'.') => Ok((None, unitless_zero(id, value))),
         _ => Ok((None, None)),
     }
 }
@@ -407,7 +424,8 @@ mod tests {
             let provisional = relative.map(|r| super::provisional(id, r));
             let pixels = pixels_text(id, value)?;
             let cells = super::super::cells::of(id, value)?;
-            Ok((relative, provisional.or(pixels).or(cells)))
+            let zero = unitless_zero(id, value);
+            Ok((relative, provisional.or(pixels).or(cells).or(zero)))
         }
         let texts = [
             "",
@@ -418,6 +436,8 @@ mod tests {
             "auto",
             "none",
             "1",
+            "0",
+            "-0.0",
             "1px",
             "-1PX",
             "1.5rem",

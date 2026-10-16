@@ -127,9 +127,28 @@ impl Em<'_> {
         let f = metric.as_deref().unwrap_or(f);
         // A computed box shorthand reaches each of its rows whole: the row
         // takes its own value of the list (kernel `style::sides`).
+        // Only a shorthand, its four rows bound to one value: a longhand
+        // bound alone keeps its list, which the browser refuses whole.
         let side = exact_kernel::style::sides::family(id)
-            .filter(|_| style::literal(plan, plan.code(b.expr)).is_none())
-            .map(|(_, k)| format!("()=>{}(({f})(),{k})", self.uses.rt("boxSide")));
+            .filter(|(rows, _)| {
+                style::literal(plan, plan.code(b.expr)).is_none()
+                    && rows.iter().all(|r| {
+                        binding(*r).is_some_and(|o| plan.code(o.expr) == plan.code(b.expr))
+                    })
+            })
+            .map(|(rows, k)| {
+                let names: Vec<String> = rows
+                    .iter()
+                    .map(|r| style::style_row(*r as u16).map(|(n, _)| n))
+                    .collect::<Result<_, _>>()?;
+                let names = serde_json::to_string(&names).unwrap();
+                Ok::<_, String>(format!(
+                    "()=>{}(({f})(),{k},{names})",
+                    self.uses.rt("boxSide")
+                ))
+            })
+            .transpose()
+            .map_err(|x| format!("node {i}: {x}"))?;
         let f = side.as_deref().unwrap_or(f);
         if let Some((_, name)) = exact_web::host::template::attribute_rows(kind)
             .iter()
@@ -380,7 +399,8 @@ impl Em<'_> {
                 map => map,
             };
             let value = match map {
-                Some(m) => format!("()=>({m})(({f})())"),
+                // An empty string declares nothing before the map reads it.
+                Some(m) => format!("()=>({m})({}(({f})()))", self.uses.rt("blank")),
                 None => f.to_string(),
             };
             match channel {
@@ -857,7 +877,7 @@ mod tests {
             "the plan admits the literal"
         );
         assert!(
-            js.contains(&format!(",\"filter\",\"\",()=>({map})((")),
+            js.contains(&format!(",\"filter\",\"\",()=>({map})(blank((")),
             "the bound filter is not mapped:\n{js}"
         );
         assert_eq!(
@@ -972,9 +992,11 @@ mod tests {
             .unwrap_or_else(|| panic!("no column-count write:\n{js}"));
         let rest = &js[at + marker.len()..];
         let (unit, after) = rest.split_once('"').expect("unit");
-        let map = after
-            .strip_prefix(",()=>(")
-            .and_then(|mapped| mapped.find(")((").map(|end| mapped[..end].to_string()));
+        let map = after.strip_prefix(",()=>(").and_then(|mapped| {
+            mapped
+                .find(")(blank((")
+                .map(|end| mapped[..end].to_string())
+        });
         let map_src = map.unwrap_or_else(|| "v=>v".into());
         let script = format!(
             "const map={map_src};const unit={unit:?};const write=v=>{{const m=map(v);return m==null?null:typeof m===\"number\"?m+unit:String(m)}};console.log(JSON.stringify([write(0),write(2),write(null)]))"
@@ -1079,21 +1101,29 @@ try {{
         .enumerate()
         {
             let at = js
-                .find(&format!("\"{name}\","))
+                .find(&format!("\"{name}\",\"px\""))
                 .unwrap_or_else(|| panic!("{name}:\n{js}"));
             assert!(
                 js[at..].split(';').next().unwrap().contains("boxSide("),
                 "{name}"
             );
             assert!(
-                js[at..]
-                    .split(';')
-                    .next()
-                    .unwrap()
-                    .contains(&format!(",{k})")),
+                js[at..].split(';').next().unwrap().contains(&format!(
+                    ",{k},[\"padding-top\",\"padding-right\",\"padding-bottom\",\"padding-left\"])"
+                )),
                 "{name}"
             );
         }
+        // A longhand bound alone keeps its list, which the browser refuses.
+        let plan = contract::compile(
+            "component App\n  state pad = 16\n  view\n    view padding-left=`${pad}px 0` testId=\"p\"\n",
+        )
+        .unwrap();
+        let js = crate::emit::emit(&plan, false, false).unwrap().js;
+        assert!(
+            js.contains("\"padding-left\",\"px\"") && !js.contains("boxSide("),
+            "{js}"
+        );
         let rt = include_str!("../rt.js");
         let start = rt.find("export function boxSide").unwrap();
         let end = start + rt[start..].find('\n').unwrap();
@@ -1104,11 +1134,18 @@ try {{
             "8px 8px 0 calc(50% - 4px)",
             "light-dark(#fff, #000) red",
             "1px 2px 3px 4px 5px",
+            "10px / 20px",
+            "10px /20px",
+            "calc(20px / 2) 0",
+            "1px\u{85}2px\u{a0}3px",
+            "1px\r\n\u{c}2px",
             "",
         ];
+        // A part its row refuses refuses the whole (the browser's verdict,
+        // stubbed here: no negative padding), as the runner's bridge does.
         let script = format!(
-            "{};console.log(JSON.stringify({}.map(t=>[0,1,2,3].map(i=>boxSide(t,i)))))",
-            &rt[start + "export ".len()..end],
+            "{};const n=[\"padding-top\",\"padding-right\",\"padding-bottom\",\"padding-left\"];const sides=t=>[0,1,2,3].map(i=>boxSide(t,i,n));const out={}.map(sides);globalThis.CSS={{supports:(p,v)=>!v.startsWith(\"-\")}};console.log(JSON.stringify({{out,refused:sides(\"10px -5px\"),blank:[blank(\" \"),blank(\"x\")]}}))",
+            rt[start..end].replace("export ", ""),
             serde_json::to_string(&inputs).unwrap()
         );
         let bun = std::process::Command::new(std::env::var("BUN").unwrap_or_else(|_| "bun".into()))
@@ -1120,7 +1157,8 @@ try {{
             "{}",
             String::from_utf8_lossy(&bun.stderr)
         );
-        let written: Vec<[String; 4]> = serde_json::from_slice(&bun.stdout).unwrap();
+        let got: serde_json::Value = serde_json::from_slice(&bun.stdout).unwrap();
+        let written: Vec<[String; 4]> = serde_json::from_value(got["out"].clone()).unwrap();
         let kernel: Vec<[String; 4]> = inputs
             .iter()
             .map(|t| {
@@ -1132,5 +1170,31 @@ try {{
             })
             .collect();
         assert_eq!(written, kernel);
+        assert_eq!(
+            got["refused"],
+            serde_json::json!(["10px -5px", "10px -5px", "10px -5px", "10px -5px"])
+        );
+        assert_eq!(got["blank"], serde_json::json!([null, "x"]));
+    }
+
+    /// An empty string declares nothing before a row's map reads it: the
+    /// mapped rows (`cursor`, `animation-timeline` and its companions) see
+    /// `null` (rt.js `blank`), never a value to diagnose.
+    #[test]
+    fn an_empty_value_reaches_a_mapped_row_as_nothing() {
+        let plan = contract::compile(
+            "component App\n  state c = \"\"\n  view\n    view cursor=c animation-timeline=c testId=\"v\"\n",
+        )
+        .unwrap();
+        let js = crate::emit::emit(&plan, false, false).unwrap().js;
+        for name in [
+            "\"cursor\"",
+            "\"--exact-animation-timeline\"",
+            "\"animation-play-state\"",
+        ] {
+            let at = js.find(name).unwrap_or_else(|| panic!("{name}:\n{js}"));
+            let write = js[at..].split(";S").next().unwrap();
+            assert!(write.contains("blank(("), "{name}: {write}");
+        }
     }
 }

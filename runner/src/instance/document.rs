@@ -383,6 +383,8 @@ impl Build<'_> {
                             plan.stacks.len() + self.fonts.borrow().names().len(),
                         )
                     } else {
+                        let side = bridge::shorthand_side(plan, row, i, family_value);
+                        let family_value = side.as_ref().unwrap_or(family_value);
                         bridge::set_binding_style(&mut patch, binding, family_value, plan)
                     };
                     match styled {
