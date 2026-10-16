@@ -825,16 +825,17 @@ sits on that list carries the trade it would take.
   implement the rule and time-owner design in
   [LLP 1005, Scroll completion](llp/1005-plan-and-runner-v1.spec.md#scroll-completion).
   A full implementation of that design is parked on the Mac Studio (branch
-  `q1013/scrollend-impl`, `~/lanes/q1013/wt/scrollend-impl`, three commits: a shared
-  runner catch-up allowance, the Linux/Android wake driver, the Windows redraw wake;
-  exact-linux 897+203 tests pass serially). It did not land: each of four review rounds
-  (2026-10-14) found new defects, and the last found two regressions against main
-  (`Host::dispatch_at` ignores its timestamp, so after a held height/transform/swipe
-  release a due timer never runs; Windows input callbacks open a second catch-up
-  allowance) and two feature bugs (mounting a virtualized list with `scrollTop` 0 fires
-  `scrollend`; an arrange or group-drag edge scroll completes every frame). Rethreading
-  every host's time at once is the risk: a smaller first step that adds completion
-  without moving catch-up out of `Host` may land sooner. The earlier parked build is
+  `q1013/scrollend-impl` at 401a2a2dc on 9479c6464, `~/lanes/q1013/wt/scrollend-impl`).
+  Eleven fix-and-review rounds (2026-10-14 and 15) brought the findings per round from
+  about ten to four, but fixes kept introducing regressions against main; the last review
+  found two (a ready reply superseded during a live `pump`; timers armed during catch-up
+  scheduled from a capped time). A differential harness at
+  `~/lanes/q1013/wt/scrolldiff` (`./check.sh --refresh`, REPORT.md, `reviewed/`) runs
+  3,204 seeded scenarios through main and the branch with live and seek clocks; at
+  401a2a2dc six of its seven reviewed regression cases still differ from main
+  (`python3 replay.py reviewed/<case>/scenario.jsonl`). Rethreading every host's time at
+  once is the risk: a smaller first step that adds completion without moving catch-up
+  out of `Host` may land sooner, and the harness can gate either. The earlier parked build is
   `q1013/linux-scrollend`. The LLP reconciles its
   14 review regressions and 12 committed tests against Chrome, and specifies completion
   ordering, shell-wake budgets, Android paint deferral and agent-call limits. Keep one
