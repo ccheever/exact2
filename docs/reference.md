@@ -585,9 +585,12 @@ can use the same implementations through `ibex2::host`.
 Hosts configure app-specific directories after first pixel. Files and databases
 survive module reload; temporary storage is a directory under the app cache,
 without an automatic cleanup guarantee. Agent mode does not open disk storage.
-Bake rejects storage calls with `Unavailable` (`code: 'bake'`). A resource whose
+Bake rejects storage calls with `Unavailable` (`code: 'bake'`), and `native.call`
+and `native.later` the same way: the build links no native module. A resource whose
 answer fails for it, caught or not, compiles no value: it shows its placeholder
-and is asked when the app runs, on every build. Catch it only to answer
+(its `else` row, or the type's zero) and is asked when the app runs, on every build.
+So a source that asks the app's module needs no bake code of its own
+(`native!.watch('state'); return native!.call({op: 'state'});`). Catch it only to answer
 something better than the placeholder. Browser storage uses app-scoped IndexedDB files
 and SQLite WASM in a dedicated worker, loaded on the first database operation.
 Use HTTPS or localhost for Web Locks. Data persists across reloads within the
@@ -598,7 +601,7 @@ mutations return `Unavailable` with a busy message. Agent mode skips storage.
 In `app.ts`, a storage refusal is an `Error` with `kind: 'Unavailable'`, a `code` and a
 `message`. The code is the same on every host; the message says more and may
 differ. Storage itself is unavailable: `'bake'` (the build compiles no answer
-that reads storage; show a placeholder), `'agent'` (a scripted drive that names
+that reads storage or calls the native module; show a placeholder), `'agent'` (a scripted drive that names
 no scratch store, `--storage <name>`), `'unsupported'` (a host with no app
 storage). The operation was refused: `'denied'` (the grants do not cover it),
 the filesystem's POSIX name (`'ENOENT'`, `'EEXIST'`, `'ENOTDIR'`, `'EISDIR'`,

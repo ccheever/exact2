@@ -79,8 +79,8 @@ component App
           text t
 ```
 
-- The build asks each source once and bakes its answer into the first frame. Storage and
-  the network refuse it there with `code: 'bake'`: let that throw (`catch (e) { if (e.code
+- The build asks each source once and bakes its answer into the first frame. Storage,
+  the network and the native module refuse it there with `code: 'bake'`: let that throw (`catch (e) { if (e.code
   === 'bake') throw e; … }`) so the placeholder shows and the source is asked at launch.
   Caught and answered as an error, the error is baked into every launch's first frame.
 - A refresh keeps the last answer on screen (`pending(feed)` is true meanwhile): show the

@@ -104,6 +104,7 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     try { return {text:String((await native!.later({value})).text)}; }
     catch(error:any) { return {text:'refused: ' + error.message}; }
   }
+  if (op === 'native-direct') return {text: String(native!.call({value}).text)}; // no bake branch
   if (op === 'native' || op === 'native-fetch') {
     if (!native?.available) return {text: 'no native module'};
     try {

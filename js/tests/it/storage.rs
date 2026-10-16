@@ -145,6 +145,13 @@ fn native_modules_are_deferred_retired_and_unavailable_to_validation() {
     assert!(
         text(m.query("work", &args("native", "bake")).unwrap()).contains("unavailable during bake")
     );
+    // The bake links no module: `native.call` throws storage's refusal, and a
+    // source that lets it through leaves its resource to launch (euxy port F1).
+    let src = "shape Result\n  text: string\ncomponent App\n  resource r = work(\"native-direct\", \"x\") as shape Result\n  view\n    text r.text\n";
+    let mut baking = Module::inspect(HBC.to_vec()).unwrap();
+    baking.set_budget_ms(f64::INFINITY);
+    let baked = contract::bake(contract::compile(src).unwrap(), baking).unwrap();
+    assert_eq!(baked.resources[0].initial.len, 0);
     m.activate_for_validation().unwrap();
     // Validation links no module, so the app is told so plainly: `native` is null.
     assert_eq!(
