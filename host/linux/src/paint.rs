@@ -1057,7 +1057,6 @@ impl Painter {
         // and a text node still walks its runs so a visible inline paints.
         if paints_self {
             paint.paint(self.backend.as_mut(), &surface, ts);
-            self.alert_title(walk, node, ts);
             self.column_rules(walk.scene.kernel, node, rect, ts);
             let (dark, feedback) = (self.dark, self.feedback);
             let kernel = walk.scene.kernel;
@@ -1197,6 +1196,9 @@ impl Painter {
         } else {
             offset
         };
+        if paints_self {
+            self.alert_title(walk, node, ts, child_offset);
+        }
         self.children(walk, node, ts, child_offset, child_rect);
         if clips {
             self.backend.pop_clip();

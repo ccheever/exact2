@@ -93,6 +93,9 @@ pub struct NodeArena {
     /// route nodes at most, so a list by slot rather than a column (and not a
     /// map, whose code every web core would carry).
     covers: Vec<(u32, crate::kernel::HostCover)>,
+    /// Alert roots whose host supplies the CSS `::before` title item. The
+    /// engine derives the item from the root's live label and inherited text.
+    pub(crate) alert_prefixes: SlotSet,
     /// The containing blocks hosts gave subtrees (LLP 1115.002 D8.2).
     pub(crate) blocks: crate::kernel::Blocks,
     taffy: Vec<Option<NodeId>>,
@@ -156,6 +159,7 @@ impl Clone for NodeArena {
             insets: self.insets.clone(),
             intrinsic: self.intrinsic.clone(),
             covers: self.covers.clone(),
+            alert_prefixes: self.alert_prefixes.clone(),
             blocks: self.blocks.clone(),
             taffy: self.taffy.clone(),
             is_root: self.is_root.clone(),
@@ -243,6 +247,7 @@ impl NodeArena {
             self.is_root[slot] = false;
         }
         self.covers.clear();
+        self.alert_prefixes.clear();
         self.blocks = Default::default();
         self.free = (0..self.live.len() as u32).rev().collect();
         self.roots.clear();
@@ -810,6 +815,7 @@ impl NodeArena {
         self.insets[s] = None;
         self.intrinsic[s] = None;
         self.covers.retain(|(s, _)| *s != slot);
+        self.alert_prefixes.remove(slot);
         self.blocks.set(slot, None);
         self.taffy[s] = None;
         if self.is_root[s] {

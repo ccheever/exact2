@@ -41,6 +41,7 @@ impl Painter {
         walk: &mut Walk<'_, '_>,
         node: &NodeRef<'_>,
         ts: Transform,
+        offset: (f32, f32),
     ) {
         let Some(alert) = self.alert.as_ref().filter(|a| a.key == node.key).cloned() else {
             return;
@@ -50,7 +51,7 @@ impl Painter {
                 &mut self.text.borrow_mut(),
                 &paragraph,
                 &[ink],
-                (rect.0, rect.1),
+                (rect.0 - offset.0, rect.1 - offset.1),
                 ts,
             );
             walk.text.insert(node.key, paragraph);

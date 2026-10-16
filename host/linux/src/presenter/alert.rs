@@ -1,7 +1,7 @@
 //! Desktop Neutral confirmations. Admission shares the windowed shape reader;
 //! layout and action order remain the authored tree (LLP 1115.000 D13.4, D17).
 use super::*;
-use exact_kernel::{BlockAxis, HostBlock, HostCover, NodeKey, StyleMask};
+use exact_kernel::{BlockAxis, HostBlock, NodeKey, StyleMask};
 
 pub(super) struct Open {
     key: NodeKey,
@@ -19,8 +19,20 @@ struct Inputs {
     scale: f32,
     fonts: usize,
     dark: bool,
+    scroll: (f32, f32),
 }
 impl<D: DataSource> Presenter<D> {
+    fn alert_scroll(&self, id: ViewId) -> (f32, f32) {
+        self.host
+            .kernel()
+            .node(id)
+            .filter(|node| {
+                let (x, y) = crate::paint::effective_overflow(node);
+                x != exact_kernel::Overflow::Visible || y != exact_kernel::Overflow::Visible
+            })
+            .map_or((0., 0.), |_| self.scroll_of(id))
+    }
+
     pub(crate) fn neutral_alerts(&self) -> bool {
         crate::paint::look::neutral() && !self.has_windows() && !self.has_bars()
     }
@@ -130,7 +142,7 @@ impl<D: DataSource> Presenter<D> {
         if let Some(node) = self.host.kernel().node_by_key(open.key) {
             let id = node.id;
             let k = self.host.runner_mut().kernel_mut();
-            let _ = k.set_host_cover(id, None);
+            let _ = k.set_alert_prefix(id, false);
             let _ = k.set_host_block(id, None);
             if let Err(e) = self.host.layout() {
                 self.host.log(e);
@@ -183,18 +195,24 @@ impl<D: DataSource> Presenter<D> {
                 }),
             )
             .map_err(|e| format!("alert block: {e:?}"))?;
+        let label = self
+            .host
+            .kernel()
+            .node(id)
+            .and_then(|node| node.props.str(PropId::AccessibilityLabel))
+            .map(str::to_owned);
+        self.host
+            .runner_mut()
+            .kernel_mut()
+            .set_alert_prefix(id, label.is_some())
+            .map_err(|e| format!("alert title: {e:?}"))?;
         self.host.layout()?;
         let k = self.host.kernel();
         let node = k.node(id).ok_or("alert removed during layout")?;
         let key = node.key;
-        let label = node
-            .props
-            .str(PropId::AccessibilityLabel)
-            .map(str::to_owned);
         let mut style = node.computed_style(StyleMask::INHERITED);
-        let (left, _, right, _) = k.resolved_padding(key).unwrap_or_default();
-        let gap = style.row_gap;
-        let title = label.map(|label| {
+        let prefix = k.alert_prefix_frame(id);
+        let title = label.filter(|label| !label.is_empty()).map(|label| {
             style.font_size = exact_kernel::style::metrics::length_in(
                 exact_kernel::generated::metric::ALERT_TITLE,
                 exact_kernel::style::metrics::Column::Neutral,
@@ -203,19 +221,13 @@ impl<D: DataSource> Presenter<D> {
             )
             .unwrap();
             style.font_weight = 600;
+            let shown = style.hyphens.shown(style.text_transform.apply(&label, ""));
             let p = self.text.borrow_mut().paragraph(
-                &crate::paint::text_spec(&style, &label),
-                Some((node.frame.width - left - right).max(0.)),
+                &crate::paint::text_spec(&style, &shown),
+                Some(prefix.map_or(0., |frame| frame.width)),
             );
             (label, p)
         });
-        let covered = title.as_ref().map_or(0., |(_, p)| p.height + gap);
-        self.host
-            .runner_mut()
-            .kernel_mut()
-            .set_host_cover(id, Some(HostCover::Edges([covered, 0., 0., 0.])))
-            .map_err(|e| format!("alert title cover: {e:?}"))?;
-        self.host.layout()?;
         let node = self
             .host
             .kernel()
@@ -227,17 +239,18 @@ impl<D: DataSource> Presenter<D> {
             (self.viewport.1 - f.height) / 2.,
         );
         let offset = (f.x - origin.0, f.y - origin.1);
-        // Resolved CSS padding excludes the title cover.
-        let own_top = self
-            .host
-            .kernel()
-            .resolved_padding(key)
-            .unwrap_or_default()
-            .1;
         let dark = self.host.presented(id).dark.unwrap_or(self.dark());
+        let scroll = self.alert_scroll(id);
         let title = title.map(|(label, p)| {
-            let rect = (origin.0 + left, origin.1 + own_top, p.width, p.height);
-            self.alert.as_mut().unwrap().title = Some((label, rect));
+            let frame = prefix.expect("a nonempty label has a generated item");
+            let rect = (frame.x, frame.y, frame.width, frame.height);
+            let shown = (
+                rect.0 - offset.0 - scroll.0,
+                rect.1 - offset.1 - scroll.1,
+                rect.2,
+                rect.3,
+            );
+            self.alert.as_mut().unwrap().title = Some((label, shown));
             (
                 p,
                 rect,
@@ -265,6 +278,7 @@ impl<D: DataSource> Presenter<D> {
             scale: self.brush.scale,
             fonts: self.host.runner().runtime_font_count(),
             dark: self.host.presented(id).dark.unwrap_or(self.dark()),
+            scroll: self.alert_scroll(id),
         })
     }
     pub(super) fn alert_key(&mut self, name: &str, now: f64) -> bool {

@@ -92,6 +92,18 @@ static BUTTON: LazyLock<StyleProps> = LazyLock::new(|| {
     ])
 });
 impl NodeArena {
+    pub(crate) fn has_alert_prefix(&self, slot: u32) -> bool {
+        self.alert_prefixes.contains(slot)
+    }
+
+    pub(crate) fn set_alert_prefix(&mut self, slot: u32, present: bool) {
+        if present {
+            self.alert_prefixes.insert(slot);
+        } else {
+            self.alert_prefixes.remove(slot);
+        }
+    }
+
     pub(crate) fn neutral_alert(&self, slot: u32) -> bool {
         metrics::column() == metrics::Column::Neutral
             && self.props(slot).str(PropId::SemanticTag) == Some("dialog")
