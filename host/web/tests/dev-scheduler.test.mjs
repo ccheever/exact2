@@ -209,7 +209,7 @@ test('dev edits clear only their own errors while unrelated failures stay visibl
     console:{error(){}},location:{origin:'http://localhost',href:'http://localhost/',search:''},
     EventSource:class {constructor(){stream=this;}},
     document:{body:{appendChild(el){overlay=el;return el;}},createElement(){return {remove(){overlay=null;}};},querySelector(){return null;}},
-    navigator:{sendBeacon(){}},requestAnimationFrame:callback=>callback(),crypto,
+    navigator:{sendBeacon(){}},requestAnimationFrame:callback=>callback(),crypto,addEventListener(){}, // inspect mode's capture gate (LLP 1122 T2b)
     matchMedia:()=>({matches:false,addEventListener(){}}), // the build channel's facts (LLP 1122 D4)
     localStorage:{getItem:()=>'1',setItem(){}}, // the "Open in native" link was put away; the overlay is all this page shows
     fetch:async url=>new Response(url.endsWith('app.plan')?plan:JSON.stringify(envelope)),

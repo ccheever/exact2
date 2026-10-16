@@ -381,6 +381,104 @@ test('frameOnlyByTool: every HTML head carries frame-ancestors, however it is wr
 });
 
 // The wasm loop's HTML (caltrain: the theme fixture has no wasm build).
+// LLP 1122 T2b: inspect is a development page's only: no file a web build
+// ships (every host file, `webHostFiles`) carries it; dev.js, which does, is
+// served by the dev loop alone.
+test('no web build ships inspect: it lives in dev.js, which no build copies', async () => {
+  const { webHostFiles } = await import('./app.mjs');
+  const shipped = webHostFiles();
+  expect(Object.keys(shipped)).not.toContain('dev.js');
+  for (const [name, source] of Object.entries(shipped)) if (name.endsWith('.js')) expect([name, readFileSync(resolve(ROOT, source), 'utf8').includes('exact-inspect')]).toEqual([name, false]);
+  expect(readFileSync(resolve(ROOT, 'host/web/dev.js'), 'utf8')).toContain('exact-inspect');
+});
+
+// LLP 1122 T2b: inspect mode in the wasm host, on the theme fixture's page.
+test('inspect on the wasm page: no tap reaches the app, a click selects the node the hit test finds and reports its site, instance and rows, a refresh reports it again, and Escape leaves', async () => {
+  const { base, stop } = await devLoop(['--wasm'], 'theme-fixture');
+  const { chromium } = await import('playwright-core');
+  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  let polling = true;
+  try {
+    const { token } = await (await fetch(`${base}/__tamber/token`)).json();
+    const post = async (body, path = '/__tamber') => (await fetch(`${base}${path}`, { method: 'POST', headers: { 'x-exact-tamber-token': token }, body: JSON.stringify(body) })).json();
+    // The client, present by its long poll; the events it is told.
+    const events = [];
+    const poll = (async () => { let after = 0, epoch; while (polling) { const r = await post(epoch ? { after, epoch, client: 'tool' } : { after: 0, wait: false, client: 'tool' }, '/__tamber/events'); events.push(...(r.events ?? [])); after = r.seq ?? after; epoch = r.epoch; } })();
+    const until = async (pass, ms = 30_000) => { const end = Date.now() + ms; for (;;) { const got = await pass(); if (got) return got; if (Date.now() > end) throw new Error('not seen'); await new Promise(ok => setTimeout(ok, 200)); } };
+    const page = await browser.newPage({ viewport: { width: 420, height: 900 }, hasTouch: true });
+    await page.goto(`${base}/`);
+    const build = await until(async () => (await post({ method: 'hello' })).ok.builds.find(b => b.host === 'web'));
+    expect(build.capabilities).toContain('inspect');
+    const dim = () => page.locator('[data-testid="dim-preview"]').evaluate(e => getComputedStyle(e).backgroundColor);
+    const before = await dim();
+    expect((await post({ method: 'inspect', client: 'tool', on: true })).ok).toEqual({ builds: [build.id], unsupported: [] });
+    await page.locator('#exact-inspect').waitFor();
+    // No control takes focus while inspecting (its keys would reach the app).
+    expect(await page.locator('[data-testid="swap"]').evaluate(e => { e.focus(); return document.activeElement === e; })).toBe(false);
+    // A hovered node is outlined.
+    const card = page.locator('[data-testid="card"]');
+    const box = await card.boundingBox();
+    await page.mouse.move(box.x + 4, box.y + 4);
+    await until(async () => (await page.evaluate(() => [...document.body.children].some(e => e.style?.outline?.includes('solid') && e.style.display === 'block'))));
+    // A click on Swap pins: the app never hears it, and the node the hit
+    // test finds there is selected and reported.
+    const swap = page.locator('[data-testid="swap"]');
+    const at = await swap.boundingBox();
+    await page.mouse.click(at.x + at.width / 2, at.y + at.height / 2);
+    const selected = await until(() => events.find(e => e.event === 'selected'));
+    expect(await dim()).toBe(before);
+    const hit = await page.evaluate(([x, y]) => document.elementsFromPoint(x, y).find(e => e.closest('[data-view]'))?.closest('[data-view]').dataset.view, [at.x + at.width / 2, at.y + at.height / 2]);
+    expect(selected.build).toBe(build.id);
+    expect(selected.selected).toMatchObject({ node: Number(hit), trimmed: false });
+    expect(typeof selected.selected.site).toBe('number');
+    expect(Array.isArray(selected.selected.instance)).toBe(true);
+    expect(selected.selected.rows.length).toBeGreaterThan(0);
+    // Each row as the runner's `layout` gives it: its value and source.
+    expect(selected.selected.rows.every(r => typeof r.name === 'string' && ['authored', 'dynamic', 'inherited', 'initial'].includes(r.source))).toBe(true);
+    // The window's modes: the app starts in Black (`dark-style`'s first).
+    expect(selected.selected.tuple).toEqual({ 'dark-style': 'black' });
+    // No key, no finger reaches the app either: Enter and Space on the
+    // button focused before, and a tap, leave the previews as they were.
+    await page.keyboard.press('Enter');
+    expect(await dim()).toBe(before);
+    await page.keyboard.press(' ');
+    expect(await dim()).toBe(before);
+    await page.touchscreen.tap(at.x + at.width / 2, at.y + at.height / 2);
+    await until(() => events.filter(e => e.event === 'selected').length >= 2);
+    expect(await dim()).toBe(before);
+    // A tap on the Dim preview selects it, in the modes it is in: Dim, its
+    // pin, while the window is in Black.
+    const pinned = await page.locator('[data-testid="dim-preview"]').boundingBox();
+    await page.touchscreen.tap(pinned.x + 6, pinned.y + 6);
+    const inDim = await until(() => events.filter(e => e.event === 'selected').find(e => e.selected.testId === 'dim-preview' || e.selected.tuple?.['dark-style'] === 'dim'));
+    expect(inDim.selected.tuple).toEqual({ 'dark-style': 'dim' });
+    // A refresh reports the selection again.
+    const count = events.filter(e => e.event === 'selected').length;
+    expect((await post({ method: 'inspect', client: 'tool', refresh: true })).ok.builds).toEqual([build.id]);
+    await until(() => events.filter(e => e.event === 'selected').length > count);
+    // A reload keeps it: the page registers again and is told it is on.
+    await page.reload();
+    await page.locator('#exact-inspect').waitFor();
+    // Escape leaves: the banner goes, the server's clients are told (a
+    // selection of none), and a tap reaches the app again.
+    await page.keyboard.press('Escape');
+    await page.locator('#exact-inspect').waitFor({ state: 'detached' });
+    await until(() => events.find(e => e.event === 'selected' && e.selected === null));
+    // And keys again: focused, Enter swaps (the positive control for the
+    // keys inspect mode took).
+    await swap.focus();
+    expect(await swap.evaluate(e => e.contains(document.activeElement) || document.activeElement?.contains(e))).toBe(true);
+    await page.keyboard.press('Enter');
+    await until(async () => (await dim()) !== before);
+    polling = false;
+    await poll.catch(() => {});
+  } finally {
+    polling = false;
+    await browser.close();
+    await stop();
+  }
+}, 900_000);
+
 test('the wasm loop\'s HTML, its page, install page and /__dev/open, may be framed only by the design tool\'s origin and its own', async () => {
   const { base, stop } = await devLoop(['--wasm'], 'caltrain');
   try {

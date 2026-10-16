@@ -215,6 +215,8 @@ if (es) {
   // The module loader uses this implementation on trusted LAN HTTP too.
   globalThis.exact.moduleDigest = digest;
   let retry = null;
+  // Inspect mode's outline, hidden on a new generation (set below).
+  let outlineNone = () => {};
   const client = generationClient({ fetchGeneration, programChanged: () => { clearTimeout(retry); location.reload(); },
     apply: async (candidate, current) => {
       if (!current()) return false;
@@ -230,7 +232,8 @@ if (es) {
     // And the pin held, set again on its runner; its status says the new generation,
     // and the design its runner runs (read from it: /__dev/design is 204 when the
     // plan's own is the one to run, so no live answer would say it).
-    applied: (candidate) => { clearTimeout(retry); show(null); generations += 1; delete globalThis.exact.designDigest; syncDesign(); channel.plan = candidate?.generation ?? channel.plan; if (channel.held) command(channel.held); else if (channel.nonce) status(); },
+    // An inspect outline drawn on the old generation's boxes goes.
+    applied: (candidate) => { clearTimeout(retry); show(null); generations += 1; outlineNone(); delete globalThis.exact.designDigest; syncDesign(); channel.plan = candidate?.generation ?? channel.plan; if (channel.held) command(channel.held); else if (channel.nonce) status(); },
     failed: (error, current) => {
       show(String(error)); console.error("exact dev:", String(error));
       clearTimeout(retry);
@@ -301,9 +304,9 @@ if (es) {
     }).catch((error) => console.error("exact dev:", String(error)));
   };
   // The build channel (LLP 1122 D4): this page registers with its stream's
-  // nonce, reports its effective facts, and takes `pin` from the design
-  // server's clients; the other commands are reserved, and answered
-  // unsupported. Every report waits for the stream's registration.
+  // nonce, reports its effective facts, and takes `pin` and `inspect` from
+  // the design server's clients; the other commands are reserved, and
+  // answered unsupported. Every report waits for the stream's registration.
   const channel = { nonce: null, registered: null, revision: null, before: null, held: null, plan: null, told: null };
   // The tab's own id, kept across its reloads (sessionStorage); a duplicated
   // tab, which copies that storage, takes another when this one answers.
@@ -411,8 +414,221 @@ if (es) {
     channel.revision = frame.revision;
     status();
   };
+  // Inspect mode (LLP 1122 D4, D5; T2b), from a design-server client's
+  // `inspect {on}`: a banner with a close control (and Escape) says so; the
+  // page takes every input itself (pointer, mouse, touch, wheel, keys,
+  // gestures, and guest frames, which stop taking pointer input), so nothing
+  // reaches the app; a hovered node is outlined, and a press released where
+  // it began (a click, a tap) selects it. The node is the one the browser's
+  // hit test finds, as a real tap's listener is the element under it
+  // (`data-view`); a hit on the host's own chrome (an error bar, the open-in
+  // bar) selects nothing. Its report is the runner's own `layout` answer
+  // (`node`): its site, instance path, the modes it is in, and its rows,
+  // with the digests the build runs. Development pages only: dev.js is not
+  // in a release.
+  const INSPECT_EVENTS = ["change", "input", "focus", "blur", "focusout", "compositionend", "cancel", "gotpointercapture", "lostpointercapture", "scroll", "scrollend", "drag", "dragenter", "dragover", "dragleave", "dragend", "pointerdown", "pointerup", "pointercancel", "pointerover", "pointerout", "pointerenter", "pointerleave", "click", "dblclick", "auxclick", "contextmenu", "mousedown", "mouseup", "mouseover", "mouseout", "touchstart", "touchmove", "touchend", "touchcancel", "wheel", "keydown", "keyup", "keypress", "beforeinput", "gesturestart", "gesturechange", "gestureend", "dragstart", "drop"];
+  const inspecting = { on: false, banner: null, outline: null, shield: null, cover: null, close: null, selected: null, press: null, seq: null, left: null };
+  // A new generation: the outline drawn on its boxes goes, and the chrome is
+  // made again if its tree took it away.
+  outlineNone = () => { if (inspecting.outline) inspecting.outline.style.display = "none"; if (inspecting.on) chrome(); };
+  const REPORT_BYTES = 60 * 1024;
+  const ask = (request) => { const x = globalThis.exact; return JSON.parse(x.readOut(x.wasm.exact_agent(x.writeIn(JSON.stringify(request))))); };
+  // The node under a point, as a tap there would find it: the topmost
+  // element (this inspector's own chrome aside), when it is the app's and
+  // not one leaving; nothing when the host's chrome is on top.
+  const nodeAt = (x, y) => {
+    const root = globalThis.exact.root;
+    // A guest frame is hit as itself (its view), the shield lifted for the
+    // reading only.
+    if (inspecting.shield) inspecting.shield.disabled = true;
+    let hit;
+    try { hit = document.elementsFromPoint(x, y).find((e) => e !== inspecting.cover && !inspecting.banner?.contains(e)); } finally { if (inspecting.shield) inspecting.shield.disabled = false; }
+    if (!hit || !root?.contains(hit) || hit.closest("[data-exiting]")) return null;
+    // The view the runner knows by that element, as a tap's listener does.
+    for (let view = hit.closest("[data-view]"); view; view = view.parentElement?.closest("[data-view]")) {
+      const id = Number(view.dataset.view);
+      if (globalThis.exact.views?.get(id) === view) return { id, el: view };
+    }
+    return null;
+  };
+  const outline = (el) => {
+    if (!inspecting.outline) return;
+    if (!el) { inspecting.outline.style.display = "none"; return; }
+    const r = el.getBoundingClientRect();
+    Object.assign(inspecting.outline.style, { display: "block", left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+  };
+  const bytes = (value) => new TextEncoder().encode(JSON.stringify(value)).length;
+  // The selection's report: the runner's answer for the node, and the
+  // digests and pin revision the build runs; trimmed to the report's room
+  // (counted in bytes, as the server does), and said so; refused, named, if
+  // even the node's identity does not fit.
+  const selectedReport = async (id) => {
+    const x = globalThis.exact;
+    await x.ready;
+    if (x.stages?.()?.inspection === "staged") return { kind: "unsupported", what: "inspect", detail: "this build's inspection stage is not loaded" };
+    const node = ask({ op: "node", id, plan: true });
+    if (node.error) return { kind: "unsupported", what: "inspect", detail: node.error };
+    const design = x.designDigest ?? await designNow();
+    const envelope = (selected) => ({ kind: "selected", selected, plan: channel.plan, design, revision: channel.revision });
+    let selected = { node: id, type: node.type, testId: node.props?.testId ?? null, site: node.site ?? null, instance: node.instance ?? [], planDigest: node.planDigest ?? null, tuple: node.modes ?? null, rows: Object.entries(node.style ?? {}).map(([name, row]) => ({ name, ...row })), trimmed: false };
+    if (bytes(envelope(selected)) > REPORT_BYTES) selected = { ...selected, rows: selected.rows.map(({ name, value, source, from, token }) => ({ name, value, source, from, token })), trimmed: true };
+    while (bytes(envelope(selected)) > REPORT_BYTES && selected.rows.length) selected = { ...selected, rows: selected.rows.slice(0, Math.floor(selected.rows.length / 2)) };
+    if (bytes(envelope(selected)) > REPORT_BYTES) return { kind: "unsupported", what: "inspect", detail: "the selected node's identity alone is larger than a report" };
+    return envelope(selected);
+  };
+  // A selection is its node in a generation: a refresh after another
+  // generation finds the node by its site and instance path again, or says
+  // it is gone.
+  const select = async (id) => {
+    const seq = inspecting.seq;
+    const report_ = await selectedReport(id);
+    // Left (or another command came) meanwhile: not published.
+    if (!inspecting.on || inspecting.seq !== seq) return;
+    if (report_.kind === "selected") inspecting.selected = { id, generation: globalThis.exact.generation, plan: report_.selected.planDigest, site: report_.selected.site, instance: JSON.stringify(report_.selected.instance) };
+    report(report_);
+  };
+  const refresh = async () => {
+    const was = inspecting.selected;
+    if (!was || !inspecting.on) return;
+    if (was.generation !== globalThis.exact.generation) {
+      // Sites and regions are a plan's own: only under the same plan is the
+      // node found again by them.
+      let found = null;
+      for (const [id] of globalThis.exact.views ?? []) {
+        const node = ask({ op: "node", id, plan: true });
+        if (node.error || node.planDigest !== was.plan) break;
+        if (node.site === was.site && JSON.stringify(node.instance ?? []) === was.instance) {
+          // Two copies with the same path (a repeated key): which one is not
+          // known, so neither.
+          if (found != null) { found = null; break; }
+          found = id;
+        }
+      }
+      if (found == null) { inspecting.selected = null; report({ kind: "unsupported", what: "inspect", detail: "the selected node is gone in this generation: select it again" }); return; }
+      was.id = found;
+    }
+    await select(was.id);
+  };
+  const swallow = (event) => {
+    if (!inspecting.on) return;
+    if (event.type === "keydown" && event.key === "Escape") { event.preventDefault(); event.stopImmediatePropagation(); setInspect(false, true); return; }
+    // The inspector's own controls are handled here, their events never
+    // passing through the app's handlers (a banner inside an app dialog).
+    if (inspecting.banner?.contains(event.target)) {
+      event.stopImmediatePropagation();
+      if (event.type === "wheel") event.preventDefault();
+      if (event.type === "click" && inspecting.close?.contains(event.target)) setInspect(false, true);
+      return;
+    }
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    // A press released where it began, by mouse, pen or finger, selects.
+    if (event.type === "pointerdown") { chrome(); inspecting.press = { x: event.clientX, y: event.clientY, id: event.pointerId }; }
+    if (event.type === "pointerup" && inspecting.press?.id === event.pointerId) {
+      const { x, y } = inspecting.press;
+      inspecting.press = null;
+      if (Math.hypot(event.clientX - x, event.clientY - y) <= 10) { const hit = nodeAt(event.clientX, event.clientY); outline(hit?.el ?? null); if (hit) void select(hit.id); }
+    }
+    if (event.type === "pointercancel") inspecting.press = null;
+  };
+  const hover = (event) => { if (!inspecting.on) return; event.stopImmediatePropagation(); chrome(); const hit = nodeAt(event.clientX, event.clientY); outline(hit?.el ?? null); };
+  // The gate is on the window from the page's start, so it runs before any
+  // listener the app's host adds later (a gesture's, a GPU surface's); it
+  // does nothing until inspect mode is on.
+  for (const type of INSPECT_EVENTS) addEventListener(type, swallow, { capture: true, passive: false });
+  addEventListener("pointermove", hover, { capture: true });
+  // No field or guest frame takes focus meanwhile (its keys would not meet
+  // the gate).
+  addEventListener("focusin", (event) => { if (inspecting.on && !inspecting.banner?.contains(event.target)) event.target?.blur?.(); }, { capture: true });
+  // A guest frame that takes focus itself: the parent window loses it, and
+  // focus goes back to the inspector's close control.
+  addEventListener("blur", () => { if (inspecting.on && document.activeElement?.tagName === "IFRAME") inspecting.close?.focus(); });
+  const topLayer = (el) => { try { el.popover = "manual"; el.showPopover(); } catch { /* no popover: a fixed element */ } };
+  // The inspector's chrome (banner, outline, guest-frame shield), made
+  // again when a new tree or a modal took it away.
+  const topModal = () => { try { return [...document.querySelectorAll("dialog")].findLast((d) => d.matches(":modal")) ?? null; } catch { return null; } };
+  const chrome = () => {
+    const modal = topModal();
+    if (inspecting.banner?.isConnected && inspecting.outline?.isConnected && inspecting.shield?.isConnected && inspecting.cover?.isConnected && (!modal || modal.contains(inspecting.banner))) return;
+    inspecting.banner?.remove(); inspecting.outline?.remove(); inspecting.shield?.remove(); inspecting.cover?.remove();
+    const banner = inspecting.banner = document.createElement("div");
+    banner.id = "exact-inspect";
+    banner.setAttribute("role", "status");
+    banner.style.cssText = "position:fixed;inset:8px auto auto 50%;margin:0;transform:translateX(-50%);z-index:2147483647;display:flex;gap:8px;align-items:center;padding:6px 10px;border:0;border-radius:8px;background:#1d4ed8;color:#fff;font:13px system-ui,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.3)";
+    banner.textContent = "Inspecting: click a view to select it";
+    const close = inspecting.close = document.createElement("button");
+    close.type = "button";
+    close.textContent = "×";
+    close.setAttribute("aria-label", "Stop inspecting (Escape)");
+    close.style.cssText = "border:0;background:transparent;color:#fff;font-size:16px;cursor:pointer;padding:0 2px";
+    banner.append(close);
+    const box = inspecting.outline = document.createElement("div");
+    box.style.cssText = "position:fixed;display:none;margin:0;padding:0;border:0;z-index:2147483646;pointer-events:none;outline:2px solid #1d4ed8;background:rgba(29,78,216,.12)";
+    // Guest frames take no pointer input: a press there is their view's.
+    const shield = inspecting.shield = document.createElement("style");
+    shield.textContent = "iframe, frame, embed, object { pointer-events: none !important; }";
+    document.head.append(shield);
+    // A transparent cover over the whole page takes the pointer, so no
+    // view sees it (no hover, enter or leave, no press on a guest frame);
+    // a press is read through it (`nodeAt`).
+    const cover = inspecting.cover = document.createElement("div");
+    cover.style.cssText = "position:fixed;inset:0;margin:0;padding:0;border:0;width:auto;height:auto;z-index:2147483644;background:transparent;touch-action:none";
+    // Inside the topmost open modal dialog, if one is, so its controls are
+    // not inert; else the body. Made again when a modal opens later.
+    (modal ?? document.body).append(cover, box, banner);
+    // Above the app's own top layer (an open dialog), where one exists.
+    topLayer(cover); topLayer(box); topLayer(banner);
+  };
+  const setInspect = (on, local = false) => {
+    if (on === inspecting.on) { if (on) chrome(); return; }
+    inspecting.on = on;
+    // Kept across a reload of this tab, so input stays gated until the
+    // server says how it holds inspect mode (its replay on registering).
+    try { if (on) sessionStorage.setItem("exact.dev.inspect", String(inspecting.seq ?? "")); else sessionStorage.removeItem("exact.dev.inspect"); } catch { /* storage refused */ }
+    if (!on) inspecting.selected = null;
+    // Left here (Escape, the close control): the server and its clients
+    // are told, so no one owns inspect mode on this page any more.
+    if (!on && local) { inspecting.left = inspecting.seq; try { sessionStorage.setItem("exact.dev.inspect.left", String(inspecting.seq ?? "")); } catch { /* storage refused */ } report({ kind: "selected", selected: null, inspect: inspecting.seq, plan: channel.plan, revision: channel.revision }); }
+    if (on) {
+      // Out of any field or guest frame, so no key goes there (the gate is
+      // on already, so the field's blur and change reach no app handler).
+      document.activeElement?.blur?.();
+      chrome();
+    } else {
+      inspecting.banner?.remove(); inspecting.outline?.remove(); inspecting.shield?.remove(); inspecting.cover?.remove();
+      inspecting.banner = inspecting.outline = inspecting.shield = inspecting.cover = inspecting.close = inspecting.press = null;
+    }
+  };
+  const inspect = async (frame) => {
+    // `{refresh: true}`: the selection again, under the digests now.
+    if (frame.refresh) { await refresh(); return; }
+    // The command's number, which a local exit names, so a later owner's
+    // command is not undone by it.
+    // A replay of the command this page left itself (a new stream before
+    // the server heard the exit) is the exit again, not on.
+    if (frame.on && frame.seq != null && frame.seq === inspecting.left) { report({ kind: "selected", selected: null, inspect: frame.seq, plan: channel.plan, revision: channel.revision }); return; }
+    inspecting.left = null;
+    try { sessionStorage.removeItem("exact.dev.inspect.left"); } catch { /* storage refused */ }
+    inspecting.seq = frame.seq ?? null;
+    setInspect(frame.on === true);
+    if (inspecting.on) try { sessionStorage.setItem("exact.dev.inspect", String(inspecting.seq ?? "")); } catch { /* storage refused */ }
+  };
+  // A reload of a tab that was inspecting starts inspecting, until the
+  // server's replay on registering says otherwise.
+  // (The command it was on by is kept with it, so an exit before the
+  // replay names it.)
+  try {
+    const kept = sessionStorage.getItem("exact.dev.inspect"), left = sessionStorage.getItem("exact.dev.inspect.left");
+    if (kept != null) { inspecting.seq = kept === "" ? null : Number(kept); setInspect(true); }
+    // An exit the server may not have heard: its replay is answered with it.
+    else if (left) inspecting.left = Number(left);
+  } catch { /* storage refused */ }
   const command = (frame) => {
-    designing = designing.then(() => { if (frame.kind === "pin") return pin(frame); report({ kind: "unsupported", what: frame.kind }); }).catch((error) => console.error("exact dev:", String(error)));
+    designing = designing.then(() => {
+      if (frame.kind === "pin") return pin(frame);
+      if (frame.kind === "inspect") return inspect(frame);
+      report({ kind: "unsupported", what: frame.kind });
+    }).catch((error) => console.error("exact dev:", String(error)));
   };
   es.onmessage = (event) => {
     let message;
@@ -441,7 +657,7 @@ if (es) {
       // Reports wait for this; a refused registration sends none.
       channel.registered = (async () => {
         await globalThis.exact.ready;
-        const answer = await post(nonce, { kind: "register", id: await buildId, host: "web", capabilities: ["pin"], plan: channel.plan, design: globalThis.exact.designDigest ?? await designNow() });
+        const answer = await post(nonce, { kind: "register", id: await buildId, host: "web", capabilities: ["pin", "inspect"], plan: channel.plan, design: globalThis.exact.designDigest ?? await designNow() });
         return answer.ok;
       })().catch(() => false);
       status();

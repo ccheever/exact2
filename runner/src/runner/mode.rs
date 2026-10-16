@@ -222,6 +222,12 @@ impl<D: DataSource> Runner<D> {
         Some((names, text, modes, row.implied))
     }
 
+    /// The app modes `view`'s node is in, `[(axis, value)]` (LLP 1121 D5):
+    /// the window's, overridden by the pins above it.
+    pub fn modes_of_view(&self, view: exact_kernel::ViewId) -> Option<Vec<(String, String)>> {
+        self.tree.as_ref().and_then(|t| t.tuple_of(view)).map(|tuple| self.modes_of(tuple))
+    }
+
     /// The window's modes as JSON, `{"axis": "value", …}`, for a host's reply.
     pub fn modes_json(&self) -> String {
         let mut out = String::from("{");

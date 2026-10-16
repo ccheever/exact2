@@ -383,3 +383,33 @@ test('the resident loop relays the main loop\'s commands onto its own stream', a
   relayed.close();
   main.close();
 });
+
+test('inspect goes to the builds that can, refresh asks for the selection again, and it is turned off when its client goes', () => {
+  const channel = buildChannel();
+  const a = stream(channel), b = stream(channel);
+  report(channel, { nonce: a.nonce, kind: 'register', id: 'web-1', host: 'web', capabilities: ['pin', 'inspect'] });
+  register(channel, b.nonce, 'ios-1', 'ios');
+  expect(channel.inspect('tool', null, { on: true })).toEqual({ builds: ['web-1'], unsupported: ['ios-1'] });
+  expect(a.frames.at(-1)).toEqual({ kind: 'inspect', on: true, seq: 1 });
+  expect(b.frames.some(f => f.kind === 'inspect')).toBe(false);
+  expect(channel.owners()).toEqual(['tool']);
+  expect(channel.inspect('tool', 'web-1', { refresh: true }).builds).toEqual(['web-1']);
+  expect(a.frames.at(-1)).toEqual({ kind: 'inspect', refresh: true });
+  expect(channel.inspect('tool', 'none', { on: true }).error).toContain('no registered build');
+  channel.clear('tool');
+  expect(a.frames.at(-1)).toEqual({ kind: 'inspect', on: false, seq: 2 });
+  expect(channel.owners()).toEqual([]);
+  // A page's own exit (a selection of none) drops the owner only for the
+  // command it left: a later owner's stays.
+  channel.inspect('tool', 'web-1', { on: true });
+  channel.inspect('agent', 'web-1', { on: true });
+  expect(report(channel, { nonce: a.nonce, kind: 'selected', selected: null, inspect: 3 }).status).toBe(204);
+  expect(channel.owners()).toEqual(['agent']);
+  report(channel, { nonce: a.nonce, kind: 'selected', selected: null, inspect: 4 });
+  expect(channel.owners()).toEqual([]);
+  // Registering again, a build is told inspect mode as the server holds it.
+  channel.inspect('tool', 'web-1', { on: true });
+  const again = stream(channel);
+  report(channel, { nonce: again.nonce, kind: 'register', id: 'web-1', host: 'web', capabilities: ['pin', 'inspect'] });
+  expect(again.frames).toContainEqual({ kind: 'inspect', on: true, seq: 5 });
+});

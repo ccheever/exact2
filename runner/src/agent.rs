@@ -510,6 +510,20 @@ pub fn node<D: DataSource>(runner: &Runner<D>, id: u32) -> String {
         }
         s.push(']');
     }
+    // The app modes it is in (LLP 1121 D5): the window's, overridden by the
+    // pins above it (LLP 1122 D5's selected node's tuple).
+    if let Some(modes) = runner.modes_of_view(id) {
+        s.push_str(",\"modes\":{");
+        for (i, (axis, value)) in modes.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            quote(axis, &mut s);
+            s.push(':');
+            quote(value, &mut s);
+        }
+        s.push('}');
+    }
     // An own row the plan binds by an expression is `dynamic` (D5); one it
     // binds by a literal — or that a class expansion or the runner set — is
     // `authored`. The plan's bindings for this node's site say which.

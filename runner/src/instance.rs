@@ -1395,14 +1395,24 @@ impl Tree {
     /// The site owning `view` and the instance path to it: the regions
     /// crossed, with the row key or the active arm at each (LLP 1035.002).
     pub fn site(&self, view: ViewId) -> Option<(NodesId, Vec<InstanceStep>)> {
+        self.site_in(view).map(|(node, _, path)| (node, path))
+    }
+
+    /// The app tuple `view`'s node is in (LLP 1121 D5): the window's,
+    /// overridden by the pins above it, for an inspected node's report.
+    pub fn tuple_of(&self, view: ViewId) -> Option<u32> {
+        self.site_in(view).map(|(_, tuple, _)| tuple)
+    }
+
+    fn site_in(&self, view: ViewId) -> Option<(NodesId, u32, Vec<InstanceStep>)> {
         let mut path = Vec::new();
         for c in &self.children {
             let found = match c {
                 Child::Node(n) => n.site(view, &mut path),
                 Child::Region(r) => r.site(view, &mut path),
             };
-            if let Some(node) = found {
-                return Some((node, path));
+            if let Some((node, tuple)) = found {
+                return Some((node, tuple, path));
             }
         }
         None
@@ -1410,9 +1420,9 @@ impl Tree {
 }
 
 impl NodeInst {
-    fn site(&self, view: ViewId, path: &mut Vec<InstanceStep>) -> Option<NodesId> {
+    fn site(&self, view: ViewId, path: &mut Vec<InstanceStep>) -> Option<(NodesId, u32)> {
         if self.view == view {
-            return Some(self.node);
+            return Some((self.node, self.tuple));
         }
         if let Some(collection) = &self.collection {
             if let Some(found) = collection.site(view, path) {
@@ -1433,8 +1443,8 @@ impl NodeInst {
 }
 
 impl RegionInst {
-    fn site(&self, view: ViewId, path: &mut Vec<InstanceStep>) -> Option<NodesId> {
-        let walk = |roots: &[Child], path: &mut Vec<InstanceStep>| -> Option<NodesId> {
+    fn site(&self, view: ViewId, path: &mut Vec<InstanceStep>) -> Option<(NodesId, u32)> {
+        let walk = |roots: &[Child], path: &mut Vec<InstanceStep>| -> Option<(NodesId, u32)> {
             for c in roots {
                 let found = match c {
                     Child::Node(n) => n.site(view, path),

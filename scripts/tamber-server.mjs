@@ -89,7 +89,7 @@ const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const LINE_LIMIT = 1 << 20;
 const BODY_LIMIT = LINE_LIMIT - 64;
 const ANSWER_MS = 120_000, POLL_MS = 25_000, KEPT = 256, HOLD_MS = 15 * 60_000, HELD = 64;
-const METHODS = new Set(['hello', 'describe', 'resolve', 'explain', 'uses', 'propose', 'transaction', 'undo', 'commit', 'accept', 'drop', 'history', 'revert', 'import', 'pin', 'preview', 'scrub', 'scrub-release', 'scrub-cancel']);
+const METHODS = new Set(['hello', 'describe', 'resolve', 'explain', 'uses', 'propose', 'transaction', 'undo', 'commit', 'accept', 'drop', 'history', 'revert', 'import', 'pin', 'preview', 'inspect', 'scrub', 'scrub-release', 'scrub-cancel']);
 /** Where `bun exact.mjs tamber tool` builds the design tool, and the wire
  * serves it from. */
 export const TOOL_DIST = resolve(ROOT, 'target/design-tool-web');
@@ -471,6 +471,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // origin, which the design tool frames, null with no dev loop (1.3).
     if (request.method === 'hello') return ask(request).then(r => (r.ok ? { ok: { ...r.ok, app: appDir, epoch, live: typeof live === 'function' ? live() : live, builds: channel.list(), page: typeof page === 'function' ? page() : page, design: relative(appDir, designPath(appDir) ?? resolve(appDir, design)) } } : r));
     if (request.method === 'pin' || request.method === 'preview') return needsClient(request) ?? pin(request);
+    if (request.method === 'inspect') return needsClient(request) ?? inspect(request, scope);
     if (request.method.startsWith('scrub')) return needsClient(request) ?? scrubbing(request, scope);
     if (request.method === 'revert') return needsClient(request) ?? revert(request);
     if (request.method === 'import') return needsClient(request) ?? importHeld(request);
@@ -482,6 +483,19 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       return { ok: { dropped: request.proposal } };
     }
     return ask(request);
+  }
+
+  /** `inspect` `{client, build?, on?, refresh?}` (LLP 1122 D4, D5): inspect
+   * mode on one build or every build that can, its client's while present;
+   * write scope, as it takes the builds' input. */
+  function inspect(request, scope) {
+    if (scope !== 'write') return { status: 403, error: { message: 'inspect needs write scope: it takes the running builds\' input' } };
+    if (!present(request.client)) return { status: 409, error: { message: `inspect: \`${request.client}\` is not present: hold a long poll or a subscription that names it first (\`{client}\`)` } };
+    const build = request.build ?? null;
+    if (build !== null && typeof build !== 'string') return { status: 400, error: { message: '`build` is a registered build\'s id' } };
+    if (request.refresh !== true && typeof request.on !== 'boolean') return { status: 400, error: { message: 'inspect names `on` (true or false), or `refresh: true`' } };
+    const done = channel.inspect(request.client, build, { on: request.on === true, refresh: request.refresh === true });
+    return done.error ? { status: 400, error: { message: done.error } } : { ok: done };
   }
 
   /** A pin on one build or every build (LLP 1122 D4), its client's while

@@ -34,6 +34,7 @@ on macOS and Linux.
   - `hello`'s `page`;
   - `frame-ancestors` on a dev loop's HTML;
   - a build's `pinRevision` and `unsupported`;
+  - `inspect` (the request and the command) and the `selected` report's shape;
   - the items marked *1.3* below.
 
 ## Where it runs
@@ -496,7 +497,7 @@ Every event carries `seq` (rising, per run) and `epoch` (this run). The server k
 | `builds` | `builds`: the registered builds, as `hello` lists them, after one registers, goes, or its pins change |
 | `build-status` | `build`: one build, after its `status` report |
 | `unsupported` | `build`, `what` (a command's kind, `pin.mode`, `pin.contrast`, `batch`), `detail` |
-| `selected` | `build`, `selected` (LLP 1122 D5; its sender is T2b's) |
+| `selected` | `build`, `selected` (LLP 1122 D5; *1.3*: the wasm web page in inspect mode, see the build channel) |
 | `scrub` | `scrub`, `client`, `reason` (*1.2*; see [Scrub sessions](#scrub-sessions-12-llp-1121-d13-llp-1122-d6)) |
 
 - **A write is announced once,** from its reply. A hand edit made just before a write is announced
@@ -622,14 +623,38 @@ The tool drives no input into an app; a command changes only what `prefer` would
     `setRootFontSize` included (at most once a turn).
   - `unsupported`: a command or batch it can't apply, by name (`what`), with the pin frame's
     `revision` when it is one (*1.3*, optional).
-  - `selected`: LLP 1122 D5's; its route is here, its sender comes with T2b.
+  - `selected` (*1.3*, LLP 1122 D5; the wasm web page sends it in inspect mode):
+    `{selected, plan, design, revision}`, the digests and pin revision the build runs, and
+    `selected` `{node, type, testId, site, instance, planDigest, tuple, rows, trimmed}`: the
+    node a press in inspect mode hit (the browser's hit test, as a real tap's), its plan site
+    and instance path, the plan digest its map is for, the modes it is in (`tuple`: the
+    window's, overridden by the pins above it; the runner's `layout` answer now says them as
+    `modes`), and its rows as that answer gives them (`{name, value, source, from?, token?}`).
+    Trimmed to the report's room (64 KiB, in bytes), and said so (`trimmed`). `selected: null`
+    with `inspect` (the `seq` of the inspect command it left) says the page left inspect mode
+    itself (Escape, its close control): the client that owned it there no longer does, unless a
+    newer command (another `seq`) gave it to another.
 - **Commands down**, each a frame whose `kind` the host dispatches before any generation:
   - `pin` `{revision, pin}`: `pin` is `{scheme?: "light"|"dark", contrast?:
     "more"|"less"|"no-preference", mode?: {axis: value}, rootFontSize?: px}`, the facts `prefer`
     pins, or null to hand them back. Each pin replaces the whole set: a fact it doesn't name is
     what the first pin replaced.
-  - `inspect`, `outline` and `hold` are reserved (T2b, stage 8). A host answers them
-    `unsupported`.
+  - `inspect` (*1.3*) `{on, seq}` or `{refresh: true}`: inspect mode on or off (`seq` numbers
+    the command), or the selection
+    reported again under the digests now (found again by its site and instance path after a
+    new generation, or said gone). In inspect mode the page shows a banner with a close control
+    (and leaves on Escape), takes every input itself (pointer, mouse, touch, wheel, keys,
+    gestures; guest frames take no pointer input) so nothing reaches the app, outlines the node
+    under the pointer and selects the one a press is released on. A build that registers again
+    is told inspect mode as the server holds it. A build that can says
+    `inspect` among its `capabilities` (the wasm web page now; the JS target and natives later).
+    Development pages only.
+  - `outline` and `hold` are reserved (T2b, stage 8). A host answers them `unsupported`.
+- **`inspect`** `{client, build?, on | refresh: true}` (*1.3*, write scope and a present client)
+  sends
+  `inspect` to a build, or to every build that can. Answered `{builds, unsupported}`: the builds
+  it went to, and those that can't inspect. Inspect mode is its client's: when the client stops
+  being present, it is turned off where it turned it on.
 - **`pin`** `{client, build?, pin}` (write scope, as the wire's POSTs are) sends one to a build, or
   to every registered build without `build`. `preview` `{client, build, axis, value}` is the
   same as pinning that build's mode for that axis (it replaces that build's pin, as any pin
