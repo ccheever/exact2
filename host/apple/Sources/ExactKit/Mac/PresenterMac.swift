@@ -19,9 +19,9 @@ package final class Presenter {
     var autofocusProcessed: Set<ObjectIdentifier> = []
     /// Set the turn after the session's first activation. A booted session's autofocus waits for it.
     var launchAutofocusReleased = false
-    var announcedModal: ObjectIdentifier?, shownMenus: [NodeView] = []
-    /// The page-drawn dialogs announced as they opened that are still up (`syncAccessibility`).
-    var announcedDialogs: [NodeView] = []
+    /// What VoiceOver was told of the modal and the menus, and the menus a row of which held the focus (`tellLanding`).
+    var toldModal: ObjectIdentifier?, shownMenus: [NodeView] = [], landing = VoiceOverLanding()
+    let menusHeldFocus = NSHashTable<NodeView>.weakObjects()
     /// The session this presenter shows (LLP 1031 D1).
     weak package var session: ExactSession?
     /// The document: the roots live here, content-sized like a page.

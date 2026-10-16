@@ -310,10 +310,7 @@ final class MenuHost: NSObject {
         } else {
             paint(entry, in: window)
             layout()
-            // A plain popover leaves focus alone unless it has autofocus. It
-            // takes it before the refresh's accessibility pass, so VoiceOver
-            // is sent once, to the field, as AppKit posts only the focus
-            // change for a popover's first responder.
+            // A plain popover leaves focus alone unless it has autofocus.
             if let target = presenter.carrying("autofocus").first(where: {
                 contains(pop, $0) && $0.props["autofocus"] == "true" && !$0.inert
                     && !$0.disabled && !$0.isHiddenOrHasHiddenAncestor
@@ -379,15 +376,24 @@ final class MenuHost: NSObject {
         // window under it kept its first responder: nothing to give back.
         let entry = entries[index], window = entry.native == nil ? presenter?.viewport.window : nil
         let hadFocus = window.flatMap(focusOwner).map { contains(pop, $0) } ?? false
+        // Opened by VO-Space, which moves no focus, and closed with the focus
+        // where it was: VoiceOver goes back to the trigger it pressed, as
+        // from an `NSMenu` (`tellLanding`). AppKit's popover gives its own
+        // window's focus back by itself.
+        if !hadFocus, let window, let source = entry.source, let presenter, focusOwner(window) === entry.previous {
+            presenter.landing.invoker = source
+            presenter.landing.invokerFocus = entry.previous
+            presenter.scheduleLanding()
+        }
         entries.remove(at: index)
         presenter?.popoverEvents.changed(pop, open: false)
         // Reset, unmount, a changed row: the menu ends and nothing it showed dispatches.
         if cancelling { entry.confirmation?.cancel() }
         entry.menu?.cancelTracking()
         pop.isHidden = pop.props["popover"] != nil || pop.style["display"]?.string == "none"
-        // The focus is given back before the refresh's accessibility pass,
-        // which says the menu or modal went and then sends VoiceOver to the
-        // focus: the trigger, never the window the hidden popover left it on.
+        // The focus is given back to the trigger, never left on the window
+        // the hidden popover leaves; VoiceOver is sent to it after
+        // (`tellLanding`, Accessibility.swift).
         if hadFocus, let window {
             if restoreFocus, let previous = entry.previous, previous.window === window,
                !previous.isHiddenOrHasHiddenAncestor, presenter?.dialogs.blocks(previous) != true,
