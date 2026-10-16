@@ -319,6 +319,13 @@ pub static KERNEL: GeometryLinks = GeometryLinks::new(
 );
 
 fn kernel_frame(kernel: &Kernel, scrolled: &Scrolled, view: ViewId) -> GeometryAnswer {
+    if let Some(frame) = kernel
+        .arena()
+        .slot_of(view)
+        .and_then(|slot| native_frame(kernel, scrolled, slot))
+    {
+        return client_rect(kernel, scrolled, view, frame, false);
+    }
     let arena = kernel.arena();
     if let Some(key) = arena
         .key_of(view)
@@ -491,6 +498,7 @@ pub(crate) enum Shown {
 }
 
 pub(crate) fn shown_in(kernel: &Kernel, scrolled: &Scrolled, slot: u32, frame: Frame) -> Shown {
+    let frame = native_frame(kernel, scrolled, slot).unwrap_or(frame);
     let arena = kernel.arena();
     let at = shift(f64::from(frame.x), f64::from(frame.y));
     if scrolled.is_open(arena.key(slot)) {
@@ -529,6 +537,25 @@ pub(crate) fn block_clip(kernel: &Kernel, slot: u32, frame: Frame) -> Option<[f6
     let (w, h) = kernel.host_block_size(kernel.arena().local_id(slot))?;
     let (x, y) = (f64::from(frame.x), f64::from(frame.y));
     Some([-x, -y, f64::from(w) - x, f64::from(h) - y])
+}
+
+/// A top-layer box replaced whole by its host has no kernel layout. Its
+/// reported border box supplies its size; no geometry is inferred for the
+/// authored children the native surface replaces.
+fn native_frame(kernel: &Kernel, scrolled: &Scrolled, slot: u32) -> Option<Frame> {
+    let arena = kernel.arena();
+    if arena.cover(slot) != Some(exact_kernel::HostCover::Whole)
+        || arena.flags(slot).has(NodeFlags::HIDDEN)
+        || arena.flags(slot).has(NodeFlags::CREATED)
+    {
+        return None;
+    }
+    let rect = scrolled.top_frame(arena.key(slot))?;
+    Some(Frame {
+        width: rect[2] as f32,
+        height: rect[3] as f32,
+        ..arena.frame(slot)
+    })
 }
 
 /// The transform from `slot`'s border box (`frame`) to the space `rect`
@@ -962,6 +989,9 @@ impl Point<'_> {
         let style = arena.style(slot);
         let flags = arena.flags(slot);
         let props = arena.props(slot);
+        let native = lifted
+            .then(|| native_frame(self.kernel, self.scrolled, slot))
+            .flatten();
         if style.display == Display::None
             || flags.has(NodeFlags::HIDDEN)
             || flags.has(NodeFlags::CREATED)
@@ -986,7 +1016,7 @@ impl Point<'_> {
         } else {
             inherited.1
         };
-        let f = arena.frame(slot);
+        let f = native.unwrap_or_else(|| arena.frame(slot));
         // A block's root and its subtree are reached only inside the block
         // its host shows them in
         if let Some(b) = block_clip(self.kernel, slot, f) {
@@ -1009,7 +1039,7 @@ impl Point<'_> {
                 width - f64::from(style.border_width_right),
                 height - f64::from(style.border_width_bottom),
             ]);
-        if !clipped {
+        if !clipped && native.is_none() {
             let mut children: Vec<(i64, usize, u32)> = arena
                 .children(slot)
                 .iter()

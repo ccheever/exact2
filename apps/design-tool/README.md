@@ -14,6 +14,31 @@ URL>` if that app's dev loop is running. A second `tamber tool` for the same
 app reuses the running one; for another app it is refused, naming the app
 whose design the port serves.
 
+- The canvas (T2, LLP 1122 D3) frames the running app at its dev loop's own
+  URL (`hello.page`), at a phone, tablet or desktop size, with a link to open
+  it in a tab. The frame is sandboxed short of navigating the tool, and the
+  tool never scripts it; only a loopback origin is framed. A dev loop's HTML
+  may be framed by the tool's origin and its own, no other. With no dev loop
+  (`tamber tool` alone), it says how to start one and open the tool through
+  it (`--via`, after stopping this tool).
+- Builds (T2, LLP 1122 D4) lists every running copy the server knows
+  (`hello.builds`, then the `builds` and `build-status` events), the frame's
+  among them: its host and id, its effective scheme, contrast, mode and root
+  font size from its own status (an app's own choice beats a pin), its pin,
+  and whether its status has caught up with the pin's revision. A pin (one
+  build or every build: scheme, contrast, each axis, root font size) is
+  `pin`; one axis on one build is `preview`; a build's `unsupported` answer
+  is shown by name. The tool names itself on its long poll, so its pins hold
+  while it runs and are handed back about 40 s after it closes (the 35 s
+  presence lease and the server's 5 s sweep); it sends no unload request.
+- Scrubbing (T2, LLP 1122 D6) is chosen per edit ("Scrub live" on a dial
+  or cell edit, never the default): each value the draft takes is a `scrub`
+  frame previewed on every running copy and written to no file, while the
+  tool says "Previewing". Keep is `scrub-release`, one write undone in one
+  step (refused, it names who moved the file); Cancel or Escape is
+  `scrub-cancel`; an end the server makes (another write, idle 30 s, the
+  tool gone) is said. An edit that rebuilds, or a tool with no dev loop,
+  offers no scrub, and says why.
 - `app.ts` is the `tamber/1` client: the token from `GET /__tamber/token`
   once, every request a `POST /__tamber`, and changes followed by the long
   poll, `POST /__tamber/events`. Its grants name the tool's one origin.

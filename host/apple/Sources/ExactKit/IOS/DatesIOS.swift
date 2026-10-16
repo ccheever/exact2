@@ -125,7 +125,7 @@ final class BoundDatePicker: UIDatePicker {
         words.string = placeholder
         words.font = font
         words.fontSize = font.pointSize
-        words.foregroundColor = ThemeRoles.color("placeholder", or: UIColor.placeholderText).resolvedColor(with: traitCollection).cgColor
+        words.foregroundColor = ThemeRoles.color("placeholder", in: self, or: UIColor.placeholderText).resolvedColor(with: traitCollection).cgColor
         words.contentsScale = window?.screen.scale ?? traitCollection.displayScale
         words.frame = CGRect(x: 0, y: (pill.bounds.height - font.lineHeight) / 2, width: pill.bounds.width, height: font.lineHeight)
     }

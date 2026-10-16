@@ -81,6 +81,13 @@ async function call(path: string, body: unknown, timeout = 15000, bound?: string
   return { error: NO_SERVER, reply: {}, used: '' };
 }
 
+// A dev loop's page the canvas may frame: a loopback origin, no path
+// (hello's `page`), never the tool's own (a frame of its own origin could
+// lift its sandbox); anything else is none.
+const pageOf = (page: unknown) => {
+  if (typeof page !== 'string' || !/^http:\/\/(127\.0\.0\.1|\[::1\]):\d{1,5}$/.test(page)) return '';
+  try { return new URL(page).origin !== new URL(API).origin ? page : ''; } catch { return ''; }
+};
 const files = (digests: Record<string, string> = {}) => Object.entries(digests).map(([path, digest]) => ({ path, digest }));
 
 type Change = Result<'waitChanges'>['recent'][number];
@@ -104,7 +111,7 @@ function change(e: any): Change | null {
 
 type Design = Result<'loadDesign'>;
 type Control = Design['groups'][number]['dials'][number];
-const noDesign = (error: string): Design => ({ ok: false, error, file: '', answer: ++designs, groups: [], columns: [], tokenGroups: [], names: [] });
+const noDesign = (error: string): Design => ({ ok: false, error, file: '', answer: ++designs, groups: [], columns: [], tokenGroups: [], names: [], axes: [] });
 let designs = 0;
 
 /** A number as Tamber writes one: a plain number, or a length's `Npx`; null
@@ -378,6 +385,88 @@ function opOf(file: string, kind: string, target: string, when: string, value: s
 }
 const label = (kind: string, target: string, when: string, value: string) =>
   kind === 'rename-token' ? `${target} → ${value}` : kind === 'remove-token' ? `removed ${target}` : `${target}${when ? ` when ${when}` : ''} = ${value}`;
+// The scrub (LLP 1122 D6), one session at a time, from Scrub live to Keep,
+// Cancel or an end: the edit it is of (file, kind, target, branch), the
+// digests and server run it opened on, its id once the server answers, the
+// op the server last previewed (`shown`, what Keep writes) and the latest
+// the draft wants (`want`). One frame is in flight at a time, each the
+// latest wanted; an answer for a session that has ended changes nothing
+// (and a scrub the server opened for one already cancelled is cancelled).
+type Scrubbing = { ask: number; client: string; of: string; token: string; files: Record<string, string>; id: string; shown: Record<string, unknown> | null; want: Record<string, unknown> | null; sending: Promise<void> | null; error: string; errorOp: Record<string, unknown> | null; releasing: boolean };
+let scrubbing: Scrubbing | null = null;
+// The Scrub live press last seen, and how the last session ended (said
+// once it is not live). `closing`: a session ending at the server (its
+// opening answered and cancelled); the next one opens after it, so it
+// never joins the one being cancelled. `endedIds`: this client's scrubs
+// the server has ended, by id, for an opening whose answer comes after its
+// end.
+let scrubAsked = 0, scrubEnded = '', closing: Promise<void> | null = null;
+const endedIds = new Map<string, string>();
+const opKey = (op: Record<string, unknown> | null) => JSON.stringify(op);
+const endScrub = (s: Scrubbing, why: string) => { if (scrubbing === s) { scrubbing = null; scrubEnded = why; } };
+const scrubEndText = (reason: string) => `The scrub ended: ${SCRUB_ENDS[reason] ?? reason}. Nothing was written, and the running copies have the committed value back.`;
+// An answer that says the server no longer has this scrub.
+const gone = (error: string) => /the scrub ended|is not the scrub open|no such scrub/.test(error);
+/** Sends the session's latest wanted op until the server previews it (not
+ * while Keep is writing). An opening waits for any closing scrub first. */
+function pump(s: Scrubbing): Promise<void> {
+  if (s.sending) return s.sending;
+  s.sending = (async () => {
+    while (scrubbing === s && !s.releasing && s.want && opKey(s.want) !== opKey(s.shown)) {
+      if (!s.id && closing) { await closing; continue; }
+      const op = s.want;
+      const { error, reply } = await call('/__tamber', { method: 'scrub', client: s.client, ops: [op], ...(s.id ? { scrub: s.id } : { files: s.files }) }, WRITE_WAIT, s.token);
+      const ok = (reply.ok ?? {}) as { scrub?: string; ended?: string; superseded?: boolean };
+      if (scrubbing !== s) {
+        // Cancelled while it opened: the scrub the server opened goes too.
+        if (!error && !s.id && ok.scrub && !ok.ended) await call('/__tamber', { method: 'scrub-cancel', client: s.client, scrub: ok.scrub }, 15000, s.token);
+        return;
+      }
+      if (error) {
+        // Refused before it opened: said, as the server put it. Gone at the
+        // server: ended. A value refused that the draft has moved past: the
+        // next one is sent.
+        s.error = error; s.errorOp = op;
+        if (!s.id) { endScrub(s, `No scrub: ${error}`); return; }
+        if (gone(error)) { endScrub(s, scrubEndText('the server no longer has it')); return; }
+        if (opKey(s.want) !== opKey(op)) continue;
+        return;
+      }
+      if (ok.ended) { endScrub(s, scrubEndText(ok.ended)); return; }
+      // Ended at the server before this answer came (its event first).
+      if (ok.scrub && endedIds.has(ok.scrub)) { endScrub(s, scrubEndText(endedIds.get(ok.scrub)!)); void call('/__tamber', { method: 'scrub-cancel', client: s.client, scrub: ok.scrub }, 15000, s.token); return; }
+      s.error = '';
+      s.id = ok.scrub ?? s.id;
+      if (!ok.superseded) s.shown = op;
+    }
+  })().finally(() => { s.sending = null; });
+  return s.sending;
+}
+const scrubState = (draft: Record<string, unknown> | null) => {
+  const s = scrubbing;
+  if (!s) return { ok: true, error: '', live: false, open: '', ready: false, sending: false, ended: scrubEnded };
+  if (!draft) return { ok: false, error: 'Give it a value: an empty one is not previewed.', live: true, open: s.id, ready: false, sending: !!s.sending, ended: '' };
+  // A refusal is its frame's: the draft back on a value the server
+  // previews is fine again.
+  const refused = !!s.error && opKey(s.errorOp) === opKey(draft);
+  return { ok: !refused, error: refused ? s.error : '', live: true, open: s.id, ready: !!s.id && !s.sending && opKey(s.shown) === opKey(draft), sending: !!s.sending, ended: '' };
+};
+/** The session ended here: its scrub at the server cancelled (once its
+ * opening has answered), the next opening held until that is done. The
+ * cancel's error, when it did not land (the server no longer having it is
+ * fine). */
+function closeScrub(s: Scrubbing): Promise<string> {
+  const done = (async () => {
+    if (s.sending) await s.sending;
+    if (!s.id) return '';
+    const { error } = await call('/__tamber', { method: 'scrub-cancel', client: s.client, scrub: s.id }, 15000, s.token);
+    return error && !gone(error) ? error : '';
+  })();
+  const fence: Promise<void> = done.then(() => { if (closing === fence) closing = null; }, () => { if (closing === fence) closing = null; });
+  closing = fence;
+  return done;
+}
+const SCRUB_ENDS: Record<string, string> = { 'competing write': 'another write came first', disconnected: 'this tool stopped being present', idle: 'nothing moved for 30 s', 'server lost': 'the design server stopped' };
 /** An edit's identity, as the view spells its draft (`draftKey`). */
 const keyOf = (file: string, kind: string, target: string, when: string, value: string) => [file, kind, target, when, value].join('␟');
 
@@ -431,6 +520,38 @@ function wroteMine(ok: { write?: number; diff?: string }, redoneBy = '') {
   const n = changeset.find(c => c.write === ok.write);
   if (n) { n.mine = true; n.diff = ok.diff ?? ''; n.redoneBy = redoneBy; } else mine.push({ write: ok.write, diff: ok.diff ?? '', redoneBy });
 }
+// The dev loop's running builds (LLP 1122 D4), by id, only as the server
+// shows them: hello's list when the poll starts again (the first answer, a
+// gap, a new run), then the build events. Each with the revision of the
+// last pin frame it was sent (`pinRevision`, whoever sent it), and the last
+// command it could not apply, kept while that pin is its pin.
+type BuildState = { id: string; host: string; status: any; pin: any; pinRevision: number; unsupported: { what: string; detail: string | null } | null };
+let buildsNow = new Map<string, BuildState>();
+// The poll now (a newer one replaces it), and whether the build list must
+// be read again from hello (the poll started again, and no read has
+// succeeded since).
+let polls = 0, resync = true;
+const pinText = (pin: any) => pin ? [pin.scheme, pin.contrast && `contrast ${pin.contrast}`, ...Object.entries(pin.mode ?? {}).map(([a, v]) => `${a}=${v}`), pin.rootFontSize && `${pin.rootFontSize}px`].filter(Boolean).join(', ') : '';
+/** Builds as the panel lists them: each one's effective scheme, contrast,
+ * mode and root font size from its status (an app's own setScheme beats a
+ * pin, D3), its pin, whether its status has caught up with the last pin
+ * frame it was sent (a pin, or a hand-back; none before it reports), and
+ * the last command it could not apply, as the server keeps it. */
+const buildRows = () => [...buildsNow.values()].map(b => {
+  const st = b.status ?? {};
+  const mode = Object.entries((st.mode ?? {}) as Record<string, string>).map(([a, v]) => `${a}=${v}`).join(' ');
+  return {
+    id: b.id, host: b.host, reported: b.status != null, scheme: String(st.scheme ?? ''), contrast: String(st.contrast ?? ''), mode, rootFontSize: Number(st.rootFontSize ?? 0),
+    pin: pinText(b.pin), caughtUp: Number.isSafeInteger(st.revision) && st.revision >= b.pinRevision,
+    behind: Number.isSafeInteger(st.revision) && st.revision < b.pinRevision,
+    unsupported: b.unsupported ? `${b.unsupported.what}${b.unsupported.detail ? `: ${b.unsupported.detail}` : ''}` : '',
+  };
+});
+const buildOf = (b: any, was?: BuildState): BuildState => ({ id: String(b.id), host: String(b.host ?? was?.host ?? ''), status: b.status ?? null, pin: b.pin ?? null, pinRevision: Number(b.pinRevision ?? 0), unsupported: b.unsupported ?? null });
+/** The server's list, whole: a build it no longer lists is gone. */
+const takeBuilds = (list: any[]) => {
+  buildsNow = new Map((list ?? []).map(b => [String(b.id), buildOf(b)]));
+};
 // The app's design file, as hello names it: what "" reads.
 let designFile = '';
 let lastFiles: Record<string, string> = {};
@@ -642,11 +763,13 @@ const plain = (n: Noted) => n.gap ? 'Some changes were missed here (the server k
 const sources: Sources = {
   loadHello: async () => {
     const { error, reply } = await call('/__tamber', { method: 'hello' });
-    if (error) return { ok: false, error, protocol: '', format: 0, app: '', files: [] };
+    if (error) return { ok: false, error, protocol: '', format: 0, app: '', files: [], page: '', live: false };
     const ok = reply.ok ?? {};
     liveTable = ok.live === true;
     designFile = String(ok.design ?? '');
-    return { ok: true, error: '', protocol: String(ok.protocol ?? ''), format: Number(ok.format ?? 0), app: String(ok.app ?? ''), files: files(ok.files) };
+    // `page`: the dev loop's own origin, which the canvas frames; "" with no
+    // dev loop (tamber/1.3).
+    return { ok: true, error: '', protocol: String(ok.protocol ?? ''), format: Number(ok.format ?? 0), app: String(ok.app ?? ''), files: files(ok.files), page: pageOf(ok.page), live: liveTable };
   },
   loadDesign: async ([file]) => {
     const number = ++issued;
@@ -722,7 +845,7 @@ const sources: Sources = {
         while (reads.size > 24) reads.delete(reads.keys().next().value!);
       }
       return {
-        ok: true, error: '', file: file || '', answer: number, groups: panel,
+        ok: true, error: '', file: file || '', answer: number, groups: panel, axes: axes.map(a => ({ name: a.name, values: a.values })),
         columns: columns.map(({ id, label }) => ({ id, label })),
         tokenGroups: [...groups].map(([name, rows]) => ({ name, tokens: rows })),
         names: [...names],
@@ -786,6 +909,78 @@ const sources: Sources = {
     if (inverse) { undoStack.push({ inverse, ops: [op], label: label(kind, target, when, value), token: read.token }); redoStack.length = 0; wroteMine(reply.ok); }
     return stacks(true, '', kind.split('-')[0], key);
   },
+  scrubFrame: async ([ask, , file, kind, target, when, value, client, review]) => {
+    // Scrub live pressed: a session for this edit, opened on the digests
+    // and server run its proposal read. Then each value the draft takes is
+    // wanted, if it is still this edit; the state as it stands is answered.
+    const scrubbable = (kind === 'set-dial' || kind === 'set-token') && !!value;
+    const op = scrubbable ? opOf(file, kind, target, when, value) : null;
+    const of = [file, kind, target, when].join('␟');
+    if (ask > scrubAsked) {
+      scrubAsked = ask;
+      let read: { files?: Record<string, string>; token?: string } = {};
+      try { read = JSON.parse(review || '{}'); } catch { /* none */ }
+      if (scrubbing) return scrubState(op);
+      if (!op || !read.files || !read.token) { scrubEnded = 'Review the change before scrubbing it.'; return scrubState(op); }
+      scrubEnded = '';
+      const s = { ask, client, of, token: read.token, files: read.files, id: '', shown: null, want: op, sending: null, error: '', errorOp: null, releasing: false };
+      scrubbing = s;
+      // The last one gone at the server first.
+      if (closing) await closing;
+      if (scrubbing !== s) return scrubState(op);
+    }
+    const s = scrubbing;
+    if (s && s.of !== of) return { ...scrubState(op), ok: false, error: 'This scrub is of another edit: Keep or cancel it first.' };
+    if (s && op) { s.want = op; await pump(s); }
+    return scrubState(op);
+  },
+  releaseScrub: async ([draftFile, draftKind, draftTarget, draftWhen, draftValue]) => {
+    // The one write: this draft's value (fixed when Keep is pressed or the
+    // slider let go) once the server previews it, no further frame sent
+    // meanwhile; only for the edit the scrub is of. Checked against the
+    // digests the scrub opened with: a file moved since is refused, naming
+    // who moved it, and nothing is written. Undone as any write.
+    const at = session;
+    const s = scrubbing;
+    if (!s) return stacks(false, scrubEnded || 'No scrub is open: it ended before Keep.', '');
+    if (s.of !== [draftFile, draftKind, draftTarget, draftWhen].join('␟') || !draftValue) return stacks(false, 'This scrub is of another edit: Keep or cancel it there.', '');
+    const kept = opOf(draftFile, draftKind, draftTarget, draftWhen, draftValue);
+    s.want = kept;
+    await pump(s);
+    s.releasing = true;
+    while (s.sending) await s.sending;
+    if (scrubbing !== s || !s.id || !s.shown) { s.releasing = false; return stacks(false, scrubEnded || 'No scrub is open: it ended before Keep.', ''); }
+    if (opKey(s.shown) !== opKey(kept)) { s.releasing = false; void pump(s); return stacks(false, s.error || 'That value is not previewed: Keep it once it is, or cancel.', ''); }
+    scrubbing = null;
+    scrubEnded = '';
+    const op = kept, [file, kind, target, when] = s.of.split('␟');
+    const value = draftValue;
+    const { error, reply } = await call('/__tamber', { method: 'scrub-release', client: s.client, scrub: s.id }, WRITE_WAIT, s.token);
+    // No answer from the server (not a refusal): the scrub may still be
+    // open there, so it stays, to keep or cancel again.
+    if (error && !reply.error && error !== RESTARTED) { s.releasing = false; if (!scrubbing) scrubbing = s; return stacks(false, `Keep did not reach the server (${error}): keep or cancel again.`, ''); }
+    if (error === RESTARTED) forget();
+    if (session !== at) return stacks(false, RESTARTED, '');
+    if (error) return stacks(false, byWhom(reply) ? `Not written: ${byWhom(reply)} since the scrub opened; the running copies have the committed value back.` : error, '');
+    const inverse = (reply.ok as { inverse: string | null }).inverse;
+    if (inverse) { undoStack.push({ inverse, ops: [op], label: label(kind, target, when, value), token: s.token }); redoStack.length = 0; wroteMine(reply.ok); }
+    return stacks(true, '', kind.split('-')[0], keyOf(file, kind, target, when, value));
+  },
+  cancelScrub: async ([ask]) => {
+    // Ended without a write: the server sends every copy the committed
+    // design. One still opening is cancelled once its answer comes; this
+    // answers when the server has let it go.
+    const note = 'Cancelled: nothing was written, and the running copies have the committed value back.';
+    // A Scrub live press not yet taken up is cancelled with it.
+    scrubAsked = Math.max(scrubAsked, ask);
+    const s = scrubbing;
+    scrubbing = null;
+    scrubEnded = '';
+    const error = s ? await closeScrub(s) : '';
+    // It did not land: the scrub stays, to cancel again.
+    if (error && s) { if (!scrubbing) scrubbing = s; return stacks(false, `Cancel did not reach the server (${error}): the running copies may still show the preview; cancel again.`, ''); }
+    return { ...stacks(true, '', ''), note };
+  },
   undoLast: async ([client]) => {
     const at = session;
     const top = undoStack.at(-1);
@@ -848,13 +1043,19 @@ const sources: Sources = {
       return { column: c.id, label: c.label, ratio: typeof r === 'string' ? r : `${r.toFixed(2)}:1${p!.residual || q!.residual ? ' (fallback)' : ''}` };
     }) };
   },
-  waitChanges: async ([since, epoch]) => {
+  waitChanges: async ([since, epoch, , client]) => {
     // Up to 25 s with nothing new, and the server answers once there is.
-    // The first asks, at once, from the start of what the server keeps.
-    const { error, reply, used } = await call('/__tamber/events', epoch ? { after: since, epoch } : { after: 0, wait: false }, 40000);
+    // The first asks, at once, from the start of what the server keeps. It
+    // names the tool's client: a client is present while its poll is, and
+    // its pins live only while it is (LLP 1122 D4).
+    // A poll another has replaced (a new name starts one) changes nothing
+    // when it answers: the newer one reads the same events.
+    const gen = ++polls;
+    const { error, reply, used } = await call('/__tamber/events', epoch ? { after: since, epoch, client } : { after: 0, wait: false, client }, 40000);
     answers += 1;
-    const state = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, recent, undo: undoStack.length, redo: redoStack.length, session, held });
+    const state = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, recent, undo: undoStack.length, redo: redoStack.length, session, held, builds: buildRows() });
     if (error) return { ok: false, error, missed: false, ...state() };
+    if (gen !== polls) return { ok: true, error: '', missed: false, ...state() };
     const r = reply as { events?: unknown[]; seq?: number; epoch?: string; missed?: boolean; proposals?: any[] };
     // The open proposals, each with its proposer, diff and tokens; a
     // recomputed one says which it replaces, and is reviewed afresh.
@@ -873,7 +1074,16 @@ const sources: Sources = {
     // session's inverses: undo and redo start again too.
     // Another run's session has none of this one's writes to commit: the
     // changeset starts again with it.
-    if (place.epoch && r.epoch !== place.epoch) { forget(); changeset = []; reads.clear(); }
+    // Another run of the server has none of this run's scrub: it ended
+    // there, and a new one is chosen again.
+    if (place.epoch && r.epoch !== place.epoch) { forget(); changeset = []; reads.clear(); buildsNow = new Map(); endedIds.clear(); if (scrubbing) endScrub(scrubbing, scrubEndText('server lost')); }
+    // Events missed: an end among them would be lost, so a scrub open is
+    // ended here (cancelled, if the server still has it).
+    if (epoch && r.missed && r.epoch === place.epoch && scrubbing) {
+      const s = scrubbing;
+      endScrub(s, 'The scrub was ended: some changes were missed, so its state was not known. Nothing was written.');
+      void closeScrub(s);
+    }
     if ((place.epoch && r.epoch !== place.epoch) || r.missed) recent = [];
     // The session's changeset: every write since the tool opened (not the
     // backlog the first answer carries).
@@ -886,6 +1096,27 @@ const sources: Sources = {
       changeset.unshift({ seq: Number(r.seq ?? 0), who: '', acceptedBy: '', write: 0, changed: [], files: [], before: {}, after: {}, mine: false, diff: '', values: new Map(), committed: false, gap: true });
     }
     if (epoch && !r.missed) for (const e of (r.events ?? []) as any[]) noted(e);
+    // The builds, as their events tell them.
+    for (const e of (r.events ?? []) as any[]) {
+      if (e.event === 'builds') takeBuilds(e.builds);
+      else if (e.event === 'build-status' && e.build?.id) buildsNow.set(String(e.build.id), buildOf(e.build, buildsNow.get(String(e.build.id))));
+      // This tool's scrub, ended by the server (another write, idle, the
+      // tool gone, the server lost): said, and a new one is chosen again.
+      else if (e.event === 'scrub' && !['opened', 'released', 'cancelled'].includes(e.reason)) {
+        if (e.client === client) { endedIds.set(String(e.scrub), String(e.reason)); if (endedIds.size > 32) endedIds.delete(endedIds.keys().next().value!); }
+        if (scrubbing?.id && e.scrub === scrubbing.id) endScrub(scrubbing, scrubEndText(String(e.reason)));
+      }
+      else if (e.event === 'unsupported') { const b = buildsNow.get(String(e.build)); if (b) b.unsupported = { what: String(e.what ?? ''), detail: e.detail ?? null }; }
+    }
+    // Starting again, the builds are the server's list now (its events
+    // before this answer are not sent): read at once, not a poll later, and
+    // again each poll until a read succeeds (the list kept meanwhile).
+    if (anew) resync = true;
+    if (resync) {
+      const now = await call('/__tamber', { method: 'hello' });
+      if (gen !== polls) return { ok: true, error: '', missed: false, ...state() };
+      if (!now.error) { takeBuilds((now.reply.ok as { builds?: any[] })?.builds ?? []); resync = false; }
+    }
     const fresh = (r.events ?? []).map(change).filter((c): c is Change => c !== null).reverse();
     recent = [...fresh, ...recent].slice(0, 50);
     place = { seq: Number(r.seq ?? 0), epoch: String(r.epoch ?? '') };
@@ -1109,6 +1340,36 @@ const sources: Sources = {
     const carried: string[] = [];
     const said = `${op.name} is ${value.trim()}${mode ? ` when ${whenText(op.whens[mode - 1].when ?? [])}` : ''} in the import, held again as ${fresh} with what was chosen: review it and accept.`;
     return { ...stacks(true, '', 'edited'), note: dropped.error ? `${said} The old one, ${proposal}, could not be dropped (${dropped.error}): drop it.` : said, carried };
+  },
+  loadAppAxes: async ([file]) => {
+    // The running app's axes while another file is open: its own design's,
+    // read again as the changes move (the open file's read is the app's
+    // when none is open).
+    if (!file) return { axes: [] };
+    const { error, reply } = await call('/__tamber', { method: 'describe' });
+    const axes = error ? [] : (((reply.ok as { ir?: { axes?: Axis[] } })?.ir?.axes) ?? []);
+    return { axes: axes.map(a => ({ name: a.name, values: a.values })) };
+  },
+  sendPin: async ([client, build, scheme, contrast, mode, rootFontSize, preview, handBack]) => {
+    // A pin on one build ("" every build): the facts `prefer` pins, each
+    // left out when ""; null to hand them back, only when asked (Hand back);
+    // or `preview`, one axis on one build, which replaces its pin. The rows
+    // follow the server's build events, which say when a status catches up.
+    const facts: Record<string, unknown> = {};
+    if (scheme) facts.scheme = scheme;
+    if (contrast) facts.contrast = contrast;
+    const modes = Object.fromEntries(mode.split(' ').filter(Boolean).map(w => w.split('=') as [string, string]));
+    if (Object.keys(modes).length) facts.mode = modes;
+    if (rootFontSize >= 4 && rootFontSize <= 64) facts.rootFontSize = rootFontSize;
+    const clear = !Object.keys(facts).length;
+    if (clear && !handBack && !preview) return { ok: false, error: 'Choose what to pin: a scheme, a contrast, a mode or a root font size.', note: '' };
+    const body = preview
+      ? { method: 'preview', client, build, axis: Object.keys(modes)[0], value: Object.values(modes)[0] }
+      : { method: 'pin', client, ...(build ? { build } : {}), pin: clear ? null : facts };
+    const { error, reply } = await call('/__tamber', body);
+    if (error) return { ok: false, error, note: '' };
+    const ok = reply.ok as { builds?: string[]; revision?: number };
+    return { ok: true, error: '', note: clear ? `Pins handed back on ${(ok.builds ?? []).length} build(s).` : `Pinned on ${(ok.builds ?? []).length} build(s).` };
   },
   dropHeld: async ([client, proposal]) => {
     const { error } = await call('/__tamber', { method: 'drop', client, proposal });

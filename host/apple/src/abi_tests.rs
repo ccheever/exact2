@@ -1399,3 +1399,6 @@ fn block_axis_records_distinguish_size_maximum_and_route_fitting() {
         assert_eq!(k.host_block_size(id), Some(size));
     }
 }
+
+#[path = "abi_roles_tests.rs"]
+mod roles;

@@ -440,6 +440,9 @@ impl<D: DataSource> Host<D> {
             launch,
         )
         .map_err(HostError::Runner)?;
+        // Its own roles from here, not those of the session it replaces (a
+        // caller's scope is that one's; LLP 1121 stage 5).
+        let _roles = runner.bind_roles();
         runner.set_device_links(links.device);
         // @ref LLP 1079 D1 — a development build measures its work.
         runner.measure_unless_production(compat, true);

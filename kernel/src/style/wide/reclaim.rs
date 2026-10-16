@@ -5,7 +5,7 @@
 //! thread, whenever what it holds changes: each kernel at the end of each
 //! commit that changed it, and a [`Keep`] beside anything else in a kernel
 //! or a runner that keeps ids across a commit (a runner's queued patches and
-//! saved overrides, a thread's role overrides). No host holds an id: each
+//! saved overrides, a session's role overrides). No host holds an id: each
 //! converts colours at its boundary (the Linux host's retained paint is
 //! settled at capture, `Settle`, or keeps its values, `Values`). A mark is therefore always a superset of
 //! what its holder holds, and an idle holder never holds a sweep up.

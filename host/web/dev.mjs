@@ -46,7 +46,7 @@ import { acceptsHTML, webRequestURL } from '../../scripts/origin.mjs';
 import { guardFlags } from '../../scripts/help.mjs';
 import { webPortRange } from '../../scripts/agent-launch.mjs';
 import { localInstaller } from './local-install.mjs';
-import { designPath, tamberServer } from '../../scripts/tamber-server.mjs';
+import { designPath, frameOnlyByTool, tamberServer } from '../../scripts/tamber-server.mjs';
 import { relayChannel, serveCommands, serveReport } from '../../scripts/tamber-builds.mjs';
 import { applyShaderTreeChange, sendStaticBody, watchLauncher, applyStaticChange, applyStaticTreeChange, builtAppMatches, developmentOpenPage, readDevGenerationAsync, readStaticFileAsync, readWebRequest, reflectShaderFiles, saveTrace, retainDevGeneration, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope, MODULE_FILES, moduleCards } from './serve.mjs';
 
@@ -354,7 +354,8 @@ const installer = localInstaller({ app: () => app, origins, port: servedAs ?? po
 // Live while a value-only edit has its path here: the resident compiler's or
 // the TypeScript producer's. A Rust-data app's own producer publishes every
 // plan, so its design edits reload.
-const tamber = servedAs == null && designPath(app.dir) ? tamberServer({ appDir: app.dir, live: () => typescript || !portableRust, scrub: { preview: scrubPreview, restore: scrubRestore, released: scrubReleased } }) : null;
+// `page`: this loop's own origin, which the design tool frames (LLP 1122 T2).
+const tamber = servedAs == null && designPath(app.dir) ? tamberServer({ appDir: app.dir, live: () => typescript || !portableRust, page: `http://127.0.0.1:${port}`, scrub: { preview: scrubPreview, restore: scrubRestore, released: scrubReleased } }) : null;
 // A polled stream (Linux) is told the design to run when it opens.
 tamber?.channel.greet(() => designSnapshot && designNotice(designSnapshot));
 const generationCache = resolve(root, 'target/dev-generations', createHash('sha256').update(canonicalBytes({ app: app.id, path: app.dir, dist })).digest('hex'));
@@ -1236,6 +1237,8 @@ async function produceGpuArtifact(files, { stem, kind, module }) {
 }
 
 const server = createServer(async (req, res) => {
+  // Every HTML answer is framed by the design tool only (LLP 1122 T2).
+  frameOnlyByTool(res);
   const access = gate.check(req);
   if (!access.allowed) { res.writeHead(421, { 'cache-control': 'no-store' }); res.end(); return; }
   const url = webRequestURL(req.url);

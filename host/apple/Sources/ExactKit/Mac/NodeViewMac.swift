@@ -861,7 +861,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // and it vanishes. Mute this field's text color — the web's
         // `input::placeholder` (`#3c3c434c` on black type).
         // An authored `::placeholder` colour wins, its alpha its own (LLP 1104 D3).
-        let ink = placeholderColor ?? (isNativeTextControl ? ThemeRoles.color("placeholder", or: NSColor.placeholderTextColor) : (f.textColor ?? SystemColor.canvasText).withAlphaComponent(0.30))
+        let ink = placeholderColor ?? (isNativeTextControl ? ThemeRoles.color("placeholder", in: self, or: NSColor.placeholderTextColor) : (f.textColor ?? SystemColor.canvasText).withAlphaComponent(0.30))
         f.placeholderAttributedString = NSAttributedString(string: text, attributes: [
             .font: font,
             .foregroundColor: ink,

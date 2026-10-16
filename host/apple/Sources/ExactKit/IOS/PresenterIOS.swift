@@ -52,7 +52,7 @@ package final class Presenter {
     /// The session this presenter shows (LLP 1031 D1).
     weak package var session: ExactSession?
     /// The document: the roots live here, content-sized like a page.
-    let root = PlainView(frame: .zero)
+    package let root = PlainView(frame: .zero)
     /// The viewport over it: the window's content, scrolling like a browser's.
     package let viewport: ScrollView = Viewport(frame: .zero)
     package var views: [UInt32: NodeView] = [:]
@@ -212,7 +212,7 @@ package final class Presenter {
         // after the commit, or they show without it (LLP 1050.000 D1).
         collections.rescued = { [unowned self] in paintVisibleText() }
         viewport.contentInsetAdjustmentBehavior = .never
-        viewport.backgroundColor = .platformBackground
+        viewport.backgroundColor = .platformBackground(in: root)
     }
 
     func observeKeyboard() {
@@ -1370,7 +1370,7 @@ package final class Presenter {
         guard key != canvasKey else { return }
         canvasKey = key
         // A root without a background shows the platform's (LLP 1115 D2).
-        let color = first?.color("background_color", .platformBackground) ?? .platformBackground
+        let color = first?.color("background_color", .platformBackground(in: root)) ?? .platformBackground(in: root)
         if viewport.backgroundColor != color { viewport.backgroundColor = color; onCanvasColor?(color) }
     }
 

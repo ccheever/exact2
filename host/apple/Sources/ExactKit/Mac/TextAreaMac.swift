@@ -184,7 +184,7 @@ package final class TextArea: NSTextView {
             let rect = NSRect(x: origin.x, y: origin.y, width: textContainer?.containerSize.width ?? bounds.width, height: bounds.height - origin.y)
             (placeholder as NSString).draw(in: rect, withAttributes: [
                 .font: font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize),
-                .foregroundColor: placeholderColor ?? (owner?.isNativeTextControl == true ? ThemeRoles.color("placeholder", or: NSColor.placeholderTextColor) : (textColor ?? SystemColor.canvasText).withAlphaComponent(0.3)),
+                .foregroundColor: placeholderColor ?? (owner?.isNativeTextControl == true ? ThemeRoles.color("placeholder", in: self, or: NSColor.placeholderTextColor) : (textColor ?? SystemColor.canvasText).withAlphaComponent(0.3)),
             ])
         }
     }
@@ -311,9 +311,9 @@ extension NodeView {
         textAreaScroll?.borderType = native ? .bezelBorder : .noBorder
         textAreaScroll?.focusRingType = native && !outlineNone ? .default : .none
         textAreaScroll?.drawsBackground = native
-        textAreaScroll?.backgroundColor = ThemeRoles.color("Field", or: .controlBackgroundColor)
+        textAreaScroll?.backgroundColor = ThemeRoles.color("Field", in: self, or: .controlBackgroundColor)
         f.drawsBackground = native
-        f.backgroundColor = ThemeRoles.color("Field", or: .textBackgroundColor)
+        f.backgroundColor = ThemeRoles.color("Field", in: self, or: .textBackgroundColor)
         f.focusRingType = outlineNone ? .none : native ? .default : .exterior
         restyleFieldFocus()
         f.textContainerInset = native ? FieldChromeCache.textareaInset(for: effectiveAppearance, scale: window?.backingScaleFactor ?? 1) : .zero

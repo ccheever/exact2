@@ -36,6 +36,30 @@ impl<D: DataSource> Runner<D> {
         self.live = !compat.is_some_and(crate::delivery::production);
     }
 
+    /// Its role overrides, its own (LLP 1121 stage 5): what a host that
+    /// drives several sessions on one thread binds around the work it does
+    /// for this one ([`Runner::bind_roles`]).
+    pub fn roles(&self) -> &std::rc::Rc<exact_kernel::style::roles::Roles> {
+        self.roles.roles()
+    }
+
+    /// Its role overrides resolve until the scope ends.
+    pub fn bind_roles(&self) -> exact_kernel::style::roles::RolesScope {
+        exact_kernel::style::roles::bind(self.roles.roles())
+    }
+
+    /// Its role overrides as this thread's (it boots installed; a host that
+    /// hands it to another thread uninstalls it on this one first), the
+    /// ones before put back when it leaves ([`Runner::uninstall_roles`]).
+    pub fn install_roles(&mut self) {
+        self.roles.install();
+    }
+
+    /// No longer this thread's: the ones before resolve here again.
+    pub fn uninstall_roles(&mut self) {
+        self.roles.uninstall();
+    }
+
     /// The design digest this build runs.
     pub fn design(&self) -> String {
         self.design

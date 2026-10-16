@@ -52,8 +52,6 @@ impl<D: DataSource> Presenter<D> {
         if node.props.bool(PropId::EmojiPicker) == Some(true) {
             return Err("emoji selection is not supported on the Linux host".into());
         }
-        let typed = text;
-        let text = exact_kernel::control::limit_text(node.props, typed).to_string();
         let now = self.host.now();
         if let Some(e) = self.set_focus(Some(id), now) {
             return Err(e);
@@ -69,6 +67,17 @@ impl<D: DataSource> Presenter<D> {
         };
         let moved = self.field_selection(id) != selection;
         self.mark_field(id, &value, selection, true);
+        // `select()` then focuses the field it selected (Chromium's
+        // `TextControlElement::select`): one a focus handler sent the focus
+        // away from takes it back, its handler hearing `focus` again, unless
+        // that handler left it unable to take the focus.
+        if self.focus() != Some(id) && self.focusable(id) && !self.host.route_visibility(id).1 {
+            if let Some(e) = self.set_focus(Some(id), now) {
+                return Err(e);
+            }
+            self.run_commands_now();
+        }
+        let (value, selection) = (self.field_text(id), self.field_selection(id));
         // Select all, then insert, as a person's select-all and typing: a
         // changed selection's `select` is heard before the insertion (the
         // web driver waits for it), and its handler and the commands it
@@ -81,8 +90,9 @@ impl<D: DataSource> Presenter<D> {
             (value, selection)
         };
         // The insertion goes where the handlers left the focus, as the
-        // browser's does: into an enabled, editable text field (cut to its
-        // own maxlength), the one typed into or another, else nowhere.
+        // browser's does: into an enabled, editable text field (cut to the
+        // room its maxlength leaves), the one typed into or another, else
+        // nowhere.
         let target = self.focus().filter(|&f| {
             self.host.kernel().node(f).is_some_and(|n| {
                 n.node_type == NodeType::TextInput
@@ -98,25 +108,31 @@ impl<D: DataSource> Presenter<D> {
         } else {
             (self.field_text(target), self.field_selection(target))
         };
-        let props = self.host.kernel().node(target).map(|n| n.props);
-        let text = props.map_or(text, |p| {
-            exact_kernel::control::limit_text(p, typed).to_string()
-        });
-        let (next, caret) = field::replace(&value, selection, &text);
-        let error = self.edit_field(
-            target,
-            next,
-            caret,
-            now,
-            InputDetails {
-                input_type: "insertText".into(),
-                data: Some(text),
-                cancelable: true,
-                is_composing: false,
-            },
-        );
-        if let Some(e) = error {
-            return Err(e);
+        let limit = self
+            .host
+            .kernel()
+            .node(target)
+            .and_then(|n| exact_kernel::control::text_maxlength(n.props));
+        // `beforeinput` carries the whole text; what is inserted, and what
+        // `input` carries, is cut to the room left, and with none there is no
+        // edit and no `input` (Chrome's insertText).
+        let bound = self.bound_text(target);
+        let mut edit = InputDetails {
+            input_type: "insertText".into(),
+            data: Some(text.to_owned()),
+            cancelable: true,
+            is_composing: false,
+        };
+        if self.before_input(target, &edit, now)? {
+            let fitted = field::fit(text, &value, selection, limit);
+            if !fitted.is_empty() || text.is_empty() {
+                let (next, caret) = field::replace(&value, selection, fitted);
+                edit.data = Some(fitted.to_owned());
+                edit.cancelable = false;
+                if let Some(e) = self.apply_field_edit(target, next, caret, bound, now, edit) {
+                    return Err(e);
+                }
+            }
         }
         let value = self.field_text(target);
         let mut s = format!("{{\"typed\":{target},\"value\":");

@@ -8,6 +8,7 @@
 // in DB, a JSON file.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { API } from '../app.ts';
+import { scrubSessions } from '../../../scripts/tamber-scrub.mjs';
 import DIALS from './dials.json';
 
 const DB = process.env.DB ?? '.exact/tamber-stub.json';
@@ -16,6 +17,46 @@ let TOKEN = 'stub-token';
 let EPOCH = 'stub-epoch', restarts = 0, writes = 0;
 // The next commit's answer: refused, naming why, when a test asks.
 let refuseCommit = '';
+// The dev loop's page hello names, as a test sets it (`/__stub/page`): none
+// by default, as `tamber tool` alone.
+let PAGE: string | null = null;
+// The builds hello lists, as a test's `builds` event sets them, and the
+// pins' revision: a pin or preview (which replaces the build's pin, as the
+// server's does) is announced as a `builds` event, each pinned build naming
+// its `pinRevision`, and answered with it; its status is the test's to send.
+// The clients present: those whose long poll named them.
+let BUILDS: Record<string, any>[] = [], pins = 0;
+const present = new Set<string>();
+// A dev loop serving the wire (hello's `live`), as a test sets it
+// (`/__stub/live`). Scrubs are the server's own sessions
+// (scripts/tamber-scrub.mjs), planned and written here in canned shapes:
+// a preview takes `previewMs` (`/__stub/slow-preview`), and a release a
+// test refuses as moved (`/__stub/refuse-release`) names who moved it. An
+// edit of the warmth dial is rebuild-class (as if it fed a role override),
+// both proposed and scrubbed.
+const REBUILDS = new Set(['warmth']);
+let LIVE = false, refuseRelease = '', previewMs = 0;
+const changedOf = (ops: { name?: string }[]) => ops.map(o => ({ file: 'app.tamber', token: o.name }));
+// A run's sessions (a restart starts their ids again, as a new server's do).
+const sessions = () => scrubSessions({
+  ask: async (r: { ops: { name?: string }[] }) => ({ ok: { class: r.ops.some(o => REBUILDS.has(o.name ?? '')) ? 'rebuild' : 'live', texts: {}, changed: changedOf(r.ops), synthetic: [], files: FILES } }),
+  write: async (r: { client: string; ops: { name?: string }[] }) => {
+    if (refuseRelease) { const by = refuseRelease; refuseRelease = ''; return { status: 409, error: { message: 'stale digests: app.tamber', conflict: true, by: { 'app.tamber': by } } }; }
+    // The digest after a scrub's write names the value written, so a test
+    // reads what was kept (`digest-app.tamber`).
+    ++writes;
+    FILES = { ...FILES, 'app.tamber': String((r.ops[0] as { value?: string })?.value ?? writes).padEnd(64, '0') };
+    log.push({ event: 'changed', epoch: EPOCH, client: r.client, changed: changedOf(r.ops), edited: ['app.tamber'], files: FILES, seq: seq() + 1 });
+    save();
+    return { ok: { files: FILES, written: ['app.tamber'], client: r.client, inverse: `inv-scrub-${writes}`, changed: [], class: 'live', diff: '' } };
+  },
+  preview: async () => { if (previewMs) await Bun.sleep(previewMs); return {}; },
+  restore: () => {},
+  opened: (e: Record<string, unknown>) => { log.push({ event: 'scrub', epoch: EPOCH, ...e, reason: 'opened', seq: seq() + 1 }); save(); },
+  ended: (e: Record<string, unknown>) => { log.push({ event: 'scrub', epoch: EPOCH, ...e, seq: seq() + 1 }); save(); },
+});
+let scrubs = sessions();
+const answered = (r: { status?: number; ok?: unknown; error?: unknown }) => r.ok ? send({ ok: r.ok }) : send({ error: r.error }, r.status ?? 409);
 // The next poll says it missed events (more than the server keeps).
 let miss = false;
 // Held proposals, as a test holds them (`/__stub/hold`).
@@ -43,7 +84,30 @@ Bun.serve({ hostname, port: Number(port), routes: {
     POST: async (req) => {
       if (!authorized(req)) return send({ message: 'Not found.' }, 404);
       const request = await req.json().catch(() => ({}));
-      if (request.method === 'hello') return send({ ok: { protocol: 'tamber/1.1', format: 1, builds: [], app: '/stub/theme-fixture', files: FILES, epoch: EPOCH, design: 'app.tamber' } });
+      if (request.method === 'hello') return send({ ok: { protocol: 'tamber/1.1', format: 1, builds: BUILDS, app: '/stub/theme-fixture', files: FILES, epoch: EPOCH, design: 'app.tamber', page: PAGE, live: LIVE } });
+      // Scrubs, as the server takes them: a dev loop and a present client.
+      if (request.method?.startsWith('scrub')) {
+        if (!LIVE) return send({ error: { message: 'no builds preview here: a scrub needs the dev loop\'s design server' } }, 501);
+        if (request.method === 'scrub-cancel') return answered(scrubs.cancel(request));
+        if (request.method === 'scrub-release') return answered(await scrubs.release(request));
+        if (!present.has(request.client)) return send({ error: { message: `scrub: \`${request.client}\` is not present` } }, 409);
+        return answered(await scrubs.update(request));
+      }
+      // Any other write ends a scrub first, as the server's do.
+      if (['transaction', 'undo', 'accept'].includes(request.method)) scrubs.compete();
+      // A pin names a present client, and a build the server lists.
+      if (request.method === 'pin' || request.method === 'preview') {
+        if (!present.has(request.client)) return send({ error: { message: `\`${request.client}\` is not present: a client's pins live while its subscription or long poll does` } }, 409);
+        if (request.build && !BUILDS.some(b => b.id === request.build)) return send({ error: { message: `no registered build \`${request.build}\`` } }, 400);
+        const ids = request.build ? [request.build] : BUILDS.map(b => b.id);
+        pins += 1;
+        // Each record replaced, never edited: an event logged before keeps
+        // what it said.
+        BUILDS = BUILDS.map(b => ids.includes(b.id) ? { ...b, pin: request.method === 'preview' ? { mode: { [request.axis]: request.value } } : request.pin, pinRevision: pins } : b);
+        log.push({ event: 'builds', epoch: EPOCH, builds: BUILDS, seq: seq() + 1 });
+        save();
+        return send({ ok: { builds: ids, revision: pins } });
+      }
       // stub/dials.tamber as the real server read it (stub/dials.json;
       // scripts/design-tool.test.mjs checks the two still agree).
       // Only app.tamber has a canned design; another file is refused, as a
@@ -67,7 +131,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
         held.push({ proposal: id, client: request.client, diff: '', changed: [], ops: request.ops.map((op: unknown, index: number) => ({ index, op })), review: request.review });
         return send({ ok: { proposal: id, client: request.client } });
       }
-      if (request.method === 'propose') return send({ ok: { files: FILES, class: 'live', changed: request.ops.map((o: { name?: string; from?: string }) => ({ file: 'app.tamber', token: o.name ?? o.from })), diff: `--- app.tamber\n+++ app.tamber\n+  ${JSON.stringify(request.ops[0])}\n` } });
+      if (request.method === 'propose') return send({ ok: { files: FILES, class: request.ops.some((o: { name?: string }) => REBUILDS.has(o.name ?? '')) ? 'rebuild' : 'live', changed: request.ops.map((o: { name?: string; from?: string }) => ({ file: 'app.tamber', token: o.name ?? o.from })), diff: `--- app.tamber\n+++ app.tamber\n+  ${JSON.stringify(request.ops[0])}\n` } });
       if (request.method === 'transaction') return send({ ok: { files: FILES, written: ['app.tamber'], client: request.client, inverse: `inv-stub-${++writes}`, changed: [], class: 'live', diff: '' } });
       if (request.method === 'commit') return refuseCommit
         ? send({ error: { message: `commit refused: app.tamber: ${refuseCommit}`, refused: [{ file: 'app.tamber', why: refuseCommit }] } }, 409)
@@ -106,7 +170,8 @@ Bun.serve({ hostname, port: Number(port), routes: {
     OPTIONS: preflight,
     POST: async (req) => {
       if (!authorized(req)) return send({ message: 'Not found.' }, 404);
-      const { after = 0, epoch } = await req.json().catch(() => ({}));
+      const { after = 0, epoch, client } = await req.json().catch(() => ({}));
+      if (typeof client === 'string') present.add(client);
       const missed = (epoch !== undefined && epoch !== EPOCH) || miss;
       miss = false;
       return send({ events: missed ? [] : log.filter(e => e.seq > after), seq: seq(), epoch: EPOCH, missed, files: FILES, proposals: held });
@@ -121,6 +186,12 @@ Bun.serve({ hostname, port: Number(port), routes: {
       log.length = 0;
       held = [];
       holds = 0;
+      BUILDS = [];
+      pins = 0;
+      present.clear();
+      scrubs.lost();
+      scrubs = sessions();
+      LIVE = false;
       save();
       return send({ ok: true });
     },
@@ -129,6 +200,43 @@ Bun.serve({ hostname, port: Number(port), routes: {
     POST: async (req) => {
       if (!driver(req)) return send({ message: 'Not found.' }, 404);
       held.push(await req.json().catch(() => ({})));
+      return send({ ok: true });
+    },
+  },
+  '/__stub/page': {
+    POST: async (req) => {
+      if (!driver(req)) return send({ message: 'Not found.' }, 404);
+      PAGE = (await req.json().catch(() => ({}))).page ?? null;
+      return send({ ok: true });
+    },
+  },
+  '/__stub/live': {
+    POST: async (req) => {
+      if (!driver(req)) return send({ message: 'Not found.' }, 404);
+      LIVE = (await req.json().catch(() => ({}))).live === true;
+      return send({ ok: true });
+    },
+  },
+  '/__stub/refuse-release': {
+    POST: async (req) => {
+      if (!driver(req)) return send({ message: 'Not found.' }, 404);
+      refuseRelease = String((await req.json().catch(() => ({}))).by ?? '');
+      return send({ ok: true });
+    },
+  },
+  // The server ending the scrub open: a competing write, or the server lost.
+  '/__stub/end-scrub': {
+    POST: async (req) => {
+      if (!driver(req)) return send({ message: 'Not found.' }, 404);
+      const reason = String((await req.json().catch(() => ({}))).reason ?? 'competing write');
+      if (reason === 'server lost') scrubs.lost(); else scrubs.compete();
+      return send({ ok: true });
+    },
+  },
+  '/__stub/slow-preview': {
+    POST: async (req) => {
+      if (!driver(req)) return send({ message: 'Not found.' }, 404);
+      previewMs = Number((await req.json().catch(() => ({}))).ms ?? 0);
       return send({ ok: true });
     },
   },
@@ -152,6 +260,12 @@ Bun.serve({ hostname, port: Number(port), routes: {
       const e = await req.json().catch(() => ({}));
       // An event's `files` are the digests from then on.
       if (e.files) FILES = { ...FILES, ...e.files };
+      // A `builds` event is the list hello gives from then on, and a
+      // `build-status` one that build's entry.
+      // (A record is the server's: its last refusal kept on it.)
+      if (e.event === 'builds') BUILDS = (e.builds ?? []).map((b: Record<string, unknown>) => ({ ...b }));
+      if (e.event === 'build-status') BUILDS = BUILDS.map(b => b.id === e.build?.id ? { ...b, ...e.build } : b);
+      if (e.event === 'unsupported') BUILDS = BUILDS.map(b => b.id === e.build ? { ...b, unsupported: { what: e.what, detail: e.detail ?? null } } : b);
       log.push({ event: 'changed', epoch: EPOCH, client: null, changed: [], edited: [], ...e, files: FILES, seq: seq() + 1 });
       save();
       return send({ ok: true });

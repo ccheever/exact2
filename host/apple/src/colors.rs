@@ -99,7 +99,9 @@ impl<D: DataSource> Host<D> {
     /// re-present what the kernel resolved from the old ones.
     pub fn set_colors(&mut self, report: Vec<(ColorValue, bool, Color)>) -> String {
         let mut batch = Batch::new();
-        let mut generation = roles::set_reported(report);
+        roles::set_reported(report);
+        // The reported table's and this session's roles' (LLP 1121 stage 5).
+        let mut generation = roles::generation();
         // What is recorded is the generation this session painted from: if
         // another session replaced the table while it painted, it paints
         // again (a few times at most; its next report catches up after).
@@ -112,7 +114,7 @@ impl<D: DataSource> Host<D> {
             let first = self.colors_seen.is_none();
             self.re_present_colors(&mut batch, first);
             self.colors_seen = Some(generation);
-            generation = roles::reported_generation();
+            generation = roles::generation();
         }
         self.finish(batch, None)
     }

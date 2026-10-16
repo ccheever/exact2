@@ -735,6 +735,7 @@ impl<D: DataSource> Presenter<D> {
         self.queue_collections();
         let refined = crate::traced(c"exact refine collections", || self.refine_collections());
         let geometry = self.refresh_transform_geometry();
+        self.sync_surface();
         error.or(refined).or(geometry)
     }
 

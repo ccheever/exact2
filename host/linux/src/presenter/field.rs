@@ -25,6 +25,25 @@ pub(super) fn utf16_len(text: &str) -> u32 {
     text.encode_utf16().count().try_into().unwrap_or(u32::MAX)
 }
 
+/// `text` cut to the room `maxlength` leaves for it in `value` with
+/// `selection` replaced, as a browser cuts an insertion: the limit less the
+/// code units kept outside the selection, so none in a value already over it.
+pub(super) fn fit<'a>(
+    text: &'a str,
+    value: &str,
+    selection: FieldSelection,
+    limit: Option<usize>,
+) -> &'a str {
+    let Some(limit) = limit else { return text };
+    // What `replace` removes: offsets inside a surrogate pair fall back to its start.
+    let removed = utf16_len(&value[byte_at(value, selection.start)..byte_at(value, selection.end)]);
+    let kept = utf16_len(value) - removed;
+    let room = u32::try_from(limit)
+        .unwrap_or(u32::MAX)
+        .saturating_sub(kept);
+    &text[..byte_at(text, room)]
+}
+
 /// The byte index of UTF-16 offset `at` in `text`: clamped to its end, and
 /// inside a surrogate pair the character's start.
 pub(super) fn byte_at(text: &str, at: u32) -> usize {
@@ -592,38 +611,52 @@ impl<D: DataSource> Presenter<D> {
         now: f64,
         mut edit: InputDetails,
     ) -> Option<String> {
-        let value = self.field_text(id);
         let bound = self.bound_text(id);
-        if self
+        match self.before_input(id, &edit, now) {
+            Err(e) => Some(e),
+            Ok(false) => None,
+            Ok(true) => {
+                edit.cancelable = false;
+                self.apply_field_edit(id, next, after, bound, now, edit)
+            }
+        }
+    }
+
+    /// The field's `beforeinput` for `edit`: whether the edit goes ahead
+    /// (not prevented, and the field still there with the value it had).
+    pub(super) fn before_input(
+        &mut self,
+        id: ViewId,
+        edit: &InputDetails,
+        now: f64,
+    ) -> Result<bool, String> {
+        if !self
             .host
             .runner()
             .handlers_of(id)
             .contains(&EventKind::Beforeinput)
         {
-            let selection = self.reported_selection(id, &value, self.field_selection(id));
-            let event = Event::BeforeInput(value.clone(), selection, edit.clone());
-            if let Some(e) = self
-                .host
-                .dispatch_at(id, event, now)
-                .or(self.after_commit())
-            {
-                return Some(e);
-            }
-            let queued = self.commands.len();
-            self.commands.retain(|c| c.name != "preventDefault");
-            if (edit.cancelable && queued != self.commands.len())
-                || self.host.kernel().node(id).is_none()
-                || self.field_text(id) != value
-            {
-                return None;
-            }
+            return Ok(true);
         }
-        edit.cancelable = false;
-        self.apply_field_edit(id, next, after, bound, now, edit)
+        let value = self.field_text(id);
+        let selection = self.reported_selection(id, &value, self.field_selection(id));
+        let event = Event::BeforeInput(value.clone(), selection, edit.clone());
+        if let Some(e) = self
+            .host
+            .dispatch_at(id, event, now)
+            .or(self.after_commit())
+        {
+            return Err(e);
+        }
+        let queued = self.commands.len();
+        self.commands.retain(|c| c.name != "preventDefault");
+        Ok(!((edit.cancelable && queued != self.commands.len())
+            || self.host.kernel().node(id).is_none()
+            || self.field_text(id) != value))
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn apply_field_edit(
+    pub(super) fn apply_field_edit(
         &mut self,
         id: ViewId,
         next: String,
@@ -758,12 +791,7 @@ impl<D: DataSource> Presenter<D> {
         self.forget_replaced_choices();
         let value = self.field_text(id);
         let selection = self.field_selection(id);
-        let mut text = text.to_owned();
-        if let Some(limit) = limit {
-            let room = (limit as u32)
-                .saturating_sub(utf16_len(&value) - (selection.end - selection.start));
-            text.truncate(byte_at(&text, room));
-        }
+        let text = fit(text, &value, selection, limit).to_owned();
         let (next, after) = replace(&value, selection, &text);
         if let Some(e) = self.edit_field(
             id,

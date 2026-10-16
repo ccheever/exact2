@@ -1054,8 +1054,8 @@ public final class ExactSession {
             DispatchQueue.main.async { [weak self] in if let self, state != .destroyed { authOp(payload) } }
         }
         // Each presenter takes its boot's table, a second one with the same too.
-        ThemeRoles.apply(batch); if batch.ops.contains(where: { $0.op == .roles }) { presenter.applyThemeTint() }
-        presenter.apply(batch)
+        ThemeRoles.apply(batch, root: presenter.root); if batch.ops.contains(where: { $0.op == .roles }) { presenter.applyThemeTint() }
+        ThemeRoles.within(presenter.root) { presenter.apply(batch) }
         if !batch.canvasImages.isEmpty { presenter.canvas2d.load(batch.canvasImages) }
         AnimatedRasters.shared.poke()
         for op in batch.ops where op.op == .reorder { presenter.reorder?.observe(ReorderState(op.payload)); presenter.reorderGroup?.observe(ReorderGroupState(op.payload)) }

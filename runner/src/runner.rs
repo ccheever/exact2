@@ -365,6 +365,8 @@ pub struct Runner<D: DataSource> {
     design: Option<String>,
     /// A development build, admitting live batches ([`Runner::admit_live`], from its compat).
     live: bool,
+    /// Its role overrides, its own (LLP 1121 stage 5; [`Runner::roles`]).
+    roles: exact_kernel::style::roles::Installed,
     /// The session the owner's token names (LLP 1094 D4).
     reorder_session: Option<Box<reorder_group::Session>>,
     /// A grouped drop's source while its `reorderdrop` runs (D2).
@@ -803,8 +805,9 @@ impl<D: DataSource> Runner<D> {
             None => None,
         };
         let launched_place = crate::time::launch_place();
-        // A refused boot puts back the overrides it took (a session still running keeps its own).
-        let (mut restore, replaced) = crate::bridge::RestoreOverrides::set(&plan);
+        // Its own role overrides (LLP 1121 stage 5): bound while it boots, installed once it has.
+        let roles = exact_kernel::style::roles::Roles::new(crate::bridge::role_overrides(&plan));
+        let booting = exact_kernel::style::roles::bind(&roles);
         let mut runner = Runner {
             sites: crate::instance::SiteIndex::linked(&plan, links.keyframes),
             strings: vm::intern(&plan),
@@ -825,6 +828,7 @@ impl<D: DataSource> Runner<D> {
             reorder_kept: Default::default(),
             design: None,
             live: false,
+            roles: exact_kernel::style::roles::Installed::new(roles.clone()),
             reorder_session: None,
             dropping_from: None,
             ids: Ids::default(),
@@ -1066,13 +1070,8 @@ impl<D: DataSource> Runner<D> {
             let line = format!("{why}; nothing is granted");
             runner.log(line);
         }
-        if replaced {
-            // @ref LLP 1121 §10 — the overridden roles are the thread's until
-            // per-session tables (stage 5): a second plan with other ones
-            // takes them over from the first, which is said, not silent.
-            runner.log("theme: this plan's role overrides replace another plan's on this thread; a session still running the other now shows these (per-session tables are owed)".to_string());
-        }
-        restore.0 = None;
+        drop(booting);
+        runner.roles.install();
         Ok(runner)
     }
 
