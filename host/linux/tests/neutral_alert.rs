@@ -158,6 +158,20 @@ fn confirmation(scheme: &str, width: f32, opener: &str) {
         .unwrap()
         .id;
     let rect = visible(p.rect_of(dialog), width, 640.);
+    assert_eq!(state["surface"]["node"], dialog);
+    let row = state["surface"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["id"] == dialog)
+        .expect("the immediate surface state contains the sheet");
+    assert_eq!(row["rect"], json!([rect.0, rect.1, rect.2, rect.3]));
+    let (access, _, _) = p.access_tree();
+    let accessible = access
+        .iter()
+        .find(|node| node.view == dialog)
+        .expect("the painted sheet is in the accessibility tree");
+    assert_eq!(accessible.rect, [rect.0, rect.1, rect.2, rect.3]);
     assert_eq!(rect.2, if width == 320. { 282. } else { 416. });
     let title = &state["surface"]["title"];
     assert_eq!(title["text"], "Clear the count?");
@@ -335,14 +349,48 @@ fn lifetime_and_authored_rows() {
     .join(" ");
     ops(
         &mut p,
-        &[Op::SetProp {
-            id: dialog,
-            prop: PropId::AccessibilityLabel,
-            value: PropValue::Str(very_long.into()),
-        }],
+        &[
+            Op::SetProp {
+                id: dialog,
+                prop: PropId::AccessibilityLabel,
+                value: PropValue::Str(very_long.into()),
+            },
+            {
+                let mut color = StyleProps::default();
+                color
+                    .set_dynamic(StyleId::TextColor, &StyleValue::Text("#ff00ff".into()))
+                    .unwrap();
+                color.written = color.mask;
+                Op::SetStyle {
+                    id: dialog,
+                    patch: Box::new(color),
+                }
+            },
+        ],
     );
     assert!(p.resize(320., 220.).is_none());
-    p.frame();
+    let sheet = visible(p.rect_of(dialog), 320., 220.);
+    assert!(sheet.0 + sheet.2 <= 320. && sheet.1 + sheet.3 <= 220.);
+    let frame = p.frame();
+    let mut title_color = (0, 0);
+    for y in 0..220_u32 {
+        for x in 0..320_u32 {
+            let c = frame.pixel(x, y).unwrap().demultiply();
+            if c.red() > 200 && c.green() < 80 && c.blue() > 200 {
+                let inside = (x as f32) >= sheet.0
+                    && (x as f32) < sheet.0 + sheet.2
+                    && (y as f32) >= sheet.1
+                    && (y as f32) < sheet.1 + sheet.3;
+                if inside {
+                    title_color.0 += 1;
+                } else {
+                    title_color.1 += 1;
+                }
+            }
+        }
+    }
+    assert!(title_color.0 > 0, "the distinct title ink was painted");
+    assert_eq!(title_color.1, 0, "title ink is clipped to the sheet");
     let before_title = read(&mut p, "state")["surface"]["title"]["rect"][1]
         .as_f64()
         .unwrap();
@@ -611,6 +659,25 @@ fn defaults_fonts_and_visibility() {
     assert!(p.host().kernel().arena().cover(key.index).is_none());
     p.tap(id(&p, "clear-confirm-cancel")).unwrap();
     p.run_commands(|| ());
+}
+
+#[test]
+fn a_nonconfirmation_dialog_is_refused_before_host_layout() {
+    setup();
+    let source = APP.replace("        text \"The count goes back to zero.\"\n", "");
+    assert_ne!(source, APP);
+    let mut p = boot(&source, 640.);
+    let dialog = dialog_id(&p);
+    p.tap(id(&p, "ask-clear")).unwrap();
+    p.run_commands(|| ());
+    assert!(read(&mut p, "state")["surface"].is_null());
+    assert!(p.host().kernel().alert_prefix_frame(dialog).is_none());
+    assert!(p.host().kernel().host_block(dialog).is_none());
+    let logs = read(&mut p, "logs").to_string();
+    assert!(
+        logs.contains("alert-shaped alertdialog confirmations"),
+        "{logs}"
+    );
 }
 fn click(p: &mut Presenter<()>, x: f32, y: f32) {
     let now = p.host().now();
