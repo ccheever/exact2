@@ -531,7 +531,8 @@ Crew port found it (report D14). Apple now routes `exact.kept.*` to
 one listing at launch, and the app's own secrets stay in the Keychain
 (`host/apple/src/store.rs`, `Platform`). The host adds that one kv grant
 itself; the app still cannot read a kept answer. The web keeps them in
-page storage as before; Linux keeps nothing.
+page storage as before; Linux then kept nothing (since LLP 1027.007 D13 it keeps
+them in the same kv scope, written with the commit).
 
 **Written off the commit (2026-10-05).** Each kept answer was written in
 the commit that kept it (a file, a rename, a sync), on the owner thread,
@@ -589,21 +590,28 @@ median of 100 rounds of `ibex2`'s kv `FileStore` and the runner's
 The kept answers are also bounded together, at twice one answer's bound
 (512 KiB): the runner, which knows every entry, forgets the longest others
 when keeping one would pass it, in the same commit, and says so (`kept
-answers are at most 512 KiB together: forgot …`). That bounds a boot's read
-and decode in all (1.2 to 1.4 ms on the simulator), a native host's disk
-beside the app's own files, and the page's share of its quota (about 700 K
-characters). The page also treats the kept answers as the cache they are
+answers are at most 512 KiB together: forgot …`), and the Apple and Linux
+hosts read no more than that into a launch's snapshot. The read, decode and
+shape check run before the first frame on the thread that boots the runner,
+the main thread on Apple (`snapshot_in`, then `kept_seed`): two entries of
+256 KiB, listed, read and decoded, took 1.9 to 2.0 ms on the simulator,
+measured while the Mac ran at a load average near 300 (one 4 KiB entry took
+1.1 to 1.3 ms under the same load, so most of it is the file system). A
+physical phone is not measured. The total also bounds a native host's disk
+beside the app's own files and the page's share of its quota (about 700 K
+characters). The page treats the kept answers as the cache they are
 (`navigation.js`, `storeInPage`): a secret or persisted state the quota
-refuses forgets every kept answer and is written again, and a kept answer
-it refuses forgets the older one, which would otherwise show stale at the
-next launch. Native stores are files under the app's container, with no
-quota a cache could exhaust before a secret: the total is their bound.
+refuses sets every kept answer aside and is written again, and the kept
+answers are put back if it still fails; a kept answer the quota refuses
+leaves the older one, which the next launch may still match, and is warned.
+Native stores are files under the app's container, with no quota a cache
+could exhaust before a secret: the total is their bound.
 
-So the bound is 256 KiB of identifying arguments and value: four times what
-a first screen like euxy's needs, and under a millisecond at boot on the
-simulator, which leaves room for a slower phone and for more than one store
-reader. An answer over it is forgotten and `too big to keep` is said once,
-naming the bound. On the port (Release, iPhone 17 simulator, a 440-pattern
+So one answer may be 256 KiB of identifying arguments and value, four times
+what a first screen like euxy's needs, and two such answers fit together; a
+third is kept by forgetting the longest other, whose screen shows its
+placeholder at the next launch. An answer over 256 KiB is forgotten and `too
+big to keep` is said once, naming the bound. On the port (Release, iPhone 17 simulator, a 440-pattern
 library, median of 10 launches each, alternating), time to interactive (the
 splash's fade complete) went from 1494 ms to 1114 ms (another set: 1549 to
 1117 ms); the SwiftUI and UIKit ports measured 1210 and 1275 ms on a

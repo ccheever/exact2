@@ -448,16 +448,20 @@ pub fn snapshot_in(bindings: Option<&Bindings>, prefs: &Prefs) -> Vec<(String, V
     let Some(b) = bindings else {
         return Vec::new();
     };
-    // What a runner before this one kept is on disk first.
+    // What a runner before this one kept is on disk first. No more than the
+    // runner keeps together is read, on the thread that boots it.
     flush_kept();
+    let mut left = Store::KEPT_TOTAL_BYTES;
     let kept =
         b.kv.keys(KEPT)
             .unwrap_or_default()
             .into_iter()
             .filter_map(|key| {
                 let value = b.kv.get(KEPT, &key).ok().flatten()?;
+                left = left.checked_sub(value.len())?;
                 Some((format!("{}{key}", Store::KEPT), value))
-            });
+            })
+            .collect::<Vec<_>>();
     b.secrets
         .names()
         .iter()
@@ -476,6 +480,36 @@ pub fn snapshot_in(bindings: Option<&Bindings>, prefs: &Prefs) -> Vec<(String, V
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_launch_reads_no_more_kept_answers_than_the_runner_keeps_together() {
+        let dir = std::env::temp_dir().join(format!("exact-kept-total-{}", std::process::id()));
+        let kv = ibex2::kv::FileStore::new(&dir);
+        let third = Store::KEPT_TOTAL_BYTES / 3 + 1;
+        for key in ["a", "b", "c"] {
+            ibex2::kv::KvStore::set(&kv, KEPT, key, &vec![0; third]).unwrap();
+        }
+        ibex2::kv::KvStore::set(&kv, KEPT, "d", &[1]).unwrap();
+        let host = Host::new()
+            .with_secret_store(Box::new(ibex2::secrets::MemoryStore::new()))
+            .with_kv_store(Box::new(ibex2::kv::FileStore::new(&dir)));
+        let snapshot = snapshot_of(Some(&endow_in(host, "").unwrap()));
+        let kept: usize = snapshot
+            .iter()
+            .filter(|(n, _)| n.starts_with(Store::KEPT))
+            .map(|(_, v)| v.len())
+            .sum();
+        assert!(kept <= Store::KEPT_TOTAL_BYTES, "{kept}");
+        assert_eq!(
+            snapshot
+                .iter()
+                .filter(|(n, _)| n.starts_with(Store::KEPT))
+                .count(),
+            3,
+            "two of the three that fit, and the small one after"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn kept_answers_outlive_the_launch_beside_the_apps_secrets() {

@@ -119,7 +119,7 @@ pub fn warnings(checked: &Checked<'_>) -> Vec<LowerError> {
     out.extend(parts::round_button_label(checked));
     performance_now(root, &checked.file.fns, &mut out);
     // @ref LLP 1027.005 D6 — an identifying argument of the launch's own.
-    launch::launch_identity(root, &mut out);
+    launch::launch_identity(root, &checked.file.fns, &mut out);
     width::width_padding(&root.view, &checked.file.styles, &mut out);
     out.extend(
         contract_analyze::read_after_assign(checked)

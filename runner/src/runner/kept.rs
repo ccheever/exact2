@@ -22,11 +22,12 @@ const KEPT_DATA_BYTES: usize = 256 * 1024;
 /// The longest kept entry: the data, with the arguments' list header
 pub(super) const MAX_KEPT_BYTES: usize = KEPT_DATA_BYTES + 5;
 /// The longest the kept entries are together: what a boot reads and
-/// decodes in all (about 1.2 ms on an iPhone simulator), what a native
-/// host keeps on disk beside the app's own files, and, as base64, about
-/// 700 K of the characters a web page's `localStorage` shares with the
-/// app's secrets and persisted states (LLP 1027 D4, 2026-10-16).
-pub(super) const KEPT_TOTAL_BYTES: usize = 2 * MAX_KEPT_BYTES;
+/// decodes in all, on Apple's main thread (about 2 ms for two entries on a
+/// loaded iPhone simulator), what a native host keeps on disk beside the
+/// app's own files, and, as base64, about 700 K of the characters a web
+/// page's `localStorage` shares with the app's secrets and persisted
+/// states (LLP 1027 D4, 2026-10-16).
+pub(crate) const KEPT_TOTAL_BYTES: usize = 2 * MAX_KEPT_BYTES;
 
 /// Whether answers are kept, and the resources an answer too big to keep was said of, once each
 #[derive(Debug, Default)]
@@ -347,12 +348,11 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// Say once that resource `i` is kept under an identifying argument of
-    /// this launch's own, so the next launch may never match it (LLP
-    /// 1027.005): one that reads an `exactTime()` resource and is a time
-    /// since this launch's clock began, or its seed. The compiler names one
-    /// written as the epoch or the seed; a time made from the epoch is found
-    /// here. A time read elsewhere (a record's creation, saved) may identify
-    /// the answer, so the line says what to do only if it does not.
+    /// this launch's own, so the next launch never matches it (LLP
+    /// 1027.005): one that reads an `exactTime()` resource and is its
+    /// `epochAtZero` or `seed` as they are. The compiler names one written
+    /// so; this finds one it could not follow. A time made from the clock
+    /// (a record's creation, saved) may identify the answer: not said.
     fn say_of_launch(&mut self, i: usize, args: &[Value]) {
         if self.keeping.of_launch.contains(&i) {
             return;
@@ -361,10 +361,10 @@ impl<D: DataSource> Runner<D> {
         let seed = self.place().seed;
         let Some((k, what)) = args.iter().enumerate().find_map(|(k, arg)| {
             let &Value::Number(v) = arg else { return None };
-            let what = if epoch > 0.0 && (epoch..=epoch + self.now_ms + 1000.0).contains(&v) {
-                "a time of this launch"
+            let what = if epoch > 0.0 && v == epoch {
+                "`epochAtZero`"
             } else if seed > 0.0 && v == seed {
-                "this launch's seed"
+                "`seed`"
             } else {
                 return None;
             };
@@ -375,7 +375,7 @@ impl<D: DataSource> Runner<D> {
         self.keeping.of_launch.push(i);
         let row = &self.plan.resources[i];
         let line = format!(
-            "`{name}`'s kept answer may never be shown at launch: its identifying argument {n} reads `exactTime()` and is {what}, which changes every launch. If it does not identify the answer, pass it after `with` (`resource {name} = {source}(…) with …`), which still reaches the source but is not counted (LLP 1027.005)",
+            "`{name}`'s kept answer is never shown at launch: its identifying argument {n} is this launch's {what}, which changes every launch. Pass it after `with` (`resource {name} = {source}(…) with …`), which still reaches the source but is not counted (LLP 1027.005)",
             name = self.plan.str(row.name),
             source = self.plan.str(row.source),
             n = k + 1,

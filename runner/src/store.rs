@@ -279,6 +279,9 @@ impl Store {
     /// app — `get` sees nothing there, `set` refuses — and never counted as
     /// a read or a revision.
     pub const KEPT: &'static str = "exact.kept.";
+    /// The most the kept answers hold together: the runner keeps no more,
+    /// and a host's snapshot need read no more (LLP 1027 D4, 2026-10-16).
+    pub const KEPT_TOTAL_BYTES: usize = crate::runner::kept::KEPT_TOTAL_BYTES;
 
     /// The runner's persisted states (LLP 1116 D5): `state … persist`'s
     /// value lives under this prefix and the state's name, as JSON text,

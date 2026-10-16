@@ -1,34 +1,39 @@
 //! `lower-resource-launch-identity` (LLP 1027.005 D6): an identifying
 //! argument of a resource that is this launch's own — the `epochAtZero` or
-//! `seed` of an `exactTime()` resource, through any derive or state that
-//! holds it or the resource. It differs at every launch, so the answer a
+//! `seed` of an `exactTime()` resource, through a derive, a state (its
+//! initial value or an action's assignment), a list or a `fn` that holds it
+//! or the resource. It differs at every launch, so the answer a
 //! store-reading resource kept at the last launch never matches it, and its
 //! first frame never shows that answer (LLP 1027 D4); after `with` it still
 //! reaches the source but does not identify the answer. A field of that
 //! name on anything else (a saved recording's `epochAtZero`) is the app's
 //! own value, and a time made from the epoch (`epochAtZero +
-//! performanceNow()`) may be what a fetch is about: neither is named. The
-//! runner says the second at the first answer it keeps under one.
+//! performanceNow()`) may be what a fetch is about: neither is named.
 
 use crate::LowerError;
-use contract_syntax::{Component, Expr, ResourceDecl};
+use contract_syntax::{Component, Expr, FnDecl, ResourceDecl, Stmt};
 use std::collections::BTreeSet;
 
 /// The fields of `exactTime()` that differ at every launch.
 const OF_LAUNCH: &[&str] = &["epochAtZero", "seed"];
 
 /// What the root's names hold, as far as the launch goes.
-#[derive(PartialEq)]
-struct Names {
+struct Names<'a> {
+    fns: &'a [FnDecl],
     /// An `exactTime()` resource, or a name holding one.
     clocks: BTreeSet<String>,
-    /// A launch's own value, or a name holding one.
+    /// A launch's own value, or a name holding one: a derive, a state's
+    /// initial value, or a state an action assigns one.
     launch: BTreeSet<String>,
 }
 
-impl Names {
-    fn of(root: &Component) -> Names {
+/// A `fn` parameter and what its argument held: (name, a clock, the launch's own).
+type Local = (String, bool, bool);
+
+impl<'a> Names<'a> {
+    fn of(root: &Component, fns: &'a [FnDecl]) -> Names<'a> {
         let mut names = Names {
+            fns,
             clocks: root
                 .resources
                 .iter()
@@ -37,55 +42,105 @@ impl Names {
                 .collect(),
             launch: BTreeSet::new(),
         };
-        // Each round adds the bindings the last one made known; the
-        // bindings bound the rounds.
+        // Each round adds the names the last one made known; the bindings
+        // bound the rounds.
         for _ in 0..=root.states.len() + root.derives.len() {
-            let mut next = Names {
-                clocks: names.clocks.clone(),
-                launch: names.launch.clone(),
-            };
+            let (mut clocks, mut launch) = (names.clocks.clone(), names.launch.clone());
             for b in root.states.iter().chain(&root.derives) {
-                if names.clock(&b.expr) {
-                    next.clocks.insert(b.name.clone());
+                if names.clock(&b.expr, &[]) {
+                    clocks.insert(b.name.clone());
                 }
-                if names.of_launch(&b.expr) {
-                    next.launch.insert(b.name.clone());
+                if names.of_launch(&b.expr, &[], 4) {
+                    launch.insert(b.name.clone());
                 }
             }
-            if next == names {
+            for a in &root.actions {
+                names.assigns(&a.body, &mut launch);
+            }
+            if clocks == names.clocks && launch == names.launch {
                 break;
             }
-            names = next;
+            (names.clocks, names.launch) = (clocks, launch);
         }
         names
     }
 
-    fn clock(&self, e: &Expr) -> bool {
+    /// Every state a statement list assigns a launch's own value to.
+    fn assigns(&self, body: &[Stmt], out: &mut BTreeSet<String>) {
+        for s in body {
+            match s {
+                Stmt::Assign { target, expr, .. } if self.of_launch(expr, &[], 4) => {
+                    out.insert(target.clone());
+                }
+                Stmt::If {
+                    then, otherwise, ..
+                } => {
+                    self.assigns(then, out);
+                    self.assigns(otherwise, out);
+                }
+                Stmt::Match { some, none, .. } => {
+                    self.assigns(&some.1, out);
+                    self.assigns(none, out);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn clock(&self, e: &Expr, locals: &[Local]) -> bool {
         match e {
-            Expr::Ident(n, _) => self.clocks.contains(n),
-            Expr::Typed(inner, _, _) => self.clock(inner),
+            Expr::Ident(n, _) => match locals.iter().rev().find(|(l, ..)| l == n) {
+                Some(&(_, clock, _)) => clock,
+                None => self.clocks.contains(n),
+            },
+            Expr::Typed(inner, _, _) => self.clock(inner, locals),
             _ => false,
         }
     }
 
-    fn of_launch(&self, e: &Expr) -> bool {
+    /// Whether `e` is the launch's own: a clock's `epochAtZero` or `seed`, a
+    /// name holding one, a list holding one, or a `fn` returning one
+    /// (`depth` bounds the expansion).
+    fn of_launch(&self, e: &Expr, locals: &[Local], depth: u32) -> bool {
         match e {
             Expr::Member(inner, field, _) => {
-                OF_LAUNCH.contains(&field.as_str()) && self.clock(inner)
+                OF_LAUNCH.contains(&field.as_str()) && self.clock(inner, locals)
             }
-            Expr::Ident(n, _) => self.launch.contains(n),
-            Expr::Typed(inner, _, _) => self.of_launch(inner),
+            Expr::Ident(n, _) => match locals.iter().rev().find(|(l, ..)| l == n) {
+                Some(&(_, _, launch)) => launch,
+                None => self.launch.contains(n),
+            },
+            Expr::Typed(inner, _, _) => self.of_launch(inner, locals, depth),
+            Expr::List(items, _) => items.iter().any(|i| self.of_launch(i, locals, depth)),
+            Expr::Call(name, args, _) if depth > 0 => {
+                let Some(f) = self.fns.iter().find(|f| &f.name == name) else {
+                    return false;
+                };
+                let bound: Vec<Local> = f
+                    .params
+                    .iter()
+                    .zip(args)
+                    .map(|(p, a)| {
+                        (
+                            p.name.clone(),
+                            self.clock(a, locals),
+                            self.of_launch(a, locals, depth),
+                        )
+                    })
+                    .collect();
+                self.of_launch(&f.body, &bound, depth - 1)
+            }
             _ => false,
         }
     }
 }
 
-pub(super) fn launch_identity(root: &Component, out: &mut Vec<LowerError>) {
-    let names = Names::of(root);
+pub(super) fn launch_identity(root: &Component, fns: &[FnDecl], out: &mut Vec<LowerError>) {
+    let names = Names::of(root, fns);
     for r in &root.resources {
         let identity = &r.args[..r.identity.unwrap_or(r.args.len())];
         for (k, arg) in identity.iter().enumerate() {
-            if names.of_launch(arg) {
+            if names.of_launch(arg, &[], 4) {
                 out.push(LowerError {
                     id: "lower-resource-launch-identity",
                     message: message(r, identity, k),

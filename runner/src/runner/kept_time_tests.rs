@@ -139,15 +139,15 @@ fn an_answer_kept_under_the_launchs_clock_is_said_never_to_be_shown() {
         r.data_ready().unwrap();
         assert!(r.store.kept(&kept::kept_name("answer")).is_some());
         r.journal()
-            .filter(|l| l.contains("kept answer may never be shown at launch"))
+            .filter(|l| l.contains("kept answer is never shown at launch"))
             .map(str::to_string)
             .collect::<Vec<_>>()
     };
     let lines = said(Some(0));
     assert_eq!(lines.len(), 1, "{lines:?}");
     assert!(
-        lines[0].contains("`answer`'s kept answer may never be shown at launch: its identifying argument 1 reads `exactTime()` and is a time of this launch")
-            && lines[0].contains("If it does not identify the answer, pass it after `with` (`resource answer = answer(…) with …`)"),
+        lines[0].contains("`answer`'s kept answer is never shown at launch: its identifying argument 1 is this launch's `epochAtZero`")
+            && lines[0].contains("Pass it after `with` (`resource answer = answer(…) with …`)"),
         "{}",
         lines[0]
     );

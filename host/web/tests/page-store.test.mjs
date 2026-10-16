@@ -44,25 +44,26 @@ test('a durable write the quota refuses forgets the kept answers and is written'
   expect(storage.getItem('exact.secret.exact.kept.library')).toBeNull();
 });
 
-test('a kept answer the quota refuses forgets the older one and evicts nothing durable', () => {
+test('a kept answer the quota refuses leaves the older one and evicts nothing durable', () => {
   const storage = page(200, {
     'exact.secret.exact.kept.library': 'old',
     'exact.secret.token': 't'.repeat(100),
   });
   const warned = [];
   storeInPage(storage, 'exact.kept.library', 'k'.repeat(150), (...line) => warned.push(line));
-  expect(warned.length).toBe(1);
-  expect(storage.getItem('exact.secret.exact.kept.library')).toBeNull();
+  expect(warned.map(l => l[1])).toEqual(['exact.kept.library']);
+  expect(storage.getItem('exact.secret.exact.kept.library')).toBe('old');
   expect(storage.getItem('exact.secret.token')).toBe('t'.repeat(100));
 });
 
-test('a durable write that still does not fit is said, and what else is durable stays', () => {
-  const storage = page(100, { 'exact.state.theme': 'd'.repeat(60) });
+test('a durable write that still does not fit is said, and the kept answers are put back', () => {
+  const storage = page(100, { 'exact.state.theme': 'd'.repeat(30), 'exact.secret.exact.kept.library': 'k'.repeat(20) });
   const warned = [];
   storeInPage(storage, 'token', 't'.repeat(80), (...line) => warned.push(line));
   expect(warned.map(l => l[1])).toEqual(['token']);
   expect(storage.getItem('exact.secret.token')).toBeNull();
-  expect(storage.getItem('exact.state.theme')).toBe('d'.repeat(60));
+  expect(storage.getItem('exact.state.theme')).toBe('d'.repeat(30));
+  expect(storage.getItem('exact.secret.exact.kept.library')).toBe('k'.repeat(20));
   // Forgetting writes nothing, so it never meets the quota.
   storeInPage(storage, 'exact.state.theme', null);
   expect(storage.getItem('exact.state.theme')).toBeNull();

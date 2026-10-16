@@ -966,9 +966,9 @@ let pageTime;
 export const reportTime = (elapsed) => (pageTime ??= timeReporter(launched()))(elapsed);
 let pagePlace;
 export const reportPlace = () => (pagePlace ??= placeReporter(launched()))();
-// A store write in the page (LLP 1018 D6, LLP 1116 D5, LLP 1027 D4): a secret or state the quota refuses forgets the kept answers, a cache the runner bounds together, and is tried once more; a kept answer it refuses forgets the older one, which would show stale.
-export function storeInPage(storage, name, value, warn = console.warn) { const key = name.startsWith("exact.state.") ? name : "exact.secret." + name, kept = name.startsWith("exact.kept."), write = () => value == null ? storage.removeItem(key) : storage.setItem(key, value);
-  try { try { write(); } catch (e) { if (kept || !/quota/i.test(e?.name ?? "")) throw e; for (const k of Array.from({ length: storage.length }, (_, i) => storage.key(i))) if (k?.startsWith("exact.secret.exact.kept.")) storage.removeItem(k); write(); } } catch (e) { warn("exact: store", name, String(e)); if (kept) try { storage.removeItem(key); } catch {} } }
+// A store write in the page (LLP 1018 D6, LLP 1116 D5, LLP 1027 D4): a secret or state the quota refuses sets the kept answers aside, a cache the runner bounds together, and is tried once more, the kept answers put back if it fails again; a kept answer it refuses leaves the older one, which the next launch may still match, and is said.
+export function storeInPage(storage, name, value, warn = console.warn) { const key = name.startsWith("exact.state.") ? name : "exact.secret." + name, write = () => value == null ? storage.removeItem(key) : storage.setItem(key, value);
+  try { try { write(); } catch (e) { if (name.startsWith("exact.kept.") || !/quota/i.test(e?.name ?? "")) throw e; const aside = Array.from({ length: storage.length }, (_, i) => storage.key(i)).filter(k => k?.startsWith("exact.secret.exact.kept.")).map(k => [k, storage.getItem(k)]); for (const [k] of aside) storage.removeItem(k); try { write(); } catch (again) { for (const [k, v] of aside) try { storage.setItem(k, v); } catch {} throw again; } } } catch (e) { warn("exact: store", name, String(e)); } }
 
 // An iframe guest's origin as authored when its `src` or `sandbox` was
 // committed (an opaque sandbox posts as "null"), which a `message` from it must match.
