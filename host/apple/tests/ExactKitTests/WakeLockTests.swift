@@ -14,7 +14,12 @@ final class WakeLockTests: XCTestCase {
         return Batch.decode(try! JSONSerialization.data(withJSONObject: json))
     }
 
-    func testTheLastHolderGivesItBack() {
+    func testTheLastHolderGivesItBack() throws {
+        #if os(iOS)
+        guard UIApplication.shared.connectedScenes.contains(where: { $0 is UIWindowScene }) else {
+            throw missing("scene", "UIKit's idle timer needs an app's window scene")
+        }
+        #endif
         XCTAssertEqual(batch(true).wakelock, true)
         XCTAssertNil(batch(nil).wakelock)
         let a = Presenter(), b = Presenter()
