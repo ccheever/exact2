@@ -20,6 +20,9 @@ public final class ExactView: UIView {
     private var canvas: UIColor?
     private var lastSize = CGSize.zero
     private var lastInsets = UIEdgeInsets.zero
+    /// The layout regions last told (LLP 1123 D10); `nil` until a booted
+    /// runner has them.
+    private var lastRegions: [CGFloat]?
     private var lastFold = ViewportFold.flat
     private var lastScreen: CGSize?
     /// The hinge's last status from `UIHingeInteraction` (1 closed, 2
@@ -316,6 +319,7 @@ public final class ExactView: UIView {
         // Fit those logical points into the device window; hit testing and
         // captures still use the viewport's own coordinate system.
         let env = ExactEnv.environment
+        var regions: [CGFloat]? = nil
         if env["EXACT_AGENT"] == "1", let width = Double(env["EXACT_WINDOW_WIDTH"] ?? ""),
            let height = Double(env["EXACT_WINDOW_HEIGHT"] ?? ""),
            width.isFinite, height.isFinite, width > 0, height > 0 {
@@ -329,6 +333,11 @@ public final class ExactView: UIView {
         } else {
             presenter.viewport.transform = .identity
             if presenter.viewport.frame != frame { presenter.viewport.frame = frame }
+            // UIKit's layout regions from the viewport (LLP 1123 D10), or,
+            // without `cover`, from its safe area, as `env()` is zero then
+            // even where a native container takes the whole view; none under
+            // the agent's explicit size, where the insets are zero too
+            regions = LayoutRegionsIOS.insets(of: self, viewport: cover ? frame : frame.intersection(bounds.inset(by: safe)))
         }
         guard size.width > 0, size.height > 0 else { return }
         // The fold (LLP 1078 D5): the container's active division regions,
@@ -373,6 +382,11 @@ public final class ExactView: UIView {
             presenter.insets = insets
             session.insets(top: insets.top, right: insets.right, bottom: insets.bottom, left: insets.left)
             session.natives.scopesChanged()
+        }
+        if regions ?? [] != lastRegions {
+            lastRegions = regions ?? []
+            presenter.regions = regions
+            session.regions(regions)
         }
         if size != lastSize {
             lastSize = size
@@ -440,6 +454,7 @@ public final class ExactView: UIView {
         // A new runner has no screen: tell it again first (Grok's review).
         if let screen = lastScreen { session.screen(screen) }
         if lastInsets != .zero { session.insets(top: lastInsets.top, right: lastInsets.right, bottom: lastInsets.bottom, left: lastInsets.left) }
+        lastRegions = nil  // the next fit tells the new runner
         session.segments(lastFold)
         reportScheme()
         fit()

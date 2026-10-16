@@ -686,6 +686,18 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.insets(top, right, bottom, left), |n| n)
         }
 
+        /// The layout regions' insets (LLP 1123 D10): `count` is 20 (five
+        /// regions of top, right, bottom, left) or 0 (every region is the safe
+        /// area); returns the batch's length.
+        #[no_mangle]
+        pub unsafe extern "C" fn exact_regions(rt: u32, insets: *const f32, count: u32) -> u32 {
+            let insets = if count == 0 || insets.is_null() { &[] } else {
+                // SAFETY: the caller keeps `count` floats live for this synchronous call.
+                unsafe { std::slice::from_raw_parts(insets, count as usize) }
+            };
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.regions(insets), |n| n)
+        }
+
         /// The window's size, which every viewport unit resolves
         /// against everywhere, or none (a nonpositive size), LLP 1075.003
         /// §9.11; returns the batch's length.

@@ -128,8 +128,8 @@ size_t exact_corner_outline(const float *shape, float x, float y, float width, f
 uint32_t exact_calc_parse(const uint8_t *text, size_t len);
 
 /* A style owns this environment snapshot until destroy. Values: top, right, bottom, left,
- * viewport width/height (the window's when a sheet is open), segment cols/rows, then x,y,w,h
- * per segment. create copies them and returns NULL for malformed input or an unknown handle.
+ * viewport width/height (the window's when a sheet is open), segment cols/rows, the layout
+ * regions' count (0 or 20) and the regions (LLP 1123 D10), then x,y,w,h per segment. create copies them and returns NULL for malformed input or an unknown handle.
  * resolve borrows a live context; destroy consumes it exactly once (NULL is allowed). */
 void *exact_calc_create(uint32_t handle, const double *values, size_t count);
 double exact_calc_resolve(const void *context, double basis);
@@ -620,6 +620,14 @@ uint32_t exact_list_text(ExactRuntime rt, uint32_t view, uint32_t first_len,
  * safe area itself. A change re-sends the style of every node that reads
  * them and lays out again. */
 uint32_t exact_insets(ExactRuntime rt, float top, float right, float bottom, float left);
+/* @ref LLP 1123 D10: the layout regions' insets (points) from the layout
+ * viewport, what env(-exact-<region>-inset-<edge>) resolves to: count is 20,
+ * five regions (safe area with corner adaptation, layout margins, layout
+ * margins with corner adaptation, readable content, readable content with
+ * corner adaptation) of top, right, bottom, left each; or 0, when every
+ * region is the safe area. A change re-sends the style of every node that
+ * reads the environment and lays out again. */
+uint32_t exact_regions(ExactRuntime rt, const float *insets, uint32_t count);
 /* @ref LLP 1075.003 §9.11: the window's own size (points), whatever is
  * presented in it — what every viewport unit (vw, vh, vmin, vmax and kin) resolves against
  * everywhere, root and every sheet, never a sheet's viewport (exact_segments

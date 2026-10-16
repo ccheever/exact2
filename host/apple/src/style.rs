@@ -506,6 +506,7 @@ fn push_dimension(out: &mut String, d: Dimension) {
             out.push('}');
         }
         Dimension::Env(..)
+        | Dimension::Region(..)
         | Dimension::Segment(..)
         | Dimension::Viewport(..)
         | Dimension::Compare(..) => {
