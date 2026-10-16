@@ -624,6 +624,60 @@ fn the_agents_tap_delivers_the_pointer_events_before_the_press() {
     assert_eq!(log(&p), " down20,20 outer up0 press");
 }
 
+/// The agent's tap keeps the target its pointer went down on: a `pointerup`
+/// that replaces it with another control presses neither. A press while a
+/// contact is held (another finger's; the driver refuses an agent's) sends
+/// no pointer events, and the hold keeps its own `pointerup`.
+#[test]
+fn the_agents_tap_keeps_its_target_and_leaves_a_held_contact_its_pointer() {
+    const SWAP: &str = r#"component App
+  state seen = ""
+  state gone = false
+  action up(e: PointerEvent)
+    gone = true
+    seen = `${seen} up`
+  action first
+    seen = `${seen} first`
+  action second
+    seen = `${seen} second`
+  action cdown(e: PointerEvent)
+    seen = `${seen} cdown`
+  action cup(e: PointerEvent)
+    seen = `${seen} cup`
+  view
+    column width=400 height=400
+      if gone
+        box press=second testId="b" width=40 height=40
+      else
+        box pointerup=up press=first testId="a" width=40 height=40
+      box pointerdown=cdown pointerup=cup testId="c" width=40 height=40
+      text seen testId="log" height=20
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &crate::test_plan(SWAP),
+        Keeps,
+        (400., 400.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let a = id(&p, "a");
+    p.tap(a).unwrap();
+    p.boxes();
+    assert_eq!(
+        log(&p),
+        " up",
+        "b took a's place under the finger: nothing pressed"
+    );
+    let b = id(&p, "b");
+    p.pointer_down(20., 60., 10.).unwrap();
+    p.tap(b).unwrap();
+    p.pointer_up(20., 60., 11.).unwrap();
+    assert_eq!(log(&p), " up cdown second cup");
+}
+
 /// An `svg` paints its content where its hits land: inside the padding
 /// layout resolved, a percentage of the containing block's width (CSS Box
 /// Model 3 §4.1), so x 20 here and not 10.

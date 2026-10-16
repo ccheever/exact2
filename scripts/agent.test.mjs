@@ -93,6 +93,22 @@ test('a held contact\'s hold moves the app\'s clock by its length', async () => 
   }
 });
 
+// One finger at a time: a press while a contact is held would take over its pointer, as a second `down` would.
+test('a press while a contact is held is refused before it reaches the carrier', async () => {
+  const calls = [], carrier = { host: 'web', browser: 'chrome', launchFacts: launchFacts({}), reset() {},
+    async ask(req) { return req.op === 'clock' ? { clock: 0 } : { nodes: [{ id: 1, props: { testId: 'a' }, depth: 0 }] }; },
+    async input(id, kind, opts) { calls.push([id, kind, opts]); return { at: [1, 2] }; },
+    async reveal() { return {}; } };
+  const s = await open({ reuse: carrier });
+  s.landed = async r => r;
+  s.contact = { x: 1, y: 2 };
+  await assert.rejects(() => s.tap('a'), e => /a contact is already down/.test(e.message));
+  assert.deepEqual(calls, []);
+  s.contact = null;
+  await s.tap('a');
+  assert.deepEqual(calls.map(c => c[1]), ['press']);
+});
+
 test('held request answers bypass tap and key delivery validation', async () => {
   const calls = [], carrier = { host: 'web', browser: 'chrome', launchFacts: launchFacts({}), reset() {},
     async ask(req) {

@@ -11,17 +11,33 @@ import UIKit
 /// `pointerup` as a real touch's, and on `up` the press a finger lifted there
 /// makes, still on its target; the driver seeks the clock through a hold.
 struct AgentPan {
-    /// The `pan` node, or nil for a finger that presses on its lift.
+    /// The `pan` node; nil for a finger (`pressing`), which presses on its lift.
     weak var node: NodeView?
-    weak var pointer: NodeView?
+    var pressing = false
+    var pointer: HeldNode?
     /// The nodes its `pointerdown` went to, which hear its `pointerup`.
-    var path: [NodeView] = []
+    var path: [HeldNode] = []
     /// A pressing contact's target: what the lift presses where the finger is.
-    weak var target: NodeView?
+    var target: HeldNode?
     /// The contact in the viewport's space, and its synthetic time in seconds.
     var at: CGPoint
     var t: Double
     var began = false
+    /// The modifiers held through it, a chord prefix (`KeyCodes.held`).
+    var held = ""
+}
+
+/// A node as a contact found it: its id and incarnation, so a view the pool
+/// reuses for another node (`NodePool`) is never taken for it.
+struct HeldNode {
+    weak var node: NodeView?
+    let id: UInt32, incarnation: UInt64
+    init(_ node: NodeView) { self.node = node; id = node.id; incarnation = node.incarnation }
+    /// Still that node of `presenter`'s tree.
+    func live(in presenter: Presenter) -> NodeView? {
+        guard let node, presenter.views[id] === node, node.id == id, node.incarnation == incarnation else { return nil }
+        return node
+    }
 }
 
 extension Agent {
@@ -64,12 +80,17 @@ extension Agent {
     /// The nodes a finger on `view` sends its `pointerdown` and `pointerup`
     /// to, as `PointerRecognizer` resolves a real touch's: from the innermost
     /// enabled node hearing the pointer up, each that hears either.
-    static func fingerPath(from view: UIView) -> [NodeView] {
+    static func fingerPath(from view: UIView) -> [HeldNode] {
         #if os(iOS)
-        return pointerNode(from: view).map(PointerRecognizer.bubbling(from:)) ?? []
+        return (pointerNode(from: view).map(PointerRecognizer.bubbling(from:)) ?? []).map(HeldNode.init)
         #else
         return [] // tvOS touches no node (PointerIOS.swift)
         #endif
+    }
+
+    /// A request's `modifiers` (`Shift+Meta`) as a chord prefix (`Shift+Meta+`).
+    static func heldPrefix(_ req: [String: Any]) -> String {
+        (req["modifiers"] as? String).map { $0.isEmpty || $0.hasSuffix("+") ? $0 : $0 + "+" } ?? ""
     }
 
     /// A viewport point (`box`'s space) in the window.
@@ -80,32 +101,41 @@ extension Agent {
 
     /// A finger's `pointerdown` or `pointerup` at `window` (a window point)
     /// to `path`, innermost first, as `PointerRecognizer` sends a real
-    /// touch's: to each node still the tree's, enabled and hearing it, until
-    /// a handler stops it.
-    func fingerPointer(_ kind: PointerKind, _ path: [NodeView], at window: CGPoint) {
+    /// touch's: the down to each node still the tree's, enabled and hearing
+    /// it, the up to each still the tree's (one its down disabled hears its
+    /// release too), until a handler stops it; `held`, the modifiers.
+    func fingerPointer(_ kind: PointerKind, _ path: [HeldNode], at window: CGPoint, held: String = "") {
         let name = kind == .down ? "pointerdown" : "pointerup"
-        let nodes = path.filter { $0.handlers.contains(name) }
+        let nodes = path.compactMap { $0.live(in: presenter) }.filter { $0.handlers.contains(name) }
         guard !nodes.isEmpty else { return }
         presenter.propagating {
-            for n in nodes where presenter.views[n.id] === n && !n.disabled {
-                presenter.pointer(n.id, kind, fingerSample(kind, n, at: window))
+            for n in nodes where presenter.views[n.id] === n && (kind == .up || !n.disabled) {
+                presenter.pointer(n.id, kind, fingerSample(kind, n, at: window, held: held))
                 if presenter.propagationStopped { break }
             }
         }
     }
 
-    private func fingerSample(_ kind: PointerKind, _ node: NodeView, at window: CGPoint) -> PointerSample {
+    private func fingerSample(_ kind: PointerKind, _ node: NodeView, at window: CGPoint, held: String) -> PointerSample {
         let local = node.convert(window, from: nil), box = node.contentBox(), client = presenter.client(window)
         return PointerSample(x: Double(local.x - box.minX), y: Double(local.y - box.minY),
             buttons: kind == .up ? 0 : 1, pressure: kind == .up ? 0 : 0.5, type: "touch", id: 2,
-            clientX: Double(client.x), clientY: Double(client.y))
+            clientX: Double(client.x), clientY: Double(client.y), held: held)
     }
 
     private func panPointer(_ contact: AgentPan, _ kind: PointerKind) {
         let window = windowPoint(contact.at)
-        if kind != .move { fingerPointer(kind, contact.path, at: window); return }
-        guard let node = contact.pointer, presenter.views[node.id] === node, !node.disabled, node.handlers.contains("pointermove") else { return }
-        presenter.pointer(node.id, .move, fingerSample(.move, node, at: window))
+        if kind != .move { fingerPointer(kind, contact.path, at: window, held: contact.held); return }
+        guard let node = contact.pointer?.live(in: presenter), !node.disabled, node.handlers.contains("pointermove") else { return }
+        presenter.pointer(node.id, .move, fingerSample(.move, node, at: window, held: contact.held))
+    }
+
+    /// A hold's time on the platform's clock: none under the agent's
+    /// (`virtual`: the driver seeks the runner by it), else the main run
+    /// loop turns for it, as AppKit's carrier does, so UIKit's own motion
+    /// runs on. No UIKit recognizer sees the recognized contact either way.
+    func holdTime(_ ms: Double, _ req: [String: Any]) {
+        if ms > 0, ms.isFinite, req["virtual"] as? Bool != true { RunLoop.main.run(until: Date(timeIntervalSinceNow: ms / 1000)) }
     }
 
     /// `tap <scroller> drag <dx> <dy>` without real touches (LLP 1116.003; r5
@@ -163,19 +193,20 @@ extension Agent {
                     return ["error": "tap #\(v.id) down: \(why)"]
                 }
                 let touched = seen ?? v
-                let contact = AgentPan(node: nil, pointer: Agent.pointerNode(from: touched), path: Agent.fingerPath(from: touched), target: v, at: at, t: t)
+                let contact = AgentPan(node: nil, pressing: true, pointer: Agent.pointerNode(from: touched).map(HeldNode.init), path: Agent.fingerPath(from: touched),
+                                       target: HeldNode(v), at: at, t: t, held: Agent.heldPrefix(req))
                 panContact = contact
                 panPointer(contact, .down)
                 return ["contact": Int(v.id), "phase": "down", "at": point(at), "delivery": "recognized"]
             }
             presenter.onPanSample?(true, Double(at.x), Double(at.y), t)
-            let contact = AgentPan(node: node, pointer: Agent.pointerNode(from: v), path: Agent.fingerPath(from: v), at: at, t: t)
+            let contact = AgentPan(node: node, pointer: Agent.pointerNode(from: v).map(HeldNode.init), path: Agent.fingerPath(from: v), at: at, t: t, held: Agent.heldPrefix(req))
             panContact = contact
             panPointer(contact, .down)
             return ["contact": Int(node.id), "phase": "down", "at": point(at), "delivery": "recognized"]
         }
         guard var contact = panContact else { return nil }
-        if contact.node == nil { return fingerPhase(phase, req, &contact) }
+        if contact.pressing { return fingerPhase(phase, req, &contact) }
         guard let node = contact.node, presenter.views[node.id] === node, node.handlers.contains("pan"), SwipeInput.allows(node) else {
             // The node went or stopped panning: the contact is over, at rest.
             panContact = nil
@@ -211,6 +242,7 @@ extension Agent {
             contact.t += ms.isFinite ? ms / 1000 : 0
             presenter.onPanSample?(false, Double(contact.at.x), Double(contact.at.y), contact.t)
             panContact = contact
+            holdTime(ms, req)
             return ["phase": "hold", "at": point(contact.at), "delivery": "recognized"]
         case "up":
             panContact = nil
@@ -265,16 +297,19 @@ extension Agent {
         case "hold":
             contact.t += ms.isFinite ? ms / 1000 : 0
             panContact = contact
+            holdTime(ms, req)
             return ["phase": "hold", "at": point(contact.at), "delivery": "recognized"]
         case "up", "cancel":
             panContact = nil
             panPointer(contact, .up)
             var reply: [String: Any] = ["phase": phase, "at": point(contact.at), "delivery": "recognized"]
-            guard phase == "up", let target = contact.target, presenter.views[target.id] === target, target.window != nil else { return reply }
+            guard phase == "up", let target = contact.target?.live(in: presenter), target.window != nil else { return reply }
             let b = box(target)
             guard b.contains(contact.at) else { return reply }
             // The plain tap's press at that point, its pointer events already sent.
-            let lifted = tap(["id": Int(target.id), "at": [Double(contact.at.x - b.minX), Double(contact.at.y - b.minY)], "lift": true])
+            var lift: [String: Any] = ["id": Int(target.id), "at": [Double(contact.at.x - b.minX), Double(contact.at.y - b.minY)], "lift": true]
+            if !contact.held.isEmpty { lift["modifiers"] = contact.held }
+            let lifted = tap(lift)
             if let error = lifted["error"] { reply["pressError"] = error } else { reply["pressed"] = lifted["pressed"] ?? NSNull() }
             return reply
         default:

@@ -480,6 +480,11 @@ extension Agent {
             return ["error": "tap #\(id)\(node.props["testId"].map { " [\($0)]" } ?? ""): \(why)"]
         }
         if let reply = touchForm(req) { return reply }
+        // One finger at a time: a press while the held contact is down would
+        // nest a second gesture on its pointer, as a second `down` would.
+        if req["phase"] == nil, req["lift"] == nil, req["wheel"] == nil, req["hover"] == nil, panContact != nil {
+            return ["error": "a contact is already down; use `tap up` or `tap cancel` first"]
+        }
         settleForPress()
         if req["scrollDrag"] != nil { return scrollDrag(req) }
         if view(req)?.placedAncestor?.placementHidden == true { return ["error": "placed child is hidden"] }
@@ -694,36 +699,42 @@ extension Agent {
         // A finger on a number input's stepper steps it (LLP 1116.007 D4).
         if plain, req["at"] != nil, let stepped = steppedTap(v, hit: hit, at: p, tapped: at) { return stepped }
         #endif
+        var n: UIView? = hit
+        while let cur = n, !(cur is NodeView) { n = cur.superview }
+        // What the finger reaches, taken where it lands: what the pointer
+        // events below do to the tree never sends the press elsewhere, as a
+        // real contact keeps its target. An SVG element under the finger
+        // takes the press (LLP 1055.000 D17); an inline run with its own
+        // press, or a Markdown run's link, is the press as `touchesEnded`
+        // makes it (`tap <paragraph> at <x> <y>` on a run).
+        let node = n as? NodeView
+        let element = node.flatMap { $0.kind == "svg" && !$0.inert ? presenter.svg.target($0.id, at: $0.local(p)) : nil }
+        let run = element == nil ? node.flatMap { !$0.disabled && !$0.inert ? $0.inlineActivationTarget(at: $0.local(p)) : nil } : nil
+        let href = element == nil && run == nil ? node.flatMap { $0.inlineActivationTarget(at: $0.local(p)) == nil ? $0.inlineLink(at: $0.local(p)) : nil } : nil
+        let action = element == nil ? node?.activationTarget(at: p) : nil
+        let reached = node.map(HeldNode.init)
+        // An iPad's hardware keys held through the tap (gallery F20).
+        let held = Agent.heldPrefix(req)
         // A finger's `pointerdown` as it lands and `pointerup` as it lifts,
         // before what the lift does (DOM's order), as `PointerRecognizer`
         // hears a real touch before the node does; a held contact's lift
         // has sent its own (`fingerPhase`).
         let fingers = req["lift"] == nil ? Agent.fingerPath(from: hit) : []
-        fingerPointer(.down, fingers, at: p)
-        fingerPointer(.up, fingers, at: p)
-        // Their handlers may have moved what is under the finger.
-        if !fingers.isEmpty { hit = win.hitTest(p, with: nil) ?? v }
-        var n: UIView? = hit
-        while let cur = n, !(cur is NodeView) { n = cur.superview }
+        fingerPointer(.down, fingers, at: p, held: held)
+        fingerPointer(.up, fingers, at: p, held: held)
+        // A node the pointer events took away presses nothing.
+        let landed = fingers.isEmpty || reached?.live(in: presenter) != nil
+        if landed, let node, let run, node.activateInline(run.id) {
+            return ["tapped": Int(v.id), "at": at, "pressed": Int(run.id)]
+        }
+        if landed, let href {
+            presenter.session?.follow(href)
+            return ["tapped": Int(v.id), "at": at, "followed": href]
+        }
         // What a touch up does first (`NodeView.touchesEnded`, up the
         // responder chain): the nearest node that takes the focus takes it
         // — an input's field, a node with a focus/blur/key handler — and
         // whatever had it (a field, and the keyboard with it) lets go.
-        // An SVG element under the finger takes the press (LLP 1055.000 D17).
-        let element = (n as? NodeView).flatMap { $0.kind == "svg" && !$0.inert ? presenter.svg.target($0.id, at: $0.local(p)) : nil }
-        // An inline run with its own press under the finger takes it, as
-        // `touchesEnded` presses it (`tap <paragraph> at <x> <y>` on a run).
-        if element == nil, let node = n as? NodeView, !node.disabled, !node.inert, let run = node.inlineActivationTarget(at: node.local(p)),
-           node.activateInline(run.id) {
-            return ["tapped": Int(v.id), "at": at, "pressed": Int(run.id)]
-        }
-        // A Markdown run's link under the finger is the press, as `touchesEnded` follows it.
-        if element == nil, let node = n as? NodeView, node.inlineActivationTarget(at: node.local(p)) == nil,
-           let href = node.inlineLink(at: node.local(p)) {
-            presenter.session?.follow(href)
-            return ["tapped": Int(v.id), "at": at, "followed": href]
-        }
-        let action = element == nil ? (n as? NodeView)?.activationTarget(at: p) : nil
         var f: UIView? = n
         var took = false
         while let cur = f {
@@ -741,9 +752,7 @@ extension Agent {
         // edited loses it, and any other focus stays.
         if !took && presenter.hasKeyboardEditor && !presenter.contextRetainsFocus(n ?? v) { presenter.endEditing() }
         var pressed: Any = NSNull()
-        // An iPad's hardware keys held through the tap (gallery F20).
-        let held = (req["modifiers"] as? String).map { $0.hasSuffix("+") || $0.isEmpty ? $0 : $0 + "+" } ?? ""
-        if let element { presenter.press(element, held: held); pressed = Int(element) }
+        if landed, let element { presenter.press(element, held: held); pressed = Int(element) }
         if let action, presenter.views[action.id] === action { presenter.press(action.id, held: held); pressed = Int(action.id) }
         var reply: [String: Any] = ["tapped": Int(v.id), "at": at, "pressed": pressed]
         // Its middle reaches a control inside it: the tap landed beside it.

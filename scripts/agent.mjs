@@ -775,7 +775,7 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
         if (['down', 'move', 'hold', 'up', 'cancel'].includes(kind)) {
           if (kind === 'down' || canvasContact) {
             // `pan`: a pan's or a canvas's contact alone, for a drag and under real touches (no recognized finger among real ones).
-            const r = await ask({ op: 'tap', phase: kind, ...(id != null ? { id } : {}), x: opts.x, y: opts.y, dx: opts.dx, dy: opts.dy, ms: opts.ms, ...(opts.pan || touch !== 'agent' ? { pan: true } : {}) });
+            const r = await ask({ op: 'tap', phase: kind, ...(id != null ? { id } : {}), x: opts.x, y: opts.y, dx: opts.dx, dy: opts.dy, ms: opts.ms, ...(opts.virtual ? { virtual: true } : {}), ...(opts.pan || touch !== 'agent' ? { pan: true } : {}) });
             if (r.error) throw new Error(r.error);
             if (r.delivery !== 'unsupported' || canvasContact) {
               canvasContact = !['up', 'cancel'].includes(kind);
@@ -1097,7 +1097,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       // @ref LLP 1080.000 §11 — one whole gesture: press, one straight drag, hold, lift.
       if (opts.drag) return dragTap({ s, carrier, node, target, host, timing, tapRefusal, scrolled }, opts.drag);
       const kind = opts.history !== undefined ? 'history' : opts.pinch !== undefined ? 'pinch' : opts.down ? 'down' : opts.drop ? 'drop' : opts.wheel ? 'wheel' : opts.hover ? 'hover' : button[0] ?? 'press';
-      if (kind === 'down' && s.contact) throw new Error('a contact is already down; use `tap up` or `tap cancel` first');
+      if ((kind === 'down' || kind === 'press') && s.contact) throw new Error('a contact is already down; use `tap up` or `tap cancel` first'); // one finger at a time
       let at;
       if (kind === 'down' && opts.at) { const b = (await s.layout()).nodes.find((n) => n.id === node.id); if (!b) throw new Error(`view ${node.id} has no box on screen`); at = { x: b.x + opts.at[0], y: b.y + opts.at[1] }; }
       let r;

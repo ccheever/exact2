@@ -743,25 +743,36 @@ deterministic and a smoke against real credentials leaves nothing behind.
 
 ## Amended (2026-10-16: a tap's pointer events, a hold on the clock)
 
-- **A tap is what a finger there delivers.** On every carrier a plain `tap`
-  sends the pointer's `pointerdown` and `pointerup`, bubbled as a real
-  contact's, then the press, in DOM's order (Pointer Events 3 §4.1; UI
-  Events §3.5). The web and macOS already did, through CDP and `sendEvent`;
-  iOS's activation and Linux's presenter press now send both first
-  (`AgentIOS.swift`, `addressed_tap.rs`). A control that holds on
-  `pointerdown` (a hold-to-repeat stepper, a charge) works under the agent,
-  not only under a real touch (euxy port, FRICTION §2).
+- **A tap is what a finger there delivers.** A plain `tap` that presses
+  what the pointer reaches sends the pointer's `pointerdown` and `pointerup`,
+  bubbled as a real contact's and with the modifiers it holds, then the
+  press, in DOM's order (Pointer Events 3 §4.1; UI Events §3.5). The web and
+  macOS already did, through CDP and `sendEvent`; iOS's activation and
+  Linux's presenter press now send both first (`AgentIOS.swift`,
+  `addressed_tap.rs`). The press goes to what the pointer went down on: one
+  its handlers took away or replaced presses nothing. A control that holds
+  on `pointerdown` (a hold-to-repeat stepper, a charge) works under the
+  agent, not only under a real touch (euxy port, FRICTION §2). Not yet: a tap
+  the host activates natively before that path (on iOS a native control, a
+  segment, a grouped list's row, a swipe action, a confirmation's row, a bar
+  item; on Linux a top-layer surface's row or a bar's item) sends no
+  pointer events (QUEUE).
+- **One finger at a time.** A press while a contact is held is refused, as a
+  second `down` is, on every carrier.
 - **A hold is the clock's.** `tap <target> down`, `tap hold <ms>`, `tap up`
   is a press held for `<ms>`: under agent timing the hold moves the app's
   clock by `<ms>`, its timers firing as they would, and no wall time passes;
-  under `--timing platform` it is real time, for UIKit's recognizers. A
-  drag's `press` and `hold` already were; Linux's always were.
+  under `--timing platform` `<ms>` of real time passes (the main run loop
+  turns on iOS and macOS), so the platform's own motion runs on. A drag's
+  `press` and `hold` already were; Linux's always were.
 - **iOS holds a contact.** Off a `pan` node, `tap … down` is a recognized
   finger (`delivery: recognized`, `AgentPanIOS.swift`): its `pointerdown` as
   it lands, `pointermove`s as it moves (nothing scrolls: `tap <scroller>
-  drag` does), its `pointerup` and then the press a finger lifted there
-  makes, if it is still on its target. A drag's contact still asks for a
-  `pan` node's alone. `input` on iOS reports `contact` and `hold`.
+  drag` does), its `pointerup` (to every node its down reached that is
+  still that node, though one disabled itself) and then the press a finger
+  lifted there makes, if it is still on its target. It is no `UITouch`: no
+  UIKit recognizer sees it, under either timing. A drag's contact still
+  asks for a `pan` node's alone. `input` on iOS reports `contact` and `hold`.
 
 ## Amended (2026-10-16: an iOS screenshot says what it paints)
 
