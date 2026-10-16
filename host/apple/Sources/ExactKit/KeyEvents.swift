@@ -104,14 +104,17 @@ extension Presenter {
         propagationStopped = false
         walk()
     }
-    /// What an event (a key, a clipboard edit) bubbles to from `view`: its
-    /// authored parent. A subtree a container shows in a view of its own
-    /// bubbles to the node it is declared under: on the Mac a block's root to
-    /// its authored parent (BlockHostMac.swift), on iOS a route to its tab
-    /// panel or the routes' owner (LLP 1123 D2).
+    /// What an event (a key, a clipboard edit, a pointer's) bubbles to from
+    /// `view`: its authored parent. A subtree shown in a view of its own
+    /// bubbles to the node it is declared under, as DOM's events bubble out
+    /// of the top layer: on the Mac an open popover or a presented dialog,
+    /// painted over the page or in a window of its own, and a block's root
+    /// (BlockHostMac.swift); on iOS a route to its tab panel or the routes'
+    /// owner (LLP 1123 D2). Never the page under a popover or a dialog that
+    /// is not its ancestor.
     func eventParent(of view: KeyPlatformView) -> KeyPlatformView? {
         #if os(macOS)
-        if let node = view as? NodeView { return blocks.parent(of: node) }
+        if let node = view as? NodeView { return menus.authoredParent(of: node) ?? dialogs.authoredParent(of: node) ?? blocks.parent(of: node) }
         #else
         if let node = view as? NodeView, navigation.controllers[node.id]?.node === node,
            let parent = navigation.logicalParent(of: node) ?? navigation.container {

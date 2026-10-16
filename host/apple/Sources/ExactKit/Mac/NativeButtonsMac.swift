@@ -134,10 +134,18 @@ final class NativeButtonMac: NSButton {
         // button accepts first responder for Tab, `focus()` and `autofocus`.
         refusesFirstResponder = true
         defer { refusesFirstResponder = false }
+        clicked = false
         super.mouseDown(with: event)
         owner?.pointerReleased(nil)
+        // The loop ends a click with the action; the second of two is then
+        // a double click, heard from the node up after its press, the web's
+        // order (LLP 1057.001 §1 rule 5), as a node's own `mouseUp` sends it.
+        if clicked, let owner { owner.dispatchDblclick(owner.dblclickTarget(event)) }
     }
+    /// The tracking loop sent the action: the click landed.
+    private var clicked = false
     override func sendAction(_ action: Selector?, to target: Any?) -> Bool {
+        clicked = true
         owner?.pointerReleased(nil)
         return super.sendAction(action, to: target)
     }

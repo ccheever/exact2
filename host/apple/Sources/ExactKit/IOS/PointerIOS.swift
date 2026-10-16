@@ -86,15 +86,14 @@ final class PointerRecognizer: UIGestureRecognizer {
             }
         }
     }
-    /// Up the authored tree: a lifted popover's parent, a presented route's
-    /// logical one, else the superview.
+    /// Up the authored tree (`Presenter.pointerParent`).
     private static func bubbling(from node: NodeView) -> [NodeView] {
         var nodes: [NodeView] = []
         var view: UIView? = node
         let presenter = node.presenter
         while let v = view {
             if let n = v as? NodeView, !n.disabled, n.handlers.contains("pointerdown") || n.handlers.contains("pointerup") { nodes.append(n) }
-            view = presenter?.menus.logicalParent(of: v) ?? presenter?.eventParent(of: v) ?? v.superview
+            view = presenter?.pointerParent(of: v) ?? v.superview
         }
         return nodes
     }
@@ -155,6 +154,19 @@ final class PointerRecognizer: UIGestureRecognizer {
     // Never in anyone's way.
     override func canPrevent(_ preventedGestureRecognizer: UIGestureRecognizer) -> Bool { false }
     override func canBePrevented(by preventingGestureRecognizer: UIGestureRecognizer) -> Bool { false }
+}
+
+extension Presenter {
+    /// What a touch's pointer events, long press and double tap bubble to
+    /// from `view`, as DOM's bubble out of the top layer: a lifted popover's
+    /// or a modal dialog's authored parent, though its view is in the top
+    /// layer or a sheet, a presented route's logical parent, else the
+    /// superview. `eventParent` stays inside a dialog's sheet: the walks on
+    /// it also read inertness and visibility, which a modal dialog escapes.
+    func pointerParent(of view: UIView) -> UIView? {
+        if let node = view as? NodeView, let parent = menus.sheets.authoredParent(of: node) { return parent }
+        return menus.logicalParent(of: view) ?? eventParent(of: view)
+    }
 }
 
 extension NodeView {

@@ -54,6 +54,9 @@ final class DialogHost {
     init(_ presenter: Presenter) { self.presenter = presenter }
 
     func owns(_ node: NodeView) -> Bool { entries.contains { $0.dialog === node } }
+    /// A presented dialog's authored parent, painted over its backdrop or in
+    /// its sheet; nil for any other node. A modal route's is navigation's.
+    func authoredParent(of node: NodeView) -> NSView? { entries.first { $0.dialog === node && !$0.route }?.parent }
     func presentsRoute(_ node: NodeView) -> Bool { entries.contains { $0.dialog === node && $0.route } }
     func blocks(_ node: NSView) -> Bool {
         guard let active else { return false }
