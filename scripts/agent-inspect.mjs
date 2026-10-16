@@ -678,3 +678,12 @@ export function worldView(session, name) {
     hold: (code, ms) => session.type(name, {key:code, for:ms}),
   };
 }
+
+// @ref LLP 1123 D10 — the layout regions, `env(-exact-<region>-inset-<edge>)`: the Apple hosts report UIKit's and
+// AppKit's; a host that reports none resolves each to its safe area, which is what its facts then say too.
+const REGIONS = ['safe-area-corners', 'layout-margins', 'layout-margins-corners', 'readable-content', 'readable-content-corners'];
+export function withRegions(env) {
+  if (!env || typeof env !== 'object') return env;
+  for (const region of REGIONS) for (const edge of ['top', 'right', 'bottom', 'left']) env[`-exact-${region}-inset-${edge}`] ??= env[`safe-area-inset-${edge}`] ?? 0;
+  return env;
+}

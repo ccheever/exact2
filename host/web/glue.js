@@ -30,7 +30,7 @@ function syncMedia(el, set = {}, clear = []) {
 const iframeLoading = new WeakMap(); // iframe -> true until its latest src load
 const messageViews = new Set(), messageFrames = new Set(); // the latter: iframes whose node handles `message`
 const keyChord = e => /* a keydown or keyup as kind 6's or 43's payload: the chord `Event::key` reads, then its code and repeat (`KeyboardEvent::parse`, #140) */ (e.shiftKey ? "Shift+" : "") + (e.ctrlKey ? "Control+" : "") + (e.altKey ? "Alt+" : "") + (e.metaKey ? "Meta+" : "") + e.key + "\n" + (/^[A-Za-z0-9]*$/.test(e.code ?? "") ? e.code ?? "" : "") + "\n" + !!e.repeat;
-let messageListening = false, keyEvent = null; // keyEvent: the keydown (or wheel, beforeunload, clipboard event) a handler is running for, which its `preventDefault()` command prevents
+let messageListening = false, keyEvent = null, pointerEvent = null, pointerDepth = 0; // keyEvent: the keydown (or wheel, beforeunload, clipboard event) a handler is running for, which its `preventDefault()` command prevents; pointerEvent: the pointer's down or up, which only its `stopPropagation()` reaches (its default is the browser's), from its own batch alone (`pointerDepth`, `send`)
 let wasm = null, memory = null, inputReady = false, inputHandlers;
 // Native modules (LLP 1024 D3): a module node is its custom element, empty until the adapter and the app's module load after first paint (the browser's paint entry; two frames and a beat where it records none).
 let nativePaint = null;
@@ -555,7 +555,7 @@ function attach(el, id, handlers) {
     } else if (kind === "transformrelease") { motion.attachTransformDrag(el,id,on); } else if (kind === "resize") { (resizes ??= loadAfterPaint('./resize-glue.js', 'observeResize')).then(observe => observe(el, r => { if (views.get(id) === el && !retiredViews.has(el)) send(wasm.exact_dispatch(id, 39, writeIn(`${r.x},${r.y},${r.width},${r.height}`), now())); })); // ResizeObserver's contentRect, host kind 39
     } else if (kind === "intersect") {
       (intersects ??= loadAfterPaint('./intersect-glue.js', 'observeIntersect')).then(observe => { if (views.get(id) === el && !retiredViews.has(el)) el.exactIntersect = observe(el, r => { if (views.get(id) === el && !retiredViews.has(el)) send(wasm.exact_dispatch(id, 45, writeIn(`${Number(r.isIntersecting)},${r.intersectionRatio}`), now())); }); });
-    } else if ((kind === "pointerdown" || kind === "pointerup" || kind === "pointermove") && !el.exactPointer) { let p; el.exactPointer = true; const own = () => p ??= inputHandlers?.pointer(el, on, (k, r) => { if (views.get(id) === el && !retiredViews.has(el)) send(wasm.exact_dispatch(id, k, writeIn(r), now())); }); on("pointerdown", e => own()?.(e)); on("pointerover", () => own()); // @ref LLP 1005 §3, LLP 1056 §3: DOM's own pointer down/up/move (input-glue `pointer`)
+    } else if ((kind === "pointerdown" || kind === "pointerup" || kind === "pointermove") && !el.exactPointer) { let p; el.exactPointer = true; const own = () => p ??= inputHandlers?.pointer(el, on, (k, r, e) => { if (views.get(id) !== el || retiredViews.has(el)) return; const outer = [pointerEvent, pointerDepth]; pointerEvent = k === 31 ? null : e; pointerDepth = sending + 1; try { send(wasm.exact_dispatch(id, k, writeIn(r), now())); } finally { [pointerEvent, pointerDepth] = outer; } }); el.exactPointerDown = (e, hold) => own()?.(e, hold); on("pointerover", () => own()); // @ref LLP 1005 §3, LLP 1056 §3: DOM's own pointer down/up/move (input-glue `pointer`, whose root listener calls `exactPointerDown`)
     } else if (kind === "toggle") { on(kind, e => send(wasm.exact_dispatch(id, 50, writeIn(`${e.oldState},${e.newState}`), now())));
     } else if (kind === "beforeinput" || (kind === "selectionchange" && textField(el))) { controlEvent(el, kind, on, (k, text, e) => { const outer = keyEvent; keyEvent = e; try { send(wasm.exact_dispatch(id, k, writeIn(text), now())); } finally { keyEvent = outer; } });
     } else if (kind === "selectionchange") { // its part of the page's selection (navigation.js `onSelection`): kind 35, offsets, rectangle count and coordinates, then text
@@ -760,15 +760,15 @@ function apply(batch) {
       }
       case "command": { if (op.name === "relaunch") { location.reload(); break; }
         // A capability an action called (LLP 1005 §3). `setScheme` is the
-        // document's colour scheme — what `prefers-color-scheme` would be.
-        // `system` is CSS's `light dark`: the page supports both and the
-        // user's preference decides, which is what "follow the system" is on
-        // the web. `light`/`dark` are the property's own values.
-        if (op.name === "setScheme") { const s = String(op.args[0] ?? ""); document.documentElement.style.colorScheme = s === "system" ? "light dark" : s; } else if (op.name === "haptic") navigator.vibrate?.(op.args?.[0] === "selection" ? 5 : 12); else if (op.name === "setRootFontSize") appRootFontSize(op.args?.[0], log); // LLP 1077 D14; LLP 1069.000 D3: the runner laid out at the size, the document's root takes it
+        // document's colour scheme, on the root's own style. `system` removes
+        // it: the page's sheet says `light dark` (index.html), or a dev pin's
+        // rule its scheme, the system's beneath the app's (LLP 1122 D4).
+        // `light`/`dark` are the property's own values.
+        if (op.name === "setScheme") { const s = String(op.args[0] ?? ""); document.documentElement.style.colorScheme = s === "system" ? "" : s; } else if (op.name === "haptic") navigator.vibrate?.(op.args?.[0] === "selection" ? 5 : 12); else if (op.name === "setRootFontSize") appRootFontSize(op.args?.[0], log); // LLP 1077 D14; LLP 1069.000 D3: the runner laid out at the size, the document's root takes it
         else if (op.name === "focus" || op.name === "selectText" || op.name === "removeAllRanges" || op.name === "setSelectionRange" || op.name === "setRangeText" || op.name === "blur" || op.name === "scrollIntoView") focusCommands.push({ name: op.name, args: op.args }); // an element's scrollIntoView (a list row's is the runner's)
         else if (["showPopover", "hidePopover", "togglePopover"].includes(op.name)) focusCommands.push({ name: op.name, args: op.args });
         else if (op.name === "preventDefault") { keyEvent?.preventDefault(); if (keyEvent?.type === "beforeunload") keyEvent.returnValue = ""; } else if (op.name === "close" && op.args?.[0] == null) window.close(); /* studio diary R17 */ else if (op.name === "showModal" || op.name === "close") { const id = op.args?.[0], el = [...views.values()].find(el => el.id === id), close = op.name === "close"; if (el instanceof HTMLDialogElement) { if (close) el.close(); else if (!el.open) el.showModal(); else log(`showModal "${id}" ignored: dialog is already open`); } else if (el?.popover != null && el.getAttribute("role") === "alertdialog") { if (close) el.hidePopover(); else if (!el.matches(":popover-open")) el.showPopover(); } else if (!close) log(`showModal "${id}" refused: no dialog or alertdialog popover has that id`); } // `showModal(id)`, `close(id)` from an action: the dialog's own, or an alertdialog popover's (LLP 1101.001 P5, LLP 1115 D6), as host/web-js/commands.js `modal`
-        else if (op.name === "stopPropagation") { if (keyEvent) keyEvent.exactStopped = true; /* no ancestor's `key` handler hears it; its default still happens */ } else if (op.name === "requestFullscreen") { const el = [...views.values()].find(el => el.id === op.args?.[0] && el.exactMedia); if (!el) log(`requestFullscreen: refused: no video with id "${op.args?.[0]}"`); else el.requestFullscreen().catch(e => log(`requestFullscreen: refused: ${e.name}`)); } // HTML's Element.requestFullscreen(); the element reports `fullscreenchange`
+        else if (op.name === "stopPropagation") { const e = keyEvent ?? (sending === pointerDepth ? pointerEvent : null); if (e) e.exactStopped = true; /* no ancestor's handler hears this event (a key, focus, the pointer's down or up, a wheel); its default still happens */ } else if (op.name === "requestFullscreen") { const el = [...views.values()].find(el => el.id === op.args?.[0] && el.exactMedia); if (!el) log(`requestFullscreen: refused: no video with id "${op.args?.[0]}"`); else el.requestFullscreen().catch(e => log(`requestFullscreen: refused: ${e.name}`)); } // HTML's Element.requestFullscreen(); the element reports `fullscreenchange`
         else if (op.name === "postMessage") { // the inverse of `message=`: text into the named surface, every one in order
           const text = String(op.args?.[0] ?? ""), name = String(op.args?.[1] ?? ""), at = now();
           if (globalThis.exact.gpu) globalThis.exact.gpu.post(name, text, at);
@@ -897,11 +897,10 @@ function applyBatch(batch) {
   timelinesMoved = false;
   flowBatch(batch);
   return { timers, batch };
-  } finally { const outer = --globalThis.exact.applyDepth === 0; if (outer) { globalThis.exact.gpu?.drainRecords(); globalThis.exact.gpu?.layout?.(); } frameSampler?.batch(batch.seq, outer ? performance.now() - began : 0); }
+  } finally { const outer = --globalThis.exact.applyDepth === 0; if (outer) { globalThis.exact.gpu?.drainRecords(); globalThis.exact.gpu?.layout?.(); globalThis.exact.committed?.(); } frameSampler?.batch(batch.seq, outer ? performance.now() - began : 0); }
 }
-function send(len) {
-  return applyBatch(JSON.parse(readOut(len))).timers;
-}
+let sending = 0; // batches being applied: a dispatch run while another's applies (a focus it moved) is one deeper
+function send(len) { sending++; try { return applyBatch(JSON.parse(readOut(len))).timers; } finally { sending--; } }
 // LLP 1019 D5: FontFace loading is part of host boot. The DOM remains empty until every local face loaded, or 100 ms elapsed. At the barrier, install
 // every face already ready unless its family has a failed sibling; faces that
 // finish later remain unused for this generation (no post-paint swap).
@@ -1414,7 +1413,7 @@ globalThis.exact = { ...globalThis.exact, mutate, devFirst: () => devFirst(),
   message: (el, text) => { const id = Number(el?.dataset.view); if (inputReady && el && views.get(id) === el && messageViews.has(id)) send(wasm.exact_dispatch(id, 9, writeIn(text), now())); },
   get devAssets() { return devAssets; },
   get ready() { return ready.then(async () => { await moduleReady; if (!inputReady) throw new Error(root.dataset.error || 'data executor not ready'); }); },
-  ...(agentMode ? { agent, agentSettled, now, worldCarry: globalThis.exactWorldCarry } : {}), get wasm() { return wasm; }, assetURL: localAssetURL, stages: () => Object.fromEntries(Object.keys(stages).map(name => [name, stageLoaded(name) ? 'loaded' : 'staged'])), writeIn, send, views, root, generation: 0, pendingSurfaces: [], postBound: POST_BOUND,
+  ...(agentMode ? { agent, agentSettled, now, worldCarry: globalThis.exactWorldCarry } : {}), get wasm() { return wasm; }, assetURL: localAssetURL, stages: () => Object.fromEntries(Object.keys(stages).map(name => [name, stageLoaded(name) ? 'loaded' : 'staged'])), writeIn, readOut, send, views, root, generation: 0, pendingSurfaces: [], postBound: POST_BOUND,
 };
 // The GPU module, on demand: a script element after a rendering opportunity
 // (two animation-frame callbacks), never an eager import, and only when a

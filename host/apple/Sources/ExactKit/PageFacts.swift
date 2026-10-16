@@ -26,6 +26,9 @@ package enum PageFacts {
     nonisolated(unsafe) static var agent = (hidden: false, onLine: true, canShare: true, canOpenFiles: true, hasFocus: true, rootFontSize: Double(defaultRootFontSize)) {
         didSet { changed() }
     }
+    /// What the build channel's `pin` set (LLP 1122 D4), over the platform's
+    /// and the agent's; nil hands it back.
+    nonisolated(unsafe) static var pinnedRootFontSize: Double?
     /// The drive's values stand in for the machine's (LLP 1069.007 D2, D8).
     static let substituted = ExactEnv.agentMode && ExactEnv.environment["EXACT_DEVICE"] != "real"
     private static let agentChanged = Notification.Name("ExactPageFactsChanged")
@@ -105,6 +108,7 @@ package enum PageFacts {
     /// 13. tvOS keeps CSS's 16 scaled by the category until its own pass
     /// (its body style is 29 points, read at ten feet).
     static var rootFontSize: Double {
+        if let pinnedRootFontSize { return pinnedRootFontSize }
         if substituted { return agent.rootFontSize }
         #if os(macOS)
         return Double(NSFont.systemFontSize)

@@ -2,7 +2,7 @@
 // Build the macOS app — or, with --ios, the iOS app: the app's static
 // library (cargo, release), then the presenter (swift build) linked against
 // it. Usage:
-//   bun host/apple/build.mjs [crate=caltrain-apple] [--run]                 macOS
+//   bun host/apple/build.mjs [crate=caltrain-apple] [--run]                 macOS (--run assembles and launches the .app)
 //   bun host/apple/build.mjs [crate] --test                                  the Swift host tests
 //   bun host/apple/build.mjs [crate] --test --ios [--sim <udid|name>]        all tests compiled for UIKit on a simulator
 //   bun host/apple/build.mjs --ios [crate] [--run] [--sim <udid|name>]        iOS, on a simulator
@@ -35,8 +35,8 @@
 // signed with no profile and no team, for a consumer that re-signs it with
 // its own (AppDrop, a store's resigner). The simulator and phone helpers live
 // in devices.mjs, shared with scripts/agent.mjs, which launches the same bundle.
-// These developer builds explicitly allow unsigned updates. Set
-// EXACT_UPDATE_TRUST=production for a signed-update-only artifact.
+// These developer builds explicitly allow unsigned updates. --release (or
+// EXACT_UPDATE_TRUST=production) builds a signed-update-only artifact.
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
@@ -49,12 +49,12 @@ import { startSweep } from '../../scripts/sweep.mjs';
 import { guardFlags } from '../../scripts/help.mjs';
 import { writeDataKeys } from './data-keys.mjs';
 import { iosTestRuns, macTests } from './xctest.mjs';
-import { appIcon, buildInfo, iosAssets, appleAssets, appleAssetCatalogInventory, copyMacResources, signingOrder, plistFile, wrapFramework, signedGpuProduct, assertArchiveFrameworks } from './assets.mjs';
+import { appIcon, buildInfo, iosAssets, appleAssets, appleAssetCatalogInventory, copyMacResources, signingOrder, helperEntitlements, plistFile, wrapFramework, signedGpuProduct, assertArchiveFrameworks } from './assets.mjs';
 import { keptModules } from './modules.mjs';
 import { keptCrates } from './crates.mjs';
-import { appleComposition, assertLinkedSdk, linksByPlan } from './link.mjs';
+import { appleComposition, assertCapabilityFrameworks, assertLinkedSdk, linksByPlan } from './link.mjs';
 export { appIcon, iosAssets };
-import { allows, deviceLaunchArgs, developmentLaunchEnvironment, identity, macIdentity, phone, profile, showSimulator, simulator, simulators, useXcode } from './devices.mjs';
+import { IPAD_ORIENTATIONS, orientationKeys, allows, deviceLaunchArgs, developmentLaunchEnvironment, identity, macIdentity, phone, profile, showSimulator, simulator, simulators, useXcode } from './devices.mjs';
 const root = resolve(new URL('../..', import.meta.url).pathname);
 const run = (cmd, args, opts = {}) => {
   const r = spawnSync(cmd, args, { cwd: root, ...opts,
@@ -360,20 +360,6 @@ export function writeUsageStrings(reach, dir) {
   }
 }
 
-/** The hardened-runtime entitlements `exact release` signs the Mac app with:
- * the bake's derivation from the app's `device.*` grants (a usage string
- * alone is not enough; a hardened app without the entitlement is silently
- * refused). Null when the app grants no such device. */
-export const macReleaseEntitlements = (compat) => {
-  const names = compat?.reach?.entitlements ?? [];
-  // An https auth callback's `webcredentials:` domain (LLP 1069.006 D2),
-  // which a Developer ID build signs only with a profile that grants it.
-  const domains = compat?.reach?.auth?.associatedDomains ?? [];
-  if (!names.length && !domains.length) return null;
-  return plistFile({ ...Object.fromEntries(names.map((name) => [name, true])),
-    ...(domains.length ? { 'com.apple.developer.associated-domains': domains } : {}) });
-};
-
 /** `NSAppTransportSecurity` from `host.<platform>.appTransportSecurity` and the build's own `keys`; none of either, no key. `allowsArbitraryLoadsInWebContent` relaxes ATS for web views only (an `iframe` loads `http://` from a named host, as a browser does); a module's `URLSession` stays under ATS. */
 const transportSecurity = (section, keys = {}) => {
   const ats = { ...(section?.appTransportSecurity?.allowsArbitraryLoadsInWebContent ? { NSAllowsArbitraryLoadsInWebContent: true } : {}), ...keys };
@@ -422,7 +408,7 @@ export const infoPlist = (app, device = false, { executable = executableName(app
   Object.assign(dict, openingLinks(app, 'ios', development));
   Object.assign(dict, usageKeys(reach));
   Object.assign(dict, icon);
-  if (distribution) Object.assign(dict, distribution);
+  Object.assign(dict, distribution, orientationKeys(app.manifest.orientation));
   return plistFile(dict);
 };
 
@@ -451,7 +437,7 @@ export function distributionKeys(sdkName = 'iphoneos') {
     // What iOS assumes when the key is absent, written out: App Store Connect
     // requires it (all four on iPad, for multitasking).
     UISupportedInterfaceOrientations: ['UIInterfaceOrientationPortrait', 'UIInterfaceOrientationLandscapeLeft', 'UIInterfaceOrientationLandscapeRight'],
-    'UISupportedInterfaceOrientations~ipad': ['UIInterfaceOrientationPortrait', 'UIInterfaceOrientationPortraitUpsideDown', 'UIInterfaceOrientationLandscapeLeft', 'UIInterfaceOrientationLandscapeRight'],
+    'UISupportedInterfaceOrientations~ipad': IPAD_ORIENTATIONS,
     // Export compliance is the developer's declaration, so it is written only
     // when EXACT_NON_EXEMPT_ENCRYPTION says it (`false` for HTTPS alone).
     ...(['true', 'false'].includes(process.env.EXACT_NON_EXEMPT_ENCRYPTION) ? { ITSAppUsesNonExemptEncryption: process.env.EXACT_NON_EXEMPT_ENCRYPTION === 'true' } : {}),
@@ -922,7 +908,7 @@ async function main(args) {
   // the resolver's app-owned `embed` directory, with `ExactKit` at
   // `host/apple`. With --archive it also builds the IPA; --embed alone
   // builds no Swift. The sample hosts prove that the same pieces link.
-  const { link: appleLink, products: swiftCapabilities } = appleComposition(buildReceipt.graph, linksByPlan(production, args), app.manifest.link);
+  const { link: appleLink, products: swiftCapabilities } = appleComposition(buildReceipt.graph, linksByPlan(production, args), app.manifest.link, bakedCompat.reach?.auth?.sessions === true);
   if (args.includes('--embed')) {
     const platform = ios ? (device ? 'ios' : 'ios-simulator') : 'macos';
     const gpu = hasGpu ? (ipa ? 'ExactGpu.framework/ExactGpu' : loadName) : null;
@@ -1002,20 +988,20 @@ async function main(args) {
   // Each is written under this process's name and renamed, since another
   // app's build may compile the same arm at once. A cached arm is copied out
   // at once and marked used, so another build's `evictArms` keeps it.
-  const arm = (args, source, built, extra = '', own = false) => {
+  const arm = (args, source, built, extra = '', own = false, optional = false) => { // optional: placing a failed one answers its log's path
     const key = createHash('sha256').update(JSON.stringify([args.map(a => a === built ? '<out>' : a), [].concat(source).map(f => readFileSync(f, 'utf8')), swiftc, extra])).digest('hex').slice(0, 16);
     const dir = resolve(own ? linkRoot : swiftBuildRoot, 'arms'), cached = resolve(dir, `${key}-${basename(built)}`);
-    try { const now = new Date(); utimesSync(cached, now, now); copyFileSync(cached, built); return async () => {}; } catch {} // none, or evicted meanwhile
+    try { const now = new Date(); utimesSync(cached, now, now); copyFileSync(cached, built); return async () => true; } catch {} // none, or evicted meanwhile
     mkdirSync(dir, { recursive: true });
     const making = `${cached}.${process.pid}.tmp`;
-    const compile = startApple('xcrun', args.map(a => a === built ? making : a), resolve(webBuildDir, `arm-${beside.length}.log`));
+    const log = resolve(webBuildDir, `arm-${beside.length}.log`), compile = startApple('xcrun', args.map(a => a === built ? making : a), log);
     beside.push(compile);
     return async () => {
-      await compile.done();
+      if (!await compile.done({ repeated: optional })) return log;
       // Place this build's result before publishing it to the shared eviction pool.
       copyFileSync(making, built);
       renameSync(making, cached);
-      evictArms(dir, basename(built));
+      evictArms(dir, basename(built)); return true;
     };
   };
   const arms = [];
@@ -1056,14 +1042,14 @@ async function main(args) {
   // The slice of each `modules/apple/*.xcframework` for this build, read
   // from the xcframework's own Info.plist (`AvailableLibraries`: platform,
   // variant, architectures), never guessed from a directory name; Mac
-  // Catalyst is a variant of its own and never matches. A static library's
+  // Catalyst is a variant of its own, matched only for the roster probe. A static library's
   // slice gives `-I` its headers, `-L` it and `-l` each archive in it; a
   // framework's slice gives `-F` it and `-framework` its name.
   const frameworkSlice = (fw, forIos, simulator, arch) => {
     const read = spawnSync('plutil', ['-convert', 'json', '-o', '-', resolve(fw, 'Info.plist')], { encoding: 'utf8' });
     if (read.status !== 0) throw new Error(`host/apple: ${basename(fw)} has no readable Info.plist: ${(read.stderr || '').trim()}`);
     let plist; try { plist = JSON.parse(read.stdout || '{}'); } catch (e) { throw new Error(`host/apple: ${basename(fw)}'s Info.plist is not a dictionary: ${e.message}`); }
-    const platform = forIos ? 'ios' : 'macos', variant = forIos && simulator ? 'simulator' : undefined;
+    const platform = forIos ? 'ios' : 'macos', variant = forIos && simulator ? (simulator === true ? 'simulator' : simulator) : undefined;
     const lib = (plist.AvailableLibraries ?? []).find(l => l.SupportedPlatform === platform && (l.SupportedPlatformVariant || undefined) === variant && (l.SupportedArchitectures ?? []).includes(arch));
     if (!lib) throw new Error(`host/apple: ${basename(fw)} has no ${platform}${variant ? ' ' + variant : ''} ${arch} slice in its Info.plist`);
     const dir = resolve(fw, lib.LibraryIdentifier), framework = lib.LibraryPath.endsWith('.framework');
@@ -1089,15 +1075,16 @@ async function main(args) {
   const moduleArgs = (sdkFor, targetArgs, out, forIos = false, simulator = false, arch = macArch) => ['--sdk', sdkFor, 'swiftc', '-module-cache-path', resolve(swiftBuildRoot, 'modules-module-cache'), '-parse-as-library', '-emit-library', '-O', '-swift-version', '5', '-module-name', 'ExactAppModules', ...moduleSources, ...frameworkArgs(forIos, simulator, arch), ...linkArgs(forIos), '-o', out, ...targetArgs];
   const macTarget = ['-target', `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-macos14.0`];
   if (modulesBuilt) arms.push(arm(moduleArgs(sdkName, ios ? ['-target', tv ? iosTripleFor(app, device, true) : device ? 'arm64-apple-ios17.0' : iosTriple, '-sdk', sdk] : macTarget, modulesBuilt, ios, ios && !device, ios ? iosArch : macArch), moduleSources, modulesBuilt, frameworkStamp(ios, ios && !device, ios ? iosArch : macArch), true));
-  // The roster the artifact serves is read from its table: a macOS slice (the
-  // one this process can load) of the same sources for an iOS build. That
-  // probe is a macOS build of the same Swift, so an iOS build whose
-  // xcframework has no macOS slice cannot be probed: its roster is taken from
-  // the manifest, as it is without Bun.
-  const probeable = !ios || (modules.frameworks ?? []).every(fw => { try { frameworkSlice(fw, false, false, macArch); return true; } catch { return false; } });
-  const probed = modulesBuilt && modules.tags.length && typeof Bun !== 'undefined' && probeable;
-  const probe = ios ? resolve(webBuildDir, 'probe-' + modulesLoadName) : modulesBuilt;
-  if (probed && ios) arms.push(arm(moduleArgs('macosx', macTarget, probe), moduleSources, probe, frameworkStamp(false, false, macArch), true));
+  // The roster the artifact serves (its tags, and which join the first frame) is read from its table: for iOS from a Mac
+  // Catalyst executable of the same sources (their iOS code, run here), else a macOS slice; for tvOS the macOS slice, and no
+  // tag joins the first frame. A probe that does not compile or run is named; it, or no slice, fails a production build.
+  const sliced = (forIos, variant) => (modules.frameworks ?? []).every(fw => { try { frameworkSlice(fw, forIos, variant, macArch); return true; } catch { return false; } });
+  const via = !ios ? 'macOS' : !tv && sliced(true, 'maccatalyst') ? 'Mac Catalyst' : sliced(false, false) ? 'macOS' : null, probeable = via !== null;
+  let probed = modulesBuilt && modules.tags.length && typeof Bun !== 'undefined' && probeable, probeFailure = null, rosterKeys = {};
+  const probe = !ios ? modulesBuilt : resolve(webBuildDir, via === 'macOS' ? 'probe-' + modulesLoadName : 'probe-roster'), probeMain = resolve(linkRoot, 'ExactRosterProbe.swift'), catalyst = probed && via === 'Mac Catalyst' && resolve(read('xcrun', ['--sdk', 'macosx', '--show-sdk-path']).stdout.trim(), 'System/iOSSupport');
+  if (catalyst) writeFileSync(probeMain, '@main enum ExactRosterProbe { static func main() { print(String(cString: exactNativeAbi().load(fromByteOffset: 8, as: UnsafePointer<CChar>.self))) } }\n');
+  const probing = !(probed && ios) ? null : catalyst ? [moduleArgs('macosx', ['-target', `${macArch}-apple-ios17.0-macabi`, '-Fsystem', `${catalyst}/System/Library/Frameworks`, '-I', `${catalyst}/usr/lib/swift`, '-L', `${catalyst}/usr/lib/swift`, probeMain], probe, true, 'maccatalyst', macArch).filter(a => a !== '-emit-library'), [...moduleSources, probeMain], frameworkStamp(true, 'maccatalyst', macArch)] : [moduleArgs('macosx', macTarget, probe), moduleSources, frameworkStamp(false, false, macArch)];
+  if (probing) { const placed = arm(probing[0], probing[1], probe, probing[2], true, true); arms.push(async () => { const log = await placed(); if (log !== true) { probed = false; const at = resolve(linkRoot, 'roster-probe.log'); copyFileSync(log, at); probeFailure = { did: 'compile', text: readFileSync(at, 'utf8'), at }; } }); }
   await hostCompile?.done({ repeated: true });
   // The early build stands when it succeeded and the bake came out as it was expected to.
   const linkedEarly = early ? await early.step.done({ repeated: true }) && expected.capture === libDir && expected.composition === composition && expected.scratch === paths.scratch : false;
@@ -1145,8 +1132,8 @@ async function main(args) {
       const executable = resolve(binDir, p === product ? paths.executable : p);
       copyFileSync(resolve(swiftBinDir, p), executable);
       assertAppleIdentity(app, executable, bakedCompat.id);
-      const platform = ios ? 'ios' : 'macos';
-      assertLinkedSdk(executable, designCompatible(app, platform) ? COMPATIBLE_SDK[platform] : read('xcrun', ['--sdk', sdkName, '--show-sdk-version']).stdout.trim());
+      assertLinkedSdk(executable, designCompatible(app, ios ? 'ios' : 'macos') ? COMPATIBLE_SDK[ios ? 'ios' : 'macos'] : read('xcrun', ['--sdk', sdkName, '--show-sdk-version']).stdout.trim());
+      assertCapabilityFrameworks(executable, swiftCapabilities);
       if (ipa) stripped = stripForDistribution(executable, `${ipa.replace(/\.ipa$/, '')}.dSYM`);
     }
   } finally { releaseSwift(); }
@@ -1154,13 +1141,23 @@ async function main(args) {
   for (const placed of arms) await placed();
   if (modules.tags.length) {
     let provided = [];
-    if (modulesBuilt && typeof Bun !== 'undefined' && !probeable) console.warn(`host/apple: an xcframework has no macOS slice, so the iOS module roster is not probed; the manifest's roster stands`);
-    if (probed) {
-      const { dlopen, read, CString } = import.meta.require('bun:ffi');
-      const table = dlopen(probe, { exact_native_abi: { args: [], returns: 'ptr' } }).symbols.exact_native_abi();
-      provided = Object.keys(JSON.parse(new CString(read.ptr(table, 8)).toString()));
+    const blind = modulesBuilt && typeof Bun !== 'undefined' && !probeable && 'host/apple: an xcframework has neither a Mac Catalyst nor a macOS slice, so the iOS module roster cannot be read';
+    if (blind) { if (cargoEnv.EXACT_UPDATE_TRUST === 'production') throw new Error(blind); console.warn(`${blind}; the manifest's roster stands`); }
+    const ran = probed && catalyst ? read(probe, []) : null;
+    if (ran && ran.status !== 0) { probed = false; probeFailure = { did: 'run', text: `${ran.stderr ?? ''}${ran.error?.message ?? ''}` || `exit ${ran.status}`, at: `exit status ${ran.status ?? ran.error?.message}` }; }
+    if (probeFailure) {
+      const lines = probeFailure.text.trim().split('\n'), named = lines.filter(l => / error: |^ld: |[Uu]ndefined symbol/.test(l));
+      const why = `host/apple: the module's Swift does not ${probeFailure.did} for ${via}, where an iOS build reads its roster (${probeFailure.at}):\n${(named.length ? named : lines.slice(-5)).slice(0, 5).join('\n')}`;
+      if (cargoEnv.EXACT_UPDATE_TRUST === 'production') throw new Error(why); else console.warn(`${why}\nThe manifest's roster stands, and no tag joins the first frame (docs/recipes/native-views.md)`);
+    } else if (probed) {
+      const { dlopen, read: at, CString } = import.meta.require('bun:ffi');
+      const roster = JSON.parse(ran ? ran.stdout : new CString(at.ptr(dlopen(probe, { exact_native_abi: { args: [], returns: 'ptr' } }).symbols.exact_native_abi(), 8)).toString());
+      provided = Object.keys(roster);
+      // LLP 1024 D3's first-frame tags, which the host reads before it loads the module.
+      const firstFrame = provided.filter(tag => roster[tag].firstFrame === true);
+      if (firstFrame.length && !tv) rosterKeys = { ExactFirstFrameModules: firstFrame };
     } else if (modulesBuilt) console.warn('host/apple: the module roster check needs Bun (bun:ffi); skipped');
-    checkModuleRoster(app, modulesBuilt && (typeof Bun === 'undefined' || !probeable) ? modules.tags : provided, `host/apple ${ios ? 'iOS' : 'macOS'}`, cargoEnv.EXACT_UPDATE_TRUST === 'production');
+    checkModuleRoster(app, modulesBuilt && (typeof Bun === 'undefined' || !probeable || probeFailure) ? modules.tags : provided, `host/apple ${ios ? 'iOS' : 'macOS'}`, cargoEnv.EXACT_UPDATE_TRUST === 'production');
   }
   const tArms = Date.now();
   // The SVG island module (@ref LLP 1055.000 §8 ruling 4: exact-svg-raster,
@@ -1243,7 +1240,7 @@ async function main(args) {
     rmSync(resolve(binDir, 'Info.plist'), { force: true });
     rmSync(resolve(binDir, '_CodeSignature'), { recursive: true, force: true });
     const { NSAccentColorName } = appleAssets(app, binDir, { platform: 'macos', kept: { dir: resolve(linkRoot, 'assets'), stamp: swiftc }, expected: buildReceipt.binary.metadata.appleAssetCatalogs ?? [] }), accent = NSAccentColorName ? { NSAccentColorName } : {};
-    writeFileSync(resolve(binDir, `${paths.executable}-Info.plist`), macInfoPlist(app, { development, reach: bakedCompat.reach, icon: { ...accent, ...buildInfo(app, { root, production: production || distribution, ...stampSdk }) } }));
+    writeFileSync(resolve(binDir, `${paths.executable}-Info.plist`), macInfoPlist(app, { development, reach: bakedCompat.reach, icon: { ...rosterKeys, ...accent, ...buildInfo(app, { root, production: production || distribution, ...stampSdk }) } }));
     if (hasWeb) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', webDest], { stdio: 'ignore' });
     if (modulesBuilt) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(binDir, modulesLoadName)], { stdio: 'ignore' });
     if (hasSvg) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(binDir, svgLoadName)], { stdio: 'ignore' });
@@ -1251,8 +1248,8 @@ async function main(args) {
     for (const p of products.slice(1)) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', '--identifier', `${app.id}.${p.toLowerCase()}`, resolve(binDir, p)], { stdio: 'ignore' });
     // The receipt beside it (LLP 1030 D2).
     writeFileSync(resolve(binDir, 'receipt.json'), receipt(app, { compatibilityId:bakedCompat.id, build:buildReceipt, composition, platform: 'macos', target: process.arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin', sdk, identity: sha1 ?? 'ad-hoc', profile: null, entitlements: null, gpu: hasGpu ? dylib : null, development }));
-    // A local .app gives Launch Services an owner for development links.
-    if (args.includes('--bundle') || buildReceipt.binary.metadata.appleAssetCatalogs?.length) {
+    // A local .app gives Launch Services an owner for development links, and is what `--run` launches (a bare executable has no Info.plist).
+    if (args.includes('--bundle') || args.includes('--run') || buildReceipt.binary.metadata.appleAssetCatalogs?.length) {
       const bundleDestination = appleArtifacts(app).bundle;
       const output = resolve(bundleDestination, '..');
       mkdirSync(output, { recursive: true });
@@ -1264,19 +1261,21 @@ async function main(args) {
       mkdirSync(executables, { recursive: true });
       mkdirSync(resources);
       for (const file of [paths.executable, ...loaded, ...(canvasGpuBuilt ? [canvasGpuLoadName] : []), ...(modulesBuilt ? [modulesLoadName] : []), ...(hasGpu ? [loadName] : []), ...moduleDylibs.map(m => m.load)]) copyFileSync(resolve(binDir, file), resolve(executables, file));
-      writeFileSync(resolve(contents, 'Info.plist'), macInfoPlist(app, { development, reach: bakedCompat.reach, icon: { ...accent, ...buildInfo(app, { root, production: production || distribution, ...stampSdk }) } }));
+      writeFileSync(resolve(contents, 'Info.plist'), macInfoPlist(app, { development, reach: bakedCompat.reach, icon: { ...rosterKeys, ...accent, ...buildInfo(app, { root, production: production || distribution, ...stampSdk }) } }));
       copyAppleStaticTrees(paths.capture, resources);
       if (existsSync(resolve(binDir, 'Assets.car'))) copyFileSync(resolve(binDir, 'Assets.car'), resolve(resources, 'Assets.car'));
       verifyBakeFiles(bakedCompat, bakedPlan, listAssets(resources, true));
-      writeFileSync(resolve(contents, 'Info.plist'), macInfoPlist(app, { development, reach: bakedCompat.reach, icon: { ...appIcon(app, resources, 'macos'), ...accent, ...buildInfo(app, { root, production: production || distribution, ...stampSdk }) } }));
+      writeFileSync(resolve(contents, 'Info.plist'), macInfoPlist(app, { development, reach: bakedCompat.reach, icon: { ...rosterKeys, ...appIcon(app, resources, 'macos'), ...accent, ...buildInfo(app, { root, production: production || distribution, ...stampSdk }) } }));
       writeUsageStrings(bakedCompat.reach, resources);
       const whole = readFileSync(resolve(binDir, 'receipt.json'), 'utf8');
       writeFileSync(resolve(resources, 'receipt.json'), distribution ? shippedReceipt(whole) : whole);
       // Preserve the GPU artifact signatures that the baked receipt names.
       for (const file of [...loaded, ...(canvasGpuBuilt ? [canvasGpuLoadName] : []), ...(modulesBuilt ? [modulesLoadName] : [])]) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(executables, file)], { stdio: 'ignore' });
       copyMacResources(app, contents, buildReceipt.binary.metadata.nativeResources ?? []);
-      const nativeRoots = (app.manifest.host?.macos?.resources ?? []).map(({to}) => resolve(contents, to));
-      for (const file of signingOrder(bundle, bakedCompat).filter(file => nativeRoots.some(root => file === root || file.startsWith(root + '/')))) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', file], { stdio: 'ignore' });
+      const nativeRoots = (app.manifest.host?.macos?.resources ?? []).map(({to}) => resolve(contents, to)), order = signingOrder(bundle, bakedCompat);
+      // A runtime exception's target is checked here, not first at release (LLP 1069.008 D9); a development build signs without the hardened runtime, so with no entitlements.
+      helperEntitlements(bundle, app.manifest, bakedCompat, order);
+      for (const file of order.filter(file => nativeRoots.some(root => file === root || file.startsWith(root + '/')))) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', file], { stdio: 'ignore' });
       run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', bundle], { stdio: 'ignore' });
       const placed = bundleDestination;
       assertAppleIdentity(app, resolve(executables, paths.executable), bakedCompat.id);
@@ -1307,7 +1306,7 @@ async function main(args) {
   copyAppleStaticTrees(paths.capture, bundle);
   verifyBakeFiles(bakedCompat, bakedPlan, listAssets(bundle, true));
   const assetKeys = iosAssets(app, bundle, device, { tv, catalog: !!ipa, kept: { dir: resolve(linkRoot, 'assets'), stamp: swiftc }, expected: buildReceipt.binary.metadata.appleAssetCatalogs ?? [], launch: buildReceipt.graph.launchBackground });
-  writeFileSync(resolve(bundle, 'Info.plist'), infoPlist(app, device, { development, reach: appleReach, icon: assetKeys, distribution: { ...(ipa ? distributionKeys(sdkName) : {}), ...buildInfo(app, { root, archive: !!ipa, production: production || distribution, ...stampSdk }) }, tv }));
+  writeFileSync(resolve(bundle, 'Info.plist'), infoPlist(app, device, { development, reach: appleReach, icon: assetKeys, distribution: { ...rosterKeys, ...(ipa ? distributionKeys(sdkName) : {}), ...buildInfo(app, { root, archive: !!ipa, production: production || distribution, ...stampSdk }) }, tv }));
   writeUsageStrings(appleReach, bundle);
   copyAppleGpuProducts(libDir, resolve(bundle, 'Frameworks'), gpuArtifacts, !!ipa);
   if (hasWeb) copyFileSync(webBuilt, resolve(bundle, 'Frameworks', webLoadName));
@@ -1323,7 +1322,7 @@ async function main(args) {
     mkdirSync(resolve(hostBundle, 'Frameworks'), { recursive: true });
     copyFileSync(resolve(binDir, 'ExactHostIOS'), resolve(hostBundle, 'ExactHostIOS'));
     // The sample host takes no development link: it would share the scheme.
-    writeFileSync(resolve(hostBundle, 'Info.plist'), infoPlist(app, device, { executable: 'ExactHostIOS', id: `${app.id}.host`, name: 'Host (not Exact)', reach: appleReach, icon: assetKeys.NSAccentColorName ? { NSAccentColorName: assetKeys.NSAccentColorName } : {}, distribution: buildInfo(app, { root, production: production || distribution, ...stampSdk }) }));
+    writeFileSync(resolve(hostBundle, 'Info.plist'), infoPlist(app, device, { executable: 'ExactHostIOS', id: `${app.id}.host`, name: 'Host (not Exact)', reach: appleReach, icon: { ...rosterKeys, ...(assetKeys.NSAccentColorName ? { NSAccentColorName: assetKeys.NSAccentColorName } : {}) }, distribution: buildInfo(app, { root, production: production || distribution, ...stampSdk }) }));
     writeUsageStrings(appleReach, hostBundle);
     copyAppleStaticTrees(paths.capture, hostBundle);
     if (existsSync(resolve(bundle, 'Assets.car'))) copyFileSync(resolve(bundle, 'Assets.car'), resolve(hostBundle, 'Assets.car'));
@@ -1368,7 +1367,7 @@ async function main(args) {
     return;
   }
   if (args.includes('--no-install')) { if (args.includes('--run')) throw new Error('--no-install takes no --run'); console.log(`host/apple: ${paths.bundle} (${timing()}); built and signed, installed on nothing (--no-install)`); return; }
-  const dev = device ? ph : simulator(args.includes('--sim') ? args[args.indexOf('--sim') + 1] : undefined, { tv, hint: '--sim <udid|name> (or EXACT_SIM)' });
+  const dev = device ? ph : simulator(args.includes('--sim') ? args[args.indexOf('--sim') + 1] : undefined, { tv, app: app.id, hint: '--sim <udid|name> (or EXACT_SIM)' });
   for (const [, host] of bundles) {
     const placed = host ? hostPaths.bundle : paths.bundle;
     if (device) {
@@ -1402,7 +1401,7 @@ async function test(args) {
   // The fixtures tests boot (scripts/fixtures), compiled at this commit and named in `env` as `<prefix>_<KEY>_PLAN`:
   // a plan carries the kernel schema's digest, so one compiled once and kept in a test goes stale.
   const compileFixtures = (env, dir, prefix) => {
-    for (const [name, key] of [['native-navigation-scroll', 'NATIVE_SCROLL'], ['intersect', 'INTERSECT'], ['native-buttons', 'BUTTONS'], ['keyboard-form', 'KEYBOARD'], ['tab-edge', 'TAB_EDGE'], ['repaint', 'REPAINT'], ['still-title', 'STILL_TITLE'], ['navigation-bars', 'NAVIGATION_BARS'], ['large-title', 'LARGE_TITLE'], ['bar-band', 'BAR_BAND'], ['pad-bar', 'PAD_BAR'], ['pushed-title', 'PUSHED_TITLE'], ['inline-frame', 'INLINE_FRAME'], ['fieldless', 'FIELDLESS'], ['web-documents', 'WEB_DOCUMENTS'], ['tab-owner', 'TAB_OWNER']]) {
+    for (const [name, key] of [['native-navigation-scroll', 'NATIVE_SCROLL'], ['intersect', 'INTERSECT'], ['native-buttons', 'BUTTONS'], ['keyboard-form', 'KEYBOARD'], ['tab-edge', 'TAB_EDGE'], ['repaint', 'REPAINT'], ['still-title', 'STILL_TITLE'], ['navigation-bars', 'NAVIGATION_BARS'], ['large-title', 'LARGE_TITLE'], ['bar-band', 'BAR_BAND'], ['pad-bar', 'PAD_BAR'], ['pushed-title', 'PUSHED_TITLE'], ['inline-frame', 'INLINE_FRAME'], ['fieldless', 'FIELDLESS'], ['web-documents', 'WEB_DOCUMENTS'], ['tab-owner', 'TAB_OWNER'], ['grouped-list-reveal', 'GROUPED_REVEAL']]) {
       const plan = env[`${prefix}_${key}_PLAN`] = resolve(dir, `${name}.plan`);
       run('cargo', ['run', '-q', '-p', 'contract', '--bin', 'contract', '--manifest-path', resolve(root, 'Cargo.toml'), '--', 'build', resolve(root, `scripts/fixtures/${name}.contract`), '-o', plan]);
     }
@@ -1434,6 +1433,19 @@ async function test(args) {
     mkdirSync(paths.namespace, { recursive: true });
     env.EXACT_SVG_METALLIB = svgFilterLibrary(ios ? 'iphonesimulator' : 'macosx', ios ? '17.0' : '14.0', resolve(paths.namespace, svgFilterLibraryName), true);
     if (ios) env.TEST_RUNNER_EXACT_SVG_METALLIB = env.EXACT_SVG_METALLIB;
+    // The optional modules tests drive, built for the tests' platform as a build embeds them and named to the runner: the
+    // video and WebKit arms and the Canvas 2D GPU module. A test without one is a missing prerequisite (Coverage.swift).
+    const armDir = resolve(paths.namespace, 'arms');
+    const arm = (name, sources, frameworks, out = resolve(armDir, `lib${name}.dylib`)) => (runApple('xcrun', ['--sdk', ios ? 'iphonesimulator' : 'macosx', 'swiftc', '-parse-as-library', '-emit-library', '-O', '-module-name', name,
+      '-module-cache-path', resolve(armDir, 'cache'), ...sources, ...frameworks.flatMap(f => ['-framework', f]), '-target', ios ? iosTriple : `${macTriple}14.0`, '-o', out]), out);
+    const named = ios ? 'TEST_RUNNER_' : '';
+    env[`${named}EXACT_VIDEO_DYLIB`] = arm('ExactVideoArm', ['VideoArm.swift', 'NowPlaying.swift'].map(f => resolve(root, 'host/apple/videoarm', f)), ['AVKit', 'MediaPlayer']);
+    env[`${named}EXACT_TEST_WEB_MODULE`] = arm('ExactWebArm', [resolve(root, 'host/apple/webarm/WebArm.swift'), '-D', 'EXACT_DEVELOPMENT'], ['WebKit']);
+    // The GPU module goes to its own tests alone: loaded, every canvas draws on the GPU (xctest.mjs).
+    const modules = resolve(process.env.CARGO_TARGET_DIR ?? resolve(root, 'target'), 'apple-modules');
+    run('cargo', ['build', '--profile', HOST_DEV, '-p', 'exact-canvas-vello', '--lib', ...(ios ? ['--target', iosTarget] : []), '--target-dir', modules, '--manifest-path', resolve(root, 'Cargo.toml')],
+      { env: { ...cargoEnv, [`CARGO_PROFILE_${HOST_DEV.toUpperCase().replace(/-/g, '_')}_STRIP`]: 'false' } });
+    const canvasGpu = resolve(modules, ...(ios ? [iosTarget] : []), HOST_DEV, 'libexact_canvas_vello.dylib');
     if (!ios) {
       // Tests that compile their own Contract source run this compiler, built
       // here as `cargo build` would, never assumed from an earlier build.
@@ -1442,7 +1454,7 @@ async function test(args) {
       compileFixtures(env, paths.namespace, 'EXACT');
       const swiftEnv = { ...env, MACOSX_DEPLOYMENT_TARGET: '14.0' }, scratch = resolve(paths.namespace, 'tests');
       runApple('swift', ['build', '--build-tests', '--scratch-path', scratch], { cwd: pkg, stdio: 'inherit', env: swiftEnv });
-      return await macTests(pkg, scratch, swiftEnv);
+      return await macTests(pkg, scratch, swiftEnv, canvasGpu);
     }
     // The fixture's plan and hatch module (LLP 1075.003 §3.9), built for the
     // tests' simulator so they run its hatches over its routes: the glue, its
@@ -1463,21 +1475,6 @@ async function test(args) {
       '-module-cache-path', resolve(fixtureDir, 'cache'), resolve(root, 'host/apple/modules/ExactNativeModule.swift'), resolve(fixtureDir, 'ExactDataKeys.swift'),
       ...fixture.modules.apple, '-target', iosTriple, '-o', env.TEST_RUNNER_EXACT_FIXTURE_MODULE]);
     compileFixtures(env, fixtureDir, 'TEST_RUNNER_EXACT');
-    // The optional modules tests drive, built for the simulator as a build embeds them and named
-    // to the runner: the WebKit arm, the video arm and the Canvas 2D GPU module. A test without
-    // one is a missing prerequisite, which fails under EXACT_REQUIRED (Coverage.swift).
-    const arm = (name, sources, frameworks) => {
-      const out = resolve(fixtureDir, `lib${name}.dylib`);
-      runApple('xcrun', ['--sdk', 'iphonesimulator', 'swiftc', '-parse-as-library', '-emit-library', '-O', '-module-name', name,
-        '-module-cache-path', resolve(fixtureDir, 'cache'), ...sources, ...frameworks.flatMap(f => ['-framework', f]), '-target', iosTriple, '-o', out]);
-      return out;
-    };
-    env.TEST_RUNNER_EXACT_TEST_WEB_MODULE = arm('ExactWebArm', [resolve(root, 'host/apple/webarm/WebArm.swift'), '-D', 'EXACT_DEVELOPMENT'], ['WebKit']);
-    env.TEST_RUNNER_EXACT_VIDEO_DYLIB = arm('ExactVideoArm', ['VideoArm.swift', 'NowPlaying.swift'].map(f => resolve(root, 'host/apple/videoarm', f)), ['AVKit', 'MediaPlayer']);
-    const modules = resolve(process.env.CARGO_TARGET_DIR ?? resolve(root, 'target'), 'apple-modules');
-    run('cargo', ['build', '--profile', HOST_DEV, '-p', 'exact-canvas-vello', '--lib', '--target', iosTarget, '--target-dir', modules, '--manifest-path', resolve(root, 'Cargo.toml')],
-      { env: { ...cargoEnv, [`CARGO_PROFILE_${HOST_DEV.toUpperCase().replace(/-/g, '_')}_STRIP`]: 'false' } });
-    const canvasGpu = resolve(modules, iosTarget, HOST_DEV, 'libexact_canvas_vello.dylib');
     if (process.env.EXACT_REQUIRED) env.TEST_RUNNER_EXACT_REQUIRED = process.env.EXACT_REQUIRED;
     const pick = args.includes('--sim') ? args[args.indexOf('--sim') + 1] : process.env.EXACT_SIM;
     const before = simulators();
@@ -1494,6 +1491,6 @@ async function test(args) {
 }
 if (process.argv[1] && resolve(process.argv[1]) === new URL(import.meta.url).pathname) {
   const args = guardFlags(['--ios', '--device', '--tvos'].some((flag) => process.argv.includes(flag)) ? 'ios' : 'mac', process.argv.slice(2));
-  useXcode();
+  useXcode(); if (args.includes('--release')) process.env.EXACT_UPDATE_TRUST = 'production'; // the build that ships: Cargo's release profile, no development trust
   (args.includes('--test') ? test(args) : main(args)).catch((error) => { console.error(error.message); process.exitCode = 1; });
 }

@@ -20,6 +20,10 @@ impl<D: DataSource> Presenter<D> {
     /// Connect the existing development URL loop; polling starts after first pixel.
     pub fn set_development(&mut self, url: Option<String>, identity: Option<String>) {
         self.dev = url.map(|url| crate::fetch::Poller::new(url, self.compat.clone(), identity));
+        // What the build channel's registration names (LLP 1122 D4).
+        if let Some(link) = self.dev.as_mut().and_then(|dev| dev.link.as_mut()) {
+            link.design = Some(self.host.runner().design());
+        }
     }
 
     /// Apply a finished URL generation without blocking the presentation thread.
@@ -32,12 +36,30 @@ impl<D: DataSource> Presenter<D> {
             Some(Err(error)) => eprintln!("exact url: {error}; keeping the running app"),
             _ => {}
         }
+        // The build channel (LLP 1122 D4): the frames its tick took, the
+        // commands dispatched before any generation is handled.
+        self.serve_build_channel();
         if let Some(generation) = self.pending_dev.take() {
             match self.reload_module(&generation.plan, data(), generation.module.clone()) {
-                Ok(_) => self.dev.as_mut().unwrap().identity = Some(generation.identity),
+                Ok(_) => {
+                    let dev = self.dev.as_mut().unwrap();
+                    dev.identity = Some(generation.identity);
+                    // The generation runs the design it was built with; one
+                    // applied live while it downloaded is newer. The next
+                    // tick's snapshot (or 204, the plan's own) converges.
+                    if let Some(link) = dev.link.as_mut() {
+                        link.snapshot = true;
+                    }
+                    self.repin();
+                    self.report_status();
+                }
                 Err(HostError::PreparingModule) => self.pending_dev = Some(generation),
                 Err(error) => eprintln!("exact url: candidate refused: {error}"),
             }
+        }
+        // The live table: the snapshot and the commands poll's batches.
+        if self.pending_dev.is_none() {
+            self.serve_live();
         }
     }
 

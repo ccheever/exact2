@@ -268,6 +268,8 @@ thread_local! {
     /// the runner sets it from the plan it boots, on the thread that drives
     /// it, so two runners on two threads (and two tests) keep their own.
     static OVERRIDES: std::cell::RefCell<Vec<(u8, ColorValue)>> = const { std::cell::RefCell::new(Vec::new()) };
+    /// The wide colours the overrides hold, kept from the table's sweep.
+    static KEPT: std::cell::RefCell<super::wide::Keep> = std::cell::RefCell::new(super::wide::Keep::default());
 }
 
 /// The overridden roles as set, for a caller that puts them back.
@@ -287,6 +289,15 @@ pub fn set_overrides(next: Vec<(u8, ColorValue)>) -> bool {
         let mut table = t.borrow_mut();
         let changed = *table != next;
         let replaced = changed && !table.is_empty();
+        if changed {
+            KEPT.with(|k| {
+                *k.borrow_mut() = super::wide::Keep::of(|m| {
+                    for (_, c) in &next {
+                        m.color(*c);
+                    }
+                });
+            });
+        }
         *table = next;
         (changed, replaced)
     });
@@ -430,6 +441,10 @@ thread_local! {
 /// `--exact-accent` inherited for exactly that and Apple's tint stays the
 /// ancestor's; another role (`LinkText`) is the platform's colour, read with
 /// no scope ([`painted_accent`]).
+///
+/// The scope holds a copy of a wide colour id, unmarked (LLP 1121 stage 4):
+/// it lasts only inside one paint call, and the id is the painted node's,
+/// which the kernel the host borrows to paint marks for that whole time.
 pub fn authored_accent(accent: Option<ColorValue>) -> AccentScope {
     let accent = match accent {
         Some(ColorValue::Role(id)) if id == self::accent() => AUTHORED.with(|a| a.get()),

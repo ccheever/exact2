@@ -110,3 +110,27 @@ test('readManifest names the game.presentation rename instead of an unknown key'
     assert.throws(() => readManifest(dir, 'island'), (e) => !/not a known key/.test(e.message));
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('the manifest orientation locks the iPhone, and an unknown one is refused', async () => {
+  const { infoPlist } = await import('../host/apple/build.mjs');
+  const { phoneOrientations } = await import('../host/apple/devices.mjs');
+  const plist = (orientation) => infoPlist({ id: 'dev.exact.o', displayName: 'O', manifest: orientation ? { orientation } : {} }).replace(/\s+/g, '');
+  assert.match(plist('portrait'), /<key>UISupportedInterfaceOrientations<\/key><array><string>UIInterfaceOrientationPortrait<\/string><\/array>/);
+  // iPad keeps all four, as its multitasking requires, whatever the iPhone is locked to
+  assert.match(plist('portrait'), /<key>UISupportedInterfaceOrientations~ipad<\/key><array>(<string>UIInterfaceOrientation[A-Za-z]+<\/string>){4}<\/array>/);
+  assert.match(plist('landscape-primary'), /<key>UISupportedInterfaceOrientations<\/key><array><string>UIInterfaceOrientationLandscapeRight<\/string><\/array>/);
+  for (const free of [undefined, 'any']) assert.doesNotMatch(plist(free), /UISupportedInterfaceOrientations</);
+  assert.deepEqual(phoneOrientations('landscape'), ['UIInterfaceOrientationLandscapeLeft', 'UIInterfaceOrientationLandscapeRight']);
+  assert.deepEqual(phoneOrientations('portrait-secondary'), ['UIInterfaceOrientationPortrait']);
+  const { readManifest } = await import('./app.mjs');
+  const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const dir = mkdtempSync(resolve(tmpdir(), 'manifest-orientation-'));
+  try {
+    const save = (orientation) => writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'O', app: { id: 'dev.exact.o', name: 'O' }, orientation }));
+    save('portrait');
+    assert.equal(readManifest(dir, 'o').orientation, 'portrait');
+    save('upright');
+    assert.throws(() => readManifest(dir, 'o'), /is not one of/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

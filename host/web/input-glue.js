@@ -85,6 +85,14 @@ function roveArrow(root, event) {
   return true;
 }
 export function createInputHandlers({ root, views, retiredViews, ready, inertAncestor, editMenu, dispatch, release: dispatchRelease = () => {}, velocity = {}, agentMode = false, log = () => {}, documents = null }) {
+  // @ref LLP 1005 §Events — a pointer's down goes along the event's own path,
+  // innermost first, to each node's `exactPointerDown` (`pointer` below), from
+  // this one listener at the root's capture, before any element's: a
+  // recognizer that stops the event (a pan taking its contact) takes nothing
+  // from the pointer events, as on the native hosts.
+  // Every holder is fixed before any down runs, as the native hosts fix the
+  // path: a node a handler further in disables or removes still hears the up.
+  root.addEventListener("pointerdown", e => { const path = e.composedPath(); for (const n of path) n.exactPointerDown?.(e, true); for (const n of path) n.exactPointerDown?.(e, false); }, true);
   // @ref LLP 1038 §7 — a plain click on a same-origin link to a declared
   // route stays in this document: a link with its own `press` navigates by
   // it; any other goes to the root's `navigate` handler, as popstate does.
@@ -309,7 +317,8 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     arrive, // once the piece is made (the stack as it stands), then after each commit's tree, its focus commands and its `autofocus`
     // @ref LLP 1005 §3 — `pointerdown`/`pointerup`, DOM's own: the primary
     // button or a touch going down on the node, then up or cancelled (a
-    // cancel is an up). The up is heard on the document, so it arrives
+    // cancel is an up), bubbling to every enabled ancestor that hears either
+    // (Charlie, 2026-10-15). The up is heard on the document, so it arrives
     // wherever the pointer lifts; a pointer capture would also retarget the
     // click there, a press the platforms do not make. LLP 1056 §3 stage 3 —
     // `pointermove`: a free pointer over the node (no button down), or the
@@ -318,7 +327,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     // pointerId,` the modifiers held, from the content box): `fire(29, r)` is down, 30 up, 31 a
     // move. The JS target's pointer.js is the same rule.
     pointer(el, on, fire) {
-      let held = null, last = null, move = null, frame = 0;
+      let held = null, owner = false, last = null, move = null, frame = 0, downOf = null;
       const wants = kind => el.exactHandlers?.includes(kind);
       const record = (e, lifted = false) => pointerLine(el, e, lifted);
       const flush = () => {
@@ -327,18 +336,22 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
         if (m && wants("pointermove") && ready()) fire(31, record(m));
       };
       const moved = e => { last = e; move = e; if (!frame) frame = requestAnimationFrame(flush); };
-      const heldMove = e => { if (e.pointerId === held) moved(e); };
+      // While held: the owner's moves, and every holder's latest point,
+      // which a blur's up reports.
+      const heldMove = e => { if (e.pointerId !== held) return; last = e; if (owner) moved(e); };
       // The end: an up or cancel anywhere in the document, or the pointer
       // leaving it (out of the window, into a frame) or the window losing
       // focus, which this document never hears the up from.
       const ends = [["pointerup", document], ["pointercancel", document], ["pointerout", document], ["blur", window]];
       const up = e => {
         if (e.type === "blur" ? e.target !== window : e.pointerId !== held || (e.type === "pointerout" && e.relatedTarget && e.relatedTarget.localName !== "iframe")) return;
-        held = null;
+        held = null; downOf = null;
         for (const [type, target] of ends) target.removeEventListener(type, up, target === document);
         document.removeEventListener("pointermove", heldMove, true);
         flush();
-        if (wants("pointerup") && ready()) fire(30, record(e.type === "blur" ? last : e, true));
+        // Never for a removed node, nor past a handler further in that
+        // stopped this up (`exactStopped`, glue.js).
+        if (wants("pointerup") && ready() && el.isConnected && !e.exactStopped) fire(30, record(e.type === "blur" ? last : e, true), e);
       };
       const disabled = () => el.matches(":disabled") || el.hasAttribute("disabled") || inertAncestor(el);
       // A free pointer over it: the innermost node hearing moves takes them;
@@ -349,17 +362,22 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
         e.exactPointerMover = el;
         if (held === null && e.buttons === 0 && !disabled()) moved(e);
       });
-      return e => {
-        // The innermost enabled pointer node takes it (the event bubbles
-        // here first from inner ones, which mark it).
+      // `hold`: the walk's first pass, which fixes the holders; then the down.
+      return (e, hold) => {
+        // Its down, unless a handler further in removed or disabled it, or
+        // stopped this down (`exactStopped`, glue.js): it still holds the up and the moves.
+        if (!hold) { if (downOf === e && el.isConnected && !disabled() && wants("pointerdown") && ready() && !e.exactStopped) fire(29, record(e), e); return; }
         // Any button, as the DOM's (studio diary R22); `buttons` says which.
-        if (e.exactPointerOwner || !e.isPrimary || held !== null || disabled()) return;
+        if (!e.isPrimary || held !== null || !el.isConnected || disabled()) return;
+        // The innermost enabled pointer node holds its moves (the walk
+        // reaches it first and marks the event); an ancestor holds only its up.
+        owner = !e.exactPointerOwner;
+        if (!owner && !wants("pointerdown") && !wants("pointerup")) return;
         e.exactPointerOwner = el;
-        held = e.pointerId; last = e;
+        held = e.pointerId; last = e; downOf = e;
         for (const [type, target] of ends) target.addEventListener(type, up, target === document);
         document.addEventListener("pointermove", heldMove, true);
         flush();
-        if (wants("pointerdown") && ready()) fire(29, record(e));
       };
     },
     // Studio diary R22, R3, R19, R17: a `contextmenu` with its point (10),
@@ -371,7 +389,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
       if (!ready()) return;
       if (kind === "beforeunload") return el.isConnected && fire(36, "");
       if (el.matches(":disabled") || inertAncestor(el)) return;
-      if (kind === "wheel") return fire(37, `${pointerLine(el, e).split(",").slice(0, 2)},${e.deltaX},${e.deltaY},${e.deltaMode},${modifiers(e)}`);
+      if (kind === "wheel") return e.exactStopped || fire(37, `${pointerLine(el, e).split(",").slice(0, 2)},${e.deltaX},${e.deltaY},${e.deltaMode},${modifiers(e)}`);
       if (kind === "dragover") { if (e.dataTransfer?.types?.includes("Files")) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; } return; }
       if (kind === "drop") {
         const dt = e.dataTransfer;

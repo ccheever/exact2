@@ -213,6 +213,9 @@ fn request_from(json: &Json) -> Result<Request, DataError> {
         headers,
         body: json["body"].as_str().and_then(unbase64).unwrap_or_default(),
         stream: json["stream"].as_bool().unwrap_or(false),
+        // A worker's stream only listens: its handle is the main thread's
+        // (LLP 1016.000 D7, worker-placed streams).
+        socket: false,
         timeout_ms: match &json["timeout_ms"] {
             Json::Null => None,
             value => Some(

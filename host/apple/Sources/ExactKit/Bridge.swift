@@ -37,6 +37,14 @@ public struct Batch {
     public var canvasImages: [String] = []
     /// The window's app modes after a `setMode` (LLP 1121 D5), when the call was one.
     public var modes: [String: String]? = nil
+    /// After a live design batch (LLP 1121 stage 4): applied, stale,
+    /// structure or refused; and whether a colour met a full wide table.
+    public var live: String? = nil
+    public var unsupported = false
+    /// The design digest the runner runs after it (the build channel's `design`, LLP 1122 D4).
+    public var design: String? = nil
+    /// The root font size or the window's modes moved, the app's `setMode` and `setRootFontSize` included (LLP 1122 D4).
+    public var facts = false
     /// The kernel transactions it carries, while the runner measures (LLP 1079 D3).
     public var seq: (UInt64, UInt64)?
     init(ops: [BatchOp], timers: Bool, motion: Bool, clock: Double?, error: String?, timerDueMs: Double? = nil, pending: Bool = false) {
@@ -539,6 +547,15 @@ package final class Runtime {
     func setPreferences(_ bits: UInt32) -> Batch { on { read(exact_set_preferences(rt, bits)) } }
     func setPage(_ bits: UInt32) -> Batch { on { read(exact_set_page(rt, bits)) } }
     func setRootFontSize(_ px: Double) -> Batch { on { read(exact_set_root_font_size(rt, px)) } }
+    /// A live design batch or snapshot frame (LLP 1121 stage 4), applied in place.
+    func designRows(_ frame: String) -> Batch { on { read(exact_design_rows(rt, write(frame))) } }
+    /// The design digest the running app runs; nil before boot.
+    func designDigest() -> String? {
+        on(busy: nil) {
+            let len = exact_design_digest(rt)
+            return len == 0 ? nil : String(decoding: Data(bytes: exact_out(rt), count: Int(len)), as: UTF8.self)
+        }
+    }
     func setModes(_ pins: [String: String], check: Bool = false) -> Batch { on { read(exact_set_mode(rt, write((check ? "?" : "") + pins.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ",")))) } }
     func setDisplayScale(_ scale: Double) -> Batch { on { read(exact_set_display_scale(rt, scale)) } }
     func setPlace(locale: String, timeZone: String, seed: UInt64) -> Batch { on { read(exact_set_place(rt, write(locale + "\0" + timeZone + "\0" + String(seed))) ) } }
@@ -558,6 +575,11 @@ package final class Runtime {
         }
     }
     func insets(top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat) -> Batch { on { read(exact_insets(rt, Float(top), Float(right), Float(bottom), Float(left))) } }
+    /// The layout regions' insets (LLP 1123 D10): twenty, or none when every region is the safe area.
+    func regions(_ insets: [CGFloat]?) -> Batch {
+        let values = (insets ?? []).map(Float.init)
+        return on { read(values.withUnsafeBufferPointer { exact_regions(rt, $0.baseAddress, UInt32($0.count)) }) }
+    }
     /// The window's size, which every viewport unit resolves against everywhere; zero clears it (LLP 1075.003 §9.11).
     func screen(width: CGFloat, height: CGFloat) -> Batch { on { read(exact_screen(rt, Float(width), Float(height))) } }
     /// The posture and the viewport segments (LLP 1078 D4): the rects as `x y w h` floats in the input buffer, none for one segment.

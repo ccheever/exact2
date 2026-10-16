@@ -60,6 +60,7 @@ mod paired;
 #[cfg(all(test, exact_js_engine))]
 mod phase_cost_tests;
 mod pure;
+mod socket;
 mod source;
 mod storage;
 mod turns;
@@ -164,6 +165,12 @@ const WAITING: u64 = u64::MAX - 1;
 struct HostState {
     store: Option<*mut Store>,
     requests: Vec<(u64, Request)>,
+    /// The socket operations the answer being made handed over (op 14),
+    /// by the prelude's ticket for each socket's stream (LLP 1016.000 D7).
+    socket_ops: Vec<(u64, exact_runner::SocketOp)>,
+    /// Each open socket's buffered bytes at the start of this turn, by the
+    /// prelude's ticket for its stream (op 15).
+    socket_buffered: Vec<(u64, u64)>,
     native: Option<Box<dyn NativeModule>>,
     /// The native module takes long calls off this thread (`native.later`).
     later: bool,
@@ -801,12 +808,22 @@ impl Module {
         let args_text = Json::Array(json_args).to_string();
         // A new answer's JavaScript may settle what another answer awaits.
         self.progress += 1;
-        self.host.store = store.map(|s| s as *mut Store);
+        let mut store = store;
+        self.host.store = store.as_mut().map(|s| &mut **s as *mut Store);
+        self.host.socket_ops.clear();
+        if let Some(store) = store.as_deref() {
+            self.host.socket_buffered = socket::snapshot(&self.streams, store);
+        }
+        // A mutation's synchronous source may send on a socket (D7).
+        let mutation = match target {
+            Some(Target::Mutation(_)) if session => "mutation",
+            _ => "",
+        };
         let started = Instant::now();
         let result: Result<Step, DataError> = (|| {
             let engine = self.engine.as_mut().expect("checked above");
             let text = engine
-                .call("__exact_call", [source, &args_text, ""])
+                .call("__exact_call", [source, &args_text, mutation])
                 .map_err(|e| DataError::Unavailable(format!("`{source}` threw: {e}")))?;
             let mut reply = Module::decode_reply(sig, engine, source, &text)?;
             if reply.fields.get("tag").and_then(Json::as_u64) == Some(3) {
@@ -832,6 +849,17 @@ impl Module {
         if result.is_err() || took_ms > self.budget_ms {
             self.engine.as_mut().expect("checked above").clear_reply();
         }
+        // Socket operations ride only an answer given now (D7).
+        let socket_ops = std::mem::take(&mut self.host.socket_ops);
+        let result = match (result, store) {
+            (Ok(Step::Done(Ok(v))), Some(store)) if !socket_ops.is_empty() => {
+                match self.stage_sockets(store, socket_ops) {
+                    Ok(()) => Ok(Step::Done(Ok(v))),
+                    Err(why) => Ok(Step::Done(Err(DataError::Failed(FailureCode::Error, why)))),
+                }
+            }
+            (result, _) => result,
+        };
         if result.is_err() && self.watch.take() {
             // After the store is cleared, so a let-go step is not this
             // answer's write (LLP 1097; a934686a0).
@@ -1160,6 +1188,7 @@ impl Module {
         let ended = !matches!(outcome, Outcome::Message(_));
         self.progress += 1;
         let outcome_text = outcome_to_json(&outcome).to_string();
+        self.host.socket_buffered = socket::snapshot(&self.streams, store);
         self.host.store = Some(store as *mut Store);
         let started = Instant::now();
         let result: Result<Step, DataError> = (|| {

@@ -185,6 +185,7 @@ fn typing_replaces_the_value_and_the_runner_hears_one_change() {
 
 #[test]
 fn disabled_controls_refuse_pointer_and_text_input() {
+    pin_font();
     let source = r#"component Disabled
   state count = 0
   state value = "kept"
@@ -222,6 +223,7 @@ fn disabled_controls_refuse_pointer_and_text_input() {
 /// (docs/contract-grammar.md#keys; calc F3, minesweeper F7).
 #[test]
 fn a_key_bubbles_and_prevent_default_keeps_its_character_out() {
+    pin_font();
     let source = r#"component Keys
   state text = ""
   state heard = ""
@@ -256,6 +258,7 @@ fn a_key_bubbles_and_prevent_default_keeps_its_character_out() {
 /// kanban F27: Ctrl+S).
 #[test]
 fn a_key_carries_its_modifiers_from_a_chord_and_the_keyboard() {
+    pin_font();
     let source = r#"component Keys
   state draft = ""
   state sent = ""
@@ -307,6 +310,7 @@ fn a_key_carries_its_modifiers_from_a_chord_and_the_keyboard() {
 
 #[test]
 fn unsupported_emoji_picker_does_not_dispatch_a_fake_selection() {
+    pin_font();
     let plan = contract::compile(
         r#"component Picker
   state value = "kept"
@@ -475,6 +479,7 @@ fn an_image_lays_out_from_its_decoded_size() {
 }
 
 #[test]
+#[cfg(unix)]
 fn a_nonregular_image_is_refused_off_the_boot_thread_without_blocking_a_worker() {
     let dir = std::env::temp_dir().join(format!("exact-linux-image-worker-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -617,6 +622,7 @@ fn a_reload_carries_state_and_starts_the_pictures_over() {
 /// shows it — against a loopback server, the real transport underneath.
 #[test]
 fn a_request_runs_on_the_executor_and_its_reply_commits() {
+    pin_font();
     use exact_runner::{Answer, Outcome, Request};
     use std::io::{Read as _, Write as _};
 
@@ -669,7 +675,9 @@ fn a_request_runs_on_the_executor_and_its_reply_commits() {
                 Outcome::Failed { message, .. } => message.clone(),
                 Outcome::Storage(_) => panic!("HTTP request received a storage result"),
                 Outcome::Surface(_) => panic!("HTTP request received a surface result"),
-                Outcome::Message(_) => panic!("HTTP request received a stream message"),
+                Outcome::Message(_) | Outcome::Closed { .. } => {
+                    panic!("HTTP request received a stream message")
+                }
             };
             let name = if text.contains("ada") {
                 "ada".to_string()
@@ -741,6 +749,7 @@ component App
 
 #[test]
 fn a_launch_location_precedes_initializers_and_root_type_navigates_once() {
+    pin_font();
     // @ref LLP 1038 D5/D8/D11 — first pixel and the Linux agent input path.
     let source = "routes nav\n  home \"/\"\n    post \"/post/:post\"\ncomponent App\n  state first = top(nav).url\n  action follow(location: string)\n    nav = open(nav, location)\n  view\n    main navigate=follow navigationKey=`${top(nav).id}` navigationBack=\"back\" width=390 height=844\n      for e in stack(nav) key=e.id\n        column navigationKey=`${e.id}`\n          text e.url\n";
     let plan = contract::compile(source).unwrap().encode();
@@ -957,8 +966,19 @@ fn a_context_menu_and_its_submenu_row_are_refused_as_popovers() {
 fn ordinary_node_state_is_not_routed_to_a_surface() {
     let mut p = fixture("scroll");
     let id = 1;
-    let plain = handle(&mut p, r#"{"op":"state"}"#);
-    let targeted = handle(&mut p, &format!(r#"{{"op":"state","id":{id}}}"#));
+    // `raster.processRunning` counts the process's decodes, which the
+    // binary's other tests start and finish between the two reads.
+    let state = |p: &mut Presenter<()>, request: &str| {
+        let mut state: serde_json::Value = serde_json::from_str(&handle(p, request)).unwrap();
+        state["raster"]
+            .as_object_mut()
+            .unwrap()
+            .remove("processRunning")
+            .unwrap();
+        state
+    };
+    let plain = state(&mut p, r#"{"op":"state"}"#);
+    let targeted = state(&mut p, &format!(r#"{{"op":"state","id":{id}}}"#));
     assert_eq!(targeted, plain);
 }
 
@@ -991,6 +1011,7 @@ fn a_reload_keeps_focus_at_its_place_and_autofocuses_nothing() {
 
 #[test]
 fn covered_id_tap_refuses_without_dispatching_the_cover() {
+    pin_font();
     let source = r#"component Cover
   state count = 0
   action press
@@ -1014,6 +1035,7 @@ fn covered_id_tap_refuses_without_dispatching_the_cover() {
 
 #[test]
 fn tap_passive_descendant_activates_parent_but_actionable_descendant_refuses() {
+    pin_font();
     for actionable in [false, true] {
         let handler = if actionable { " press=child" } else { "" };
         let source = format!(

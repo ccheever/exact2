@@ -486,6 +486,14 @@ size_t ibex2_darwin_ws_buffered_amount(void *handle) {
   return (size_t)amount;
 }
 
+size_t ibex2_darwin_ws_buffered_messages(void *handle) {
+  Ibex2Socket *socket = (__bridge Ibex2Socket *)handle;
+  [socket.condition lock];
+  NSUInteger messages = socket.pendingMessages;
+  [socket.condition unlock];
+  return (size_t)messages;
+}
+
 // Close the socket (idempotent); a blocked open or read returns aborted.
 void ibex2_darwin_ws_cancel(void *handle) {
   Ibex2Socket *socket = (__bridge Ibex2Socket *)handle;

@@ -49,6 +49,8 @@ pub struct DocTree {
     roots: Vec<ViewId>,
     /// The nodes each `id` prop names, in tree order.
     ids: std::collections::HashMap<String, Vec<ViewId>>,
+    /// Its styles' wide colours, kept from the table's sweep.
+    kept: exact_kernel::style::wide::Keep,
 }
 
 /// Why a tree has no kernel-free document.
@@ -159,7 +161,17 @@ impl Tree {
             shared: vec![None; plan.nodes.len()],
         };
         build.doc.roots = roots_of(&self.children);
+        // What the fold parses is kept from the sweep until its keep is made.
+        let _batch = exact_kernel::style::wide::Batch::open();
         build.children(&self.children, None, 0)?;
+        // Its styles' wide colours, kept while the tree lives: it is no
+        // kernel's (LLP 1121 stage 4).
+        let nodes = &build.doc.nodes;
+        build.doc.kept = exact_kernel::style::wide::Keep::of(|m| {
+            for node in nodes {
+                exact_kernel::style::wide::Colors::colors(&*node.style, m);
+            }
+        });
         Ok(build.doc)
     }
 }

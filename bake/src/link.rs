@@ -29,19 +29,21 @@ pub(crate) fn name_into(
         })?;
         let plan = exact_plan::Plan::decode(&bytes)
             .map_err(|e| format!("the baked plan is invalid: {e:?}"))?;
-        // The app's I/O grants link the host's I/O whatever the plan says:
-        // a data source's requests are the source's, not the plan's.
-        let io = compat.inputs["grantCeiling"]
-            .as_str()
-            .is_some_and(|ceiling| !exact_runner::io_grants(ceiling).is_empty());
+        // The app's I/O grants link the host's I/O, and its `auth.session`
+        // grant the sign-in sheet, whatever the plan says: a data source's
+        // requests are the source's, not the plan's.
+        let ceiling = compat.inputs["grantCeiling"].as_str().unwrap_or("");
+        let granted = [
+            (Capability::Io, !exact_runner::io_grants(ceiling).is_empty()),
+            (Capability::AuthSession, auth_granted(ceiling)),
+        ];
         let uses = ahead(manifest)?
             .into_iter()
             .fold(exact_runner::uses(&plan), Uses::with);
-        if io {
-            uses.with(Capability::Io)
-        } else {
-            uses
-        }
+        granted
+            .into_iter()
+            .filter_map(|(capability, granted)| granted.then_some(capability))
+            .fold(uses, Uses::with)
     } else {
         Capability::ALL.into_iter().fold(Uses::NONE, Uses::with)
     };
@@ -49,6 +51,14 @@ pub(crate) fn name_into(
     compat.inputs["linked"] = serde_json::json!(names);
     compat.id = compatibility_digest(&compat.inputs);
     Ok(())
+}
+
+/// Whether a grant ceiling names `auth.session` (LLP 1069.006 D2): what
+/// links the sign-in sheet (LLP 1047.001.000 E).
+pub fn auth_granted(ceiling: &str) -> bool {
+    ceiling
+        .lines()
+        .any(|line| line.split_whitespace().next() == Some("auth.session"))
 }
 
 /// The Apple entry's text for what `compat` says the archive links
@@ -115,6 +125,15 @@ mod tests {
             refused.contains("markdwon") && refused.contains("markdown"),
             "{refused}"
         );
+    }
+
+    #[test]
+    fn an_auth_session_grant_links_the_sign_in_sheet() {
+        assert!(super::auth_granted(
+            "net.fetch https://a.test/\nauth.session https://bsky.social"
+        ));
+        assert!(!super::auth_granted("auth.callback social.exact.x:/oauth"));
+        assert!(!super::auth_granted(""));
     }
 
     /// The manifest schema's `link` names are the roster's, in its order.

@@ -209,13 +209,13 @@ if (args[0] === 'run' && args.at(-1) === process.env.SCOPE_BAKE_FAIL) process.ex
 if (args[0] === 'test' && process.cwd() === process.env.SCOPE_TEST_FAIL) process.exit(7);\n`);
     chmodSync(cargo, 0o755);
     const target = resolve(parent, 'target with spaces');
-    const run = (args, {bakeFail='', testFail=resolve(fixture, '.shells')} = {}) => {
+    const run = (args, {bakeFail='', testFail=resolve(fixture, '.shells'), targetDir=target} = {}) => {
       writeFileSync(calls, '');
-      const result = spawnSync(process.execPath, [resolve(sdk, 'app/shells.mjs'), ...args], {
-        cwd:parent, encoding:'utf8', env:{...process.env, PATH:`${bin}:${process.env.PATH}`,
-          CARGO_TARGET_DIR:target, SCOPE_CALLS:calls, SCOPE_BAKE_FAIL:bakeFail,
-          SCOPE_TEST_FAIL:testFail, SCOPE_SENTINEL:'carried'},
-      });
+      const env = {...process.env, PATH:`${bin}:${process.env.PATH}`,
+        CARGO_TARGET_DIR:targetDir, SCOPE_CALLS:calls, SCOPE_BAKE_FAIL:bakeFail,
+        SCOPE_TEST_FAIL:testFail, SCOPE_SENTINEL:'carried'};
+      if (targetDir === null) delete env.CARGO_TARGET_DIR;
+      const result = spawnSync(process.execPath, [resolve(sdk, 'app/shells.mjs'), ...args], {cwd:parent, encoding:'utf8', env});
       const commands = readFileSync(calls, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse);
       return {result, commands, bakes:commands.filter(command => command.args[0] === 'run'),
         tests:commands.filter(command => command.args[0] === 'test')};
@@ -228,6 +228,10 @@ if (args[0] === 'test' && process.cwd() === process.env.SCOPE_TEST_FAIL) process
     assert.equal(selected.bakes[0].cwd, sdk);
     assert.ok(selected.commands.every(command => command.target === target && command.sentinel === 'carried'));
     assert.deepEqual(selected.tests.map(command => command.cwd), [resolve(external, '.shells')]);
+    // Unset, each game builds into its own target, never the SDK's shared one.
+    const own = run([external, '--test'], {targetDir:null});
+    assert.deepEqual(own.commands.filter(command => command.args[0] !== 'metadata').map(command => command.target),
+      ['run','clippy','test'].map(() => resolve(external, 'target')));
     const all = run(['--test']);
     assert.equal(all.result.status, 1, 'a failing fixture must fail the sweep');
     assert.deepEqual(all.bakes.map(command => command.args.at(-1)), [fixture, bench]);

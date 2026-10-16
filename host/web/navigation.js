@@ -831,22 +831,23 @@ const DISPLAY_MODES = ["standalone", "browser", "fullscreen", "minimal-ui", "win
 let preferenceQueries;
 // Bits 8–25 belong to foldBits(); 26–27 gamut, 28 HDR (LLP 1100 D9), 29–31 display-mode (LLP 1039 D7).
 const queries = () => (preferenceQueries ??= [["(prefers-reduced-motion: reduce)", 1], ["(prefers-reduced-transparency: reduce)", 2], ["(prefers-contrast: more)", 4], ["(prefers-contrast: less)", 8], ["(prefers-contrast: custom)", 12], ["(prefers-color-scheme: dark)", 16], ["(pointer: coarse)", 32], ["(pointer: none)", 64], ["(hover: none)", 128], ["(color-gamut: p3)", 1 << 26], ["(color-gamut: rec2020)", 1 << 27], ["(dynamic-range: high)", 1 << 28], ...DISPLAY_MODES.map((v, i) => [`(display-mode: ${v})`, i << 29])].map(([q, bits]) => [matchMedia(q), bits]));
-export const preferences = () => queries().reduce((bits, [q, bit]) => bits | (q.matches ? bit : 0), 0);
+export const preferences = () => { const bits = queries().reduce((bits, [q, bit]) => bits | (q.matches ? bit : 0), 0), pinned = globalThis.exact?.systemScheme; return pinned ? (bits & ~16) | (pinned === "dark" ? 16 : 0) : bits; }; // a dev pin's scheme is the system's (LLP 1122 D4; dev.js)
 export const displayMode = () => DISPLAY_MODES[(preferences() >>> 29) & 7];
 export const onPreferences = (changed) => queries().forEach(([q]) => q.addEventListener("change", changed));
-// @ref LLP 1069.000 D2 — the page's facts as `exact_set_page` takes them: bit 0 `document.visibilityState == "hidden"`,
-// bit 1 `!navigator.onLine`, bit 2 `typeof navigator.share === "function"` (LLP 1069.003 D5), bit 3 `typeof
-// showOpenFilePicker === "function"` (LLP 1069.010 D2; studio diary R31), bit 4 `!document.hasFocus()` (#114), told
-// again at the window's `focus` and `blur`. Under the agent the drive's values stand in (visible, online, a share
-// sheet, the pickers, focus: LLP 1069.000 D6), set by `prefer`'s `page` group; the machine is never read, but for the display's scale (below).
+// @ref LLP 1069.000 D2 — the page's facts as `exact_set_page` takes them: bit 0 `document.visibilityState == "hidden"`, bit 1
+// `!navigator.onLine`, bit 2 `typeof navigator.share === "function"` (LLP 1069.003 D5), bit 3 `typeof showOpenFilePicker ===
+// "function"` (LLP 1069.010 D2; studio diary R31), bit 4 `!document.hasFocus()` (#114), told again at the window's `focus` and `blur`,
+// bits 5–6 Navigation Timing's `type` (runner/src/page.rs `NAVIGATION_TYPES`; a prerender's is `navigate`). Under the agent the drive's values stand in (visible, online, a share sheet, the pickers, focus, a `navigate`: LLP 1069.000 D6), set by `prefer`'s `page` group; the machine is never read, but for the display's scale (below).
 export function pageReporter(agent, platform = globalThis) {
   const facts = { "visibility-state": "visible", online: true, "can-share": true, "can-open-files": true, "has-focus": true, "root-font-size": 16 };
   // @ref LLP 1069.000 D3 — the root font size: the document element's computed `font-size`, the browser's setting
   // unless a page sets it; under the agent the drive sets it on the element (`prefer root-font-size`). The app's own
   // size (`appRootFontSize`) is set over it and read past.
   const rootFontSize = () => agent ? facts["root-font-size"] : beneathApp(platform, () => parseFloat(platform.getComputedStyle(platform.document.documentElement).fontSize) || 16), displayScale = () => platform.devicePixelRatio > 0 ? platform.devicePixelRatio : 1; // @ref LLP 1115.000 D10.3 — the display's scale is the page's own `devicePixelRatio`, read under the agent too: the drive sets it through the browser's emulation (`prefer display-scale`), never by a substitute, and a zoom fires `resize`, which tells it again
-  const read = () => agent ? { ...facts } : { "visibility-state": platform.document.visibilityState === "hidden" ? "hidden" : "visible", online: platform.navigator.onLine !== false, "can-share": typeof platform.navigator.share === "function", "can-open-files": typeof platform.showOpenFilePicker === "function", "has-focus": typeof platform.document.hasFocus !== "function" || platform.document.hasFocus() };
-  const bits = () => { const f = read(); return (f["visibility-state"] === "hidden" ? 1 : 0) | (f.online ? 0 : 2) | (f["can-share"] ? 4 : 0) | (f["can-open-files"] ? 8 : 0) | (f["has-focus"] ? 0 : 16); };
+  const loaded = agent ? "" : platform.performance?.getEntriesByType?.("navigation")?.[0]?.type;
+  const navigationType = ["reload", "back_forward"].includes(loaded) ? loaded : "navigate";
+  const read = () => agent ? { ...facts, "navigation-type": navigationType } : { "visibility-state": platform.document.visibilityState === "hidden" ? "hidden" : "visible", online: platform.navigator.onLine !== false, "can-share": typeof platform.navigator.share === "function", "can-open-files": typeof platform.showOpenFilePicker === "function", "has-focus": typeof platform.document.hasFocus !== "function" || platform.document.hasFocus(), "navigation-type": navigationType };
+  const bits = () => { const f = read(); return (f["visibility-state"] === "hidden" ? 1 : 0) | (f.online ? 0 : 2) | (f["can-share"] ? 4 : 0) | (f["can-open-files"] ? 8 : 0) | (f["has-focus"] ? 0 : 16) | (["navigate", "reload", "back_forward"].indexOf(f["navigation-type"]) + 1) << 5; };
   const prefer = (page) => {
     const next = { ...facts };
     for (const [name, raw] of Object.entries(page ?? {})) {
@@ -1340,8 +1341,7 @@ const sourceTuple = source => {
   if (capability === 'storage.kv') return ['storage-kv', target];
   return null;
 };
-const exactOnly = source => source.startsWith('#') || source.startsWith('surface.read ')
-  || source.startsWith('surface.write ') || source.startsWith('device.') || source.startsWith('auth.');
+const exactOnly = source => /^(#|surface\.read |surface\.write |device\.|runtime\.|auth\.)/.test(source);
 const entryMatchesSource = ([, source, grant, error]) => {
   if (grant === null) return error !== null || exactOnly(source);
   return error === null && JSON.stringify(sourceTuple(source)) === JSON.stringify(grant);

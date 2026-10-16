@@ -603,6 +603,7 @@ fn message() -> Outcome {
         id: String::new(),
         data: "{}".into(),
         coalesced: 0,
+        binary: None,
     })
 }
 

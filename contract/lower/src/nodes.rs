@@ -378,7 +378,7 @@ impl Lowerer<'_> {
                 &mut surface,
                 &font,
             ) {
-                self.errors.push(e);
+                self.errors.push(native::name_the_fix(n, e));
             }
             if let Some(origins) = &mut origins {
                 let origin = if index < sheet.len() {

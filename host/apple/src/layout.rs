@@ -15,12 +15,28 @@ impl<D: DataSource> Host<D> {
         if self.layout_withheld {
             batch.withhold(!batch.layout_provisional);
         }
+        batch.facts = self.facts_moved();
         batch.finish(
             self.runner.timer_due_ms(),
             !self.engine.quiescent(),
             self.runner.now_ms(),
             error,
         )
+    }
+
+    /// An empty batch, which has no geometry to hold: a refusal's.
+    pub(super) fn refused(&self, error: Option<String>) -> String {
+        let mut batch = Batch::new();
+        self.state_onto(&mut batch);
+        let (timers, motion) = (self.runner.timer_due_ms(), !self.engine.quiescent());
+        batch.finish(timers, motion, self.runner.now_ms(), error.as_deref())
+    }
+
+    pub(super) fn state_onto(&self, batch: &mut Batch) {
+        batch.spatial = self.engine.spatial();
+        batch.frames = self.runner.wants_frames();
+        batch.seq = self.runner.seq_range();
+        batch.canvas_frames(self.runner.canvas_wants_frame());
     }
 
     fn withhold_layout(&mut self) {

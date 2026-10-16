@@ -43,6 +43,7 @@ mod paragraph_stamp;
 mod presence;
 mod presented_height;
 mod reader;
+mod regions;
 mod rem;
 mod symbol;
 mod support {

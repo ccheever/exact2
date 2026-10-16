@@ -176,7 +176,10 @@ reading (LLP 1045), Interview first. Unblocks rich posts that stay plain text
 in storage and scan cheaply. Take (Charlie, 2026-09-21): the reader's open
 follow-ups other than code-block highlighting (heading anchors, file
 watching, the compact folder layout) wait behind it; no rich value type,
-collaboration or HTML paste import. **Refined (Charlie, 2026-09-21:
+collaboration or HTML paste import. **Lifted (Charlie, 2026-10-15, LLP
+1069.010.000 stage 1):** file watching comes off that wait, the editor being
+built: a `doc:` watch re-asks the answer that reads the path, with no new
+take. **Refined (Charlie, 2026-09-21:
 "move forward with your plan"):** Native editing stays on TextKit 2;
 dependable source editing precedes further marker hiding, with Interview as
 the first consumer. **Refined again (Charlie, 2026-09-22: "let's remove
@@ -433,8 +436,8 @@ WebSocket sending: the stream mapper receives a socket handle and a mutation
 sends ordered, never-coalesced protocol frames (LLP 1016.000 D7). T3 Code's
 subscribe/Ack/Ping protocol and queued Supabase/Convex consumers justify the
 expansion. No take named; the approved feature ruling admits it. Ambient
-WebSocket globals remain refused. The first slice is the web JS target's
-TypeScript adapter; D7 lists the remaining host deviations.
+WebSocket globals remain refused. TypeScript on the web JS target and the
+native hosts has it; D7 lists the host deviations and what remains.
 
 
 **Expanded (Charlie, 2026-10-08, issue #283; focus lane, 2026-10-12):**
@@ -456,6 +459,18 @@ names no take; `:focus-within` remains out.
   hydration, route payloads and cache policies are on the doing-list (the
   entry above). Still refused: progressive forms and server-driven UI.
 - Aquifer data tier, durable worker tier, capability capsules, durable capability grants.
+  **Moved, one form (Charlie, 2026-10-15, waiver; LLP 1069.010.000 stage 2):**
+  a document the person chose, the object itself, kept in the platform's
+  bounded recents the person can clear from outside the app, under the
+  `doc.keep` grant, on macOS, Linux in a desktop session and the web (not
+  iOS). Unblocks document apps reopening their documents after a relaunch.
+  Every other durable grant stays refused, and so does keeping what a route
+  or the app reached rather than what the person chose.
+- A hardened-runtime exception on the app's own executable (Charlie, 2026-10-15):
+  `runtime.*` grants name helper executables only (LLP 1069.008 D9), until the
+  main executable has a consumer. The likely first, an in-process wasmtime loader
+  (LLP 1028), would need only `allow-jit` or `allow-unsigned-executable-memory`,
+  never `disable-library-validation`.
 - ~~Snapback / update economy.~~ Moved 2026-09-03 (Charlie: "you can pull out snapback
   for now"), in LLP 1026 D11's minimal form only: an installed app fetches a signed
   bundle of static files from a baked-in origin, after first pixel, into an on-disk
@@ -691,6 +706,14 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
   §Events). The Signal Clone's hold-to-record mic is the consumer: recording
   starts the moment the finger lands. Unblocks hold-to-act controls. Take:
   none offered; waived by Charlie's approval. Still no multi-touch.
+  **Amended (Charlie, 2026-10-15, option 1 of
+  `issues/closed/20261010-pointer-events-reach-ancestors.md`):** both bubble
+  to every ancestor that hears them, as `key` and `wheel` do; the innermost
+  node hearing any pointer event still holds the moves; `stopPropagation()`
+  stops either, and `wheel`, at its handler (decided under Charlie's
+  delegation, 2026-10-15, after Astra's review). Unblocks a window's
+  outside-press dismiss beside a popup that hears `pointermove`. Take: none;
+  Charlie's ruling.
   **Built (2026-10-04, LLP 1056 §8.6; the widening confirmed by Charlie the
   same day):** stage 3's pointer coordinates, which Canvas 2D's acceptance
   admitted for a canvas's handlers, as a `PointerEvent` record (DOM's

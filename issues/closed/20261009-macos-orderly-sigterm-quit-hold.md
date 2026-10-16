@@ -1,6 +1,7 @@
 # macOS: a bounded quit hold for native module work, and SIGTERM as an orderly quit (rest of #105)
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Fixed on macos-module-quit-hold (#654): ExactModule.willQuit joins the one 5 s quit hold under LLP 1069.010 Q4 as amended (Charlie, 2026-10-15); not exercised: ⌘Q by keystroke, the Dock's Quit, logout and shutdown
 **Systems:** host/apple macOS, native modules, lifecycle
 **Severity:** P2
 **Author:** daehyeon-mun (GitHub report); Codex (filesystem transfer)
@@ -125,3 +126,45 @@ option A, the bounded module hold (`ExactModule.willQuit(done:)` joining the
 one storage hold, one shared 5 s deadline, once-only completion, responsive
 main thread, tests for repeated quit and an unresponsive child), which needs
 LLP 1069.010 Q4 relaxed.
+
+## 2026-10-15 status: option A built; Charlie accepted the Q4 amendment
+
+Built on `macos-module-quit-hold`. `ExactModule.willQuit(done:)`
+(`host/apple/modules/ExactNativeModule.swift`; the default calls `done` at
+once, and a `done` let go uncalled counts as called) is entry 208 of the
+module table (size 216; an older module is not asked). `applicationShouldTerminate`
+(`ExactMac/main.swift`, and the sample host's) asks each session's module once,
+after every `beforeunload` has let the quit go, and holds the quit with the
+storage of LLP 1097 D10 in one `StorageHold`: one five-second deadline in all.
+A repeated quit joins that hold. The last window closing, or any window closing
+while the quit is held, now leaves its session for the quit instead of
+destroying it first, which had skipped the hold.
+iOS and tvOS never call the hook. LLP 1069.010 Q4 carries the amendment, accepted by Charlie on 2026-10-15.
+
+Verified on macOS 27.0.1 (Apple Silicon), a generated app whose module's child
+traps SIGTERM and exits 3 s later (or ignores it), driven through
+`scripts/agent.mjs`:
+
+| Scenario | Exit | Hook / destroy | Evidence |
+|---|---|---|---|
+| SIGTERM ×3 and an Apple Event quit, 0.3 s apart | code 0 after 3.08 s | 1 / 1 | child exited before `destroy`; agent `state` answered in 18 ms during the hold; 61 main-thread ticks at 50 ms |
+| Apple Event quit | 0 after 3.12 s | 1 / 1 | child exited first |
+| Last window closing (`close()`) | 0 after 3.10 s | 1 / 1 | child exited first |
+| SIGTERM, then the window closed during the hold | 0 after 3.03 s | 1 / 1 | child exited first |
+| `beforeunload` cancels, then allows | 0 after 3.10 s | 1 / 1 | not asked while cancelled |
+| Child ignores SIGTERM | 0 after 5.03 s | 1 / 1 | cut at the deadline; `destroy()` sent SIGKILL, child gone after exit (status 9); 100 ticks |
+| No hook; hook drops `done` | 0 after 5 ms; 5 ms | 0 / 1; 1 / 1 | — |
+| Storage in flight and a stuck child | 0 after 6.02 s | 1 / 1 | one deadline, not two; child SIGKILLed in `destroy()`, gone after exit |
+| Storage in flight, no hook (D10) | 0 after 6.02 s | 0 / 1 | the D10 hold still holds |
+
+`destroy()` runs after the deadline whether or not the work finished; the
+probe, as `docs/reference.md`'s example, SIGKILLs there a child that ignored
+SIGTERM, so no child outlives the app. The storage rows include the JS module's one-second teardown drain after the
+five-second hold, as #313 measured. `ModuleQuitHoldTests` (`StorageHoldTests.swift`)
+covers the host side: once-only asking, `done` from another thread, the main
+run loop running during the hold, the bound, the session ending, and a module
+without the entry.
+
+Not exercised: ⌘Q by keystroke and the app menu (they reach the same
+`NSApp.terminate` and delegate as the Apple Event quit, which was driven), the
+Dock's Quit, logout and shutdown. SIGKILL cannot be made orderly.

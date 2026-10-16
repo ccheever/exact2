@@ -8,7 +8,7 @@
 import * as source from '__APP_TS__';
 import { createSecretFacade, hasGrant, inOverlay, overlaying, setAppGrantSet } from './admission.js';
 import { tsGrantSet } from './admission-data.js';
-import { answering, files as bodyFiles } from './ts-fetch.js';
+import { answering, files as bodyFiles, SOCKET_AND_FETCH } from './ts-fetch.js';
 import { sourceTypes } from './names.js';
 import { checkpoint, clock, commit, inflight, journal, painted, R, Resources } from './rt.js';
 import { Shaped } from './shape.js';
@@ -324,7 +324,15 @@ export function install(data, mixed = false, modules = null) {
     const target_ = target ?? name;
     const shaped = types ? v => checked(name, v, result) : v => v;
     // A stream's answer has replied once it returns (LLP 1016.000): what runs on is background work.
-    if (call.effects?.length && (call.stream || r && typeof r.then === 'function')) {
+    // Socket operations go out only with a value given now: not with a
+    // promise, a stream answer or any other fetch (LLP 1016.000 D7).
+    if (call.socketConflict || call.effects?.length && call.fetched) {
+      call.socketConflict = true; Promise.resolve(r).catch(() => {}); call.settled = true;
+      throw new Error(SOCKET_AND_FETCH);
+    }
+    if (call.effects?.length && r && typeof r.then === 'function') {
+      // A fetch its continuation makes is the module's, not the mutation's:
+      // the page has no turn to tie it to (LLP 1016.000 D7).
       Promise.resolve(r).catch(() => {}); call.settled = true;
       throw new Error('a socket mutation must answer synchronously');
     }
