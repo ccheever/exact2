@@ -101,6 +101,8 @@ function report() {
     ms_max: r2(sorted[sorted.length - 1] ?? 0), gpu: adapter(), samples: samples(), script_ms_avg: r2(avg(script)), draws: renderer.info?.render?.calls ?? renderer.info?.render?.drawCalls ?? null,
   };
   document.title = 'BENCH ' + JSON.stringify(out);
-  navigator.sendBeacon('/__bench', JSON.stringify(out));
+  // The iOS shell (ios/) hears it through WebKit; a page served by a runner, at /__bench.
+  if (globalThis.webkit?.messageHandlers?.bench) webkit.messageHandlers.bench.postMessage(JSON.stringify(out));
+  else navigator.sendBeacon('/__bench', JSON.stringify(out));
 }
 requestAnimationFrame(frame);
