@@ -107,6 +107,8 @@ mod collection_tests;
 #[cfg(test)]
 mod events_tests;
 #[cfg(test)]
+mod focus_rendered_tests;
+#[cfg(test)]
 mod kept_rows_tests;
 #[cfg(test)]
 mod swipe_tests;

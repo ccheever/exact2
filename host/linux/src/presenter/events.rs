@@ -131,6 +131,26 @@ impl<D: DataSource> Presenter<D> {
     /// journal says why, as the web host's does (it had been an unknown
     /// command here).
     /// The node it focused, if it did.
+    /// Whether `id` generates a box in the current tree, which the last
+    /// painted picture may not show yet: no ancestor is `display: none`, on
+    /// a hidden route, or a dialog other than the alert presented (paint
+    /// draws only that one; a top-layer surface's rows are `surface_focus`'s).
+    fn rendered(&self, id: ViewId) -> bool {
+        let kernel = self.host.kernel();
+        let shown = self.alert_root();
+        let mut at = kernel.node(id);
+        while let Some(node) = at {
+            if node.style.display == exact_kernel::Display::None
+                || self.host.route_visibility(node.id).0
+                || (node.props.str(PropId::SemanticTag) == Some("dialog") && Some(node.id) != shown)
+            {
+                return false;
+            }
+            at = node.parent.and_then(|parent| kernel.node(parent));
+        }
+        true
+    }
+
     pub(crate) fn focus_command(&mut self, args: &[exact_plan::Value]) -> Option<ViewId> {
         let Some(name) = args.first().and_then(exact_plan::Value::as_str) else {
             eprintln!("exact: focus requires an element id");
@@ -151,9 +171,10 @@ impl<D: DataSource> Presenter<D> {
             None => "no live node with that id",
             Some(id) if self.surface_focus(id) => return Some(id),
             Some(id) if !self.focusable(id) => "not focusable",
-            // As `HTMLElement.focus()` on an element with no box: a command
-            // queued by a handler can run after its dialog has closed.
-            Some(id) if self.box_of(id).is_none() => "not rendered",
+            // As `HTMLElement.focus()` on an element that is not being
+            // rendered: a command queued by a handler can run after its
+            // dialog has closed.
+            Some(id) if !self.rendered(id) => "not rendered",
             Some(id) => {
                 if let Some(e) = self.set_focus(Some(id), self.host.now()) {
                     eprintln!("exact: {e}");
