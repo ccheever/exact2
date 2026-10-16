@@ -358,6 +358,33 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         Ok(())
     }
 
+    /// [`Self::write_transforms`] of `floats` floats that `fill` writes, as bytes,
+    /// into the queue's staging memory. Slots new to the history take the
+    /// copying path, which writes them there too.
+    pub(crate) fn write_transforms_with(
+        &mut self,
+        first_slot: u32,
+        floats: usize,
+        fill: &mut crate::buffers::Fill<'_>,
+    ) -> Result<(), RenderError> {
+        let end = record_end(first_slot, floats, 10);
+        if floats == 0 {
+            return Ok(());
+        }
+        if end > self.transforms[1 - self.current].live / 40 {
+            return self.write_transforms(first_slot, &crate::buffers::filled(floats, fill));
+        }
+        self.check_capacity("transforms", end)?;
+        self.ensure_slots(end);
+        self.transforms[self.current].write_with(
+            &self.queue,
+            u64::from(first_slot) * 40,
+            floats as u64 * 4,
+            fill,
+        );
+        Ok(())
+    }
+
     // Feed has already patched current via its coalesced run. Snap only history.
     pub(crate) fn write_previous_transforms(
         &mut self,

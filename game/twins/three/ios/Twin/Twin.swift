@@ -39,15 +39,6 @@ final class TwinController: UIViewController, WKScriptMessageHandler, WKURLSchem
         let config = WKWebViewConfiguration()
         config.setURLSchemeHandler(self, forURLScheme: "twin")
         config.userContentController.add(self, name: "bench")
-        // `-full-rate`: rAF at the panel's rate (120 Hz on ProMotion), as Exact's canvas asks; WebKit otherwise
-        // holds a page near 60 (WKPreferencesPrivate.h, `_preferPageRenderingUpdatesNear60FPSEnabled`).
-        if CommandLine.arguments.contains("-full-rate") {
-            let setter = NSSelectorFromString("_setPreferPageRenderingUpdatesNear60FPSEnabled:")
-            if let method = class_getInstanceMethod(WKPreferences.self, setter) {
-                typealias Set = @convention(c) (AnyObject, Selector, Bool) -> Void
-                unsafeBitCast(method_getImplementation(method), to: Set.self)(config.preferences, setter, false)
-            }
-        }
         let web = WKWebView(frame: .zero, configuration: config)
         // Under the status bar and the home indicator, as Exact's full-screen canvas draws: the same pixels.
         web.scrollView.contentInsetAdjustmentBehavior = .never

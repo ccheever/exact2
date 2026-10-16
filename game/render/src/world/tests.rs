@@ -104,6 +104,32 @@ impl Writes for Recording {
         }
         Ok(())
     }
+    fn transforms_with(
+        &mut self,
+        first: u32,
+        len: usize,
+        both: bool,
+        fill: &mut crate::buffers::Fill<'_>,
+    ) -> Result<(), RenderError> {
+        self.call(Call::Transform(first, len, both));
+        let (start, end) = (first as usize * 10, first as usize * 10 + len);
+        if end > self.current.len() {
+            self.current.resize(end, 0.0);
+        }
+        let current = &mut self.current;
+        fill(&mut |at, bytes| {
+            for (k, b) in bytes.chunks_exact(4).enumerate() {
+                current[start + at / 4 + k] = f32::from_ne_bytes([b[0], b[1], b[2], b[3]]);
+            }
+        });
+        if both {
+            if end > self.previous.len() {
+                self.previous.resize(end, 0.0);
+            }
+            self.previous[start..end].copy_from_slice(&self.current[start..end]);
+        }
+        Ok(())
+    }
     fn previous(&mut self, first: u32, values: &[f32]) -> Result<(), RenderError> {
         self.call(Call::Previous(first, values.len()));
         let start = first as usize * 10;

@@ -141,7 +141,6 @@
 				DEVELOPMENT_TEAM = UD2ZVW5WU5;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = Twin/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "three.js twin";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -163,7 +162,6 @@
 				DEVELOPMENT_TEAM = UD2ZVW5WU5;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = Twin/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "three.js twin";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
