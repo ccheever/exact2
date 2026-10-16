@@ -1696,6 +1696,10 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
 - A modal route (`navigationPresentation="modal"`) is opaque: its unsaid
   `background-color` is `-exact-background` (the grouped one when it scrolls a grouped
   list), so the route under it, dimmed, never shows through; write one to say another.
+  Its corners are UIKit's: on iOS 26 and later a large sheet is rounded like the
+  display and inset from the bottom edge, as Apple's own are. A `border-radius` on the
+  route is the sheet's corner radius (its top-left one; `preferredCornerRadius`), which
+  also seats a large sheet flat on the bottom edge.
   One pushed over a sheet (a confirmation over a dialog)
   is a sheet over that sheet, on iOS presented from it; Back returns to the sheet
   under it, and popping both closes both. Under the agent's frozen timing (the

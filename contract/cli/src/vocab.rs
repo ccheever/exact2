@@ -523,6 +523,8 @@ fn prop_type(p: PropId) -> String {
 /// What `metadata=` takes (LLP 1098 D1): the Media Session's record.
 const METADATA: &str = "MediaMetadata(title=, artist=, album=, artwork=), each a string";
 
+/// `border-radius` on a sheet route (ModalIOS.swift `cornerRadius(of:)`).
+const SHEET_RADIUS: &str = "on iOS a sheet route's (`navigationPresentation=\"modal\"`) top-left radius is also its sheet's corner radius (`preferredCornerRadius`), which seats a large sheet flat on the bottom edge. Unsaid, the sheet is UIKit's: on iOS 26 and later rounded like the display and inset from the bottom edge, as Apple's own sheets are";
 const APPEARANCE: &str = "Explicit none on a header or root tablist keeps the authored bar; on a header button it keeps only that button authored in place while the rest of the header projects. A title button keeps its contents; an authored Back replaces UIKit Back. Search or a header tablist can opt out on that element; a tab button alone keeps its parent segmented. Tabs retain their panels and navigation stacks. Auto restores platform projection.";
 
 /// Where an attribute is admitted, if not on every tag.
@@ -608,6 +610,9 @@ fn attr_json(name: &str, a: &AttrTarget) -> Value {
     }
     if name == "appearance" {
         doc["note"] = APPEARANCE.into();
+    }
+    if name == "border-radius" {
+        doc["note"] = SHEET_RADIUS.into();
     }
     if name == "transform" {
         doc["note"] = vocab::BOX_TRANSFORM_REFUSAL.into();
@@ -707,6 +712,9 @@ fn attr_detail(name: &str, a: &AttrTarget) -> Vec<String> {
             }
             if name == "appearance" {
                 lines.push(APPEARANCE.into());
+            }
+            if name == "border-radius" {
+                lines.push(SHEET_RADIUS.into());
             }
             if name == "transform" {
                 lines.push(vocab::BOX_TRANSFORM_REFUSAL.into());
