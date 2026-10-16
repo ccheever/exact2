@@ -9,6 +9,7 @@
 //!
 //! An engine fault is never a panic: it is recorded, reported as
 //! [`LayoutError::Engine`], and the kernel rebuilds the tree from the columns.
+mod alert;
 mod buttons;
 #[cfg(test)]
 mod containment_tests;
@@ -21,11 +22,11 @@ mod hoist;
 mod memo_tests;
 mod order;
 mod publication;
+mod rebuild;
 pub use publication::compute;
 
 use crate::id::{IdMap, IdSet};
 use crate::shared_style::Interner;
-use std::collections::HashMap;
 use std::rc::Rc;
 use taffy::prelude::{AvailableSpace, NodeId, Size, TaffyTree};
 use taffy::tree::{Baselines, LayoutInput};
@@ -91,17 +92,10 @@ fn from_available(space: AvailableSpace) -> AxisOffer {
 const LEAF_OFFERS: usize = 16;
 
 // @ref LLP 1043.000 §3 D3 — keep the proof with Taffy's measured leaf.
-#[derive(Clone, Copy, Default)]
-enum MeasureKind {
-    #[default]
-    Node,
-    AlertPrefix,
-}
-
 #[derive(Default)]
 struct MeasureContext {
     slot: u32,
-    kind: MeasureKind,
+    kind: alert::Kind,
     pass: u64,
     height_measured: bool,
     // At most LEAF_OFFERS per live leaf; text/style invalidation clears them.
@@ -458,66 +452,6 @@ impl LayoutTree {
     /// Engine nodes.
     pub fn node_count(&self) -> usize {
         self.slots.len()
-    }
-
-    fn new_alert_prefix(&mut self, slot: u32) -> NodeId {
-        let mut style = taffy::Style::default();
-        style.flex_basis = taffy::style_helpers::percent(1.0);
-        let style = self.share(style);
-        match self.taffy.new_leaf_with_context(
-            style,
-            MeasureContext {
-                slot,
-                kind: MeasureKind::AlertPrefix,
-                ..Default::default()
-            },
-        ) {
-            Ok(node) => {
-                self.alert_prefixes.insert(slot, node);
-                node
-            }
-            Err(e) => {
-                self.fault
-                    .get_or_insert_with(|| format!("new_alert_prefix: {e:?}"));
-                NodeId::from(usize::MAX)
-            }
-        }
-    }
-
-    pub(crate) fn sync_alert_prefix(&mut self, arena: &NodeArena, slot: u32, owner: NodeId) {
-        let current = self.alert_prefixes.get(&slot).copied();
-        let prefix = match (arena.has_alert_prefix(slot), current) {
-            (true, Some(node)) => {
-                self.mark_dirty(node);
-                Some(node)
-            }
-            (true, None) => Some(self.new_alert_prefix(slot)),
-            (false, Some(node)) => {
-                self.alert_prefixes.remove(&slot);
-                let result = self.taffy.remove(node);
-                self.note("remove_alert_prefix", result);
-                None
-            }
-            (false, None) => None,
-        };
-        if arena.node_type(slot).lays_out_children() {
-            let children = order::laid_out(arena, slot, &self.taffy, owner, prefix, |child| {
-                arena.taffy(child)
-            });
-            self.set_children(owner, &children);
-        }
-        self.mark_dirty(owner);
-    }
-
-    pub(crate) fn alert_prefix_frame(&self, arena: &NodeArena, slot: u32) -> Option<Frame> {
-        let layout = self.taffy.layout(*self.alert_prefixes.get(&slot)?).ok()?;
-        let owner = arena.frame(slot);
-        Some(Frame {
-            x: owner.x + layout.location.x,
-            y: owner.y + layout.location.y,
-            width: layout.size.width,
-            height: layout.size.height,
-        })
     }
 
     /// Allocate a leaf; `measured` leaves carry their slot for the measure closure.
@@ -1045,7 +979,7 @@ impl LayoutTree {
             let mut line_height = 0.0;
             let native_slot = context
                 .as_ref()
-                .filter(|c| matches!(c.kind, MeasureKind::Node))
+                .filter(|c| matches!(c.kind, alert::Kind::Node))
                 .map(|c| c.slot)
                 .filter(|&s| arena.is_native_text_control(s));
             let mut adjusted;
@@ -1068,7 +1002,7 @@ impl LayoutTree {
 
             if let Some(record) = context
                 .as_ref()
-                .filter(|c| matches!(c.kind, MeasureKind::Node))
+                .filter(|c| matches!(c.kind, alert::Kind::Node))
                 .and_then(|c| buttons.get(&c.slot))
                 .and_then(|n| button_records.get_mut(n))
             {
@@ -1119,66 +1053,18 @@ impl LayoutTree {
                     }
                     context.height_measured |= !height_known;
                     let slot = context.slot;
-                    if matches!(context.kind, MeasureKind::AlertPrefix) {
-                        let Some(label) = arena.props(slot).str(crate::PropId::AccessibilityLabel)
-                        else {
-                            return Size::ZERO;
-                        };
-                        if label.is_empty() {
-                            return Size::ZERO;
-                        }
-                        let width = from_available(space.width);
-                        let height = from_available(space.height);
-                        let metrics = if let Some(cached) = context
-                            .measurements
-                            .iter()
-                            .find(|m| m.width == width && (height_free || m.height == height))
-                        {
-                            cached.metrics
-                        } else {
-                            let mut title = arena.computed_style(slot, crate::StyleMask::INHERITED);
-                            title.font_size = crate::style::metrics::length_in(
-                                crate::generated::metric::ALERT_TITLE,
-                                crate::style::metrics::Column::Neutral,
-                                title.font_size,
-                                arena.root_font_size(),
-                            )
-                            .unwrap();
-                            title.font_weight = 600;
-                            let shown = title.hyphens.shown(title.text_transform.apply(label, ""));
-                            let run = TextRun {
-                                text: shown,
-                                style: crate::TextStyle::from_style(&title),
-                            };
-                            let request = TextMeasureRequest {
-                                runs: std::slice::from_ref(&run),
-                                paragraph: crate::text::Paragraph::from_style(&title),
-                                width,
-                                height,
-                                exclusions: &[],
-                            };
-                            let metrics = measurer.measure(&request);
-                            if !metrics.is_valid() {
-                                invalid_metrics.get_or_insert_with(|| arena.local_id(slot));
-                                return Size::ZERO;
-                            }
-                            if context.measurements.len() == LEAF_OFFERS {
-                                context.measurements.remove(0);
-                            }
-                            context.measurements.push(Measurement {
-                                width,
-                                height,
-                                metrics,
-                                scale: 1.0,
-                            });
-                            metrics
-                        };
+                    if let Some((size, metrics)) = alert::measure(
+                        arena,
+                        context,
+                        measurer,
+                        known,
+                        space,
+                        height_free,
+                        &mut invalid_metrics,
+                    ) {
                         first_baseline = metrics.first_baseline;
                         line_height = metrics.height;
-                        return Size {
-                            width: known.width.unwrap_or(metrics.width),
-                            height: known.height.unwrap_or(metrics.height),
-                        };
+                        return size;
                     }
                     if let Some(size) =
                         crate::replaced::measure(arena, slot, style, inset, known, space)
@@ -1558,102 +1444,5 @@ impl LayoutTree {
             self.compute(root, offer, arena, measurer)?;
             passes += 1;
         }
-    }
-
-    /// Reconstruct the whole engine tree from the arena's columns, writing the
-    /// new handles back. This is rehydration: columns plus rebuild.
-    pub fn rebuild(arena: &mut NodeArena) -> LayoutTree {
-        let mut tree = LayoutTree::new();
-        arena.clear_taffy();
-        let slots: Vec<u32> = arena
-            .iter_live()
-            .filter(|s| !arena.is_inline_run(*s))
-            .collect();
-        for slot in &slots {
-            let node = tree.new_leaf(
-                taffy_style(arena, *slot),
-                *slot,
-                arena.node_type(*slot).is_measured_leaf(),
-            );
-            arena.set_taffy(*slot, Some(node));
-            if arena.has_alert_prefix(*slot) {
-                tree.new_alert_prefix(*slot);
-            }
-        }
-        for slot in &slots {
-            // Inline runs and a select's options are never laid out.
-            if matches!(arena.node_type(*slot), NodeType::Text | NodeType::Control) {
-                continue;
-            }
-            if let Some(node) = arena.taffy(*slot) {
-                let before = tree.alert_prefixes.get(slot).copied();
-                let children =
-                    order::laid_out(arena, *slot, &tree.taffy, node, before, |c| arena.taffy(c));
-                tree.set_children(node, &children);
-            }
-        }
-        tree
-    }
-
-    /// A separate engine tree of the subtrees at `roots`, for a trial that
-    /// must leave the ordinary tree, its caches and its frames alone; its
-    /// handles by slot. The arena's own handles are never written.
-    pub(crate) fn of_subtrees(
-        arena: &NodeArena,
-        roots: &[u32],
-    ) -> (LayoutTree, HashMap<u32, NodeId>) {
-        let mut tree = LayoutTree::new();
-        let slots: Vec<u32> = roots.iter().flat_map(|&r| arena.subtree(r)).collect();
-        let nodes: HashMap<u32, NodeId> = slots
-            .iter()
-            .map(|&s| {
-                let node = tree.new_leaf(
-                    taffy_style(arena, s),
-                    s,
-                    arena.node_type(s).is_measured_leaf(),
-                );
-                (s, node)
-            })
-            .collect();
-        for &slot in &slots {
-            if arena.has_alert_prefix(slot) {
-                tree.new_alert_prefix(slot);
-            }
-        }
-        for s in slots {
-            if matches!(arena.node_type(s), NodeType::Text | NodeType::Control) {
-                continue;
-            }
-            let node = nodes[&s];
-            let before = tree.alert_prefixes.get(&s).copied();
-            let children = order::laid_out(arena, s, &tree.taffy, node, before, |c| {
-                nodes.get(&c).copied()
-            });
-            tree.set_children(node, &children);
-        }
-        (tree, nodes)
-    }
-
-    /// Give `node`, standing in for `parent`, those of `parent`'s children
-    /// `nodes` holds, in the order its layout takes them.
-    pub(crate) fn adopt(
-        &mut self,
-        arena: &NodeArena,
-        parent: u32,
-        node: NodeId,
-        nodes: &HashMap<u32, NodeId>,
-    ) {
-        let before = if arena.has_alert_prefix(parent) {
-            match self.alert_prefixes.get(&parent).copied() {
-                Some(prefix) => Some(prefix),
-                None => Some(self.new_alert_prefix(parent)),
-            }
-        } else {
-            None
-        };
-        let children = order::laid_out(arena, parent, &self.taffy, node, before, |c| {
-            nodes.get(&c).copied()
-        });
-        self.set_children(node, &children);
     }
 }
