@@ -150,7 +150,11 @@ exact-js = ${dep('js')}
 exact-js-bake = ${dep('js/bake')}
 `,
     'linux/build.rs': `fn main() {
-    exact_js_bake::build(std::path::Path::new(".."), "linux").expect("bake ${title}");
+    // The bake's error is what it found (tsc's and the compiler's diagnostics), said as it is: no panic around it.
+    if let Err(error) = exact_js_bake::build(std::path::Path::new(".."), "linux") {
+        eprintln!("{error}");
+        std::process::exit(1);
+    }
 }
 `,
     'linux/src/main.rs': `//! ${title} on Linux (and Android): the Contract UI and the TypeScript data module.
@@ -381,7 +385,11 @@ exact-js-bake = ${dep('apple', 'js/bake')}
         Ok("ios") => "ios",
         _ => "macos",
     };
-    exact_js_bake::build(std::path::Path::new(".."), platform).expect("bake ${title}");
+    // The bake's error is what it found (tsc's and the compiler's diagnostics), said as it is: no panic around it.
+    if let Err(error) = exact_js_bake::build(std::path::Path::new(".."), platform) {
+        eprintln!("{error}");
+        std::process::exit(1);
+    }
 }
 `,
     'apple/src/lib.rs': `//! ${title} on Apple: the Contract UI and the TypeScript data module.
@@ -423,7 +431,11 @@ exact-js-web = ${dep('web', 'js/web')}
 exact-js-bake = ${dep('web', 'js/bake')}
 `,
     'web/build.rs': `fn main() {
-    exact_js_bake::build(std::path::Path::new(".."), "web").expect("bake ${title}");
+    // The bake's error is what it found (tsc's and the compiler's diagnostics), said as it is: no panic around it.
+    if let Err(error) = exact_js_bake::build(std::path::Path::new(".."), "web") {
+        eprintln!("{error}");
+        std::process::exit(1);
+    }
 }
 `,
     'web/src/lib.rs': `//! ${title} on the web: the Contract UI and the TypeScript data module.

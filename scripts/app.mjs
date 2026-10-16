@@ -842,7 +842,9 @@ function buildCommand(command, args, app, env, stderr = 'pipe') {
   }
   if (result.error || result.status !== 0) {
     if (command === 'cargo') throwContractErrors(app, args, result, ROOT);
-    throw new Error(`${command} ${args.join(' ')} failed: ${result.error?.message ?? result.stderr ?? `exit ${result.signal ?? result.status} (see diagnostics above)`}\n${(result.stdout ?? '').slice(-4000)}`);
+    // Said short: the profiles' `--config` pairs and a JSON build's artifact lines bury the diagnostics above.
+    const said = args.filter((arg, i) => arg !== '--config' && args[i - 1] !== '--config').join(' '), out = (result.stdout ?? '').split('\n').filter(line => !line.includes('"reason":')).join('\n').slice(-4000);
+    throw new Error(`${command} ${said} failed: ${result.error?.message ?? result.stderr ?? `exit ${result.signal ?? result.status} (see diagnostics above)`}${out.trim() ? `\n${out}` : ''}`);
   }
   return result;
 }
