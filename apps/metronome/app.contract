@@ -3,7 +3,9 @@
 // clock. A tempo stepper, an accent on beat 1, a count-in of four, a haptic on
 // each beat, and a four-track drum pattern whose tracks loop at their own
 // lengths. No action runs per beat; the beat shown is drawn from
-// `exactTransport()` in a frame task that runs only while it plays.
+// `exactTransport()` in a frame task that runs only while it plays. Share as
+// image sends a picture of the tempo card where the host draws one (LLP
+// 1125 D12).
 sound "assets/click-high.wav"
 sound "assets/click-low.wav"
 sound "assets/kick.wav"
@@ -28,6 +30,9 @@ shape Track
   offset: number
   output: string
   steps: Step[]
+
+shape Page
+  canSharePictures: bool
 
 shape Transport
   state: string
@@ -55,6 +60,7 @@ component Metronome
   state groove = false
   state now = 0
   resource transport = exactTransport() as shape Transport
+  resource page = exactPage() as shape Page
   derive tracks = groove ? [bar(accent, haptics)].concat(drums()) : [bar(accent, haptics)]
   derive clicks = [step(0, "assets/click-high.wav", 1, ""), step(1, "assets/click-high.wav", 1, ""), step(2, "assets/click-high.wav", 1, ""), step(3, "assets/click-high.wav", 1, "")]
   derive beat = transport.state == "stopped" ? 0 : floor(transport.anchorBeat + (now - transport.anchorAt) * transport.bpm / 60000)
@@ -74,6 +80,8 @@ component Metronome
     haptics = on
   action setGroove(on: bool)
     groove = on
+  action shareCard
+    share(title="Metronome", text=`${bpm} BPM`, files=["#card"])
   action draw
     now = performanceNow()
 
@@ -85,8 +93,10 @@ component Metronome
   view
     main accent-color="-exact-system-orange" align-items="center" justify-content="center" flex=1 gap=24 padding=24 testId="app"
       column align-items="center" gap=8 max-width=420
-        text `${bpm}` font="-exact-large-title" testId="bpm"
-        text "beats a minute" font="-exact-footnote" color="-exact-secondary-label"
+        column id="card" align-items="center" gap=4 padding=16 border-radius=12 background-color="-exact-secondary-background" testId="card"
+          text `${bpm}` font="-exact-large-title" testId="bpm"
+          text "beats a minute" font="-exact-footnote" color="-exact-secondary-label"
+          text (groove ? "Kick, snare, hats and clap" : accent ? "Click, beat 1 accented" : "Click") font="-exact-footnote" testId="pattern"
         row gap=12
           button press=slower aria-label="Slower" testId="slower"
             text "−"
@@ -95,6 +105,9 @@ component Metronome
       text shown font="-exact-title-2" testId="beat"
       button press=toggle buttonStyle="filled" testId="toggle"
         text (playing ? "Stop" : "Start")
+      if page.canSharePictures
+        button press=shareCard testId="share-card"
+          text "Share as image"
       column gap=8 max-width=420
         row gap=8 align-items="center"
           input type="checkbox" checked=accent change=setAccent aria-label="Accent beat 1" testId="accent"
