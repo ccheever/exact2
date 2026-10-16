@@ -240,7 +240,9 @@ fn propagated_chain_overlays_page_and_fresh_teleport_writes_both() {
     r.calls.clear();
     w.teleport(b, Transform::at(10., 0., 0.));
     f.feed_to(&w, &mut r).unwrap();
-    assert!(r.calls.contains(&Call::Previous(b.index(), 10)));
+    assert!(r.calls.iter().any(|call| matches!(call,
+        Call::Previous(first, len) if *first <= b.index() && b.index() < *first + (*len / 10) as u32
+    )));
     assert_eq!(r.position(b, true), r.position(b, false));
     let e = w.spawn((Transform::at(50., 0., 0.), Mesh::cube(1.0)));
     f.feed_to(&w, &mut r).unwrap();
@@ -1131,6 +1133,79 @@ fn a_slot_reoccupied_between_feeds_takes_its_current_pose_as_history() {
         -7.,
         "no frame interpolates from the old occupant"
     );
+}
+
+#[test]
+fn hierarchy_resets_coalesce_without_snapping_an_unrelated_moving_slot() {
+    const HALF: usize = 256;
+    struct Reparent;
+    impl Game for Reparent {
+        type Args = ();
+        const ID: &'static str = "feed-history-runs";
+        fn setup(w: &mut World, _: &()) {
+            let root = w.spawn_named("root", Transform::at(10., 0., 0.));
+            for i in 0..2 * HALF {
+                if i == HALF {
+                    w.spawn_named("moving", (Transform::default(), Mesh::cube(1.)));
+                }
+                w.spawn_named(
+                    &format!("piece-{i}"),
+                    (
+                        Transform::at(i as f32, 1., 0.),
+                        Parent(root),
+                        Mesh::cube(1.),
+                    ),
+                );
+            }
+            w.spawn_named("other", Transform::at(-10., 0., 0.));
+        }
+        fn tick(w: &mut World, _: &Input, _: &()) {
+            w.get_mut::<Transform>("moving").unwrap().position.x += 1.;
+            if w.tick() == 3 {
+                let other = w.named("other").unwrap();
+                let child = w.named("piece-0").unwrap();
+                w.insert(child, Parent(other));
+            }
+        }
+    }
+    let mut sim = Sim::<Reparent>::new(()).unwrap();
+    let mut feed = Feed::default();
+    let mut r = Recording::default();
+    feed.feed_to(sim.world(), &mut r).unwrap();
+    let moving = sim.world().named("moving").unwrap();
+    let mut checked = false;
+    for _ in 0..8 {
+        let previous = r.position(moving, false);
+        sim.run(1000. / 60.);
+        r.calls.clear();
+        feed.feed_to(sim.world(), &mut r).unwrap();
+        let w = sim.world();
+        if w.get::<Parent>("piece-0").unwrap().0 != w.named("other").unwrap() {
+            continue;
+        }
+        assert_eq!(r.position(moving, true), previous);
+        assert_ne!(r.position(moving, false), previous);
+        for i in 0..2 * HALF {
+            let child = w.named(&format!("piece-{i}")).unwrap();
+            assert_eq!(r.position(child, true), r.position(child, false));
+        }
+        assert_eq!(r.position(w.named("piece-0").unwrap(), false).x, -10.);
+        let writes: Vec<_> = r
+            .calls
+            .iter()
+            .filter(|c| matches!(c, Call::Previous(..)))
+            .collect();
+        assert_eq!(
+            writes,
+            [
+                &Call::Previous(1, HALF * 10),
+                &Call::Previous(HALF as u32 + 2, HALF * 10)
+            ]
+        );
+        checked = true;
+        break;
+    }
+    assert!(checked, "the hierarchy edit reached the renderer");
 }
 
 #[test]

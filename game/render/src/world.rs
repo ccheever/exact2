@@ -405,6 +405,7 @@ pub struct Feed {
     page_scratch: Box<[f32; PAGE * 12]>,
     dimensions: Vec<[f32; 3]>,
     scratch: Vec<f32>,
+    previous: Vec<(u32, [f32; 10])>,
     transforms: [upload::Pages; 2],
     materials: upload::Pages,
     current: usize,
@@ -445,6 +446,7 @@ impl Default for Feed {
             page_scratch: Box::new([0.0; PAGE * 12]),
             dimensions: Vec::new(),
             scratch: Vec::new(),
+            previous: Vec::new(),
             transforms: Default::default(),
             materials: Default::default(),
             current: 0,
@@ -489,6 +491,7 @@ impl Feed {
         }
         self.materials.reset();
         self.parents.clear();
+        self.previous.clear();
         self.override_pages.clear();
         self.occupants.clear();
         self.override_cursor = None;
@@ -611,6 +614,7 @@ impl Feed {
         let parent_changed = next.parent != old.parent;
         let offset_changed = next.offset != old.offset;
         if moved || (self.history_pending && w.tick() != self.tick) {
+            self.previous.clear();
             r.begin_tick();
             self.current = 1 - self.current;
             // Parented global poses: every one when the hierarchy changed, else
@@ -748,7 +752,7 @@ impl Feed {
                         continue;
                     }
                     if let Some(t) = scene::pose(w, e) {
-                        r.previous(e.index(), &floats(t))?;
+                        self.previous.push((e.index(), floats(t)));
                         self.transforms[1 - self.current].invalidate(slot / PAGE);
                     }
                 }
@@ -756,7 +760,7 @@ impl Feed {
             if !initial {
                 for &e in w.fresh() {
                     if let Some(t) = scene::pose(w, e) {
-                        r.previous(e.index(), &floats(t))?;
+                        self.previous.push((e.index(), floats(t)));
                         self.transforms[1 - self.current].invalidate(e.index() as usize / PAGE);
                     }
                 }
@@ -770,7 +774,7 @@ impl Feed {
                         })
                 {
                     if !w.is_fresh(e) && scene::snap(w, e, parent_changed) {
-                        r.previous(e.index(), &t)?;
+                        self.previous.push((e.index(), t));
                         self.transforms[1 - self.current].invalidate(e.index() as usize / PAGE);
                     }
                 }
@@ -778,7 +782,7 @@ impl Feed {
                     for &e in &self.parents {
                         if !w.has::<Parent>(e) {
                             if let Some(t) = scene::pose(w, e) {
-                                r.previous(e.index(), &floats(t))?;
+                                self.previous.push((e.index(), floats(t)));
                                 self.transforms[1 - self.current]
                                     .invalidate(e.index() as usize / PAGE);
                             }
@@ -789,6 +793,26 @@ impl Feed {
             if rebuilt {
                 self.parents.clear();
                 self.parents.extend(self.overrides.iter().map(|(e, _)| *e));
+            }
+            // A hierarchy edit can snap thousands of children. Coalesce their
+            // history resets just like current-pose pages; one GPU write per
+            // entity otherwise allocates thousands of staging transfers.
+            self.previous.sort_unstable_by_key(|(slot, _)| *slot);
+            self.previous.dedup_by_key(|(slot, _)| *slot);
+            self.scratch.clear();
+            let mut first = 0;
+            for &(slot, pose) in &self.previous {
+                if !self.scratch.is_empty() && first + (self.scratch.len() / 10) as u32 != slot {
+                    r.previous(first, &self.scratch)?;
+                    self.scratch.clear();
+                }
+                if self.scratch.is_empty() {
+                    first = slot;
+                }
+                self.scratch.extend_from_slice(&pose);
+            }
+            if !self.scratch.is_empty() {
+                r.previous(first, &self.scratch)?;
             }
             self.history_pending = moved && !initial;
         }
