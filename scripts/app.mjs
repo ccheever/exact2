@@ -617,11 +617,16 @@ export const DOCUMENT_UTIS = {
 };
 
 // The icon the Apple bundles are drawn from (host/apple/build.mjs
-// `appIcon`): the first square one of at least 512 px, which must be there;
-// refused when any build reads the manifest, as the file types are.
+// `appIcon`): the first square one of at least 512 px, which must be there,
+// as must the iOS launch screen's picture (`launchScreen`); refused when any
+// build reads the manifest, as the file types are.
 function appleIconProblems(manifest, dir) {
   const icon = (manifest.icons ?? []).find((i) => { const m = /^(\d+)x(\d+)$/.exec(i.sizes ?? ''); return m && m[1] === m[2] && Number(m[1]) >= 512; });
-  return icon && !existsSync(resolve(dir, icon.src)) ? [`icons: ${icon.src}, the square icon the Apple bundles are drawn from, does not exist`] : [];
+  const launch = manifest.host?.ios?.launchImage?.src;
+  return [
+    ...(icon && !existsSync(resolve(dir, icon.src)) ? [`icons: ${icon.src}, the square icon the Apple bundles are drawn from, does not exist`] : []),
+    ...(launch && !existsSync(resolve(dir, launch)) ? [`host.ios.launchImage: ${launch}, the launch screen's picture, does not exist`] : []),
+  ];
 }
 
 /** An app's own document format (studio diary R13): a MIME type in IANA's

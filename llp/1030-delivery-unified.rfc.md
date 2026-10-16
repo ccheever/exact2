@@ -130,6 +130,16 @@ are copied to the web manifest and baked into Apple `Info.plist` as both URL
 schemes and handler templates. They are host metadata, not deploy policy;
 the native session applies LLP 1038 D8's template before delivery.
 
+**Amended 2026-10-16: a launch picture.** `host.ios.launchImage`
+(`src`, a PNG in the app's directory, and `width` in points) is baked
+into the asset catalog as an image set at 1x, 2x and 3x and named by
+`UILaunchScreen`'s `UIImageName`, which iOS centres on the launch
+colour (`background_color`). An app whose first frame draws a picture
+on its background (the euxy port's unlit LED grid, Expo's splash
+`image` and `imageWidth`) launches showing it, where a colour alone
+flashed the bare background first. It is host metadata, part of the
+binary's identity as the icon is.
+
 The panel's correction: the manifest is not one blob whose digest is
 the binary's identity. It has typed sections, and only some are
 identity:

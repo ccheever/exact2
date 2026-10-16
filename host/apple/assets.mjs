@@ -105,7 +105,9 @@ export function appleAssets(app, dir, { platform = 'macos', device = false, cata
   if (platform !== 'ios' && !catalogs.length) { rmSync(resolve(dir, 'Assets.car'), { force: true }); return {}; }
   if (kept) {
     const icons = (app.manifest.icons ?? []).map(icon => [icon, existsSync(resolve(app.dir, icon.src)) ? createHash('sha256').update(readFileSync(resolve(app.dir, icon.src))).digest('hex') : null]);
-    const key = createHash('sha256').update(JSON.stringify([catalogs, icons, app.manifest.background_color ?? null, app.manifest.background_color_dark ?? null, launch,
+    const image = app.manifest.host?.ios?.launchImage;
+    const launchImage = image ? [image, existsSync(resolve(app.dir, image.src)) ? createHash('sha256').update(readFileSync(resolve(app.dir, image.src))).digest('hex') : null] : null;
+    const key = createHash('sha256').update(JSON.stringify([catalogs, icons, app.manifest.background_color ?? null, app.manifest.background_color_dark ?? null, launch, launchImage,
       app.manifest.host?.[sourcePlatform]?.minimumOS ?? null, platform, device, catalog, kept.stamp,
       // What the compile itself writes: a cache from before `--accent-color` named no accent
       'accent-color'])).digest('hex').slice(0, 16);
@@ -180,13 +182,30 @@ export function appleAssets(app, dir, { platform = 'macos', device = false, cata
  * window under the first frame (`ExactLaunch`, read by the presenter) is the
  * same grey and nothing lighter shows between the launch screen and the first
  * frame (stopwatch, round 13: "blank white screen for ~1 s").
- * `UILaunchScreen` names colours only from an asset catalog, so this
- * writes its colour set for the shared compile. Returns the plist keys to merge. */
+ * `UILaunchScreen` names colours and images only from an asset catalog, so
+ * this writes its colour set, and the manifest's `host.ios.launchImage` as
+ * an image set at its width in points (1x, 2x and 3x), which iOS centres on
+ * that colour, for the shared compile. Returns the plist keys to merge. */
 function launchScreen(app, catalog, launch = 'system') {
   const named = app.manifest.background_color;
   const light = named ?? (launch === 'grouped' ? '#F2F2F7' : undefined);
   const dark = named ? app.manifest.background_color_dark : launch === 'grouped' ? '#000000' : undefined;
-  if (!light) return {};
+  const image = app.manifest.host?.ios?.launchImage;
+  const keys = {};
+  if (image) {
+    const source = resolve(app.dir, image.src);
+    if (!existsSync(source)) throw new Error(`host/apple: ${app.name}'s launch image ${image.src} does not exist`);
+    const set = resolve(catalog, 'ExactLaunchImage.imageset');
+    mkdirSync(set, { recursive: true });
+    const images = [1, 2, 3].map(scale => {
+      const filename = `launch@${scale}x.png`;
+      run('sips', ['--resampleWidth', String(Math.round(image.width * scale)), source, '--out', resolve(set, filename)], { stdio: 'ignore' });
+      return { idiom: 'universal', filename, scale: `${scale}x` };
+    });
+    writeFileSync(resolve(set, 'Contents.json'), JSON.stringify({ images, info: { author: 'exact', version: 1 } }));
+    keys.UIImageName = 'ExactLaunchImage';
+  }
+  if (!light) return image ? { UILaunchScreen: keys } : {};
   const components = (hex, field) => {
     const m = /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.exec(hex ?? '');
     if (!m) throw new Error(`${field} must be a #RGB, #RRGGBB or #RRGGBBAA colour, not ${JSON.stringify(hex)}`);
@@ -198,7 +217,7 @@ function launchScreen(app, catalog, launch = 'system') {
   if (dark) colors.push({ idiom: 'universal', appearances: [{ appearance: 'luminosity', value: 'dark' }], color: components(dark, 'background_color_dark') });
   mkdirSync(resolve(catalog, 'ExactLaunch.colorset'), { recursive: true });
   writeFileSync(resolve(catalog, 'ExactLaunch.colorset', 'Contents.json'), JSON.stringify({ colors, info: { author: 'exact', version: 1 } }));
-  return { UILaunchScreen: { UIColorName: 'ExactLaunch' } };
+  return { UILaunchScreen: { UIColorName: 'ExactLaunch', ...keys } };
 }
 
 const NESTED_BUNDLE = /\.(app|appex|bundle|framework|plugin|xpc|systemextension)$/;

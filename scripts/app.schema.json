@@ -314,6 +314,16 @@
               "description": "The oldest iOS the app runs on, as \"17.0\"; never below 17.0.",
               "type": "string"
             },
+            "launchImage": {
+              "description": "A picture the launch screen centres on `background_color` (UILaunchScreen's UIImageName), drawn `width` points wide: the app's first frame drawn ahead of it, so the launch shows what the first frame shows (Expo's splash `image` and `imageWidth`). A PNG in the app's directory; light and dark alike.",
+              "type": "object",
+              "required": ["src", "width"],
+              "additionalProperties": false,
+              "properties": {
+                "src": { "type": "string", "pattern": "\\.png$", "description": "The PNG, relative to the app's directory." },
+                "width": { "type": "number", "minimum": 1, "description": "Its width on the launch screen, in points; its height follows its aspect." }
+              }
+            },
             "optimize": {
               "enum": ["speed", "size"],
               "description": "What a production build optimizes the Rust archive and ExactKit for (LLP 1047.001 D9): \"speed\" (opt-level 3, Swift -O) or \"size\" (opt-level z, Swift -Osize -internalize-at-link; on 2026-10-06 a one-text app's 9.8 MB was 6.2). Absent: speed for an app, size for an embed (`build.mjs --embed`). `build.mjs --optimize` overrides it."

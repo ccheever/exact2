@@ -116,15 +116,20 @@ test.skipIf(process.platform !== 'darwin')('iOS distribution assets retain the i
     writeFileSync(resolve(dir, 'icon.png'), Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64'));
     const bundle = resolve(dir, 'Fixture.app');
     mkdirSync(bundle);
-    const app = { dir, name: 'fixture', manifest: { icons: [{ src: 'icon.png', sizes: '1024x1024' }], background_color: '#fff', background_color_dark: '#123456' } };
+    const app = { dir, name: 'fixture', manifest: { icons: [{ src: 'icon.png', sizes: '1024x1024' }], background_color: '#fff', background_color_dark: '#123456',
+      host: { ios: { launchImage: { src: 'icon.png', width: 40 } } } } };
     const keys = iosAssets(app, bundle, true, { catalog: true });
     assert.equal(keys.CFBundleIcons.CFBundlePrimaryIcon.CFBundleIconName, 'AppIcon');
     assert.equal(keys.UILaunchScreen.UIColorName, 'ExactLaunch');
+    assert.equal(keys.UILaunchScreen.UIImageName, 'ExactLaunchImage', 'the picture the launch screen centres on its colour');
     const result = spawnSync('xcrun', ['assetutil', '--info', resolve(bundle, 'Assets.car')], { encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
     const assets = JSON.parse(result.stdout);
     assert.ok(assets.some(asset => asset.Name === 'AppIcon'), 'Assets.car must retain AppIcon');
     assert.equal(assets.filter(asset => asset.Name === 'ExactLaunch').length, 2);
+    const launch = assets.filter(asset => asset.Name === 'ExactLaunchImage');
+    assert.ok(launch.length >= 1, 'Assets.car holds the launch image');
+    assert.ok(launch.every(asset => asset.PixelWidth === 40 * asset.Scale), `40 points wide at each scale: ${JSON.stringify(launch)}`);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }, 60000);
 
@@ -235,6 +240,8 @@ test('the launch handler bakes `ExactLaunchMode` with or without documents (LLP 
     assert.throws(() => readManifest(dir, 'types'), /background_color: "white" does not match/);
     writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Types', app: { id: 'com.example.types', name: 'Types' }, background_color: '#fff', icons: [{ src: 'icon.png', sizes: '1024x1024' }] }));
     assert.throws(() => readManifest(dir, 'types'), /icons: icon\.png, the square icon the Apple bundles are drawn from, does not exist/);
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Types', app: { id: 'com.example.types', name: 'Types' }, host: { ios: { launchImage: { src: 'splash.png', width: 276 } } } }));
+    assert.throws(() => readManifest(dir, 'types'), /host\.ios\.launchImage: splash\.png, the launch screen's picture, does not exist/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
