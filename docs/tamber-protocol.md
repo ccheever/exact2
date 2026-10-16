@@ -27,6 +27,8 @@ on macOS and Linux.
   - the `builds`, `build-status`, `unsupported` and `selected` events;
   - the live table's batch and snapshot frames, and the dev loop's endpoints (`/__dev/design`,
     `/__dev/report`, `/__dev/hello`, `/__dev/commands`);
+  - `uses`, scrub sessions (`scrub`, `scrub-release`, `scrub-cancel`, the `scrub` event) and
+    `propose`'s `texts` (stage 4, commit 6);
   - the items marked *1.2* below.
 
 ## Where it runs
@@ -170,6 +172,27 @@ tuple:
   resolved them;
 - `files` gives the digests it read (*1.1*).
 
+`resolve` gives a residual's stored form and its fallback, labelled; its concrete value on a
+given build (`resolve-on`) comes with LLP 1122 T2b, from that build's `selected` report, as its
+runner resolves it.
+
+**`uses`** `{token, file?}` (*1.2*, stage 4 commit 6) says where the app reads a token,
+statically: every style row of the plan whose expression names it, directly, through a token
+whose value names it, or through a synthetic token (a row's expression over tokens) that reads
+it. It answers `{token, plan, sites, aliases, files}`:
+- `sites: [{site, row, file, line, col, end_col, component, via?}]`: the plan node (`site`), the
+  row, and its source span from the plan's source map. `via` is absent for a direct read, `{token}`
+  through a token naming it, and `{synthetic, through}` through a synthetic token's expression
+  (`through` null, or the `{token}` it reads it by);
+- `plan`: the digest of the plan the sites index, compiled from the sources as they are, before
+  any bake. A build joins the spans through its own source map (LLP 1122 T2b's `outline`);
+- `aliases`: the tokens whose values name it, directly or through another;
+- `files`: the digests it read.
+
+How many instances of each site are mounted on a build is not answered: that needs a report the
+build channel does not carry (a LLP 1121 §9 candidate). A design token no row reads has no sites.
+The app's build failing is an error (`the app does not build: …`).
+
 **A design that doesn't check** answers `{"message": "the design is refused", "diagnostics":
 [{file, line, col, id, message}]}`.
 
@@ -220,11 +243,46 @@ design.
   no reload (see [The live table](#the-live-table-llp-1121-stage-4-12)); a `rebuild` one reloads;
 - `synthetic: [{expr, values}]` (*1.2*): each synthetic token whose value the edit changes, its new
   value as CSS text per app tuple, for the live batch;
-- `files`: the digests it planned against.
+- `files`: the digests it planned against;
+- `texts` (*1.2*): with `texts: true` in the request, the new text of each file it would write, by
+  path; a scrub's preview compiles them.
 
 A digest it carries is checked as a transaction's is, and a stale one is 409 (with no `by`).
 `requires` is `{path: digest}`, for files it was planned on but doesn't edit, checked alongside
 (*1.1*).
+
+### Scrub sessions (*1.2*, LLP 1121 D13, LLP 1122 D6)
+
+A token or dial dragged in the tool previews on every running build as a live batch, is written
+to no file while the gesture lasts, and is written once, on release. The wire runs it
+(`scripts/tamber-scrub.mjs`); the dev loop that mounts the wire previews it.
+
+- **`scrub`** `{client, ops, files, scrub?}` opens a scrub, or updates the client's open one
+  (`scrub` its id). It needs `write` scope and a present client (a subscription or long poll that
+  names it), and the dev loop's wire: a server no dev loop runs answers 501.
+  - **One at a time:** another client's scrub open is 409.
+  - **Each update is the whole gesture's edit,** planned (`propose` with `texts`) on the files as
+    the scrub opened on them (`files`, the digests its client read, given when it opens). The dev
+    loop compiles the texts in place of the design file and sends every build the batch from the
+    design it runs, as a value-only edit sends one; the snapshot it serves (`/__dev/design`) is the
+    scrub's while it lasts.
+  - **Updates that come while one previews** wait; only the latest is previewed, and the others
+    are answered `{scrub, superseded: true}`.
+  - It answers `{scrub, class: "live", changed, synthetic, files}`.
+  - **A rebuild-class edit has no scrub** (409): it applies on release, as a `transaction`.
+- **`scrub-release`** `{client, scrub}` writes once: one transaction checked against the digests
+  the scrub opened with, its reply a transaction's. A file moved since is a conflict: nothing is
+  written, and the builds get the committed design back.
+- **`scrub-cancel`** `{client, scrub}` ends it without a write.
+- **It ends without a write** on a cancel, a competing write (any write, or a hand edit the
+  watcher sees, cancels it first), its client no longer present, the design server's loss, and
+  30 s with no update. On each, every build gets the **latest committed** design, not the
+  gesture's first, and a build that connects later gets the committed snapshot.
+- **The `scrub` event** `{scrub, client, reason}` says each opening (`opened`) and each end
+  (`released`, `refused`, `cancelled`, `competing write`, `disconnected`, `server lost`, `idle`).
+  While one is open the files and the running builds differ: the tool says "previewing".
+- **Scope:** the local tool's token writes. A paired client's scoped token (LLP 1122 D6) names
+  its scope, and a `propose`-scope client's scrub is 403.
 
 ### `transaction`
 
@@ -409,6 +467,7 @@ Every event carries `seq` (rising, per run) and `epoch` (this run). The server k
 | `build-status` | `build`: one build, after its `status` report |
 | `unsupported` | `build`, `what` (a command's kind, `pin.mode`, `pin.contrast`, `batch`), `detail` |
 | `selected` | `build`, `selected` (LLP 1122 D5; its sender is T2b's) |
+| `scrub` | `scrub`, `client`, `reason` (*1.2*; see [Scrub sessions](#scrub-sessions-12-llp-1121-d13-llp-1122-d6)) |
 
 - **A write is announced once,** from its reply. A hand edit made just before a write is announced
   first, as its own event.
@@ -557,9 +616,8 @@ The tool drives no input into an app; a command changes only what `prefer` would
 
 ## Not yet in the protocol
 
-- **LLP 1121 stage 4, with LLP 1122 D4:**
-  - scrub sessions;
-  - `uses`.
+- **`uses`' mounted-instance count** needs a report outside the build channel's (a LLP 1121 §9
+  candidate).
 - **LLP 1121 stage 4's gate also names `resolve-on`.** LLP 1122 defers it to T2b, where a build's
   `selected` report carries the value it resolved.
 - **Later stages:**

@@ -702,3 +702,45 @@ fn a_write_that_makes_a_role_vary_by_an_axis_is_refused_as_the_build_would() {
     assert_eq!(std::fs::read_to_string(&file).unwrap(), before);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// `uses` (LLP 1121 stage 4, commit 6): every style row that reads the
+/// token, directly, through a token naming it and through a synthetic
+/// token, each at its source span; a text that happens to hold the name
+/// is no use.
+#[test]
+fn uses_names_every_site_through_aliases_and_synthetic_tokens() {
+    let dir = app(
+        "uses",
+        "tamber app\n\ntheme\n  brand = #0a7aff\n  ink = brand\n  brand-2 = #123456\n",
+    );
+    std::fs::write(
+        dir.join("app.contract"),
+        "component App\n  view\n    column\n      text \"brand\" color=\"brand\"\n      text \"b\" color=\"ink\"\n      text \"c\" background-color=\"color-mix(in srgb, brand 60%, white)\"\n      text \"d\" color=\"brand-2\"\n",
+    )
+    .unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let (uses, _) = s.ask(json!({"method": "uses", "token": "brand"}));
+    let sites = uses["ok"]["sites"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{uses}"));
+    let at = |line: u64| sites.iter().find(|s| s["line"] == line);
+    assert_eq!(sites.len(), 3, "{uses}");
+    assert_eq!(at(4).unwrap()["row"], "text_color");
+    assert!(at(4).unwrap().get("via").is_none(), "{uses}");
+    assert_eq!(at(5).unwrap()["via"], json!({"token": "ink"}));
+    assert_eq!(
+        at(6).unwrap()["via"],
+        json!({"synthetic": "color-mix(in srgb, brand 60%, white)", "through": null})
+    );
+    assert_eq!(
+        at(4).unwrap()["file"]
+            .as_str()
+            .map(|f| f.ends_with("app.contract")),
+        Some(true)
+    );
+    assert_eq!(uses["ok"]["aliases"], json!(["ink"]));
+    assert!(uses["ok"]["plan"].is_string(), "{uses}");
+    let (none, _) = s.ask(json!({"method": "uses", "token": "nope"}));
+    assert!(none["error"]["message"].is_string(), "{none}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

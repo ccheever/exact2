@@ -268,6 +268,61 @@ function pushDesign({ batch, snapshot }) {
   for (const res of clients) res.write(`data: ${frame}\n\n`);
   tamber?.channel.broadcast(JSON.parse(frame));
 }
+/** A scrub's batch and snapshot from design `from` to `to` (LLP 1121 stage
+ * 4, commit 6): by the design's shape, since the TypeScript producer's scrub
+ * design is unbaked and its plan structure is not the generation's. */
+function scrubBatch(from, to) {
+  if (from.shape !== to.shape || from.tokens.length !== to.tokens.length
+    || from.tokens.some((t, i) => t.name !== to.tokens[i].name)) return null;
+  return designBatch({ ...from, structure: to.structure }, to);
+}
+// A scrub's previews and its end, asked of the resident compiler (dev.rs's
+// `scrub`/`restore` lines, the TypeScript producer's `{scrub}` request).
+const scrubAsks = new Map();
+let scrubAskId = 0;
+const scrubAsk = (line) => new Promise((done) => {
+  const child = dev;
+  if (!child?.stdin?.writable) return done({ error: 'no resident compiler runs' });
+  const id = `scrub-${++scrubAskId}`;
+  const late = setTimeout(() => { scrubAsks.delete(id); done({ error: 'the compiler did not answer' }); }, 30_000);
+  scrubAsks.set(id, (v) => { clearTimeout(late); scrubAsks.delete(id); done(v); });
+  child.stdin.write(`${line(id)}\n`);
+});
+// The design the builds run while a TypeScript app's scrub previews.
+let moduleScrubbed = null;
+/** Preview a scrub's texts on every build: the batch from the design they
+ * run; nothing written. */
+async function scrubPreview(texts) {
+  const file = relative(app.dir, designPath(app.dir));
+  if (!(file in texts)) return {};
+  if (!typescript && portableRust) return { error: 'this app\'s own producer publishes every plan: its design edits reload' };
+  if (typescript) {
+    const reply = await scrubAsk((id) => JSON.stringify({ id, scrub: texts[file] }));
+    if (!reply.ok) return { error: reply.error ?? 'the producer refused it' };
+    const from = moduleScrubbed ?? moduleDesign;
+    const live = from && scrubBatch(from, reply.design);
+    if (!live) return { error: 'it changes the design\'s shape: a rebuild applies on release' };
+    moduleScrubbed = reply.design;
+    if (live.batch.tokens.length) pushDesign(live); else designSnapshot = live.snapshot;
+    return {};
+  }
+  const reply = await scrubAsk((id) => `scrub ${id} ${JSON.stringify(texts[file])}`);
+  if (reply.error) return { error: reply.error };
+  if (reply.batch) pushDesign(reply); else designSnapshot = reply.snapshot;
+  return {};
+}
+/** A scrub ended without its write: every build back on the committed design. */
+async function scrubRestore() {
+  if (typescript) {
+    const live = moduleScrubbed && moduleDesign && scrubBatch(moduleScrubbed, moduleDesign);
+    moduleScrubbed = null;
+    if (live?.batch.tokens.length) pushDesign(live); else if (live) designSnapshot = live.snapshot;
+    return;
+  }
+  if (portableRust) return;
+  const reply = await scrubAsk((id) => `restore ${id}`);
+  if (reply.batch) pushDesign(reply); else if (reply.snapshot) designSnapshot = reply.snapshot;
+}
 // A revision owns its plan and complete asset namespace. Its process epoch
 // makes a restarted server's seq=1 newer than the previous server's seq=N.
 const epoch = randomBytes(16).toString('hex');
@@ -277,7 +332,7 @@ const installer = localInstaller({ app: () => app, origins, port: servedAs ?? po
 // Live while a value-only edit has its path here: the resident compiler's or
 // the TypeScript producer's. A Rust-data app's own producer publishes every
 // plan, so its design edits reload.
-const tamber = servedAs == null && designPath(app.dir) ? tamberServer({ appDir: app.dir, live: () => typescript || !portableRust }) : null;
+const tamber = servedAs == null && designPath(app.dir) ? tamberServer({ appDir: app.dir, live: () => typescript || !portableRust, scrub: { preview: scrubPreview, restore: scrubRestore } }) : null;
 // A polled stream (Linux) is told the design to run when it opens.
 tamber?.channel.greet(() => designSnapshot && designNotice(designSnapshot));
 const generationCache = resolve(root, 'target/dev-generations', createHash('sha256').update(canonicalBytes({ app: app.id, path: app.dir, dist })).digest('hex'));
@@ -397,7 +452,8 @@ function startCompiler() {
   // web crate without one bakes through the generic compiler.
   const web = JSON.parse(metadata.stdout).packages.find(p=>p.name===app.crate('web'));
   const devBin = web?.targets.find(t=>t.kind.includes('bin')&&(t.name==='dev'||t.name.endsWith('-dev')))?.name;
-  dev = spawn('cargo', ['run', '-q', '--release', '-p', devBin ? app.crate('web') : 'exact-web', '--bin', devBin ?? 'exact-dev', '--', source, plan], { cwd: devBin ? app.workspace : root, env: buildEnv, stdio: ['ignore', 'pipe', 'inherit'], detached: true });
+  dev = spawn('cargo', ['run', '-q', '--release', '-p', devBin ? app.crate('web') : 'exact-web', '--bin', devBin ?? 'exact-dev', '--', source, plan], { cwd: devBin ? app.workspace : root, env: buildEnv, stdio: ['pipe', 'pipe', 'inherit'], detached: true });
+  dev.stdin.on('error', () => {});
   const me = dev;
   console.log(`compiler pid ${dev.pid}`);
   let buffered = '';
@@ -409,7 +465,11 @@ function startCompiler() {
     buffered = lines.pop();
     for (const line of lines) {
       const [kind, ...rest] = line.split(' ');
-      if (kind === 'design') {
+      if (kind === 'scrubbed') {
+        let reply;
+        try { reply = JSON.parse(rest.slice(1).join(' ')); } catch { reply = { error: 'an unreadable scrub reply' }; }
+        scrubAsks.get(rest[0])?.(reply);
+      } else if (kind === 'design') {
         const [saved, compile, bake, ready] = rest.slice(0, 4).map(Number);
         let live;
         try { live = JSON.parse(rest.slice(4).join(' ')); } catch { console.error('dev compiler: unreadable design line'); continue; }
@@ -587,6 +647,9 @@ function startModuleCompiler() {
     }
     const lines = buffered.split('\n'); buffered = lines.pop();
     for (const line of lines) {
+      let early = null;
+      try { early = JSON.parse(line); } catch { /* answered below */ }
+      if (typeof early?.id === 'string' && scrubAsks.has(early.id)) { scrubAsks.get(early.id)(early); continue; }
       const request = active, produced = Date.now();
       try {
         const reply = JSON.parse(line);
@@ -600,6 +663,9 @@ function startModuleCompiler() {
         // The executables, not the receipt, which names the plan's digest.
         const sameModule = currentModule && [MODULE_FILES.native, MODULE_FILES.web].every(name => currentModule.get(name)?.equals(candidate.get(name)));
         const live = sameModule && moduleDesign && reply.design && designBatch(moduleDesign, reply.design);
+        // The builds run a scrub's design while one previews; an edit ends it.
+        if (live && moduleScrubbed) live.batch = scrubBatch(moduleScrubbed, reply.design)?.batch ?? live.batch;
+        moduleScrubbed = null;
         if (reply.design) moduleDesign = reply.design;
         if (live) {
           if (live.batch.tokens.length) {

@@ -37,9 +37,11 @@
 //!   reached, and the app's synthetic tokens (its rows' expressions over
 //!   tokens, read from the plan the compiler builds) re-folded, those that
 //!   change listed in `synthetic` with their new value per app tuple.
+//!   A propose with `texts: true` also answers the texts it would write,
+//!   by file, for a scrub's preview (stage 4, commit 6).
 //! - **`requires`** (`tamber/1.1`), on a transaction or a propose: digests
 //!   of files it does not edit but was planned on, checked with the rest.
-//! - **Reads:** `hello`, `describe`, `resolve`, `explain`, each of the
+//! - **Reads:** `hello`, `describe`, `resolve`, `explain`, `uses`, each of the
 //!   design or of the `file` it names. `resolve`'s tuples carry `srgb
 //!   {light, dark}`, each side's 8-bit clip, and `resolve` and `explain`
 //!   the `files` digests they read (`tamber/1.1`); `describe` each token's
@@ -598,6 +600,7 @@ impl Server {
             Some("describe") => vec![reply(self.describe(&request))],
             Some("resolve") => vec![reply(self.resolve(&request))],
             Some("explain") => vec![reply(self.explain(&request))],
+            Some("uses") => vec![reply(self.uses(&request))],
             Some("propose") => vec![reply(self.transaction(&request, false))],
             Some("transaction") => self.commit_reply(&request, reply, false),
             Some("undo") => self.commit_reply(&request, reply, true),
@@ -785,6 +788,41 @@ impl Server {
         )
     }
 
+    /// Where the app reads a token (`crate::tamber_uses`): each plan site
+    /// whose style rows name it, directly, through a token naming it or
+    /// through a synthetic token, with its source span. `site` indexes the
+    /// plan compiled here (`plan`, its digest, before any bake); a build
+    /// joins the spans through its own source map (LLP 1122 T2b's
+    /// `outline`).
+    fn uses(&mut self, request: &Value) -> Result<Value, Value> {
+        let (snap, folding) = self.design(request)?;
+        let name = required(request, "token")?;
+        if !folding.tokens.iter().any(|t| t.name == name) {
+            return Err(json!({"message": format!("no token `{name}`")}));
+        }
+        let aliases = crate::tamber_uses::aliases(
+            &name,
+            folding
+                .tokens
+                .iter()
+                .map(|t| (t.name.as_str(), t.names.as_slice())),
+        );
+        let synthetic: Vec<String> = self
+            .synthetic(&snap)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(e, _)| e)
+            .collect();
+        let (plan, map) = contract::compile_path_mapped(&self.dir.join("app.contract"))
+            .map_err(|e| json!({"message": format!("the app does not build: {}", e.message)}))?;
+        let map: Value = serde_json::from_str(&map.json(&plan.encode()))
+            .map_err(|e| json!({"message": format!("source map: {e}")}))?;
+        let sites = crate::tamber_uses::sites(&plan, &map, &name, &aliases, &synthetic);
+        Ok(
+            json!({"token": name, "plan": map["digest"], "sites": sites, "aliases": aliases, "files": files_json(&snap)}),
+        )
+    }
+
     /// Plan, and when `write`, commit: the digests, the inverse's id, the
     /// tokens it changes, `live` or `rebuild`, the diff. Each file it edits
     /// must carry the digest the client saw (a `propose` checks the ones it
@@ -821,7 +859,10 @@ impl Server {
                 json!({"conflict": true, "message": "a file changed since the client read it", "files": files_json(&snap), "stale": stale}),
             );
         }
-        self.run(&snap, &ops, client, false)
+        // A scrub's preview (the wire's, LLP 1121 D13) compiles the texts
+        // a propose would write, which it asks for.
+        let texts = !write && request["texts"] == json!(true);
+        self.run(&snap, &ops, client, false, texts)
     }
 
     /// Apply an inverse this server issued, while each file it restores is
@@ -849,7 +890,7 @@ impl Server {
                 json!({"conflict": true, "message": "a file changed since that write: its inverse no longer applies", "files": files_json(&snap), "stale": stale}),
             );
         }
-        let result = self.run(&snap, &issued.ops, Some(client), true);
+        let result = self.run(&snap, &issued.ops, Some(client), true, false);
         if result.is_ok() {
             self.issued.remove(&id);
             self.order.retain(|i| *i != id);
@@ -864,6 +905,7 @@ impl Server {
         ops: &[(String, Op)],
         client: Option<String>,
         undo: bool,
+        with_texts: bool,
     ) -> Result<Value, Value> {
         let texts: Vec<(String, String)> = snap
             .iter()
@@ -925,6 +967,13 @@ impl Server {
             "diff": planned.diff,
             "synthetic": planned.synthetic.iter().map(|(expr, values)| json!({"expr": expr, "values": values.iter().map(|v| v.css()).collect::<Vec<_>>()})).collect::<Vec<_>>(),
         });
+        if with_texts {
+            out["texts"] = json!(planned
+                .files
+                .iter()
+                .map(|(p, text, _)| (p.clone(), json!(text)))
+                .collect::<serde_json::Map<_, _>>());
+        }
         let Some(client) = client else {
             return Ok(out);
         };

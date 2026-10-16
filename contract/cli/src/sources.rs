@@ -146,6 +146,23 @@ pub fn design_path(root: &Path) -> Option<PathBuf> {
     })
 }
 
+std::thread_local! {
+    /// A scrub's design text (LLP 1121 stage 4, commit 6), compiled in
+    /// place of the file's while [`with_design_text`] runs.
+    static DESIGN_TEXT: std::cell::RefCell<Option<(PathBuf, String)>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Run `f` with `text` read as the design at `path`, written to no file:
+/// a scrub's preview, which the dev loop compiles and never publishes.
+pub fn with_design_text<R>(path: &Path, text: String, f: impl FnOnce() -> R) -> R {
+    let key = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let before = DESIGN_TEXT.with(|t| t.replace(Some((key, text))));
+    let out = f();
+    DESIGN_TEXT.with(|t| *t.borrow_mut() = before);
+    out
+}
+
 /// The app's design, read (LLP 1121 D2), and a source of its own, so a
 /// refusal in it names it.
 fn design(
@@ -155,7 +172,14 @@ fn design(
     let Some(path) = design_path(root) else {
         return Ok(None);
     };
-    let text = std::fs::read_to_string(&path).map_err(|e| CompileError {
+    let key = path.canonicalize().unwrap_or_else(|_| path.clone());
+    let scrubbed = DESIGN_TEXT.with(|t| {
+        t.borrow()
+            .as_ref()
+            .and_then(|(p, text)| (*p == key).then(|| text.clone()))
+    });
+    let read = scrubbed.map_or_else(|| std::fs::read_to_string(&path), Ok);
+    let text = read.map_err(|e| CompileError {
         pass: "use",
         id: "tamber-unreadable".into(),
         message: format!("the app's design `{}`: {e}", path.display()),

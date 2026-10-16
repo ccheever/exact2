@@ -581,6 +581,67 @@ fn a_value_only_design_edit_writes_no_plan_and_sends_a_batch() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
+/// LLP 1121 stage 4, commit 6: a scrub's preview compiles the design text
+/// in place of the file's and writes nothing; each value's batch is based
+/// on the last; restore goes back to the committed design; a structure
+/// change is refused; and a save while one previews batches from it.
+#[test]
+fn a_scrub_previews_without_writing_and_restores_the_committed_design() {
+    let dir = scratch("scrub");
+    let src = dir.join("app.contract");
+    let out = dir.join("app.plan");
+    let design = dir.join("app.tamber");
+    let tamber = "tamber t\n\ntheme\n  ink = #111111\n  page = #ffffff\n";
+    std::fs::write(&design, tamber).unwrap();
+    std::fs::write(
+        &src,
+        "component App\n  view\n    column background-color=\"page\"\n      text \"one\" color=\"ink\"\n",
+    )
+    .unwrap();
+    let mut s = Session::new(&src, &out);
+    s.poll::<NoData>().expect("first look builds").unwrap();
+    let plan = std::fs::read(&out).unwrap();
+    let (batch, snapshot) = s
+        .scrub::<NoData>(tamber.replace("#111111", "#222222"))
+        .unwrap();
+    let batch = batch.expect("ink moved");
+    assert_eq!(batch.tokens.len(), 1);
+    assert_eq!(batch.tokens[0].value, "#222222ff");
+    assert_eq!(snapshot.design, batch.design);
+    assert_eq!(std::fs::read(&out).unwrap(), plan, "no plan written");
+    assert_eq!(
+        std::fs::read_to_string(&design).unwrap(),
+        tamber,
+        "no design written"
+    );
+    let (next, _) = s
+        .scrub::<NoData>(tamber.replace("#111111", "#333333"))
+        .unwrap();
+    assert_eq!(next.unwrap().base.as_deref(), Some(batch.design.as_str()));
+    // An axis added is structure: refused, the preview kept.
+    assert!(s
+        .scrub::<NoData>(tamber.replace("theme\n", "axes\n  mode = a | b\n\ntheme\n"))
+        .is_err());
+    let (back, committed) = s.restore().expect("a scrub previewed");
+    let back = back.expect("back to #111111");
+    assert_eq!(back.tokens[0].value, "#111111ff");
+    assert_eq!(back.design, committed.design);
+    assert!(s.restore().is_none(), "restored once");
+    // A save while a scrub previews: its batch is based on the preview.
+    let (shown, _) = s
+        .scrub::<NoData>(tamber.replace("#111111", "#444444"))
+        .unwrap();
+    save(&design, &tamber.replace("#111111", "#555555"), 1);
+    let saved = s.poll::<NoData>().expect("a design edit").unwrap();
+    let live = saved.live.expect("value-only");
+    assert_eq!(
+        live.batch.base.as_deref(),
+        Some(shown.unwrap().design.as_str())
+    );
+    assert!(s.restore().is_none(), "the save ended the scrub");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 /// LLP 1121 stage 4, commit 4: a running web build applies a batch in
 /// place (no reload: its state stays), and answers stale for one whose base
 /// it has passed.
