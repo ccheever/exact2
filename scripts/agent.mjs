@@ -840,6 +840,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
   // `touch: 'platform'` (LLP 1080.000, opt-in): a plain `tap` on an iOS simulator is a real touch from the XCTest runner, `delivery: platform`.
   // `touch: 'drag'`: only `tap … drag` is (§11), every other input as under `agent` — what an authored test's drag takes (chat2 diary).
   if (!['agent', 'drag', 'platform'].includes(touch) || (touch !== 'agent' && (device || !['ios', 'host-ios'].includes(host)))) throw new Error(`touch: ${touch} is an iOS simulator's (LLP 1080.000), not ${device ? 'a phone' : host}'s`);
+  if (touch === 'platform') env = { ...(env ?? {}), EXACT_AGENT_PRESENTATION: 'native' }; // UIKit's menus, which a real touch opens (D7)
   // `chrome: 'platform'` (opt-in; splitter rough 4, 11): UIKit's navigation bar and tab bar show as a person sees them,
   // and `screenshot <png> window` draws them, a presented sheet's too; a tap naming a tab or a header button the bars
   // stand for presses it (`native: "tab-bar-item"`, `"bar-button-item"`). The default paints the authored header and

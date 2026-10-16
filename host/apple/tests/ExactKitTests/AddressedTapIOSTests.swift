@@ -168,5 +168,24 @@ final class AddressedTapIOSTests: XCTestCase {
         XCTAssertEqual((agent.aim(["id": 2, "aim": ["at": [200.0, 80.0]]])["aim"] as? [String: Any])?["hit"] as? Int, 3, "a point: the card")
         XCTAssertEqual((agent.aim(["id": 2, "aim": true])["aim"] as? [String: Any])?["hit"] as? Int, 3, "a drag's aim is the middle still")
     }
+
+    /// Under `--touch platform` a menu's row is UIKit's, found as VoiceOver
+    /// finds it: an element outside every session with the row's title (a
+    /// subtitle after a comma), never a node (LLP 1080.000 D7).
+    func testAMenuRowIsTheElementUIKitShowsWithItsTitle() throws {
+        _ = rows()
+        let window = try XCTUnwrap(self.window)
+        XCTAssertNil(Agent.shownMenuRow(nil, in: window), "no menu shows")
+        let platter = UIView(frame: CGRect(x: 20, y: 100, width: 250, height: 84))
+        let row = UIView(frame: CGRect(x: 0, y: 42, width: 250, height: 42))
+        row.isAccessibilityElement = true
+        row.accessibilityLabel = "Date Added, Newest first"
+        platter.addSubview(row)
+        window.addSubview(platter)
+        XCTAssertEqual(Agent.shownMenuRow("Date Added", in: window), CGRect(x: 20, y: 142, width: 250, height: 42))
+        XCTAssertNil(Agent.shownMenuRow("Date", in: window), "a title is the whole of the label before its subtitle")
+        XCTAssertNotNil(Agent.shownMenuRow(nil, in: window), "a menu shows")
+        platter.removeFromSuperview()
+    }
 }
 #endif

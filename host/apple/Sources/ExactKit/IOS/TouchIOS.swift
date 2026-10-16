@@ -43,7 +43,9 @@ enum TouchLog {
             seq += 1
             var entry: [String: Any] = ["seq": seq, "touch": id, "phase": phase, "t": touch.timestamp,
                                         "at": [Agent.r2(p.x), Agent.r2(p.y)], "type": touch.type == .direct ? "direct" : "\(touch.type.rawValue)"]
-            for (key, value) in landing(touch.view) { entry[key] = value }
+            // A touch a system recognizer takes (iOS 26's tab bar selects with
+            // one on the window) has no view: where the window's hit test put it.
+            for (key, value) in landing(touch.view ?? window.hitTest(p, with: nil)) { entry[key] = value }
             entries.append(entry)
             if entries.count > capacity { entries.removeFirst(); dropped += 1 }
         }
@@ -153,6 +155,16 @@ extension Agent {
         guard UIApplication.shared.applicationState == .active, scene?.activationState == .foregroundActive, win.isKeyWindow else {
             return ["error": "tap #\(v.id): the app is not the foreground, key window"]
         }
+        // A row of a menu UIKit shows (native presentation): the finger
+        // aims at UIKit's row, never at the hidden node.
+        if let (pop, title) = presenter.menus.nativeRow(v) {
+            guard let row = Agent.shownMenuRow(title, in: win), let space = scene?.coordinateSpace else {
+                return ["error": "tap #\(v.id): it is a row of the menu UIKit shows for popover #\(pop.id)\(pop.props["id"].map { " (\($0))" } ?? ""), which is not open: tap its invoker first"]
+            }
+            let p = CGPoint(x: row.midX, y: row.midY), vp = presenter.viewport, q = vp.convert(p, from: nil)
+            return aimed(v, at: p, local: CGPoint(x: q.x - vp.contentOffset.x, y: q.y - vp.contentOffset.y), in: win, space: space,
+                         hit: nil, native: ["kind": "menuItem", "label": title])
+        }
         // The point: the request's, else the middle of the target — of a
         // visible shaped fragment for an inline id, as `tap` aims.
         var at = req
@@ -186,6 +198,11 @@ extension Agent {
         var barred = false
         if target === v, let item = barItem(v) {
             guard case .success(let (bar, frame)) = item else { return ["error": "tap #\(v.id): its bar item is not placed in the navigation bar; `clock settle` first waits out a push or sheet still moving"] }
+            target = bar; region = frame; barred = true
+        }
+        // A tab UIKit's tab bar shows: its item there.
+        if target === v, let item = tabItem(v) {
+            guard case .success(let (bar, frame)) = item else { return ["error": "tap #\(v.id): UIKit's tab bar shows no item for its tab; `clock settle` first waits out a transition"] }
             target = bar; region = frame; barred = true
         }
         let drawnBox = target === v ? nil : box(target, region: region)
@@ -241,11 +258,19 @@ extension Agent {
             }
         }
         guard let space = scene?.coordinateSpace else { return ["error": "tap #\(v.id): no scene"] }
-        let s = win.convert(p, to: space)
+        return aimed(v, at: p, local: local, in: win, space: space, hit: seen, avoided: avoided)
+    }
+
+    /// The aim's reply: the window point `p` in the scene's space (`local`
+    /// in the viewport's), and where the dispatch log must see it land: the
+    /// Exact node `seen` is in, or no node for UIKit's own row (`native`).
+    private func aimed(_ v: NodeView, at p: CGPoint, local: CGPoint, in win: UIWindow, space: UICoordinateSpace, hit seen: UIView?,
+                       avoided: PressReach? = nil, native: [String: Any]? = nil) -> [String: Any] {
+        let vp = presenter.viewport, s = win.convert(p, to: space)
         let origin = vp.convert(CGPoint(x: vp.contentOffset.x, y: vp.contentOffset.y), to: space)
-        return ["aim": [
+        var aim: [String: Any] = [
             "seq": TouchLog.seq, "session": session.label, "generation": session.generation,
-            "orientation": Agent.orientation(scene),
+            "orientation": Agent.orientation(win.windowScene),
             "screen": ["w": Agent.r2(space.bounds.width), "h": Agent.r2(space.bounds.height), "x": Agent.r2(origin.x), "y": Agent.r2(origin.y)],
             "point": [Agent.r2(s.x), Agent.r2(s.y)], "node": Int(v.id),
             "at": [Agent.r2(local.x), Agent.r2(local.y)], // the viewport point, as `tap` replies it
@@ -257,7 +282,29 @@ extension Agent {
             "projected": TouchLog.landing(seen)["projected"] ?? NSNull(),
             // Its middle reaches a control inside it: aimed beside it.
             "avoided": avoided.map { ["pressing": $0.pressing ?? NSNull(), "what": $0.described] as [String: Any] } ?? NSNull(),
-        ] as [String: Any]]
+        ]
+        if let native { aim["native"] = native }
+        return ["aim": aim]
+    }
+
+    /// A row of a menu UIKit shows over the app, by its title (nil: any
+    /// row): the box in the window of the accessibility element VoiceOver
+    /// reads for it, outside every session (never a node with that text),
+    /// or nil while none shows. Found as VoiceOver finds it, not by UIKit's
+    /// classes.
+    static func shownMenuRow(_ title: String?, in window: UIWindow) -> CGRect? {
+        var pending = window.subviews.filter { sub in !routes.contains { $0.1.view.map { $0.isDescendant(of: sub) } == true } }
+        while !pending.isEmpty {
+            let v = pending.removeFirst()
+            guard !v.isHidden, v.alpha > 0.01, !(v is NodeView), !routes.contains(where: { shows($0.1, v) }) else { continue }
+            // A row with a subtitle reads "Title, Subtitle".
+            if v.isAccessibilityElement, let label = v.accessibilityLabel, !label.isEmpty, title.map({ label == $0 || label.hasPrefix($0 + ",") }) ?? true {
+                let box = v.convert(v.bounds, to: window)
+                if box.width > 0, box.height > 0, window.bounds.contains(CGPoint(x: box.midX, y: box.midY)) { return box }
+            }
+            pending.append(contentsOf: v.subviews)
+        }
+        return nil
     }
 }
 #endif

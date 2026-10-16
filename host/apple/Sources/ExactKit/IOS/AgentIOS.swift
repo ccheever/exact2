@@ -1182,7 +1182,7 @@ extension Agent {
         let painted = presenter.menus.presented.filter { $0.window != nil && !$0.isHidden }
         if !painted.isEmpty {
             r["painted"] = painted.map { n -> [String: Any] in ["id": Int(n.id), "testId": n.props["testId"] ?? NSNull()] }
-            r["paintedNote"] = "an open popover is painted in the page under the agent, as the web draws it (LLP 1021 D4): the app shows a menu as UIKit's menu at its invoker, a context menu's with its preview"
+            r["paintedNote"] = "an open popover is painted in the page under the agent, as the web draws it (LLP 1021 D4): the app shows a menu as UIKit's menu at its invoker, a context menu's with its preview; under --touch platform a menu is UIKit's"
         }
         let bars = presenter.navigation.paintedForBars()
         if !bars.isEmpty {
@@ -1211,13 +1211,15 @@ extension Agent {
             while let next = at.presentedViewController { found = next; at = next }
             for child in c.children { visit(child) }
         }
-        guard let root = presenter.viewport.window?.rootViewController else { return nil }
+        guard let window = presenter.viewport.window, let root = window.rootViewController else { return nil }
         visit(root)
         guard let top = found else { return nil }
         if let alert = top as? UIAlertController { return alert.preferredStyle == .alert ? "alert" : "action sheet" }
-        // tvOS has no popovers.
+        // tvOS has no popovers or menus.
         #if !os(tvOS)
         if top.modalPresentationStyle == .popover { return "popover" }
+        // UIKit presents a menu as a controller with no sheet of its own.
+        if top.sheetPresentationController == nil, Agent.shownMenuRow(nil, in: window) != nil { return "menu" }
         #endif
         return "sheet"
     }

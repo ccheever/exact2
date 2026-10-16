@@ -485,7 +485,7 @@ extension NavigationHost {
         // An item whose button only opens a menu is UIKit's pull-down, which
         // no public API opens and the agent does not paint over the bar.
         if !node.handlers.contains("press"), !node.disabled, presenter.invocation(of: node)?.opensPopover == true {
-            return ["error": "unsupported: bar item #\(id) opens its menu as UIKit's pull-down from the bar, which the agent cannot open; under --chrome agent the header is painted and `tap` opens the menu painted (LLP 1021 D4)"]
+            return ["error": "unsupported: bar item #\(id) opens its menu as UIKit's pull-down from the bar, which only a real touch opens: under --touch platform `tap` opens it and `tap <row>` picks a row; under --chrome agent the header is painted and `tap` opens the menu painted (LLP 1021 D4)"]
         }
         guard node.handlers.contains("press"), !node.disabled else { return ["error": "bar item #\(id) is disabled or presses nothing"] }
         presenter.press(node.id)

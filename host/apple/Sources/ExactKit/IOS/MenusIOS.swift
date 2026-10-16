@@ -193,7 +193,7 @@ final class MenuHost {
             // The agent's painted presentation: in the top layer while open,
             // hidden while closed, as on the web and macOS, so a closed
             // popover covers nothing (`agentTap`).
-            if !isConfirmation(v), ExactEnv.agentMode || v.props["id"].map({ agentOpen[$0] != nil }) == true {
+            if !isConfirmation(v), ExactEnv.agentPaints || v.props["id"].map({ agentOpen[$0] != nil }) == true {
                 if v.props["popover"] != nil {
                     if let name = v.props["id"], let entry = agentOpen[name], entry.popover === v { lifting.append(entry) }
                     else if !v.isHidden { v.isHidden = true }
@@ -735,7 +735,7 @@ final class MenuHost {
     /// where the node is; an opened popover is in the top layer below its
     /// opener with its `autofocus` field focused.
     func agentTap(_ node: NodeView) {
-        guard ExactEnv.agentMode else { return }
+        guard ExactEnv.agentPaints else { return }
         lightDismiss(node)
         guard !node.isNativeButton, let presenter else { return }
         // After the tap's handler has run: what the surviving button invokes now.
@@ -801,8 +801,25 @@ final class MenuHost {
         if !agentOpen.isEmpty {
             return agentOpen.values.contains { entry in entry.source.flatMap { presenter.views[$0] }?.isNativeButton != true }
         }
+        // Under native presentation a closed popover is UIKit's to open.
+        if !ExactEnv.agentPaints { return false }
         let painted = (presenter.carrying("popover") + presenter.carrying("tag:dialog").filter { $0.props["popover"] == nil }).filter { !isConfirmation($0) }
         return painted.contains { pop in node === pop || node.isDescendant(of: pop) || (pop.props["id"] != nil && target(of: node) == pop.props["id"]) }
+    }
+    /// Under native presentation (`--touch platform`), the popover `node`
+    /// is a row of, which UIKit shows as its menu (D3), and the title UIKit's
+    /// row shows for it: what a finger picks. Nil for anything else.
+    func nativeRow(_ node: NodeView) -> (popover: NodeView, title: String)? {
+        guard ExactEnv.agentMode, !ExactEnv.agentPaints, let presenter else { return nil }
+        // The innermost popover holding it: a submenu's rows are its own.
+        let holding = presenter.carrying("popover").filter { pop in
+            node.isDescendant(of: pop) && !isConfirmation(pop) && pop.props["id"].map { agentOpen[$0] == nil } != false
+        }
+        guard let pop = holding.first(where: { inner in !holding.contains { $0 !== inner && $0.isDescendant(of: inner) } }) else { return nil }
+        var at: UIView = node
+        while let up = at.superview, up !== pop.container { at = up }
+        guard let row = at as? NodeView, row.superview === pop.container, row.props["popover"] == nil else { return nil }
+        return (pop, title(of: row))
     }
     private static func autofocus(in view: UIView) -> NodeView? {
         for sub in view.subviews {

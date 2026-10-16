@@ -678,6 +678,10 @@ closes it after its own tap. `tree` reports `{open}` and `state.navigation.popov
 names it, as on macOS; `screenshot` composes the layer. `smoke.mjs ios
 --app native-fixture` checks each step.
 
+*Under real touches on iOS (2026-10-16).* `--touch platform` presents
+D3's native menu instead (LLP 1080.000 D7, §13): a finger opens it and
+picks its row, as a person's does; context menus stay painted.
+
 **D5 — every host, from one table.** Web: the attributes land on the real
 elements and the browser does the rest (one glue rule for D2's anchoring).
 Apple: D2's layer painted by the existing presenters, D3's native arm on

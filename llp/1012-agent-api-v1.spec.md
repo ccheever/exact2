@@ -788,6 +788,7 @@ bars stand for) with `chromeNote`. Under `--chrome platform`, `exact.mjs`'s
 default on iOS, the bars are UIKit's and `screenshot <png> window` draws
 them; a bar item that only opens a menu is refused as `unsupported`, by
 name, since UIKit's pull-down from the bar has no public way to open it.
+Under `--touch platform` a real touch opens it (next amendment).
 
 ## Amended (2026-10-16: an app's own native motion and views on iOS)
 
@@ -821,3 +822,15 @@ The euxy port (its FRICTION §9 and §10) drove the real app with AXe and
   landing on one with no Contract press reaching it, and no responder there
   for it to focus, answers `unsupported`, naming `--touch platform`, where
   it is a real touch (`moduleTouch`, `AgentIOS.swift`).
+- **UIKit's menus and tab bar under real touches.** `--touch platform`
+  launches with `EXACT_AGENT_PRESENTATION=native` (LLP 1080.000 D7): a
+  popover a person sees as UIKit's menu (LLP 1021 D3), a bar item's
+  pull-down included, is UIKit's. A tap on its invoker opens it; a tap naming
+  a row aims at UIKit's row, found as VoiceOver finds it (the accessibility
+  element outside every session whose label is the row's title), and the
+  reply's `native` names it (`{"kind":"menuItem","label":…}`); a row of a
+  closed menu is refused. A screenshot while a menu is up is the window's
+  (`presented: "menu"`). Under `--chrome platform` a tab aims at the item
+  UIKit's tab bar shows with its title. Context menus and confirmations are
+  as before. The dispatch log records a touch a system recognizer took
+  without a view (iOS 26's tab bar) where the window's hit test put it.

@@ -30,6 +30,34 @@ extension Agent {
         return nil
     }
 
+    /// Under `--chrome platform`, UIKit's tab bar and the box in it of the
+    /// item standing for the tab `node` is (or is in): the accessibility
+    /// element the bar shows with the item's title, as VoiceOver finds it
+    /// (a `UITabBarItem` has no public frame). Nil for any other node; a
+    /// refusal while the bar shows no such element.
+    func tabItem(_ node: NodeView) -> Result<(bar: UIView, item: CGRect), BarItemMissing>? {
+        #if os(iOS)
+        let nav = presenter.navigation
+        guard nav.tabBarShows, let tabs = nav.container.flatMap({ NavigationTabs.of($0, presenter) }),
+              let index = tabs.tabs.firstIndex(where: { node === $0 || node.isDescendant(of: $0) }),
+              let bar = nav.tabController?.tabBar, let items = bar.items, index < items.count,
+              let title = items[index].title, !title.isEmpty else { return nil }
+        var pending: [UIView] = bar.subviews
+        while !pending.isEmpty {
+            let v = pending.removeFirst()
+            guard !v.isHidden, v.alpha > 0.01 else { continue }
+            if v.isAccessibilityElement, v.accessibilityLabel == title {
+                let box = v.convert(v.bounds, to: bar)
+                if box.width > 0, box.height > 0 { return .success((bar, box)) }
+            }
+            pending.append(contentsOf: v.subviews)
+        }
+        return .failure(BarItemMissing())
+        #else
+        return nil
+        #endif
+    }
+
     /// Why a finger would not reach the segment or bar item UIKit draws in
     /// `node`'s place (a sheet over it, the keyboard), or nil: the tap that
     /// activates either is refused as a covered node's is.

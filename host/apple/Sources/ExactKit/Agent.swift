@@ -933,4 +933,9 @@ public extension ExactEnv {
     /// Whether the authored header and tablist paint instead of UIKit's
     /// bars: the agent's default chrome.
     static let authoredChrome = agentMode && agentChrome != "platform"
+    /// Whether the agent paints the popovers a person sees as UIKit's
+    /// menus (LLP 1021 D4). `EXACT_AGENT_PRESENTATION=native`, which
+    /// `--touch platform` launches with (LLP 1080.000 D7), shows UIKit's:
+    /// a real touch opens one and picks its item.
+    static let agentPaints = agentMode && environment["EXACT_AGENT_PRESENTATION"] != "native"
 }
