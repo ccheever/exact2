@@ -1744,15 +1744,6 @@ component A
   view
     text "a"
 ---
-== lower-sequence-clock
-# Clock in is LLP 1125 stage 4.
-component A
-  state on = false
-  sequence s when on
-    play([], bpm=120, clock="op-xy")
-  view
-    text "a"
----
 == type-send-midi
 # A literal message is held to MIDI 1.0: no running status.
 component A

@@ -47,13 +47,15 @@ fn midi_commands_events_and_inputs_compile() {
 }
 
 #[test]
-fn clock_out_compiles_and_clock_in_waits_for_its_stage() {
-    let seq = |opt: &str| {
-        format!("component A\n  state on = false\n  sequence s when on\n    play([], bpm=120, {opt})\n  view\n    text \"a\"\n")
+fn clock_out_and_clock_in_compile_with_and_without_bpm() {
+    let seq = |opts: &str| {
+        format!("component A\n  state on = false\n  sequence s when on\n    play([], {opts})\n  view\n    text \"a\"\n")
     };
-    contract::compile(&seq("clockOut=\"synth\"")).unwrap();
-    let e = contract::compile(&seq("clock=\"keys\"")).unwrap_err();
-    assert_eq!(e.id, "lower-sequence-clock");
+    contract::compile(&seq("bpm=120, clockOut=\"synth\"")).unwrap();
+    contract::compile(&seq("bpm=100, clock=\"keys\"")).unwrap();
+    contract::compile(&seq("clock=\"keys\"")).unwrap();
+    let e = contract::compile(&seq("from=-4")).unwrap_err();
+    assert!(e.message.contains("`bpm=` or `clock=`"), "{e}");
 }
 
 #[test]
