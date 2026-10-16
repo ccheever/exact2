@@ -739,7 +739,8 @@ export function webInputs(app, js, since = -Infinity) {
   const backend = resolve(app.dir, '.exact/backend-origin');
   const appFiles = newerThan(since, [app.dir], path => /\/(apple|ios|macos|linux)$/.test(path) && path.startsWith(app.dir + '/') || ignored(path) || notInput(path));
   const shared = newerThan(since, roots.map(r => typeof r === 'string' ? resolve(ROOT, r) : { shallow: resolve(ROOT, r.shallow) }));
-  if (existsSync(backend)) appFiles.push(backend);
+  // Absence is an input too: removing a selection must invalidate its bake.
+  appFiles.push(backend);
   return { app: appFiles, shared };
 }
 const contentDigest = path => { try { return createHash('sha1').update(readFileSync(resolve(ROOT, path))).digest('hex'); } catch { return null; } };

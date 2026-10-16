@@ -1,6 +1,6 @@
 import {test} from 'bun:test';
 import assert from 'node:assert/strict';
-import {readFileSync, writeFileSync, mkdirSync, unlinkSync, mkdtempSync, openSync, ftruncateSync, closeSync, rmSync, existsSync, readdirSync, watch, renameSync, statSync, utimesSync, symlinkSync} from 'node:fs';
+import {readFileSync, writeFileSync, mkdirSync, unlinkSync, mkdtempSync, openSync, ftruncateSync, closeSync, rmSync, existsSync, readdirSync, watch, renameSync, watchFile, unwatchFile, statSync, lstatSync, readlinkSync, utimesSync, symlinkSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {open, Cdp} from '../../../scripts/agent.mjs';
@@ -511,4 +511,48 @@ test('declared source files report in-place edits after inclusion and replacemen
     assert.deepEqual([...api.changed],[],'output and unrelated files do not rebuild');
     assert.equal(api.builds.length,count,'ignored edits do not build');
   } finally {api?.close();rmSync(dir,{recursive:true,force:true});}
-});
+},60_000); // a hang bound: six one-second quiet windows plus waits on the builds themselves
+
+// E2: the local backend selection is a bake input even though .exact is ignored.
+test('the JS dev loop rebuilds backend selection creation, edits and removal',async()=>{
+  const {createApp}=await import('../../../game/new.mjs');
+  const {fetchOrigins}=await import('../../../scripts/agent-test.mjs');
+  const root=mkdtempSync(resolve(import.meta.dir,'../../../target/dev-backend-')),app=join(root,'app');
+  let child,log='';
+  const until=async(origin)=>{const end=Date.now()+60000;while(Date.now()<end){try{if(fetchOrigins(join(app,'target/web-dist')).includes(origin))return;}catch{}await new Promise(r=>setTimeout(r,25));}throw new Error(`backend ${origin} not served:\n${log.slice(-4000)}`);};
+  try {
+    createApp(app);
+    writeFileSync(join(app,'app.contract'),'component App\n  resource chosen = chosen() as shape string else empty()\n  view\n    text chosen\n');
+    const authored="import type {Answer} from './app.contract.d.ts';\nexport const appId='com.example.app';const origin='http://127.0.0.1:4400';export const grants=`net.fetch ${origin}`;export const answer:Answer=()=>origin;\n";
+    writeFileSync(join(app,'app.ts'),authored);
+    const env={...process.env,EXACT_APP_DIR:app};delete env.EXACT_BACKEND_ORIGIN;
+    child=spawn(process.execPath,[resolve(import.meta.dir,'../dev.mjs'),'--app','app'],{env,stdio:['ignore','pipe','pipe']});
+    for(const stream of [child.stdout,child.stderr])stream.on('data',b=>{log+=b.toString();});
+    await until('http://127.0.0.1:4400');
+    mkdirSync(join(app,'.exact'));const selection=join(app,'.exact/backend-origin');
+    writeFileSync(selection,'http://127.0.0.1:4412');await until('http://127.0.0.1:4412');
+    writeFileSync(selection,'http://127.0.0.1:4413');await until('http://127.0.0.1:4413');
+    rmSync(selection);await until('http://127.0.0.1:4400');
+    assert.equal(readFileSync(join(app,'app.ts'),'utf8'),authored);
+  }finally{
+    if(child?.exitCode===null){const ended=new Promise(r=>child.once('exit',r));child.kill('SIGTERM');await ended;}
+    rmSync(root,{recursive:true,force:true});
+  }
+},240000);
+
+test('the resident module watcher follows backend selection without other local state',async()=>{
+  const dir=mkdtempSync(join(tmpdir(),'exact-resident-backend-'));let watcher,changes=0;
+  const begin=source.indexOf('function watchModuleSources('),end=source.indexOf('\nlet moduleWatch',begin);
+  const make=new Function('lstatSync','readdirSync','resolve','readlinkSync','statSync','watch',source.slice(begin,end)+';return watchModuleSources;')(lstatSync,readdirSync,resolve,readlinkSync,statSync,watch);
+  const backendInput=new Function('return '+source.match(/const backendInput = (.*);/)[1])();
+  const until=async()=>{const n=changes,end=Date.now()+3000;while(changes===n&&Date.now()<end)await new Promise(r=>setTimeout(r,10));assert.ok(changes>n,'the resident producer was notified');};
+  try{
+    watcher=make(dir,name=>name.startsWith('.')&&!backendInput(name),error=>{assert.equal(error,null);changes++;});
+    mkdirSync(join(dir,'.exact'));const selection=join(dir,'.exact/backend-origin');
+    writeFileSync(selection,'http://127.0.0.1:4412');await until();
+    writeFileSync(selection,'http://127.0.0.1:4413');await until();
+    rmSync(selection);await until();
+    const before=changes;writeFileSync(join(dir,'.exact/other'),'not an input');
+    await new Promise(r=>setTimeout(r,250));assert.equal(changes,before);
+  }finally{watcher?.close();rmSync(dir,{recursive:true,force:true});}
+},15000);

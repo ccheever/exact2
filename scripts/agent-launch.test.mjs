@@ -446,3 +446,22 @@ test('mutation requests issued by an automatic clock step receive their own mill
   expect(await clock.advance(session)).toBe(2);expect(now).toBe(2);
   expect(await clock.advance(session)).toBe(0);expect(now).toBe(2);
 });
+
+
+test('web freshness tracks backend selection creation, edits and deletion',async()=>{
+  const {webChanges,webInputDigests}=await import('./agent-launch.mjs');
+  const {mkdtempSync,mkdirSync,writeFileSync,rmSync}=await import('node:fs');
+  const {tmpdir}=await import('node:os');const {join}=await import('node:path');
+  const dir=mkdtempSync(join(tmpdir(),'exact-origin-freshness-'));
+  const app={dir,manifest:{}},dist=join(dir,'dist'),selection=join(dir,'.exact/backend-origin');
+  try {
+    mkdirSync(dist);mkdirSync(join(dir,'.exact'));
+    const bake=()=>writeFileSync(join(dist,'.exact-build.json'),JSON.stringify({target:'js',inputs:webInputDigests(app,true)}));
+    bake();expect(webChanges(dist,app).all).toEqual([]);
+    writeFileSync(selection,'http://127.0.0.1:4412');expect(webChanges(dist,app).app).toEqual([selection]);
+    bake();expect(webChanges(dist,app).all).toEqual([]);
+    writeFileSync(selection,'http://127.0.0.1:4413');expect(webChanges(dist,app).app).toEqual([selection]);
+    bake();rmSync(selection);expect(webChanges(dist,app).app).toEqual([selection]);
+    bake();expect(webChanges(dist,app).all).toEqual([]);
+  } finally {rmSync(dir,{recursive:true,force:true});}
+});

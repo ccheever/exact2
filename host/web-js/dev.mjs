@@ -306,7 +306,8 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   const changed = (base, skip = skipped, fresh = true) => (_, name) => {
     // A Contract source the compile read is an input even where the app's
     // watcher skips (a dot directory).
-    if (name && skip.test(String(name)) && !contractInput(resolve(base, String(name)))) return;
+    if (name && skip.test(String(name)) && !contractInput(resolve(base, String(name)))
+      && !(base === app.dir && /^\.exact(?:[\\/]backend-origin)?$/.test(String(name)))) return;
     // The declarations a build writes beside app.ts, for an editor.
     if (base === app.dir && String(name) === 'app.contract.d.ts') return;
     // A screenshot, film, log or note written into the app folder, outside the input trees and not named by
