@@ -766,6 +766,7 @@ Choose the mechanism from its lifetime:
 | Writes that must all land, in order | `mutation … queue`: one in flight, later sends wait their turn |
 | Run once after a delay, while a condition holds (a toast, a debounce) | `task … when cond` with `after(ms, action)` |
 | Repeat while a condition holds (a game tick, a pulse) | `task … when cond` with `every(ms, action)` |
+| Act when a sheet or route opens (scroll the chosen item into view, load its draft) | In the root, even when the sheet is a child component's view: `task reveal when top(nav).name == "icons" key=top(nav).id` with `after(1, reveal)` |
 | Pending indicator | `pending(resourceOrMutationName)` |
 | Resource request failed without an answer | `failed(resourceOrMutationName)` |
 | Why it failed, to branch on or show | `failure(resourceOrMutationName)`: `none`, or `some({ code, message, reason })`, `code` a domain refusal code when supplied, otherwise one of `offline`, `timeout`, `refused`, `shape`, `storage`, `error`; `reason` a Snapback refusal's code (`SLOT_FULL`), else `""` |
@@ -1862,8 +1863,11 @@ suspended fires once on a device, so measure time with `performanceNow()`, never
 gate is a bool and the key a string, number or bool; neither may read `performanceNow()`
 (`analyze-task-gate-clock`): gate on state and let the timer measure time. A
 toast, a debounce (`when draft != saved key=draft` with `after(800, save)`), a
-round's tick (`when screen == "play"`) and a flight's frames
-(`when flying` with `every(frame, step)`) are each one gated task.
+round's tick (`when screen == "play"`), a flight's frames
+(`when flying` with `every(frame, step)`) and a sheet's opening
+(`when top(nav).name == "icons" key=top(nav).id` with `after(1, reveal)`) are each
+one gated task, and each is the root's: a child component declares none
+(`type-child-resource`), so a sheet a component draws has its task in the root.
 
 **Repeating while a condition holds.** Use a task with `when` and `every`. The
 timer runs only while the condition is true. Any action that makes it false

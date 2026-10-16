@@ -5,6 +5,22 @@
 use super::{infer, Scope, Shapes, Sink, Ty, TypeError};
 use contract_syntax::{Component, Expr};
 
+/// `type-child-resource`'s message for `child`, which declares a resource,
+/// a mutation or a task, under the root `root`. A child's task most often
+/// means "when this sheet or route opens": the root's gated task does that,
+/// keyed on the route (the euxy port's icon picker).
+pub(crate) fn child_owns(root: &str, child: &Component) -> String {
+    let name = &child.name;
+    if child.resources.is_empty() && child.mutations.is_empty() {
+        return format!(
+            "only the root, the root file's first component (`{root}`), may declare a `task`: a timer is the app's; `{name}` is a child, which may own state, derives, and actions. Move the task into `{root}`, gated on what shows `{name}` and keyed on what opens it again, its action one of `{root}`'s: to act when a sheet or route opens, `task reveal when top(nav).name == \"icons\" key=top(nav).id` with `after(1, reveal)` under it. Or, if `{name}` is the app, move it above `{root}`"
+        );
+    }
+    format!(
+        "only the root, the root file's first component (`{root}`), may declare a `resource`, `mutation`, or `task`; `{name}` is a child, which may own state, derives, and actions. Move this declaration into `{root}` and pass what `{name}` needs as props; or, if `{name}` is the app, move it above `{root}`"
+    )
+}
+
 /// Check every task of `c` in the component's scope.
 pub(crate) fn check_tasks(c: &Component, scope: &Scope, shapes: &Shapes, sink: &mut Sink) {
     for t in &c.tasks {

@@ -202,6 +202,27 @@ fn a_child_may_not_own_a_resource() {
 }
 
 #[test]
+fn a_childs_task_is_moved_to_the_root_keyed_on_what_opens_it() {
+    // The euxy port: "scroll the selected icon into view when the sheet
+    // opens" is the root's gated task, keyed on the route.
+    let src = "component A\n  view\n    Sheet()\ncomponent Sheet\n  state n = 0\n  task reveal mount\n    after(1, bump)\n  action bump\n    n = n + 1\n  view\n    text \"x\"\n";
+    let e = contract::compile(src).unwrap_err();
+    assert_eq!(e.id, "type-child-resource");
+    assert!(
+        e.message.starts_with(
+            "only the root, the root file's first component (`A`), may declare a `task`"
+        ) && e.message.contains(
+            "`task reveal when top(nav).name == \"icons\" key=top(nav).id` with `after(1, reveal)`"
+        ),
+        "{}",
+        e.message
+    );
+    // The repair it names compiles, in the root.
+    let fixed = "routes nav\n  home \"/\"\n  icons \"/icons\"\ncomponent A\n  state n = 0\n  task reveal when top(nav).name == \"icons\" key=top(nav).id\n    after(1, reveal)\n  action reveal\n    n = n + 1\n  view\n    text \"x\"\n";
+    contract::compile(fixed).unwrap_or_else(|e| panic!("{e}"));
+}
+
+#[test]
 fn child_derives_resolve_in_either_order_without_capturing_the_parent() {
     let src = "component App\n  state a = 100\n  view\n    column\n      Forward()\n      Ordered()\ncomponent Forward\n  state n = 2\n  derive b = a * 2\n  derive a = n + 1\n  view\n    text `${a} ${b}` testId=\"forward\"\ncomponent Ordered\n  state n = 2\n  derive a = n + 1\n  derive b = a * 2\n  view\n    text `${a} ${b}` testId=\"ordered\"\n";
     let plan = contract::compile(src).unwrap();
