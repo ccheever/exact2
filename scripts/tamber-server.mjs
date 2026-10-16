@@ -697,7 +697,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     const planned = await ask({ method: 'import-plan', kind: request.kind, source: request.source, name: request.name, sources: request.sources, prefix: request.prefix });
     if (!planned.ok) return planned;
     const { ops, review } = importReview(planned.ok);
-    if (!planned.ok.ops.length) return { ok: { proposal: null, review, message: 'nothing to propose: the design has every mapped value already' } };
+    if (!planned.ok.ops.length) return { ok: { proposal: null, review, message: planned.ok.counted?.mapped ? 'nothing to propose: the design has every mapped value already' : 'nothing to propose: nothing in it maps to a token' } };
     return hold(request.client, ops, undefined, undefined, review);
   }
 

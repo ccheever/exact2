@@ -709,6 +709,10 @@ test('history reads three design commits as token edits; a revert applies, is re
     expect(imported.ok.review).toMatchObject({ importer: 'shadcn', counted: { source: 47, mapped: 46, reported: 1 }, tokens: 23 });
     expect(imported.ok.review.offers.map(o => o.role)).toEqual(['-exact-background', '-exact-label', '-exact-secondary-background', '-exact-separator', 'AccentColor']);
     expect(readFileSync(join(repo, 'app.tamber'), 'utf8')).toBe(V1.replace('#000000', '#121212'));
+    // A stylesheet's importer takes one sheet, never silently the first of two.
+    const two = await call({ method: 'import', client: 'design-tool:ada', kind: 'shadcn', sources: [{ name: 'a.css', text: css }, { name: 'b.css', text: css }] });
+    expect(two.status).toBe(400);
+    expect(two.error.message).toContain('imports one stylesheet');
     // Several DTCG files at once: a Figma export's modes, named as picked.
     const figma = resolve(ROOT, 'tamber/tests/import/figma');
     const sources = readdirSync(figma).map(name => ({ name, text: readFileSync(join(figma, name), 'utf8') }));

@@ -22,12 +22,12 @@ const RESTARTED = 'The design server restarted (or another took its port) since 
 const WRITE_WAIT = 130_000;
 const NO_SERVER = `No design server answers at ${API}. Start one for your app with \`bun exact.mjs tamber tool <app>\`, then try again.`;
 
-type Diagnostic = { file?: string; line?: number; id?: string; message?: string };
+type Diagnostic = { file?: string; line?: number; id?: string; message?: string } | string;
 type Reply = { ok?: any; error?: { message?: string; diagnostics?: Diagnostic[] } };
 /** A refusal's words: its message, and each diagnostic's file, line, id
  * and explanation, which say what to correct. */
 const refusal = (error: Reply['error'], status: number) => {
-  const said = (error?.diagnostics ?? []).map(d => `${d.file ?? ''}${d.line ? `:${d.line}` : ''} ${d.id ?? ''}: ${d.message ?? ''}`.trim());
+  const said = (error?.diagnostics ?? []).map(d => (typeof d === 'string' ? d : `${d.file ?? ''}${d.line ? `:${d.line}` : ''} ${d.id ?? ''}: ${d.message ?? ''}`.trim()));
   return [error?.message ?? `The design server refused the request (${status}).`, ...said].join('\n');
 };
 let token: string | null = null;
@@ -386,7 +386,7 @@ const keyOf = (file: string, kind: string, target: string, when: string, value: 
 // there would write this app's edit into that one, so a new epoch empties
 // them, and `session` counts those.
 // Each with the token of the server run that issued its inverse.
-// An accepted proposal's keeps its proposer, whose its redo is too.
+// An accepted proposal's entry keeps its proposer: its redo is theirs.
 type Entry = { inverse: string; ops: Record<string, unknown>[]; label: string; token: string; client?: string };
 const undoStack: Entry[] = [], redoStack: Entry[] = [];
 let session = 0;
@@ -478,13 +478,22 @@ export function sides(v: string): [string, string] {
  * tokens with their values per mode, the role overrides it offers, the
  * values it could not map and why, and the count check. */
 function reviewOf(p: any) {
-  const r = p.review, none = { importer: '', mapped: [], offers: [], unmapped: [], counted: '', countOk: true };
+  const r = p.review, none = { importer: '', mapped: [], offers: [], unmapped: [], counted: '', countOk: true, from: '', kept: false };
   if (!r?.importer) return none;
   const ops: any[] = (p.ops ?? []).map((o: { op: unknown }) => o.op);
-  // A swatch only for a colour a page can paint: a reference to a token
-  // (`dtcg.color.gray.s900`) is said as written, unpainted.
-  const swatch = (v: string) => (colourLiteral(v, new Set()) ? v : '');
-  const mode = (label: string, mode: number, value: string) => ({ label, mode, value, light: swatch(sides(value)[0]), dark: swatch(sides(value)[1]) });
+  // A swatch for a colour a page can paint: a reference to a token the
+  // import adds, or the design has, is followed to its colour; one to
+  // anything else is said as written, unpainted.
+  const added = new Map<string, string>(ops.filter(o => o?.op === 'add-token').map(o => [String(o.name), String(o.value ?? '')]));
+  const design = snapshots.get(Math.max(0, ...snapshots.keys()));
+  const swatch = (v: string, side: 0 | 1, depth = 0): string => {
+    const t = sides(v)[side];
+    if (colourLiteral(t, new Set())) return t;
+    if (depth > 8) return '';
+    if (added.has(t)) return swatch(added.get(t)!, side, depth + 1);
+    return design?.stored.get(t)?.[0]?.[side]?.css ?? '';
+  };
+  const mode = (label: string, mode: number, value: string) => ({ label, mode, value, light: swatch(value, 0), dark: swatch(value, 1) });
   // What the import does before its role overrides, each by its kind: a
   // token added or set (each mode's value, editable), a mode's value
   // dropped, an axis added.
@@ -505,13 +514,15 @@ function reviewOf(p: any) {
   });
   const c = r.counted ?? {}, recomputed = !!p.replaces || !!r.kept;
   return {
-    importer: String(r.importer), mapped,
+    importer: String(r.importer), mapped, from: String(r.from ?? ''), kept: recomputed,
     // Off until ticked; in a recomputed (or edited) import, the ones it
     // kept were ticked already, so they are on. One with no items is one
     // the importer could not make, its note saying why; in a recomputed
     // import, one with neither was not chosen, and is left out.
     offers: (r.offers ?? []).filter((o: any) => (o.items ?? []).length > 0 || o.note).map((o: any) => ({ role: String(o.role), token: String(o.token ?? ''), items: (o.items ?? []).join(','), note: String(o.note ?? ''), on: recomputed && (o.items ?? []).length > 0 })),
-    unmapped: (r.unmapped ?? []).map((u: any) => ({ name: String(u.name), value: String(u.value ?? ''), why: String(u.why ?? '') + (u.block === '(derived)' ? ' (derived: outside the count)' : ''), derived: u.block === '(derived)' })),
+    // Each with where it came from (a file, a CSS block), so two of one
+    // name in two modes are told apart.
+    unmapped: (r.unmapped ?? []).map((u: any, i: number) => ({ name: String(u.name), value: String(u.value ?? ''), why: String(u.why ?? '') + (u.block === '(derived)' ? ' (derived: outside the count)' : ''), derived: u.block === '(derived)', block: String(u.block ?? ''), key: `${i}` })),
     counted: `${recomputed ? 'the source import: ' : ''}${c.source} source values = ${c.mapped} mapped + ${c.reported} reported`, countOk: c.source === c.mapped + c.reported,
   };
 }
@@ -859,42 +870,62 @@ const sources: Sources = {
     // The cells of this file changed since its highlights last faded (in
     // this run of the server), each by the latest client that changed that
     // cell, for a short highlight in its colour: the newest change a read
-    // has shown, and each one before it, back to a hand edit no read could
-    // measure (what it changed is not known, so no older client is credited
-    // through it). A change measured between two reads lights the cells
-    // that moved; one not measured, its token's row. They fade oldest first,
-    // one each 3 s, so a busy token never keeps another lit.
+    // has shown, and each one before it. A change is measured between the
+    // nearest reads around it (its own states, else the closest older and
+    // newer ones read), cell by cell, matched by modes and scheme, so a
+    // cell it did not move is never lit. A hand edit, which names no
+    // tokens, is the tokens that moved there that no other change in that
+    // stretch claims. They fade oldest first, one each 3 s, so a busy token
+    // never keeps another lit.
     const f = named(file);
     let cursor: { epoch?: string; files?: Record<string, number> } = {};
     try { cursor = JSON.parse(faded || '{}'); } catch { /* none */ }
     const since = cursor.epoch === place.epoch ? cursor.files?.[f] ?? 0 : 0;
     measure();
     const snap = snapshots.get(answer);
-    const shown = changeset.findIndex(n => n.seq > since && n.files.includes(f) && reads.has(`${f}|${n.after[f]}`));
-    const lit: Noted[] = [];
-    for (const n of shown < 0 ? [] : changeset.slice(shown)) {
-      if (n.seq <= since || !n.files.includes(f)) continue;
-      if (!tokensIn(n, f).length && !n.values.has(f)) break;
-      lit.push(n);
-    }
-    const cells = new Map<string, string>(), rows = new Map<string, string>();
+    const of = changeset.filter(n => n.files.includes(f));
+    const shown = of.findIndex(n => n.seq > since && reads.has(`${f}|${n.after[f]}`));
+    const lit = shown < 0 ? [] : of.slice(shown).filter(n => n.seq > since);
+    // Each read's cells by modes and scheme: `axis=value … |dark`.
+    const cellsOf = (r: { stored: Map<string, Stored[][]>; axes: Axis[] }, t: string) => {
+      const out = new Map<string, string>();
+      for (const c of columnsOf(r.axes)) out.set(`${r.axes.map((x, i) => `${x.name}=${c.values[i]}`).join(' ')}|${c.dark}`, r.stored.get(t)?.[c.tuple]?.[c.dark ? 1 : 0]?.css ?? '');
+      return out;
+    };
+    const around = (k: number) => {
+      // The nearest read at or before the change, and at or after it.
+      let a, b, lo = k, hi = k;
+      for (let j = k; j < of.length && !a; j++) { a = reads.get(`${f}|${of[j].before[f]}`); lo = j; }
+      for (let j = k; j >= 0 && !b; j--) { b = reads.get(`${f}|${of[j].after[f]}`); hi = j; }
+      return { a, b, lo, hi };
+    };
+    const cells = new Map<string, string>(), rows = new Map<string, Set<string>>();
+    const current = new Map((snap?.columns ?? []).map(c => [`${snap!.axes.map((x, i) => `${x.name}=${c.values[i]}`).join(' ')}|${c.dark}`, c.id]));
     for (const n of [...lit].reverse()) {
-      const a = reads.get(`${f}|${n.before[f]}`), b = reads.get(`${f}|${n.after[f]}`);
-      for (const t of tokensIn(n, f)) {
-        rows.set(t, n.who);
-        const columns = (b ?? snap)?.columns ?? [];
-        for (const c of columns) {
-          const side = c.dark ? 1 : 0;
-          const moved = !a || !b || a.stored.get(t)?.[c.tuple]?.[side]?.css !== b.stored.get(t)?.[c.tuple]?.[side]?.css;
-          if (moved) cells.set(`${t}|${c.id}`, n.who);
+      const k = of.indexOf(n), { a, b, lo, hi } = around(k);
+      let tokens = tokensIn(n, f);
+      if (!tokens.length && a && b) {
+        const claimed = new Set(of.slice(hi, lo + 1).filter(m => m !== n).flatMap(m => tokensIn(m, f)));
+        tokens = [...new Set([...a.stored.keys(), ...b.stored.keys()])].filter(t => !claimed.has(t) && moved(t, a, b) !== null);
+      }
+      for (const t of tokens) {
+        const before = a ? cellsOf(a, t) : null, after = b ? cellsOf(b, t) : null;
+        let any = false;
+        for (const [key, id] of current) {
+          if (before && after && before.get(key) === after.get(key)) continue;
+          cells.set(`${t}|${id}`, n.who);
+          any = true;
         }
+        if (any) rows.set(t, new Set([...(rows.get(t) ?? []), n.who]));
       }
     }
     const oldest = lit.at(-1)?.seq ?? since;
     const fadeTo = JSON.stringify({ epoch: place.epoch, files: { ...(cursor.epoch === place.epoch ? cursor.files : {}), [f]: oldest } });
+    // Each row names every client still lit on it.
+    const whos = [...rows.values()].map(w => [...w].join(', '));
     return {
       seq: oldest, epoch: place.epoch, file: f, fadeTo,
-      names: [...rows.keys()], whos: [...rows.values()], tints: [...rows.values()].map(tintOf),
+      names: [...rows.keys()], whos, tints: [...rows.values()].map(w => tintOf([...w].at(-1)!)),
       cells: [...cells.keys()], cellTints: [...cells.values()].map(tintOf),
     };
   },
@@ -976,6 +1007,7 @@ const sources: Sources = {
     // Its operations, kept now: the poll that answers as it is accepted no
     // longer lists it.
     const at = session, some = items ? items.split(',').map(Number) : undefined, ops = (heldOps.get(proposal) ?? []) as Record<string, unknown>[];
+    const proposer = held.find(h => h.proposal === proposal)?.client;
     // To the server run that listed it.
     const { error, reply } = await call('/__tamber', { method: 'accept', client, proposal, ...(some ? { items: some } : {}) }, WRITE_WAIT, heldToken || undefined);
     if (error === RESTARTED) forget();
@@ -984,8 +1016,7 @@ const sources: Sources = {
     const ok = reply.ok as { recomputed?: boolean; proposal?: string; inverse?: string | null; changed?: { token: string }[] };
     if (ok.recomputed) return { ...stacks(true, '', 'recomputed'), note: `${proposal} was recomputed on the files as they are now, as ${ok.proposal}: review its diff and accept it again.` };
     // Accepted: written as its proposer's, and one step of this session's undo.
-    const proposer = held.find(h => h.proposal === proposal)?.client;
-    if (ok.inverse) { undoStack.push({ inverse: ok.inverse, ops, label: `the proposal ${proposal}`, token: heldToken, client: proposer }); redoStack.length = 0; }
+    if (ok.inverse) { undoStack.push({ inverse: ok.inverse, ops, label: `the proposal ${proposal}`, token: heldToken, client: proposer ?? (reply.ok as { client?: string }).client }); redoStack.length = 0; }
     return { ...stacks(true, '', 'accepted'), note: `Accepted ${proposal}.` };
   },
   importFiles: async ([client, kind, paths, names], _store, storage) => {
@@ -1020,7 +1051,9 @@ const sources: Sources = {
     // (LLP 1121 D1): all of it at once is the proposal accepted whole;
     // anything less is recomputed as those items, to accept again.
     const r = heldReview.get(proposal), ops = heldOps.get(proposal) ?? [];
-    const recomputed = !!held.find(h => h.proposal === proposal)?.replaces;
+    // The same baseline the card draws: a recomputed import's, or an edit
+    // of one (`kept`), has its offers on.
+    const recomputed = !!held.find(h => h.proposal === proposal)?.replaces || !!r?.kept;
     if (!r) return { ...stacks(false, `No held import \`${proposal}\`.`, ''), note: '' };
     // `picked`: the view's flipped items, `<proposal>:<i[,j]>` joined by `;`.
     const flipped = new Set(picked.split(';').filter(x => x.startsWith(`${proposal}:`)).flatMap(x => x.slice(proposal.length + 1).split(',').map(Number)));
@@ -1043,7 +1076,7 @@ const sources: Sources = {
     else if (op.whens?.[mode - 1]) op.whens[mode - 1].value = value.trim();
     else return { ...stacks(false, `No such mode in \`${proposal}\`.`, ''), note: '', carried: [] };
     const recomputed = !!held.find(h => h.proposal === proposal)?.replaces;
-    const made = await call('/__tamber', { method: 'propose', hold: true, client, ops, review: { ...r, kept: r.kept || recomputed } }, WRITE_WAIT, heldToken || undefined);
+    const made = await call('/__tamber', { method: 'propose', hold: true, client, ops, review: { ...r, kept: r.kept || recomputed, from: proposal } }, WRITE_WAIT, heldToken || undefined);
     if (made.error === RESTARTED) forget();
     if (session !== at) return { ...stacks(false, RESTARTED, ''), note: '', carried: [] };
     if (made.error) return { ...stacks(false, made.error, ''), note: '', carried: [] };

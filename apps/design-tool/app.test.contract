@@ -359,7 +359,7 @@ test "an import's review: tokens in, overrides off until ticked with their notes
   expect text "held-count-imp" == "3 source values = 2 mapped + 1 reported"
   expect tree has "take-imp-0"
   expect tree has "override-imp-AccentColor"
-  expect text "unmapped-imp---radius" == "--radius = 0.5rem: kind pending (stage 6): length"
+  expect text "unmapped-imp-0" == "--radius = 0.5rem (:root): kind pending (stage 6): length"
   expect text "offer-note-imp--exact-label" == "tamber-role-axis: it would vary by dark-style"
   expect tree missing "override-imp--exact-label"
   expect state picked == []

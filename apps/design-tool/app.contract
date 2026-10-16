@@ -64,6 +64,8 @@ shape Unmapped
   value: string
   why: string
   derived: bool
+  block: string
+  key: string
 
 shape Held
   proposal: string
@@ -80,6 +82,10 @@ shape Held
   unmapped: Unmapped[]
   counted: string
   countOk: bool
+  // The import an edit replaced, and whether its offers begin on (a
+  // recomputed import, or an edit of one).
+  from: string
+  kept: bool
 
 // An import started from picked files: the proposal it holds, or why not.
 shape Imported
@@ -757,11 +763,14 @@ component DesignTool
                     text h.counted color=(h.countOk ? "-exact-secondary-label" : "-exact-system-red") font="-exact-footnote" testId=`held-count-${h.proposal}`
                     if h.replaces != ""
                       text `Recomputed from ${h.replaces} with the items chosen, on the files as they are now: review its diff, then accept it to write it. The overrides kept are on because they were ticked.` color="-exact-system-orange" font="-exact-footnote" testId=`held-replaces-${h.proposal}`
+                    else if h.from != ""
+                      text `Held again from ${h.from} with your edit, on the files as they are now: review its diff, then accept it.` color="-exact-system-orange" font="-exact-footnote" testId=`held-replaces-${h.proposal}`
+                    if h.replaces != "" or h.from != ""
                       text h.diff font="-exact-caption1" font-family="ui-monospace, monospace" white-space="pre" testId=`held-diff-${h.proposal}`
                     text `Tokens (${h.mapped.length})` role="heading" aria-level=3
                     for m in h.mapped key=`${m.index}`
                       row gap=8 align-items="center" flex-wrap="wrap" testId=`mapped-${h.proposal}-${m.index}`
-                        input type="checkbox" checked=(not picked.includes(`${h.proposal}:${m.index}`)) change=toggleLeaveOut(`${h.proposal}:${m.index}`) aria-label=m.name testId=`take-${h.proposal}-${m.index}`
+                        input type="checkbox" disabled=pending(written) checked=(not picked.includes(`${h.proposal}:${m.index}`)) change=toggleLeaveOut(`${h.proposal}:${m.index}`) aria-label=m.name testId=`take-${h.proposal}-${m.index}`
                         text m.name width=200 flex-shrink=0 font="-exact-footnote"
                         if m.kind != "token"
                           text m.text color="-exact-secondary-label" font="-exact-caption1" testId=`mapped-text-${h.proposal}-${m.index}`
@@ -773,17 +782,17 @@ component DesignTool
                               view width=16 height=16 border-radius=3 background-color=md.dark border="1px solid -exact-separator"
                             text md.label font="-exact-caption2" color="-exact-secondary-label"
                             input value=md.value change=editImportValue(h.proposal, m.index, md.mode) aria-label=`${m.name} ${md.label}` min-width=160 font="-exact-caption1" testId=`mapped-value-${h.proposal}-${m.index}-${md.mode}`
-                    text "Role overrides, off until ticked" role="heading" aria-level=3
+                    text (h.kept ? "Role overrides, as ticked" : "Role overrides, off until ticked") role="heading" aria-level=3
                     for o in h.offers key=o.role
                       row gap=8 align-items="center" testId=`offer-${h.proposal}-${o.role}`
                         if o.items != ""
-                          input type="checkbox" checked=(o.on != picked.includes(`${h.proposal}:${o.items}`)) change=toggleOffer(`${h.proposal}:${o.items}`, o.on) aria-label=`${o.role} = ${o.token}` testId=`override-${h.proposal}-${o.role}`
+                          input type="checkbox" disabled=pending(written) checked=(o.on != picked.includes(`${h.proposal}:${o.items}`)) change=toggleOffer(`${h.proposal}:${o.items}`, o.on) aria-label=`${o.role} = ${o.token}` testId=`override-${h.proposal}-${o.role}`
                         text `${o.role} = ${o.token}` font="-exact-footnote"
                         if o.note != ""
                           text o.note color="-exact-secondary-label" font="-exact-caption1" testId=`offer-note-${h.proposal}-${o.role}`
                     text `Not mapped (${h.unmapped.length})` role="heading" aria-level=3
-                    for u in h.unmapped key=u.name
-                      text `${u.name} = ${u.value}: ${u.why}` color="-exact-secondary-label" font="-exact-caption1" testId=`unmapped-${h.proposal}-${u.name}`
+                    for u in h.unmapped key=u.key
+                      text `${u.name} = ${u.value}${u.block != "" and not u.derived ? ` (${u.block})` : ""}: ${u.why}` color="-exact-secondary-label" font="-exact-caption1" testId=`unmapped-${h.proposal}-${u.key}`
                     row gap=8
                       button press=acceptImportNow(h.proposal) disabled=pending(written) buttonStyle="filled" testId=`accept-${h.proposal}`
                         text "Accept"
@@ -821,7 +830,7 @@ component DesignTool
                   text (i.ok ? i.note : i.error) color=(i.ok ? "-exact-secondary-label" : "-exact-system-red") white-space="pre-wrap" testId="import-result"
                   if i.counted != ""
                     text i.counted color="-exact-secondary-label" font="-exact-footnote" testId="import-counted"
-                    for u in i.unmapped key=u.name
+                    for u in i.unmapped key=u.key
                       text `${u.name} = ${u.value}: ${u.why}` color="-exact-secondary-label" font="-exact-caption1"
                 case none
                   text "" display="none"

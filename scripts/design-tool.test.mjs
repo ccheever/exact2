@@ -581,7 +581,7 @@ test('T1a: an import reviewed through the file picker, overrides off until ticke
     expect(review.unmapped.map(u => u.name)).toEqual(['--radius', '--radius-sm', '--radius-md', '--radius-lg', '--radius-xl']);
     expect(review.unmapped[0].why).toBe('kind pending (stage 6): length');
     const id = review.proposal, nth = k => id.replace(/-(\d+)$/, (_, n) => `-${Number(n) + k}`);
-    const [edited, kept] = [nth(1), nth(2)];
+    const [edited, kept, rekept] = [nth(1), nth(2), nth(3)];
     // Tick AccentColor, leave shadcn.foreground out, and edit one value
     // before accepting: the edit holds the import again, the choices carried
     // over; Accept takes exactly those items (recomputed, nothing written),
@@ -591,7 +591,10 @@ test('T1a: an import reviewed through the file picker, overrides off until ticke
       `tap override-${id}-AccentColor`, `tap take-${id}-1`,
       `type mapped-value-${id}-0-0 light-dark(oklch(0.99 0 0), oklch(0.145 0 0))`, `type mapped-value-${id}-0-0 key Enter`, 'clock data', 'clock +1', 'clock data', 'state',
       `tap accept-${edited}`, 'clock data', 'clock +1', 'clock data', 'state',
-      `tap accept-${kept}`, 'clock data', 'clock +1', 'clock data', 'state',
+      // An edit of the recomputed card keeps its overrides as ticked, and
+      // Accept writes what it shows.
+      `type mapped-value-${kept}-0-0 light-dark(oklch(0.98 0 0), oklch(0.145 0 0))`, `type mapped-value-${kept}-0-0 key Enter`, 'clock data', 'clock +1', 'clock data', 'state',
+      `tap accept-${rekept}`, 'clock data', 'clock +1', 'clock data', 'state',
       'tap undo', 'clock data', 'clock +1', 'clock data', 'state',
       // Tailwind's default theme, and Figma's export (a file a mode).
       'type import-kind tailwind', 'tap import-choose', `type @import-file ${join(fixtures, 'tailwind-theme.css')}`, 'clock data', 'clock +1', 'clock data', 'state',
@@ -605,27 +608,34 @@ test('T1a: an import reviewed through the file picker, overrides off until ticke
     const recomputed = later[1].resources.changes.held.find(h => h.proposal === kept);
     expect(recomputed).toMatchObject({ importer: 'shadcn', replaces: edited });
     expect(recomputed.offers.filter(o => o.items !== '').map(o => [o.role, o.on])).toEqual([['AccentColor', true]]);
-    expect(later[2].slots.written.note).toBe(`Accepted ${kept}.`);
+    const again = later[2].resources.changes.held.find(h => h.proposal === rekept);
+    expect(again).toMatchObject({ from: kept, kept: true });
+    expect(again.offers.filter(o => o.items !== '').map(o => [o.role, o.on])).toEqual([['AccentColor', true]]);
+    expect(again.diff).toContain('oklch(0.98 0 0)');
+    expect(later[3].slots.written.note).toBe(`Accepted ${rekept}.`);
     expect(tool.writes.map(w => [w.method, w.ok])).toEqual([['accept', true], ['accept', true], ['undo', true]]);
     // The partial accept wrote nothing; the accept wrote what was chosen.
     expect(tool.writes[0].after).toBe(original);
     const written = tool.writes[1].after;
     expect(written).toContain('AccentColor = shadcn.primary');
-    expect(written).toContain('shadcn.background = light-dark(oklch(0.99 0 0), oklch(0.145 0 0))');
+    expect(written).toContain('shadcn.background = light-dark(oklch(0.98 0 0), oklch(0.145 0 0))');
     expect(written).not.toContain('shadcn.foreground =');
     expect(written).not.toContain('-exact-background = shadcn.background');
     // One step back: the bytes as they were.
     expect(tool.writes[2].after).toBe(original);
-    const tailwind = later[4].resources.changes.held.find(h => h.importer === 'tailwind');
+    const tailwind = later[5].resources.changes.held.find(h => h.importer === 'tailwind');
     expect(tailwind.countOk).toBe(true);
     expect(tailwind.mapped.length).toBeGreaterThan(200);
-    const dtcg = later[5].resources.changes.held.find(h => h.importer === 'dtcg');
+    const dtcg = later[6].resources.changes.held.find(h => h.importer === 'dtcg');
     expect(dtcg.counted).toBe('104 source values = 40 mapped + 64 reported');
     expect(dtcg.unmapped).toHaveLength(64);
     // Its axis is said as an axis, and a token's other modes have their
     // values, each editable.
     expect(dtcg.mapped[0]).toMatchObject({ kind: 'axis', modes: [] });
-    expect(dtcg.mapped.some(m => m.modes.length > 1 && m.modes[1].value !== '')).toBe(true);
+    const moded = dtcg.mapped.find(m => m.modes.length > 1);
+    expect(moded.modes[1].value).not.toBe('');
+    // A reference to a token the import adds is painted as that token.
+    expect(dtcg.mapped.filter(m => m.kind === 'token').every(m => m.modes.every(md => md.light !== ''))).toBe(true);
   } finally {
     await tool.close();
     rmSync(app, { recursive: true, force: true });
