@@ -71,8 +71,10 @@ final class Strip: ExactNativeInstance {
   animation needs no ticket. Chain `after(ms)` only while there is something to do.
 - **Memory:** a layer that draws (`draw(in:)`) holds a bitmap of its whole bounds at the
   screen's scale, 36 bytes a point² on a 3× iPhone, whether or not it shows anything.
-  Draw what moves on a small layer of its own, not a second full-size one, and give a
-  layer no more bounds than it draws (one app's five strips held 6.3 MB in ten).
+  Hide one that has nothing to show (`isHidden = true`, `contents = nil`) and draw it
+  again when it does; give a layer no more bounds than it draws, and what moves a small
+  layer of its own. One app's five strips held 6.3 MB in ten such layers; hiding the
+  five playhead layers while stopped saved 3.2 MB.
 - **Touches:** recognizers on the view. A touch its hit test declines (a `point(inside:)`
   that follows the drawn shape) goes to what is under the box, so a capsule smaller than its
   box blocks nothing; the box keeps it with `press=` or `isUserInteractionEnabled = false`.
