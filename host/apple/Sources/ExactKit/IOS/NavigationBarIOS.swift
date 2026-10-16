@@ -329,6 +329,18 @@ final class HeaderSearch: NSObject, UISearchResultsUpdating, UISearchBarDelegate
         controller.obscuresBackgroundDuringPresentation = false
         controller.hidesNavigationBarDuringPresentation = true
     }
+    /// The navigation item the controller is on.
+    weak var item: UINavigationItem?
+    /// The field scrolls away with the content only while it is empty
+    /// (`NavigationHost.searchField`).
+    func applyHiding() {
+        #if os(iOS)
+        guard let item else { return }
+        let hides = (field?.props["value"] ?? "").isEmpty
+        if item.hidesSearchBarWhenScrolling != hides { item.hidesSearchBarWhenScrolling = hides }
+        #endif
+    }
+    func didDismissSearchController(_ search: UISearchController) { applyHiding() }
     func updateSearchResults(for search: UISearchController) {
         let text = search.searchBar.text ?? ""
         guard let field, let presenter = host?.presenter, presenter.views[field.id] === field else { return }
@@ -792,7 +804,12 @@ extension NavigationHost {
         // UIKit hides the field as the content scrolls and keeps an active
         // search's in view. A search in effect that UIKit did not start (a
         // value the app or the agent wrote) keeps its field in view too.
-        if c.navigationItem.hidesSearchBarWhenScrolling != value.isEmpty { c.navigationItem.hidesSearchBarWhenScrolling = value.isEmpty }
+        // Changed while UIKit presents or dismisses the search, the item
+        // leaves the active field and its Close button drawn over the bar
+        // (round 17's contacts: Close clears the text, so the app's empty
+        // value lands mid-dismissal), so it waits for the dismissal's end.
+        search.item = c.navigationItem
+        if !searching(c) { search.applyHiding() }
         // The field itself, which XCUITest finds as a search field and a
         // person types in, carries the test id (LLP 1116 D2).
         if bar.searchTextField.accessibilityIdentifier != field.props["testId"] { bar.searchTextField.accessibilityIdentifier = field.props["testId"] }
