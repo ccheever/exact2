@@ -1159,7 +1159,7 @@ impl<D: DataSource> Runner<D> {
 
     /// Same immutable plan as a targeted node read. No work until an inspector
     /// requests identity; a replacement runner owns a fresh cache.
-    pub(crate) fn inspection_digest(&self) -> &str {
+    pub fn inspection_digest(&self) -> &str {
         self.inspection_digest.get_or_init(|| {
             use sha2::{Digest, Sha256};
             use std::fmt::Write;

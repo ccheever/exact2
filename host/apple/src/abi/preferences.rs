@@ -69,6 +69,16 @@ impl<D: DataSource> Bridge<D> {
         self.output.len() as u32
     }
 
+    /// The running plan's digest, UTF-8 in the output buffer; empty before boot.
+    pub fn plan_digest(&mut self) -> u32 {
+        self.output = self
+            .host
+            .as_ref()
+            .map(|h| h.runner().inspection_digest().as_bytes().to_vec())
+            .unwrap_or_default();
+        self.output.len() as u32
+    }
+
     /// The user's display preferences changed or became known (LLP 1061
     /// D4; LLP 1069.000 D1): bit 0 reduced motion, bit 1 reduced
     /// transparency, bit 2 contrast more, bit 3 contrast less, bit 4 a dark

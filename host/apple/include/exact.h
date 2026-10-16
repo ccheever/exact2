@@ -576,6 +576,8 @@ uint32_t exact_design_rows(ExactRuntime rt, size_t len);
 /* The design digest the running app runs (its plan's, or the live table's
  * applied since), UTF-8 in exact_out, length 0 before boot. Not a batch. */
 uint32_t exact_design_digest(ExactRuntime rt);
+/* The running plan's digest, UTF-8 in exact_out, length 0 before boot. */
+uint32_t exact_plan_digest(ExactRuntime rt);
 /* @ref LLP 1061 D4, LLP 1069.000 D1: the user's display preferences, told
  * after boot and on each change — bit 0 reduced motion, bit 1 reduced
  * transparency, bit 2 contrast more, bit 3 contrast less, bit 4 a dark system;

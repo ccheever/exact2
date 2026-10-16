@@ -365,12 +365,12 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
 
     /// The app owns the identity: replacing a connection must not restart an
     /// already current app, while another kind of apply invalidates the identity.
-    static func open(_ page: String, program: String? = nil, acceptProgram: @escaping (String?) -> Bool, current: @escaping () -> String?, waiting: @escaping () -> Bool = { false }, design: @escaping (String) -> String = { _ in "unsupported" }, channel: @escaping ([String: Any]) -> Void = { _ in }, apply: @escaping (Generation, String) -> Bool) -> PlanURL? {
+    static func open(_ page: String, program: String? = nil, acceptProgram: @escaping (String?) -> Bool, current: @escaping () -> String?, plan: @escaping () -> String? = { nil }, waiting: @escaping () -> Bool = { false }, design: @escaping (String) -> String = { _ in "unsupported" }, channel: @escaping ([String: Any]) -> Void = { _ in }, apply: @escaping (Generation, String) -> Bool) -> PlanURL? {
         guard let u = URL(string: page), u.host != nil, sameOrigin(u, u) else {
             fputs("exact url: not an HTTP app URL: \(page)\n", stderr)
             return nil
         }
-        let connection = PlanURL(u, acceptProgram: acceptProgram, current: current, waiting: waiting, design: design, channel: channel, apply: apply)
+        let connection = PlanURL(u, acceptProgram: acceptProgram, current: current, plan: plan, waiting: waiting, design: design, channel: channel, apply: apply)
         // The program the app already runs (a connection replaced): the one
         // this connection takes.
         connection.adopted = program
@@ -380,6 +380,7 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
 
     let page: URL
     private let currentGeneration: () -> String?
+    private let runningPlan: () -> String?
     private let applyGeneration: (Generation, String) -> Bool
     /// A live design batch or snapshot (LLP 1121 stage 4) applied to the
     /// app; answers applied, stale, structure or refused.
@@ -411,10 +412,11 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
         return URLSession(configuration: config, delegate: self, delegateQueue: .main)
     }()
 
-    private init(_ page: URL, acceptProgram: @escaping (String?) -> Bool, current: @escaping () -> String?, waiting: @escaping () -> Bool = { false }, design: @escaping (String) -> String, channel: @escaping ([String: Any]) -> Void, apply: @escaping (Generation, String) -> Bool) {
+    private init(_ page: URL, acceptProgram: @escaping (String?) -> Bool, current: @escaping () -> String?, plan: @escaping () -> String?, waiting: @escaping () -> Bool = { false }, design: @escaping (String) -> String, channel: @escaping ([String: Any]) -> Void, apply: @escaping (Generation, String) -> Bool) {
         self.page = page
         self.acceptProgram = acceptProgram
         currentGeneration = current
+        runningPlan = plan
         applyGeneration = apply
         applyDesign = design
         self.channel = channel
@@ -957,8 +959,9 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
     private var registered: String?
     private var reports: [(nonce: String, body: [String: Any])] = []
     private var reporting: BoundedFetch?
-    /// The generation identity the build runs (the reports' `plan`).
-    var plan: String? { currentGeneration() }
+    /// Before a dev generation commits, report the embedded or cached plan
+    /// that actually booted. Its digest must not deduplicate a whole generation.
+    var plan: String? { currentGeneration() ?? runningPlan() }
 
     /// A `POST /__dev/report` with the nonce, and the plan for a register or
     /// a status: one at a time, in order, at most 16 waiting, on the page's

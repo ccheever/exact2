@@ -573,7 +573,8 @@ The tool drives no input into an app; a command changes only what `prefer` would
     not shared with a duplicated tab; a process's), so its pin is replayed when it registers
     again. Every registration is told the pin the server holds for it, or none.
   - `plan` is the generation the build runs (the envelope's identity; the JS target, which runs
-    no plan, sends none), and `design` its design digest.
+    no plan, sends none), and `design` its design digest. Before accepting a dev generation,
+    Apple reports the digest of its running embedded or cached plan.
   - The nonce is 128 random bits. A stream is one build: another `id` registered on it replaces
     the build it was, and that build's pin.
   - **Caps.** At most 256 streams are open, stream and polled together, so at most 256 builds
