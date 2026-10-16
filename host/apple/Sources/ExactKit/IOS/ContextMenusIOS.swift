@@ -231,7 +231,7 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate {
     private func current(_ owner: Open) -> NodeView? {
         // Its own action, which has run, may have disabled, hidden or moved it.
         guard let source = owner.source, live(source), source.props["contextPopover"] == owner.name,
-              menus?.eligible(source) == true, let pop = popover(named: owner.name) else { return nil }
+              menus?.eligible(source, contextMenu: true) == true, let pop = popover(named: owner.name) else { return nil }
         owner.popover = pop
         return pop
     }
@@ -267,7 +267,7 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate {
             // menu, unless a node in the sheet is nearer (`MountRelay`)
             source = found; point = mount.convert(location, to: found); hit = mount.hitTest(location, with: nil)
         } else { return nil }
-        guard live(source), let name = source.props["contextPopover"], menus.eligible(source) else { return nil }
+        guard live(source), let name = source.props["contextPopover"], menus.eligible(source, contextMenu: true) else { return nil }
         // UIKit's row menu wins over text selection. An authored menu
         // nearer the hit still belongs to that node (LLP 1115.000 D11.6).
         if view is NodeView ? NodeView.nativeEditor(hit, below: view) : NodeView.nativeInputOwns(hit, below: view) { return nil }
@@ -408,11 +408,11 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate {
     /// hidden (the row itself included), in the active route, and the source
     /// still eligible.
     private func committable(_ row: NodeView, in pop: NodeView, from source: NodeView) -> Bool {
-        guard let presenter, let menus, !row.disabled, !row.isHidden, row.props["inert"] != "true", menus.eligible(source),
+        guard let presenter, let menus, !row.disabled, !row.isHidden, row.props["inert"] != "true", menus.eligible(source, contextMenu: true),
               !presenter.navigation.isInactiveRoute(containing: pop) else { return false }
         var view: UIView? = pop
         while let current = view {
-            if let node = current as? NodeView, node.formDisabled || node.props["inert"] == "true" { return false }
+            if let node = current as? NodeView, node.disabled || node.props["inert"] == "true" { return false }
             if current.isHidden, current !== pop { return false }
             if current === pop, pop.style["display"]?.string == "none" { return false }
             view = presenter.eventParent(of: current)

@@ -427,7 +427,7 @@ extension NodeView {
     /// menu on the paragraph itself is the nearest menu. Disabled controls
     /// or inert ancestry admit neither one.
     var contextMenuSource: NodeView? {
-        guard let presenter, presenter.menus.eligible(self) else { return nil }
+        guard let presenter, presenter.menus.eligible(self, contextMenu: true) else { return nil }
         var next: UIView? = self
         while let view = next {
             if let node = view as? NodeView,

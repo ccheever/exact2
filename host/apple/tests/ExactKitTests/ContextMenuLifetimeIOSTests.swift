@@ -49,7 +49,7 @@ final class ContextMenuLifetimeIOSTests: XCTestCase {
             ["op": "props", "id": 1, "set": ["disabled": "true"]],
             ["op": "props", "id": 9, "set": ["disabled": "true"]],
         ]))
-        XCTAssertTrue(p.menus.eligible(source), "disabled on the source or a container ancestor means nothing")
+        XCTAssertTrue(p.menus.eligible(source, contextMenu: true), "disabled on the source or a container ancestor means nothing")
         XCTAssertTrue(source.contextMenuSource === source)
         var heard: [UInt32] = []
         p.onClipboard = { id, kind, _ in if kind == 10 { heard.append(id) } }
@@ -66,13 +66,13 @@ final class ContextMenuLifetimeIOSTests: XCTestCase {
         }
         p.menus.reset()
         p.apply(wireBatch([["op": "props", "id": 1, "set": ["inert": "true"]]]))
-        XCTAssertFalse(p.menus.eligible(source))
+        XCTAssertFalse(p.menus.eligible(source, contextMenu: true))
         XCTAssertNil(source.contextMenuSource)
 
         let button = presenter()
         defer { button.menus.reset(); window.isHidden = true }
         button.apply(wireBatch([["op": "props", "id": 1, "set": ["disabled": "true"]]]))
-        XCTAssertFalse(button.menus.eligible(try XCTUnwrap(button.views[1])), "a form control stays disabled")
+        XCTAssertFalse(button.menus.eligible(try XCTUnwrap(button.views[1]), contextMenu: true), "a form control stays disabled")
     }
 
     private func opened(_ p: Presenter) throws -> (UIContextMenuInteraction, UIContextMenuConfiguration, UIViewController) {
@@ -226,6 +226,18 @@ final class ContextMenuLifetimeIOSTests: XCTestCase {
         XCTAssertEqual(touches.first?.cancelsTouchesInView, false)
         XCTAssertEqual(touches.first?.delaysTouchesBegan, false)
         XCTAssertEqual((p.viewport.gestureRecognizers ?? []).filter { $0 is BarTouch }.count, 1, "and one on the viewport, carried into a presentation")
+    }
+
+    func testDisabledPopoverRefusesThePreviewPress() throws {
+        try XCTSkipIf(ExactEnv.agentMode, "the agent paints the popover")
+        let p = presenter()
+        defer { p.menus.reset(); window.isHidden = true }
+        let (interaction, configuration, _) = try opened(p)
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["disabled": "true"]]]))
+        p.menus.context.contextMenuInteraction(interaction, willPerformPreviewActionForMenuWith: configuration, animator: Commit())
+        XCTAssertEqual(pressed, [], "a preview press keeps the raw disabled check on its authored ancestry")
     }
 
     func testAnInertPopoverRefusesTheCommit() throws {

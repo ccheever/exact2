@@ -255,9 +255,9 @@ final class MenuHost: NSObject {
         if name == "hidePopover" || name == "togglePopover" && open { close(pop) }
         else if !open { show(pop, from: source) }
     }
-    func show(_ pop: NodeView, from source: NodeView?, run: UInt32? = nil) {
+    func show(_ pop: NodeView, from source: NodeView?, run: UInt32? = nil, contextMenu: Bool = false) {
         guard let presenter, !isOpen(pop), live(pop), source.map(live) ?? true, pop.props["popover"] != nil,
-              connected(pop), source.map(connected) ?? true, !pop.inert, source.map({ !$0.inert && !$0.formDisabled }) ?? true,
+              connected(pop), source.map(connected) ?? true, !pop.inert, source.map({ !$0.inert && !(contextMenu ? $0.formDisabled : $0.disabled) }) ?? true,
               pop.style["display"]?.string != "none", let page = presenter.viewport.window,
               source.map({ !hidden($0) || presenter.toolbar.contains($0) }) ?? true else { return }
         let window = source?.window.flatMap { presenter.hosts($0) ? $0 : nil } ?? page
@@ -294,7 +294,7 @@ final class MenuHost: NSObject {
             RunLoop.main.perform(inModes: [.common]) { [weak self, weak source, weak entry] in
                 guard let self, let entry, self.entries.contains(where: { $0 === entry }) else { return }
                 guard let source, self.live(source), self.live(entry.popover), source.window === window,
-                      !source.inert, !source.disabled, entry.confirmation.map(self.valid) ?? true
+                      !source.inert, !source.formDisabled, entry.confirmation.map(self.valid) ?? true
                 else { self.close(entry.popover); return }
                 entry.tracking = true
                 self.track(menu, positioning: entry.focusedItem, at: self.popUpPoint(menu, entry.popover, in: source), in: source)
@@ -335,7 +335,7 @@ final class MenuHost: NSObject {
                 return
             }
             while let last = self.entries.last { self.close(last.popover, restoreFocus: false) }
-            if ExactEnv.agentMode { self.show(pop, from: source, run: run); return }
+            if ExactEnv.agentMode { self.show(pop, from: source, run: run, contextMenu: true); return }
             // A new presentation only if it has an item: it retires picks of the last.
             guard pop.container.subviews.contains(where: { ($0 as? NodeView).map { $0.isButton && $0.props["contextPreview"] != "true" } ?? false }) else { return }
             self.presentations[pop.id, default: 0] += 1

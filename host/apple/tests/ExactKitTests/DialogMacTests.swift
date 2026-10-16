@@ -270,7 +270,7 @@ class DialogMacTests: XCTestCase {
 
     /// The ContextMenu key and VoiceOver's show menu at a focus in the
     /// dialog reach its ancestor's `contextmenu`, in the dialog's sheet
-    /// window too; an authored `inert` or `disabled` still refuses.
+    /// window too; `inert` refuses, while `disabled` on the container does not.
     func testContextMenuKeyAndShowMenuInTheDialogReachItsAuthoredAncestors() throws {
         let p = fixture(), root = try XCTUnwrap(p.views[1]), button = try XCTUnwrap(p.views[5])
         root.handlers = ["contextmenu"]

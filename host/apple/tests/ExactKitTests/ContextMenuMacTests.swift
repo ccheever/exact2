@@ -107,6 +107,61 @@ final class ContextMenuMacTests: XCTestCase {
         XCTAssertEqual(pressed, [5])
     }
 
+    func testNativeMenuTrackingUsesControlDisabledAfterInvocation() throws {
+        try XCTSkipIf(ExactEnv.agentMode, "native menu tracking")
+        for (kind, href, expected) in [("view", "", true), ("button", "#help", true), ("button", "", false)] {
+            let p = presenter(kind: kind), source = try XCTUnwrap(p.views[1]), pop = try XCTUnwrap(p.views[2])
+            source.props["href"] = href.isEmpty ? nil : href
+            source.props["disabled"] = "true"
+            p.menus.show(pop, from: source)
+            XCTAssertFalse(p.menus.isOpen(pop), "an invocation from a disabled source is refused before opening")
+            p.menus.reset()
+            source.props.removeValue(forKey: "disabled")
+            try XCTUnwrap(windows.last).orderFrontRegardless()
+            var tracked = false
+            let observer = NotificationCenter.default.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
+                guard let menu = note.object as? NSMenu else { return }
+                tracked = true
+                RunLoop.current.perform(inModes: [.eventTracking, .default]) { menu.cancelTracking() }
+            }
+            p.menus.show(pop, from: source)
+            XCTAssertTrue(p.menus.isOpen(pop))
+            source.props["disabled"] = "true"
+            turn()
+            XCTAssertEqual(tracked, expected, "a disabled attribute invalidates native tracking only on a control")
+            XCTAssertFalse(p.menus.isOpen(pop))
+            NotificationCenter.default.removeObserver(observer)
+            p.menus.reset()
+        }
+    }
+
+    func testAgentInlineContextRequestsIgnoreDisabledOnTheParagraph() throws {
+        let everyClickCounts = NodeView.everyClickCounts
+        NodeView.everyClickCounts = true
+        defer { NodeView.everyClickCounts = everyClickCounts }
+        let p = presenter(inSession: true), session = try XCTUnwrap(sessions.last), agent = Agent(session: session)
+        p.apply(wireBatch([
+            ["op": "create", "id": 8, "kind": "text", "props": ["disabled": "true"], "handlers": ["contextmenu"], "style": ["font_size": 18.0]],
+            ["op": "paragraph", "id": 8, "runs": [["id": 81, "parent": 8, "paint": true, "props": ["text": "Help", "href": "#help"], "handlers": ["press"], "style": ["font_size": 18.0]]]],
+            ["op": "frame", "id": 8, "x": 20, "y": 80, "w": 460, "h": 28],
+            ["op": "children", "id": 9, "ids": [1, 2, 8]],
+        ]))
+        try XCTUnwrap(windows.last).orderFrontRegardless()
+        var heard: [UInt32] = [], pressed: [UInt32] = []
+        p.onClipboard = { id, kind, _ in if kind == 10 { heard.append(id) } }
+        p.onPress = { pressed.append($0) }
+        for request: [String: Any] in [["id": NSNumber(value: 81), "contextmenu": true], ["id": NSNumber(value: 81), "modifiers": "Control"]] {
+            let reply = agent.tap(request)
+            XCTAssertNil(reply["error"], "\(reply)")
+        }
+        XCTAssertEqual(heard, [8, 8])
+        XCTAssertNotNil(agent.tap(["id": NSNumber(value: 81)])["error"], "an ordinary press retains the raw disabled check")
+        XCTAssertEqual(pressed, [])
+        p.views[8]?.props["inert"] = "true"
+        XCTAssertNotNil(agent.tap(["id": NSNumber(value: 81), "contextmenu": true])["error"])
+        XCTAssertEqual(heard, [8, 8])
+    }
+
     private func turn() {
         let turned = expectation(description: "the next turn")
         DispatchQueue.main.async { turned.fulfill() }

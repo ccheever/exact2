@@ -71,7 +71,7 @@ export async function refuseDisabled(s, node, target, opts = {}) {
   if (node.entity !== undefined || ['hover', 'wheel', 'pinch', 'drag', 'drop', 'into', 'history', 'mediaSession', 'gesture'].some((k) => opts[k] !== undefined && opts[k] !== false)) return;
   const read = await s.op({ op: 'tree', target: node.id, shallow: true }).catch(() => null);
   const current = read?.nodes?.find((n) => n.id === node.id);
-  const control = ['Pressable', 'TextInput', 'Control'].includes(current?.type) && !(current.type === 'Pressable' && current.props?.href !== undefined);
+  const control = ['Pressable', 'TextInput', 'Control'].includes(current?.type) && !(current.type === 'Pressable' && typeof current.props?.href === 'string' && current.props.href.length > 0);
   if (opts.contextmenu === true && current?.type && !control) return;
   if (isDisabled(current)) throw new Error(`${target} is disabled: a press does nothing (\`expect disabled ${JSON.stringify(String(target))}\` asserts it)`);
 }

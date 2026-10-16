@@ -179,7 +179,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if stopsAtPress(gestureRecognizer), pressBoundary(touch, presses: gestureRecognizer !== layoutPanRecognizer) { return false } // LLP 1057.001 rule 3
         #if os(iOS)
         if gestureRecognizer === contextRecognizer {
-            guard presenter?.menus.eligible(self) == true else { return false }
+            guard presenter?.menus.eligible(self, contextMenu: true) == true else { return false }
             if let hit = touch.view as? NodeView, let source = hit.contextMenuSource, source !== self { return false }
         }
         #endif

@@ -402,15 +402,15 @@ final class MenuHost {
             completion(self.items(of: invocation.target))
         }
     }
-    func eligible(_ node: NodeView, inertBoundary: UIView? = nil, inBar: Bool = false) -> Bool {
-        guard live(node), !node.formDisabled, presenter?.navigation.isInactiveRoute(containing: node) == false else { return false }
+    func eligible(_ node: NodeView, contextMenu: Bool = false, inertBoundary: UIView? = nil, inBar: Bool = false) -> Bool {
+        guard live(node), !(contextMenu ? node.formDisabled : node.disabled), presenter?.navigation.isInactiveRoute(containing: node) == false else { return false }
         var ancestor: UIView? = node
         var checksInert = true
         while let view = ancestor {
             // A modal dialog escapes inertness above itself. Its issued command
             // also survives the invoker subsequently becoming inert.
             if view === inertBoundary { checksInert = false }
-            if let n = view as? NodeView, n.formDisabled || (checksInert && n.props["inert"] == "true") { return false }
+            if let n = view as? NodeView, (contextMenu ? n.formDisabled : n.disabled) || (checksInert && n.props["inert"] == "true") { return false }
             if view.isHidden, !(inBar && presenter?.navigation.hiddenForBar(view) == true) {
                 guard let pop = view as? NodeView, isConfirmation(pop),
                       pop.props["popover"] != nil || isDialog(pop) else { return false }
@@ -703,7 +703,7 @@ final class MenuHost {
     @discardableResult
     func agentContext(_ node: NodeView) -> Bool {
         // Its own action may have unmounted or disabled it, or renamed its popover.
-        guard ExactEnv.agentMode, let presenter, let name = node.props["contextPopover"], eligible(node) else { return false }
+        guard ExactEnv.agentMode, let presenter, let name = node.props["contextPopover"], eligible(node, contextMenu: true) else { return false }
         for other in Array(agentOpen.keys) { drop(other) }
         guard let pop = presenter.carrying("popover").first(where: { $0.props["id"] == name && !isConfirmation($0) }) else {
             presenter.session?.log("context menu \(name) refused: no popover has that id")

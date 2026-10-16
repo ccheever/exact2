@@ -106,6 +106,32 @@ final class PopoverRelayIOSTests: XCTestCase {
         XCTAssertEqual(pointers, ["1 down", "1 up", "2 down", "1 down", "2 up", "1 up"])
     }
 
+    func testDisabledLinkRefusesInvocationButKeepsItsContextMenu() throws {
+        try XCTSkipUnless(ExactEnv.agentMode, "the raw agent tap uses painted popovers")
+        let session = page(), p = session.presenter, agent = Agent(session: session)
+        let pop = try XCTUnwrap(p.views[2])
+        p.menus.action("hidePopover", ["choices"])
+        p.apply(wireBatch([
+            ["op": "create", "id": 4, "kind": "button", "props": ["id": "link", "href": "#help", "disabled": "true", "popovertarget": "choices", "contextPopover": "choices"]],
+            ["op": "children", "id": 1, "ids": [2, 4]],
+            ["op": "frame", "id": 4, "x": 20.0, "y": 300.0, "w": 160.0, "h": 40.0],
+        ]))
+        let link = try XCTUnwrap(p.views[4])
+        _ = agent.tap(["id": 4])
+        let delivered = expectation(description: "the tap's deferred invocation finished")
+        DispatchQueue.main.async { delivered.fulfill() }
+        wait(for: [delivered], timeout: 2)
+        XCTAssertFalse(p.menus.isOpen(pop), "a plain agent tap on a disabled link cannot invoke its popover")
+        p.menus.action("hidePopover", ["choices"])
+        p.menus.action("showPopover", ["choices", "link"])
+        XCTAssertFalse(p.menus.isOpen(pop), "showPopover keeps invocation's raw disabled check")
+        p.menus.action("showPopover", ["choices"])
+        p.menus.lightDismiss(link)
+        XCTAssertFalse(p.menus.isOpen(pop), "a disabled invoker does not exclude its tap from light-dismiss")
+        XCTAssertTrue(p.menus.agentContext(link))
+        XCTAssertTrue(p.menus.isOpen(pop), "the link's context menu remains available")
+    }
+
     /// One relay per open popover, gone when it closes or the menus reset.
     func testTheRelayStaysWithItsEntryAndLeavesOnDismissalAndReset() throws {
         let p = page().presenter
