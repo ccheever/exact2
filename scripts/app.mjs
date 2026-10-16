@@ -32,7 +32,7 @@ import { SHELL_SOURCES } from '../host/web/look.mjs';
 import { createHash } from 'node:crypto';
 import { prepareRustBundle } from './rust.mjs';
 import { throwContractErrors } from './contract-diagnosis.mjs';
-import { filesystem, removePrivateTree } from './filesystem.mjs';
+import { filesystem, installedModules, removePrivateTree } from './filesystem.mjs';
 import { startSweep } from './sweep.mjs';
 import { installProblems } from './install-page.mjs';
 import { gameDefaults, lintGame, prepareGame } from '../game/app/shells.mjs';
@@ -478,11 +478,8 @@ export function resolveApp(nameOrCrate) {
   if (!existsSync(resolve(dir, 'app.contract'))) throw new Error(`no app at ${dir} (no app.contract)${outside ? '' : '; set EXACT_APP_DIR for an app outside this repo'}`);
   dir = realpathSync(dir);
   // The bake runs this checkout's TypeScript compiler and bundler (partial
-  // fixture copies carry no package.json, as PINNED_BUN says): a new worktree's are installed from its lock.
-  if (PINNED_BUN && !existsSync(resolve(ROOT, 'node_modules'))) {
-    console.error(`${ROOT} has no node_modules: bun install --frozen-lockfile there`);
-    if (spawnSync(process.execPath, ['install', '--frozen-lockfile'], { cwd: ROOT, stdio: ['ignore', 2, 2] }).status !== 0) throw new Error(`${ROOT}: bun install --frozen-lockfile failed (above); run it there, then this again`);
-  }
+  // fixture copies carry no package.json, as PINNED_BUN says).
+  if (PINNED_BUN) installedModules();
   // Materialize defaults before Cargo inspects workspace members on a clean checkout.
   const manifest = readManifest(dir, name);
   if (dirname(dir) === resolve(ROOT, 'game/games') && manifest.game === undefined) {
