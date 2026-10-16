@@ -384,6 +384,14 @@ button does not yet carry ARIA disabled (issue `20261011-aria-disabled-is-lost-i
 That issue also tracks UIKit popovers lifted out of an unavailable ancestor:
 their accessibility inheritance still follows the presented parent.
 
+**ARIA atomic (LLP 1116.018 D3).** `accessibilityAtomic` (prop 267, boolean)
+is WAI-ARIA's `aria-atomic`: whether a live region is announced whole when part
+of it changes. The web writes the attribute and the browser announces by it.
+Declared deviation: the Apple hosts announce a live region's whole text on every
+change (`UIAccessibility`'s and `NSAccessibility`'s announcement takes one
+string), so `true` holds there and `false` is announced whole as well; Linux
+has no native accessibility tree to serve.
+
 `retainFocus` (prop 55, boolean, absent/false by default) lets a button
 retain the existing editing session on a tap, including a button with gesture
 handlers and no press action. Messages uses it on bubbles and reaction badges

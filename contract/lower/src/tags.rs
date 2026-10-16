@@ -566,6 +566,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "swipeIndicator" => AttrTarget::Prop(p("swipeIndicator")),
         "aria-live" => AttrTarget::Prop(p("accessibilityLive")),
         "aria-busy" => AttrTarget::Prop(p("accessibilityBusy")),
+        "aria-atomic" => AttrTarget::Prop(p("accessibilityAtomic")),
         "autofocus" => AttrTarget::Prop(p("autofocus")),
         "action" => AttrTarget::Prop(p("action")),
         "aria-label" => AttrTarget::Prop(p("accessibilityLabel")),

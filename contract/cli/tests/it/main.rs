@@ -101,6 +101,7 @@ mod rem;
 mod reorder_binding;
 mod reorder_collection;
 mod reorder_group;
+mod repair_keeps;
 mod routes;
 mod row_lookup;
 mod rust_shapes;

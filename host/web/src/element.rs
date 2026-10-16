@@ -864,6 +864,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::AccessibilityLabel if node.node_type == NodeType::Image => "alt",
             PropId::AccessibilityLive => "aria-live",
             PropId::AccessibilityBusy => "aria-busy",
+            PropId::AccessibilityAtomic => "aria-atomic",
             PropId::Autofocus => "autofocus",
             PropId::AccessibilityLabel => "aria-label",
             PropId::AccessibilityKeyShortcuts => "aria-keyshortcuts",

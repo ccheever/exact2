@@ -495,3 +495,23 @@ fn a_layout_region_is_the_browsers_safe_area() {
         );
     }
 }
+
+/// LLP 1116.018 D3: a live region's `aria-atomic` reaches the page.
+#[test]
+fn a_live_region_says_whether_it_is_announced_whole() {
+    let style = StyleProps::default();
+    let mut props = PropList::default();
+    props.set(PropId::AccessibilityLive, PropValue::Str("polite".into()));
+    props.set(PropId::AccessibilityAtomic, PropValue::Bool(true));
+    let facts = NodeFacts {
+        id: 1,
+        node_type: NodeType::Text,
+        style: &style,
+        props: &props,
+        is_root: false,
+        inline_run: false,
+    };
+    let out = super::props_of(&facts);
+    assert_eq!(out.get("aria-live").map(String::as_str), Some("polite"));
+    assert_eq!(out.get("aria-atomic").map(String::as_str), Some("true"));
+}
