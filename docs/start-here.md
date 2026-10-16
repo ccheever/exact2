@@ -249,6 +249,9 @@ relative to the test file. A server lacking reset fails the test.
 Server ids are unique, not ordered. Sort by time; tests can reach rows by text
 or position (`each t, i in tasks key=t.id`, ``testId=`task-${i}` ``).
 
+Interactive web drives also accept `reload` (keeps storage and fetch faults) and
+`pick <input-id> <path>`. `agent web --help` lists driver capabilities.
+
 | To assert | Write | Not |
 | --- | --- | --- |
 | A node is there, or not | `expect tree has "<testId>"`, `expect tree missing "<testId>"` | `lacks`, `contains`, `not has`. It matches a `testId` only, never a label or text, unlike `tap` |

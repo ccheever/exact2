@@ -40,7 +40,7 @@ import { fileURLToPath } from 'node:url';
 import { openTouches, realTap } from '../host/apple/touches.mjs';
 import { pageAim, namedRefusal } from './agent-aim.mjs'; import { checkOp } from './agent-check.mjs';
 import { dragArguments, dragTap, duringAllowed, duringOp } from './agent-drag.mjs';
-import { driveNotes, runTests, nodeNamed, targetsIn, refuseDisabled } from './agent-test.mjs';
+import { driveNotes, runTests, nodeNamed, targetsIn, refuseDisabled, reloadWeb, driverCapabilities, fetchOrigins, resolveFaultPrefix } from './agent-test.mjs';
 import { MalformedOperation, operationReply, inputJSON, keyArguments, validateKey, pinchArguments, intoArguments, pointerArguments, resizeArguments, cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, withHeldModifiers, pasteChord, deliverClipboard, tapWords, pointerGap, chordModifiers, withChordModifiers, heldForClick } from './agent-keys.mjs';
 export { MalformedOperation, resizeArguments, cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, pasteChord, deliverClipboard, tapWords, pointerGap } from './agent-keys.mjs';
 import { appleRunBinary, appleArtifacts, assertAppleIdentity, bundleId, install } from '../host/apple/build.mjs';
@@ -1412,6 +1412,7 @@ export async function main(argv, injected = {}) {
       const trimmed = line.trim();
       // `type` keeps the text tail, including newlines and \n, which a
       // whitespace split would flatten (notes: a body typed as one line).
+      if (/^pick\s/.test(trimmed)) { const [target, value] = typeCommand(trimmed.replace(/^pick/, 'type')); return ['pick', await s.type(target.startsWith('@') ? target : '@'+target, value+'\n')]; }
       if (/^type(\s|$)/.test(trimmed)) return ['type', await s.type(...typeCommand(trimmed))];
       // A target of several words is quoted inside the op: `tap "Sky off"`.
       const named = trimmed.match(/^(tap|tree|state|layout|perf)\s+"((?:[^"\\]|\\.)*)"(?:\s+([\s\S]*))?$/);
@@ -1420,6 +1421,7 @@ export async function main(argv, injected = {}) {
       switch (op) {
         case 'tree': r = args[0] === '--ax' ? await s.tree(args[1], {ax: true}) : await s.tree(args[0], args[1] === 'under' ? args[2] : undefined); break;
         case 'state': r = await stateOp(s, args); break;
+        case 'reload': if (args.length) throw new MalformedOperation('reload takes no arguments'); r = await reloadWeb(s); break;
         case 'logs': r = await s.logs(); break;
         case 'layout': r = await s.layout(...layoutArgs(args)); break;
         case 'screenshot':
@@ -1467,10 +1469,10 @@ export async function main(argv, injected = {}) {
         case 'resize': r = await s.resize(...resizeArguments(args.join(''))); break;
         case 'close': if (args.length) throw new MalformedOperation('close takes nothing: it presses the window\'s close button'); r = await s.closeWindow(); break; case 'back': if (args.length) throw new MalformedOperation('back takes nothing: it is the platform\'s Back from what is on top'); r = await s.back(); break;
         case 'prefer': r = await s.prefer(Object.fromEntries(args.flatMap((a, i) => i % 2 ? [] : [[a, args[i + 1]]]))); break;
-        case 'fail': case 'pass': r = await s.op(faultRequest(op, args)); break;
+        case 'fail': case 'pass': r = await s.op(faultRequest(op, [args[0], resolveFaultPrefix(args[1], fetchOrigins(resolve(flags.webDist ?? defaultWebDist()))), ...args.slice(2)])); break;
         case 'perf': r = await perfOp(s, args, line, step); break;
         case 'check': r = await checkOp(s, args); break; // LLP 1116.003 D8: the presented screen, judged in text
-        default: throw new MalformedOperation(`unknown op: ${op} (tree, layout, state, logs, check, screenshot, sample, tap, type, clock, resize, close, back, prefer, perf, fail fetch, pass fetch)${op === 'reload' ? '; reload is an authored test\'s line: a drive relaunches as a second drive on the same --storage' : ''}`);
+        default: throw new MalformedOperation(`unknown op: ${op} (tree, layout, state, logs, check, screenshot, sample, tap, type, pick, reload, clock, resize, close, back, prefer, perf, fail fetch, pass fetch)`);
       }
       return [op, r];
   };

@@ -227,9 +227,8 @@ export function sweepTestStores(base, storage) {
 export function backendFetchPrefixes(tests, origins) {
   const unique = [...new Set(origins.map(o => o.replace(/\/+$/, '')))];
   for (const t of tests) for (const step of t.steps) {
-    if (!['fail-fetch', 'pass-fetch'].includes(step.op) || step.prefix !== 'backend') continue;
-    if (unique.length !== 1) throw new Error(`line ${step.line}: fetch "backend" needs exactly one net.fetch origin; found ${unique.length}. Use a literal URL for a multi-backend app.`);
-    step.prefix = unique[0];
+    if (!['fail-fetch', 'pass-fetch'].includes(step.op)) continue;
+    step.prefix = resolveFaultPrefix(step.prefix, unique);
   }
   return tests;
 }
@@ -634,4 +633,56 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
   }
   const failed = results.filter((r) => r.failures.length).length;
   return { passed: results.length - failed, failed, results };
+}
+
+/** Resolve the built grant alias and diagnose a fault that cannot meet a granted URL. */
+export function resolveFaultPrefix(prefix, origins, say=console.warn) {
+  const unique=[...new Set(origins.map(o=>o.replace(/\/+$/,'')))];
+  if (prefix==='backend') {
+    if (unique.length!==1) throw new Error(`fetch "backend" needs exactly one net.fetch origin; found ${unique.length}. Use a literal URL for a multi-backend app.`);
+    return unique[0];
+  }
+  if (!unique.some(origin => origin.startsWith(prefix) || prefix.startsWith(origin+'/') || prefix===origin))
+    say(`warning: fetch fault prefix ${JSON.stringify(prefix)} matches no granted origin (${unique.join(', ') || 'none'}); it will not intercept the backend`);
+  return prefix;
+}
+
+export function faultRequest(op, args, origins = [], say = console.warn) {
+  if (args[0] !== 'fetch' || !args[1]) throw new Error(`${op} fetch <url-prefix>${op === 'fail' ? ' [times <n>]' : ''}: what a matching fetch's URL starts with`);
+  args = [...args];
+  args[1] = resolveFaultPrefix(args[1], origins, say);
+  if (op === 'pass') { if (args.length > 2) throw new Error('pass fetch <url-prefix> takes nothing after the prefix'); return { op: 'prefer', faults: { pass: args[1] } }; }
+  if (args.length === 2) return { op: 'prefer', faults: { fail: args[1] } };
+  const times = Number(args[3]);
+  if (args[2] !== 'times' || args.length !== 4 || !Number.isInteger(times) || times < 1) throw new Error('fail fetch <url-prefix> times <n>: n a positive integer');
+  return { op: 'prefer', faults: { fail: args[1], times } };
+}
+
+/** The same persistence/fault behavior as an authored test's web reload. */
+export async function reloadWeb(s) {
+  if (s.host!=='web') throw new Error('reload in an interactive drive supports web; native authored tests relaunch their host');
+  const state=await s.state(), background=state.background;
+  if (background && background.queued+background.inFlight) {
+    const result=await s.clock('data');
+    if (result.settled===false) throw new Error('reload: pending storage did not settle');
+  }
+  const now=await s.state();
+  await s.carrier.reset({keep:true, failFetch: now.faults ? faultSpecOf(now.faults) : undefined});
+  s.now=0; s.logCursor=0;
+  return {reloaded:true};
+}
+
+/** One capability table, printed by --help and linked from the author guide. */
+export function driverCapabilities() {
+  return `Operation                      web   macOS  iOS   Linux Android
+ tree/layout/state/logs          yes   yes    yes   yes   yes
+ tap/type/clock/prefer/faults    yes   yes    yes   yes   yes
+ pick (held picker answer)      yes   yes    yes   yes   yes
+ reload (interactive)           yes   no     no    no    no
+ reload (authored tests)        yes   yes    yes   yes   yes
+ resize                         yes   yes    no    yes   no
+ close window                   yes   yes    no    no    no
+ screenshot                     yes   yes    yes   yes   yes
+ platform touch                 yes   yes    yes*  yes   yes
+ * iOS platform touch requires --touch platform; unsupported forms refuse.`;
 }

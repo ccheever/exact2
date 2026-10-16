@@ -376,3 +376,22 @@ const other = 'http://127.0.0.1:4400';`;
     expect(() => backendOrigin('.', {EXACT_BACKEND_ORIGIN: value})).toThrow(/EXACT_BACKEND_ORIGIN/);
   expect(backendOrigin('.', {EXACT_BACKEND_ORIGIN: 'https://backend.example/'})).toBe('https://backend.example');
 });
+
+test('interactive faults resolve backend, warn on impossible prefixes, and reload keeps storage and live faults', async () => {
+  const {faultRequest, reloadWeb, driverCapabilities} = await import('./agent-test.mjs');
+  const warnings=[];
+  expect(faultRequest('fail', ['fetch','backend','times','2'], ['http://127.0.0.1:30100'], s=>warnings.push(s)))
+    .toEqual({op:'prefer',faults:{fail:'http://127.0.0.1:30100',times:2}});
+  faultRequest('fail', ['fetch','http://wrong'], ['http://127.0.0.1:30100'], s=>warnings.push(s));
+  expect(warnings).toHaveLength(1);
+  expect(warnings[0]).toContain('matches no granted origin');
+  expect(() => faultRequest('pass', ['fetch','backend'], [])).toThrow(/exactly one/);
+  const calls=[];
+  const session={host:'web', now:12, logCursor:9,
+    state: async()=>({background:{queued:1,inFlight:0},faults:[]}),
+    clock:async arg=>{calls.push(arg);return {settled:true};}, carrier:{reset:async options=>{calls.push(options);}}};
+  expect(await reloadWeb(session)).toEqual({reloaded:true});
+  expect(calls).toEqual(['data',{keep:true,failFetch:''}]);
+  expect(session.now).toBe(0);
+  expect(driverCapabilities()).toContain('reload (interactive)');
+});
