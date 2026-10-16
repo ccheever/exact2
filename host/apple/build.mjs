@@ -988,20 +988,20 @@ async function main(args) {
   // Each is written under this process's name and renamed, since another
   // app's build may compile the same arm at once. A cached arm is copied out
   // at once and marked used, so another build's `evictArms` keeps it.
-  const arm = (args, source, built, extra = '', own = false) => {
+  const arm = (args, source, built, extra = '', own = false, optional = false) => { // optional: placing a failed one answers false
     const key = createHash('sha256').update(JSON.stringify([args.map(a => a === built ? '<out>' : a), [].concat(source).map(f => readFileSync(f, 'utf8')), swiftc, extra])).digest('hex').slice(0, 16);
     const dir = resolve(own ? linkRoot : swiftBuildRoot, 'arms'), cached = resolve(dir, `${key}-${basename(built)}`);
-    try { const now = new Date(); utimesSync(cached, now, now); copyFileSync(cached, built); return async () => {}; } catch {} // none, or evicted meanwhile
+    try { const now = new Date(); utimesSync(cached, now, now); copyFileSync(cached, built); return async () => true; } catch {} // none, or evicted meanwhile
     mkdirSync(dir, { recursive: true });
     const making = `${cached}.${process.pid}.tmp`;
     const compile = startApple('xcrun', args.map(a => a === built ? making : a), resolve(webBuildDir, `arm-${beside.length}.log`));
     beside.push(compile);
     return async () => {
-      await compile.done();
+      if (!await compile.done({ repeated: optional })) return false;
       // Place this build's result before publishing it to the shared eviction pool.
       copyFileSync(making, built);
       renameSync(making, cached);
-      evictArms(dir, basename(built));
+      evictArms(dir, basename(built)); return true;
     };
   };
   const arms = [];
@@ -1079,11 +1079,11 @@ async function main(args) {
   // one this process can load) of the same sources for an iOS build. That
   // probe is a macOS build of the same Swift, so an iOS build whose
   // xcframework has no macOS slice cannot be probed: its roster is taken from
-  // the manifest, as it is without Bun.
+  // the manifest, as it is without Bun or for Swift that is iOS's alone (`import UIKit`).
   const probeable = !ios || (modules.frameworks ?? []).every(fw => { try { frameworkSlice(fw, false, false, macArch); return true; } catch { return false; } });
-  const probed = modulesBuilt && modules.tags.length && typeof Bun !== 'undefined' && probeable;
+  let probed = modulesBuilt && modules.tags.length && typeof Bun !== 'undefined' && probeable, unprobed = false;
   const probe = ios ? resolve(webBuildDir, 'probe-' + modulesLoadName) : modulesBuilt;
-  if (probed && ios) arms.push(arm(moduleArgs('macosx', macTarget, probe), moduleSources, probe, frameworkStamp(false, false, macArch), true));
+  if (probed && ios) { const placed = arm(moduleArgs('macosx', macTarget, probe), moduleSources, probe, frameworkStamp(false, false, macArch), true, true); arms.push(async () => { if (!await placed()) { probed = false; unprobed = true; console.warn(`host/apple: the module's Swift does not compile for macOS, where an iOS build reads its roster; the manifest's roster stands. A module for macOS too imports AppKit there (docs/recipes/native-views.md)`); } }); }
   await hostCompile?.done({ repeated: true });
   // The early build stands when it succeeded and the bake came out as it was expected to.
   const linkedEarly = early ? await early.step.done({ repeated: true }) && expected.capture === libDir && expected.composition === composition && expected.scratch === paths.scratch : false;
@@ -1145,8 +1145,8 @@ async function main(args) {
       const { dlopen, read, CString } = import.meta.require('bun:ffi');
       const table = dlopen(probe, { exact_native_abi: { args: [], returns: 'ptr' } }).symbols.exact_native_abi();
       provided = Object.keys(JSON.parse(new CString(read.ptr(table, 8)).toString()));
-    } else if (modulesBuilt) console.warn('host/apple: the module roster check needs Bun (bun:ffi); skipped');
-    checkModuleRoster(app, modulesBuilt && (typeof Bun === 'undefined' || !probeable) ? modules.tags : provided, `host/apple ${ios ? 'iOS' : 'macOS'}`, cargoEnv.EXACT_UPDATE_TRUST === 'production');
+    } else if (modulesBuilt && !unprobed) console.warn('host/apple: the module roster check needs Bun (bun:ffi); skipped');
+    checkModuleRoster(app, modulesBuilt && (typeof Bun === 'undefined' || !probeable || unprobed) ? modules.tags : provided, `host/apple ${ios ? 'iOS' : 'macOS'}`, cargoEnv.EXACT_UPDATE_TRUST === 'production');
   }
   const tArms = Date.now();
   // The SVG island module (@ref LLP 1055.000 §8 ruling 4: exact-svg-raster,
