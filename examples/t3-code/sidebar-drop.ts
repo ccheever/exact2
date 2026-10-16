@@ -6,13 +6,17 @@
 // reference's commands: pin with a fresh key, unpin/un-settle/wake into
 // Active, settle onto the shelf, and key writes for the arranged order.
 // Past the list edge, a drop on the composer adds the threads as context.
+// Every environment's rows share the shelves, and each write goes to its
+// thread's own environment (handleThreadDragEnd's scopeThreadRef).
 import { str, type Obj } from './domain';
 import type { T3Client } from './client';
-import { ClientError, type Native } from './protocol';
+import type { Native } from './protocol';
 import { pushToast } from './toast';
 import { capabilities, planReorder } from './sidebar-model';
 import { partition, renderedRows } from './sidebar-view';
-import { parkThread } from './sidebar-commands';
+import { parkThread, targetOf } from './sidebar-commands';
+import { rowConfig } from './sidebar-menu';
+import { fleetThreads } from './settings-b-fleet';
 import { wall, sidebarSession } from './sidebar-state';
 import { insertContext } from './composer-editor';
 import { letGo } from './let-go';
@@ -35,9 +39,14 @@ export function dropIndex(ids: string[], movedId: string, centerY: number, first
 }
 
 export interface DropPlan { verb: string; steps: { type: string; threadId: string; orderKey?: string; reason?: string }[]; failure: string[] }
-/** planSidebarThreadDrop: what a drop writes, in order, with each step's failure toast. */
+/**
+ * planSidebarThreadDrop: what a drop writes, in order, with each step's failure toast. `pinReorder` and `activeReorder`
+ * are the lifted thread's environment's; `pinReorderable` and `activeReorderable` name the rows whose environments
+ * take order keys, and a drop that would write a key on any other row writes nothing (reorderableKeys).
+ */
 export function planDrop(input: { id: string; from: string; target: string; pinnedIds: string[]; activeIds: string[]; pinnedKeys: Map<string, string | null>;
-  activeKeys: Map<string, string | null>; geometry: DropGeometry; supportsSettlement: boolean; pinReorder: boolean; activeReorder: boolean }): DropPlan {
+  activeKeys: Map<string, string | null>; geometry: DropGeometry; supportsSettlement: boolean; pinReorder: boolean; activeReorder: boolean;
+  pinReorderable?: Set<string>; activeReorderable?: Set<string> }): DropPlan {
   const { id, from, target, geometry } = input;
   const none: DropPlan = { verb: '', steps: [], failure: [] };
   if (target === 'working' || target === 'snoozed' || target === '' || target === 'context') return none;
@@ -47,6 +56,7 @@ export function planDrop(input: { id: string; from: string; target: string; pinn
     const order = dropIndex(input.pinnedIds, id, geometry.centerY, geometry.topY + LABEL + CARD / 2);
     if (from === 'pinned' && order.join('\n') === input.pinnedIds.join('\n')) return none;
     const assignments = input.pinReorder ? planReorder(order, input.pinnedKeys, id) : [];
+    if (input.pinReorderable && assignments.some(assignment => !input.pinReorderable!.has(assignment.id))) return none;
     const steps: DropPlan['steps'] = [], failure: string[] = [];
     if (from !== 'pinned') {
       const key = assignments.find(assignment => assignment.id === id)?.orderKey;
@@ -67,7 +77,9 @@ export function planDrop(input: { id: string; from: string; target: string; pinn
   if (from === 'settled') { steps.push({ type: 'thread.unsettle', threadId: id, reason: 'user' }); failure.push('Failed to un-settle thread'); }
   if (from === 'snoozed') { steps.push({ type: 'thread.unsnooze', threadId: id, reason: 'user' }); failure.push('Failed to wake thread'); }
   if (input.activeReorder) {
-    for (const assignment of planReorder(order, input.activeKeys, id)) {
+    const assignments = planReorder(order, input.activeKeys, id);
+    if (input.activeReorderable && assignments.some(assignment => !input.activeReorderable!.has(assignment.id))) return none;
+    for (const assignment of assignments) {
       steps.push({ type: 'thread.active.reorder', threadId: assignment.id, orderKey: assignment.orderKey }); failure.push('Failed to reorder active threads');
     }
   }
@@ -77,10 +89,8 @@ export function planDrop(input: { id: string; from: string; target: string; pinn
 /** The `drop` op: run the plan, stopping at the first failure (each written key stays a valid placement). */
 export async function sidebarDrop(client: T3Client, native: Native, id: string, value: string): Promise<string> {
   const geometry = parseDrop(value), session = sidebarSession(client);
-  const thread = client.shell.threads.find(entry => entry.id === id);
-  if (!thread) return '';
   if (geometry.target === 'context') {
-    if (!geometry.overComposer) return '';
+    if (!geometry.overComposer || !client.shell.threads.some(entry => entry.id === id)) return '';
     // The dragged threads: the multi-selection when the lifted row is part of it.
     const ids = session.selection.includes(id) ? [...session.selection] : [id];
     for (const threadId of ids) {
@@ -89,23 +99,27 @@ export async function sidebarDrop(client: T3Client, native: Native, id: string, 
     }
     return '';
   }
+  const lifted = targetOf(client, id);
+  if (!lifted) return '';
   const parts = partition(client, wall(client));
   const rows = renderedRows(client, parts);
   const from = rows.find(entry => entry.thread.id === id)?.section ?? '';
   if (from === 'working') return '';
   const ids = (section: string) => rows.filter(entry => entry.section === section).map(entry => str(entry.thread.id));
   const keys = (list: Obj[], name: string) => new Map(list.map(entry => [str(entry.id), entry[name] == null ? null : str(entry[name])] as [string, string | null]));
-  const caps = capabilities(client.config);
+  const capsOf = (thread: Obj) => capabilities(rowConfig(client, thread)), caps = capabilities(lifted.config);
+  const reorderable = (test: (thread: Obj) => boolean) => new Set(rows.filter(entry => test(entry.thread)).map(entry => str(entry.thread.id)));
   const plan = planDrop({ id, from, target: geometry.target, pinnedIds: ids('pinned'), activeIds: ids('active'),
-    pinnedKeys: keys(client.shell.threads.filter(entry => entry.pinnedAt != null), 'pinOrderKey'),
-    activeKeys: keys(parts.active, 'activeOrderKey'), geometry, supportsSettlement: caps.settlement, pinReorder: caps.pinReorder, activeReorder: caps.activeReorder });
+    pinnedKeys: keys([...client.shell.threads, ...fleetThreads()].filter(entry => entry.pinnedAt != null), 'pinOrderKey'),
+    activeKeys: keys(parts.active, 'activeOrderKey'), geometry, supportsSettlement: caps.settlement, pinReorder: caps.pinReorder, activeReorder: caps.activeReorder,
+    pinReorderable: reorderable(thread => capsOf(thread).pinning && capsOf(thread).pinReorder), activeReorderable: reorderable(thread => capsOf(thread).activeReorder) });
   if (plan.verb === 'settle') { await parkThread(client, native, id, 'settle', ''); return ''; }
-  const access = client.restAccess(native);
   for (let index = 0; index < plan.steps.length; index++) {
+    const { threadId, ...step } = plan.steps[index]!;
     try {
-      if (!client.writable) throw new ClientError('Reconnect before making changes.');
-      const [commandId] = await access.ids(1);
-      await access.request('orchestration.dispatchCommand', { ...plan.steps[index], commandId }, true);
+      const target = targetOf(client, threadId);
+      if (!target) throw new Error('That thread is no longer available.');
+      await target.send(native, step);
     } catch (error) {
       if (letGo(error)) throw error;
       pushToast(client, { kind: 'error', title: plan.failure[index]!, description: error instanceof Error ? error.message : 'An error occurred.' });
