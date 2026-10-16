@@ -6,7 +6,8 @@
 // declaration or take the fallback. The Linux host's kernel resolves them
 // against its safe area too. A tap swaps the bound padding between two
 // expressions, one with its function and region names escaped, which the
-// browser keeps as written.
+// browser keeps as written. The label has a set width and line height, so
+// the button's box depends on its padding and on no font's metrics.
 // linux: layout
 component LayoutRegions
   state wide = false
@@ -15,5 +16,5 @@ component LayoutRegions
   view
     main testId="root" viewport-fit="cover" width="100%" height="100%" position="relative" background-color="#12081f"
       button press=flip testId="flip" padding-left=(wide ? "calc(e\\6e v(-exact-\\6c ayout-margins-inset-left) + 7px)" : "max(16px, env(-exact-readable-content-corners-inset-left, 30px))") background-color="#7c4dff"
-        text "flip" color="#ffffff"
+        text "flip" width=24 line-height="18px" color="#ffffff"
       box testId="literal" position="absolute" left=0 top=60 width=40 height=10 padding-left="calc(env(-exact-safe-area-corners-inset-left, 30px) + 5px)" padding-top="env(-exact-layout-margins-corners-inset-top)" background-color="#ffd60a"
