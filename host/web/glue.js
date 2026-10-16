@@ -753,7 +753,7 @@ function apply(batch) {
         p = httpHelpers().then(({ request }) => request(op, host))
           .then(r => safelyFulfill(requestIncarnation, op.ticket, r.kind, r.status, r.headers, r.body, performance.now() - started))
           .catch(error => safelyFulfill(requestIncarnation, op.ticket, 1, 0, "", encoder.encode(String(error)), performance.now() - started));
-        track(Promise.race([p, opened]), op.ticket); p.finally(() => { forgettable.delete(controller); controllers.delete(controller); });
+        const counted = Promise.race([p, opened]); if (!/^(GET|HEAD)$/i.test(op.method)) counted.write = `${op.method} ${op.url}`; track(counted, op.ticket); p.finally(() => { forgettable.delete(controller); controllers.delete(controller); });
         break;
       }
       case "command": { if (op.name === "relaunch") { location.reload(); break; }
@@ -1293,9 +1293,9 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   // A replacement lets the current executor finish its answers first. The dev loop's waits a moment, then swaps
   // anyway, as an app may always have a request out: what is still out is let go as a plan restart lets it go,
   // and the new runner asks again for what it has not settled (LLP 1007 §6). An update refuses instead.
-  let left = 0;
+  let left = [];
   if (module) {
-    if (!(await waitForInflight(performance.now() + (module.letGo ? REPLACE_SETTLE_MS : SETTLE_DEADLINE_MS)))) { if (!module.letGo) throw new Error('module replacement waits for in-flight requests to settle; retry the update'); left = waiting().length; }
+    if (!(await waitForInflight(performance.now() + (module.letGo ? REPLACE_SETTLE_MS : SETTLE_DEADLINE_MS)))) { if (!module.letGo) throw new Error('module replacement waits for in-flight requests to settle; retry the update'); left = waiting(); }
     if (!current() || request !== bootAttempt) return null;
   }
   const launch = encoder.encode(launchLocation()); if (wasm.exact_set_launch) { const [epoch, offset] = reportTime(now()); wasm.exact_set_launch(epoch, offset, writeIn(reportPlace())); } // @ref LLP 1038 D5; then the date and place the boot's first settle reads (LLP 1027.000.000)
@@ -1320,7 +1320,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   const batch = JSON.parse(readOut(len));
   if (batch.error) throw new Error(batch.error);
   frameSampler?.reset(); // a new runner numbers its transactions afresh (LLP 1079 D3)
-  if (module) { activeModule?.realm?.dispose(); activeModule = module; setInputReady(true); if (left) log(`module replacement let go of ${left} request${left === 1 ? '' : 's'} still in flight after ${REPLACE_SETTLE_MS} ms`); }
+  if (module) { activeModule?.realm?.dispose(); activeModule = module; setInputReady(true); if (left.length) { const writes = left.filter(p => p.write).map(p => p.write); log(`module replacement let go of ${left.length} request${left.length === 1 ? '' : 's'} still in flight after ${REPLACE_SETTLE_MS} ms${writes.length ? `; aborted writes the server may or may not have seen: ${writes.join(', ')}` : ''}`); } }
   navigation.reset(batch.ops.find(op => op.op === "router"));
   const oldAssets = devAssets;
   devAssets = assets;

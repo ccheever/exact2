@@ -987,8 +987,8 @@ test('module replacement waits for requests, rechecks supersession; the dev loop
     f.log = line => lines.push(line);
     f.setInputReady = value => { f.inputReady = value; };
     f.wasm.exact_boot_module = (...args) => { swaps++; flag = args[3]; return '{"ops":[],"timers":true}'; };
-    // An app that always has a request out (LLP 1007 §6): it never drains.
-    if (result === 'pending') f.inflight.add(new Promise(() => {}));
+    // An app that always has a request out, here a read and a write; the write is named when let go.
+    if (result === 'pending') f.inflight.add(new Promise(() => {})).add(Object.assign(new Promise(() => {}), { write: 'POST https://api.test/like' }));
     const candidate = {realm:{id:1},receipt:new Uint8Array([1]),letGo};
     const update = f.boot(new Uint8Array([1]), null, () => current, candidate);
     const outcome = update.then(value => ({value}), error => ({error}));
@@ -1011,7 +1011,7 @@ test('module replacement waits for requests, rechecks supersession; the dev loop
       expect(flag).toBe(letGo ? 1 : 0);
       expect(f.activeModule).toBe(candidate);
       expect(f.inflight.size).toBe(0);
-      expect(lines.filter(l => l.startsWith('module replacement'))).toEqual(result === 'pending' ? ['module replacement let go of 1 request still in flight after 1000 ms'] : []);
+      expect(lines.filter(l => l.startsWith('module replacement'))).toEqual(result === 'pending' ? ['module replacement let go of 2 requests still in flight after 1000 ms; aborted writes the server may or may not have seen: POST https://api.test/like'] : []);
     }
   }
 });
