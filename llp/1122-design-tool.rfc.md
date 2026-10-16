@@ -1022,7 +1022,7 @@ lands with or after the Tamber stage it needs.
 
 T1 and T1a are complete.
 
-### T2, steps 1–3: the canvas, builds and pins, scrubs (`1943d781d`, `7c4e3dfca`, `029a3587c`; fill in the landed shas)
+### T2, steps 1–3: the canvas, builds and pins, scrubs (`9bfa9f50f`, `952302694`, `694df527b`)
 
 - **The canvas** is one sandboxed `iframe` at `hello.page` (*1.3*, the dev loop's own origin, or
   null with no loop), with phone, tablet and desktop sizes and "open in a tab". The dev loops'
