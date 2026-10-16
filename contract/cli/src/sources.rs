@@ -83,7 +83,10 @@ impl Sources {
 
     /// Every source's path and the SHA-256 of its text as compiled.
     pub(crate) fn digested(&self) -> impl Iterator<Item = (&Path, &str)> + '_ {
-        self.paths.iter().map(PathBuf::as_path).zip(self.digests.iter().map(String::as_str))
+        self.paths
+            .iter()
+            .map(PathBuf::as_path)
+            .zip(self.digests.iter().map(String::as_str))
     }
 
     pub(crate) fn path(&self, span: contract_syntax::Span) -> &Path {
@@ -1001,5 +1004,8 @@ fn use_error(id: &str, message: String, u: &UseDecl) -> CompileError {
 /// The SHA-256 of a source's text, hex.
 fn digest(text: &str) -> String {
     use sha2::{Digest, Sha256};
-    Sha256::digest(text.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
+    Sha256::digest(text.as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }

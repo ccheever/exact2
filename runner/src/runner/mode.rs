@@ -225,7 +225,10 @@ impl<D: DataSource> Runner<D> {
     /// The app modes `view`'s node is in, `[(axis, value)]` (LLP 1121 D5):
     /// the window's, overridden by the pins above it.
     pub fn modes_of_view(&self, view: exact_kernel::ViewId) -> Option<Vec<(String, String)>> {
-        self.tree.as_ref().and_then(|t| t.tuple_of(view)).map(|tuple| self.modes_of(tuple))
+        self.tree
+            .as_ref()
+            .and_then(|t| t.tuple_of(view))
+            .map(|tuple| self.modes_of(tuple))
     }
 
     /// Every remembered instance view with its plan site and the plan's

@@ -379,9 +379,15 @@ fn map_write_failure_is_named_and_does_not_replace_the_previous_plan() {
 #[test]
 fn the_map_says_each_source_and_the_digest_of_its_text_as_compiled() {
     use sha2::{Digest, Sha256};
-    let hex = |text: &str| -> String { Sha256::digest(text.as_bytes()).iter().map(|b| format!("{b:02x}")).collect() };
+    let hex = |text: &str| -> String {
+        Sha256::digest(text.as_bytes())
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect()
+    };
     let app = App::new("digests");
-    let root_text = "use Child from \"./child.contract\"\ncomponent App\n  view\n    column\n      Child()\n";
+    let root_text =
+        "use Child from \"./child.contract\"\ncomponent App\n  view\n    column\n      Child()\n";
     let child_text = "component Child\n  view\n    text \"child\" testId=\"child\"\n";
     let root = app.write("app.contract", root_text);
     let child = app.write("child.contract", child_text);
@@ -392,9 +398,19 @@ fn the_map_says_each_source_and_the_digest_of_its_text_as_compiled() {
         .as_array()
         .unwrap()
         .iter()
-        .map(|s| (s["file"].as_str().unwrap().to_string(), s["sha256"].as_str().unwrap().to_string()))
+        .map(|s| {
+            (
+                s["file"].as_str().unwrap().to_string(),
+                s["sha256"].as_str().unwrap().to_string(),
+            )
+        })
         .collect();
-    let of = |path: &std::path::Path| sources.iter().find(|(f, _)| std::path::Path::new(f) == path).map(|(_, d)| d.clone());
+    let of = |path: &std::path::Path| {
+        sources
+            .iter()
+            .find(|(f, _)| std::path::Path::new(f) == path)
+            .map(|(_, d)| d.clone())
+    };
     assert_eq!(of(&root), Some(hex(root_text)));
     assert_eq!(of(&child), Some(hex(child_text)));
     assert_eq!(of(&design), Some(hex(design_text)));

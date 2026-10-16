@@ -979,7 +979,10 @@ component App
             b
         };
         let ours = code_digest(&signed(b"ad-hoc", 1));
-        assert_eq!(ours, code_digest(&signed(b"a recipient's longer signature", 1)));
+        assert_eq!(
+            ours,
+            code_digest(&signed(b"a recipient's longer signature", 1))
+        );
         assert_ne!(ours, code_digest(&signed(b"ad-hoc", 2)));
         assert_ne!(ours, hash(&signed(b"ad-hoc", 1)));
         assert_eq!(code_digest(b"not Mach-O"), hash(b"not Mach-O"));
