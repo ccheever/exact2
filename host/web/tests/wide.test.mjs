@@ -83,10 +83,15 @@ async function inChrome(html, test, w = 1280) {
       await call('Emulation.setDeviceMetricsOverride', { width, height: 800, deviceScaleFactor: 1, mobile: false });
       await evaluate('new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))');
     };
+    const click = async (id) => {
+      const [x, y] = await evaluate(`(e => { const b = e.getBoundingClientRect(); return [b.x + b.width / 2, b.y + b.height / 2]; })(document.getElementById(${JSON.stringify(id)}))`);
+      await call('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
+      await call('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
+    };
     await size(w);
     await call('Page.navigate', { url: `http://127.0.0.1:${server.address().port}/` });
     for (let i = 0; !(await evaluate('window.ready === true')); i++) { if (i > 2000) throw new Error('page never ready'); await Bun.sleep(5); }
-    await test(evaluate, size);
+    await test(evaluate, size, click);
   } finally {
     child.kill();
     server.close();
@@ -155,7 +160,7 @@ check('a list whose rows push is beside its detail on a wide window, and pushes 
   expect(await evaluate(`[document.getElementById('r1').getAttribute('data-exact-split'), box('r1'), getComputedStyle(document.querySelector('#r1 img')).display, shown('r1'), placeholder('p1')]`))
     .toEqual(['list', [240, 0, 320, 800], 'none', true, ['"No Selection"', 320, secondary]]);
   // A row's press pushes its detail: both show, the list live and the row marked; the detail has no Back.
-  await evaluate(`document.getElementById('r1-bo').click(); push('2', '/people/bo')`);
+  await evaluate(`{ const row = document.getElementById('r1-bo'); row.addEventListener('click', () => push('2', '/people/bo'), {once:true}); row.click(); }`);
   expect(await evaluate(`[shown('r1'), shown('r2'), box('r2'), document.getElementById('r2').getAttribute('data-exact-split'), document.getElementById('r1-bo').hasAttribute('data-exact-split-row'), back('r2'), off(), placeholder('p1')]`))
     .toEqual([true, true, [560, 0, 720, 800], 'detail', true, false, ['p2', 'r3'], null]);
   // A sheet stays a sheet over both, the list and the detail inert beneath it. In a wide window the look draws it as a
@@ -199,7 +204,7 @@ check('the author\'s placeholder in the root route takes the detail pane while n
     await size(1000);
     expect(await evaluate(`box('own')`)).toEqual([319, 0, 680, 800]);
     // A detail shown: the author's box is gone; back at the list, it returns.
-    await evaluate(`document.getElementById('r1-bo').click(); push('2', '/people/bo')`);
+    await evaluate(`{ const row = document.getElementById('r1-bo'); row.addEventListener('click', () => push('2', '/people/bo'), {once:true}); row.click(); }`);
     expect(await evaluate(`[box('own'), getComputedStyle(document.getElementById('own')).display, box('r2')]`)).toEqual([[0, 0, 0, 0], 'none', [320, 0, 680, 800]]);
     await evaluate(`push('1', '/')`);
     expect(await evaluate(`box('own')`)).toEqual([319, 0, 680, 800]);
@@ -293,7 +298,7 @@ check('turning a split off clears its selected mark and stale row ownership cann
   const body = `<div data-exact-list><button id="owned-row" data-exact-on="press" data-exact-router-press="true">Open${chevron}</button></div>`;
   const html = ruleStack(body).replace('</main>', `${detail('r3', 3)}</main>`);
   return inChrome(page(html), async evaluate => {
-    await evaluate(`push(2, '/item/a'); document.getElementById('owned-row').click(); push(3, '/item/b')`);
+    await evaluate(`push(2, '/item/a'); { const row = document.getElementById('owned-row'); row.addEventListener('click', () => push(3, '/item/b'), {once:true}); row.click(); }`);
     expect(await evaluate(`[document.getElementById('owned-row').hasAttribute('data-exact-split-row'), back('r3')]`)).toEqual([true, false]);
     await evaluate(`document.getElementById('r1').setAttribute('navigationSplit', 'none'); select(3)`);
     expect(await evaluate(`[document.getElementById('owned-row').hasAttribute('data-exact-split-row'), back('r3')]`)).toEqual([false, true]);
@@ -384,9 +389,9 @@ check('retained visit URLs restore href selection after adoption, replace and sa
 check('only an ordinary outer press associates its row with navigation', () => {
   const body = '<div data-exact-list><div id="owner" data-exact-router-press="true"><button id="star" data-exact-router-press="false">Star</button></div><a id="action-link" href="/item/b" data-exact-router-press="true">Linked action</a></div>';
   const html = ruleStack(body).replace('</main>', `${detail('r3', 3)}</main>`);
-  return inChrome(page(html), async evaluate => {
+  return inChrome(page(html), async (evaluate, _size, click) => {
     // A refused action owns no later timer/resource/keyboard navigation after this click dispatch ends.
-    await evaluate(`(async () => { select('1'); document.getElementById('owner').click(); await Promise.resolve(); push(2, '/item/a'); })()`);
+    await evaluate(`select('1'); document.getElementById('owner').click(); push(2, '/item/a')`);
     expect(await evaluate(`[document.getElementById('owner').hasAttribute('data-exact-split-row'), back('r2')]`)).toEqual([false, true]);
     // The host leaves these link clicks to the browser, so a later router change owns no row.
     for (const modifier of ['ctrlKey', 'metaKey', 'shiftKey', 'altKey']) {
@@ -395,7 +400,8 @@ check('only an ordinary outer press associates its row with navigation', () => {
     }
     await evaluate(`push(2, '/item/a'); document.getElementById('star').click(); push(3, '/edit')`);
     expect(await evaluate(`[document.getElementById('owner').hasAttribute('data-exact-split-row'), back('r3')]`)).toEqual([false, true]);
-    await evaluate(`document.getElementById('owner').click(); push(3, '/item/b')`);
+    await evaluate(`document.getElementById('owner').addEventListener('click', () => push(3, '/item/b'), {once:true})`);
+    await click('owner');
     expect(await evaluate(`[document.getElementById('owner').hasAttribute('data-exact-split-row'), back('r3')]`)).toEqual([true, false]);
     await evaluate(`(async () => { const {navigation} = await import('/navigation.js'); navigation.reset({top:3,url:'/item/b',visits:[[3,'/item/b']]}); select(3); })()`);
     expect(await evaluate(`[document.getElementById('owner').hasAttribute('data-exact-split-row'), back('r3')]`)).toEqual([false, true]);

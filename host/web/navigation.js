@@ -87,12 +87,13 @@ function captureRow(event) {
   while (owner && owner !== list && rowPress(owner) === null && !rowHref(owner)) owner = owner.parentElement;
   if (owner?.matches("a[href]") && (owner.target && owner.target !== "_self" || owner.hasAttribute("download"))) return;
   if (listRows(list).some(r => r.el === owner && r.press === "true")) {
-    const candidate = pressedRow = { row: owner, list, route, from: last?.url };
-    // Only a router commit made by this click dispatch may claim the row.
-    queueMicrotask(() => { if (pressedRow === candidate) pressedRow = null; });
+    const candidate = pressedRow = { row: owner, list, route, from: last?.url, event };
+    // Qualification below reads the dispatch itself. This timer only releases the
+    // retained Event after the dispatch; it does not extend row ownership.
+    setTimeout(() => { if (pressedRow === candidate) pressedRow = null; }, 0);
   }
 }
-/** Href rows restore from retained visits. Action-only rows remember only a normal click's next router change. */
+/** Href rows restore from retained visits. Action-only rows remember a router change made inside a normal click dispatch. */
 function detailRows(routes, found) {
   for (const route of routes.slice(1)) {
     const id = route.getAttribute("navigationKey"), url = visits.get(id);
@@ -336,8 +337,8 @@ export const navigation = {
   },
   apply(op) {
     visits = new Map((op.visits ?? []).map(([id, url]) => [String(id), url]));
-    pendingRow = pressedRow && op.url !== pressedRow.from
-      ? { ...pressedRow, id: String(op.top), url: op.url } : null;
+    pendingRow = pressedRow?.event.eventPhase !== Event.NONE && op.url !== pressedRow.from
+      ? { row: pressedRow.row, list: pressedRow.list, route: pressedRow.route, id: String(op.top), url: op.url } : null;
     pressedRow = null;
     last = op;
     if (pop) { pop.op = op; for (const id of op.removed) gone.add(id); }
