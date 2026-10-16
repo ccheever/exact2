@@ -340,7 +340,7 @@ const pageFacts = pageReporter(agentMode), pageChanged = () => { if (wasm?.exact
 const mediaChanged = () => { if (wasm && root.childElementCount) applyBatch(presence.resize(JSON.parse(readOut(wasm.exact_resize(innerWidth, innerHeight, now(), preferences() | foldBits()))))); requestAnimationFrame(positionContexts); }; addEventListener("resize", mediaChanged); onPreferences(mediaChanged); const foldChanged = mediaChanged; onFold(foldChanged); // @ref LLP 1078 D6 — the posture and the segment counts ride the facts word beside the preferences; the browser resolves the `env(viewport-segment-*)` lengths itself
 visualViewport?.addEventListener("resize", () => requestAnimationFrame(positionContexts));
 const symbolStyle = document.createElement("style"); document.head.append(symbolStyle); // @ref LLP 1095 D8 — an untinted symbol is `AccentColor`: a zero-specificity default, so any authored tint wins. LLP 1116.003 D3.2: the nearest authored accent (`--exact-accent`), as the role is (LLP 1116.001 D2) and UIKit's inherited tint.
-symbolStyle.textContent = '@property --exact-tint{syntax:"<color>";inherits:false;initial-value:#000}:where(img[data-symbol-path]){--exact-tint:var(--exact-accent,AccentColor)}img[data-symbol-path]{background-color:var(--exact-tint)!important;mask-image:var(--exact-symbol-mask);mask-repeat:no-repeat;mask-position:center;mask-size:var(--exact-symbol-fit,100% 100%);mask-origin:content-box;mask-clip:content-box}';
+symbolStyle.textContent = '@property --exact-tint{syntax:"<color>";inherits:false;initial-value:#000}:where(img[data-symbol-path]){--exact-tint:var(--exact-accent,AccentColor)}img[data-symbol-path]{background-color:var(--exact-tint)!important;mask-image:var(--exact-symbol-mask);mask-repeat:no-repeat;mask-position:center;mask-size:var(--exact-symbol-fit,contain);mask-origin:content-box;mask-clip:content-box}';
 // A tinted raster's `scale-down` (element.rs `host_css`, LLP 1011 §3): `contain` unless its natural size fits the content box, known once it loads.
 function tintFit(el) {
   if (!el.style.getPropertyValue("mask-size").includes("--exact-tint-fit")) return;
@@ -389,7 +389,8 @@ function refreshSymbols() {
     el.style.setProperty("--exact-symbol-mask", el.symbolMask);
     const paddingX = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight), paddingY = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
     const fits = size <= el.clientWidth - paddingX && size <= el.clientHeight - paddingY;
-    const fit = cs.objectFit === "none" || (cs.objectFit === "scale-down" && fits) ? `${size}px ${size}px` : cs.objectFit === "scale-down" ? "contain" : cs.objectFit === "fill" ? "100% 100%" : cs.objectFit;
+    // `fill`, CSS's initial `object-fit`, keeps a symbol's aspect, as on the Apple hosts (LLP 1011 §4).
+    const fit = cs.objectFit === "none" || (cs.objectFit === "scale-down" && fits) ? `${size}px ${size}px` : cs.objectFit === "scale-down" || cs.objectFit === "fill" ? "contain" : cs.objectFit;
     el.style.setProperty("--exact-symbol-fit", fit);
   }
 }
