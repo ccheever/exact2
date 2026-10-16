@@ -95,6 +95,7 @@ internal class Presenter(
             n.logicalY.toDouble(), n.nativeBox())
     } }, collectionReport)
     fun flushCollectionScroll() = collections.flushDeferredScroll()
+    fun firstDrawn() = collections.firstDrawn()
     fun begin() = collections.beginBatch()
     fun abort() = collections.abortBatch()
     fun controlsChanged() {

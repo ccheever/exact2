@@ -219,7 +219,10 @@ class ExactView(context: Context, initialPress: String? = null, nativeFactory: N
         if (booted && !firstPixel && !closed) {
             firstPixel = true
             creationToFirstHostDrawNs = System.nanoTime() - createdAt
-            handler.post { if (!closed) apply { Native.painted(handle) } }
+            handler.post {
+                if (!closed) apply { Native.painted(handle) }
+                if (!closed) presenter.firstDrawn()
+            }
             handler.post { if (!closed) onFirstDraw?.invoke() }
         }
     }

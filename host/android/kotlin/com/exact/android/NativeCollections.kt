@@ -129,12 +129,12 @@ internal class NativeCollections(
         val offset: Double, val main: Double, val portCross: Double, val cross: Double,
         val measurements: List<Measurement>, val focus: Int?, val interaction: Int?
     ) {
-        fun encode(view: Int, revision: ULong, sequence: ULong, velocity: Double, ancestorMoving: Boolean): ByteArray {
+        fun encode(view: Int, revision: ULong, sequence: ULong, velocity: Double, ancestorMoving: Boolean, limit: Int = -1): ByteArray {
             val out = ByteBuffer.allocate(84 + measurements.size * 20).order(ByteOrder.LITTLE_ENDIAN)
             out.putInt(3).putInt(view).putLong(revision.toLong()).putLong(sequence.toLong())
             for (value in doubleArrayOf(offset, main, portCross, cross)) out.putDouble(value)
             out.putInt(focus ?: 0).putInt(interaction ?: 0).putDouble(velocity)
-            out.putInt(-1).putInt(if (ancestorMoving) 1 else 0).putInt(measurements.size)
+            out.putInt(limit).putInt(if (ancestorMoving) 1 else 0).putInt(measurements.size)
             for (row in measurements) out.putInt(row.view).putLong(row.epoch.toLong()).putDouble(row.size)
             return out.array()
         }
@@ -167,6 +167,7 @@ internal class NativeCollections(
         var facts: Facts? = null
         var lastSequence: ULong? = null
         var reportedRevision: ULong? = null
+        var fillLimit: Int? = null
         var deferredScroll = false
         var dimensions: List<Double>? = null
         var batchStart: Double? = null
@@ -180,12 +181,20 @@ internal class NativeCollections(
     private var busy = false
     private var queued = false
     private var closed = false
+    private var painted = false
     private var focus: Int? = null
     private var interaction: Int? = null
     private var lastVisited: Int? = null
     private val continuation = Runnable { queued = false; if (!closed) flush() }
 
     init { require(density.isFinite() && density > 0) }
+    /** The owning SDK traversal completed; resume the normal optional lead. */
+    fun firstDrawn() {
+        if (closed || painted) return
+        painted = true
+        for ((id, entry) in entries) if (entry.fillLimit == 0 && entry.snapshot.pending) dirty.add(id)
+        flush(entries.size)
+    }
     fun owns(id: Int): Boolean = entries.containsKey(id)
     fun mountedRows(id: Int): List<Row> = entries[id]?.snapshot?.rows ?: emptyList()
     fun beginBatch() {
@@ -464,15 +473,21 @@ internal class NativeCollections(
                         interaction = next.interaction?.takeIf { it == entry.facts?.interaction })
                     dirty.add(id)
                 }
-                if (next != entry.facts || entry.lastSequence != entry.cursor.sequence || entry.snapshot.pending) {
+                // Only optional rows wait: uncovered ports, seek/correction and
+                // pins keep the ordinary immediate policy before the first draw.
+                val limit = if (!painted && !entry.snapshot.seeking && entry.snapshot.correction == null &&
+                    next.focus == null && next.interaction == null && visibleWindow(id, entry, next) != null) 0 else -1
+                if (next != entry.facts || entry.lastSequence != entry.cursor.sequence || entry.fillLimit != limit ||
+                    entry.snapshot.pending && limit < 0) {
                     entry.facts = next
                     entry.lastSequence = entry.cursor.sequence
                     entry.reportedRevision = entry.snapshot.revision
+                    entry.fillLimit = limit
                     val scroll = geometry(id)?.scroll as? NativeCollectionScrollView
                     val velocity = scroll?.velocity?.toDouble()?.div(density) ?: 0.0
                     val ancestorMoving = entry.snapshot.parent?.let { (geometry(it)?.scroll as? NativeCollectionScrollView)?.moving } == true
                     reports++
-                    report(next.encode(id, entry.snapshot.revision, entry.cursor.sequence, velocity, ancestorMoving))
+                    report(next.encode(id, entry.snapshot.revision, entry.cursor.sequence, velocity, ancestorMoving, limit))
                 }
             }
         } finally { busy = false }
