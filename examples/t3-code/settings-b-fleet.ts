@@ -272,6 +272,18 @@ export class EnvironmentFleet {
 
   /** A switch flip or removal: re-read the catalog on the next pass. */
   forget(key: string): void { if (this.entries.delete(key)) this.revision++; }
+  /**
+   * EnvironmentRegistry.register → installEntryLocked: registering a saved environment again (a new pairing) closes its
+   * connection and opens it afresh, so a transport that failed for want of a credential reads the new one. This stops
+   * each of its background transports; the next sync connects them as a switch-on does.
+   */
+  async restart(native: Native, environmentId: string): Promise<void> {
+    for (const [key, entry] of [...this.entries]) {
+      if (entry.environmentId !== environmentId || entry.primary) continue;
+      this.forget(key);
+      await native.later({ op: 'fleetStop', fleet: key }).catch(() => {});
+    }
+  }
   reconnect(key: string): void { const entry = this.entries.get(key); if (entry) { entry.requested = false; entry.phase = 'available'; this.revision++; } }
 }
 
