@@ -1411,3 +1411,10 @@ and the Linux headless CPU renderer without claiming display frame timing.
 - **`exact-linux`'s text tests read the machine's fonts** (2026-10-16): `actual_color_bitmap_placement_matches_full_paint` fails without a colour emoji face (`fonts-noto-color-emoji`); `shelfs_library_is_read_bar_then_page_then_navigation_bar` and the neutral look's `gray tabs have no fill` fail where sans-serif is Noto Sans rather than DejaVu (the GMKtec M8). All pass under a `FONTCONFIG_FILE` naming the expected faces. Fixture fonts under `host/linux/tests/fonts` would make them hermetic.
 - **793907f4f broke two `exact-linux` tests and the Linux smoke's motion** (2026-10-16, bisected on the Mac; the same on the M8): `timer_demand_empty_receipts_do_not_repaint_but_explicit_clock_does` ("explicit clock remains conservative"), `a_held_press_multiplies_scale_about_the_origin_even_under_reduced_motion` (a 75×24 box is 150×48), and `smoke.mjs linux` ("at 250 ms the linear box is 75 wide, not 100"). `exact-linux` is outside the gate's `default-members`, so nothing blocked it.
 - **Run the Linux host on KMS** (2026-10-16; `issues/20261006-platform-specific-lane-coverage.md`): the GMKtec M8 has the groups but no monitor, and gdm's greeter holds DRM master. A dummy HDMI/DP plug and gdm stopped (or a local VT login) would let `caltrain-linux` qualify first pixel, page flips, `EXACT_VNC=1` and evdev input reaching the app.
+
+- **EX8 pre-load mutation counter (2026-10-16, Muse round 3):** the web runtime
+  increments the diagnostic mutation counter before refusing a send while its
+  Rust module is not ready; a refused commit does not roll that counter back.
+  Authored tests wait for activation and abort on that refusal, so their clock
+  path is unaffected. Count only actual source asks if this counter becomes a
+  general external metric; preserve the atomic-action refusal.
