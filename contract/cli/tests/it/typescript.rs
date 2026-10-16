@@ -494,3 +494,25 @@ fn unknown_handlers_continue_through_siblings_children_and_timer_targets() {
         "{unknown:?}"
     );
 }
+
+#[test]
+fn checked_backend_projection_requires_every_contract_key_and_narrows_nullable_values() {
+    let fixture=Fixture::new();
+    fixture.write("projection.ts",include_str!("../../../../snapback4/online/projection.ts"));
+    let checked=fixture.check(r#"
+import {pick} from './projection';
+type Note={id:string;body:string;parent:string|null};
+const project=pick<Note>();
+const row={id:'one',body:'hello',parent:null,at:123};
+const note:Note=project(row,'id','body','parent');
+// @ts-expect-error all target keys are required
+project(row,'id','body');
+// @ts-expect-error extra server fields are not Contract keys
+project(row,'id','body','parent','at');
+// @ts-expect-error wrong field type
+project({...row,body:3},'id','body','parent');
+// @ts-expect-error a hidden-parent projection is nullable
+pick<{parent:string}>()(row,'parent');
+"#);
+    assert!(checked.status.success(),"{checked:?}");
+}

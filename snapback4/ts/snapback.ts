@@ -1,3 +1,4 @@
+export { pick } from './projection.ts';
 import { ReleaseTracker, type ReleaseSnapshot } from './release.ts';
 export type { ReleaseSnapshot } from './release.ts';
 // Snapback4 for an Exact app's TypeScript: the client in Rust

@@ -1,3 +1,4 @@
+export { pick } from './projection.ts';
 import { ReleaseTracker, type ReleaseSnapshot } from './release.ts';
 export type { ReleaseSnapshot } from './release.ts';
 // @ref LLP 1086 D12 — server-only operations: no device, partition, or wasm import.

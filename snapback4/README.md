@@ -352,7 +352,7 @@ component Guestbook
 
 ```ts
 import type { Answer, Result, Sources } from './app.contract.d.ts';
-import { Snapback, refused } from './snapback4/snapback.ts';
+import { Snapback, refused, pick, type Sent } from './snapback4/snapback.ts';
 import { api } from './backend/api.ts';                 // the backend's generated operations, mounted
 
 export const appId = 'com.example.app';                 // app.json's "app": { "id" }, as `bun exact.mjs snapback` checks it
@@ -369,6 +369,13 @@ const personas = Snapback.switcher((persona: string) => ({ app: appId, name: `gu
 // the type on the callback `use` runs, where the object is returned: there an
 // undeclared field fails the build (TS2353 names it); on the outer arrow, a
 // callback's literal is never checked for extra fields.
+function ack(fate: Sent<{id: string} | null>): Result<'post'> {
+  if (fate.state === 'failed') return {ok: false, message: `Refused: ${fate.why.code}`, id: ''};
+  if (fate.state === 'sent') return {ok: true, message: 'Posted.', id: fate.result?.id ?? ''};
+  return {ok: true, message: 'Saved on this device; it sends when online.', id: ''};
+}
+const note = pick<Result<'notes'>['notes'][number]>();
+
 const sources: Sources = {
   notes: ([persona, now], _store, storage, native) => personas.use(persona, storage, native, async (db): Promise<Result<'notes'>> => {
     const round = await db.sync();                      // offline is fine once synced
@@ -376,7 +383,7 @@ const sources: Sources = {
     if (read.denied) throw refused(read.denied);        // failure(board).code preserves the refusal CODE
     // Project each row onto the shape: an answer's extra fields are refused
     // (a row spread, `{ ...row }`, keeps every field the type check cannot see).
-    const notes = (read.data ?? []).map(row => ({ id: row.id, author: row.author, body: row.body, pending: row.pending === true }));
+    const notes = (read.data ?? []).map(row => note({...row, pending: row.pending === true}, 'id', 'author', 'body', 'pending'));
     return { online: round.ok, message: round.ok ? '' : 'Offline: showing what this device keeps',
       latest: notes.length ? `${notes[0].author}: ${notes[0].body}` : '',
       sending: notes.filter(note => note.pending).length, notes };
@@ -389,10 +396,7 @@ const sources: Sources = {
     // result (here the new row's id), `failed` with the refusal's code, or
     // `pending` when the round did not reach the server (kept; sent later).
     // The handle checks `{ body }` against the mutation's arguments.
-    const fate = await db.send(api.post, { body }, now);
-    if (fate.state === 'failed') return { ok: false, message: `Refused: ${fate.why?.code}`, id: '' };
-    if (fate.state === 'sent') return { ok: true, message: 'Posted.', id: fate.result?.id ?? '' };
-    return { ok: true, message: 'Saved on this device; it sends when online.', id: '' };
+    return ack(await db.send(api.post, { body }, now));
   }),
 };
 export const answer: Answer = (source, args, store, storage, native) =>
@@ -889,6 +893,16 @@ Cannot find module 'snapback4/contract'` (listed after the errors it causes
 in `app.ts`: install the package, not types by hand). Rows still map onto
 the Contract shape field by field: the generated row has fields (`at`,
 `pending`) the shape may not.
+
+Both adapters export a checked projection helper:
+`const note = pick<Result<'notes'>['notes'][number]>();`
+then `note(row, 'id', 'author', 'body', 'pending')`. It emits only those keys;
+missing target keys, misspellings and incompatible row values fail TypeScript.
+Normalize optional fields before projecting, as the guestbook does for `pending`.
+A field projected through a hidden parent join is nullable even when the child's
+column is required: handle `row.parentField ?? fallback` at that boundary.
+The guestbook's shared `ack(sent)` also accepts `Sent<null>`; a void mutation
+needs no invented result object.
 
 ### One view across a rollback
 
