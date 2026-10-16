@@ -795,6 +795,20 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.canvas_defer(deferred != 0), |_| ())
         }
 
+        /// Runtimes booted from now count each plan site's work for `perf`
+        /// (LLP 1079 D1) from the first ask, `exact_measure_work`, not from
+        /// boot: a release build's choice.
+        #[no_mangle]
+        pub extern "C" fn exact_measure_work_later() {
+            $crate::abi::measure_work_later()
+        }
+
+        /// The first ask for `perf`: this runtime counts its work from now.
+        #[no_mangle]
+        pub extern "C" fn exact_measure_work(rt: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.measure_work(), |n| n)
+        }
+
         /// The canvas draws owed (LLP 1072 §8.5); returns the batch's length.
         #[no_mangle]
         pub extern "C" fn exact_canvas_draw(rt: u32) -> u32 {

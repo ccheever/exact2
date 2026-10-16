@@ -444,8 +444,11 @@ impl<D: DataSource> Host<D> {
         // caller's scope is that one's; LLP 1121 stage 5).
         let _roles = runner.bind_roles();
         runner.set_device_links(links.device);
-        // @ref LLP 1079 D1 — a development build measures its work.
-        runner.measure_unless_production(compat, true);
+        // @ref LLP 1079 D1 — a development build measures its work, a
+        // release build from the first ask (`Bridge::measure_work`).
+        if crate::abi::work_from_boot() {
+            runner.measure_unless_production(compat, true);
+        }
         runner.admit_live(compat);
         if let Some(action) = region.and_then(|r| r.activate) {
             runner.act(action, Vec::new()).map_err(HostError::Runner)?;

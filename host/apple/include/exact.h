@@ -615,6 +615,11 @@ void exact_canvas_held(ExactRuntime rt, uint32_t view, uint32_t held);
  * turn's batch says "canvasOwed" and exact_canvas_draw runs the draws, off the
  * turns main waits on; a tick draws in its own turn. */
 void exact_canvas_defer(ExactRuntime rt, uint32_t deferred);
+/* LLP 1079 D1: runtimes booted from now count each plan site's work for perf
+ * from the first ask, exact_measure_work, not from boot (a release build's
+ * choice). exact_measure_work starts this runtime's count; returns 0. */
+void exact_measure_work_later(void);
+uint32_t exact_measure_work(ExactRuntime rt);
 uint32_t exact_canvas_draw(ExactRuntime rt);
 uint32_t exact_resize(ExactRuntime rt, float width, float height);
 /* Opaque row key in the input buffer; UINT32_MAX means absent. */

@@ -484,7 +484,7 @@ public final class ExactSession {
         webviews.session = self
         natives.session = self
         frames.session = self
-        sampler = FrameSampler.measured && FrameSampler.atBoot ? FrameSampler(session: self) : nil
+        sampler = FrameSampler.fromBoot(self)
         runtime.setMeasure(TextEngine.measureText, ctx: text.measuring.opaque)
         runtime.setFonts(TextEngine.installFonts, ctx: text.measuring.opaque)
         installControlText()

@@ -361,6 +361,8 @@ package final class Runtime {
             done(read(exact_collection_feedback(rt, n, now)))
         }
     }
+    /// Count each plan site's work for `perf` from now, if not yet (LLP 1079 D1).
+    func measureWork() { on { _ = exact_measure_work(rt) } }
     /// Canvas draws in a turn of their own (LLP 1072 §8.5).
     func canvasDefer(_ deferred: Bool) { on { exact_canvas_defer(rt, deferred ? 1 : 0) } }
     /// The owed canvas draws on the owner, not waited for (LLP 1072 §8.5).

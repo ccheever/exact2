@@ -1,3 +1,4 @@
+import CExact
 import Foundation
 import QuartzCore
 #if canImport(UIKit)
@@ -23,6 +24,15 @@ final class FrameSampler: NSObject {
     /// Whether it measures from boot: a development build, or one the agent
     /// launched. A release build starts at the first ask (`measurePerf`).
     static let atBoot = !ExactEnv.releaseBuild || ExactEnv.agentMode
+
+    /// A new session's sampler, where it samples from boot. Where it starts
+    /// at the first ask instead, so does the count of its runner's plan
+    /// sites' work (LLP 1079 D1), which is told before the runner boots.
+    static func fromBoot(_ session: ExactSession) -> FrameSampler? {
+        guard measured else { return nil }
+        guard atBoot else { exact_measure_work_later(); return nil }
+        return FrameSampler(session: session)
+    }
     static let ring = 600, lateKept = 100, quiet = 0.5
     /// A release build's frames before anything asked for them.
     static let unmeasured = "a release build measures frames from the first agent request or trace; this is the first"
@@ -237,6 +247,9 @@ extension ExactSession {
         let frames = sampler?.reply(late: FrameSampler.lateKept, all: true)
             ?? FrameSampler(session: self).reply(late: 0, all: true).merging(["unmeasured": FrameSampler.unmeasured]) { a, _ in a }
         let raw = { (json: String) in (try? JSONSerialization.jsonObject(with: Data(json.utf8))) ?? ["error": "unreadable"] }
+        // The sites' work, which a release build counts from here: its live
+        // instances, and no work yet.
+        runtime.measureWork()
         let perf = raw(agent("{\"op\":\"perf\"}"))
         #if canImport(UIKit)
         let host = "ios", device = ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"].map { "\($0) (simulator)" } ?? UIDevice.current.model
@@ -280,12 +293,14 @@ extension ExactSession {
     enum TraceError: Error { case production }
 
     /// Start measuring what `perf` reads, where this binary can and has not
-    /// yet (a release build, LLP 1079): the presented frames and the hatch
-    /// calls' timing. The agent's first request, and Save Trace, ask.
+    /// yet (a release build, LLP 1079): the presented frames, the hatch
+    /// calls' timing and the plan sites' work. The agent's requests, and
+    /// Save Trace, ask.
     func measurePerf() {
         guard FrameSampler.measured else { return }
         HatchDiagnostics.measuring = true
         if sampler == nil { sampler = FrameSampler(session: self) }
+        runtime.measureWork()
     }
     /// The last saved trace, beside the stamped one (`agent.mjs` reads the name).
     static let latestTrace = "trace-latest.json"

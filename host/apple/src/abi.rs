@@ -1475,7 +1475,7 @@ use registry::REFUSAL;
 pub use registry::{refusal_ptr, with_entry, with_runtime, Entry, Registry};
 #[path = "abi/commands.rs"]
 mod commands;
-pub use commands::confirmation_is_alert;
+pub use commands::{confirmation_is_alert, measure_work_later, work_from_boot};
 mod exports;
 pub use exports::{gesture_constant, header_shape, route_bar};
 pub use preferences::LiveClockFn;

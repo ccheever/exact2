@@ -1,3 +1,4 @@
+import CExact
 import Foundation
 import QuartzCore
 import XCTest
@@ -146,9 +147,11 @@ final class FrameSamplerTests: XCTestCase {
     /// the next trace and the agent's `perf` read.
     func testAReleaseBuildsFirstTraceStartsItsMeasuring() throws {
         let session = ExactApp.shared.makeSession()
-        defer { session.destroy(); HatchDiagnostics.measuring = true }
+        defer { session.runtime.measureWork(); session.destroy(); HatchDiagnostics.measuring = true }
+        // As a release build boots: no site's work counted, no sampler, no hatch timing.
+        exact_measure_work_later()
         XCTAssertNil(session.boot(size: CGSize(width: 390, height: 844)).error)
-        // As a release build boots: no sampler, no hatch timing.
+        XCTAssertTrue(session.agent(#"{"op":"perf"}"#).contains("measures no work"), "no site's work is counted")
         session.sampler?.stop()
         session.sampler = nil
         HatchDiagnostics.measuring = false

@@ -9,6 +9,23 @@
 use super::Bridge;
 use exact_runner::auth::{self, Arm, Browser};
 use exact_runner::DataSource;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Whether a runner booted now counts its plan sites' work for `perf` from
+/// boot (LLP 1079 D1): until a release build says it counts from the first
+/// ask instead, and again once something has asked.
+static WORK_FROM_BOOT: AtomicBool = AtomicBool::new(true);
+
+/// A release build's choice (`exact_measure_work_later`): runners booted
+/// from now count their work from the first ask (`Bridge::measure_work`).
+pub fn measure_work_later() {
+    WORK_FROM_BOOT.store(false, Ordering::Relaxed);
+}
+
+/// Whether a runner booted now counts its work from boot.
+pub fn work_from_boot() -> bool {
+    WORK_FROM_BOOT.load(Ordering::Relaxed)
+}
 
 /// The alert shape (LLP 1115 D6), the kernel's rule
 /// (`exact_kernel::confirmation`), for the presenter's Swift
@@ -18,6 +35,18 @@ pub fn confirmation_is_alert(texts: u32, actions: u32, cancels: u32) -> bool {
 }
 
 impl<D: DataSource> Bridge<D> {
+    /// The first ask for `perf` (`exact_measure_work`): this runtime counts
+    /// its plan sites' work from now, where its bake counts any, and every
+    /// runtime booted after counts from boot.
+    pub fn measure_work(&mut self) -> u32 {
+        WORK_FROM_BOOT.store(true, Ordering::Relaxed);
+        if let Some(host) = self.host.as_mut() {
+            host.runner_mut()
+                .measure_unless_production(self.compat, true);
+        }
+        0
+    }
+
     /// Register the presenter's inline geometry, kept across plan replacements.
     pub fn set_inline_geometry(
         &mut self,
