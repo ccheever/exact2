@@ -12,6 +12,7 @@ mod check;
 mod color_fn;
 mod css;
 mod edit;
+pub mod export;
 mod fmt;
 mod fold;
 pub mod history;

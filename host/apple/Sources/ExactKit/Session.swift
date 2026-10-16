@@ -1309,7 +1309,7 @@ public final class ExactSession {
     /// notification, in the same turn.
     func tellPage() {
         guard booted, state != .destroyed else { return }
-        apply(runtime.setPage(PageFacts.bits(pageWindow)))
+        apply(runtime.setPage(PageFacts.bits(pageWindow, readsOnLine: runtime.readsOnLine())))
         apply(runtime.setRootFontSize(PageFacts.rootFontSize))
         tellDisplayScale()
     }

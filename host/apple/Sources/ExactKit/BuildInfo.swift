@@ -7,10 +7,14 @@ import Foundation
 
 extension ExactEnv {
     /// Whether the dev menu was asked for: `EXACT_DEV_MENU` at launch, else
-    /// as the build's environment had it (`ExactDevMenu`; an installed iOS
-    /// app is launched with no environment). `0` is off, anything else on;
-    /// `nil` when neither says, and the platform's default holds.
+    /// as the build's environment had it (`ExactDevMenu` in Info.plist; an
+    /// installed iOS app is launched with no environment), else the person's
+    /// `ExactDevMenu` default, which shows a release Mac build's hidden menu
+    /// (`defaults write <bundle id> ExactDevMenu -bool YES`, LLP 1115 D9).
+    /// `0` is off, anything else on; `nil` when none says, and the
+    /// platform's default holds.
     public static let devMenu: Bool? = environment["EXACT_DEV_MENU"].map { $0 != "0" } ?? appMetadata["ExactDevMenu"] as? Bool
+        ?? UserDefaults.standard.object(forKey: "ExactDevMenu") as? Bool
 }
 
 enum BuildInfo {

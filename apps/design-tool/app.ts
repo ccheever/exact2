@@ -94,7 +94,8 @@ type Change = Result<'waitChanges'>['recent'][number];
 // The session's changes, newest first, as the long poll brought them.
 let recent: Change[] = [];
 let answers = 0;
-let place = { seq: 0, epoch: '' };
+// The place read to, and the run (its token) that answered there.
+let place = { seq: 0, epoch: '' }, placeRun = '';
 
 /** An event from the long poll as the view lists it. */
 function change(e: any): Change | null {
@@ -481,9 +482,15 @@ const undoStack: Entry[] = [], redoStack: Entry[] = [];
 let session = 0;
 /** The stacks emptied: another run of the server has none of their
  * inverses. `session` counts these, and an operation that began before one
- * changes neither stack when it ends. */
-function forget() {
+ * changes neither stack when it ends. Once per run gone (by the token it
+ * gave): a restart found by a refused write, then by the poll's new epoch,
+ * forgets once, so the refusal's answer stays; unless (`still`) the stacks
+ * hold another run's entries meanwhile. */
+const forgotRuns = new Set<string>();
+function forget(run: string, still = false) {
+  if (run && forgotRuns.has(run) && !still) return;
   undoStack.length = 0; redoStack.length = 0; mine.length = 0; session += 1;
+  if (run) forgotRuns.add(run);
 }
 const stacks = (ok: boolean, error: string, last: string, key = '') => ({ ok, error, undo: undoStack.length, redo: redoStack.length, last, key, session, note: '', carried: [] as string[] });
 /** Who moved a file a refused write or undo found moved: its client, or
@@ -900,8 +907,8 @@ const sources: Sources = {
     const op = opOf(file, kind, target, when, value);
     // Every file's digest as the proposal read it: the server checks the
     // ones the edit writes, whichever file the app's design is.
-    const { error, reply } = await call('/__tamber', { method: 'transaction', client, files: read.files, ops: [op] }, WRITE_WAIT, read.token);
-    if (error === RESTARTED) forget();
+    const { error, reply, used } = await call('/__tamber', { method: 'transaction', client, files: read.files, ops: [op] }, WRITE_WAIT, read.token);
+    if (error === RESTARTED) forget(used);
     if (session !== at) return stacks(false, RESTARTED, '');
     if (error) return stacks(false, byWhom(reply) ? `Not written: ${byWhom(reply)} since you reviewed it.` : error, '');
     const inverse = (reply.ok as { inverse: string | null }).inverse;
@@ -955,11 +962,11 @@ const sources: Sources = {
     scrubEnded = '';
     const op = kept, [file, kind, target, when] = s.of.split('␟');
     const value = draftValue;
-    const { error, reply } = await call('/__tamber', { method: 'scrub-release', client: s.client, scrub: s.id }, WRITE_WAIT, s.token);
+    const { error, reply, used } = await call('/__tamber', { method: 'scrub-release', client: s.client, scrub: s.id }, WRITE_WAIT, s.token);
     // No answer from the server (not a refusal): the scrub may still be
     // open there, so it stays, to keep or cancel again.
     if (error && !reply.error && error !== RESTARTED) { s.releasing = false; if (!scrubbing) scrubbing = s; return stacks(false, `Keep did not reach the server (${error}): keep or cancel again.`, ''); }
-    if (error === RESTARTED) forget();
+    if (error === RESTARTED) forget(used);
     if (session !== at) return stacks(false, RESTARTED, '');
     if (error) return stacks(false, byWhom(reply) ? `Not written: ${byWhom(reply)} since the scrub opened; the running copies have the committed value back.` : error, '');
     const inverse = (reply.ok as { inverse: string | null }).inverse;
@@ -985,8 +992,8 @@ const sources: Sources = {
     const at = session;
     const top = undoStack.at(-1);
     if (!top) return stacks(false, 'Nothing to undo.', '');
-    const { error, reply } = await call('/__tamber', { method: 'undo', client, inverse: top.inverse }, WRITE_WAIT, top.token);
-    if (error === RESTARTED) forget();
+    const { error, reply, used } = await call('/__tamber', { method: 'undo', client, inverse: top.inverse }, WRITE_WAIT, top.token);
+    if (error === RESTARTED) forget(used);
     if (session !== at) return stacks(false, RESTARTED, '');
     if (error) {
       // Refused for a conflict, it can't apply while the file stays as it
@@ -1014,11 +1021,11 @@ const sources: Sources = {
     // The original transaction again, against the files as they are now,
     // on the run of the server it was undone on (its token).
     const hello = await call('/__tamber', { method: 'hello' }, 15000, top.token);
-    if (hello.error === RESTARTED) forget();
+    if (hello.error === RESTARTED) forget(hello.used);
     if (session !== at) return stacks(false, RESTARTED, '');
     if (hello.error) return stacks(false, hello.error, '');
-    const { error, reply } = await call('/__tamber', { method: 'transaction', client: top.client ?? client, files: hello.reply.ok?.files ?? {}, ops: top.ops }, WRITE_WAIT, top.token);
-    if (error === RESTARTED) forget();
+    const { error, reply, used } = await call('/__tamber', { method: 'transaction', client: top.client ?? client, files: hello.reply.ok?.files ?? {}, ops: top.ops }, WRITE_WAIT, top.token);
+    if (error === RESTARTED) forget(used);
     if (session !== at) return stacks(false, RESTARTED, '');
     if (error) {
       if (!conflict(reply)) return stacks(false, `Can't redo ${top.label}: ${error}`, '');
@@ -1076,7 +1083,7 @@ const sources: Sources = {
     // changeset starts again with it.
     // Another run of the server has none of this run's scrub: it ended
     // there, and a new one is chosen again.
-    if (place.epoch && r.epoch !== place.epoch) { forget(); changeset = []; reads.clear(); buildsNow = new Map(); endedIds.clear(); if (scrubbing) endScrub(scrubbing, scrubEndText('server lost')); }
+    if (place.epoch && r.epoch !== place.epoch) { forget(placeRun, [...undoStack, ...redoStack].some(e => e.token !== used)); changeset = []; reads.clear(); buildsNow = new Map(); endedIds.clear(); if (scrubbing) endScrub(scrubbing, scrubEndText('server lost')); }
     // Events missed: an end among them would be lost, so a scrub open is
     // ended here (cancelled, if the server still has it).
     if (epoch && r.missed && r.epoch === place.epoch && scrubbing) {
@@ -1120,6 +1127,7 @@ const sources: Sources = {
     const fresh = (r.events ?? []).map(change).filter((c): c is Change => c !== null).reverse();
     recent = [...fresh, ...recent].slice(0, 50);
     place = { seq: Number(r.seq ?? 0), epoch: String(r.epoch ?? '') };
+    placeRun = used;
     return { ok: true, error: '', missed: r.missed === true, ...state() };
   },
   loadLit: async ([file, answer, faded]) => {
@@ -1212,7 +1220,7 @@ const sources: Sources = {
     const refusedOf = (reply: Reply) => ((reply.error as { refused?: { file: string; why: string }[] } | undefined)?.refused ?? []).map(r => ({ file: String(r.file), why: String(r.why) }));
     const fail = (error: string, refused: { file: string; why: string }[]) => ({ ok: false, error: refused.length ? 'Not committed: these files are not only the session\'s. Commit them by hand.' : error, commit: '', files: [], refused, edits: [] });
     const dry = await call('/__tamber', { method: 'commit', client, dry: true }, 15000, heldToken || undefined);
-    if (dry.error === RESTARTED) forget();
+    if (dry.error === RESTARTED) forget(dry.used);
     if (session !== at) return fail(RESTARTED, []);
     if (dry.error) return fail(dry.error, refusedOf(dry.reply));
     type Edit = { file: string; client: string; tokens: string[]; write?: number };
@@ -1225,8 +1233,8 @@ const sources: Sources = {
     const authors = [...new Set(scope.edits.map(e => e.client))];
     const message = `design: ${scope.edits.length} change${scope.edits.length === 1 ? '' : 's'} by ${authors.join(', ')}\n\n${lines.map(l => `- ${l}`).join('\n')}`;
     const sent = changeset[0]?.seq ?? 0;
-    const { error, reply } = await call('/__tamber', { method: 'commit', client, message, scope: scope.scope }, WRITE_WAIT, dry.used);
-    if (error === RESTARTED) forget();
+    const { error, reply, used } = await call('/__tamber', { method: 'commit', client, message, scope: scope.scope }, WRITE_WAIT, dry.used);
+    if (error === RESTARTED) forget(used);
     if (session !== at) return fail(RESTARTED, []);
     if (error) return fail((reply.error as { stale?: boolean } | undefined)?.stale ? 'Something was written while the commit was being composed: nothing was committed. Commit again.' : error, refusedOf(reply));
     const ok = reply.ok as { commit: string; files: string[] };
@@ -1265,14 +1273,14 @@ const sources: Sources = {
     const at = session, some = items ? items.split(',').map(Number) : undefined, ops = (heldOps.get(proposal) ?? []) as Record<string, unknown>[];
     const proposer = held.find(h => h.proposal === proposal)?.client;
     // To the server run that listed it.
-    const { error, reply } = await call('/__tamber', { method: 'accept', client, proposal, ...(some ? { items: some } : {}) }, WRITE_WAIT, heldToken || undefined);
-    if (error === RESTARTED) forget();
+    const { error, reply, used } = await call('/__tamber', { method: 'accept', client, proposal, ...(some ? { items: some } : {}) }, WRITE_WAIT, heldToken || undefined);
+    if (error === RESTARTED) forget(used);
     if (session !== at) return { ...stacks(false, RESTARTED, ''), note: '' };
     if (error) return { ...stacks(false, error, ''), note: '' };
     const ok = reply.ok as { recomputed?: boolean; proposal?: string; inverse?: string | null; changed?: { token: string }[] };
     if (ok.recomputed) return { ...stacks(true, '', 'recomputed'), note: `${proposal} was recomputed on the files as they are now, as ${ok.proposal}: review its diff and accept it again.` };
     // Accepted: written as its proposer's, and one step of this session's undo.
-    if (ok.inverse) { undoStack.push({ inverse: ok.inverse, ops, label: `the proposal ${proposal}`, token: heldToken, client: proposer ?? (reply.ok as { client?: string }).client }); redoStack.length = 0; }
+    if (ok.inverse) { undoStack.push({ inverse: ok.inverse, ops, label: `the proposal ${proposal}`, token: used, client: proposer ?? (reply.ok as { client?: string }).client }); redoStack.length = 0; }
     return { ...stacks(true, '', 'accepted'), note: `Accepted ${proposal}.` };
   },
   importFiles: async ([client, kind, paths, names], _store, storage) => {
@@ -1332,7 +1340,7 @@ const sources: Sources = {
       offers: (r.offers ?? []).map((o: any) => ({ ...o, items: (o.items ?? []).map((i: number) => keep.indexOf(i)).filter((i: number) => i >= 0) })),
     };
     const made = await call('/__tamber', { method: 'propose', hold: true, client, ops: keep.map(i => ops[i]), review }, WRITE_WAIT, heldToken || undefined);
-    if (made.error === RESTARTED) forget();
+    if (made.error === RESTARTED) forget(made.used);
     if (session !== at) return { ...stacks(false, RESTARTED, ''), note: '', carried: [] };
     if (made.error) return { ...stacks(false, made.error, ''), note: '', carried: [] };
     const fresh = String(made.reply.ok.proposal);

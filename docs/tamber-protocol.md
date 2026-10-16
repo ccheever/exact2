@@ -1,7 +1,7 @@
 # The Tamber protocol, `tamber/1`
 
 The reference for the design server's wire (LLP 1121 D13), versioned with it. This page
-describes **`tamber/1.3`**, the version `hello` reports. The design and the reasons are in LLP 1121
+describes **`tamber/1.4`**, the version `hello` reports. The design and the reasons are in LLP 1121
 D13 and LLP 1122 D2, D9 and D10; what was built and how it differs from them is in each RFC's §10.
 The recipe is `docs/recipes/tamber.md`. Each change to the wire changes this page in the same
 commit.
@@ -11,7 +11,7 @@ on macOS and Linux.
 
 ## Versions
 
-- `hello` reports the protocol (`"tamber/1.3"`) and the IR's format number (`format`).
+- `hello` reports the protocol (`"tamber/1.4"`) and the IR's format number (`format`).
 - **A minor version** adds requests or fields. A client ignores fields it doesn't know.
 - **No request carries a client's version.** A client checks `hello`'s `protocol` itself and stops
   on a major version it doesn't speak.
@@ -38,6 +38,8 @@ on macOS and Linux.
   - the `selection` event, `outline` (the request and the command), and the source map's
     `sources` (each source's SHA-256 as compiled);
   - the items marked *1.3* below.
+- `tamber/1.4` (LLP 1121 stage 5, commit 6) added `export`, and `import`'s reading of a Tamber export
+  against its baseline.
 
 ## Where it runs
 
@@ -478,6 +480,56 @@ with.
   [{file, line, col, id, message}]}` as a checker's refusal is. With several files a
   diagnostic is `{id, message}`, its message naming the file (*1.1*).
 - **An import with nothing new** answers 200, `{proposal: null, review, message}`.
+
+### `export` (*1.4*, LLP 1121 D14)
+
+`{kind: "dtcg"}`, read-only for the design: the app's design as DTCG Format 2025.10 with the Resolver
+Module 2025.10, as `bun exact.mjs tamber export dtcg <app>` writes it, from the same serializer.
+- **The reply** is `{kind, text, baseline}`: `text` is the file, `baseline` where it is kept, by
+  path from the app (`.exact/tamber-dtcg/<digest>.json`, the design's digest). Each export keeps
+  what it wrote there, the newest 16, in a directory whose own `.gitignore` (`*`) keeps them out of
+  every commit. A link in a baseline's place is replaced, never written through.
+- **The document.** One modifier, `mode`, whose contexts are the full tuples (every app-axis tuple,
+  then `light` and `dark`, named `axis=value, …, light`), each a complete set of the colour tokens,
+  checked to read back as the colour a host renders before it is written. The header is the root
+  `$extensions["exact"]` of the one token document of a set `exact`, first in `resolutionOrder`
+  (the resolver's own root takes no `$extensions`): `export` (`"tamber-dtcg/1"`), `design`,
+  `digest`, `conversions`, `axes`, `contexts` (each context's `modes` and `scheme`) and `dials`.
+  The root `description` names the conversions too.
+- **Each token** is `$type: color` with its value as a 2025.10 colour object (`hex` the 8-bit sRGB
+  fallback), and in `$extensions["exact"]`: `source`, the line the context takes when it is not a
+  plain colour; `role` or `platform`, for a value at that role's or platform colour's fallback;
+  `overrides`, for a role override, exported as a token named for the role's row (`AccentColor`);
+  `lossy`, the CSS of a colour past Oklab's range (an HDR one), clipped.
+- **A design that does not check** is refused as a read is.
+- **Importing it back** (`import` with `kind: "dtcg"` and the export as its one source). The file is
+  read as the export when it has the header, or the export's shape (a set `exact`, then the one
+  modifier `mode` with its contexts named for their tuples) where a tool dropped `$extensions`.
+  - **The baseline** is the kept one the header's digest names, or a fresh export of the design
+    when that is the digest. With no header, it is the one candidate (a kept export, or the
+    design's own) with the file's contexts; with none, or more than one (the design changed since),
+    the import is refused: comparing with another export would propose reverting what nobody
+    edited.
+  - **Each token's values** are compared with the baseline's, as colours: a tool that drops `hex`
+    or reprints the numbers changes nothing. In a context with several sources the last that
+    declares a token wins, and a source may be a reference to a set of the same document, as the
+    resolver says. An unchanged token proposes nothing, its source kept
+    (an expression, a role); so does one the design has already.
+  - **A change edits the line that wins for its tuple** (LLP 1121 D6, as `explain` names it): the
+    default or the `when` it is. A line whose contexts on a side all changed, to one value, takes
+    it, its other side kept as written (`light-dark(new, kept)`). A line some of whose contexts did
+    not change cannot move without moving them: its changed tuples get the narrowest `when` that
+    holds for them and for no tuple that should keep another value, never one that ties with an
+    existing `when` as narrow. An axis `under scheme=dark` keeps the light side of the line without
+    it, so a `when` naming one follows that line's new light; a light value edited only in such a
+    tuple is reported. Each side the file did not change is the design's as it is.
+  - **Checked as the design would take it.** Each token's operations are applied and folded: a
+    tuple they reach that the file left alone is pinned to the design's value, until every context
+    renders as wanted. A token no lines can give that, or that the design would refuse, alone or
+    with the tokens before it in one transaction, is reported with the reason or the checker's id.
+  - **Reported in `unmapped`, not added or removed:** a token the export did not have, one the file
+    drops or the design no longer has, one missing from a context, a context the export did not
+    have, and a value no colour is read from.
 
 ## The change stream
 
