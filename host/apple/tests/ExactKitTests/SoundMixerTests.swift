@@ -287,6 +287,36 @@ final class SoundMixerTests: XCTestCase {
         XCTAssertEqual(exact_sound_live(m), 32 + 256)
     }
 
+    /// A voice mixed early to free its slot reads the ops still behind the
+    /// Play first: an End there that cuts it sooner, or a stop-all.
+    func testAnEarlyMixedVoiceHonoursTheOpsBehindItsReplacement() {
+        for stopAll in [false, true] {
+            let m = mixer(frames: 48_000)
+            defer { exact_sound_mixer_free(m) }
+            let t = exact_sound_seconds(ticks(110))
+            for i in 0..<32 { XCTAssertTrue(exact_sound_push(m, 1, UInt64(i + 1), 0, t + latency, 0.01, 1, 0)) }
+            for i in 0..<256 { XCTAssertTrue(exact_sound_push(m, 1, UInt64(i + 1001), 0, t + 1 + Double(i) / 1000, 0.01, 1, 0)) }
+            _ = render(m, at: t)
+            let next = t + 512 / rate, speaker = next + latency
+            // A gives way to B at frame 240; then A is cut at 100 (or everything stops) before the render.
+            for i in 0..<32 {
+                XCTAssertTrue(exact_sound_push(m, 2, UInt64(i + 1), 0, speaker + 240 / rate, 0, 1, 0))
+                XCTAssertTrue(exact_sound_push(m, 1, UInt64(i + 33), 0, speaker + 240 / rate, 0.01, 1, 0))
+            }
+            if stopAll {
+                XCTAssertTrue(exact_sound_push(m, 3, 0, 0, 0, 0, 1, 0))
+            } else {
+                for i in 0..<32 { XCTAssertTrue(exact_sound_push(m, 2, UInt64(i + 1), 0, speaker + 100 / rate, 0, 1, 0)) }
+            }
+            let out = render(m, at: next)
+            XCTAssertEqual(exact_sound_dropped(m), 0)
+            for i in 0..<512 {
+                let want: Float = stopAll || (100..<240).contains(i) ? 0 : 0.16
+                XCTAssertEqual(out[i], want, accuracy: 1e-5, "frame \(i), stop-all \(stopAll)")
+            }
+        }
+    }
+
     func testAVoiceStoppedBeforeItsFirstRenderFreesItsSlot() {
         let m = mixer(frames: 48_000)
         defer { exact_sound_mixer_free(m) }
