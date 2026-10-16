@@ -15,9 +15,42 @@ use exact_kernel::{PropId, StyleCodec, StyleId};
 /// A prop's literal value grammar, shared by its refusal and `contract vocab`.
 pub fn accepts(prop: PropId) -> Option<&'static str> {
     match prop {
-        PropId::NavigationDetent => Some("space-separated large, medium, finite positive point heights, or percentages of the sheet's maximum height above 0% and at most 100%; fit-content alone or as fit-content large"),
+        PropId::NavigationDetent => Some("space-separated large, medium, finite positive point heights, or percentages of the sheet's maximum height above 0% and at most 100%; fit-content alone or as fit-content large; otherwise ascending, point heights and percentages (or medium) not mixed, large last"),
         _ => None,
     }
+}
+
+/// The first of a `navigationDetent`'s valid words that is not taller than
+/// the one before it on every screen (LLP 1075.003 §9.13): UIKit takes
+/// detents from shortest to tallest. A point height and a share of the
+/// sheet's maximum (`medium`, which is half, or a percentage) cross on some
+/// screen, so the words before `large` are of one kind and ascend; `large`,
+/// the maximum, goes last. `fit-content` has its own rule.
+pub fn detent_out_of_order<'a>(words: &[&'a str]) -> Option<&'a str> {
+    let mut last: Option<(bool, f64)> = None;
+    let mut large = false;
+    for word in words {
+        if large {
+            return Some(word);
+        }
+        let (share, height) = match *word {
+            "large" => {
+                large = true;
+                continue;
+            }
+            "fit-content" => continue,
+            "medium" => (true, 50.0),
+            w => match w.strip_suffix('%') {
+                Some(p) => (true, p.parse().ok()?),
+                None => (false, w.parse().ok()?),
+            },
+        };
+        if last.is_some_and(|(kind, before)| kind != share || height <= before) {
+            return Some(word);
+        }
+        last = Some((share, height));
+    }
+    None
 }
 
 include!(concat!(env!("OUT_DIR"), "/vocab.rs"));

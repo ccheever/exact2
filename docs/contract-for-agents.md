@@ -1759,9 +1759,13 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   React Native's `sheetAllowedDetents: [0.45]`; above 0% and at most 100%) or
   `fit-content` (the route's content height; a menu or
   a short dialog), which goes alone or as `"fit-content large"`. Write a share of
-  the screen as a percentage, never points computed from a measure. A literal with
-  another word is refused; a bound one iOS cannot use is journaled (`logs`) with
-  the route, and the sheet keeps its other detents or opens `large`. `fit-content` measures the route laid out alone, its
+  the screen as a percentage, never points computed from a measure. Heights go
+  shortest to tallest on every screen, as UIKit takes them: before `large`, which
+  goes last, use one kind (points, or percentages with `medium` as half), each
+  taller than the one before; `"300 45%"` crosses on a small screen. A literal with
+  another word or order is refused; a bound one iOS cannot use is journaled (`logs`)
+  with the route, and the sheet keeps its other detents or opens `large`.
+  `fit-content` measures the route laid out alone, its
   height left to its children, so nothing sized from the sheet counts; on iOS every
   viewport unit (`vw`, `vh`, `vmin`, `vmax`, and kin) is the window's in every sheet, never the
   sheet's, so `min-height: 100vh` opens the sheet at its maximum; a route

@@ -27,9 +27,10 @@ final class ModalDetentIOSTests: XCTestCase {
     }
 
     func testTheWordsBecomeDetentsInOrder() {
-        let detents = ModalHost.detents("fit-content 300 large nonsense") { 120 }
-        XCTAssertEqual(detents.map(\.identifier.rawValue), ["fit-content-0", "authored-1", UISheetPresentationController.Detent.Identifier.large.rawValue])
-        XCTAssertEqual(detents[1].resolvedValue(in: Context(700)), 300)
+        let detents = ModalHost.detents("300 500 large nonsense") { 120 }
+        XCTAssertEqual(detents.map(\.identifier.rawValue), ["authored-0", "authored-1", UISheetPresentationController.Detent.Identifier.large.rawValue])
+        XCTAssertEqual(detents[0].resolvedValue(in: Context(700)), 300)
+        XCTAssertEqual(ModalHost.detents("fit-content large") { 120 }.map(\.identifier.rawValue), ["fit-content-0", UISheetPresentationController.Detent.Identifier.large.rawValue])
         XCTAssertTrue(ModalHost.detents(nil) { nil }.isEmpty)
     }
 
@@ -48,12 +49,41 @@ final class ModalDetentIOSTests: XCTestCase {
     /// line names the value, the route and what the sheet uses.
     func testWordsThatNameNoDetentAreRefusedAloud() {
         var refused: [Substring] = []
-        let detents = ModalHost.detents("0 -4 NaN nan inf 0% 150% x% 300 large", refused: { refused.append($0) }) { nil }
+        let detents = ModalHost.detents("0 -4 NaN nan inf 0% 150% x% 300 large", refused: { word, reason in
+            XCTAssertEqual(reason, .unknown)
+            refused.append(word)
+        }) { nil }
         XCTAssertEqual(refused, ["0", "-4", "NaN", "nan", "inf", "0%", "150%", "x%"])
         XCTAssertEqual(detents.count, 2)
         XCTAssertEqual(
-            ModalHost.refusal(detent: "-12", words: ["-12"], route: "3", kept: false),
+            ModalHost.refusal(detent: "-12", words: [("-12", .unknown)], route: "3", kept: false),
             "navigationDetent \"-12\" on route \"3\": \"-12\" is not large, medium, fit-content, a positive point height or a percentage above 0% and at most 100%; the sheet uses the platform's large detent")
+    }
+
+    /// LLP 1075.003 §9.13: UIKit takes detents shortest to tallest. "300 45%"
+    /// is in order on an 800-point maximum (300, 360) and not on a 600 one
+    /// (300, 270), so what a bound value keeps is one kind, ascending, with
+    /// `large` last, which is in order on any screen; the rest is journaled.
+    func testWhatIsKeptAscendsOnEveryScreen() {
+        var refused: [(Substring, ModalHost.DetentRefusal)] = []
+        let refuse = { (word: Substring, reason: ModalHost.DetentRefusal) in refused.append((word, reason)) }
+        let large = UISheetPresentationController.Detent.Identifier.large.rawValue
+        let kept = ModalHost.detents("300 45% large", refused: refuse) { nil }
+        XCTAssertEqual(kept.map(\.identifier.rawValue), ["authored-0", large])
+        for value in ["medium 300", "500 300", "60% medium", "fit-content 300", "large medium", "large large"] {
+            refused = []
+            XCTAssertEqual(ModalHost.detents(value, refused: refuse) { 120 }.count, 1, value)
+            XCTAssertEqual(refused.map { "\($0.0)" }, [String(value.split(separator: " ")[1])], value)
+            XCTAssertTrue(refused.allSatisfy { $0.1 == .order }, value)
+        }
+        let shares = ModalHost.detents("30% medium 80% large") { nil }
+        for maximum: CGFloat in [500, 600, 800] {
+            let custom = [shares[0], shares[2]].compactMap { $0.resolvedValue(in: Context(maximum)) }
+            XCTAssertEqual(custom, custom.sorted(), "at \(maximum)")
+        }
+        XCTAssertTrue(
+            ModalHost.refusal(detent: "300 45%", words: [("45%", .order)], route: "3", kept: true)
+                .hasSuffix("\"45%\" is not taller than the detent before it on every screen (UIKit takes them shortest to tallest; a point height, a share of the maximum and the content's height do not mix, and large goes last); the sheet uses its other detents"))
     }
 
     func testFitContentIsTheContentHeightWithinTheMaximum() {

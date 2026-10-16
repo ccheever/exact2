@@ -1109,6 +1109,13 @@ pub(crate) fn check_prop_value(
                     span,
                 );
             }
+            if let Some(word) = vocab::detent_out_of_order(&words) {
+                return err(
+                    "lower-attr-value",
+                    format!("`navigationDetent`'s heights go from shortest to tallest on every screen, as UIKit takes them; a point height and a share of the screen (`medium`, half, or a percentage) cross on some screen, so use one kind, each taller than the one before, with `large` last; given \"{word}\" in \"{s}\""),
+                    span,
+                );
+            }
         }
     }
     // @ref LLP 1116.004 D1.2, LLP 1116.006 D2 — a stack's split on a wide window: off, or the list column's
