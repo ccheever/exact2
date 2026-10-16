@@ -41,11 +41,13 @@ answer given now; `exact-js` stages them on the runner's `Store` by the
 resource that owns each socket; the runner addresses them to that
 resource's open stream ticket (`SocketSend`, in the commit's checkpoint);
 after the commit the bridge lets go of released tickets, then the executor
-checks each batch whole (open, wanted, 1 MiB with the transport's buffer)
-and sends it in order. The reader delivers `open`, every frame in order
+checks each batch whole (open, wanted, 1 MiB and 256 frames with the
+transport's buffer) and sends it in order. The reader delivers `open`, every frame in order
 (text and binary, never coalesced, 256 frames and 1 MiB queued), and a
-`Closed` end with code, reason and `wasClean`. Release and retirement close
-with 1000. `state.streams` shows `readyState`, `bufferedAmount` and `sent`;
+`Closed` end with code, reason and `wasClean`. Release closes with 1000,
+then aborts 250 ms later. The frame count comes from a local ibex2 patch,
+`MessageSender::buffered_messages`, recorded in `vendor/ibex/EXACT-PATCHES.md`
+for expo/ibex. `state.streams` shows `readyState`, `bufferedAmount` and `sent`;
 `logs` show `socket send: N bytes (feed)`, `socket close`, and refusals.
 LLP 1016.000 D7 "As built" declares where the native hosts differ from the
 web JS target (the handle's `bufferedAmount` reads 0; the buffer check is at
@@ -73,6 +75,9 @@ What remains:
   frames, binary, `Closed` and the mutation flag in `module-glue.js`, and
   the op-14 door there.
 - Rust sources: no handle or send operation.
+- A caller's abort signal makes the native handle stale but does not end
+  the stream or map `Aborted`, as the web JS target does.
+- Upstream the `buffered_messages` patch to expo/ibex.
 - Worker-placed TypeScript streams.
 - A Chrome-oracle conformance case across hosts (text and binary both
   ways, order, close code and reason, `bufferedAmount` back to 0), and an

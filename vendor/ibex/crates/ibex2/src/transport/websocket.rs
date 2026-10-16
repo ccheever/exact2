@@ -1007,6 +1007,13 @@ impl MessageSender for TcpSender {
     fn buffered_amount(&self) -> usize {
         self.buffered.load(Ordering::Acquire)
     }
+
+    fn buffered_messages(&self) -> usize {
+        self.state
+            .lock()
+            .expect("WebSocket sender poisoned")
+            .queued_messages
+    }
 }
 
 fn saturating_add(amount: &AtomicUsize, bytes: usize) {

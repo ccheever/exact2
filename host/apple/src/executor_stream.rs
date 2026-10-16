@@ -27,7 +27,7 @@ enum Opened {
     Events(StreamingResponse, usize),
     Socket(Box<dyn MessageSource>),
 }
-pub(super) use socket::{close as close_sockets, Socket};
+pub(super) use socket::{close as close_sockets, release, Socket};
 
 /// A WebSocket's URL (the scheme is the whole spelling: LLP 1069.004).
 pub(super) fn is_socket(url: &str) -> bool {

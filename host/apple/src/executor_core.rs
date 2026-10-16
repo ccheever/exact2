@@ -624,7 +624,7 @@ impl Core {
     /// None of it holds a later ordered completion back, and each releases
     /// its count and bytes when it ends.
     pub(super) fn forget(&self, held: impl Fn(u64) -> bool) {
-        let (mut aborts, mut released) = (Vec::new(), Vec::new());
+        let mut aborts = Vec::new();
         let mut cancels = Vec::new();
         {
             let mut guard = self.shared.state.lock().unwrap();
@@ -672,8 +672,8 @@ impl Core {
             for run in &mut state.running {
                 if !run.forgotten && !held(run.ticket) {
                     run.forgotten = true;
-                    aborts.extend(run.abort.clone());
-                    released.extend(run.stream.then_some(run.ticket));
+                    let stream = run.stream.then_some(run.ticket);
+                    aborts.extend(run.abort.clone().map(|abort| (stream, abort)));
                     // On the machine, cancelling a safe read claims it now.
                     if self.machine.is_some() && asynch::cancel(run) {
                         cancels.push((run.lane, (run.ticket, run.generation)));
@@ -713,10 +713,7 @@ impl Core {
                 machine.cancelled(lane, run);
             }
         }
-        stream::close_sockets(&self.shared, Some(&released));
-        for abort in aborts {
-            abort.abort();
-        }
+        stream::release(&self.shared, aborts);
     }
 
     pub(super) fn ordered_idle(&self) -> bool {
@@ -836,7 +833,7 @@ impl Core {
         if let Some(machine) = &self.machine {
             machine.retire();
         }
-        stream::close_sockets(&self.shared, None);
+        let _ = stream::close_sockets(&self.shared, None);
         self.shared.abort.abort();
         // Never join arbitrary native work on the UI thread. Its WorkerSlot
         // remains charged until return, including across repeated replacement.
