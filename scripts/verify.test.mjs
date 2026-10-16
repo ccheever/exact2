@@ -660,3 +660,26 @@ test.skipIf(!!chromium().unavailable)('verify on a new app: clean, a failing tes
     assert.match(poked.lines.at(-1), /^verify: 1 problem \(1 finding; the tests passed\) in /);
   } finally { rmSync(parent, { recursive: true, force: true }); }
 }, 300_000); // A new app's offline Cargo resolution and its first web build, then four runs.
+
+// The euxy port (friction item 12): a faithful port's palette and keys are its design. app.json `verify.accept` names a
+// finding by its kind and its node's testId (or its control's, for a label; `*` a prefix), and verify says those apart.
+test('accepted findings: matched by kind and testId, said once as accepted, never counted; an entry that took nothing is named', async () => {
+  const { accepts } = await import('./agent-check.mjs');
+  const nodes = new Map([[234, { id: 234, props: { testId: 'mute-0' } }], [236, { id: 236, props: {} }], [300, { id: 300, props: { testId: 'pattern' } }]]);
+  const entries = [{ finding: 'contrast', node: 'mute-*', why: "the original's dim letters" }, { finding: 'target', node: 'pattern', why: 'the reference trigger' }];
+  assert.equal(accepts(entries, { kind: 'contrast', id: 236, of: 234 }, nodes), entries[0], "a label, by its control's testId");
+  assert.equal(accepts(entries, { kind: 'target', id: 234 }, nodes), undefined, 'another kind on that node is still a finding');
+  assert.equal(accepts(entries, { kind: 'target', id: 300 }, nodes), entries[1]);
+  assert.equal(accepts(entries, { kind: 'target', id: 236 }, nodes), undefined, 'a node with no testId is never accepted');
+  const line = (x) => `  contrast mute-0's label "M" [${x},127 13×18]: 1.8:1 (#b4b4ba on #f6f4f4), needs 4.5:1; accepted: the original's dim letters`;
+  const checks = runs(() => []).map((r) => ({ ...r, accepted: [{ line: line(r.size[0] - 73), accept: entries[0] }] }));
+  const r = report({ host: 'ios', built: null, tested: { passed: 1, failed: 0, results: [] }, checks, shots: [], accept: [...entries, { finding: 'clipped', node: 'gone', why: 'x' }], ms: 1000 });
+  assert.deepEqual(r.lines.slice(1, 6), [
+    'check first screen · 390x844, 1280x900 · light, dark: no findings',
+    'accepted (app.json verify.accept, not counted): 1 finding',
+    line(317),
+    '  accepts nothing: target pattern (no such finding in this run)',
+    '  accepts nothing: clipped gone (no such finding in this run)',
+  ]);
+  assert.equal(r.lines.at(-1), 'verify: clean in 1.0 s');
+});
