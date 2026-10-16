@@ -4,6 +4,51 @@
 import { randomBytes } from 'node:crypto';
 import { resolve } from 'node:path';
 
+/** Independent of the app and its state. A host sets `malformed: true` on its JSON reply; `reply()` raises this error from that flag. */
+export class MalformedOperation extends Error {
+  malformed = true;
+  static reply(reply) {
+    if (reply?.malformed === true && reply.error != null) throw Object.assign(new MalformedOperation(reply.error), { reply });
+    return reply;
+  }
+}
+
+export async function operationReply(carrier, req) {
+  let reply;
+  try { reply = MalformedOperation.reply(await carrier.ask(req)); }
+  catch (error) {
+    if (error instanceof MalformedOperation) error.message = `${req.op}: ${error.message}`;
+    throw error;
+  }
+  if (reply.error) throw Object.assign(new Error(`${req.op}: ${reply.error}`), { reply });
+  return reply;
+}
+
+export function pinchArguments(scale) {
+  if (!(scale > 0 && Number.isFinite(scale))) throw new MalformedOperation('pinch: expected a positive finite scale');
+}
+
+export function inputJSON(text) {
+  try { return JSON.parse(text); } catch (e) { throw new MalformedOperation(e.message); }
+}
+
+export function keyArguments(opts) {
+  if (opts.phase != null && !['down', 'up'].includes(opts.phase)) throw new MalformedOperation(`key: not a phase: ${opts.phase}`);
+  if (opts.for !== undefined && (opts.key == null || opts.phase != null || !Number.isFinite(opts.for) || opts.for < 0)) throw new MalformedOperation('type for: expected a key and a nonnegative finite duration, without phase');
+}
+
+export function pointerArguments(phase, opts) {
+  if (!['move', 'hold', 'up', 'cancel'].includes(phase)) throw new MalformedOperation(`pointer: not a phase: ${phase} (move, hold, up, cancel)`);
+  if (['x', 'y', 'dx', 'dy'].some(k => opts[k] !== undefined && !Number.isFinite(opts[k]))) throw new MalformedOperation('pointer: expected finite coordinates');
+  if (opts.ms !== undefined && (!Number.isFinite(opts.ms) || opts.ms < 0)) throw new MalformedOperation('pointer: expected a nonnegative finite duration');
+}
+
+export function resizeArguments(size) {
+  const m = /^(\d+)x(\d+)$/.exec(size);
+  if (!m) throw new MalformedOperation('resize <w>x<h>, as resize 800x600');
+  return [Number(m[1]), Number(m[2])];
+}
+
 const modifierBits = { Alt: 1, Control: 2, Meta: 4, Shift: 8 };
 const modifierOf = code => /^(Alt|Control|Meta|Shift)(Left|Right)$/.exec(code)?.[1];
 
@@ -44,6 +89,7 @@ const PUNCTUATION = { '-': 'Minus', '_': 'Minus', '=': 'Equal', '+': 'Equal', '[
   ',': 'Comma', '<': 'Comma', '.': 'Period', '>': 'Period', '/': 'Slash', '?': 'Slash',
   '!': 'Digit1', '@': 'Digit2', '#': 'Digit3', '$': 'Digit4', '%': 'Digit5', '^': 'Digit6', '&': 'Digit7', '*': 'Digit8', '(': 'Digit9', ')': 'Digit0' };
 export function cdpKey(chord) {
+  if (typeof chord !== 'string') throw new MalformedOperation(`key: expected a key name, not ${chord}`);
   const held = new Set();
   let code = chord, key, vk, location = 0;
   for (let m; (m = /^(Shift|Control|Alt|Meta)\+(.+)$/.exec(code)); code = m[2]) held.add(m[1]);
@@ -64,7 +110,7 @@ export function cdpKey(chord) {
   else if (code.length === 1 && code !== ' ') { key = code; vk = 0; code = PUNCTUATION[code] ?? ''; }
   else {
     const special = { ArrowUp: ['ArrowUp', 38], ArrowDown: ['ArrowDown', 40], ArrowLeft: ['ArrowLeft', 37], ArrowRight: ['ArrowRight', 39], Space: [' ', 32], ' ': [' ', 32], Enter: ['Enter', 13], Escape: ['Escape', 27], ContextMenu: ['ContextMenu', 93], Tab: ['Tab', 9], Backspace: ['Backspace', 8], Delete: ['Delete', 46], Home: ['Home', 36], End: ['End', 35], PageUp: ['PageUp', 33], PageDown: ['PageDown', 34] }[code];
-    if (!special) throw new Error(`key: unsupported key ${code}`);
+    if (!Array.isArray(special)) throw new MalformedOperation(`key: unsupported key ${code}`);
     [key, vk] = special;
     if (code === ' ') code = 'Space';
   }
@@ -72,6 +118,19 @@ export function cdpKey(chord) {
   const modifiers = (held.has('Alt') ? 1 : 0) | (held.has('Control') ? 2 : 0) | (held.has('Meta') ? 4 : 0) | (held.has('Shift') ? 8 : 0);
   const text = held.has('Control') || held.has('Meta') ? undefined : key === 'Enter' ? '\r' : key.length === 1 ? key : undefined;
   return { code, key, vk, modifiers, text, location };
+}
+
+/** Validate before resolving a target, using the selected carrier's key vocabulary. */
+export async function validateKey(key, { host, browser }) {
+  const chord = String(key);
+  // A native host parses the name itself and labels an unknown one in its reply; its vocabulary is its own.
+  if (host !== 'web') return;
+  if (!browser || browser === 'chrome') cdpKey(chord);
+  else {
+    const { chordKeys } = await import('./agent-playwright.mjs');
+    try { chordKeys(chord); }
+    catch (error) { if (error.malformed === true) throw error; } // Known keys unavailable to this carrier are refused later, when the key is sent.
+  }
 }
 
 /** A chord's modifiers in the order it names them (`Shift+Control+x` is
@@ -171,7 +230,7 @@ export async function deliverClipboard({ id, opts, evaluate, ask, call, keyDown,
 
 /** Browser-owned key release carries device identity, never a canvas lookup. */
 export async function browserKey({id, opts, evaluate, ask, call, frame}) {
-  if (opts.phase != null && !['down', 'up'].includes(opts.phase)) throw new Error(`key: not a phase: ${opts.phase}`);
+  keyArguments(opts);
   const { code, key, vk, modifiers, text, location } = cdpKey(opts.key), mods = chordModifiers(opts.key);
   const isWorld = await evaluate(`exact.gpu?.wantsInput(${id}) ?? false`);
   const f = isWorld ? await ask({ op: 'focus', id, world: true }) : await evaluate(`(() => { const el = exact.views.get(${id}); el?.focus(); return {ok:document.activeElement === el}; })()`);
@@ -207,6 +266,7 @@ export async function browserKey({id, opts, evaluate, ask, call, frame}) {
 
 /** Native key carrier shared by stdio, phone and simulator. */
 export async function nativeKey({id, opts, ask}) {
+  keyArguments(opts);
   const releaseKey = opts.phase === 'down' && opts.ownedRelease ? randomBytes(16).toString('hex') : undefined;
   const {ownedRelease, ...input} = opts;
   const release = async () => {
@@ -230,6 +290,7 @@ const repeats = key => !/^(Shift|Control|Alt|Meta)(Left|Right)?$/.test(String(ke
 /** Held-key form: one resolved carrier, including release after a failed clock. While held, the key
  * repeats on the virtual clock ([`KEY_REPEAT`]): each repeat a keydown whose `repeat` is true. */
 export async function typeFor({node, target, options, carrier, clock, tagged, delivery, host, timing}) {
+  keyArguments(options);
   const {for: duration, ...held} = options, key = String(held.key), steps = [];
   let release;
   const send = async (phase, repeat = false) => {
@@ -305,7 +366,8 @@ export function mouseContact() {
  * `tap probe auxclick` was sent as a left click). `drag` and a held request's `tap @N` are the caller's. */
 export function tapWords(args, held = false) {
   const [first, form, ...rest] = args;
-  const refuse = (why) => { throw new Error(`tap ${args.join(' ')}: ${why}`); };
+  const refuse = (why) => { throw new MalformedOperation(`tap${args.length ? ' ' + args.join(' ') : ''}: ${why}`); };
+  if (first == null) refuse('needs a target');
   const number = (word, what) => {
     const n = Number(word);
     if (word === undefined || word === '' || !Number.isFinite(n)) refuse(`${what} takes a number, not ${word === undefined ? 'nothing' : JSON.stringify(word)}`);
@@ -340,7 +402,7 @@ export function tapWords(args, held = false) {
   if (held && first === 'up') return [null, { phase: 'up', ...options(args.slice(1), ['modifiers']) }];
   if (held && first === 'cancel') return [null, { phase: 'cancel', ...options(args.slice(1), []) }];
   if (form === undefined) return [first, {}];
-  if (form.startsWith('{')) return [first, JSON.parse(args.slice(1).join(' '))];
+  if (form.startsWith('{')) { try { return [first, JSON.parse(args.slice(1).join(' '))]; } catch (e) { refuse(e.message); } }
   switch (form) {
     // A click with modifiers held (gallery F20): `tap <target> modifiers Shift+Meta`.
     case 'modifiers': return [first, options(args.slice(1), ['modifiers'])];
@@ -399,8 +461,8 @@ export function pointerGap(host, browser, opts) {
 export function typeCommand(line) {
   const body = String(line).trim().replace(/^type(?:\s+|$)/, '');
   const matched = /^(?:"((?:[^"\\]|\\.)*)"|(\S+))(?:\s+([\s\S]*))?$/.exec(body);
-  if (!matched) throw new Error('type needs a target');
-  const target = matched[1] != null ? JSON.parse(`"${matched[1]}"`) : matched[2];
+  if (!matched) throw new MalformedOperation('type needs a target');
+  const target = matched[1] != null ? inputJSON(`"${matched[1]}"`) : matched[2];
   const rest = matched[3] ?? '';
   const head = /^\S+/.exec(rest)?.[0];
   // A paste's text is a tail as typed text is: its newlines are the clipboard's.
@@ -425,7 +487,7 @@ export function typeArguments(args) {
   if (args[1] === 'paste' && args.length > 2) return [args[0], {clipboard:'paste', text:args.slice(2).join(' ')}];
   if (args[1] !== 'key' || !args[2]) return [args[0], args.slice(1).join(' ')];
   if (args[3] === 'for') {
-    if (args.length !== 5) throw new Error('type key for: expected one duration');
+    if (args.length !== 5) throw new MalformedOperation('type key for: expected one duration');
     return [args[0], {key:args[2], for:Number(args[4])}];
   }
   return [args[0], {key:args[2], ...(args[3] != null ? {phase:args[3]} : {})}];

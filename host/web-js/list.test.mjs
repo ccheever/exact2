@@ -79,6 +79,32 @@ test('a scroll event saves a row and an explicit restore survives remount and ne
   expect(result.status).toBe('done');
 }, 60_000);
 
+test('agent alignments are malformed with or without a view; authored refusals stay journaled', async () => {
+  const result = await evaluate(`(async () => {
+    const port = document.createElement('div'); port.id = 'alignment-feed';
+    port.style.cssText = 'height:200px;width:200px;overflow:auto';
+    document.getElementById('exact-root').append(port);
+    const own = rt.scope(() => list.vl(port, () => [0], i => i(), (w, i) => {
+      const row = document.createElement('div'); row.textContent = String(i()); row.style.height = '50px'; w.append(row);
+    }, {est:50, pw:[], ph:[200]}));
+    await exact.lists.pending(); await exact.lists.settle();
+    const errors = [];
+    for (const view of [port.$list.view, null, undefined]) for (const [block, inline] of [['banana', 'nearest'], ['start', 'banana']]) {
+      try { exact.lists.into(view, '0', block, inline); errors.push(null); }
+      catch (e) { errors.push({message:e.message, malformed:e.malformed}); }
+    }
+    rt.Hosts.scrollIntoView('alignment-feed', 0, 'banana', 'nearest', 'instant', null, null);
+    const authored = exact.lists.intoView().at(-1);
+    exact.lists.into(-1, '0', 'start', 'nearest');
+    const missing = exact.lists.intoView().at(-1);
+    rt.end(own); port.remove(); rt.settled();
+    return {errors, authored, missing};
+  })()`);
+  expect(result.errors).toEqual(Array.from({length:6}, () => ({ message:'no alignment banana: start, center, end or nearest', malformed:true })));
+  expect(result.authored).toEqual({list:'alignment-feed', status:'refused: no alignment banana'});
+  expect(result.missing).toEqual({list:'#-1', status:'refused: view -1 is not a mounted virtualized list'});
+}, 60_000);
+
 test('element jumps use Chrome scroll padding and margins and settle once', async () => {
   const result = await evaluate(`(async () => {
     const root = document.getElementById('exact-root');

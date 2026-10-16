@@ -554,7 +554,7 @@ graph needs, resolves with the SDK lock's versions first and prints what changed
 (`--update-lock` resolves offline from the cache alone); commit and review that lock.
 When exact2 moves under a captured lock, a build refuses it by name ("exact2 moved since
 this game's Cargo.lock was captured (added: …; updated: …)") and `lock` refreshes it;
-`bun exact.mjs update` says so too, and generating `.shells/` alone warns. SDK
+`bun exact.mjs update` says so too, and generating `.shells/` alone (`bun exact.mjs shells`) warns. SDK
 crates alone need no lock of the game's own. When the SDK's dependencies change,
 `bun game/app/shells.mjs --update-lock` refreshes the SDK lock, and
 `bun app/shells.mjs --test` refuses a stale one. The game workspace also carries

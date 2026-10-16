@@ -1,6 +1,7 @@
 // Firefox and WebKit carrier for scripts/agent.mjs. Chrome deliberately stays
 // in agent.mjs on its direct CDP pipe; importing Playwright is deferred until
 // one of these browsers is selected.
+import { MalformedOperation, keyArguments } from './agent-keys.mjs';
 import { spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
@@ -123,12 +124,12 @@ const keyName = (code) => {
   // Playwright's keyboard names F1–F12 only; Chrome's CDP and the native hosts press F13–F24.
   if (/^F(1[3-9]|2[0-4])$/.test(code)) throw new Error(`key: ${code} is not on Playwright's keyboard (F1–F12); Chrome, macOS, iOS and Linux press it`);
   const key = { Space: ' ', Enter: 'Enter', Escape: 'Escape', ContextMenu: 'ContextMenu', Tab: 'Tab', Backspace: 'Backspace', Delete: 'Delete', Home: 'Home', End: 'End', PageUp: 'PageUp', PageDown: 'PageDown', ArrowUp: 'ArrowUp', ArrowDown: 'ArrowDown', ArrowLeft: 'ArrowLeft', ArrowRight: 'ArrowRight', Shift: 'Shift', ShiftLeft: 'ShiftLeft', ShiftRight: 'ShiftRight', Control: 'Control', Alt: 'Alt', Meta: 'Meta' }[code];
-  if (!key) throw new Error(`key: unsupported key ${code}`);
+  if (typeof key !== 'string') throw new MalformedOperation(`key: unsupported key ${code}`);
   return key;
 };
 // A chord (`Shift+Enter`, `Meta+s`, `+`), Playwright's own syntax: the keys
 // to hold down in order, modifiers first.
-const chordKeys = (chord) => {
+export const chordKeys = (chord) => {
   const held = [];
   let rest = chord;
   for (let m; (m = /^(Shift|Control|Alt|Meta)\+(.+)$/.exec(rest)); rest = m[2]) held.push(m[1]);
@@ -280,17 +281,17 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
     }
     const frame = () => page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => r(true)))));
     const evaluate = expression => page.evaluate(expression);
-    const ask = async req => {
+    const rawAsk = async req => {
       if (req.op === 'tap' && req.resize !== undefined) {
         const pair = req.resize;
         if (Object.keys(req).some(k => !['op', 'resize'].includes(k)) || !Array.isArray(pair) || pair.length !== 2
-          || !pair.every(n => Number.isInteger(n) && n >= 64 && n <= 4096) || pair[0] * pair[1] > 8388608) return { error: 'tap resize needs exactly two integer dimensions in 64...4096, area <= 8388608, and no other input fields' };
+          || !pair.every(n => Number.isInteger(n) && n >= 64 && n <= 4096) || pair[0] * pair[1] > 8388608) return { malformed: true, error: 'tap resize needs exactly two integer dimensions in 64...4096, area <= 8388608, and no other input fields' };
         await page.setViewportSize({ width: pair[0], height: pair[1] }); await frame();
         return { resized: pair, viewport: await page.evaluate(() => [innerWidth, innerHeight]), delivery: 'browser-viewport' };
       }
       // The tab closed with its `beforeunload` run (agent.mjs's Chrome carrier): a prevented one's dialog answered "Stay".
       if (req.op === 'tap' && req.close !== undefined) {
-        if (Object.keys(req).some(k => !['op', 'close'].includes(k)) || req.close !== true) return { error: 'tap close takes no other input fields' };
+        if (Object.keys(req).some(k => !['op', 'close'].includes(k)) || req.close !== true) return { malformed: true, error: 'tap close takes no other input fields' };
         const asked = new Promise(ok => page.once('dialog', ok)), gone = new Promise(ok => page.once('close', () => ok(null)));
         await page.close({ runBeforeUnload: true });
         const dialog = await Promise.race([asked, gone, new Promise(ok => setTimeout(() => ok(undefined), 5000))]);
@@ -303,6 +304,7 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
       if (req.op === 'clock' && await page.evaluate(() => typeof ImageDecoder === 'undefined' && [...document.images].some(i => /\.(gif|webp)(?:[?#]|$)/i.test(i.currentSrc || i.src)))) throw new Error(`${name} clock refuses: this engine has no ImageDecoder, so an animated GIF/WebP would run on wall time`);
       return JSON.parse(await page.evaluate(req => globalThis.exact.agentSettled(req).then(JSON.stringify), req));
     };
+    const ask = req => rawAsk(req).then(MalformedOperation.reply);
     const heldKeys = new Map();
     const emulated = { 'prefers-color-scheme': 'light', 'prefers-reduced-motion': 'no-preference', 'prefers-contrast': 'no-preference' };
     const focus = async (id, select = true) => {
@@ -316,7 +318,7 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
       return { ok: document.activeElement === el };
     }, view));
     const browserKey = async (id, opts, requireFocus) => {
-      if (opts.phase != null && !['down', 'up'].includes(opts.phase)) throw new Error(`key: not a phase: ${opts.phase}`);
+      keyArguments(opts);
       const isWorld = await page.evaluate(id => globalThis.exact.gpu?.wantsInput(id) ?? false, id);
       if (isWorld) { const r = await ask({ op: 'focus', id, world: true }); if (r.error || !r.ok) throw new Error(r.error ?? `view ${id} could not take focus`); }
       else await directFocus(id, requireFocus);
@@ -378,7 +380,7 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
         if (kind === 'history') { const reply = await ask({ op: 'tap', id, history: opts.history }); if (reply.error) throw new Error(reply.error); await frame(); return reply; }
         // @ref LLP 1098 D10 — the handler the browser would call, through the media glue's `act`, as the
         // Chrome carrier delivers it: no box is needed (an `audio` without controls has none).
-        if (kind === 'mediasession') { const r = await page.evaluate(([id, action, seconds]) => globalThis.exact?.mediaSession?.act(id, action, seconds) ?? { error: 'mediasession: this page publishes no media session (no media glue)' }, [id, opts.mediaSession, opts.seconds ?? null]); if (r.error) throw new Error(r.error); await frame(); return r; }
+        if (kind === 'mediasession') { const r = await page.evaluate(([id, action, seconds]) => globalThis.exact?.mediaSession?.act(id, action, seconds) ?? { error: 'mediasession: this page publishes no media session (no media glue)' }, [id, opts.mediaSession, opts.seconds ?? null]); MalformedOperation.reply(r); if (r.error) throw new Error(r.error); await frame(); return r; }
         const box = id == null ? null : (await ask({ op: 'layout' })).nodes.find(n => n.id === id);
         if (id != null && (!box || (box.w === 0 && box.h === 0))) throw new Error(`view ${id} has no box on screen`);
         const point = kind === 'contextmenu' || kind === 'press' ? opts.at : null;

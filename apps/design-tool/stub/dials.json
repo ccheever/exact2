@@ -1,7 +1,7 @@
 {
  "describe": {
   "files": {
-   "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+   "app.tamber": "dd0bceb9c25c9e73f62b8706b8fbd338a36a0b69d09c50b92a7b3b194f029d9c"
   },
   "ir": {
    "axes": [
@@ -504,19 +504,54 @@
     "surface.card": [],
     "surface.inset": [],
     "surface.page": [],
-    "text.primary": [],
+    "text.primary": [
+     [
+      "pair",
+      "surface.page"
+     ]
+    ],
     "text.system": [],
     "tone.base": [],
     "tone.deep": [],
     "tone.fine": [],
-    "tone.warm": []
+    "tone.warm": [
+     [
+      "pair",
+      "surface.page"
+     ]
+    ]
    }
-  }
+  },
+  "pairs": {
+   "text.primary": [
+    {
+     "fallback": null,
+     "name": "surface.page",
+     "token": true
+    }
+   ],
+   "tone.warm": [
+    {
+     "fallback": null,
+     "name": "surface.page",
+     "token": true
+    }
+   ]
+  },
+  "warnings": [
+   {
+    "col": 3,
+    "file": "app.tamber",
+    "id": "tamber-contrast",
+    "line": 32,
+    "message": "`tone.warm` on `surface.page` is 2.78:1 in light: below 4.5:1, WCAG's ratio for text"
+   }
+  ]
  },
  "resolve": {
   "-exact-label": {
    "files": {
-    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+    "app.tamber": "dd0bceb9c25c9e73f62b8706b8fbd338a36a0b69d09c50b92a7b3b194f029d9c"
    },
    "token": "-exact-label",
    "tuples": [
@@ -576,7 +611,7 @@
   },
   "accent.fill": {
    "files": {
-    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+    "app.tamber": "dd0bceb9c25c9e73f62b8706b8fbd338a36a0b69d09c50b92a7b3b194f029d9c"
    },
    "token": "accent.fill",
    "tuples": [
@@ -636,7 +671,7 @@
   },
   "accent.soft": {
    "files": {
-    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+    "app.tamber": "dd0bceb9c25c9e73f62b8706b8fbd338a36a0b69d09c50b92a7b3b194f029d9c"
    },
    "token": "accent.soft",
    "tuples": [
@@ -696,7 +731,7 @@
   },
   "ink.on-brand": {
    "files": {
-    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+    "app.tamber": "dd0bceb9c25c9e73f62b8706b8fbd338a36a0b69d09c50b92a7b3b194f029d9c"
    },
    "token": "ink.on-brand",
    "tuples": [
@@ -756,7 +791,7 @@
   },
   "paint.pick": {
    "files": {
-    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+    "app.tamber": "dd0bceb9c25c9e73f62b8706b8fbd338a36a0b69d09c50b92a7b3b194f029d9c"
    },
    "token": "paint.pick",
    "tuples": [
@@ -816,7 +851,7 @@
   },
   "surface.card": {
    "files": {
-    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+    "app.tamber": "dd0bceb9c25c9e73f62b8706b8fbd338a36a0b69d09c50b92a7b3b194f029d9c"
    },
    "token": "surface.card",
    "tuples": [
@@ -876,7 +911,7 @@
   },
   "surface.inset": {
    "files": {
-    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+    "app.tamber": "dd0bceb9c25c9e73f62b8706b8fbd338a36a0b69d09c50b92a7b3b194f029d9c"
    },
    "token": "surface.inset",
    "tuples": [
@@ -936,7 +971,7 @@
   },
   "surface.page": {
    "files": {
-    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+    "app.tamber": "dd0bceb9c25c9e73f62b8706b8fbd338a36a0b69d09c50b92a7b3b194f029d9c"
    },
    "token": "surface.page",
    "tuples": [
@@ -996,7 +1031,7 @@
   },
   "text.primary": {
    "files": {
-    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+    "app.tamber": "dd0bceb9c25c9e73f62b8706b8fbd338a36a0b69d09c50b92a7b3b194f029d9c"
    },
    "token": "text.primary",
    "tuples": [
@@ -1056,7 +1091,7 @@
   },
   "text.system": {
    "files": {
-    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+    "app.tamber": "dd0bceb9c25c9e73f62b8706b8fbd338a36a0b69d09c50b92a7b3b194f029d9c"
    },
    "token": "text.system",
    "tuples": [
@@ -1112,7 +1147,7 @@
   },
   "tone.base": {
    "files": {
-    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+    "app.tamber": "dd0bceb9c25c9e73f62b8706b8fbd338a36a0b69d09c50b92a7b3b194f029d9c"
    },
    "token": "tone.base",
    "tuples": [
@@ -1172,7 +1207,7 @@
   },
   "tone.deep": {
    "files": {
-    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+    "app.tamber": "dd0bceb9c25c9e73f62b8706b8fbd338a36a0b69d09c50b92a7b3b194f029d9c"
    },
    "token": "tone.deep",
    "tuples": [
@@ -1232,7 +1267,7 @@
   },
   "tone.fine": {
    "files": {
-    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+    "app.tamber": "dd0bceb9c25c9e73f62b8706b8fbd338a36a0b69d09c50b92a7b3b194f029d9c"
    },
    "token": "tone.fine",
    "tuples": [
@@ -1292,7 +1327,7 @@
   },
   "tone.warm": {
    "files": {
-    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+    "app.tamber": "dd0bceb9c25c9e73f62b8706b8fbd338a36a0b69d09c50b92a7b3b194f029d9c"
    },
    "token": "tone.warm",
    "tuples": [
@@ -1355,7 +1390,7 @@
   "-exact-label": {
    "dials": [],
    "files": {
-    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+    "app.tamber": "dd0bceb9c25c9e73f62b8706b8fbd338a36a0b69d09c50b92a7b3b194f029d9c"
    },
    "names": [
     "text.primary"
@@ -1369,7 +1404,7 @@
     "accent"
    ],
    "files": {
-    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+    "app.tamber": "dd0bceb9c25c9e73f62b8706b8fbd338a36a0b69d09c50b92a7b3b194f029d9c"
    },
    "names": [],
    "token": "accent.fill",
@@ -1382,7 +1417,7 @@
     "lift"
    ],
    "files": {
-    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+    "app.tamber": "dd0bceb9c25c9e73f62b8706b8fbd338a36a0b69d09c50b92a7b3b194f029d9c"
    },
    "names": [],
    "token": "accent.soft",
@@ -1392,7 +1427,7 @@
   "ink.on-brand": {
    "dials": [],
    "files": {
-    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+    "app.tamber": "dd0bceb9c25c9e73f62b8706b8fbd338a36a0b69d09c50b92a7b3b194f029d9c"
    },
    "names": [],
    "token": "ink.on-brand",
@@ -1404,7 +1439,7 @@
     "paint"
    ],
    "files": {
-    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+    "app.tamber": "dd0bceb9c25c9e73f62b8706b8fbd338a36a0b69d09c50b92a7b3b194f029d9c"
    },
    "names": [],
    "token": "paint.pick",
@@ -1414,7 +1449,7 @@
   "surface.card": {
    "dials": [],
    "files": {
-    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+    "app.tamber": "dd0bceb9c25c9e73f62b8706b8fbd338a36a0b69d09c50b92a7b3b194f029d9c"
    },
    "names": [],
    "token": "surface.card",
@@ -1434,7 +1469,7 @@
   "surface.inset": {
    "dials": [],
    "files": {
-    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+    "app.tamber": "dd0bceb9c25c9e73f62b8706b8fbd338a36a0b69d09c50b92a7b3b194f029d9c"
    },
    "names": [],
    "token": "surface.inset",
@@ -1454,7 +1489,7 @@
   "surface.page": {
    "dials": [],
    "files": {
-    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+    "app.tamber": "dd0bceb9c25c9e73f62b8706b8fbd338a36a0b69d09c50b92a7b3b194f029d9c"
    },
    "names": [],
    "token": "surface.page",
@@ -1474,7 +1509,7 @@
   "text.primary": {
    "dials": [],
    "files": {
-    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+    "app.tamber": "dd0bceb9c25c9e73f62b8706b8fbd338a36a0b69d09c50b92a7b3b194f029d9c"
    },
    "names": [],
    "token": "text.primary",
@@ -1484,7 +1519,7 @@
   "text.system": {
    "dials": [],
    "files": {
-    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+    "app.tamber": "dd0bceb9c25c9e73f62b8706b8fbd338a36a0b69d09c50b92a7b3b194f029d9c"
    },
    "names": [],
    "token": "text.system",
@@ -1497,7 +1532,7 @@
     "hue"
    ],
    "files": {
-    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+    "app.tamber": "dd0bceb9c25c9e73f62b8706b8fbd338a36a0b69d09c50b92a7b3b194f029d9c"
    },
    "names": [],
    "token": "tone.base",
@@ -1510,7 +1545,7 @@
     "shade"
    ],
    "files": {
-    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+    "app.tamber": "dd0bceb9c25c9e73f62b8706b8fbd338a36a0b69d09c50b92a7b3b194f029d9c"
    },
    "names": [],
    "token": "tone.deep",
@@ -1522,7 +1557,7 @@
     "fine"
    ],
    "files": {
-    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+    "app.tamber": "dd0bceb9c25c9e73f62b8706b8fbd338a36a0b69d09c50b92a7b3b194f029d9c"
    },
    "names": [],
    "token": "tone.fine",
@@ -1534,7 +1569,7 @@
     "warmth"
    ],
    "files": {
-    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+    "app.tamber": "dd0bceb9c25c9e73f62b8706b8fbd338a36a0b69d09c50b92a7b3b194f029d9c"
    },
    "names": [],
    "token": "tone.warm",

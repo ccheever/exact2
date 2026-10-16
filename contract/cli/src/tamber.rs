@@ -126,6 +126,10 @@ pub fn run(args: &[String]) -> ExitCode {
     }
     match (verb, rest) {
         ("check", []) => {
+            // The author's information, never a refusal (LLP 1121 D3).
+            for w in &folding.warnings {
+                eprintln!("{}:{w}", path.display());
+            }
             let design = &folding.design;
             println!(
                 "{}: {} token{}, {} ax{} ({} tuple{}): checked",

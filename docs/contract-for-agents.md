@@ -1333,7 +1333,14 @@ from two to five (a preset, units, a period, a filter) is a `row role="radiogrou
 `button role="radio" aria-checked=…`, each pressing its value (the web gives it the
 arrow keys and one Tab stop); switching panels, a `row role="tablist"` of text tabs
 outside the header. iOS needs a swipe row's content exactly the scroll's size
-([pitfalls](agent-pitfalls.md), "There is no `swipeleft`").
+([pitfalls](agent-pitfalls.md), "There is no `swipeleft`"). Its swipe actions
+are UIKit's, drawn by UIKit (rounded on iOS 26 and later) whatever the buttons
+paint; when every control the row names says `appearance="none"`, the paint is
+kept instead, in a grouped list too: the row swipes by its own scroll, as on
+the web, with one row open at a time (a native swipe row's opening closes it,
+and its drag closes a native one), a full swipe past half the row pressing the outermost action
+(a haptic as it arms), and each action a VoiceOver custom action of the row's
+content.
 
 An `image` source is the same string on every host: a path under the app's
 `assets/`, an `http(s)` URL, `symbol:<role>` (the roles are
@@ -1668,6 +1675,13 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   later neighbouring bar items share one glass capsule, as UIKit groups them;
   `buttonStyle="glass"` on a header button gives that item a capsule of its own
   (`sharesBackground = false`).
+- A header button is its bar item: a symbol is its image and a text its title, in
+  the bar's type, the platform's. A face that says more keeps what it says: a status
+  dot (a childless filled box) beside its label, or a label in a `font-family`,
+  `font-size` or `font-weight` of yours, is drawn as written, in its colours, as the
+  item's image inside the bar's capsule (a "● Clock" chip in 12-point monospace).
+  A filled box holding a text or symbol (an avatar, a badge) is drawn without the
+  capsule. Leave the font unsaid for an ordinary Edit or Done.
 - Each tab names its panel with `aria-controls`; the panels are the stacks, and every
   tab's stack stays mounted, so a pushed screen, a draft and a scroll offset survive
   a visit to another tab. A tab is `select(nav, name)`; selecting the shown tab
@@ -1730,6 +1744,10 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   `flex-shrink: 0`. The route does
   not pad `env(safe-area-inset-bottom)`: UIKit adds that band below the detent.
   iOS alone sizes a sheet (LLP 1075.003 §9.11).
+- A sheet's grabber is the platform's unless the route says `navigationGrabber`:
+  iOS draws one on a sheet with several detents, which it resizes, and none on a
+  sheet of one height; `"visible"` or `"hidden"` says otherwise (UIKit's
+  `prefersGrabberVisible`). Draw no grabber of your own.
 - Without tabs, the routes are the root's own children, laid out the same way.
 - Tests reach a tab by `tap`, or deliver a location as `type <root> "/saved"` (LLP
   1038 D11), which calls the root's `navigate`. `back`, an operation and a test
@@ -1940,6 +1958,34 @@ an action sheet on an iPhone (a popover on an iPad), a dialog a click outside
 closes on the web, a sheet a click on the window behind it closes on the Mac, a
 Material dialog a tap outside cancels on Android.
 `close("<id>")` from an action closes it as its Cancel does.
+
+A prompt (a rename's, `Alert.prompt`) is the alert with a text field: an
+`input` among its rows, which counts as its message when it has no `text`:
+
+```
+dialog id="rename" role="alertdialog" aria-label="Rename Pattern"
+  input value=draft input=editDraft placeholder="Name"
+  button commandfor="rename" command="close"
+    text "Cancel"
+  button press=rename disabled=(draft == "") commandfor="rename" command="close"
+    text "Save"
+```
+
+iOS shows `UIAlertController` with the field (`addTextField`), macOS `NSAlert`
+with it as the accessory view, the web the `dialog` with the field on a line of
+its own. The field is the authored `input`'s, going through its machinery: the
+input's value writes reach it (what is typed stands until the page writes the
+value), its `placeholder`, keyboard, `disabled`, `readonly`, `maxlength` and
+`beforeinput` are its, each keystroke is its `input` and the end of editing
+its `change`, so the action's `press` reads what was typed. Return is one
+rule on every host: the input's `key` handlers hear it first (and may prevent
+it); a field with a `submit` handler then commits and runs it, and that is
+all, as a hand-built field whose delegate handles Return; any other commits
+its edit and presses the first action that is not destructive (bold on iOS),
+whatever `buttonStyle` says; while that action is disabled Return does nothing, so a Save with `disabled=(draft == "")`
+opens dimmed and enables as a name is typed. Only the alert's shape takes
+one field at a time: with it, a cancel and at most three buttons, no `for`
+(`lower-alertdialog` says which row breaks it).
 
 A submenu is a row whose `popovertarget` names another menu popover (`Copy ▸
 path / link`): a submenu `NSMenuItem` on macOS, a nested `UIMenu` on iOS, and
@@ -2836,7 +2882,10 @@ rule: a role if the platform has one, a token if it is the brand. A token one
 colour in every scheme by design (white ink on a brand fill, a black ground
 under media) says so with `scheme=fixed` after its value (`white_100 = #ffffff
 scheme=fixed`), and `lower-colour-one-scheme` leaves it alone; an unmarked one
-is reported once, at its line in the design. Recipe:
+is reported once, at its line in the design. `pair=surface.page` after a
+foreground's value names what it is drawn on (a token or a role);
+`contract tamber check` warns when the two fall below 4.5:1 (`tamber-contrast`).
+Recipe:
 [a brand](recipes/tamber.md).
 `color-scheme="dark"` (or `"light"`) on a node makes that subtree resolve
 `light-dark()`, platform colours and glass in that scheme, as a sheet that is

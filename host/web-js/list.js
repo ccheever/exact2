@@ -795,7 +795,7 @@ const Refused = [];
 function intoView(list, key, block, inline, row, view, offset) {
   const refuse = why => { journal.push(`scrollIntoView ${list} refused: ${why}`); Refused.push({ list, status: "refused: " + why.replaceAll('"', "'") }); if (Refused.length > 8) Refused.shift(); };
   if (offset != null && (typeof offset !== "number" || !Number.isFinite(offset))) return refuse("offset must be a finite number of CSS pixels");
-  for (const a of [block, inline]) if (!ALIGN.includes(a)) { if (view != null) throw new Error(`no alignment ${a}: start, center, end or nearest`); return refuse(`no alignment ${a}`); }
+  for (const a of [block, inline]) if (!ALIGN.includes(a)) return refuse(`no alignment ${a}`);
   const begin = (c, k, within = offset) => { const [text, why] = c.resolve(k); if (!text) return refuse(why); c.intoView(text, c.axis === "y" ? block : inline, within); return true; };
   if (view != null) { const c = Lists.get(view); if (!c) return refuse(`view ${view} is not a mounted virtualized list`); begin(c, key); }
   else if (row == null) { const c = [...Lists.values()].find(c => !c.up && c.el.id === list); if (!c) return refuse(`no virtualized list has id ${list}`); begin(c, key); }
@@ -850,7 +850,10 @@ function load() {
     publish();
   }).catch(e => console.error("exact: collections:", e)).finally(() => inflight.n--);
   (globalThis.exact ??= {}).lists = { settle: () => Controller?.settle(), pending: () => Loading,
-    into: (view, key, block = "start", inline = "nearest") => intoView(`#${view}`, key, block, inline, null, view), intoView: intoViewState,
+    into: (view, key, block = "start", inline = "nearest") => {
+      for (const a of [block, inline]) if (!ALIGN.includes(a)) throw Object.assign(new Error(`no alignment ${a}: start, center, end or nearest`), { malformed: true });
+      return intoView(`#${view}`, key, block, inline, null, view);
+    }, intoView: intoViewState,
     // Arrange's preview, installed by reorder.js (the motion piece's chunk).
     internals: { Collection, Lists, Views, find, minEpoch, settled, controller: () => Controller } };
 }

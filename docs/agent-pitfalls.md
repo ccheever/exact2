@@ -387,9 +387,10 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   `lower-alertdialog: … a `column` row is not text, an action or the cancel`.
   Cause: an `alertdialog` popover or `dialog` is a native confirmation (LLP
   1021, LLP 1115 D6: iOS's alert or sheet, macOS's menu), whose rows can only be text, buttons that
-  close it, and one cancel. Fix: a modal you lay out yourself is a sheet, a route
+  close it, one cancel, and, in the alert's shape, text fields (a rename prompt's `input`).
+  Fix: a modal you lay out yourself is a sheet, a route
   with `navigationPresentation="modal"` (recipes/navigation-stack.md); keep
-  `alertdialog` for a flat list of text and buttons. (x2apps onboarding's Delete
+  `alertdialog` for a flat list of text, fields and buttons. (x2apps onboarding's Delete
   account?, 2026-10-04.)
 - **`tabIndex` on a module tag is refused.** `` `paint-surface` has no attribute
   `tabIndex`; `tabIndex` is spelled `tabindex` here ``. Cause: HTML's
@@ -640,9 +641,11 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   children, naming them with `swipeContent`, `swipeLeading` and `swipeTrailing` ids,
   which the web scrolls and iOS turns into UIKit's own swipe actions: UIKit's shape
   and size (round on iOS 26 and later) with each button's background colour and a
-  snapshot of its content, never the painted box (euxy port's flush rectangles,
-  2026-10-15); a snap row without the three attributes keeps its paint and loses the
-  full swipe and the actions VoiceOver reads. Fix: copy
+  snapshot of its content, not the painted box (euxy port's flush rectangles,
+  2026-10-15). To keep the paint, give every control the row names
+  `appearance="none"`: the row keeps its snap scroll and still has the full swipe,
+  one row open at a time and the actions VoiceOver reads; dropping the three
+  attributes instead keeps the paint and loses all three. Fix: copy
   `apps/shelf/app.contract`'s `BookRow` (`swipe-…`; `apps/messages` paints its own
   circles in hex and is no model for the rest). (Ledger2 DIARY, "Needed:
   swipe gesture", about 15 minutes, 2026-10-04.) iOS refuses a row whose content is
@@ -1196,6 +1199,16 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   With `appearance="auto"`, those rows are refused; remove them to keep the
   platform's background, border and corners. `background-clip` and
   `background-attachment` alone keep the field native. (LLP 1104 r8 D2.)
+
+## Games
+
+- **Older saves refuse to restore after adding a generated model.** `restore` names it:
+  ``asset `…` identity is missing``. Cause: a model registered with `w.generated_model`
+  at setup is part of every later save's identity (`game/engine/README.md`, "Saves and
+  assets"), even one that only changes how a unit looks. Fix: a model that is only
+  appearance belongs in the bake, under `art/` (`Game::STREAMED` if setup need not wait
+  for it): a delivered model carries no save identity. (Skirmish's art trials, LLP
+  1046.012 F5, 2026-10-07.)
 
 ## Access hatches
 

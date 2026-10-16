@@ -95,7 +95,7 @@ test('generated commands run from an external author directory with quoted paths
     assert.deepEqual(verbs,['test-rust','web','test','agent','mac','windows','prove'],created.stdout);
     const usage=spawnSync(process.execPath,['exact.mjs','nope'],{cwd:app,encoding:'utf8'}).stderr;
     const runnerVerbs=new Set(/Usage: bun exact\.mjs <([^>]*)>/.exec(usage)[1].split('|'));
-    for (const verb of verbs) assert.ok(runnerVerbs.has(verb),verb);
+    for (const verb of [...verbs, 'lock', 'shells']) assert.ok(runnerVerbs.has(verb),verb);
     assert.match(readFileSync(resolve(app,'AGENTS.md'),'utf8'),/<!-- exact:begin[^]*an Exact game[^]*game[\\/]README\.md[^]*feedback status[^]*<!-- exact:end -->/);
     const inspect=resolve(directory,'inspect command.mjs');
     writeFileSync(inspect,`import {readFileSync} from 'node:fs'; import {resolve} from 'node:path';

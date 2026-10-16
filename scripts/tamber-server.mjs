@@ -415,10 +415,15 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       const refused = needsClient(request);
       if (refused) return refused;
       if (request.message !== undefined && typeof request.message !== 'string') return { status: 400, error: { message: '`message` is a string' } };
+      if (request.dry !== undefined && typeof request.dry !== 'boolean') return { status: 400, error: { message: '`dry` is true or false' } };
+      if (request.scope !== undefined && typeof request.scope !== 'string') return { status: 400, error: { message: '`scope` is a string' } };
       // A write in flight would land beside the commit's reading of the files.
       if (writing) return { status: 409, error: { message: 'a write is in flight; commit again once it lands' } };
-      const done = session.commit({ client: request.client, message: request.message });
-      if (done.ok) send({ event: 'committed', seq: ++seq, epoch, client: request.client, ...done.ok });
+      const done = session.commit({ client: request.client, message: request.message, dry: request.dry === true, scope: request.scope });
+      // A scope the session has written past is a conflict, as a write in
+      // flight is.
+      if (done.error?.stale) return { status: 409, error: done.error };
+      if (done.ok && !request.dry) send({ event: 'committed', seq: ++seq, epoch, client: request.client, ...done.ok });
       return done;
     }
     if (request.method === 'propose' && request.hold !== undefined) {
@@ -433,8 +438,9 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // Which app this server is, and which run of it, so `tamber tool` can
     // tell its own from another's and a client can tell a restart.
     // `live`: a dev loop serves it, whose running builds take a value-only
-    // edit in place, no reload (LLP 1121 stage 4's live table).
-    if (request.method === 'hello') return ask(request).then(r => (r.ok ? { ok: { ...r.ok, app: appDir, epoch, live: typeof live === 'function' ? live() : live, builds: channel.list() } } : r));
+    // edit in place, no reload (LLP 1121 stage 4's live table); `design`:
+    // the file an operation with no `file` edits.
+    if (request.method === 'hello') return ask(request).then(r => (r.ok ? { ok: { ...r.ok, app: appDir, epoch, live: typeof live === 'function' ? live() : live, builds: channel.list(), design: relative(appDir, designPath(appDir) ?? resolve(appDir, design)) } } : r));
     if (request.method === 'pin' || request.method === 'preview') return needsClient(request) ?? pin(request);
     if (request.method === 'revert') return needsClient(request) ?? revert(request);
     if (request.method === 'import') return needsClient(request) ?? importHeld(request);
@@ -467,6 +473,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   /** A write, announced from the server's reply, even one that comes after
    * the client was told it timed out; the watcher waits for it. A conflict
    * names who last changed each file that moved. */
+  let writes = 0;
   async function write(request, extra = {}, settled = () => {}) {
     // The git facts of each file it may touch, before it does (commit's
     // baseline); this write's hold on them ends with its reply.
@@ -487,10 +494,14 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
         // before it, and any gone), is a hand edit, said first and apart.
         const others = Object.fromEntries(Object.entries(v.ok.files).filter(([path]) => !written.has(path)));
         publish({ ...others, ...v.ok.before }, { changed: null, client: null }, [...known.keys()].filter(path => !(path in v.ok.files)));
+        // A number for the write, on its reply, its event and the session's
+        // edits, so a client can tell its own write's event from another's
+        // that left the same bytes, and which write a commit's edit is.
+        v.ok.write = ++writes;
         for (const path of written) {
-          session.wrote(path, { before: v.ok.before[path], after: v.ok.files[path], client: v.ok.client, tokens: (v.ok.changed ?? []).filter(c => c.file === path).map(c => c.token) });
+          session.wrote(path, { before: v.ok.before[path], after: v.ok.files[path], client: v.ok.client, tokens: (v.ok.changed ?? []).filter(c => c.file === path).map(c => c.token), write: v.ok.write });
         }
-        publish(v.ok.files, { changed: v.ok.changed, client: v.ok.client, ...extra });
+        publish(v.ok.files, { changed: v.ok.changed, client: v.ok.client, write: v.ok.write, ...extra });
       }
       session.release(holds.filter(path => !written.has(path)));
       if (v?.error?.conflict) {
@@ -686,7 +697,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     const planned = await ask({ method: 'import-plan', kind: request.kind, source: request.source, name: request.name, sources: request.sources, prefix: request.prefix });
     if (!planned.ok) return planned;
     const { ops, review } = importReview(planned.ok);
-    if (!planned.ok.ops.length) return { ok: { proposal: null, review, message: 'nothing to propose: the design has every mapped value already' } };
+    if (!planned.ok.ops.length) return { ok: { proposal: null, review, message: planned.ok.counted?.mapped ? 'nothing to propose: the design has every mapped value already' : 'nothing to propose: nothing in it maps to a token' } };
     return hold(request.client, ops, undefined, undefined, review);
   }
 

@@ -693,10 +693,10 @@ package final class Presenter {
         guard args.count == 1, let name = args.first as? String,
               let target = views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name }) else { return }
         if !selectText, menus.focus(target) { return }
-        // A search input the window's toolbar hosts has no box in the page
-        // (LLP 1115.002 D2): the caret goes to its field in the bar.
+        // A search input the window's toolbar hosts, or a prompt's input lent to its
+        // alert, has no box in the page (LLP 1115.002 D2): the caret goes to its field.
         if target.pageField != nil {
-            if !target.formDisabled, toolbar.focusSearch(target), selectText { fieldSelections.selectAll(target) }
+            if !target.formDisabled, toolbar.focusSearch(target) || alerts.focus(target), selectText { fieldSelections.selectAll(target) }
             return
         }
         guard let window = target.window, !target.formDisabled,

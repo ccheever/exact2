@@ -233,6 +233,8 @@
   :where(#exact-root dialog[role="alertdialog"][aria-label])::before { content: attr(aria-label) / ""; flex-basis: 100%; font-weight: 600; }
   :where(#exact-root dialog[role="alertdialog"] > :not(button)) { flex-basis: 100%; }
   #exact-root dialog[role="alertdialog"] > button { flex: 1 1 0; }
+  /* A prompt's text field is a line of its own, as the native alerts draw it. */
+  #exact-root dialog[role="alertdialog"] input { flex-basis: 100%; box-sizing: border-box; }
   /* Fields and `select` at a tap size (36 px at the body size) with one look:
      a 1 px line, 8 px corners, the field's own background. A select's height
      is its line height, so an authored padding adds to it as to the UA's and

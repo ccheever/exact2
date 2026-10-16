@@ -144,7 +144,7 @@ public final class Agent {
         guard let data = line.data(using: .utf8),
               let req = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let op = req["op"] as? String
-        else { reply(["error": "unreadable request: \(line)"]); return }
+        else { reply(["malformed": true, "error": "unreadable request: \(line)"]); return }
         if op == "quit" { exitAfterStorage(); return }
         // A slice building off main lands before the agent reads or acts
         // (LLP 1072 T9); under the agent slices are synchronous, so this is
@@ -211,7 +211,7 @@ public final class Agent {
                 // flow can be driven (the agent's window is never key, so a
                 // ⌘W it typed would go nowhere).
                 guard req.keys.allSatisfy({ ["op", "session", "close"].contains($0) }), req["close"] as? Bool == true else {
-                    Agent.reply(["error": "tap close takes no other input fields"]); return
+                    Agent.reply(["malformed": true, "error": "tap close takes no other input fields"]); return
                 }
                 #if os(macOS)
                 r = closeWindow()
@@ -222,7 +222,7 @@ public final class Agent {
                 // The platform's Back, as a person takes it (LLP 1116.006
                 // D4): an input, as `close` is (AgentIOS, AgentMac `back`).
                 guard req.keys.allSatisfy({ ["op", "session", "back"].contains($0) }), req["back"] as? Bool == true else {
-                    Agent.reply(["error": "tap back takes no other input fields"]); return
+                    Agent.reply(["malformed": true, "error": "tap back takes no other input fields"]); return
                 }
                 r = back()
             } else if req["resize"] != nil {
@@ -230,7 +230,7 @@ public final class Agent {
                 // ninth operation. Reject ambiguous input before touching UI.
                 guard req.keys.allSatisfy({ ["op", "session", "resize"].contains($0) }),
                       let size = Agent.resizeSize(req["resize"]!) else {
-                    Agent.reply(["error": Agent.resizeError]); return
+                    Agent.reply(["malformed": true, "error": Agent.resizeError]); return
                 }
                 #if os(macOS)
                 r = resizeWindow(size)
@@ -430,17 +430,17 @@ public final class Agent {
     func prefer(_ req: [String: Any]) -> [String: Any] {
         let media = req["media"] as? [String: String], page = req["page"] as? [String: Any], fold = req["fold"] as? [String: Any]
         let mode = req["mode"] as? [String: String]
-        guard media != nil || page != nil || fold != nil || mode != nil else { return ["error": "prefer needs media, page, fold or mode: {\"prefers-reduced-motion\": \"reduce\", …}"] }
+        guard media != nil || page != nil || fold != nil || mode != nil else { return ["malformed": true, "error": "prefer needs media, page, fold or mode: {\"prefers-reduced-motion\": \"reduce\", …}"] }
         // @ref LLP 1121 D13 — the mode group: checked before any fact is set,
         // set after every other one in one commit; the scheme stays the system's.
         var modes: [String: String]?
         if let mode {
-            if mode.contains(where: { "\($0.key)\($0.value)".contains(where: { $0 == "," || $0 == "=" }) }) { return ["error": "prefer mode: an axis or value holds no `,` or `=`"] }
+            if mode.contains(where: { "\($0.key)\($0.value)".contains(where: { $0 == "," || $0 == "=" }) }) { return ["malformed": true, "error": "prefer mode: an axis or value holds no `,` or `=`"] }
             let checked = session.runtime.setModes(mode, check: true)
             if let error = checked.error { return ["error": "prefer mode: \(error)"] }
             modes = checked.modes
         }
-        if let fold, let refused = preferFold(fold) { return ["error": refused] }
+        if let fold, let refused = preferFold(fold) { return refused }
         var (motion, transparency, contrast) = (DisplayPreferences.reducedMotion, DisplayPreferences.reducedTransparency, DisplayPreferences.contrast)
         var dark: Bool?
         var displayMode = session.displayModeOverride
@@ -456,7 +456,11 @@ public final class Agent {
             // @ref LLP 1100 D9
             case ("color-gamut", "srgb"), ("color-gamut", "p3"), ("color-gamut", "rec2020"): gamut = value
             case ("dynamic-range", "standard"), ("dynamic-range", "high"): high = value == "high"
-            default: return ["error": "prefer: \(name): \(value) is not a preference this host sets"]
+            default:
+                let message = "prefer: \(name): \(value) is not a preference this host sets"
+                // A real preference this host does not set stays a delivery refusal.
+                if name == "display-mode" { return ["error": message] }
+                return ["malformed": true, "error": message]
             }
         }
         var facts = PageFacts.agent
@@ -478,7 +482,11 @@ public final class Agent {
             case ("root-font-size", _) where (Double(value) ?? 0) > 0 && Float(Double(value)!).isFinite: facts.rootFontSize = Double(value)!
             // The display's scale as the kernel is told it (LLP 1115.000 D10.3): layout follows; the display draws at its own.
             case ("display-scale", _) where (Double(value) ?? 0) > 0 && Float(Double(value)!).isFinite: PageFacts.agentDisplayScale = Double(value)!
-            default: return ["error": "prefer: \(name): \(value) is not a page fact this host sets"]
+            default:
+                let message = "prefer: \(name): \(value) is not a page fact this host sets"
+                // A real page fact this host does not set stays a delivery refusal.
+                if name == "keyboard-navigation" { return ["error": message] }
+                return ["malformed": true, "error": message]
             }
         }
         // The scheme first: the preferences' notification reads it.
@@ -525,14 +533,14 @@ public final class Agent {
     /// The `fold` group: `posture` (`folded` | `continuous`), `cols` and
     /// `rows` (each at least 1), `gap` (points, 0 by default). Each refusal
     /// names its fact (LLP 1078 D10); nothing applies unless all are known.
-    private func preferFold(_ fold: [String: Any]) -> String? {
+    private func preferFold(_ fold: [String: Any]) -> [String: Any]? {
         #if os(iOS) || os(tvOS)
         // The hinge interaction reports after the view attaches, a turn or two
         // after boot; a drive's first `prefer` can arrive before it. Give it a
         // bounded moment on a 27.1 device so the answer is the device's.
         let deadline = Date(timeIntervalSinceNow: 0.3)
         while ReservedRegions.available, !presenter.hingeReported, Date() < deadline { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
-        if presenter.hasFold { return "prefer: posture and segments: the device decides (it has a fold)" }
+        if presenter.hasFold { return ["error": "prefer: posture and segments: the device decides (it has a fold)"] }
         #endif
         var next = presenter.fold
         var gap: CGFloat = 0, grid = false
@@ -540,23 +548,23 @@ public final class Agent {
             let number = (raw as? NSNumber).map(\.doubleValue) ?? Double("\(raw)")
             switch name {
             case "posture":
-                guard let p = raw as? String, p == "folded" || p == "continuous" else { return "prefer: posture: \(raw) is folded or continuous" }
+                guard let p = raw as? String, p == "folded" || p == "continuous" else { return ["malformed": true, "error": "prefer: posture: \(raw) is folded or continuous"] }
                 next.posture = p
             case "cols", "rows":
-                guard let n = number, n.isFinite, n >= 1, n == n.rounded() else { return "prefer: segments: \(raw) \(name == "cols" ? "columns" : "rows") is not a count" }
+                guard let n = number, n.isFinite, n >= 1, n == n.rounded() else { return ["malformed": true, "error": "prefer: segments: \(raw) \(name == "cols" ? "columns" : "rows") is not a count"] }
                 if name == "cols" { next.cols = Int(n) } else { next.rows = Int(n) }
                 grid = true
             case "gap":
-                guard let g = number, g.isFinite, g >= 0 else { return "prefer: segments: gap \(raw) is not a length" }
+                guard let g = number, g.isFinite, g >= 0 else { return ["malformed": true, "error": "prefer: segments: gap \(raw) is not a length"] }
                 gap = CGFloat(g); grid = true
-            default: return "prefer: \(name) is not a fold fact this host sets"
+            default: return ["malformed": true, "error": "prefer: \(name) is not a fold fact this host sets"]
             }
         }
         if grid {
             // The window's segments, as the host sends them (LLP 1075.003 §9.11).
-            do { next.rects = try Segments.even(viewport: session.screenSize ?? presenter.viewportSize, cols: next.cols, rows: next.rows, gap: gap) } catch { return "prefer: \(error)" }
+            do { next.rects = try Segments.even(viewport: session.screenSize ?? presenter.viewportSize, cols: next.cols, rows: next.rows, gap: gap) } catch { return ["error": "prefer: \(error)"] }
         }
-        return session.segments(next).map { "prefer: \($0)" }
+        return session.segments(next).map { ["error": "prefer: \($0)"] }
     }
 
     /// `tap <list> into <key>` (LLP 1070.000 §5): the runner's request on a
@@ -618,7 +626,7 @@ public final class Agent {
         waitForImages()
         var target = req["to"] as? Double
         if settle { target = max(from, self.settle() ?? from) }
-        guard var to = target, to.isFinite else { return ["error": "clock needs \"to\" (ms) or \"settle\": true"] }
+        guard var to = target, to.isFinite else { return ["malformed": true, "error": "clock needs \"to\" (ms) or \"settle\": true"] }
         guard to >= from else { return ["error": "the clock cannot go backwards (\(from) → \(to))"] }
         var rounds = 0, hatchDrains = 0
         var world = WorldClock()

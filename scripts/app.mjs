@@ -175,15 +175,15 @@ export function patchLines(from) {
     `${name} = { path = ${JSON.stringify(pathFrom(from, resolve(ROOT, spec.path)))} }`);
 }
 
-/** How an outside workspace at `from` names a path in this checkout: relative
- * when the two share a directory below the filesystem root (a checkout beside
- * the app moves with it), absolute when they share nothing, where a relative
- * path would only climb to / and break the moment either moved. `from` must
- * exist; both are resolved through symlinks (macOS's /tmp is one). */
+/** How an outside workspace at `from` names a path in this checkout: relative, with `/`
+ * (Windows reads it; a Mac can't read Skirmish's `..\\exact2`), when the two share a directory
+ * below the root (a checkout beside the app moves with it), absolute when they share nothing,
+ * where a relative path would climb to / and break once either moved. `from` must exist;
+ * both are resolved through symlinks (macOS's /tmp is one). */
 export function pathFrom(from, to) {
   const [a, b] = [realpathSync(from), existsSync(to) ? realpathSync(to) : resolve(to)];
   const shared = a.split('/')[1] === b.split('/')[1] && a.split('/')[1] !== '';
-  return shared ? relative(a, b) || '.' : b;
+  return shared ? (relative(a, b) || '.').split(sep).join('/') : b;
 }
 
 /** An outside workspace's patches and toolchain, against this checkout's.
@@ -321,7 +321,7 @@ const WEB_HOST_GROUPS = {
   base: ['glue.js', 'navigation.js', 'textflow-glue.js', 'timer-glue.js', 'input-glue.js',
     'http-body.js', 'grant-admission.js', 'faults.js', 'media-glue.js', 'list-selection.js', 'markup-editor.js', 'document-glue.js',
     'motion-glue.js', 'group-glue.js', 'collection-glue.js', 'canvas2d-glue.js', 'presence-glue.js', 'picker-glue.js',
-    'documents-glue.js', 'auth-glue.js', 'image-glue.js', 'geometry-glue.js', 'resize-glue.js', 'intersect-glue.js', 'notify-glue.js', 'sound-glue.js'],
+    'documents-glue.js', 'auth-glue.js', 'image-glue.js', 'geometry-glue.js', 'resize-glue.js', 'intersect-glue.js', 'notify-glue.js', 'sound-glue.js', 'prompt-glue.js'],
   module: ['module-glue.js', 'module-worker.js', 'module-prelude.js'],
   storage: ['storage-request.js', 'storage.js', 'storage-environment.js', 'storage-fs.js', 'storage-image.js', 'storage-sqlite.js',
     'storage-worker.js', 'sqlite3.mjs', 'sqlite3.wasm'],

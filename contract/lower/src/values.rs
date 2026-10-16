@@ -1075,15 +1075,6 @@ pub(crate) fn check_prop_value(
             span,
         );
     }
-    if prop == PropId::StatusBarAnimation
-        && matches!(value, Expr::Str(s, _) if !matches!(s.as_str(), "none" | "fade"))
-    {
-        return err(
-            "lower-attr-value",
-            "`status-bar-animation` takes \"none\" or \"fade\"",
-            span,
-        );
-    }
     // @ref LLP 1075.003 §9.11 — a sheet's resting heights: UIKit's two named
     // detents, CSS's `fit-content`, or a positive point height.
     if prop == PropId::NavigationDetent {
@@ -1126,27 +1117,21 @@ pub(crate) fn check_prop_value(
             span,
         );
     }
-    // @ref LLP 1115.000 D5.2 — no bar is something a route says, in one word.
-    if prop == PropId::NavigationBar
-        && matches!(value, Expr::Str(s, _) if !matches!(s.as_str(), "none" | "auto"))
-    {
-        return err(
-            "lower-attr-value",
-            "`navigationBar` takes \"none\" (this route shows no navigation bar: a full-bleed screen that draws its own way back) or \"auto\" (the platform's bar, the default)",
-            span,
-        );
-    }
-    if prop == PropId::FocusGuide && matches!(value, Expr::Str(s, _) if s != "auto") {
-        return err("lower-attr-value", "`focusGuide` takes \"auto\"", span);
-    }
-    if prop == PropId::AccessibilityLive
-        && matches!(value, Expr::Str(s, _) if !matches!(s.as_str(), "off" | "polite" | "assertive"))
-    {
-        return err(
-            "lower-attr-value",
-            "`aria-live` takes \"off\", \"polite\" or \"assertive\"",
-            span,
-        );
+    // A prop that takes one of a few words, and what its refusal says.
+    let words: Option<(&[&str], &str)> = match prop {
+        PropId::StatusBarAnimation => Some((&["none", "fade"], "`status-bar-animation` takes \"none\" or \"fade\"")),
+        // @ref LLP 1115.000 D5.2 — no bar is something a route says, in one word.
+        PropId::NavigationBar => Some((&["none", "auto"], "`navigationBar` takes \"none\" (this route shows no navigation bar: a full-bleed screen that draws its own way back) or \"auto\" (the platform's bar, the default)")),
+        // A sheet's grabber, said or left to the platform (LLP 1115 §2).
+        PropId::NavigationGrabber => Some((&["visible", "hidden", "auto"], "`navigationGrabber` takes \"visible\", \"hidden\" or \"auto\" (the default: the platform's, a grabber on a sheet with several detents)")),
+        PropId::FocusGuide => Some((&["auto"], "`focusGuide` takes \"auto\"")),
+        PropId::AccessibilityLive => Some((&["off", "polite", "assertive"], "`aria-live` takes \"off\", \"polite\" or \"assertive\"")),
+        _ => None,
+    };
+    if let (Some((allowed, why)), Expr::Str(s, _)) = (words, value) {
+        if !allowed.contains(&s.as_str()) {
+            return err("lower-attr-value", why, span);
+        }
     }
     // @ref LLP 1053.000 D4 — a material is a name in the schema's table.
     if prop == PropId::BackgroundMaterial {

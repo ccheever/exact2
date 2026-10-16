@@ -236,11 +236,11 @@ globalThis.exact.mediaSession = {
   },
   /** The driver's `tap <id> mediasession <action> [seconds]`: the handler the browser would call (D10), or why not. */
   act(id, action, seconds) {
+    if (action === 'seekto' && !(Number.isFinite(seconds) && seconds >= 0)) return { malformed: true, error: 'mediasession: seekto needs finite nonnegative seconds' };
     const el = globalThis.exact.views.get(id), own = ownerOf();
     if (!own) return { error: 'mediasession: there is no media session: no `audio` or `video` with `metadata=` is mounted' };
     if (el !== own) return { error: `mediasession: ${el ? named(el) : `view ${id}`} does not own the media session; ${named(own)} does` };
     if (!offered(own).includes(action)) return { error: `mediasession: ${named(own)} has no ${action}` };
-    if (action === 'seekto' && seconds == null) return { error: 'mediasession: seekto needs the seconds to seek to' };
     const r = remote[action](action === 'seekto' ? { seekTime: seconds } : seconds != null ? { seekOffset: seconds } : {});
     return r ? { mediaSession: action, ...r } : { error: `mediasession: ${named(own)} did not take ${action}` };
   },

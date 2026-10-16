@@ -1,6 +1,7 @@
 // `tap <target> drag …` (LLP 1080.000 §11), the driver's half: validation,
 // the viewport, and the route to the touch runner (`host/apple/touches.mjs`)
 // or to the carrier's own contact phases. `agent.mjs` calls it from `tap`.
+import { MalformedOperation } from './agent-keys.mjs';
 import { DRAG_BOUNDS } from '../host/apple/touches.mjs';
 import { layoutArgs } from './agent-inspect.mjs';
 
@@ -14,7 +15,7 @@ export function duringAllowed(op) {
 
 /** Run one allowed `during` op on the session. The reply is the op's. */
 export async function duringOp(s, op) {
-  if (!duringAllowed(op)) throw new Error(`tap … drag … during: ${JSON.stringify(op)} is not a read or the clock`);
+  if (!duringAllowed(op)) throw new MalformedOperation(`tap … drag … during: ${JSON.stringify(op)} is not a read or the clock`);
   const args = String(op).trim().split(/\s+/), word = args[0];
   if (word === 'clock') return s.clock(args.slice(1).join(' ') || 'settle');
   if (word === 'logs') return s.logs();
@@ -52,20 +53,32 @@ async function reorderNotes(s, since) {
 }
 const noted = (r, notes) => (notes.length ? { ...r, note: [r.note, ...notes].filter(Boolean).join('; ') } : r);
 
+export function dragArguments(opts) {
+  const { dx, dy, from, press = 0, over = 250, hold = 0 } = opts, drag = { press, over, hold };
+  if (![...(opts.to === undefined ? [dx, dy] : []), press, over, hold].every(Number.isFinite) || [press, over, hold].some((v) => v < 0)) throw new MalformedOperation('drag: expected finite dx, dy and non-negative press, over and hold (ms)');
+  if (from !== undefined && !(Array.isArray(from) && from.length === 2 && from.every(Number.isFinite))) throw new MalformedOperation('drag: from takes two finite numbers, an offset from the target\'s box');
+  const moves = opts.to === undefined && (dx !== 0 || dy !== 0);
+  if (moves && over <= 0) throw new MalformedOperation('drag: a drag that moves needs over > 0');
+  for (const k of ['press', 'over', 'hold']) if (drag[k] > DRAG_BOUNDS[k]) throw new MalformedOperation(`drag: ${k} ${drag[k]} ms is past its bound, ${DRAG_BOUNDS[k]} ms`);
+  if (press + hold + (moves ? over : 0) > DRAG_BOUNDS.total) throw new MalformedOperation(`drag: the gesture lasts past ${DRAG_BOUNDS.total} ms`);
+  if (opts.at !== undefined && !(Array.isArray(opts.at) && opts.at.length === 2 && opts.at.every(Number.isFinite))) throw new MalformedOperation('drag to: at takes two finite numbers, an offset from the target\'s box');
+}
+
 export async function dragTap({ s, carrier, node, target, host, timing, tapRefusal, scrolled }, opts) {
+  dragArguments(opts);
   // `drag to B [at x y]` (LLP 1094 D12): the delta from both boxes at the press, to B's middle or to (x, y) from its
   // top left; B unmounted or off screen is refused by name. An autoscrolling drag is `drag dx dy hold ms`.
-  if (opts.to !== undefined) opts = { ...opts, ...await toward(s, node, opts) };
+  if (opts.to !== undefined) {
+    opts = { ...opts, ...await toward(s, node, opts) };
+    // A failure caused by the layout's delta is a refusal, not malformed input.
+    try { dragArguments({ ...opts, to: undefined }); }
+    catch (error) { throw new Error(error.message); }
+  }
   const { dx, dy, from, mouse = false, modifiers, press = 0, over = 250, hold = 0, during = [] } = opts, drag = { dx, dy, press, over, hold, during }, said = { dx, dy, press, over, hold, ...(mouse ? { mouse } : {}), ...(modifiers ? { modifiers } : {}), ...(opts.to !== undefined ? { to: opts.to } : {}) };
   // `mouse` (files diary F10): the left button, where the carrier's contact
   // is otherwise a finger (the web's); a desktop host's contact is the mouse.
   if (mouse && (carrier.touches || ['ios', 'host-ios'].includes(host))) throw new Error('drag: mouse is a desktop pointer\'s; an iOS contact is a finger');
-  if (![dx, dy, press, over, hold].every(Number.isFinite) || [press, over, hold].some((v) => v < 0)) throw new Error('drag: expected finite dx, dy and non-negative press, over and hold (ms)');
-  if (from !== undefined && !(Array.isArray(from) && from.length === 2 && from.every(Number.isFinite))) throw new Error('drag: from takes two finite numbers, an offset from the target\'s box');
   const moves = dx !== 0 || dy !== 0;
-  if (moves && over <= 0) throw new Error('drag: a drag that moves needs over > 0');
-  for (const k of ['press', 'over', 'hold']) if (drag[k] > DRAG_BOUNDS[k]) throw new Error(`drag: ${k} ${drag[k]} ms is past its bound, ${DRAG_BOUNDS[k]} ms`);
-  if (press + hold + (moves ? over : 0) > DRAG_BOUNDS.total) throw new Error(`drag: the gesture lasts past ${DRAG_BOUNDS.total} ms`);
   // The touch runner lifts at the end of its scripted hold, and its ops start after the press and the move: without a hold they would find the finger lifted.
   if (carrier.touches && during.length && !(hold > 0)) throw new Error('drag: under --touch platform, during runs after the press and the move, inside the scripted hold: give hold <ms>, the time the ops run in');
   if (s.contact) throw new Error('a contact is already down; use `tap up` or `tap cancel` first');
@@ -147,7 +160,6 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
 
 /** `drag to`'s delta: from the start (`from`, else the middle) to B's middle, or `at` from B's top left. */
 async function toward(s, node, { to, at, from }) {
-  if (at !== undefined && !(Array.isArray(at) && at.length === 2 && at.every(Number.isFinite))) throw new Error('drag to: at takes two finite numbers, an offset from the target\'s box');
   const end = await s.find(to, false);
   if (!end) throw new Error(`drag to: ${to} is not mounted`);
   const layout = await s.layout(), a = layout.nodes.find((n) => n.id === node.id), b = layout.nodes.find((n) => n.id === end.id), vp = layout.viewport;
