@@ -2572,3 +2572,36 @@ D12's runtime side, under every language's generated names.
   Other apps prune as before. The clone's plan doesn't change size, since it already kept every
   token through computed colour rows. Release JS is byte-identical, apart from the declarations
   gaining the union.
+
+### Stage 5, commit 6: DTCG export and the own-export round trip (`196500b02`..`a7591811c`; built by reload1)
+
+- **`bun exact.mjs tamber export dtcg <app> [-o <file>]`** (`exact_tamber::export::dtcg`) writes
+  DTCG Format 2025.10 with the Resolver Module 2025.10.
+  - There is one modifier, `mode`, whose contexts are the full tuples × `light` and `dark`. Each is
+    complete, and checked to read back as the colour a host renders.
+  - Each value is a 2025.10 colour object in its own space where DTCG has it, else Oklab. An HDR
+    colour is clipped and marked `lossy`.
+  - Validated against DTCG's own 2025.10 schemas, pinned in the repo.
+- **The header** (the as-built form of D14's "dials in root `$extensions`"): the resolver document's
+  root takes no `$extensions`, so the header is a set `exact`, first in `resolutionOrder`, whose
+  token document carries root `$extensions["exact"]`. It holds the format marker, the conversions,
+  axes, dials, the context→tuple map and the design digest. The root `description` states the
+  conversions in prose.
+- **`$extensions["exact"]`** on a token carries `source`, plus `role` or `platform` for a token whose
+  value is a host value (exported as its fallback). A role override is a token under its row name,
+  with `overrides` naming the role. Icons aren't exported, and lengths and type wait for stage 6.
+- **The baseline:** each export keeps what it wrote in `.exact/tamber-dtcg/<digest>.json` (the newest
+  16), in a directory whose own `.gitignore` is `*`. A re-import is compared with the export it came
+  from, so a stale file can't propose reverts.
+- **Re-import:** unchanged values propose nothing, so expressions and roles keep their source. A
+  changed value follows D6's target branch:
+  - it edits the line that won for its tuple, as `explain` says;
+  - a side changed across all of that line's contexts takes the new value, and the other side is
+    kept as written;
+  - only when some of the line's contexts didn't change is the narrowest separating `when` added,
+    never one that ties.
+
+  An unedited export re-imports with no operations, on theme-fixture and on the clone (70 tokens).
+  One changed `$value` gives exactly one `set-token`.
+- **`export {kind: "dtcg"}`** (*1.4*) returns `{kind, text, baseline}`, and `hello` reports
+  `tamber/1.4`.
