@@ -27,12 +27,14 @@
 //!   negative offset). A new anchor that moves any hit still revocable —
 //!   from [`HOLD`] past the delivery (more by that offset) to where the
 //!   hits are issued — by more than [`DRIFT`] becomes the segment, and
-//!   every hit from the band's start is retracted (`by: clock`) and issued
-//!   again under it; one within [`DRIFT`] everywhere leaves the hits as
-//!   they are. Retracting the whole band, not only from the first beat
-//!   that drifts (rulings #5), keeps every revocable hit timed by the one
-//!   segment, so a retraction by time takes exactly the beats it re-issues.
-//!   Nothing within the hold moves.
+//!   every hit after the band's start is retracted (`by: clock`) and issued
+//!   again under it (the whole band, not only from the first beat that
+//!   drifts: rulings #5, simplified); one within [`DRIFT`] everywhere leaves
+//!   the hits as they are. Nothing within the hold moves, its edge
+//!   included: a note due there is handed. A hit kept may have been timed
+//!   by an older segment, whose beats the band need not order, so the hits
+//!   issued in the last second are kept by `(beat, track, step)` and a
+//!   refill issues none of them again.
 //! - **Stop** silences the sequence as its gate turning false would (D4) and
 //!   leaves it `waiting` with reason `clock`, still following (rulings #3);
 //!   the app hears Stop as a `midimessage` and ends its take itself. No
@@ -311,6 +313,7 @@ impl Transport {
         let t = msgs.iter().map(|m| m.0).fold(now, f64::max);
         let early = self.early();
         self.clock_to = t + LOOKAHEAD + early;
+        self.clock_hits.retain(|e| e.3 >= t - 1000.0);
         for h in heard {
             match h {
                 Heard::Start { at, beat, cont } => {
@@ -334,10 +337,12 @@ impl Transport {
                     };
                     self.reason = "";
                     (self.issued_to, self.skip, self.issued) = (at, 0, (beat, 0));
+                    self.clock_hits.clear();
                 }
                 Heard::Stop => {
                     self.silence(plan, out, t, "clock", log);
                     self.state = State::Waiting;
+                    self.clock_hits.clear();
                 }
                 Heard::Anchor(seg) if self.state != State::Waiting => {
                     self.anchor(out, t, seg, early, name, log);
@@ -379,12 +384,21 @@ impl Transport {
             num(new.bpm)
         ));
         let from = if issued > band {
-            let from = old.time(band);
-            out.sounds.batch(|s| s.retract_seq(t, from, By::Clock, log));
-            out.midi.retract_seq(t, from, "clock", log);
-            self.issued = (band, 0);
-            self.skip = 0;
-            band
+            // Only hits after the hold's edge: one at it is handed (D7).
+            let edge = t + HOLD + early;
+            out.sounds.batch(|s| s.retract_seq(t, edge, By::Clock, log));
+            out.midi.retract_seq(t, edge, "clock", log);
+            // From the first beat taken back, which an older segment may
+            // have timed before the band; what was kept is not issued again.
+            let from = self
+                .clock_hits
+                .iter()
+                .filter(|e| e.3 > edge)
+                .map(|e| e.0)
+                .fold(band, f64::min);
+            self.clock_hits.retain(|e| e.3 <= edge);
+            (self.issued, self.skip) = ((from, 0), 0);
+            from
         } else {
             issued
         };

@@ -175,7 +175,7 @@ export const Midi = {
   // An edit at `t`, or a clock's new anchor (`by` 'clock', LLP 1125 D9): what waits, for a step from `from`.
   retractSeq(t, from = t, by = 'edit') {
     let n = 0;
-    for (const s of [...Queue]) if (s.seq && waits(s, t) && s.stepAt >= from && !offOfHanded(s, t)) { if (s.tick != null && Clock) Clock.next = Math.min(Clock.next, s.tick); else n++; retract(s, by); }
+    for (const s of [...Queue]) if (s.seq && waits(s, t) && (by === 'clock' ? s.stepAt > from : s.stepAt >= from) && !offOfHanded(s, t)) { if (s.tick != null && Clock) Clock.next = Math.min(Clock.next, s.tick); else n++; retract(s, by); }
     if (n) say(`midi retracted: ${n} (${by})`);
   },
   stopSeq(t) {

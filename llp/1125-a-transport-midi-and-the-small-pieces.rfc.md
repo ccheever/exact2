@@ -983,13 +983,22 @@ D9 as written, with the orchestrator's fourteen rulings for the stage
   issued) by more than 2 ms becomes the segment and takes back the whole
   band (`by: clock`), not only from the first beat that drifts; one within
   2 ms everywhere is kept out, the hits issued under the segment they were.
-  So every revocable hit is timed by one segment, and a retraction by step
-  time takes exactly the beats the refill issues; kept anchors would
-  otherwise leave a band under two segments whose times overlap. With
-  deliveries 50 ms apart nothing is revocable (the lookahead is the batch
-  plus the hold), so re-anchoring then only moves later hits; it takes
-  hits back when a delivery comes sooner (Start and Stop at once, single
-  ticks).
+  With deliveries 50 ms apart nothing is revocable (the lookahead is the
+  batch plus the hold), so re-anchoring then only moves later hits; it
+  takes hits back when a delivery comes sooner (Start and Stop at once,
+  single ticks).
+- **After review** (Astra, Grok; round 1): the band starts strictly after
+  the hold's edge, so a note due exactly 50 ms out, handed already, is
+  neither taken back nor queued again. Following, the transport keeps the
+  hits it issued in the last second by `(beat, track, step)`, and a refill
+  issues none of those again: a hit kept within the hold at one re-anchor
+  belongs to an older segment, whose beats the next anchor's band need not
+  order, and was otherwise issued twice. A refill starts at the first beat
+  taken back when an older segment put it before the band. Apple's hub
+  numbers its drains, so a tick's delayed drain armed before a drain at
+  once does nothing and the ticks after it wait their own 50 ms. A
+  sequence that followed a clock and stopped (its gate, the background,
+  its end) answers `clock: "internal"` again.
 - **Rules beyond the text and the rulings** (each the simplest
   deterministic one, in the module's comment):
   - Start's predicted tick is never before Start's own stamp; Start again

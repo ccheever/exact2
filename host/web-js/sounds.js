@@ -93,10 +93,13 @@ function batch(f) {
   queue(before, firstNew);
   return out;
 }
+// Whether a retraction `by` from `from` takes a step at `stepAt`: at or after it, a clock's only after it (the hold's
+// edge, where a note is handed already; the runner's `sound::after`).
+const after = (stepAt, from, by) => by === 'clock' ? stepAt > from : stepAt >= from;
 // Haptics waiting at `t` (`at >= t`) for a step at or after `from`, retracted with why; one line when any was.
 function retractHaptics(t, from, by) {
   let n = 0;
-  for (const h of Haptics) if (h.by == null && h.at >= t && h.stepAt >= from) { h.by = by; Ops.push({ op: 'unhaptic', id: h.id }); n++; }
+  for (const h of Haptics) if (h.by == null && h.at >= t && after(h.stepAt, from, by)) { h.by = by; Ops.push({ op: 'unhaptic', id: h.id }); n++; }
   if (n) say(`haptics retracted: ${n} (${by})`);
 }
 /** One commit's commands, at its time, once it stood (rt.js); a `reload` ends every live voice. */
@@ -132,7 +135,7 @@ const Seq = {
   // An edit at `t`, or a clock's new anchor (`by` 'clock', LLP 1125 D9): what has not started, for a step from `from`.
   retract(t, from = t, by = 'edit') {
     let n = 0;
-    for (const v of Voices) if (v.seq && sounds(v.by) && v.at >= t && v.stepAt >= from) { v.ends = v.at; v.by = by; n++; }
+    for (const v of Voices) if (v.seq && sounds(v.by) && v.at >= t && after(v.stepAt, from, by)) { v.ends = v.at; v.by = by; n++; }
     say(`sounds retracted: ${n} (${by})`);
     retractHaptics(t, from, by);
   },

@@ -965,7 +965,11 @@ impl Midi {
         let mut n = 0;
         for i in 0..self.queue.len() {
             let s = &self.queue[i];
-            if s.seq && s.waits(t) && s.step_at >= from && !s.off_of_handed(t) {
+            if s.seq
+                && s.waits(t)
+                && crate::sound::after(s.step_at, from, by)
+                && !s.off_of_handed(t)
+            {
                 if let (Some(k), Some(c)) = (s.tick, self.clock.as_mut()) {
                     c.next = c.next.min(k);
                 } else {

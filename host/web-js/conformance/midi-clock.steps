@@ -3,7 +3,7 @@
 # re-anchors (a tick a delivery, so hits are taken back by `clock`); a gap
 # starts the window over; Stop leaves it waiting (heard by the handler); Song
 # Position and Continue resume at beat 4; a key restart waits again; the
-# gate stops it.
+# gate stops it, and it answers as an internal clock again.
 prefer midi.outputs synth midi.inputs clk
 tap ask
 tap start
@@ -27,5 +27,16 @@ tap restart
 midi clk clock 100 200
 midi clk fa
 midi clk clock 100 300
+# Start again, then ticks 10 ms apart: each re-anchor keeps what the last
+# one kept, and a note at the hold's edge is neither taken back nor queued
+# again (review round 1).
+midi clk fa
+clock +10
+midi clk f8
+clock +10
+midi clk f8
+clock +30
+midi clk f8
+clock +200
 tap stop
 clock +500

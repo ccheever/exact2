@@ -62,6 +62,7 @@ component C
   state heard = 0
   state beatSeen = -2
   state endedAt = -1
+  state prior = 120
   resource midi = exactMIDI() as shape MIDI
   resource transport = exactTransport() as shape Transport
   action ask
@@ -86,7 +87,7 @@ component C
   action finished
     endedAt = performanceNow()
   sequence s when playing key=take
-    play([Track(beats=1, loops=loops, offset=0, output="synth", steps=[kick(0)])], from=from, clock=input, clockOut=clockOut, ended=finished)
+    play([Track(beats=1, loops=loops, offset=0, output="synth", steps=[kick(0)])], bpm=prior, from=from, clock=input, clockOut=clockOut, ended=finished)
   view
     column midimessage=hear midiinputs=["keys"]
       text `${transport.state}`
@@ -540,4 +541,137 @@ fn the_same_deliveries_give_the_same_record() {
     assert_eq!(one, run(1));
     assert_eq!(one, run(70));
     assert!(!one.0.is_empty());
+}
+
+/// Each step's outputs still to play: the kicks that sound and the
+/// note-ons not taken back, each by its time.
+fn played(r: &Runner<Granted>) -> (Vec<f64>, Vec<f64>) {
+    let kicks = kicks(r)
+        .into_iter()
+        .filter(|k| k.1 == By::End)
+        .map(|k| k.0)
+        .collect();
+    let ons = r
+        .midi()
+        .sent()
+        .filter(|s| s.data.first() == Some(&0x99) && s.by.is_none())
+        .map(|s| s.at)
+        .collect();
+    (kicks, ons)
+}
+
+/// No step plays twice: one step's outputs are 100 ms or more apart here, so
+/// two closer are one step issued twice.
+fn once(r: &Runner<Granted>) {
+    let (kicks, ons) = played(r);
+    for list in [&kicks, &ons] {
+        assert!(
+            list.windows(2).all(|w| w[1] - w[0] > 50.0),
+            "a step played twice: {list:?}\n{:#?}",
+            said(r)
+        );
+    }
+}
+
+/// Review round 1 (Astra): a hit kept within the hold at one re-anchor is
+/// not issued again at the next, whose segment puts its beat after the band.
+#[test]
+fn consecutive_re_anchors_issue_a_kept_hit_once() {
+    let source = SOURCE
+        .replace("steps=[kick(0)]", "steps=[kick(0.13)]")
+        .replace("prior = 120", "prior = 125");
+    let mut r = boot(&source);
+    r.act("start", vec![]).unwrap();
+    r.land_then();
+    now(&mut r, 0xFA);
+    for t in [20.0, 30.0] {
+        r.advance(t).unwrap();
+        deliver(&mut r, &[(t, 0xF8)]);
+    }
+    let (kicks, ons) = played(&r);
+    assert_eq!((kicks.len(), ons.len()), (1, 1), "{kicks:?} {ons:?}");
+}
+
+/// Review round 1 (Astra, Grok): a note due exactly at the hold's edge is
+/// handed already; a re-anchor neither takes it back nor queues it again.
+#[test]
+fn a_note_at_the_hold_s_edge_is_kept_and_not_queued_again() {
+    // 125 bpm eighths: Start at 0 queues the note at 60; the first tick at
+    // 10 puts the hold's edge on it.
+    let source = SOURCE
+        .replace("Track(beats=1,", "Track(beats=0.125,")
+        .replace("prior = 120", "prior = 125");
+    let mut r = boot(&source);
+    r.act("start", vec![]).unwrap();
+    r.land_then();
+    now(&mut r, 0xFA);
+    r.advance(10.0).unwrap();
+    deliver(&mut r, &[(10.0, 0xF8)]);
+    let (kicks, ons) = played(&r);
+    let near = |list: &[f64]| list.iter().filter(|&&at| (at - 60.0).abs() < 15.0).count();
+    assert_eq!((near(&kicks), near(&ons)), (1, 1), "{kicks:?} {ons:?}");
+    // Grok's: 100 bpm, ticks through 550, the next delivery at 575 with a
+    // tick stamped 573: beat 1 is queued once.
+    let mut r = boot(&SOURCE.replace("prior = 120", "prior = 100"));
+    r.act("start", vec![]).unwrap();
+    r.land_then();
+    now(&mut r, 0xFA);
+    clock(&mut r, 100.0, 550.0);
+    r.advance(575.0).unwrap();
+    deliver(&mut r, &[(573.0, 0xF8)]);
+    clock(&mut r, 100.0, 500.0);
+    once(&r);
+    let (kicks, ons) = played(&r);
+    assert!(ons.iter().any(|&on| (on - 625.0).abs() < 5.0), "{ons:?}");
+    assert!(kicks.iter().any(|&k| (k - 625.0).abs() < 5.0), "{kicks:?}");
+}
+
+/// Ticks with jitter, each its own delivery stamped before it arrives,
+/// through a tempo change: every step plays once.
+#[test]
+fn jittered_single_tick_deliveries_play_each_step_once() {
+    let mut r = boot(&SOURCE.replace("Track(beats=1,", "Track(beats=0.25,"));
+    r.act("start", vec![]).unwrap();
+    r.land_then();
+    clock(&mut r, 125.0, 300.0);
+    now(&mut r, 0xFA);
+    let mut at = r.now_ms();
+    for k in 0..240usize {
+        at += if k < 120 { 20.0 } else { 25.0 };
+        let stamp = at + [0.0, -1.0, 1.5, -0.5, 2.0][k % 5];
+        let arrive = at + [3.0, 1.0, 2.0, 0.0, 2.5][k % 5];
+        r.advance(arrive).unwrap();
+        deliver(&mut r, &[(stamp.min(arrive), 0xF8)]);
+    }
+    once(&r);
+    assert!(played(&r).0.len() > 15);
+}
+
+/// Review round 1 (Grok): a sequence that followed a clock and stopped, by
+/// its gate or its end, answers as an internal clock again.
+#[test]
+fn a_stopped_follower_answers_internal() {
+    for stop in ["halt", "ended"] {
+        let mut r = boot(SOURCE);
+        if stop == "ended" {
+            r.act("finite", vec![]).unwrap();
+        }
+        r.act("start", vec![]).unwrap();
+        r.land_then();
+        now(&mut r, 0xFA);
+        clock(&mut r, 125.0, 300.0);
+        assert_eq!(answered(&r)[5], Value::str("midi"));
+        if stop == "halt" {
+            r.act("halt", vec![]).unwrap();
+            r.land_then();
+        } else {
+            r.advance(3000.0).unwrap();
+        }
+        let a = answered(&r);
+        assert_eq!(
+            (&a[0], &a[5]),
+            (&Value::str("stopped"), &Value::str("internal")),
+            "{stop}"
+        );
+    }
 }

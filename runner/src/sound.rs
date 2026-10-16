@@ -237,6 +237,17 @@ pub(crate) enum Added {
     Full,
 }
 
+/// Whether a step at `step_at` is one a retraction `by` from `from` takes:
+/// at or after it, but a clock's only after it (LLP 1125 D9: `from` is the
+/// hold's edge, and a note at it is handed already).
+pub(crate) fn after(step_at: f64, from: f64, by: &str) -> bool {
+    if by == "clock" {
+        step_at > from
+    } else {
+        step_at >= from
+    }
+}
+
 /// Journal a dropped voice.
 fn dropped(log: &mut Vec<String>, line: String) -> Added {
     log.push(line);
@@ -424,7 +435,7 @@ impl Sounds {
     ) {
         let mut n = 0;
         for h in self.haptics.iter_mut() {
-            if h.by.is_none() && h.at >= t && h.step_at >= from {
+            if h.by.is_none() && h.at >= t && after(h.step_at, from, by) {
                 h.by = Some(by);
                 self.ops.push(SoundOp::Unhaptic { id: h.id });
                 n += 1;
@@ -444,7 +455,7 @@ impl Sounds {
     pub(crate) fn retract_seq(&mut self, t: f64, from: f64, by: By, log: &mut Vec<String>) {
         let mut n = 0;
         for v in self.voices.iter_mut() {
-            if v.seq && v.by.sounds() && v.at >= t && v.step_at >= from {
+            if v.seq && v.by.sounds() && v.at >= t && after(v.step_at, from, by.word()) {
                 (v.ends, v.by) = (v.at, by);
                 n += 1;
             }

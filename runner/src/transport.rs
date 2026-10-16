@@ -648,6 +648,10 @@ pub struct Transport {
     published: clock::Published,
     /// Where a clock in's hits are issued to: past the last delivery.
     clock_to: f64,
+    /// Following a clock, the hits issued and not taken back in the last
+    /// second, by `(beat, track, step)` and their step's time: a refill
+    /// issues none of them again, whichever segment timed them.
+    clock_hits: Vec<(f64, usize, usize, f64)>,
 }
 
 impl Transport {
@@ -686,6 +690,7 @@ impl Transport {
                 beat: 0.0,
             },
             clock_to: 0.0,
+            clock_hits: Vec::new(),
         }
     }
 
@@ -865,6 +870,7 @@ impl Transport {
             }
             out.midi.clock_to("", 0.0, t, log);
             self.follow = Some(clock::Follow::new(&play.clock, play.bpm, play.from));
+            self.clock_hits.clear();
             (self.clocked, self.state, self.reason) = (true, State::Waiting, "");
             (self.refill_due, self.phase_due, self.ended_due) =
                 (f64::INFINITY, f64::INFINITY, f64::INFINITY);
@@ -944,6 +950,7 @@ impl Transport {
         }
         out.sounds.batch(|s| s.retract_seq(t, t, By::Edit, log));
         out.midi.retract_seq(t, t, "edit", log);
+        self.clock_hits.retain(|e| e.3 < t);
         let first = (seg.beat_at(t) * 24.0).ceil();
         out.midi.clock_to(&play.clock_out, first, t, log);
         self.play = Some(play);
@@ -1002,6 +1009,8 @@ impl Transport {
         self.play = None;
         self.raw.clear();
         self.follow = None;
+        // Stopped, it answers as its own clock again.
+        self.clocked = false;
     }
 
     /// [`Transport::stop`]'s sound: the sequence stays the owner (a clock's
@@ -1063,7 +1072,7 @@ impl Transport {
         self.state = State::Stopped;
         self.reason = "ended";
         self.play = None;
-        self.follow = None;
+        (self.follow, self.clocked) = (None, false);
         self.raw.clear();
         self.refill_due = f64::INFINITY;
         self.phase_due = f64::INFINITY;
@@ -1186,8 +1195,16 @@ impl Transport {
         hits.drain(..skipped);
         let (mut late, mut unsent) = (0, None);
         let midi = &mut *out.midi;
+        // Following a clock, a hit issued already (kept at a re-anchor) is
+        // not issued again (`clock_hits`).
+        let kept = std::mem::take(&mut self.clock_hits);
+        let mut fresh = Vec::new();
         let full = out.sounds.batch(|s| {
             for (k, hit) in hits.iter().enumerate() {
+                let id = (hit.beat, hit.track, hit.step);
+                if following && kept.iter().any(|e| (e.0, e.1, e.2) == id) {
+                    continue;
+                }
                 let (offset, output) = play.track(hit);
                 // Where an output before `at` goes: played now at the arming,
                 // skipped at an edit, late at a stalled live wake.
@@ -1260,9 +1277,14 @@ impl Transport {
                 }
                 // A hit is late once, however many of its outputs were.
                 late += usize::from(counted > late);
+                if following {
+                    fresh.push((id.0, id.1, id.2, hit.at));
+                }
             }
             None
         });
+        self.clock_hits = kept;
+        self.clock_hits.extend(fresh);
         if late > 0 {
             log.push(format!("sequence {name}: {late} steps late, skipped"));
         }
