@@ -47,17 +47,20 @@ extension NodeView {
         f.spellCheckingType = inputSpellChecking
         f.smartQuotesType = inputSmartQuotes
         f.smartDashesType = inputSmartDashes
-        if traitsChanged, f.isFirstResponder { f.reloadInputViews() }
-        switch props["inputMode"] ?? type {
-        case "email": f.keyboardType = .emailAddress
-        case "numeric": f.keyboardType = .numberPad
-        case "decimal", "number": f.keyboardType = .decimalPad
-        case "tel": f.keyboardType = .phonePad
-        case "url": f.keyboardType = .URL
-        case "search": f.keyboardType = .webSearch
-        default: f.keyboardType = .default
+        let keyboard: UIKeyboardType = switch props["inputMode"] ?? type {
+        case "email": .emailAddress
+        case "numeric": .numberPad
+        case "decimal", "number": .decimalPad
+        case "tel": .phonePad
+        case "url": .URL
+        case "search": .webSearch
+        default: .default
         }
-        applyPadBar() // a pad's missing keys its field asks for: ±, Done (LLP 1116.003 D7)
+        let keyboardChanged = f.keyboardType != keyboard
+        f.keyboardType = keyboard
+        let barChanged = applyPadBar() // a pad's missing keys its field asks for: ±, Done (LLP 1116.003 D7)
+        // A keyboard that is up takes the field's traits, type and bar at once
+        if traitsChanged || keyboardChanged || barChanged, f.isFirstResponder { f.reloadInputViews() }
         // HTML's `enterkeyhint` labels the return key (feed F25); UIKit
         // has no `previous`, which keeps the default. Unsaid, the label
         // is the system's, with a `submit` handler too: Go for a field
