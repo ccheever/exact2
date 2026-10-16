@@ -457,7 +457,7 @@ public final class ExactSession {
     private var pendingSurfaceRecords: [(String, String?)] = []
     private var pendingSurfaceWork: [([String: Any], Int)] = []
     /// Authentication sessions this session opened (`Auth.swift`, LLP 1069.006).
-    lazy var authSessions: AuthSessions = { let s = AuthSessions(); s.owner = self; return s }()
+    let authSessions = AuthSessions()
 
     /// Live sessions by handle: what a wake looks up (a stranger's is dropped).
     nonisolated(unsafe) private static var live: [ExactRuntime: WeakSession] = [:]

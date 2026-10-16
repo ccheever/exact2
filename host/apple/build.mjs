@@ -52,7 +52,7 @@ import { iosTestRuns, macTests } from './xctest.mjs';
 import { appIcon, buildInfo, iosAssets, appleAssets, appleAssetCatalogInventory, copyMacResources, signingOrder, helperEntitlements, plistFile, wrapFramework, signedGpuProduct, assertArchiveFrameworks } from './assets.mjs';
 import { keptModules } from './modules.mjs';
 import { keptCrates } from './crates.mjs';
-import { appleComposition, assertLinkedSdk, linksByPlan } from './link.mjs';
+import { appleComposition, assertCapabilityFrameworks, assertLinkedSdk, linksByPlan } from './link.mjs';
 export { appIcon, iosAssets };
 import { IPAD_ORIENTATIONS, orientationKeys, allows, deviceLaunchArgs, developmentLaunchEnvironment, identity, macIdentity, phone, profile, showSimulator, simulator, simulators, useXcode } from './devices.mjs';
 const root = resolve(new URL('../..', import.meta.url).pathname);
@@ -908,7 +908,7 @@ async function main(args) {
   // the resolver's app-owned `embed` directory, with `ExactKit` at
   // `host/apple`. With --archive it also builds the IPA; --embed alone
   // builds no Swift. The sample hosts prove that the same pieces link.
-  const { link: appleLink, products: swiftCapabilities } = appleComposition(buildReceipt.graph, linksByPlan(production, args), app.manifest.link);
+  const { link: appleLink, products: swiftCapabilities } = appleComposition(buildReceipt.graph, linksByPlan(production, args), app.manifest.link, bakedCompat.reach?.auth?.sessions === true);
   if (args.includes('--embed')) {
     const platform = ios ? (device ? 'ios' : 'ios-simulator') : 'macos';
     const gpu = hasGpu ? (ipa ? 'ExactGpu.framework/ExactGpu' : loadName) : null;
@@ -1131,8 +1131,8 @@ async function main(args) {
       const executable = resolve(binDir, p === product ? paths.executable : p);
       copyFileSync(resolve(swiftBinDir, p), executable);
       assertAppleIdentity(app, executable, bakedCompat.id);
-      const platform = ios ? 'ios' : 'macos';
-      assertLinkedSdk(executable, designCompatible(app, platform) ? COMPATIBLE_SDK[platform] : read('xcrun', ['--sdk', sdkName, '--show-sdk-version']).stdout.trim());
+      assertLinkedSdk(executable, designCompatible(app, ios ? 'ios' : 'macos') ? COMPATIBLE_SDK[ios ? 'ios' : 'macos'] : read('xcrun', ['--sdk', sdkName, '--show-sdk-version']).stdout.trim());
+      assertCapabilityFrameworks(executable, swiftCapabilities);
       if (ipa) stripped = stripForDistribution(executable, `${ipa.replace(/\.ipa$/, '')}.dSYM`);
     }
   } finally { releaseSwift(); }
