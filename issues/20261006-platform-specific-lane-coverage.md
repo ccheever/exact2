@@ -36,3 +36,84 @@ may resolve it, but neither was verified within the three-round fix limit.
 `-p '*-linux'` (the host and all 23 app crates; ibex2's and exact-js's C++
 compiles for the target), green on this Mac. Remaining: native window, KMS and
 input-device runs on Linux, and the Windows carrier on Windows.
+
+## 2026-10-16 native runs
+
+At 07fdd0ff4, on the fleet. Both machines ran the pinned Rust (1.97.0) and Bun
+(1.4.2).
+
+**Linux** (`expo-build-450b`, Ubuntu 24.04, kernel 6.8, x86_64, no GPU):
+
+- `cargo test -p exact-linux --lib --tests --no-fail-fast`: 1,072 pass with
+  the fixes below. The run includes the Linux-only `display` (24 tests on a
+  fake card), `input` (3) and `vnc` (3) modules.
+  `text::ink_tests::actual_color_bitmap_placement_matches_full_paint` needs a
+  colour emoji face installed; this box has none, so it fails there. It passes
+  with `fonts-noto-color-emoji` named through a private `FONTCONFIG_FILE`. The
+  Linux app crates have no tests (`test = false`).
+- `cargo build --profile host-dev -p caltrain-linux`, then
+  `bun scripts/smoke.mjs linux`: ok in 52 s (boot 32 ms, canvas readback
+  0.00% off its reference, motion, deck, precedence, 3/3 Contract tests).
+- `scripts/agent.mjs linux`: `tap change-station`, `type station-search Palo`,
+  `clock settle`, `state`, `screenshot` reached the app (`query: "Palo"`, one
+  match, focused field).
+- `cargo test -p exact-windows` on Linux: its stub, 0 tests, compiles.
+
+**Windows** (NucBox EVO-X2, Windows 11, MSVC):
+
+- `cargo test -p exact-windows --lib --tests`: 1/1 pass.
+- `cargo build -p windows-desk`, then `windows-desk --smoke-exit`: exit 0,
+  `PASS: native EDIT -> Contract state -> HWND; Unicode; checkbox/topmost;
+  save bytes; sample selection; font; resize`. In the logged-on console session
+  (a scheduled task) `--capture` drew the whole window: menus, listbox, EDIT
+  controls, combobox, checkbox, status bar. From the SSH session (session 0) it
+  draws black.
+- Skirmish (a local clone of its 144e508; `exact.mjs update` and `lock` against
+  this exact2; its Contract moved to today's grammar: `T[]`, `if`, `for`):
+  `host/windows/build.mjs` builds it. `agent.mjs windows` drives it (`tap play`,
+  `clock +2000`, `screenshot` of the battle at 1280×720). The native winit
+  window with `EXACT_AGENT_WINDOW_FRAMES=600` and `EXACT_AGENT_WINDOW_TAP=play`
+  presented 600 frames: interval p50/p95 17.05/17.69 ms, paint and readback
+  10.36/15.97 ms, upload and present 0.62/0.95 ms, exit 0.
+- Grey box (`game/games/greybox`) builds and runs the same way: 240 window
+  frames, interval p50 17.07 ms. Its proof is not pinned for Windows
+  (`pins.json` hosts: linux, web). On Windows it fails 3 checks: the entity
+  tap's delivery is `presenter`, a branch only Linux skips; the continuation
+  save differs; the world journal lacks `loop wind on`.
+- `cargo test -p exact-linux --lib --tests` on Windows: the shared presenter's
+  1,032 tests pass when `TEMP` has no space. Under this box's
+  `C:\Users\Charlie Cheever\…` the agent's two picker tests fail: a one-line
+  pick answer is split on whitespace (`runner/src/runner/picker.rs`
+  `answer_paths`; the web, Apple and driver parsers do the same). That is a
+  real bug for any absolute path that contains a space. In 1 of 3 full runs,
+  `executor::core::idle_tests::an_idle_pool_is_not_woken` counted 87 worker
+  wakes while idle. Its "every worker back in its wait" is a fixed 100 ms sleep.
+
+Fixed here: `a_request_runs_on_the_executor_and_its_reply_commits` read one
+packet of the request and then closed. The reset lost the reply in 6 of 240
+loaded runs on Linux and in both full runs on Windows. Its server now reads
+the whole request: 0 of 240 on Linux, and it passes on Windows. Two tests that make their fixture with `chmod` or
+`mkfifo` are `cfg(unix)`; they stopped `exact-linux`'s tests from compiling on
+Windows.
+
+A deliberate type error in `host/windows/src/window.rs` and in
+`host/linux/src/input.rs` is caught by tier 2's two cross-checks, each naming
+its file and line, while the macOS check of the same crates passes.
+
+**Remains unqualified:**
+
+- Linux KMS/DRM presentation, page flips at the display's refresh, evdev
+  input and the VNC server. The box has a card (`/dev/dri/card0`, ASPEED `ast`,
+  VGA-1 connected through the BMC), but it is `root:video`, the event devices
+  are `root:input`, `/dev/uinput` is root's, and the SSH user has neither group
+  nor sudo. `vkms` exists as a module, but loading it needs root.
+  `caltrain-linux` without the agent says `exact: no display: /dev/dri/card0:
+  Permission denied (os error 13)`. A run needs someone with root to add the
+  user to `video` and `input` (or run from a VT). `EXACT_VNC=1` then shows the
+  output and gives remote input.
+- Windows: input from a real person's devices (the drives inject through the
+  presenter or the agent), DPI changes across monitors, and the Grey box proof
+  failures above.
+- Linux app crates beyond Caltrain natively: only tier 2's cross-check
+  compiles them. Natively they need the pinned Linux Hermes bundle, which the
+  box has not installed.

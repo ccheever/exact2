@@ -478,6 +478,8 @@ fn an_image_lays_out_from_its_decoded_size() {
     );
 }
 
+/// Unix only: its fixture is a FIFO, which `mkfifo` makes.
+#[cfg(unix)]
 #[test]
 #[cfg(unix)]
 fn a_nonregular_image_is_refused_off_the_boot_thread_without_blocking_a_worker() {
@@ -631,8 +633,28 @@ fn a_request_runs_on_the_executor_and_its_reply_commits() {
     std::thread::spawn(move || {
         for stream in listener.incoming().take(2) {
             let Ok(mut s) = stream else { break };
+            // The whole request, head and body, before replying: a socket
+            // closed with bytes unread resets the connection (RFC 9293
+            // §3.6.1), and the client may lose the reply to the reset.
+            let mut request = Vec::new();
             let mut buf = [0u8; 8192];
-            let _ = s.read(&mut buf);
+            while let Ok(n @ 1..) = s.read(&mut buf) {
+                request.extend_from_slice(&buf[..n]);
+                let Some(head) = request.windows(4).position(|w| w == b"\r\n\r\n") else {
+                    continue;
+                };
+                let length = String::from_utf8_lossy(&request[..head])
+                    .lines()
+                    .find_map(|l| {
+                        let (name, value) = l.split_once(':')?;
+                        name.eq_ignore_ascii_case("content-length")
+                            .then(|| value.trim().parse::<usize>().ok())?
+                    })
+                    .unwrap_or(0);
+                if request.len() >= head + 4 + length {
+                    break;
+                }
+            }
             let body = b"{\"data\":{\"login\":{\"username\":\"ada\"}}}";
             let _ = write!(
                 s,
