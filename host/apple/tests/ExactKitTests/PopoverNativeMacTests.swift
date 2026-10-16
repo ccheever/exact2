@@ -157,6 +157,38 @@ final class PopoverNativeMacTests: XCTestCase {
         gone(native)
     }
 
+    /// A double click and a free move in the popover's own window reach its
+    /// authored ancestors' `dblclick` and `pointermove` in the page, the
+    /// move through the popover's own tracking (`BlockView.pointerTracking`):
+    /// no tracking area of the page's is in that window.
+    func testADoubleClickAndAFreeMoveInThePopoverReachThePage() throws {
+        let f = try make(), p = f.presenter
+        let pop = try f.node("tags-pop"), page = try f.node("page")
+        page.handlers.formUnion(["dblclick", "pointermove"])
+        var log: [String] = []
+        p.onPointer = { id, kind, _ in if kind == .move { log.append("move \(id)") } }
+        p.onDblclick = { log.append("dblclick \($0)") }
+        try f.press("tags")
+        let native = try XCTUnwrap(p.menus.windowed.first), window = try XCTUnwrap(native.window)
+        let at = pop.convert(NSPoint(x: pop.bounds.midX, y: 4), to: nil)
+        let event = { (type: NSEvent.EventType, clicks: Int) in
+            NSEvent.mouseEvent(with: type, location: at, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                               windowNumber: window.windowNumber, context: nil, eventNumber: 7, clickCount: clicks, pressure: clicks == 0 ? 0 : 1)!
+        }
+        for clicks in [1, 2] {
+            pop.mouseDown(with: event(.leftMouseDown, clicks))
+            pop.mouseUp(with: event(.leftMouseUp, clicks))
+        }
+        XCTAssertEqual(log, ["dblclick \(page.id)"])
+        log = []
+        native.content.mouseMoved(with: event(.mouseMoved, 0))
+        p.flushHoverMove()
+        XCTAssertEqual(log, ["move \(page.id)"])
+        native.popover.animates = false
+        native.popover.close()
+        gone(native)
+    }
+
     /// The subtree in AppKit's popover, at the size layout returns, below
     /// its invoker; the page laid out as it was; and each way it closes.
     func testAPopoverThatIsNoMenuIsAppKitsPopoverAtItsContentsSize() throws {

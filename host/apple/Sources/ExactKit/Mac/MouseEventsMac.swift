@@ -3,9 +3,11 @@
 // (NodeViewMac's `rightMouseDown`).
 //
 // A wheel's turn or a trackpad's scroll over a node is heard by every
-// node from it up that declares `wheel` (a disabled box included, as a
-// `<div disabled>` in Chrome; not a disabled form control or an inert node), innermost first, as the
-// DOM's bubbles; one that calls `preventDefault()` keeps the scroll from
+// node from it up the authored tree (`eventParent`) that declares `wheel`
+// (a disabled box included, as a `<div disabled>` in Chrome; not a
+// disabled form control or a node an `inert` makes inert; a modal dialog's
+// ancestors, inert behind it, hear it), innermost first, as the DOM's
+// bubbles; one that calls `preventDefault()` keeps the scroll from
 // happening (a canvas zooming on ⌘-scroll). A trackpad's pinch is a wheel
 // with Control held and `deltaY` of -100 × the magnification, which is how
 // a browser on a Mac delivers one, so one handler zooms on both hosts.
@@ -50,8 +52,8 @@ extension Presenter {
     }
 
     /// The node a request from the keyboard at `view` reaches (the
-    /// ContextMenu key, VoiceOver's show menu): the first from it up,
-    /// through a popover's invoker, whose `contextmenu` or `contextPopover`
+    /// ContextMenu key, VoiceOver's show menu): the first from it up the
+    /// authored tree (`eventParent`), whose `contextmenu` or `contextPopover`
     /// answers, as Chrome's `contextmenu` at the element bubbles to its
     /// first handler; nil at a field, which keeps its own menu.
     func contextTarget(_ view: NSView?) -> NodeView? {
@@ -61,7 +63,7 @@ extension Presenter {
                 if node.field != nil || node.textArea != nil { return nil }
                 if views[node.id] === node, node.answersContextMenu { return node }
             }
-            next = menus.parent(of: view)
+            next = eventParent(of: view)
         }
         return nil
     }
@@ -244,10 +246,10 @@ extension NodeView {
         var path: [NodeView] = []
         var next: NSView? = self
         while let view = next {
-            if let node = view as? NodeView, presenter.views[node.id] === node, node.handlers.contains("wheel"), !node.formDisabled, !node.inert {
+            if let node = view as? NodeView, presenter.views[node.id] === node, node.handlers.contains("wheel"), !node.formDisabled, !node.authoredInert {
                 path.append(node)
             }
-            next = view.superview
+            next = presenter.eventParent(of: view)
         }
         var prevented = false
         for node in path where presenter.views[node.id] === node {
@@ -264,7 +266,8 @@ extension NodeView {
     /// CSS px with the web's sign (positive scrolls down and right), pixels
     /// as the mode, and the modifiers held.
     func wheelLine(_ event: NSEvent) -> String {
-        let point = local(event.locationInWindow), box = contentBox()
+        // In this node's window: a wheel in a popover's bubbles to the page.
+        let point = local(Self.point(event, in: window)), box = contentBox()
         var dx = 0.0, dy = 0.0
         var held = event.modifierFlags
         if event.type == .magnify {

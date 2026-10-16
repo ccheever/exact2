@@ -458,6 +458,30 @@ final class GesturePrecedenceMacTests: XCTestCase {
         XCTAssertEqual(log, ["press 2", "press 2", "dblclick 1"])
     }
 
+    /// The same through AppKit's own button, whose tracking loop takes the
+    /// mouse: its second click double-clicks from its node up after its press.
+    func testADoubleClickOnANativeButtonBubblesAfterItsPress() throws {
+        let p = host([
+            ["op": "create", "id": 1, "kind": "view", "handlers": ["dblclick"]],
+            ["op": "create", "id": 2, "kind": "control", "props": ["type": "button", "accessibilityRole": "button"],
+             "handlers": ["press"], "style": ["appearance": "auto"]],
+            ["op": "children", "id": 1, "ids": [2]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 100.0],
+            ["op": "frame", "id": 2, "x": 10.0, "y": 10.0, "w": 80.0, "h": 40.0]
+        ])
+        var log: [String] = []
+        p.onPress = { log.append("press \($0)") }
+        p.onDblclick = { log.append("dblclick \($0)") }
+        let button = try XCTUnwrap(p.controls.controls[2] as? NativeButtonMac)
+        for clicks in [1, 2] {
+            // The up is queued first, for the button's tracking loop to take.
+            NSApp.postEvent(event(.leftMouseUp, button, clicks: clicks), atStart: true)
+            button.mouseDown(with: event(.leftMouseDown, button, clicks: clicks))
+        }
+        XCTAssertEqual(log, ["press 2", "press 2", "dblclick 1"])
+    }
+
     /// A reorder grip (3) inside a row (2) that pans: the inner reorder wins a
     /// vertical drag; it refuses a horizontal one, which the outer pan takes.
     private func gripInsidePan(_ calls: ReorderRecorder) -> Presenter {

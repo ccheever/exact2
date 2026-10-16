@@ -353,6 +353,36 @@ final class PopoverMacTests: XCTestCase {
         row.mouseUp(with: mouse(p, .leftMouseUp, row))
         XCTAssertEqual(log, ["down 1", "up 1", "down 3", "down 1", "up 1"])
     }
+    /// A double click and a free move in an open popover reach its authored
+    /// ancestors' `dblclick` and `pointermove`, as on the web, and never a
+    /// page node only under it (#281).
+    func testADoubleClickAndAFreeMoveInAPopoverReachItsAuthoredAncestors() throws {
+        let p = fixture(), root = try XCTUnwrap(p.views[1]), pop = try XCTUnwrap(p.views[3]), under = try XCTUnwrap(p.views[6])
+        p.press(2)
+        // The page's button 6 under the popover's empty corner.
+        let corner = NSRect(x: pop.bounds.maxX - 20, y: pop.bounds.maxY - 20, width: 10, height: 10)
+        let below = pop.convert(corner, to: root)
+        p.apply(wireBatch([["op": "frame", "id": 6, "x": below.minX, "y": below.minY, "w": below.width, "h": below.height]]))
+        for node in [root, under] { node.handlers = ["dblclick", "pointermove"] }
+        var log: [String] = []
+        p.onPointer = { id, kind, _ in log.append("\(kind == .move ? "move" : "press") \(id)") }
+        p.onDblclick = { log.append("dblclick \($0)") }
+        let window = try XCTUnwrap(p.viewport.window), point = pop.convert(NSPoint(x: corner.midX, y: corner.midY), to: nil)
+        func event(_ type: NSEvent.EventType, clicks: Int) -> NSEvent {
+            NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                               windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: clicks, pressure: clicks == 0 ? 0 : 1)!
+        }
+        XCTAssertTrue(window.contentView?.hitTest(window.contentView?.superview?.convert(point, from: nil) ?? point) === pop)
+        for clicks in [1, 2] {
+            pop.mouseDown(with: event(.leftMouseDown, clicks: clicks))
+            pop.mouseUp(with: event(.leftMouseUp, clicks: clicks))
+        }
+        XCTAssertEqual(log, ["dblclick 1"])
+        log = []
+        p.trackPointer(event(.mouseMoved, clicks: 0))
+        p.flushHoverMove()
+        XCTAssertEqual(log, ["move 1"])
+    }
     func testManualPopoverKeepsItsLayerAfterAnOutsideClick() throws {
         let p = fixture(), pop = try XCTUnwrap(p.views[3])
         p.apply(wireBatch([["op": "props", "id": 3, "set": ["popover": "manual"], "clear": []]]))

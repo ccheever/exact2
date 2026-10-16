@@ -650,8 +650,9 @@ extension Agent {
                     } else { presenter.dblclick(target.id) }
                     return ["tapped": Int(target.id), "event": event, "injected": true, "at": at].merging(selection.map { ["selection": $0] } ?? [:]) { a, _ in a }
                 }
-                // What a finger reaches, out of a sheet's mount too
-                next = presenter.touchParent(of: node)
+                // What a finger reaches, out of a route's or a dialog's
+                // sheet too (`MountRelay`)
+                next = (node as? NodeView).flatMap { presenter.menus.sheets.authoredParent(of: $0) } ?? presenter.touchParent(of: node)
             }
             if let selection { return ["tapped": Int((hit as? NodeView)?.id ?? v.id), "event": event, "delivery": "recognized", "selection": selection, "at": at] }
             return ["error": "no \(event) handler at view \(v.id)"]
