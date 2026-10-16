@@ -828,8 +828,9 @@ a mutation source can call `socket.send(textOrBytes)` or `socket.close(code,
 reason)`. The mapper only reads frames and returns snapshots. Sends run after
 the mutation's commit stands, in order, and have bounded admission. The
 source must send and answer synchronously. Refreshing or removing the
-resource invalidates the old handle. **Currently web JS target TypeScript
-only**; the wasm target and native hosts remain receive-only. See
+resource invalidates the old handle. **TypeScript on the web JS target,
+macOS, iOS and Linux**; the wasm target and Rust sources remain
+receive-only. See
 [the reference](reference.md#generate-typescript-data-source-types) for bounds and events.
 
 ### Optimistic writes: the overlay

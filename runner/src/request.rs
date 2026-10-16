@@ -137,6 +137,11 @@ pub struct Request {
     /// message as an [`Outcome::Message`], and anything else ends it.
     /// Set by [`Answer::stream`].
     pub stream: bool,
+    /// A `ws:`/`wss:` stream whose resource owns a two-way socket (LLP
+    /// 1016.000 D7): `open`, every frame in order (binary too), never
+    /// coalesced, and a [`Outcome::Closed`] end; mutations send on it
+    /// ([`SocketSend`]). Unset, a socket only listens, as in D4.
+    pub socket: bool,
     /// A deadline for the whole exchange, in milliseconds: headers and body.
     /// The host cancels the request when it passes and replies
     /// [`FailureKind::Timeout`]. `None` keeps the host's own limits (on Apple,
@@ -185,6 +190,7 @@ impl Request {
             headers: Vec::new(),
             body,
             stream: false,
+            socket: false,
             timeout_ms: None,
             body_from: None,
             redirect: Redirect::Follow,
@@ -240,6 +246,7 @@ impl Request {
             headers: Vec::new(),
             body: Vec::new(),
             stream: false,
+            socket: false,
             timeout_ms: None,
             body_from: None,
             redirect: Redirect::Follow,
@@ -259,6 +266,7 @@ impl Request {
             headers: vec![("content-type".into(), "application/json".into())],
             body: json.as_bytes().to_vec(),
             stream: false,
+            socket: false,
             timeout_ms: None,
             body_from: None,
             redirect: Redirect::Follow,
@@ -483,6 +491,57 @@ pub struct Message {
     /// taken them yet (LLP 1016.000 D4: display data coalesces to the
     /// newest). Non-zero is a gap a log re-asks across from its cursor.
     pub coalesced: u32,
+    /// A two-way socket's binary frame (LLP 1016.000 D7): its bytes, with
+    /// `data` empty. `None` for text and for every server-sent event.
+    pub binary: Option<Vec<u8>>,
+}
+
+/// One operation a mutation stages on a resource's socket (LLP 1016.000
+/// D7), published only once the mutation's commit stands.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SocketOp {
+    /// A text frame.
+    Text(String),
+    /// A binary frame.
+    Binary(Vec<u8>),
+    /// The closing handshake: 1000 or 3000–4999, and at most 123 bytes of reason.
+    Close {
+        /// The close code.
+        code: u16,
+        /// The close reason.
+        reason: String,
+    },
+}
+
+impl SocketOp {
+    /// The payload bytes it puts on the wire (a close's are its reason's).
+    pub fn size(&self) -> usize {
+        match self {
+            SocketOp::Text(text) => text.len(),
+            SocketOp::Binary(bytes) => bytes.len(),
+            SocketOp::Close { .. } => 0,
+        }
+    }
+
+    /// Its name in the journal: `send` or `close`.
+    pub fn name(&self) -> &'static str {
+        match self {
+            SocketOp::Close { .. } => "close",
+            _ => "send",
+        }
+    }
+}
+
+/// One mutation's socket operations, in the order its source made them,
+/// each addressed to the stream ticket of the resource that owns the
+/// socket. Taken by [`crate::Runner::take_socket_sends`] after the commit
+/// that staged them stands; the host checks the whole batch, then sends it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SocketSend {
+    /// The mutation's name.
+    pub mutation: String,
+    /// (stream ticket, resource name, operation), in order.
+    pub ops: Vec<(u64, String, SocketOp)>,
 }
 
 /// A request's outcome: a response (any status), or no response at all.
@@ -497,6 +556,16 @@ pub enum Outcome {
     /// One message of a stream (LLP 1016.000 D1): the stream stays open.
     /// Every other outcome delivered to a stream's ticket ends it.
     Message(Message),
+    /// A two-way socket's end (LLP 1016.000 D7): the closing handshake's
+    /// code and reason, or 1006 when the connection dropped without one.
+    Closed {
+        /// The close code.
+        code: u16,
+        /// The close reason.
+        reason: String,
+        /// The closing handshake completed.
+        was_clean: bool,
+    },
     /// Nothing came back: the executor says why.
     Failed {
         /// The kind.
@@ -516,7 +585,14 @@ impl Outcome {
             Outcome::Message(m) if m.coalesced > 0 => {
                 text!("message, {} bytes, {} coalesced", m.data.len(), m.coalesced)
             }
-            Outcome::Message(m) => text!("message, {} bytes", m.data.len()),
+            Outcome::Message(m) => text!(
+                "message, {} bytes",
+                m.binary.as_ref().map_or(m.data.len(), Vec::len)
+            ),
+            Outcome::Closed { code, reason, .. } if reason.is_empty() => {
+                text!("socket closed ({})", code)
+            }
+            Outcome::Closed { code, reason, .. } => text!("socket closed ({}: {})", code, reason),
             Outcome::Failed { kind, message } => {
                 let cut = message
                     .char_indices()

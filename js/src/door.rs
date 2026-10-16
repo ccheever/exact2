@@ -149,6 +149,16 @@ pub(crate) unsafe extern "C" fn host_door(
             state.journal.push(a.into_owned());
             Ok(Some("1".into()))
         }
+        // A socket operation the answer's mutation source staged on the
+        // stream of fetch ticket `a` (LLP 1016.000 D7; `socket.rs`).
+        14 => match (a.parse::<u64>(), super::socket::op_from_json(&b)) {
+            (Ok(ticket), Ok(op)) => {
+                state.socket_ops.push((ticket, op));
+                Ok(None)
+            }
+            (Err(_), _) => Err("socket: a ticket that is not a number".into()),
+            (_, Err(e)) => Err(e),
+        },
         other => Err(format!("__exact_host: no op {other}")),
     };
     *out = std::ptr::null_mut();

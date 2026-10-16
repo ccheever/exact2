@@ -680,8 +680,8 @@ returned as the answer: `return fetch(url, { exactStream: (event) => value })`.
 The promise never settles; each message, and the end, is mapped now (the
 mapper cannot await) and commits as the resource's answer. An `http:`/`https:`
 URL is read as server-sent events under `net.fetch`; a `ws:`/`wss:` URL is a
-WebSocket under `net.websocket` alone. Except for the JS-target TypeScript
-adapter described below, sockets remain receive-only. An event is
+WebSocket under `net.websocket` alone. Except for TypeScript sources on the
+web JS target and native hosts, described below, sockets are receive-only. An event is
 `{type, data, lastEventId, coalesced}`; messages that arrive faster than they
 commit coalesce to the newest, counted in `coalesced`. The end is
 `{type: 'error', kind, message, status}`: `kind` is `Network` (the far side
@@ -696,8 +696,8 @@ target), with one difference: on the web build the stream's `fetch` must be
 made while the answer is asked, before its first `await` (a later one is
 refused, saying so); on Hermes it may follow an `await`.
 
-On the **web JS target, TypeScript sources** receive `(event, socket)` for a
-WebSocket (LLP 1016.000 D7). Keep the handle by your resource's identity in
+On the **web JS target and on macOS, iOS and Linux, TypeScript sources**
+receive `(event, socket)` for a WebSocket (LLP 1016.000 D7). Keep the handle by your resource's identity in
 module state. Its events are `open`, ordered `message` (string or ArrayBuffer
 `data`), and `close` (`code`, `reason`, `wasClean`); a refusal is still `error`.
 Every protocol frame reaches the mapper; `coalesced` is zero. The mapper must
@@ -741,10 +741,13 @@ server acknowledgement. The receive queue is bounded by 256 frames and
 frames in order before ending with a `Refused` error.
 `state.streams` adds `readyState`, `bufferedAmount` and `sent` for these sockets.
 
-**Remaining host gap:** the web wasm target, Rust sources, macOS, iOS,
-Linux and worker-placed TypeScript do not yet provide this handle or send
-path; do not use it in a cross-platform app yet. No ambient `WebSocket`
-constructor is admitted. SSE remains unchanged.
+Natively the handle's `bufferedAmount` reads 0 and the 1 MiB buffer check
+happens when the batch is published (`state.streams` shows the transport's
+bytes), and a mutation that sends must not also `fetch`; LLP 1016.000 D7
+lists the differences. **Remaining host gap:** the web wasm target, Rust
+sources and worker-placed TypeScript do not provide the send path (on wasm
+the handle never opens). No ambient `WebSocket` constructor is admitted. SSE
+remains unchanged.
 
 This first browser implementation targets modest app stores: filesystem
 operations read the app's file records, and each SQLite mutation atomically

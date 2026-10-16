@@ -95,8 +95,9 @@ pub use instance::{DocNode, DocTree, DocTreeError, ListLinks, SurfaceUpdate, LIS
 pub use page::Page;
 pub use request::{
     io_grants, Answer, Dispatch, FailureKind, HttpScheduling, Message, Outcome, Placement,
-    Redirect, Reply, Request, RequestOut, Response, SurfaceOutcome, SurfaceRequest, Work,
-    MAX_BODY_FROM_BYTES, MAX_BODY_FROM_PATH, MAX_HOST_WORK_BYTES, MAX_TIMEOUT_MS, NATIVE_URL,
+    Redirect, Reply, Request, RequestOut, Response, SocketOp, SocketSend, SurfaceOutcome,
+    SurfaceRequest, Work, MAX_BODY_FROM_BYTES, MAX_BODY_FROM_PATH, MAX_HOST_WORK_BYTES,
+    MAX_TIMEOUT_MS, NATIVE_URL,
 };
 pub use runner::{
     canvas_engine, routing, virtual_frame, Advanced, Announce, AuthLinks, BackgroundState,
@@ -106,9 +107,9 @@ pub use runner::{
     InputDetails, Interrupt, Intersection, KeyModifiers, KeyboardEvent, Limits, ListTextPolicy,
     ListTextPosition, Native, NativeCall, NativeHandler, Overlaid, Picked, PickerLinks,
     PickerRequest, PointerEvent, PreloadWake, ResizeRect, RouterChange, RouterLink, Routing,
-    Runner, RunnerError, RunnerLinks, ScrollEvent, SelectionDirection, StackSplit, StreamCount,
-    SurfaceAnswer, Target, Timed, WheelEvent, Write, BACKGROUND, JOURNAL_RING, MAX_CLOCK_MS,
-    PICKED, QUEUE_BOUND, RESIZE_UNDELIVERED, TIMER_FIRE_LIMIT, VIRTUAL_FRAME_MS,
+    Runner, RunnerError, RunnerLinks, ScrollEvent, SelectionDirection, SocketState, StackSplit,
+    StreamCount, SurfaceAnswer, Target, Timed, WheelEvent, Write, BACKGROUND, JOURNAL_RING,
+    MAX_CLOCK_MS, PICKED, QUEUE_BOUND, RESIZE_UNDELIVERED, TIMER_FIRE_LIMIT, VIRTUAL_FRAME_MS,
 };
 pub use store::{Store, StoreError, StoreWrite};
 pub use uses::{svg_filters, svg_islands, uses, Capability, Uses};

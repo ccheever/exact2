@@ -843,9 +843,18 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         quote(name, &mut s);
         let _ = write!(
             s,
-            ",\"ticket\":{ticket},\"messages\":{},\"coalesced\":{}}}",
+            ",\"ticket\":{ticket},\"messages\":{},\"coalesced\":{}",
             count.messages, count.coalesced
         );
+        // A two-way socket's state, as the web JS target lists it (D7).
+        if let Some(socket) = count.socket {
+            let _ = write!(
+                s,
+                ",\"readyState\":{},\"bufferedAmount\":{},\"sent\":{}",
+                socket.ready_state, socket.buffered, socket.sent
+            );
+        }
+        s.push('}');
     }
     s.push(']');
     // The module's background storage (LLP 1097 D8), where it has any.
