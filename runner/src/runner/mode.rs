@@ -228,6 +228,40 @@ impl<D: DataSource> Runner<D> {
         self.tree.as_ref().and_then(|t| t.tuple_of(view)).map(|tuple| self.modes_of(tuple))
     }
 
+    /// Every remembered instance view with its plan site and the plan's
+    /// digest, as JSON `{"planDigest": …, "sites": [[view, site], …]}`: a
+    /// development page's map from views to sites (LLP 1122 D5's outline),
+    /// in one read.
+    pub fn view_sites_json(&self) -> String {
+        let mut out = String::from("{\"planDigest\":");
+        crate::agent::quote(self.inspection_digest(), &mut out);
+        out.push_str(",\"sites\":[");
+        for (i, (view, site)) in self.ids.sites().enumerate() {
+            if i > 0 {
+                out.push(',');
+            }
+            out.push_str(&format!("[{view},{}]", site.0));
+        }
+        out.push_str("]}");
+        out
+    }
+
+    /// [`Self::modes_of_view`] as JSON, `{"axis": "value", …}`.
+    pub fn modes_of_view_json(&self, view: exact_kernel::ViewId) -> Option<String> {
+        let modes = self.modes_of_view(view)?;
+        let mut out = String::from("{");
+        for (i, (axis, value)) in modes.iter().enumerate() {
+            if i > 0 {
+                out.push(',');
+            }
+            crate::agent::quote(axis, &mut out);
+            out.push(':');
+            crate::agent::quote(value, &mut out);
+        }
+        out.push('}');
+        Some(out)
+    }
+
     /// The window's modes as JSON, `{"axis": "value", …}`, for a host's reply.
     pub fn modes_json(&self) -> String {
         let mut out = String::from("{");

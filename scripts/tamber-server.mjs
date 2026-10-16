@@ -81,6 +81,7 @@ import { basename, dirname, relative, resolve, sep } from 'node:path';
 import { developmentGate, installBrowserOrigins } from './install-page.mjs';
 import { buildChannel } from './tamber-builds.mjs';
 import { scrubSessions } from './tamber-scrub.mjs';
+import { current, join, mapFor, sitesAt, staleMap } from './tamber-inspect.mjs';
 import { designSession } from './tamber-commit.mjs';
 import { designCommit, designLog } from './tamber-history.mjs';
 
@@ -89,7 +90,7 @@ const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const LINE_LIMIT = 1 << 20;
 const BODY_LIMIT = LINE_LIMIT - 64;
 const ANSWER_MS = 120_000, POLL_MS = 25_000, KEPT = 256, HOLD_MS = 15 * 60_000, HELD = 64;
-const METHODS = new Set(['hello', 'describe', 'resolve', 'explain', 'uses', 'propose', 'transaction', 'undo', 'commit', 'accept', 'drop', 'history', 'revert', 'import', 'pin', 'preview', 'inspect', 'scrub', 'scrub-release', 'scrub-cancel']);
+const METHODS = new Set(['hello', 'describe', 'resolve', 'explain', 'uses', 'propose', 'transaction', 'undo', 'commit', 'accept', 'drop', 'history', 'revert', 'import', 'pin', 'preview', 'inspect', 'outline', 'scrub', 'scrub-release', 'scrub-cancel']);
 /** Where `bun exact.mjs tamber tool` builds the design tool, and the wire
  * serves it from. */
 export const TOOL_DIST = resolve(ROOT, 'target/design-tool-web');
@@ -155,8 +156,12 @@ function spawnContract(appDir) {
  * resolves once it has let go of the design's lock. `scrub`, from a dev
  * loop, previews a scrub on its builds; `scopeOf(req)` is a request's scope
  * (LLP 1122 D6's ladder): the one token is the local tool's, which writes,
- * and paired clients' scoped tokens name theirs. */
-export function tamberServer({ appDir, spawnServe = spawnContract, log = console.log, settle = 50, toolDir = TOOL_DIST, live = false, answerMs = ANSWER_MS, scrub = null, scrubIdleMs, scopeOf = () => 'write', page = null }) {
+ * and paired clients' scoped tokens name theirs. `sourceMap()` is the dev
+ * loop's current source map (`app.plan.map.json` bytes, or null), which an
+ * inspected selection is joined to (LLP 1122 D5); `designServed()` the
+ * design it serves now (a live edit's) as `{digest, source}`, `source` the
+ * SHA-256 of the design file it was made from, or null for the plan's own. */
+export function tamberServer({ appDir, spawnServe = spawnContract, log = console.log, settle = 50, toolDir = TOOL_DIST, live = false, answerMs = ANSWER_MS, scrub = null, scrubIdleMs, scopeOf = () => 'write', page = null, sourceMap = () => null, designServed = () => null }) {
   const token = randomBytes(32).toString('hex');
   // This run's name on every event: a number from another run means nothing.
   const epoch = randomBytes(8).toString('hex');
@@ -177,7 +182,30 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   };
   // The dev loop's running builds (LLP 1122 D4): registered on its streams,
   // their reports told to every client, their pins each client's own.
-  const channel = buildChannel({ send: e => send({ ...e, seq: ++seq, epoch }), log });
+  // Each build's status a stale selection was last asked again under.
+  const refreshed = new Map();
+  // A selection (LLP 1122 D5) joined to source: refused and asked again
+  // when it is from before the build's latest status; else published as a
+  // `selection`, and every copy of its node outlined.
+  const channel = buildChannel({
+    send: e => send({ ...e, seq: ++seq, epoch }), log,
+    selected: (build, report, ask) => {
+      if (!current(build, report)) {
+        // Asked again once per status: its status first (one lost on the way
+        // would leave every selection stale), then the selection.
+        const at = JSON.stringify([build.plan, build.design, build.status?.revision]);
+        if (refreshed.get(build.id) !== at) { refreshed.set(build.id, at); ask({ kind: 'inspect', refresh: true, status: true }); }
+        return { status: 409, body: { message: 'a selection from before the build\'s latest status (a batch or a pin since): asked again' } };
+      }
+      refreshed.delete(build.id);
+      const map = mapFor(sourceMap(), report.selected.planDigest);
+      const selection = join(build, report.selected, map, { served: designServed(), design: designPath(appDir) });
+      send({ event: 'selection', seq: ++seq, epoch, ...selection });
+      // Outlined as the client that owns inspect mode on that build.
+      if (selection.source) channel.outline(channel.inspector(build.id) ?? 'inspect', sitesAt(map, selection.source), map.digest);
+      return null;
+    },
+  });
   // Scrub sessions (tamber-scrub.mjs): previewed by the dev loop (`scrub`:
   // `{preview(texts), restore()}`), one at a time, each end told.
   const scrubs = scrubSessions({
@@ -472,6 +500,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     if (request.method === 'hello') return ask(request).then(r => (r.ok ? { ok: { ...r.ok, app: appDir, epoch, live: typeof live === 'function' ? live() : live, builds: channel.list(), page: typeof page === 'function' ? page() : page, design: relative(appDir, designPath(appDir) ?? resolve(appDir, design)) } } : r));
     if (request.method === 'pin' || request.method === 'preview') return needsClient(request) ?? pin(request);
     if (request.method === 'inspect') return needsClient(request) ?? inspect(request, scope);
+    if (request.method === 'outline') return needsClient(request) ?? outline(request, scope);
     if (request.method.startsWith('scrub')) return needsClient(request) ?? scrubbing(request, scope);
     if (request.method === 'revert') return needsClient(request) ?? revert(request);
     if (request.method === 'import') return needsClient(request) ?? importHeld(request);
@@ -496,6 +525,26 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     if (request.refresh !== true && typeof request.on !== 'boolean') return { status: 400, error: { message: 'inspect names `on` (true or false), or `refresh: true`' } };
     const done = channel.inspect(request.client, build, { on: request.on === true, refresh: request.refresh === true });
     return done.error ? { status: 400, error: { message: done.error } } : { ok: done };
+  }
+
+  /** `outline` `{client, at: [{file, line, col}]}` (LLP 1122 D5): every
+   * build that can inspect outlines its views at those source locations (a
+   * token's `uses`, a changeset entry's), by the dev loop's current map. */
+  function outline(request, scope) {
+    if (scope !== 'write') return { status: 403, error: { message: 'outline needs write scope: it draws on the running builds' } };
+    if (!present(request.client)) return { status: 409, error: { message: `outline: \`${request.client}\` is not present` } };
+    if (!Array.isArray(request.at) || request.at.length > 4096 || !request.at.every(a => a && typeof a.file === 'string' && Number.isInteger(a.line) && Number.isInteger(a.col))) return { status: 400, error: { message: 'outline names `at`: up to 4096 source locations `{file, line, col}`' } };
+    // Nothing to outline: the outlines are cleared, map or none.
+    if (!request.at.length) return { ok: { sites: [], builds: channel.outline(request.client, null, null) } };
+    const raw = sourceMap();
+    let map = null;
+    try { map = raw ? JSON.parse(Buffer.from(raw).toString('utf8')) : null; } catch { map = null; }
+    if (!map?.nodes) return { status: 503, error: { message: 'no source map for the running plan yet' } };
+    const stale = staleMap(map);
+    if (stale) return { status: 409, error: { message: stale } };
+    const sites = [...new Set(request.at.flatMap(a => sitesAt(map, a)))];
+    log(`tamber: ${request.client} outlined ${request.at.length} location(s), ${sites.length} site(s)`);
+    return { ok: { sites, builds: channel.outline(request.client, sites, map.digest) } };
   }
 
   /** A pin on one build or every build (LLP 1122 D4), its client's while

@@ -35,6 +35,8 @@ on macOS and Linux.
   - `frame-ancestors` on a dev loop's HTML;
   - a build's `pinRevision` and `unsupported`;
   - `inspect` (the request and the command) and the `selected` report's shape;
+  - the `selection` event, `outline` (the request and the command), and the source map's
+    `sources` (each source's SHA-256 as compiled);
   - the items marked *1.3* below.
 
 ## Where it runs
@@ -498,6 +500,7 @@ Every event carries `seq` (rising, per run) and `epoch` (this run). The server k
 | `build-status` | `build`: one build, after its `status` report |
 | `unsupported` | `build`, `what` (a command's kind, `pin.mode`, `pin.contrast`, `batch`), `detail` |
 | `selected` | `build`, `selected` (LLP 1122 D5; *1.3*: the wasm web page in inspect mode, see the build channel) |
+| `selection` | `build`, `node`, `site`, `instance`, `tuple`, `source`, `rows`, `readOnly`, `trimmed` (*1.3*, LLP 1122 D5: a current `selected` report joined to source; see the build channel) |
 | `scrub` | `scrub`, `client`, `reason` (*1.2*; see [Scrub sessions](#scrub-sessions-12-llp-1121-d13-llp-1122-d6)) |
 
 - **A write is announced once,** from its reply. A hand edit made just before a write is announced
@@ -649,7 +652,34 @@ The tool drives no input into an app; a command changes only what `prefer` would
     is told inspect mode as the server holds it. A build that can says
     `inspect` among its `capabilities` (the wasm web page now; the JS target and natives later).
     Development pages only.
-  - `outline` and `hold` are reserved (T2b, stage 8). A host answers them `unsupported`.
+  - `outline` (*1.3*) `{sites, plan}`: the sites of plan `plan` (its digest) to outline while
+    inspect mode is on, every copy of a node; an empty list clears the outlines, and so does
+    `{clear: true}`. A build running another plan leaves its outlines as they are: a host never
+    reads a source map, so only the server resolves sites, from the map it has.
+  - `hold` is reserved (stage 8). A host answers it `unsupported`.
+- **A selection joined to source** (*1.3*, LLP 1122 D5). The server takes a `selected` report
+  only when it is the build's latest: its `plan`, `design` and `revision` those of its latest
+  status. One from before (a batch or a pin since) is refused (409) and the build is asked again
+  (`inspect {refresh: true, status: true}`: its status first, then the selection), once per
+  status it has. A current one is joined to the source map of the plan it names
+  (the dev loop's `app.plan.map.json`, verified by that digest) and published as the `selection`
+  event: `source` `{file, line, col, end_col, component, chain}` (the component call sites above
+  it), and each row with its map `origin` (`own`, `class:<Name>`, `tag`) and `editable`: `{rung:
+  "token", token, modes}` only for a row the node itself sets (`authored`, `own`) whose whole
+  value is one token, else `{rung: null, reason, link?}` (a row reached by inheritance, a dynamic
+  expression, a boundary, or an expression over tokens links its token, never this node's edit;
+  a style's or the tag's row comes with template editing, T5). Each file the join reads is
+  checked against the digest the map says it was compiled from (`sources`): one that moved since
+  makes the selection `readOnly`, with its reason, and every row read-only. The app's design file
+  likewise (the one the server serves, which the map must name), unless the build runs the
+  design the dev loop serves now and the file's bytes are the ones that design was made from (a
+  value edit it took, not a later save it kept the last good design over). Then every build that can inspect is sent `outline` with the sites at the
+  selection's source location.
+- **`outline`** `{client, at: [{file, line, col}]}` (*1.3*, write scope, a present client;
+  journaled; the outlines are its client's, cleared when it stops being present): every build
+  that can inspect outlines its views at those source locations (a token's `uses` sites, a
+  changeset entry's), by the dev loop's current map. Answered `{sites, builds}`; refused (409)
+  while a file that map compiled has changed since (a fresh span would land on another node).
 - **`inspect`** `{client, build?, on | refresh: true}` (*1.3*, write scope and a present client)
   sends
   `inspect` to a build, or to every build that can. Answered `{builds, unsupported}`: the builds

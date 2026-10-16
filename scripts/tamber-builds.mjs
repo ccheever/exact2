@@ -47,7 +47,7 @@ const POLL_BYTES = 32 * 1024;
 // A report's body: at most this many bytes, read within this long.
 const REPORT_BYTES = 64 * 1024, REPORT_MS = 10_000;
 const KINDS = new Set(['register', 'status', 'unsupported', 'selected']);
-const RESERVED = new Set(['outline', 'hold']);
+const RESERVED = new Set(['hold']);
 
 /** A pin as a client gives it: an object of the facts it pins, or null.
  * The refusal's text, or null. */
@@ -96,7 +96,7 @@ function reportRefused(r) {
 
 /** One dev loop's builds. `send(event)` tells the design server's clients
  * (`builds`, `build-status`, `unsupported`, `selected`). */
-export function buildChannel({ send = () => {}, log = () => {} } = {}) {
+export function buildChannel({ send = () => {}, log = () => {}, selected = null } = {}) {
   const streams = new Map(); // nonce -> { write(frame), build: id | null, seen?, poll? }
   const builds = new Map(); // id -> { id, host, capabilities, plan, design, status, nonce }
   const pins = new Map(); // id -> { client, pin, revision }
@@ -107,6 +107,8 @@ export function buildChannel({ send = () => {}, log = () => {} } = {}) {
   // id -> the client that turned inspect mode on there; id -> the number of
   // the last on/off command it was sent, which a page's own exit names.
   const inspectors = new Map(), inspectSeq = new Map();
+  // id -> the client whose outline a build shows.
+  const outliners = new Map();
   let inspects = 0;
   let revision = 0, greeting = () => null;
   // A bearer credential for the report route: unguessable.
@@ -207,12 +209,12 @@ export function buildChannel({ send = () => {}, log = () => {} } = {}) {
         for (const other of streams.values()) if (other !== s && other.build === r.id) other.build = null;
         // A stream is one build: another id registered on it replaces the
         // build it was, and that build's pin goes with it.
-        if (s.build && s.build !== r.id && builds.get(s.build)?.nonce === r.nonce) { builds.delete(s.build); pins.delete(s.build); sent.delete(s.build); inspectors.delete(s.build); inspectSeq.delete(s.build); }
+        if (s.build && s.build !== r.id && builds.get(s.build)?.nonce === r.nonce) { builds.delete(s.build); pins.delete(s.build); sent.delete(s.build); inspectors.delete(s.build); inspectSeq.delete(s.build); outliners.delete(s.build); }
         s.build = r.id;
         builds.delete(r.id);
         builds.set(r.id, { id: r.id, host: r.host, capabilities: r.capabilities, plan: r.plan ?? null, design: r.design ?? null, status: null, nonce: r.nonce });
         // The oldest builds with no open stream forgotten, over the cap.
-        for (const [id, b] of builds) { if (builds.size <= BUILDS) break; if (!connected(b)) { builds.delete(id); pins.delete(id); sent.delete(id); inspectors.delete(id); inspectSeq.delete(id); } }
+        for (const [id, b] of builds) { if (builds.size <= BUILDS) break; if (!connected(b)) { builds.delete(id); pins.delete(id); sent.delete(id); inspectors.delete(id); inspectSeq.delete(id); outliners.delete(id); } }
         log(`build registered: ${r.id} (${r.host})`);
         // Its pin, or none, as the server holds it now (a reload is a new
         // document; a pin cleared while it was away is cleared there too).
@@ -256,6 +258,10 @@ export function buildChannel({ send = () => {}, log = () => {} } = {}) {
         // no one owns it there any more.
         // The exit names the command it left; a newer owner's stays.
         if (r.selected == null && r.inspect === (inspectSeq.get(b.id) ?? 0)) inspectors.delete(b.id);
+        // A selection is the server's to join (`selected`): it may refuse a
+        // stale one, and ask the build again.
+        const refused = r.selected != null && selected ? selected(shown(b), r, f => frame(b.id, f)) : null;
+        if (refused) return refused;
         send({ event: 'selected', build: b.id, selected: r.selected ?? null });
       }
       return { status: 204, body: null };
@@ -273,8 +279,10 @@ export function buildChannel({ send = () => {}, log = () => {} } = {}) {
       sweep();
       for (const s of streams.values()) if (s.seen !== undefined) s.write(frame);
     },
-    /** The clients that hold a pin, or inspect mode on a build. */
-    owners: () => [...new Set([...[...pins.values()].map(p => p.client), ...inspectors.values()])],
+    /** The client that owns inspect mode on build `id`, or undefined. */
+    inspector: id => inspectors.get(id),
+    /** The clients that hold a pin, inspect mode or an outline on a build. */
+    owners: () => [...new Set([...[...pins.values()].map(p => p.client), ...inspectors.values(), ...outliners.values()])],
     /** What a polled stream is told when it opens (`() => frame | null`). */
     greet(fn) { greeting = fn; },
     /** `client` pins `pin` on build `id`, or every build (`id` null); null
@@ -314,11 +322,22 @@ export function buildChannel({ send = () => {}, log = () => {} } = {}) {
       log(`tamber: ${client} ${refresh ? 'refreshed inspect' : `inspect ${on ? 'on' : 'off'}`} on ${can.join(', ') || 'no build'}`);
       return { builds: can, unsupported: targets.map(b => b.id).filter(t => !can.includes(t)) };
     },
-    /** A command a host does not speak yet (`outline`, `hold`):
+    /** `client` outlines the sites of plan `plan` on every build that can
+     * inspect (`outline {sites, plan}`); a build running another plan
+     * leaves it. The outlines are that client's: cleared on a build when it
+     * goes (`clear`), unless another client's came since. */
+    outline(client, sites, plan) {
+      sweep();
+      const to = listed().filter(b => b.capabilities?.includes('inspect')).map(b => b.id);
+      for (const t of to) { frame(t, sites == null ? { kind: 'outline', clear: true } : { kind: 'outline', sites, plan }); outliners.set(t, client); }
+      return to;
+    },
+    /** A command a host does not speak yet (`hold`):
      * reserved, so a client is told, not ignored. */
     reserved: kind => RESERVED.has(kind),
     /** Client `client` is gone: its pins are cleared on every build. */
     clear(client) {
+      for (const [id, owner] of outliners) if (owner === client) { outliners.delete(id); frame(id, { kind: 'outline', clear: true }); }
       for (const [id, owner] of inspectors) if (owner === client) { inspectors.delete(id); const seq = ++inspects; inspectSeq.set(id, seq); frame(id, { kind: 'inspect', on: false, seq }); }
       const mine = [...pins].filter(([, p]) => p.client === client).map(([id]) => id);
       if (!mine.length) return;

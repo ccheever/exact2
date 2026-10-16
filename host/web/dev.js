@@ -430,7 +430,7 @@ if (es) {
   const inspecting = { on: false, banner: null, outline: null, shield: null, cover: null, close: null, selected: null, press: null, seq: null, left: null };
   // A new generation: the outline drawn on its boxes goes, and the chrome is
   // made again if its tree took it away.
-  outlineNone = () => { if (inspecting.outline) inspecting.outline.style.display = "none"; if (inspecting.on) chrome(); };
+  outlineNone = () => { if (inspecting.outline) inspecting.outline.style.display = "none"; unmark(); if (inspecting.on) chrome(); };
   const REPORT_BYTES = 60 * 1024;
   const ask = (request) => { const x = globalThis.exact; return JSON.parse(x.readOut(x.wasm.exact_agent(x.writeIn(JSON.stringify(request))))); };
   // The node under a point, as a tap there would find it: the topmost
@@ -523,6 +523,7 @@ if (es) {
     event.preventDefault();
     event.stopImmediatePropagation();
     // A press released where it began, by mouse, pen or finger, selects.
+    if (event.type === "scroll") place();
     if (event.type === "pointerdown") { chrome(); inspecting.press = { x: event.clientX, y: event.clientY, id: event.pointerId }; }
     if (event.type === "pointerup" && inspecting.press?.id === event.pointerId) {
       const { x, y } = inspecting.press;
@@ -542,6 +543,7 @@ if (es) {
   addEventListener("focusin", (event) => { if (inspecting.on && !inspecting.banner?.contains(event.target)) event.target?.blur?.(); }, { capture: true });
   // A guest frame that takes focus itself: the parent window loses it, and
   // focus goes back to the inspector's close control.
+  addEventListener("resize", () => { if (inspecting.on) place(); });
   addEventListener("blur", () => { if (inspecting.on && document.activeElement?.tagName === "IFRAME") inspecting.close?.focus(); });
   const topLayer = (el) => { try { el.popover = "manual"; el.showPopover(); } catch { /* no popover: a fixed element */ } };
   // The inspector's chrome (banner, outline, guest-frame shield), made
@@ -576,6 +578,8 @@ if (es) {
     // Inside the topmost open modal dialog, if one is, so its controls are
     // not inert; else the body. Made again when a modal opens later.
     (modal ?? document.body).append(cover, box, banner);
+    // The outlines go with the chrome.
+    for (const { mark } of marks) (modal ?? document.body).append(mark);
     // Above the app's own top layer (an open dialog), where one exists.
     topLayer(cover); topLayer(box); topLayer(banner);
   };
@@ -595,13 +599,50 @@ if (es) {
       document.activeElement?.blur?.();
       chrome();
     } else {
-      inspecting.banner?.remove(); inspecting.outline?.remove(); inspecting.shield?.remove(); inspecting.cover?.remove();
+      inspecting.banner?.remove(); inspecting.outline?.remove(); inspecting.shield?.remove(); inspecting.cover?.remove(); unmark();
       inspecting.banner = inspecting.outline = inspecting.shield = inspecting.cover = inspecting.close = inspecting.press = null;
     }
   };
+  // `outline {sites, plan}` (D4, D5): every copy of the selected node, the
+  // views of those plan sites, outlined while inspect mode is on (the first
+  // scrolled into view, then measured; kept on them as the page scrolls and
+  // resizes). A frame for another plan leaves the outlines as they are (a
+  // host never reads a source map: the server resolves sites); an empty one
+  // clears them; `clear` too.
+  const marks = [];
+  // A marked view that changes size (a font-size pin, a commit) is outlined
+  // where it is now.
+  const resized = typeof ResizeObserver === "function" ? new ResizeObserver(() => place()) : null;
+  const unmark = () => { resized?.disconnect(); for (const { mark } of marks.splice(0)) mark.remove(); };
+  const place = () => {
+    for (const { mark, el } of marks) {
+      const r = el.getBoundingClientRect();
+      Object.assign(mark.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px`, display: el.isConnected ? "block" : "none" });
+    }
+  };
+  const outlineSites = (frame) => {
+    if (frame.clear) { unmark(); return; }
+    if (!inspecting.on) return;
+    const views = ask({ op: "sites" });
+    if (views.error || views.planDigest !== frame.plan || !Array.isArray(frame.sites)) return;
+    unmark();
+    const wanted = new Set(frame.sites);
+    const found = views.sites.filter(([, site]) => wanted.has(site)).map(([id]) => globalThis.exact.views?.get(id)).filter((el) => el?.isConnected);
+    found[0]?.scrollIntoView({ block: "nearest" });
+    for (const el of found) {
+      const mark = document.createElement("div");
+      mark.dataset.exactOutline = "";
+      mark.style.cssText = "position:fixed;margin:0;padding:0;border:0;z-index:2147483645;pointer-events:none;outline:2px dashed #1d4ed8";
+      (inspecting.banner?.parentElement ?? document.body).append(mark);
+      marks.push({ mark, el });
+      resized?.observe(el);
+    }
+    place();
+  };
   const inspect = async (frame) => {
     // `{refresh: true}`: the selection again, under the digests now.
-    if (frame.refresh) { await refresh(); return; }
+    // (`status: true`: its status again first, one lost on the way.)
+    if (frame.refresh) { if (frame.status) await status(); await refresh(); return; }
     // The command's number, which a local exit names, so a later owner's
     // command is not undone by it.
     // A replay of the command this page left itself (a new stream before
@@ -627,6 +668,7 @@ if (es) {
     designing = designing.then(() => {
       if (frame.kind === "pin") return pin(frame);
       if (frame.kind === "inspect") return inspect(frame);
+      if (frame.kind === "outline") return outlineSites(frame);
       report({ kind: "unsupported", what: frame.kind });
     }).catch((error) => console.error("exact dev:", String(error)));
   };

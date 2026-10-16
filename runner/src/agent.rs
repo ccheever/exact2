@@ -58,6 +58,9 @@ pub fn handle<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
             },
             None => error("picker needs an id"),
         },
+        // Every view's plan site, and the plan's digest (LLP 1122 D5): what a
+        // development page outlines by, without a node's whole explanation.
+        Some("sites") => runner.view_sites_json(),
         Some("node") => match field_num(request, "id") {
             Some(n) if n >= 0.0 && n == n.trunc() => {
                 let mut reply = node(runner, n as u32);
@@ -512,17 +515,9 @@ pub fn node<D: DataSource>(runner: &Runner<D>, id: u32) -> String {
     }
     // The app modes it is in (LLP 1121 D5): the window's, overridden by the
     // pins above it (LLP 1122 D5's selected node's tuple).
-    if let Some(modes) = runner.modes_of_view(id) {
-        s.push_str(",\"modes\":{");
-        for (i, (axis, value)) in modes.iter().enumerate() {
-            if i > 0 {
-                s.push(',');
-            }
-            quote(axis, &mut s);
-            s.push(':');
-            quote(value, &mut s);
-        }
-        s.push('}');
+    if let Some(modes) = runner.modes_of_view_json(id) {
+        s.push_str(",\"modes\":");
+        s.push_str(&modes);
     }
     // An own row the plan binds by an expression is `dynamic` (D5); one it
     // binds by a literal — or that a class expansion or the runner set — is
@@ -563,7 +558,10 @@ pub fn node<D: DataSource>(runner: &Runner<D>, id: u32) -> String {
         } else {
             match node.source_of(row) {
                 Some(from) => {
-                    let _ = write!(s, ",\"source\":\"inherited\",\"from\":{from}}}");
+                    // And the token the ancestor's own row read, its link.
+                    let _ = write!(s, ",\"source\":\"inherited\",\"from\":{from}");
+                    token_json(runner, from, row, &mut s);
+                    s.push('}');
                 }
                 None => s.push_str(",\"source\":\"initial\"}"),
             }

@@ -1535,7 +1535,8 @@ Do not replace virtual time with sleeps.
 For diagnosis, use `build --json`, `symbols --name <name>`, and
 `build -o /tmp/app.plan --map`, which writes `/tmp/app.plan.map.json`. The
 development source map connects node layout
-to declarations, component calls, and style origins. Then drive the actual app:
+to declarations, component calls, and style origins, and says each source's
+SHA-256 as compiled (`sources`), so a reader can tell a file moved since. Then drive the actual app:
 
 ```sh
 bun scripts/agent.mjs web tree state logs "screenshot /tmp/app.png"
