@@ -122,10 +122,12 @@ extension Presenter {
             start.nextKeyView = nil
             return
         }
+        // Setting a view's `nextKeyView` makes it the next one's `previousKeyView`: the start's link goes
+        // first, so the last stop's, below, is the first stop's previous and Shift-Tab wraps as Tab does.
+        start.nextKeyView = tabbable[0].view
         for (i, v) in tabbable.enumerated() {
             v.view.nextKeyView = tabbable[(i + 1) % tabbable.count].view
         }
-        start.nextKeyView = tabbable[0].view
         // Shift-Tab from the start (`tabFromStart`): the loop's last.
         keyViewBefore.setObject(tabbable[tabbable.count - 1].view, forKey: start)
     }
