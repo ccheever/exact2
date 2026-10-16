@@ -22,7 +22,7 @@
 
 use exact_plan::{Opcode, Plan, Stdlib};
 use exact_runner::vm::{instructions, Instruction};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// What names a body may read, from where it is compiled.
 #[derive(Clone, Default)]
@@ -51,6 +51,9 @@ pub struct Uses {
     pub names: BTreeSet<String>,
     /// budget.js's (LLP 1090 D3).
     pub budget: BTreeSet<String>,
+    /// Module-scope constants, by name: JavaScript built once from the plan
+    /// that many sites share (LLP 1071 §7, generated code at scale).
+    pub consts: BTreeMap<String, String>,
 }
 
 impl Uses {
@@ -61,6 +64,12 @@ impl Uses {
 
     pub fn budget(&mut self, name: &str) -> String {
         self.budget.insert(name.to_string());
+        name.to_string()
+    }
+
+    /// `name`, a module-scope constant of `value`'s JavaScript (built once).
+    pub fn constant(&mut self, name: &str, value: impl FnOnce() -> String) -> String {
+        self.consts.entry(name.to_string()).or_insert_with(value);
         name.to_string()
     }
 }
