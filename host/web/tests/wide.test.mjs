@@ -391,8 +391,9 @@ check('only an ordinary outer press associates its row with navigation', () => {
   const html = ruleStack(body).replace('</main>', `${detail('r3', 3)}</main>`);
   return inChrome(page(html), async (evaluate, _size, click) => {
     // A refused action owns no later timer/resource/keyboard navigation after this click dispatch ends.
-    await evaluate(`select('1'); document.getElementById('owner').click(); push(2, '/item/a')`);
-    expect(await evaluate(`[document.getElementById('owner').hasAttribute('data-exact-split-row'), back('r2')]`)).toEqual([false, true]);
+    // The first detail has no Back in a split whoever owns it, so ownership shows on a push inside it.
+    await evaluate(`push(2, '/item/a'); document.getElementById('owner').click(); push(3, '/item/b')`);
+    expect(await evaluate(`[document.getElementById('owner').hasAttribute('data-exact-split-row'), back('r3')]`)).toEqual([false, true]);
     // The host leaves these link clicks to the browser, so a later router change owns no row.
     for (const modifier of ['ctrlKey', 'metaKey', 'shiftKey', 'altKey']) {
       await evaluate(`push(2, '/item/a'); { const link = document.getElementById('action-link'); link.addEventListener('click', e => e.preventDefault(), {once:true}); link.dispatchEvent(new MouseEvent('click', {bubbles:true,cancelable:true,${modifier}:true})); } push(3, '/edit')`);

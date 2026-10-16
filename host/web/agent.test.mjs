@@ -880,9 +880,11 @@ async function startupFixture(rustOnly = false) {
     },
   });
   f.exact = {};
-  vm.runInContext([source.match(/^const AGENT_ADMITTED = .*$/m)[0], ...['setInputReady', 'activateData', 'main'].map(declaration)].join('\n')
+  // navigation.js's export, which a context global would confuse with the browser's own `globalThis.navigation`.
+  vm.runInContext([source.match(/^const AGENT_ADMITTED = .*$/m)[0], "const navigation = { activate: () => events.push('navigation') };", ...['setInputReady', 'activateData', 'main'].map(declaration)].join('\n')
     .replaceAll('import.meta.url', '"https://fixture.invalid/glue.js"'), f);
   await f.main();
+  expect(events).toEqual(['boot', 'navigation']); // Adoption activates navigation before optional modules or data.
   expect(loads).toEqual([]); // Neither optional nor app modules run before paint.
   frames.shift()();
   expect(loads).toEqual([]);
@@ -899,7 +901,7 @@ test('pending, failed and invalid optional modules leave Rust and JS apps ready 
     expect(f.root.dataset.moduleReady).toBe('true');
     expect(f.inputReady).toBe(true);
     expect(f.root['aria-busy']).toBe('false');
-    expect(f.events).toEqual(['boot', 'activate', 'batch', 'collections', 'ready']);
+    expect(f.events).toEqual(['boot', 'navigation', 'activate', 'batch', 'collections', 'ready']);
     expect(f.inputHandlers).toBeNull(); // A stalled import has no readiness deadline.
     expect(f.loads.filter(file => file === './input-glue.js')).toHaveLength(1);
     h.timer.reject(new Error('timer unavailable'));
@@ -923,7 +925,7 @@ test('required app module failure still keeps dispatch gated and settles the err
   expect(h.f.inputReady).toBe(false);
   expect(h.f.root.dataset.moduleReady).toBeUndefined();
   expect(h.f.root.dataset.error).toContain('required app unavailable');
-  expect(h.f.events).toEqual(['boot', 'ready']);
+  expect(h.f.events).toEqual(['boot', 'navigation', 'ready']);
   h.input.resolve(() => ({ arrive() {} })); h.timer.resolve(() => ({}));
   await checkpoint();
 });
