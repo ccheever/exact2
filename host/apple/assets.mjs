@@ -285,8 +285,8 @@ function machOType(path) {
 /** The hardened-runtime entitlements `exact release` signs the Mac app with:
  * the bake's derivation from the app's `device.*` grants (a usage string
  * alone is not enough; a hardened app without the entitlement is silently
- * refused) and its `runtime.<exception> app` grants (LLP 1069.008 D9). Null
- * when the app grants neither. */
+ * refused). Runtime exceptions never reach the app's own executable (LLP
+ * 1069.008 D9). Null when the app grants no such device. */
 export const macReleaseEntitlements = (compat) => {
   const names = compat?.reach?.entitlements ?? [];
   // An https auth callback's `webcredentials:` domain (LLP 1069.006 D2),

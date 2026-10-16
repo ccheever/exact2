@@ -1,6 +1,6 @@
 # macOS release: entitlements for the app and its nested code, and a pre-seal step (rest of #119)
 
-**Status:** Open: helper runtime exceptions built 2026-10-15 (LLP 1069.008 D9, awaiting acceptance); the notarized proof is not run
+**Status:** Open: helper runtime exceptions built 2026-10-15 (LLP 1069.008 D9, accepted by Charlie 2026-10-15, helpers only); open until the notarized proof runs
 **Systems:** host/apple, delivery, app manifest
 **Severity:** P2
 **Author:** daehyeon-mun (GitHub report); Codex (filesystem transfer)
@@ -27,17 +27,19 @@ sealing. Helper runtime exceptions followed on 2026-10-15 (below).
 
 ## Implementation, 2026-10-15: scoped runtime-exception grants
 
-Built as LLP 1069.008 D9, a proposed amendment awaiting Charlie's acceptance.
+Built as LLP 1069.008 D9, accepted by Charlie on 2026-10-15 for helper
+executables only; the app's own executable is deferred (`rules/DEFERRED.md`).
 `runtime.<exception> <target>` is a grant line beside `device.*`, with three
 rows: `allow-jit`, `allow-unsigned-executable-memory` and
 `disable-library-validation`, each mapping to `com.apple.security.cs.<name>`.
-The target is `app` or one executable's path under `Contents`, inside a
-`host.macos.resources` destination. The table is `runner/src/hardened.rs`, and
+The target is one helper executable's path under `Contents`, inside a
+`host.macos.resources` destination; a line naming `app` is refused with the
+other bad lines. The table is `runner/src/hardened.rs`, and
 `io_grants` and the web host strip the family. The macOS bake derives
-`reach.helperEntitlements` (path → keys); an `app` line joins
-`reach.entitlements`. `exact release` signs through `signRelease`
+`reach.helperEntitlements` (path → keys), never `reach.entitlements`.
+`exact release` signs through `signRelease`
 (`host/apple/assets.mjs`): each named helper takes exactly its own keys, the app
-its own, and other nested code none. A target that is not a regular, unlinked
+only its device entitlements, and other nested code none. A target that is not a regular, unlinked
 Mach-O executable the walk signs inside a resources destination is refused,
 every one in one error, at `mac --bundle` and again at release. The lines are
 grant-ceiling lines, so adding one classifies as a binary release with no new
@@ -50,13 +52,16 @@ the docs now say.
 ./scripts/exact.test.mjs` (16 pass) signs a fixture through `signRelease`.
 `codesign -d --entitlements - --xml` shows a helper with exactly
 `allow-jit` and `allow-unsigned-executable-memory`, a nested `.app` with
-`allow-jit`, the app with `disable-library-validation`, and an undeclared
+`allow-jit` and `disable-library-validation`, the app with only its device
+entitlement (`audio-input`), and an undeclared
 sibling executable and a dylib with none. Run under the hardened runtime, the
 granted helper maps `MAP_JIT` memory (exit 0) and its undeclared sibling and
 the app are refused (exit 1). `codesign --verify --deep --strict` passes, then
 fails once the staged stamp under `Resources/` is edited. With no runtime grant,
-every path is signed with no entitlements. Bake and runner unit tests cover the
-grammar and the derivation.
+every path is signed with no entitlements. A receipt naming `app`, or a path
+outside the resources destinations, is refused before anything is signed. Bake
+and runner unit tests cover the grammar, the derivation and the refusal of
+`app`.
 
 **Not verified:**
 - A real `mac --bundle` of an app with a runtime grant. This machine has no
@@ -85,8 +90,7 @@ spctl -a -t exec -vv "$APP"                                                 # so
 xcrun stapler validate "$APP"
 ```
 
-When every line answers as marked, the issue can close and D9 can be
-accepted.
+When every line answers as marked, the issue can close.
 
 Transferred at exact2 `5e8da7027` on 2026-10-09. This preserves reported evidence; this triage has not reproduced or fixed the runtime behavior. The current scope and Charlie's decisions below supersede conflicting proposals/acceptance in the original report. This file is the live issue after the GitHub copy is closed.
 
