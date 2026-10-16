@@ -289,6 +289,7 @@ export function install(exact) {
         if (req.part != null) return partTap(req);
         // A virtualized list's row brought into view by key (LLP 1070.000 §5; list.js).
         if (req.into) {
+          for (const a of [req.into.block === undefined ? 'start' : req.into.block, req.into.inline === undefined ? 'nearest' : req.into.inline]) if (!['start', 'center', 'end', 'nearest'].includes(a)) return { error: `no alignment ${typeof a === 'string' ? a : JSON.stringify(a)}: start, center, end or nearest`, malformed: true };
           if (!exact.lists) return { error: `view ${req.id} is not a mounted virtualized list` };
           try { exact.lists.into(req.id, String(req.into.key ?? ''), req.into.block, req.into.inline); } catch (e) { return { error: e.message, ...(e.malformed === true ? { malformed: true } : {}) }; }
           return { tapped: req.id, into: req.into };

@@ -570,10 +570,20 @@ public final class Agent {
     /// `tap <list> into <key>` (LLP 1070.000 §5): the runner's request on a
     /// mounted list, committed, then settled as `clock settle` settles it.
     func intoView(_ req: [String: Any], _ into: [String: Any]) -> [String: Any] {
+        for name in ["block", "inline"] {
+            if let alignment = into[name], !["start", "center", "end", "nearest"].contains(alignment as? String ?? "") {
+                // A string as it is, anything else as its JSON, as the web hosts and Linux print it.
+                let shown = alignment as? String ?? (try? JSONSerialization.data(withJSONObject: alignment, options: .fragmentsAllowed))
+                    .flatMap { String(data: $0, encoding: .utf8) } ?? "\(alignment)"
+                return ["error": "no alignment \(shown): start, center, end or nearest", "malformed": true]
+            }
+        }
         guard let v = view(req) else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         let key = into["key"] as? String ?? (into["key"].map { "\($0)" } ?? "")
-        session.apply(session.runtime.intoView(v.id, key: key, block: into["block"] as? String ?? "start",
-                                               inline: into["inline"] as? String ?? "nearest"))
+        let batch = session.runtime.intoView(v.id, key: key, block: into["block"] as? String ?? "start",
+                                             inline: into["inline"] as? String ?? "nearest")
+        session.apply(batch)
+        if let error = batch.error { return ["error": error] }
         presenter.settlePump()
         return ["tapped": Int(v.id), "into": into]
     }

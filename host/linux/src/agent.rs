@@ -13,6 +13,7 @@ pub(crate) mod contact;
 
 use crate::presenter::Presenter;
 use exact_runner::agent::{error, field_bool, field_num, field_str, num};
+use exact_runner::instance::collection::Align;
 use exact_runner::DataSource;
 use std::io::{BufRead, Write};
 
@@ -317,6 +318,24 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                     Some(Ok(())) => serde_json::json!({ "back": "route", "delivery": "platform" }).to_string(),
                     Some(Err(why)) => serde_json::json!({ "back": "route", "delivery": "platform", "refused": why }).to_string(),
                 };
+            }
+            // An `into` is the runner's request, never a press: a bad alignment is refused before any delivery.
+            if let Some(into) = request.get("into") {
+                for name in ["block", "inline"] {
+                    if let Some(alignment) = into.get(name) {
+                        if !alignment
+                            .as_str()
+                            .is_some_and(|name| Align::parse(name).is_some())
+                        {
+                            let name = alignment
+                                .as_str()
+                                .map_or_else(|| alignment.to_string(), str::to_owned);
+                            return malformed(&format!(
+                                "no alignment {name}: start, center, end or nearest"
+                            ));
+                        }
+                    }
+                }
             }
             if let Some(reply) = p.control_tap(&request) {
                 return reply.to_string();
