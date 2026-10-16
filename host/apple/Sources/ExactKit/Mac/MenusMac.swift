@@ -475,7 +475,7 @@ final class MenuHost: NSObject {
         guard let presenter else { return }
         for entry in entries where entry.menu == nil && entry.native == nil {
             entry.layer.frame = entry.layer.superview?.bounds ?? presenter.viewport.bounds
-            let anchor = entry.source.map { anchor($0, in: entry.layer, run: entry.run) } ?? .zero
+            let anchor: NSRect = entry.source.map { self.anchor($0, in: entry.layer, run: entry.run) } ?? .zero
             var box = entry.frame
             box.origin = PositionArea.origin(PositionArea.of(entry.popover), anchor: anchor, size: box.size,
                                              margins: PositionArea.margins(of: entry.popover),

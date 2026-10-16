@@ -408,7 +408,7 @@ export const infoPlist = (app, device = false, { executable = executableName(app
     const exported = exportedTypes(app);
     if (exported.length) dict.UTExportedTypeDeclarations = exported;
   }
-  Object.assign(dict, openingLinks(app, 'ios', development));
+  Object.assign(dict, openingLinks(app, 'ios', development), updateActivation(app));
   Object.assign(dict, usageKeys(reach));
   Object.assign(dict, icon);
   Object.assign(dict, distribution, orientationKeys(app.manifest.orientation));
@@ -575,9 +575,11 @@ export const macInfoPlist = (app, { development = null, icon = {}, reach = null 
   // without `file_handlers`: File ▸ New Window needs no document type. Always written, so
   // absence, `auto` and an explicit `navigate-existing` are one plist.
   ExactLaunchMode: launchMode(app),
+  ...updateActivation(app),
   ...openingLinks(app, 'macos', development),
 });
 
+const updateActivation = (app) => app.manifest.deploy?.activate ? { ExactUpdateActivate: app.manifest.deploy.activate } : {}; // `deploy.activate`, for ExactUpdates
 /** The build receipt (LLP 1030 D2): what this binary was actually built from and with — the toolchain, the SDK, the identity and profile, the entitlements as signed — written beside it, never committed, so "what did this binary contain" is answered by a file. */
 export function receipt(app, fields) {
   const version = (cmd, args) => (read(cmd, args).stdout ?? '').trim().split('\n')[0];

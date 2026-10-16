@@ -56,7 +56,7 @@ import { buildRust, publishedSignature, rustBundle, rustPackage, tieredNative } 
 import { assertOwnTarget, cargoReproducibilityFlags, readManifest, buildBake, bakeTarget, readBuilds, cohortReceipt, classifyArtifacts, resolveApp, shaderWatchRoots } from './app.mjs';
 import { gameShells } from "../game/app/shells.mjs";
 import { appdropPlan, renderAppdrop, runAppdrop } from './deploy-appdrop.mjs';
-import { blobPath, openOrigin, OriginUnavailable, sha256, streamPath, parseWebRoot, webRootPath, webRootStream, webReleasePath } from './origin.mjs';
+import { blobPath, channelOrigin, openOrigin, OriginUnavailable, sha256, streamPath, parseWebRoot, webRootPath, webRootStream, webReleasePath } from './origin.mjs';
 import { filesystemLock, removePrivateTree } from './filesystem.mjs';
 import { listBuildFiles, listPublicFiles, readStaticCandidate } from '../host/web/serve.mjs';
 
@@ -915,7 +915,11 @@ async function authenticatedReleaseFloor(origin, app, stream) {
  * clients already hold for another bundle. Repairing an unusable head uses
  * the history alone; if none exists, overwriting would guess at the clients'
  * rollback floor and is refused. */
-async function nextSeq(origin, app, stream, admission, at) {
+async function nextSeq(origin, app, stream, admission, at, above = 0) {
+  return Math.max(above + 1, await nextOriginSeq(origin, app, stream, admission, at));
+}
+
+async function nextOriginSeq(origin, app, stream, admission, at) {
   const history = await authenticatedReleaseFloor(origin, app, stream);
   let floor;
   if (admission?.usable) floor = Math.max(admission.seq, history.floor ?? 0);
@@ -1127,8 +1131,9 @@ export async function publishStream({ origin, row, bundle, compat, app, signer, 
     const changes = admission?.usable
       ? changesAgainst(bundle, admission.head)
       : current ? [{ name: 'exact.json', change: 'repair', note: admission.problem }] : changesAgainst(bundle, null);
-    if (admission?.usable && !changes.length) return { ...row, action: 'current', seq: admission.seq, note: 'the head is admissible and already names this bundle (published meanwhile)' };
-    const seq = await nextSeq(origin, app, stream, admission, `the locked head at ${origin.describe()}/${base}/exact.json`);
+    if (admission?.usable && !changes.length && admission.seq > (opts.seqAbove ?? 0)) return { ...row, action: 'current', seq: admission.seq, note: 'the head is admissible and already names this bundle (published meanwhile)' };
+    // `seqAbove`: a stream moving to a new origin starts above every seq its clients accepted from the old one.
+    const seq = await nextSeq(origin, app, stream, admission, `the locked head at ${origin.describe()}/${base}/exact.json`, opts.seqAbove ?? 0);
     let written = 0;
     for (const file of files) {
       if (await origin.put(blobPath(file.sha256), file.bytes, { immutable: true }) === 'written') written++;
@@ -1309,10 +1314,12 @@ async function deployCaptured(opts, capsule) {
   const release = capsule.release;
   const channel = opts.channel ?? channelOf(app.manifest);
   if (channel === 'blobs' || !/^[A-Za-z0-9._-]+$/.test(channel)) refuse(`the channel ${JSON.stringify(channel)} cannot name a directory under .exact/`);
-  const originSpec = opts.origin ?? app.manifest.deploy?.channels?.[channel] ?? app.origin;
+  const originSpec = opts.origin ?? channelOrigin(app.manifest, channel) ?? app.origin;
   if (!originSpec) refuse(`no origin for the channel ${channel}: pass --origin <dir|url> or name deploy.channels.${channel} in app.json`);
   const origin = openOrigin(originSpec);
-  const wantOrigin = opts.only !== 'bundle' && (!opts.platform.length || opts.platform.includes('web'));
+  // An origin that holds only update streams (AppDrop) publishes no web root.
+  if (origin.servesWeb === false && (opts.only === 'origin' || opts.platform.includes('web'))) refuse(`${origin.describe()} holds update streams, not a web app: publish the web root to another origin`);
+  const wantOrigin = origin.servesWeb !== false && opts.only !== 'bundle' && (!opts.platform.length || opts.platform.includes('web'));
   const platforms = opts.only === 'origin' ? [] : nativePlatforms(app.manifest).filter((p) => !opts.platform.length || opts.platform.includes(p));
   if (!wantOrigin && !platforms.length) refuse(`nothing to classify: ${opts.only ? `--only ${opts.only}` : ''} ${opts.platform.length ? `--platform ${opts.platform.join(',')}` : ''} leaves no row`);
   const log = (text) => process.stderr.write(`${text}\n`);
@@ -1321,6 +1328,7 @@ async function deployCaptured(opts, capsule) {
   if (opts.yes && !origin.writable) refuse(`${origin.describe()} is an https origin, read-only in v1: point --origin at the directory the host serves (an object-store adapter with a conditional put is owed)`);
   const signer = opts.yes && platforms.length ? loadSigner(app, opts.keys) : null;
   if (signer) log(`signing as ${signer.keyId} (${signer.path})`);
+  if (signer) origin.useSigner?.(signer);
 
   log(`snapshot ${snapshot.id}${snapshot.sources.length > 1 ? ` (${snapshot.sources.map((source) => `${source.roles.join('+')} ${source.commit.slice(0, 7)}`).join(', ')})` : ''}${snapshot.dirty ? ' + uncommitted changes (--dirty)' : ''}; baking into ${run}`);
   const web = bake(app, run, exactRoot, sourceRoot);

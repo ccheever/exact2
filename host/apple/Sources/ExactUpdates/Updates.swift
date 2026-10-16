@@ -103,7 +103,15 @@ public final class ExactUpdates: ExactAppLifecycle {
     private let storeOpen: Bool
     private var firstPixelSeen = false
     private var preparationRetry: DispatchWorkItem?
+    /// `deploy.activate` is `immediate` (build.mjs writes it into Info.plist).
+    private let immediate = Bundle.main.object(forInfoDictionaryKey: "ExactUpdateActivate") as? String == "immediate"
+    private var interval: Timer?
+    private var observers: [NSObjectProtocol] = []
     public private(set) var status: String?
+
+    /// How often an `immediate` app checks while it is in the foreground: a
+    /// head is a few hundred bytes, and the app's owner is waiting on a fix.
+    static let foregroundInterval: TimeInterval = 2
 
     @discardableResult
     public static func install(on app: ExactApp) -> ExactUpdates {
@@ -122,10 +130,35 @@ public final class ExactUpdates: ExactAppLifecycle {
             catch { Updates.refuse(selected.token, reason: error.localizedDescription) }
         }
         Updates.completed = { [weak self] line in
-            self?.status = line
-            FileHandle.standardError.write(Data("exact update: \(line)\n".utf8))
-            self?.app?.refreshDelivery()
+            guard let self else { return }
+            // An `immediate` app checks every two seconds: say each outcome once.
+            if !self.immediate || (line != self.status && line != "current") { FileHandle.standardError.write(Data("exact update: \(line)\n".utf8)) }
+            self.status = line
+            self.app?.refreshDelivery()
+            if self.immediate && line.hasPrefix("staged") { self.activate() }
         }
+    }
+
+    /// The `immediate` policy's checks: on becoming active, and on an
+    /// interval until resigning. The names are AppKit's and UIKit's, so this
+    /// target links neither.
+    private func watchForeground() {
+        let center = NotificationCenter.default
+        for name in ["NSApplicationDidBecomeActiveNotification", "UIApplicationDidBecomeActiveNotification"] {
+            observers.append(center.addObserver(forName: Notification.Name(name), object: nil, queue: .main) { [weak self] _ in self?.foreground(true) })
+        }
+        for name in ["NSApplicationDidResignActiveNotification", "UIApplicationWillResignActiveNotification"] {
+            observers.append(center.addObserver(forName: Notification.Name(name), object: nil, queue: .main) { [weak self] _ in self?.foreground(false) })
+        }
+        foreground(true)
+    }
+
+    private func foreground(_ active: Bool) {
+        interval?.invalidate()
+        interval = nil
+        guard active else { return }
+        check(quietly: true)
+        interval = Timer.scheduledTimer(withTimeInterval: Self.foregroundInterval, repeats: true) { [weak self] _ in self?.check(quietly: true) }
     }
 
     private func generation(_ selection: Updates.Selection, app: ExactApp) throws -> ExactGeneration {
@@ -133,11 +166,22 @@ public final class ExactUpdates: ExactAppLifecycle {
             try Updates.asset(selection, name: name).get()
         }
         var module: ExactModule?
+        func refused(_ message: String) -> NSError {
+            NSError(domain: "ExactModule", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+        }
         let rustNames = selection.assets.filter { $0.hasPrefix("rust/") }
+        // A TypeScript app's module is its receipt and Hermes bytecode; the
+        // data source admits it only with this binary's app identity and grants.
+        let typescriptNames = selection.assets.filter { $0.hasPrefix("typescript/") }
+        if !rustNames.isEmpty && !typescriptNames.isEmpty { throw refused("a generation carries one module pair, not two") }
+        if !typescriptNames.isEmpty {
+            guard typescriptNames.sorted() == ["typescript/app.hbc", "typescript/app.module.json"],
+                  let receipt = try Updates.asset(selection, name: "typescript/app.module.json").get(), receipt.count <= 1 << 20,
+                  let bytes = try Updates.asset(selection, name: "typescript/app.hbc").get(), bytes.count <= 32 << 20
+            else { throw refused("incomplete or invalid signed TypeScript module pair") }
+            module = ExactModule(receipt: receipt, bytecode: bytes)
+        }
         if !rustNames.isEmpty {
-            func refused(_ message: String) -> NSError {
-                NSError(domain: "ExactRust", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
-            }
             guard rustNames.contains("rust/app.module.json"),
                   let receipt = try Updates.asset(selection, name: "rust/app.module.json").get(), receipt.count <= 1 << 20,
                   let json = try JSONSerialization.jsonObject(with: receipt) as? [String: Any],
@@ -162,12 +206,15 @@ public final class ExactUpdates: ExactAppLifecycle {
         guard !firstPixelSeen else { return }
         firstPixelSeen = true
         if ExactEnv.agentMode, ExactEnv.environment["EXACT_UPDATE_ORIGIN"] == nil { return }
+        if immediate { watchForeground(); return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in self?.check() }
     }
 
-    public func check() {
+    public func check() { check(quietly: false) }
+
+    private func check(quietly: Bool) {
         guard storeOpen else { return }
-        if !Updates.check() { FileHandle.standardError.write(Data("exact update: a check is already running\n".utf8)) }
+        if !Updates.check() && !quietly { FileHandle.standardError.write(Data("exact update: a check is already running\n".utf8)) }
     }
 
     @discardableResult

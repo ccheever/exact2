@@ -573,6 +573,7 @@
           }
         },
         "channels": {
+          "description": "Each channel's update origin: a directory or URL, or \"appdrop\" for AppDrop's origin named after deploy.signing.key (https://appdrop.app/u/<key id>), which needs no account or server.",
           "type": "object",
           "additionalProperties": {
             "type": "string"
@@ -582,7 +583,8 @@
           "type": "string",
           "enum": [
             "next-launch",
-            "app-decides"
+            "app-decides",
+            "immediate"
           ]
         },
         "check": {

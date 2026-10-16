@@ -337,11 +337,20 @@ fn build_sources(
         meta["grants"].as_str(),
         mixed_grants(&meta, rust)?,
     )?;
-    if compat.inputs["store"]["L"] != "0" {
-        return Err("module clients currently require deploy.store.<platform> = 0; signed module delivery is not implemented".into());
+    // A TypeScript app's update carries its module pair (`typescript/`); a
+    // mixed app's two modules travel as one generation, which no host takes yet.
+    let updating = compat.inputs["store"]["L"] != "0";
+    if updating && rust.is_some() {
+        return Err("a TypeScript and Rust app currently requires deploy.store.<platform> = 0; signed delivery of both modules is not implemented".into());
     }
+    // The Apple entry's host: the update composition when the binary has a store.
+    let host = if updating {
+        "exact_apple_update"
+    } else {
+        "exact_apple"
+    };
     // What an Apple archive links, as its compatibility inputs name it (LLP 1047.001 D2).
-    let linked = (platform != "web").then(|| exact_bake::apple_link(&compat, "exact_apple"));
+    let linked = (platform != "web").then(|| exact_bake::apple_link(&compat, host));
     std::fs::write(out.join("compat.json"), compat.to_json()).map_err(|e| e.to_string())?;
     let rust_updates = compat.inputs["rustMode"] != "off"
         && compat.inputs["rustModule"]
@@ -405,6 +414,20 @@ fn build_sources(
         // links every capability, as before.
         if let Some(linked) = linked {
             std::fs::write(out.join("linked.rs"), linked).map_err(|e| e.to_string())?;
+            // `include!(concat!(env!("OUT_DIR"), "/host.rs"))` instantiates
+            // the host this compatibility id names.
+            let new = if updating {
+                ""
+            } else {
+                "None, std::ptr::null(), "
+            };
+            std::fs::write(
+                out.join("host.rs"),
+                format!(
+                    "{host}::host!(AppData, PLAN, COMPAT, {new}app_data; linked = EXACT_LINKED);\n"
+                ),
+            )
+            .map_err(|e| e.to_string())?;
         }
     }
     // Each captured source by name, not the app directory: Cargo scans a named
