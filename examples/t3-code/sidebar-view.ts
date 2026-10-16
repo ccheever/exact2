@@ -30,6 +30,7 @@ import { WORKTREE_DIALOG_TITLE, worktreeDialogDescription } from './worktree-cle
 import { bulkMenuState, menuRows, threadMenuItems, threadMenuState, type MenuRow } from './sidebar-menu'; // the row's context popover (exact2 #223)
 import { draftMenuRows } from './r11-upstream-drafts';
 import { replaceContextReferences } from './composer-editor-menu'; // a draft row's chips read as their labels
+import { renameHeld } from './sidebar-rename-wait';
 
 type Identity = (name: string) => { projectMark: string; projectInk: string; projectSurface: string };
 type Badge = (provider: Obj | undefined, providers: Obj[]) => { providerBadge: string; providerBadgeColor: string };
@@ -52,7 +53,7 @@ export interface SidebarThread {
   card: boolean; statusIcon: string; statusColor: string; duration: string; titleColor: string; titleWeight: number;
   recede: boolean; pinned: boolean; canPin: boolean; canSettle: boolean; canSnooze: boolean; canUnsettle: boolean; canWake: boolean;
   wakeLabel: string; woke: boolean; branch: string; worktree: boolean; draft: boolean; jump: string; renaming: boolean; multi: boolean;
-  regenerating: boolean; label: string; hoverKey: string; glyph: ProjectGlyph;
+  regenerating: boolean; label: string; hoverKey: string; rowKey: string; glyph: ProjectGlyph;
   idleRecede: boolean; idleTitleColor: string; idleTitleWeight: number; tips: SidebarRowTip[];
   hoverEnvironment: string; hoverMachine: string; hoverModel: string; hoverHandoff: string; hoverError: string; hoverErrorWarning: boolean;
   workingSince: number; remoteMachine: string; // the ticking Working label; a background environment's machine glyph
@@ -68,7 +69,7 @@ export interface SidebarView {
   emptyText: string; emptyAddProject: boolean; hasProjects: boolean; projectGroupCount: number; dragEnabled: boolean;
   scopeKey: string; scopeLabel: string; scopeMark: string; scopeInk: string; scopeSurface: string; scopeGlyph: ProjectGlyph; scopes: SidebarScope[];
   scopeOpen: boolean; scopeQuery: string; scopeFirst: string;
-  renameId: string; renameTitle: string; selectionCount: number; undoText: string; undoLabel: string; undoUntil: number;
+  renameId: string; renameTitle: string; renameHeld: boolean; selectionCount: number; undoText: string; undoLabel: string; undoUntil: number;
   dialog: string; dialogTitle: string; dialogDescription: string; dialogMode: string; dialogDate: string; dialogTime: string; dialogAmount: string; dialogUnit: string; dialogError: string; dialogReturn: string; jumpHints: boolean;
   calendar: SnoozeCalendar;
   pillKey: string; pillTone: string; pillTitle: string; pillDescription: string; pillDismissible: boolean; sweepEpoch: number;
@@ -176,6 +177,16 @@ function rowPrBadge(client: T3Client, thread: Obj): ReturnType<typeof sidebarPrB
   const pr = branchPullRequest(client, thread);
   return pr ? branchPrBadge(pr) : linked;
 }
+/**
+ * A row's place in the list: its thread with its environment, the same whether that environment is the focused one (`<id>`)
+ * or a background one (`fleet:<environment>:<id>`). The reference keys its rows by the scoped thread key, so opening a
+ * background row keeps its element; here the open moves the window to that environment, which renames the row's id,
+ * and a list keyed by that id would replace the element between a double-click's two clicks.
+ */
+export function scopedRowKey(client: T3Client, id: string): string {
+  const ref = parseFleetThreadId(id);
+  return ref ? `${ref.environmentId}:${ref.threadId}` : `${client.environmentId}:${id}`;
+}
 function row(client: T3Client, thread: Obj, section: SidebarSection, now: number, helpers: SidebarHelpers, extra: { searchFirst: boolean; jump: string; searching: boolean; menu: MenuRow[] }): SidebarThread {
   const caps = capabilities(client.config), prefs = sidebarPrefs(client), session = sidebarSession(client);
   const providers = arr(client.config.providers);
@@ -216,6 +227,7 @@ function row(client: T3Client, thread: Obj, section: SidebarSection, now: number
     label: [str(thread.title, 'Untitled thread'), pill?.label ?? '', projectName].filter(Boolean).join(', '),
     // A row's hover belongs to its place: a row that moves to another shelf under a still pointer is not hovered.
     hoverKey: extra.searching ? id : rowHoverKey(client, id, section), glyph, // a moved row's stale hover never matches again
+    rowKey: scopedRowKey(client, id),
     // On a utility page no row is open (the route is not a thread): the open row paints as any other.
     idleRecede, idleTitleColor: titleInk(card, section, idleRecede, unread, woke, status, false), idleTitleWeight: idleRecede ? 400 : 500,
     tips: extra.searching ? [] : rowTips({ card, draft: !active && !!(client.local.drafts[draftKey] ?? '').trim(), pinned: thread.pinnedAt != null, canPin: caps.pinning, woke,
@@ -279,7 +291,7 @@ export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarH
       scopes: scopeItems(client, session.scopeQuery, scope?.key ?? '', scopes, helpers.projectIdentity),
       scopeOpen: session.scopeOpen, scopeQuery: session.scopeQuery,
       scopeFirst: scopeItems(client, session.scopeQuery, scope?.key ?? '', scopes, helpers.projectIdentity)[0]?.key ?? '',
-      renameId: session.renameId, renameTitle: session.renameTitle, selectionCount: session.selection.length,
+      renameId: session.renameId, renameTitle: session.renameTitle, renameHeld: renameHeld(client), selectionCount: session.selection.length,
       undoText: undo && live ? `${undo.action} ${undo.threadIds.length} ${undo.action === 'Discarded' ? 'draft' : 'thread'}${undo.threadIds.length === 1 ? '' : 's'},` : '', // drafts (upstream 95edeb753b)
       undoUntil: undo && live ? undo.at + 5000 : 0, // the window hides the notice at this wall time (showThreadUndoNotice's 5 s)
       undoLabel: shortcutLabel(client, 'thread.undo') ? `${shortcutLabel(client, 'thread.undo')} to undo` : 'Undo',
