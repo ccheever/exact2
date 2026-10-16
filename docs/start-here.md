@@ -112,7 +112,8 @@ component Groceries
   called as one (`s.trim()`, `xs.filter(x => …)`, `xs.length`); the rest are functions
   (`first(xs)`, `round(n)`). A list type is `Item[]`. A record copy is
   `Shape(old, field=value)`. An event passes its captured arguments, then the payload
-  (`toggle(i.id)` gets the bool).
+  (`toggle(i.id)` gets the bool). An action's writes land when it ends, so a later line
+  reads the old value: bind the new one (`let n = go(nav, url)`, `nav = n`, then read `n`).
 - **Data.** A `resource` is a reactive read (`pending(x)`, `failed(x)`); a `mutation` a
   write (`queue` keeps them in order, `refreshes` re-reads, `then` runs an action: clear
   the field only on an ok reply, as `afterAdd` does). Only the root declares them;
