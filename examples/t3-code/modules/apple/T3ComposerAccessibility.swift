@@ -71,8 +71,11 @@ class T3ComposerChipElement: NSAccessibilityElement {
 /// with it moves through its text, so chips that were the text view's children were reached only through the Item
 /// Chooser. They are the text area's siblings instead, right after it in text order, as VO-Right reads Chromium's
 /// contenteditable chips one by one. Exact's text area sits in its scroll view (`TextAreaScroll`), an `AXScrollArea`
-/// of its own; while chips are listed it stands aside (not an element), so the text area and its chips are children of
-/// the composer's enclosing element, in that order, and the scroll view's other children (its scrollers) follow.
+/// of its own; the prompt's stands aside (not an element), so the text area and its chips are children of the
+/// composer's enclosing element, in that order, and the scroll view's other children (its scrollers) follow. It stands
+/// aside with no chip too, so the text area's parent never changes under it: when the last chip went and the scroll view
+/// became an element again, VoiceOver, its cursor on the focused text area, lost it and took the cursor and the focus
+/// to the window's first element.
 enum T3ComposerChipOrder {
     static func expose(_ elements: [T3ComposerChipElement], beside view: NSTextView) {
         guard let scroll = view.enclosingScrollView, scroll.documentView === view else {
@@ -81,7 +84,6 @@ enum T3ComposerChipOrder {
         }
         view.setAccessibilityChildren(nil)
         scroll.setAccessibilityChildren(nil)
-        guard !elements.isEmpty else { scroll.setAccessibilityElement(true); return }
         for element in elements { element.container = scroll }
         let own = (scroll.accessibilityChildren() ?? []).filter { $0 as AnyObject !== view }
         scroll.setAccessibilityElement(false)

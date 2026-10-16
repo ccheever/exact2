@@ -29,6 +29,8 @@ private final class AccessibilityFixture {
     func legacy(_ name: NSAccessibility.Attribute) -> Any? { view.accessibilityAttributeValue(name) }
     func legacy(_ name: NSAccessibility.ParameterizedAttribute, _ parameter: Any) -> Any? { view.accessibilityAttributeValue(name, forParameter: parameter) }
     func range(_ text: String) -> NSRange { (display as NSString).range(of: text) }
+    /// The element an assistive client reads the text area under (`unignoredAncestor(of:)` answers an element itself).
+    var textParent: AnyObject? { view.accessibilityParent().flatMap { NSAccessibility.unignoredAncestor(of: $0) } as AnyObject? }
 }
 
 final class ComposerChipAccessibilityTests: XCTestCase {
@@ -109,12 +111,38 @@ final class ComposerChipAccessibilityTests: XCTestCase {
         // Each is on its chip.
         let pill = fixture.base.window.convertToScreen(fixture.view.convert(fixture.styler.chipRect(fixture.styler.chips[0])!, to: nil))
         XCTAssertEqual(elements[0].accessibilityFrame().midX, pill.midX, accuracy: 0.5)
-        // With no chip left the scroll view is an element again, holding the text area.
+        // With no chip left the chips' elements go, and the scroll view still stands aside: the text area keeps its parent.
+        let textParent = fixture.textParent
+        XCTAssertTrue(textParent === parent)
         fixture.view.string = "plain"
         fixture.view.didChangeText()
         fixture.base.tick()
-        XCTAssertTrue(scroller.isAccessibilityElement())
+        XCTAssertFalse(scroller.isAccessibilityElement())
         XCTAssertFalse(NSAccessibility.unignoredChildren(from: scroller.accessibilityChildren() ?? []).contains { $0 is T3ComposerChipElement })
+        XCTAssertTrue(fixture.textParent === textParent)
+    }
+
+    func testRemovingTheLastChipLeavesTheFocusedTextAreaWhereItWas() {
+        // A confirmed removal of the last image tile takes its chip, the prompt's last, with the focus given to the prompt
+        // first: VoiceOver followed the focus there, then lost its cursor when the text area's parent changed.
+        let fixture = AccessibilityFixture(text: "hello [notes.md](notes.md) ")
+        XCTAssertTrue(fixture.base.window.makeFirstResponder(fixture.view))
+        let before = fixture.textParent
+        XCTAssertNotNil(before)
+        XCTAssertEqual(fixture.styler.press.accessibilityElements.count, 1)
+        fixture.view.string = "hello "
+        fixture.view.didChangeText()
+        fixture.base.tick()
+        XCTAssertTrue(fixture.styler.press.accessibilityElements.isEmpty)
+        XCTAssertTrue(fixture.textParent === before)
+        XCTAssertFalse(fixture.base.scroller.isAccessibilityElement())
+        XCTAssertTrue(fixture.base.window.firstResponder === fixture.view)
+    }
+
+    func testAnEmptyPromptIsTheTextAreaNotAScrollArea() {
+        let fixture = AccessibilityFixture(text: "")
+        XCTAssertFalse(fixture.base.scroller.isAccessibilityElement())
+        XCTAssertTrue(NSAccessibility.unignoredChildren(from: [fixture.base.scroller]).first as AnyObject === fixture.view)
     }
 
     func testTheTerminalExcerptPressOpensItsDetailsByPointerAndByVoiceOver() {
