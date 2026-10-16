@@ -967,11 +967,19 @@ sits on that list carries the trade it would take.
   phone for 32 entries at 4, 16 and 64 KiB; then let a resource declare its own budget (`keep 64kb`)
   up to 256 KiB, under a launch total of about 1 MiB that refuses the least recent, with 4 KiB the
   default. That is an LLP 1027 D4 amendment for Charlie.
-- **A flaky WebSocket test:** ibex2's `the_darwin_transport_holds_the_whole_conversation`
-  (`vendor/ibex/crates/ibex2/src/transport/websocket_tests.rs:318`) races a close against a send
-  on purpose and asserts the peer saw the close first; under heavy CPU load it failed 2 runs in
-  about 10 (it is not in the six checks). Make it deterministic: assert the send is accounted and
-  the close arrives, not which the peer saw first.
+- **Darwin WebSocket close failures under load** (2026-10-16): ibex2's
+  `the_darwin_transport_holds_the_whole_conversation`, whose body is `conversation()` in
+  `vendor/ibex/crates/ibex2/src/transport/websocket_tests.rs`, failed 3/100 unmodified runs
+  with 72 `nice -n 10 yes` workers. A second 100-run loop, with only the failed peer report
+  printed, failed once with `/echo gone` instead of a Close report and twice with
+  `Closed { code: 1006, reason: "" }` instead of the peer's 1000/`peer`. The current Darwin
+  transport marks `closing` under its lock and accounts/discards the following send;
+  its concurrent send/close admission-order regression passes. The earlier diagnosis of
+  a message arriving before Close does not explain these failures. Investigate the missing
+  Close and abnormal peer-close result before changing the assertions. Build with
+  `cargo test --manifest-path vendor/ibex/crates/ibex2/Cargo.toml -p ibex2 --lib --no-run`,
+  then loop the test binary with `--exact
+  transport::darwin_websocket::tests::the_darwin_transport_holds_the_whole_conversation`.
 - **Reported iOS hit-testing under a positioned sibling; repro still needed** (bsky5, Bluesky clone
   b28 on 57ab536e3, 2026-10-12): the profile avatar (`position="absolute"`, `profile.contract`
   before clone 1be739e) remained visible, but `agent ios` refused its tap with "node #983 covers
