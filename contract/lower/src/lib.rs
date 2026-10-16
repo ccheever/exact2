@@ -496,14 +496,32 @@ fn lower_with_sites(
     l.timers(&root.tasks, &scope)?;
     // The view, inlined (by `expand`, above).
     let view = &root.view;
+    if view.is_empty() {
+        return Err(err_one(
+            "lower-one-root",
+            "the view is empty: the root view is exactly one node",
+            root.span,
+        ));
+    }
     if view.len() != 1 {
+        // LLP 1116.018: a message that names no edit lets a repair regroup
+        // the screen and drop what does not fit; this one keeps every node.
+        let names: Vec<String> = view
+            .iter()
+            .map(|n| match n {
+                Node::Element { tag, .. } => format!("`{tag}`"),
+                Node::Use { name, .. } => format!("`{name}`"),
+                _ => "a region".into(),
+            })
+            .collect();
         return Err(err_one(
             "lower-one-root",
             format!(
-                "the root view must be exactly one node; found {}",
-                view.len()
+                "wrap the view's {} top-level nodes ({}) in one `column` to stack them, or one `row` to put them side by side, each node unchanged under it: the root view is exactly one node",
+                view.len(),
+                names.join(", ")
             ),
-            root.span,
+            view.get(1).map_or(root.span, Node::span),
         ));
     }
     if !matches!(view[0], Node::Element { .. }) {
@@ -831,6 +849,14 @@ impl<'a> Lowerer<'a> {
             && !module)
             || (!matches!(tag, "iframe" | "video" | "audio") && a.name == "src")
         {
+            // HTML's `img src`: an `image`'s source is its argument.
+            if tag == "image" && a.name == "src" {
+                return err(
+                    "lower-attr-tag",
+                    "write the source as the image's first argument, `image url`: an `image` takes no `src`",
+                    a.span,
+                );
+            }
             return err(
                 "lower-attr-tag",
                 format!(

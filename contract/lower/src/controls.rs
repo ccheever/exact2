@@ -952,7 +952,13 @@ fn face_counts(
                         _ => false,
                     };
                     if !allowed {
-                        return err("lower-button-style-attr", format!("a native button's `{tag}` takes no `{}`; write a custom `button` for other face rows", a.name), a.span);
+                        // LLP 1116.018: each edit keeps what the attribute was for.
+                        let message = match (tag.as_str(), a.name.as_str()) {
+                            ("image", "width" | "height") => format!("write `font-size=…` for the symbol's size in a native button, not `{}`: there a symbol's `font-size` is its point size and `width` would size a box (LLP 1069.011.001 D4); a box of that size is a custom `button`", a.name),
+                            (_, name) if name == "role" || name.starts_with("aria-") => format!("put the `{name}` on a node beside the button: a button's content is presentational (WAI-ARIA 1.2, a button's children are presentational), so it is not announced inside it; name the button with `aria-label` if its words differ"),
+                            _ => format!("a native button's `{tag}` takes no `{}`; write a custom `button` for other face rows", a.name),
+                        };
+                        return err("lower-button-style-attr", message, a.span);
                     }
                 }
                 if !children.is_empty() {

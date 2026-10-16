@@ -801,11 +801,30 @@ fn refine_params_from_view(
                                         if !counted {
                                             continue;
                                         }
+                                        // LLP 1116.018: a repair that only
+                                        // retyped the parameter dropped the
+                                        // guard on a radio's deselection.
+                                        let param = &c.actions[ai].params[last].name;
+                                        let keep = match (&ty, &declared) {
+                                            (Ty::String, Ty::Number) => format!(
+                                                ", and read the number with `match parseNumber({param})`"
+                                            ),
+                                            // A radio's `change` fires only as it
+                                            // becomes checked (HTML), so a guard on
+                                            // being on is already kept.
+                                            (Ty::String, Ty::Bool) if payload_control == Some("radio") => format!(
+                                                " (it is the radio's `value`): a radio's `change` runs only when it becomes checked, so it needs no `if {param}`"
+                                            ),
+                                            (Ty::Bool, _) => format!(
+                                                ": whether the control is now on, so `if {param}` keeps a guard on a deselection"
+                                            ),
+                                            _ => String::new(),
+                                        };
                                         return err(
                                             "type-handler-payload",
                                             format!(
-                                                "`{}=` supplies `{ty}` to parameter `{}`, declared `{declared}`",
-                                                a.name, c.actions[ai].params[last].name
+                                                "declare `{param}: {ty}` in `{}`{keep}: `{}=` passes its captured arguments, then its payload, a `{ty}`, which lands on `{param}`, declared `{declared}`",
+                                                c.actions[ai].name, a.name
                                             ),
                                             a.span,
                                         );

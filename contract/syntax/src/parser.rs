@@ -885,6 +885,16 @@ impl Parser {
                                  (LLP 1017 P7)",
                             )
                         }
+                        "timer" | "interval" => {
+                            let end = self.tokens[self.pos..]
+                                .iter()
+                                .position(|t| t.kind == TokenKind::Newline)
+                                .map_or(self.tokens.len(), |n| self.pos + n);
+                            return self.err(
+                                "syntax-unknown-section",
+                                names::timer_hint(&w, &self.tokens[self.pos + 1..end]),
+                            );
+                        }
                         other => {
                             return self.err(
                                 "syntax-unknown-section",
