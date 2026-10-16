@@ -386,6 +386,7 @@ test('interactive faults resolve backend, warn on impossible prefixes, and reloa
   const warnings=[];
   expect(faultRequest('fail', ['fetch','backend','times','2'], ['http://127.0.0.1:30100'], s=>warnings.push(s)))
     .toEqual({op:'prefer',faults:{fail:'http://127.0.0.1:30100',times:2}});
+  expect(faultRequest('pass',['fetch','backend'],['https://cdn.example','http://127.0.0.1:30100'])).toEqual({op:'prefer',faults:{pass:'http://127.0.0.1:30100'}});
   faultRequest('fail', ['fetch','http://wrong'], ['http://127.0.0.1:30100'], s=>warnings.push(s));
   expect(warnings).toHaveLength(1);
   expect(warnings[0]).toContain('matches no granted origin');

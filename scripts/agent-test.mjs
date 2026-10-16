@@ -644,8 +644,10 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
 export function resolveFaultPrefix(prefix, origins, say=console.warn) {
   const unique=[...new Set(origins.map(o=>o.replace(/\/+$/,'')))];
   if (prefix==='backend') {
-    if (unique.length!==1) throw new Error(`fetch "backend" needs exactly one net.fetch origin; found ${unique.length}. Use a literal URL for a multi-backend app.`);
-    return unique[0];
+    const loopback=unique.filter(origin=>/^https?:\/\/(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$/.test(origin));
+    const candidates=loopback.length ? loopback : unique;
+    if (candidates.length!==1) throw new Error(`fetch "backend" needs exactly one net.fetch origin; found ${candidates.length}. Use a literal URL for a multi-backend app.`);
+    return candidates[0];
   }
   if (!unique.some(origin => origin.startsWith(prefix) || prefix.startsWith(origin+'/') || prefix===origin))
     say(`warning: fetch fault prefix ${JSON.stringify(prefix)} matches no granted origin (${unique.join(', ') || 'none'}); it will not intercept the backend`);
