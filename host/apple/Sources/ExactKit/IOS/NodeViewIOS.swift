@@ -551,7 +551,10 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             if !name.isEmpty || source.hasPrefix("symbol:sf/") { symbolRefusal = nil }
             let leaf = symbolView ?? UIImageView()
             if symbolView == nil { symbolView = leaf; addSubview(leaf) }
-            showSymbol(image, on: leaf); leaf.isAccessibilityElement = false; leaf.isUserInteractionEnabled = false
+            // What the image says is its node's (`aria-label`), never the
+            // name UIKit gives the symbol, which a cell gathering its
+            // children's words would read ("checkmark.circle" is "selected").
+            showSymbol(image, on: leaf); leaf.isAccessibilityElement = false; leaf.accessibilityElementsHidden = true; leaf.isUserInteractionEnabled = false
             // The symbol's size when the kernel's measurer could not say
             presenter?.queueIntrinsicSize(self, generation: generation, SymbolMeasure.size(name, points: points, weight: weight))
         }
