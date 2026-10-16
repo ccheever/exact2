@@ -1449,3 +1449,22 @@ fn a_header_a_box_below_its_route_is_named_with_the_repair() {
         assert_eq!(warned(&kept), [], "{attr}");
     }
 }
+
+#[test]
+fn a_line_height_in_points_written_bare_is_named() {
+    // The euxy port's header, 22 points tall at `line-height=28`, was 616:
+    // a bare number is CSS's multiplier. A style's row and a choice's arm
+    // count; a ratio, a length and a computed value do not.
+    let src = "style Title\n  line-height=20\n\ncomponent App\n  state big = false\n  state lh = 30\n  view\n    column\n      text \"a\" font-size=22 line-height=28\n      text \"b\" line-height=(big ? 1.5 : 24)\n      text \"c\" line-height=1.4\n      text \"d\" line-height=\"28px\"\n      text \"e\" line-height=2\n      text \"f\" class=Title\n      text \"g\" line-height=lh\n";
+    let id = "lower-line-height-multiplier".to_string();
+    let mut got = warned(src);
+    got.sort_by_key(|w| w.1);
+    assert_eq!(got, [(id.clone(), 2), (id.clone(), 9), (id, 10)]);
+    let (_, warnings) = contract::compile_warned(src);
+    let m = &warnings.iter().find(|w| w.span.line == 9).unwrap().message;
+    assert!(
+        m.starts_with("`line-height=28` is 28 times the font size")
+            && m.contains("write `line-height=\"28px\"`"),
+        "{m}"
+    );
+}
