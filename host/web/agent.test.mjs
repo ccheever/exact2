@@ -707,7 +707,10 @@ function inputFixture() {
     removeEventListener(kind, fn) { windowListeners.set(kind, (windowListeners.get(kind) ?? []).filter(g => g !== fn)); },
   });
   const module = readFileSync(new URL('./input-glue.js', import.meta.url), 'utf8');
-  vm.runInContext(module.replaceAll('export function', 'function').replace('export const agentInput', 'const agentInput') + '\n' + declaration('attach'), f);
+  const promptImport = 'import "./prompt-glue.js"; // a prompt\'s Return\n';
+  if (!module.startsWith(promptImport)) throw new Error('input glue must retain the prompt side-effect import');
+  const tested = module.slice(promptImport.length).replaceAll('export function', 'function').replace('export const agentInput', 'const agentInput');
+  vm.runInContext(tested + '\n' + declaration('attach'), f);
   f.attach(el, 7, ['pan']);
   function event(extra = {}) {
     return { isPrimary: true, button: 0, pointerId: 1, clientX: 0, clientY: 0,
