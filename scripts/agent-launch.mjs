@@ -368,7 +368,55 @@ const GENERATED = /\/build\/[^/]+\/out\//;
 const DIRECTORY_WATCH = /\/[^./]+$/;
 /** Dep-info's inputs modified after `since`, or gone, generated outputs and never-present watched directories aside. */
 export function depInfoNewer(since, bin, info) {
-  return depInfoInputs(bin, info).filter(p => !GENERATED.test(p)).filter(p => { try { return statSync(p).mtimeMs > since; } catch { return !DIRECTORY_WATCH.test(p); } }).map(shown);
+  const skips = new Map();
+  // What no build reads: a build's output, installed packages (their declarations are inputs of their own) and a
+  // hidden tree; within an app, also what its other freshness checks pass over (`notBuildInput`, and the names
+  // `newerThan` skips, a README or a test), each outside the trees a build takes files from.
+  const skipFor = dir => {
+    let app = dir;
+    while (!existsSync(resolve(app, 'app.json')) && dirname(app) !== app) app = dirname(app);
+    if (!existsSync(resolve(app, 'app.json'))) return (path, isDir) => isDir && UNWATCHED_TREE.test(basename(path));
+    if (!skips.has(app)) {
+      const ignored = notBuildInput(app);
+      skips.set(app, (path, isDir) => !INPUT_TREE.test(relative(app, path))
+        && (isDir ? UNWATCHED_TREE.test(basename(path)) || ignored(path) : ignored(path) || NOT_INPUT.test(basename(path))));
+    }
+    return skips.get(app);
+  };
+  return [...new Set(depInfoInputs(bin, info).filter(p => !GENERATED.test(p)).flatMap(p => {
+    let stat;
+    try { stat = statSync(p); } catch { return DIRECTORY_WATCH.test(p) ? [] : [shown(p)]; }
+    if (!stat.isDirectory()) return stat.mtimeMs > since ? [shown(p)] : [];
+    const dir = resolve(p);
+    return watchedChanges(since, dir, skipFor(dir));
+  }))];
+}
+
+const UNWATCHED_TREE = /^(target|node_modules|\..*)$/;
+/** A directory in dep-info is a build script's watch, which Cargo scans recursively. It changed when a file under it
+ * that a build reads was modified after `since`, or when a directory in it was (an entry created, removed or renamed)
+ * after `since` and not by the creation of an entry no build reads: the JS build creates `app.contract.d.ts` in the
+ * app directory after a native build, which moves the directory's mtime to that file's birth and is no change to
+ * that build. A later write to such an entry explains nothing; a filesystem without birth times excuses nothing. */
+function watchedChanges(since, dir, skip) {
+  const out = [];
+  const walk = at => {
+    let entries; try { entries = readdirSync(at, { withFileTypes: true }); } catch { return; }
+    let created = -Infinity;
+    for (const e of entries) {
+      const path = resolve(at, e.name);
+      let stat; try { stat = statSync(path); } catch { continue; }
+      const isDir = stat.isDirectory();
+      if (skip(path, isDir)) created = Math.max(created, stat.birthtimeMs || -Infinity);
+      else if (isDir) walk(path);
+      else if (stat.mtimeMs > since) out.push(shown(path));
+    }
+    // The directory's mtime lands a few microseconds after the entry's birth.
+    const mtime = statSync(at).mtimeMs;
+    if (mtime > since && mtime > created + 1) out.push(shown(at));
+  };
+  walk(dir);
+  return out;
 }
 
 /** Cargo's dep-info beside a binary: every source input newer than the binary, or gone. */
