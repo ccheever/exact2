@@ -4462,10 +4462,12 @@ dependencies = [
 name = "shelf-android"
 version = "0.1.0"
 dependencies = [
+ "contract",
  "exact-js",
  "exact-js-bake",
  "exact-linux",
  "exact-logic",
+ "exact-plan",
 ]
 
 [[package]]

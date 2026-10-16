@@ -2,8 +2,9 @@
 //! neutral look (LLP 1115.000 D17): a state adds one thing there, a wash
 //! where a pointer hovers and a stronger one while pressed, and a painted
 //! control is this host's to show them on. Kept on the painter, which reads
-//! them as it walks, and a change of either paints again. A host that does
-//! not paint the neutral look keeps neither.
+//! them as it walks, and a change of either paints again. Material's field
+//! (LLP 1115.001.000 D6) shows the same two as its state layers, and a text
+//! field is one there.
 //!
 //! What presses in a row of a list whose rows are cells answers the same
 //! way (LLP 1115.000 D16): the look's row is this host's to draw too, and a
@@ -21,7 +22,9 @@ impl<D: DataSource> Presenter<D> {
         let mut at = Some(id);
         while let Some(id) = at {
             let node = kernel.node(id)?;
-            if node.node_type == NodeType::Control {
+            if node.node_type == NodeType::Control
+                || node.node_type == NodeType::TextInput && !crate::paint::look::neutral()
+            {
                 return Some(id);
             }
             if node.node_type != NodeType::TextInput
@@ -42,9 +45,6 @@ impl<D: DataSource> Presenter<D> {
 
     /// Read both again, after anything that moved the pointer or a contact.
     pub(super) fn refresh_feedback(&mut self) {
-        if !crate::paint::look::neutral() {
-            return;
-        }
         // A finger hovers nothing; a held contact is not also a hover.
         let hover = match self.hover_point {
             Some((x, y)) if self.contact.is_none() && !self.direct() => self.hit(x, y),

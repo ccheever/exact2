@@ -1163,11 +1163,9 @@ fn the_readers_hatches_are_told_every_moment_and_act_by_the_nodes_number() {
         ]
     );
     // What the reader's handle asks runs as a Rust hatch's act does.
-    assert!(crate::hatches::reader::act(fed, 4, Some("Palo Alto")));
-    assert!(
-        !crate::hatches::reader::act(fed + 1000, 1, None),
-        "no such node"
-    );
+    use crate::hatches::reader::act;
+    assert_eq!(act(fed, 4, Some("Palo Alto")), 1);
+    assert_eq!(act(fed + 1000, 1, None), -1, "no such node");
     p.hatch_turn();
     let value = |p: &Presenter<()>| {
         p.host()
@@ -1176,6 +1174,47 @@ fn the_readers_hatches_are_told_every_moment_and_act_by_the_nodes_number() {
             .and_then(|n| n.props.str(PropId::Value).map(str::to_owned))
     };
     assert_eq!(value(&p).as_deref(), Some("Palo Alto"));
+    // Its clock is exact2's: a frame ticket ticks each frame with the
+    // session's clock, an `after` fires once, and either stops.
+    let ticket = act(0, 5, None);
+    let after = act(0, 6, Some("100"));
+    assert!(ticket >= 0 && after > ticket);
+    crate::hatches::reader::take();
+    assert!(p.wants_frames(), "a ticket asks for frames");
+    assert!(p.animation_frame(16.0).is_none());
+    let words = crate::hatches::reader::take().unwrap();
+    assert_eq!((words[0], words[1] as i64), (5, ticket), "{words:?}");
+    let now = f64::from_bits(((words[2] as u32 as u64) << 32) | words[3] as u32 as u64);
+    assert_eq!(now, p.host().now());
+    assert!(p.advance(p.host().now() + 100.0).is_none());
+    let words = crate::hatches::reader::take().unwrap_or_default();
+    assert!(
+        words.windows(2).any(|w| w == [6, after as i32]),
+        "{words:?}"
+    );
+    assert_eq!(act(0, 8, Some(&ticket.to_string())), 1);
+    assert!(!p.wants_frames(), "stopped");
+    assert_eq!(act(0, 8, Some(&ticket.to_string())), -1, "once");
+    // Input on an observed node is told after exact2's own dispatch.
+    let heard = act(fed, 7, None);
+    crate::hatches::reader::take();
+    tap(&mut p, "fed");
+    let words = crate::hatches::reader::take().unwrap_or_default();
+    let at = words
+        .windows(3)
+        .position(|w| w == [7, heard as i32, fed as i32]);
+    let at = at.unwrap_or_else(|| panic!("no input told: {words:?}"));
+    assert_eq!(
+        (words[at + 3], words[at + 4]),
+        (1, 0),
+        "a pointer, going down"
+    );
+    // A hosted view is named to the reader where the node is painted.
+    assert_eq!(crate::hatches::reader::hosted(fed), None);
+    assert_eq!(act(fed, 13, None), 1);
+    assert_eq!(act(fed, 13, None), 2, "given another");
+    assert_eq!(crate::hatches::reader::hosted(fed), Some(2));
+    assert_eq!(act(0, 9, Some("hello")), 1, "diagnostics");
     // The node's end is told, and its number takes no act after it.
     tap(&mut p, "hide");
     p.hatch_turn();
@@ -1183,5 +1222,10 @@ fn the_readers_hatches_are_told_every_moment_and_act_by_the_nodes_number() {
         told(),
         [(3, 2, fed, "feed".into(), vec![pair("tone", "busy")])]
     );
-    assert!(!crate::hatches::reader::act(fed, 1, None));
+    assert_eq!(act(fed, 1, None), -1);
+    assert_eq!(
+        crate::hatches::reader::hosted(fed),
+        None,
+        "its view is let go"
+    );
 }

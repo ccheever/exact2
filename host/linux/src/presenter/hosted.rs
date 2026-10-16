@@ -393,9 +393,18 @@ impl<D: DataSource> Presenter<D> {
             (false, true, false) => role("FieldText"),
         };
         let ink = ink.unwrap_or_else(|| rgba(node.text_color().resolve(dark)));
-        let hint = crate::paint::control::authored_placeholder(node.style, dark)
-            .or_else(|| role("-exact-placeholder"))
-            .unwrap_or([0x75, 0x75, 0x75, 0xff]);
+        // Material's field paints its placeholder as its floating label
+        // (`paint/material.rs`): the field keeps it as its hint, for
+        // TalkBack, and draws it in no colour.
+        let floated = native
+            && !crate::paint::look::neutral()
+            && crate::paint::material::label(&node).is_some();
+        let hint = match floated {
+            true => [0; 4],
+            false => crate::paint::control::authored_placeholder(node.style, dark)
+                .or_else(|| role("-exact-placeholder"))
+                .unwrap_or([0x75, 0x75, 0x75, 0xff]),
+        };
         let authored = crate::paint::control::accent(&node, dark);
         let accent = crate::paint::control::accents(authored, dark).0;
         let caret = style.caret_color.map_or(accent, |c| rgba(c.resolve(dark)));

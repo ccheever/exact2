@@ -1,11 +1,13 @@
 package dev.exact.app
 
 import android.app.Activity
+import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.text.format.DateFormat
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDefaults
@@ -32,6 +34,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -88,25 +91,36 @@ private object MaterialPickers : Pickers {
                 answer(chosen)
             }
         }
-        view.setContent { Theme(activity) { Picker(picker, first, close) } }
+        view.setContent { Theme(activity, picker.accent) { Picker(picker, first, close) } }
         activity.addContentView(view, FrameLayout.LayoutParams(1, 1))
         return { close(null) }
     }
 }
 
+/**
+ * The device's dynamic colours, with the primary roles made from the control's `accent-color` where it has one:
+ * Material's tones of that colour (its hue and chroma at each role's lightness, `ColorStateList.withLStar`), as a
+ * scheme made from a source colour has them.
+ */
 @Composable
-private fun Theme(activity: Activity, content: @Composable () -> Unit) {
+private fun Theme(activity: Activity, accent: Int?, content: @Composable () -> Unit) {
     val dark = activity.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
-    MaterialTheme(colorScheme = if (dark) dynamicDarkColorScheme(activity) else dynamicLightColorScheme(activity), content = content)
+    val device = if (dark) dynamicDarkColorScheme(activity) else dynamicLightColorScheme(activity)
+    val scheme = if (accent == null) device else {
+        val tone = { t: Float -> Color(ColorStateList.valueOf(accent).withLStar(t).defaultColor) }
+        if (dark) device.copy(primary = tone(80f), onPrimary = tone(20f), primaryContainer = tone(30f), onPrimaryContainer = tone(90f), inversePrimary = tone(40f), surfaceTint = tone(80f))
+        else device.copy(primary = tone(40f), onPrimary = tone(100f), primaryContainer = tone(90f), onPrimaryContainer = tone(10f), inversePrimary = tone(80f), surfaceTint = tone(40f))
+    }
+    MaterialTheme(colorScheme = scheme, content = content)
 }
 
 @Composable
 private fun Picker(picker: ExactPicker, drawn: () -> Unit, done: (String?) -> Unit) {
     var day by remember { mutableStateOf<LocalDate?>(null) }
     if (picker.kind == "time" || day != null) {
-        TimeDialog(picker, day, drawn) { t -> done(t?.let { picker.value(day, it) }) }
+        TimeDialog(picker, day, drawn, { done("") }) { t -> done(t?.let { picker.value(day, it) }) }
     } else {
-        DateDialog(picker, drawn) { d ->
+        DateDialog(picker, drawn, { done("") }) { d ->
             when {
                 d == null -> done(null)
                 picker.kind == "date" -> done(picker.value(d, null))
@@ -118,7 +132,7 @@ private fun Picker(picker: ExactPicker, drawn: () -> Unit, done: (String?) -> Un
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DateDialog(picker: ExactPicker, drawn: () -> Unit, done: (LocalDate?) -> Unit) {
+private fun DateDialog(picker: ExactPicker, drawn: () -> Unit, clear: () -> Unit, done: (LocalDate?) -> Unit) {
     // Material's state refuses a month or a selection outside its years: they run from the first allowed year to
     // the last, else Material's own, widened to the day shown and the day held.
     val shown = picker.day()
@@ -140,7 +154,7 @@ private fun DateDialog(picker: ExactPicker, drawn: () -> Unit, done: (LocalDate?
     DatePickerDialog(
         onDismissRequest = { done(null) },
         confirmButton = { TextButton(onClick = { done(chosen) }, enabled = ok) { Text(stringResource(android.R.string.ok)) } },
-        dismissButton = { TextButton(onClick = { done(null) }) { Text(stringResource(android.R.string.cancel)) } },
+        dismissButton = { Dismiss(picker, clear) { done(null) } },
     ) {
         val title = picker.title
         DatePicker(
@@ -158,7 +172,7 @@ private fun DateDialog(picker: ExactPicker, drawn: () -> Unit, done: (LocalDate?
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun TimeDialog(picker: ExactPicker, day: LocalDate?, drawn: () -> Unit, done: (LocalTime?) -> Unit) {
+private fun TimeDialog(picker: ExactPicker, day: LocalDate?, drawn: () -> Unit, clear: () -> Unit, done: (LocalTime?) -> Unit) {
     val t = picker.time()
     val state = rememberTimePickerState(t.hour, t.minute, picker.hour24 ?: DateFormat.is24HourFormat(LocalContext.current))
     var mode by remember { mutableStateOf(if (picker.input) TimePickerDisplayMode.Input else TimePickerDisplayMode.Picker) }
@@ -179,10 +193,19 @@ private fun TimeDialog(picker: ExactPicker, day: LocalDate?, drawn: () -> Unit, 
                 )
             }
         } else null,
-        dismissButton = { TextButton(onClick = { done(null) }) { Text(stringResource(android.R.string.cancel)) } },
+        dismissButton = { Dismiss(picker, clear) { done(null) } },
     ) {
         val drawing = Modifier.drawWithContent { drawContent(); drawn() }
         if (mode == TimePickerDisplayMode.Picker) TimePicker(state, drawing) else TimeInput(state, drawing)
+    }
+}
+
+/** Cancel, and Clear before it where the picker offers it (`ExactPicker.clear`). */
+@Composable
+private fun Dismiss(picker: ExactPicker, clear: () -> Unit, cancel: () -> Unit) {
+    Row {
+        if (picker.clear) TextButton(onClick = clear) { Text(stringResource(dev.exact.canvas.R.string.exact_clear)) }
+        TextButton(onClick = cancel) { Text(stringResource(android.R.string.cancel)) }
     }
 }
 

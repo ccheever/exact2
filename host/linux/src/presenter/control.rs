@@ -58,8 +58,8 @@ impl<D: DataSource> Presenter<D> {
             return true;
         }
         // A date or time control's press opens the platform's picker where a
-        // shell takes requests (LLP 1115.001.000 D1).
-        if self.has_shell()
+        // shell takes requests (LLP 1115.001.000 D1), or holds one for the agent.
+        if (self.has_shell() || self.agent)
             && matches!(
                 exact_kernel::ControlKind::of(node.node_type, node.props),
                 Some(

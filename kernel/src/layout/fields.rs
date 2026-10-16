@@ -74,6 +74,8 @@ impl LayoutTree {
                         style: text.font_style,
                     },
                     cell: arena.is_cell_field(slot),
+                    labelled: (arena.props(slot).str(crate::PropId::Placeholder))
+                        .is_some_and(|p| !p.is_empty()),
                 };
                 let chrome = measurer.field_chrome(&request);
                 if !chrome.is_valid() {

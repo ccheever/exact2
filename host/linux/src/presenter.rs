@@ -1439,7 +1439,7 @@ impl<D: DataSource> Presenter<D> {
             || self.arrange.is_some()
             || self.group.is_some()
             || self.focus.is_some()
-            || self.brush.numerals.rolling();
+            || self.brush.moving();
         if self.host.tick(now_ms) {
             self.hatches.stale = true;
             self.dirty = true;

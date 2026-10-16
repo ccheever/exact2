@@ -192,6 +192,30 @@ impl<D: DataSource> Runner<D> {
                 }
                 "answered: a callback".to_owned()
             }
+            // A date or time picker's answer is a value of its kind, in
+            // HTML's form (LLP 1115.001.000 D1), checked before it is spent.
+            HoldAnswer::Value(v)
+                if matches!(hold.capability.as_str(), "date" | "time" | "datetime-local") =>
+            {
+                let kind = match hold.capability.as_str() {
+                    "date" => exact_kernel::ControlKind::Date,
+                    "time" => exact_kernel::ControlKind::Time,
+                    _ => exact_kernel::ControlKind::DateTimeLocal,
+                };
+                let v = v.trim();
+                if v.is_empty() || !kind.valid_value(v) {
+                    let example = match kind {
+                        exact_kernel::ControlKind::Date => "2026-10-23",
+                        exact_kernel::ControlKind::Time => "09:30",
+                        _ => "2026-10-23T09:30",
+                    };
+                    return Err(format!(
+                        "@{ticket} ({}): type a value such as {example}, or tap clear or cancel",
+                        hold.capability
+                    ));
+                }
+                "answered: a value".to_owned()
+            }
             HoldAnswer::Value(_) if hold.takes_value => "answered: a value".to_owned(),
             HoldAnswer::Value(_) => {
                 return Err(format!(

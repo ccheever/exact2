@@ -551,6 +551,8 @@ pub struct Painter {
     boxes_hint: usize,
     /// Numeric text rolling (LLP 1077 D15), and the clock it rolls by.
     pub(crate) numerals: numerals::Numerals,
+    /// Material's fields' labels, floated or resting (`material.rs`).
+    pub(crate) labels: material::Labels,
 }
 
 // O(painted owners) references and numeric publication metadata, not copied
@@ -654,6 +656,7 @@ impl Painter {
             boxes_hint: 0,
             svg_layers: Vec::new(),
             numerals: Default::default(),
+            labels: Default::default(),
         }
     }
 
@@ -680,6 +683,12 @@ impl Painter {
     #[cfg(windows)]
     pub(crate) fn take_window_underlay(&mut self) -> Option<WindowLayer> {
         self.backend.take_window_underlay()
+    }
+
+    /// Something the painter animates owes a frame: a number rolling, a
+    /// field's label floating.
+    pub(crate) fn moving(&self) -> bool {
+        self.numerals.rolling() || self.labels.moving()
     }
 
     #[cfg(windows)]
@@ -873,6 +882,7 @@ impl Painter {
         // Publication is the ownership boundary. On Err the previous accepted
         // set remains intact; candidate leases simply unwind with `walk`.
         self.numerals.painted();
+        self.labels.painted();
         if finished.is_ok() {
             self.accepted_text = walk.text;
         } else {
@@ -1232,6 +1242,14 @@ impl Painter {
             self.damage.unsupported = true;
             let clips = [Shape::rect(rect), surface.outer];
             self.backend.canvas(&pixels, rect, &clips, ts);
+        }
+        // @ref LLP 1115.001.000 D4 — a view a Kotlin hatch hosts at the
+        // node: over its paint, in its border box, where the node is.
+        if let Some(generation) = crate::hatches::reader::hosted(node.id) {
+            let props = format!("{{\"gen\":{generation}}}");
+            let field = NativeKind::Hatch;
+            self.backend
+                .native(node.id, field, &Shape::rect(rect), ts, &props);
         }
     }
 }

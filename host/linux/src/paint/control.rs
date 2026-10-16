@@ -67,9 +67,9 @@ pub(crate) fn authored_placeholder(
 /// D17) that is the control's line and the look's padding, of the field's
 /// font size, as the page's sheet has them; else Material's filled field's
 /// (`material.rs`).
-pub(crate) fn field_chrome(font_size: f32) -> FieldChrome {
+pub(crate) fn field_chrome(font_size: f32, labelled: bool) -> FieldChrome {
     if !look::neutral() {
-        return super::material::chrome();
+        return super::material::chrome(labelled);
     }
     let line = look::px(metric::CONTROL_LINE, font_size);
     let block = line + look::px(metric::FIELD_PADDING_BLOCK, font_size);
@@ -181,7 +181,7 @@ impl super::Painter {
         if look::neutral() {
             return neutral::field(self.backend.as_mut(), node, rect, ts, self.dark);
         }
-        self.filled_field(node, rect, focused, ts)
+        self.filled_field(node, rect, focused, false, ts)
     }
 
     /// A closed select, or a field that shows a value (LLP 1069.001 D7):
@@ -544,6 +544,7 @@ mod field_tests {
                         style: FontStyle::Italic,
                     },
                     cell: false,
+                    labelled: false,
                 });
                 // Material's filled field, whatever the font (LLP 1115.001 D9).
                 assert_eq!(

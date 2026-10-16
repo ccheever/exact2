@@ -32,15 +32,18 @@ impl<D: DataSource + Default> CanvasHost<D> {
         self.p.take_requests()
     }
 
-    /// What the reader's handle for hatched node `node` asks
-    /// (`hatches::reader::act`), run at once, between turns; whether a node
-    /// of that number took it.
-    pub fn hatch_act(&mut self, node: u32, kind: i32, text: Option<&str>) -> bool {
-        let took = crate::hatches::reader::act(node, kind, text);
-        if took {
+    /// What the reader's hatches ask (`hatches::reader::act`), run at once,
+    /// between turns: its answer, -1 when refused. A view hosted or let go
+    /// paints again.
+    pub fn hatch_act(&mut self, node: u32, kind: i32, text: Option<&str>) -> i64 {
+        let answer = crate::hatches::reader::act(node, kind, text);
+        if answer >= 0 {
             self.p.hatch_turn();
+            if matches!(kind, 13 | 14) {
+                self.p.repaint();
+            }
         }
-        took
+        answer
     }
 
     /// The reader's answer to request `id`, or its cancellation (`None`).

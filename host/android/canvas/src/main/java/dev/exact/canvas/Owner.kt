@@ -516,7 +516,7 @@ internal object Exact {
 
     /** What a hatch's handle asks of node [node] ([ExactElement]): on exact2's thread, waited for, as an
      * accessibility service's act is; exact2 runs it between its turns and publishes what it changed. */
-    fun hatchAct(node: Int, kind: Int, text: String?): Boolean {
+    fun hatchAct(node: Int, kind: Int, text: String?): Long {
         val o = owner
         return if (o != null) { o.input(); o.sync { Native.hatchAct(node, kind, text) } } else Native.hatchAct(node, kind, text).also { turned() }
     }

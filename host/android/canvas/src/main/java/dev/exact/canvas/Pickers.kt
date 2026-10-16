@@ -31,6 +31,9 @@ class ExactPicker internal constructor(
     val min: String,
     val max: String,
     val step: String,
+    /** The control's `accent-color` (opaque ARGB), where it or an ancestor sets one: the picker is in its colours,
+     * the author's word over the device's (LLP 1115). */
+    val accent: Int? = null,
 ) {
     /** The dialog's title; null for the platform's ("Select date"). */
     var title: String? = null
@@ -42,6 +45,8 @@ class ExactPicker internal constructor(
     var selectable: ((LocalDate) -> Boolean)? = null
     /** A 24-hour clock; null for the device's setting. */
     var hour24: Boolean? = null
+    /** Offer Clear, which empties the control: while it holds a value, as Chrome's picker on Android does. */
+    var clear: Boolean = value.isNotEmpty()
     /** The hatch's own picker in place of the platform's: called with what to answer, a value in HTML's form, or
      * null to change nothing. Called once, on the main thread; it must answer once. */
     var show: ((answer: (String?) -> Unit) -> Unit)? = null
@@ -177,7 +182,7 @@ object FrameworkPickers : Pickers {
         // The dialog up now: `datetime-local`'s time follows its day.
         lateinit var up: Dialog
         up = if (picker.kind == "time") time(activity, picker, null, drawn, answer)
-        else date(activity, picker, drawn) { d ->
+        else date(activity, picker, drawn, { answer("") }) { d ->
             when {
                 d == null -> answer(null)
                 picker.kind == "date" -> answer(picker.value(d, null))
@@ -187,7 +192,7 @@ object FrameworkPickers : Pickers {
         return { up.dismiss() }
     }
 
-    private fun date(activity: Activity, picker: ExactPicker, drawn: () -> Unit, done: (LocalDate?) -> Unit): Dialog {
+    private fun date(activity: Activity, picker: ExactPicker, drawn: () -> Unit, cleared: () -> Unit, done: (LocalDate?) -> Unit): Dialog {
         val day = picker.day()
         var chosen: LocalDate? = null
         val ok = { d: LocalDate -> if (picker.kind == "date") picker.allows(picker.value(d, null)) else picker.allows(d) }
@@ -202,7 +207,8 @@ object FrameworkPickers : Pickers {
         picker.firstDay?.let { dialog.datePicker.minDate = local(it) }
         picker.lastDay?.let { dialog.datePicker.maxDate = local(it) }
         picker.title?.let { dialog.setTitle(it) }
-        open(dialog, drawn) { done(chosen) }
+        val clear = clearButton(activity, picker, dialog)
+        open(dialog, drawn) { if (clear()) cleared() else done(chosen) }
         dialog.getButton(DialogInterface.BUTTON_POSITIVE)?.isEnabled = ok(day)
         return dialog
     }
@@ -219,9 +225,17 @@ object FrameworkPickers : Pickers {
             }
         }
         picker.title?.let { dialog.setTitle(it) }
-        open(dialog, drawn) { done(chosen?.let { picker.value(day, it) }) }
+        val clear = clearButton(activity, picker, dialog)
+        open(dialog, drawn) { if (clear()) done("") else done(chosen?.let { picker.value(day, it) }) }
         dialog.getButton(DialogInterface.BUTTON_POSITIVE)?.isEnabled = ok(t.hour, t.minute)
         return dialog
+    }
+
+    /** The dialog's Clear, its neutral button, where the picker offers it: whether it was pressed. */
+    private fun clearButton(activity: Activity, picker: ExactPicker, d: android.app.AlertDialog): () -> Boolean {
+        var pressed = false
+        if (picker.clear) d.setButton(DialogInterface.BUTTON_NEUTRAL, activity.getString(R.string.exact_clear)) { _, _ -> pressed = true }
+        return { pressed }
     }
 
     /** Show [d]; [closed] once it goes, by a choice or a dismissal. */

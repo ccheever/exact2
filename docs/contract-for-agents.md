@@ -1253,7 +1253,7 @@ lists any literal colour, font size or weight an app's `.contract` files still w
 | `input type="checkbox" switch` | `UISwitch` |
 | `input type="radio"` (the radios of one `name` are a group) | the SF Symbols circle, filled at its centre when checked, at body size; in a grouped list's row no circle but the row's checkmark, which a tap on the row moves (LLP 1115.000 D13.2) |
 | `input type="range"` (as wide as what holds it; in a `row`, `flex=1 min-width=0` beside its label) | `UISlider` |
-| `input type="date"`, `"time"`, `"datetime-local"` | `UIDatePicker`; with an empty `value` its pill shows your `placeholder` (`placeholder="Add a date"`) or, with none, no words, and a choice fills it (LLP 1115.000 D13.1; macOS's field likewise; the web shows the browser's own empty field) |
+| `input type="date"`, `"time"`, `"datetime-local"` | `UIDatePicker`; with an empty `value` its pill shows your `placeholder` (`placeholder="Add a date"`) or, with none, no words, and a choice fills it (LLP 1115.000 D13.1; macOS's field likewise; the web shows the browser's own empty field). Android shows Material's filled field, the value as the phone writes dates and `placeholder` its floating label, and Material 3's picker, in the control's `accent-color` where it has one (LLP 1115.001.000) |
 | `select` of `option`s | a pop-up button with its menu |
 | `progress value=done max=goal` (a goal, an upload; as wide as what holds it) | `UIProgressView`, tinted by `accent-color` (LLP 1116 D8); never a drawn track and fill |
 | `progress` (no `value`) | `UIActivityIndicatorView`, `.large` from a 37-point box (LLP 1069.001) |
@@ -2471,7 +2471,9 @@ it is held and `state` lists it under `pending` with its capability. Answer it b
 the node its answer arrives at (the `id` the command names) or by its capability:
 `type @folder-input path/to/folder`, `type @pick photo.jpg`, `tap @open-directory
 cancel`. `@N`, its ticket, works too, but a ticket counts every request before it,
-so it differs between hosts and runs.
+so it differs between hosts and runs. On Linux, Windows and Android a tap on a date
+or time control holds its picker the same way, by the control's kind: `type @date
+2026-10-23`, `type @time 09:30`, `tap @date clear`, `tap @date cancel`.
 
 Authored tests are a smaller language over that API:
 

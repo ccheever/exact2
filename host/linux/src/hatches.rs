@@ -91,7 +91,7 @@ pub fn install_with_reader<H: Hatches>(words: &'static [&'static str]) -> Instal
 }
 
 fn make_with_reader<H: Hatches>(shared: Rc<Shared>) -> Box<dyn Module> {
-    Box::new(reader::Beside(make::<H>(shared)))
+    Box::new(reader::Beside::new(make::<H>(shared.clone()), shared))
 }
 
 fn make<H: Hatches>(shared: Rc<Shared>) -> Box<dyn Module> {

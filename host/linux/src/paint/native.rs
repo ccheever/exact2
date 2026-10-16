@@ -23,6 +23,10 @@ pub enum NativeKind {
     /// paints. What it is and what it holds are not in the stream: the
     /// shell is told of its fields beside it (`presenter/hosted.rs`).
     Field = 4,
+    /// A view an app's Kotlin hatch hosts at a node's border box (LLP
+    /// 1115.001.000 D4), over the node's own paint: what it is is the
+    /// reader's; the props carry how many times the node has been given one.
+    Hatch = 5,
 }
 
 impl Painter {

@@ -7,7 +7,8 @@
 //! (`Device::dates`), the patterns Android's own formatter chooses for the
 //! locale (`DateFormat.getBestDateTimePattern`, Unicode's date field
 //! symbols: <https://unicode.org/reports/tr35/tr35-dates.html#Date_Field_Symbol_Table>),
-//! the short month names, the two day periods and the zero digit, and they
+//! the month names and the weekdays', short and full, the eras,
+//! the two day periods and the zero digit, and they
 //! are filled in here (the painter keeps them, `Painter::dates`). A host
 //! whose shell tells none shows HTML's value.
 /// The device's date and time patterns and names, as its shell told them.
@@ -21,26 +22,37 @@ pub(crate) struct Dates {
     periods: [String; 2],
     zero: char,
     months: [String; 12],
+    months_full: [String; 12],
+    /// Monday first, short then full.
+    weekdays: [String; 7],
+    weekdays_full: [String; 7],
+    /// Before and after the common era.
+    eras: [String; 2],
 }
 
 impl Dates {
     /// The shell's lines: the date, time, time with seconds, date and time,
     /// and date and time with seconds patterns, the AM and PM names, the
-    /// zero digit, then the twelve short month names. `None` for anything
-    /// else, an empty string among them.
+    /// zero digit, the twelve months' short names and their full ones, the
+    /// seven weekdays' from Monday likewise, and the two eras. `None` for
+    /// anything else.
     pub(crate) fn from_lines(told: &str) -> Option<Dates> {
         let lines: Vec<&str> = told.split('\n').collect();
-        let [date, time, time_seconds, date_time, date_time_seconds, am, pm, zero, months @ ..] =
+        let [date, time, time_seconds, date_time, date_time_seconds, am, pm, zero, names @ ..] =
             lines.as_slice()
         else {
             return None;
         };
-        let months: [String; 12] = months
-            .iter()
-            .map(|m| m.to_string())
-            .collect::<Vec<_>>()
-            .try_into()
-            .ok()?;
+        fn take<const N: usize>(names: &[&str], at: usize) -> Option<[String; N]> {
+            let names = names.get(at..at + N)?.iter().map(|m| m.to_string());
+            names.collect::<Vec<_>>().try_into().ok()
+        }
+        if names.len() != 12 + 12 + 7 + 7 + 2 {
+            return None;
+        }
+        let (months, months_full) = (take(names, 0)?, take(names, 12)?);
+        let (weekdays, weekdays_full, eras) =
+            (take(names, 24)?, take(names, 31)?, take(names, 38)?);
         let mut zero = zero.chars();
         let digit = zero.next().filter(|_| zero.next().is_none())?;
         Some(Dates {
@@ -52,6 +64,10 @@ impl Dates {
             periods: [am.to_string(), pm.to_string()],
             zero: digit,
             months,
+            months_full,
+            weekdays,
+            weekdays_full,
+            eras,
         })
     }
 
@@ -123,7 +139,8 @@ impl Dates {
             match c {
                 'y' | 'u' if n == 2 => number(&mut out, i64::from(y.rem_euclid(100)), 2),
                 'y' | 'u' => number(&mut out, i64::from(y), n),
-                'M' | 'L' if n >= 3 => out.push_str(&self.months[mo as usize - 1]),
+                'M' | 'L' if n >= 4 => out.push_str(&self.months_full[mo as usize - 1]),
+                'M' | 'L' if n == 3 => out.push_str(&self.months[mo as usize - 1]),
                 'M' | 'L' => number(&mut out, i64::from(mo), n),
                 'd' => number(&mut out, i64::from(d), n),
                 'H' => number(&mut out, i64::from(h), n),
@@ -137,8 +154,12 @@ impl Dates {
                 'm' => number(&mut out, i64::from(mi), n),
                 's' => number(&mut out, i64::from(s), n),
                 'a' | 'b' | 'B' => out.push_str(&self.periods[usize::from(h >= 12)]),
-                // A field these patterns do not carry (an era, a weekday,
-                // a zone) is left out rather than guessed.
+                'E' | 'c' | 'e' if n >= 4 => out.push_str(&self.weekdays_full[weekday(y, mo, d)]),
+                'E' => out.push_str(&self.weekdays[weekday(y, mo, d)]),
+                'c' | 'e' if n >= 3 => out.push_str(&self.weekdays[weekday(y, mo, d)]),
+                'G' => out.push_str(&self.eras[usize::from(y > 0)]),
+                // A field these patterns do not carry (a zone, a week of
+                // the year) is left out rather than guessed.
                 _ => {}
             }
         }
@@ -151,6 +172,20 @@ impl Dates {
             None => c,
         }
     }
+}
+
+/// The weekday of a proleptic Gregorian date, Monday 0 (Howard Hinnant's
+/// `days_from_civil`: <https://howardhinnant.github.io/date_algorithms.html>).
+fn weekday(y: i32, m: u32, d: u32) -> usize {
+    let y = i64::from(y) - i64::from(m <= 2);
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let mp = (i64::from(m) + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + i64::from(d) - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    // 1970-01-01 was a Thursday.
+    (days + 3).rem_euclid(7) as usize
 }
 
 /// An hour, minute and second, and whether the value wrote its seconds.
@@ -180,7 +215,7 @@ fn time(s: &str) -> Option<Time> {
 mod tests {
     use super::Dates;
 
-    const MONTHS: &str = "Jan\nFeb\nMar\nApr\nMay\nJun\nJul\nAug\nSep\nOct\nNov\nDec";
+    const MONTHS: &str = "Jan\nFeb\nMar\nApr\nMay\nJun\nJul\nAug\nSep\nOct\nNov\nDec\nJanuary\nFebruary\nMarch\nApril\nMay\nJune\nJuly\nAugust\nSeptember\nOctober\nNovember\nDecember\nMon\nTue\nWed\nThu\nFri\nSat\nSun\nMonday\nTuesday\nWednesday\nThursday\nFriday\nSaturday\nSunday\nBC\nAD";
 
     fn dates(patterns: [&str; 5], zero: char) -> Dates {
         let told = format!("{}\nAM\nPM\n{zero}\n{MONTHS}", patterns.join("\n"));
@@ -243,5 +278,17 @@ mod tests {
         assert_eq!(us.show("date", "2026-02-30"), None);
         assert_eq!(us.show("datetime-local", "2026-10-23"), None);
         assert!(Dates::from_lines("MMM d, y").is_none());
+        // A weekday and an era, where a locale's pattern has them.
+        let full = dates(["EEEE, d MMMM y G", "", "", "", ""], '0');
+        assert_eq!(
+            full.show("date", "2026-10-16").as_deref(),
+            Some("Friday, 16 October 2026 AD")
+        );
+        assert_eq!(
+            dates(["EEE d", "", "", "", ""], '0')
+                .show("date", "2000-02-29")
+                .as_deref(),
+            Some("Tue 29")
+        );
     }
 }

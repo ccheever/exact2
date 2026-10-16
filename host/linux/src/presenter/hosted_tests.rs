@@ -194,14 +194,18 @@ fn keyboard(p: &mut Presenter<()>) -> Option<(i32, i32)> {
 /// Whether anything but the field's fill shows inside `name`'s content box:
 /// the fill is the container's at its start, beside the text.
 fn inked(p: &mut Presenter<()>, name: &str) -> bool {
-    let (x, y, w, h) = p.rect_of(id(p, name)).unwrap();
+    let (x, y, _, h) = p.rect_of(id(p, name)).unwrap();
+    let c = {
+        let k = p.host().kernel();
+        k.node(id(p, name)).unwrap().field_content_rect().unwrap()
+    };
     let pixmap = p.frame();
     let fill = pixmap
         .pixel((x + 8.0) as u32, (y + h / 2.0) as u32)
         .unwrap();
     let mut inked = false;
-    for row in (y + 16.0) as u32..(y + h - 16.0) as u32 {
-        for col in (x + 16.0) as u32..(x + w - 16.0) as u32 {
+    for row in (y + c.y) as u32..(y + c.y + c.height) as u32 {
+        for col in (x + c.x) as u32..(x + c.x + c.width) as u32 {
             inked |= pixmap.pixel(col, row).unwrap() != fill;
         }
     }
@@ -261,7 +265,8 @@ fn the_reader_is_told_each_field_its_box_and_its_keyboard() {
     let (x, y, _, _) = p.rect_of(ids[0]).unwrap();
     let name = &fields[0];
     assert_eq!((name.generation, name.flags, name.seq), (0, 1, 0));
-    assert_eq!(name.rect, [x + 16.0, y + 16.0, 160.0, 24.0]);
+    // Under its label (its placeholder): 24 down, 8 above the foot.
+    assert_eq!(name.rect, [x + 16.0, y + 24.0, 160.0, 24.0]);
     assert!(name.clip[2] < 0.0, "no clip: {:?}", name.clip);
     assert_eq!(name.value, "");
     // Enter submits and another field follows; the key says Next.
@@ -288,9 +293,13 @@ fn a_hosted_fields_text_is_the_shells_to_draw() {
     let name = id(&p, "name");
     p.reader_field_edited(name, (0, 1), "hello", (5, 5), 1.0);
     assert_eq!(p.field_text(name), "hello");
+    // The label floats as the field fills, in 150 ms.
+    let _ = p.frame();
+    let now = p.host().now();
+    p.clock(now + 200.);
     assert!(
         !inked(&mut p, "name"),
-        "nothing of the text is painted here"
+        "nothing of the text is painted here, and its label floats above it"
     );
     assert!(!inked(&mut p, "email"), "nor a placeholder's");
 }

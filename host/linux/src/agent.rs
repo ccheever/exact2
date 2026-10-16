@@ -163,6 +163,7 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     if let Some(reply) = p.host_mut().answer_hold(line) {
         // A picker's answer is delivered here (LLP 1069.002 D9).
         p.answer_picker(line, &reply);
+        p.answer_date(line, &reply);
         p.answer_save(line, &reply);
         p.answer_document(line, &reply);
         return reply;
@@ -880,6 +881,7 @@ fn settle<D: DataSource>(p: &Presenter<D>) -> Option<f64> {
         .chain(p.group_settles_at())
         .chain(p.scroll_end_due())
         .chain(p.brush.numerals.settles_at())
+        .chain(p.brush.labels.settles_at())
         .reduce(f64::max)
 }
 

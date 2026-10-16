@@ -78,6 +78,9 @@ pub struct Pick {
     pub max: String,
     /// Its `step`.
     pub step: String,
+    /// Its `accent-color`, where it or an ancestor sets one: the picker's
+    /// colours are made from it, as the author's word over the device's.
+    pub accent: Option<[u8; 4]>,
 }
 
 impl Request {
@@ -226,6 +229,11 @@ fn encode(id: u32, request: &Request, out: &mut Vec<i32>) {
             for text in [pick.kind, &pick.value, &pick.min, &pick.max, &pick.step] {
                 string(out, text);
             }
+            // Opaque ARGB, or 0 for none.
+            out.push(
+                pick.accent
+                    .map_or(0, |[r, g, b, _]| i32::from_be_bytes([0xff, r, g, b])),
+            );
         }
     }
     out[at + 2] = (out.len() - at - 3) as i32;
@@ -512,9 +520,54 @@ impl<D: DataSource> Presenter<D> {
             min: text(PropId::Min),
             max: text(PropId::Max),
             step: text(PropId::Step),
+            accent: crate::paint::control::accent(&node, self.brush.dark),
         };
+        // Under the agent the picker is held for it, on every host (LLP
+        // 1069.007 D4): `type @date 2026-10-23`, `tap @date clear` or
+        // `tap @date cancel` answer it, by the control's kind.
+        if self.agent {
+            let held = (self.host.runner().device_holds().iter())
+                .any(|h| h.node == Some(id) && h.capability == kind);
+            if !held {
+                let args = serde_json::json!({
+                    "value": pick.value, "min": pick.min, "max": pick.max, "step": pick.step,
+                });
+                (self.host.runner_mut()).hold(kind, Some(id), &args.to_string(), &["clear"], true);
+                self.dirty = true;
+            }
+            return;
+        }
         let request = self.request(Request::Pick(pick));
         self.requests.waiting.insert(request, Waiting::Pick(id));
+    }
+
+    /// The agent's answer to a held date or time picker, after the runner
+    /// consumed it: the value typed, empty for `clear`, nothing for
+    /// `cancel`. It lands as a person's choice does.
+    pub(crate) fn answer_date(&mut self, request: &str, reply: &str) {
+        let r: serde_json::Value = serde_json::from_str(reply).unwrap_or_default();
+        let kind = r["capability"].as_str().unwrap_or_default();
+        if !matches!(kind, "date" | "time" | "datetime-local") {
+            return;
+        }
+        let Some(node) = r["node"].as_u64().map(|n| n as ViewId) else {
+            return;
+        };
+        let q: serde_json::Value = serde_json::from_str(request).unwrap_or_default();
+        let value = match r["answered"].as_str() {
+            Some("cancel") => {
+                self.host.log(format!("picker: dismissed for {node}"));
+                return;
+            }
+            Some("clear") => "",
+            _ => q["text"].as_str().unwrap_or_default().trim(),
+        };
+        if self.pickable(node) != Some(kind) {
+            self.host
+                .log(format!("picker: {node} no longer takes a choice"));
+        } else if let Err(e) = self.set_control_value(node, value) {
+            self.host.log(format!("picker: {e}"));
+        }
     }
 
     /// `haptic(kind)`, and a pressable's `-exact-press-haptic`: the shell

@@ -137,7 +137,7 @@ fn the_devices_locale_is_the_viewers_place() {
 }
 
 /// How an en-US phone on a 12-hour clock writes dates, as its shell tells it.
-const US_DATES: &str = "MMM d, y\nh:mm a\nh:mm:ss a\nMMM d, y, h:mm a\nMMM d, y, h:mm:ss a\nAM\nPM\n0\nJan\nFeb\nMar\nApr\nMay\nJun\nJul\nAug\nSep\nOct\nNov\nDec";
+const US_DATES: &str = "MMM d, y\nh:mm a\nh:mm:ss a\nMMM d, y, h:mm a\nMMM d, y, h:mm:ss a\nAM\nPM\n0\nJan\nFeb\nMar\nApr\nMay\nJun\nJul\nAug\nSep\nOct\nNov\nDec\nJanuary\nFebruary\nMarch\nApril\nMay\nJune\nJuly\nAugust\nSeptember\nOctober\nNovember\nDecember\nMon\nTue\nWed\nThu\nFri\nSat\nSun\nMonday\nTuesday\nWednesday\nThursday\nFriday\nSaturday\nSunday\nBC\nAD";
 
 #[test]
 fn a_date_control_is_materials_field_and_fits_the_value_as_the_device_writes_it() {
@@ -177,4 +177,25 @@ fn a_date_control_is_materials_field_and_fits_the_value_as_the_device_writes_it(
     // A telling of nothing returns to HTML's value.
     assert!(p.set_device(&phone()).is_none());
     assert_eq!(size(&p), iso);
+}
+
+#[test]
+fn a_fields_placeholder_is_its_label_and_floats_as_it_fills() {
+    let source = "component App\n  state day = \"\"\n  action setDay(value)\n    day = value\n  view\n    row\n      input type=\"date\" value=day change=setDay placeholder=\"Due\" testId=\"day\"\n";
+    let mut p = boot(source);
+    let day = {
+        let k = p.host().kernel();
+        k.node_by_key(k.find_by_test_id("day")[0]).unwrap().id
+    };
+    p.clock(1000.);
+    let resting = p.frame().data().to_vec();
+    assert!(!p.needs_animation_frame(), "an empty field's label rests");
+    // A value floats it, over 150 ms, and then asks for no frame.
+    p.set_control_value(day, "2026-10-23").unwrap();
+    let _ = p.frame();
+    assert!(p.needs_animation_frame(), "the label is floating");
+    p.clock(1200.);
+    let floated = p.frame().data().to_vec();
+    assert!(!p.needs_animation_frame(), "and has floated");
+    assert_ne!(resting, floated);
 }

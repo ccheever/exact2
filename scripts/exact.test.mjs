@@ -447,6 +447,15 @@ test('exact hatch writes each target\'s stub, wires it in, and declares the word
     rmSync(resolve(dir, 'modules/linux'), { recursive: true });
     writeFileSync(resolve(dir, 'linux/build.rs'), 'fn main() { let _ = contract::native::rust_hatch_entry; }\n');
     assert.deepEqual(hatch(['unread-dot'], () => {}).todo.filter(line => line.includes('build.rs')), []);
+    // An Android crate gets one Kotlin class, each word an arm and its functions, and is told what its build.rs owes.
+    mkdirSync(resolve(dir, 'android'));
+    const android = hatch(['unread-dot'], () => {});
+    assert.ok(android.platforms.includes('android') && android.todo.some(line => line.includes('android_entry')));
+    const kotlin = readFileSync(resolve(dir, 'modules/android/Hatches.kt'), 'utf8');
+    assert.ok(kotlin.includes('class Hatches : ExactHatches()') && kotlin.includes('"unread-dot" -> unreadDot(element)') && kotlin.includes('"unread-dot" -> unreadDotEnded(element)'));
+    assert.ok(JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).hatches['unread-dot'].includes('android'));
+    writeFileSync(resolve(dir, 'android/build.rs'), 'fn main() { let _ = contract::native::android_entry; }\n');
+    assert.deepEqual(hatch(['unread-dot'], () => {}).todo.filter(line => line.includes('android/build.rs')), []);
     // In a module of the app's own, with no marker, the lines to add are shown, not written.
     rmSync(resolve(dir, 'modules/apple'), { recursive: true });
     mkdirSync(resolve(dir, 'modules/apple'));

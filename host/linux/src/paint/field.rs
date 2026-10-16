@@ -41,6 +41,13 @@ impl Painter {
         } else {
             content
         };
+        // Typed text its bound value has not replaced (LLP 1069.001 D4).
+        let value = control::choice(node, walk.scene.chosen.get(&node.id))
+            .unwrap_or_else(|| node.props.str(PropId::Value).unwrap_or(""));
+        // Material's field floats its placeholder as its label (`material.rs`).
+        let labelled = native
+            && !look::neutral()
+            && self.field_label(node, surface, focused, value.is_empty(), ts);
         if hosted {
             let within = [content.0 - rect.0, content.1 - rect.1, content.2, content.3];
             self.field_content.insert(node.id, within);
@@ -55,14 +62,13 @@ impl Painter {
             }
             return;
         }
-        // Typed text its bound value has not replaced (LLP 1069.001 D4).
-        let value = control::choice(node, walk.scene.chosen.get(&node.id))
-            .unwrap_or_else(|| node.props.str(PropId::Value).unwrap_or(""));
         let placeholder = value.is_empty();
         // A password is masked, one bullet a character, as the web and
         // Apple's secure fields draw it.
         let masked;
-        let shown = if placeholder {
+        let shown = if labelled && placeholder {
+            ""
+        } else if placeholder {
             node.props.str(PropId::Placeholder).unwrap_or("")
         } else if node.props.str(PropId::Type) == Some("password") {
             masked = "\u{2022}".repeat(value.chars().count());

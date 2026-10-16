@@ -769,9 +769,10 @@ macro_rules! canvas_jni {
                 flag(with(|h| h.access_act(id, action, value)).unwrap_or(false))
             }
 
-            /// What the reader's hatch handle for node `node` asks (LLP
-            /// 1115.001.000 D4): 1 `click`, 2 `focus`, 3 `blur`, 4
-            /// `input(text)`. Whether a hatched node of that number took it.
+            /// What the reader's hatches ask for node `node`, 0 for their
+            /// module (LLP 1115.001.000 D4; `hatches::reader::act` names
+            /// each kind): its answer, a ticket for a registration, -1
+            /// when refused.
             #[no_mangle]
             pub unsafe extern "system" fn Java_dev_exact_canvas_Native_hatchAct(
                 env: *mut JNIEnv,
@@ -779,9 +780,9 @@ macro_rules! canvas_jni {
                 node: jint,
                 kind: jint,
                 text: jstring,
-            ) -> jboolean {
+            ) -> jlong {
                 let text = (!text.is_null()).then(|| string(env, text));
-                flag(with(|h| h.hatch_act(node as u32, kind, text.as_deref())).unwrap_or(false))
+                with(|h| h.hatch_act(node as u32, kind, text.as_deref())).unwrap_or(-1)
             }
 
             /// No accessibility service is on any more: the presenter

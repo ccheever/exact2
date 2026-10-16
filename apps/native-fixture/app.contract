@@ -602,9 +602,10 @@ component NativeFixture
                       text "Halt"
                 if e.name == "detail"
                   row gap=6 padding-left=12 padding-right=12 padding-bottom=12 flex-shrink=0 flex-wrap="wrap" align-items="center"
-                    input type="date" hatch="due" data-weekends="off" value=due change=setDue min="2026-01-01" max="2027-12-31" testId="due" aria-label="Due"
-                    input type="time" hatch="due" value=dueAt change=setDueAt testId="due-at" aria-label="Due at"
-                    input type="datetime-local" value=remind change=setRemind testId="remind" aria-label="Remind"
+                    input type="date" hatch="due" data-weekends="off" value=due change=setDue min="2026-01-01" max="2027-12-31" testId="due" aria-label="Due" placeholder="Due"
+                    input type="time" hatch="due" value=dueAt change=setDueAt testId="due-at" aria-label="Due at" placeholder="Due at"
+                    input type="datetime-local" value=remind change=setRemind testId="remind" aria-label="Remind" placeholder="Remind me" accent-color="#d97706"
+                    column hatch="spin" testId="hatch-spin" aria-label="Spinner" width=48 height=48
                 if e.name == "detail"
                   row gap=6 padding-left=12 padding-right=12 padding-bottom=12 flex-shrink=0
                     row testId="post-row" press=openPost flex=1 padding-left=40 padding-right=40 padding-top=6 padding-bottom=6 background-color="#f3f4f6"

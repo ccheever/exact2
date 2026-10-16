@@ -62,16 +62,22 @@ internal data class Device(
         /**
          * The lines `host/linux/src/paint/dates.rs` reads: the patterns Android's formatter picks for the locale for a
          * medium date, the time on the person's clock with and without seconds, and the two together; the day
-         * periods, the zero digit and the short month names. ICU's, as a Views app's `DateFormat` writes them.
+         * periods, the zero digit, and the months' and weekdays' names, short and full, and the eras. ICU's, as a
+         * Views app's `DateFormat` writes them.
          */
         private fun dates(locale: java.util.Locale, hour24: Boolean): String {
             val best = { skeleton: String -> android.text.format.DateFormat.getBestDateTimePattern(locale, skeleton) }
             val clock = if (hour24) "Hm" else "hm"
             val symbols = android.icu.text.DateFormatSymbols.getInstance(locale)
-            val months = symbols.getMonths(android.icu.text.DateFormatSymbols.FORMAT, android.icu.text.DateFormatSymbols.ABBREVIATED)
+            val format = android.icu.text.DateFormatSymbols.FORMAT
+            val (short, full) = android.icu.text.DateFormatSymbols.ABBREVIATED to android.icu.text.DateFormatSymbols.WIDE
+            // ICU counts weekdays from Sunday, at 1.
+            val week = { names: Array<String> -> (2..8).map { names[(it - 1) % 7 + 1] } }
             val zero = android.icu.text.DecimalFormatSymbols.getInstance(locale).zeroDigit
             val lines = listOf(best("yMMMd"), best(clock), best(clock + "s"), best("yMMMd$clock"), best("yMMMd${clock}s")) +
-                symbols.amPmStrings.take(2) + zero.toString() + months.take(12)
+                symbols.amPmStrings.take(2) + zero.toString() +
+                symbols.getMonths(format, short).take(12) + symbols.getMonths(format, full).take(12) +
+                week(symbols.getWeekdays(format, short)) + week(symbols.getWeekdays(format, full)) + symbols.eras.take(2)
             return lines.joinToString("\n")
         }
     }
