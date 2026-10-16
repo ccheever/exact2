@@ -553,7 +553,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
             }
             // MIDI (LLP 1125 §4): the ports a request finds, and a message from an input now.
             case 'prefer-midi': { const r = await s.op({ op: 'prefer', midi: { ...(st.state ? { state: st.state } : {}), ...(st.inputs ? { inputs: st.inputs } : {}), ...(st.outputs ? { outputs: st.outputs } : {}) } }); if (r?.error) throw new Error(r.error); await s.clock('settle'); break; }
-            case 'tap-midi': delivered(await s.tap(null, { midi: { input: st.input, data: st.data } })); input = st.line; break;
+            case 'tap-midi': delivered(await s.tap(null, { midi: st.clock ? { input: st.input, clock: st.clock } : { input: st.input, data: st.data } })); input = st.line; break;
             case 'drag': {
               const drag = { ...(st.to != null ? { to: st.to, ...(st.at ? { at: st.at } : {}) } : { dx: st.dx, dy: st.dy }), ...(st.from ? { from: st.from } : {}), ...(st.mouse ? { mouse: true } : {}), ...(st.press != null ? { press: st.press } : {}), ...(st.over != null ? { over: st.over } : {}), ...(st.hold != null ? { hold: st.hold } : {}) };
               if (st.during?.length) drag.during = st.during.map((op) => () => duringOp(s, op));

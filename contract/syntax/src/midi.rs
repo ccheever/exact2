@@ -21,6 +21,16 @@ pub enum MidiStep {
         /// The bytes.
         data: Vec<u8>,
     },
+    /// `tap midi "clock" clock 120 2000`: Timing Clock from that input at
+    /// that tempo for that long, from now (LLP 1125 D9).
+    TapClock {
+        /// The input, by id.
+        input: String,
+        /// Beats a minute.
+        bpm: f64,
+        /// How long it ticks, ms.
+        ms: f64,
+    },
     /// `expect midi sent|missing "synth" 90 3c 64 [at N]`: a message the
     /// runner queued for that output (not taken back), or none.
     Expect {

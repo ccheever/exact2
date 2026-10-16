@@ -41,7 +41,7 @@ import { openTouches, realTap } from '../host/apple/touches.mjs';
 import { pageAim, namedRefusal } from './agent-aim.mjs'; import { checkOp } from './agent-check.mjs';
 import { dragArguments, dragTap, duringAllowed, duringOp } from './agent-drag.mjs';
 import { driveNotes, runTests, nodeNamed, targetsIn, unopenedHint, refuseDisabled, reloadWeb, fetchOrigins, loopbackOrigins, faultRequest } from './agent-test.mjs';
-import { MalformedOperation, operationReply, inputJSON, keyArguments, validateKey, pinchArguments, intoArguments, pointerArguments, resizeArguments, cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, withHeldModifiers, pasteChord, deliverClipboard, tapWords, tapArguments, pointerGap, chordModifiers, withChordModifiers, heldForClick } from './agent-keys.mjs';
+import { MalformedOperation, operationReply, inputJSON, keyArguments, validateKey, pinchArguments, intoArguments, pointerArguments, resizeArguments, cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, withHeldModifiers, pasteChord, deliverClipboard, tapWords, tapArguments, pointerGap, chordModifiers, withChordModifiers, heldForClick, clockSlices } from './agent-keys.mjs';
 import { jsonLines, hangup } from './agent-wire.mjs';
 export { jsonLines, hangup };
 export { MalformedOperation, resizeArguments, cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, pasteChord, deliverClipboard, tapWords, pointerGap } from './agent-keys.mjs';
@@ -989,6 +989,8 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     async tap(target, opts = {}) {
       if (holdOf(target)) { if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`); return s.answer('tap', target, opts.choice); }
       const button = tapArguments(opts);
+      // `tap midi "<input>" clock <bpm> <ms>` (LLP 1125 D9): a slice at a time, the clock moved to its end, then its ticks delivered.
+      if (opts.midi?.clock) { let r = {}, prev = 0; for (const { to, ticks } of clockSlices(opts.midi.clock)) { await s.clock(`+${to - prev}`); prev = to; r = await s.op({ op: 'midi', input: opts.midi.input, clock: ticks.map(k => [s.now - to + k, 0xF8]) }); if (r?.error) break; } return s.landed({ ...r, delivery: 'substituted', carrier: host, mode: timing }); }
       if (opts.midi) return s.landed({ ...await s.op({ op: 'midi', ...opts.midi }), delivery: 'substituted', carrier: host, mode: timing }); // a MIDI input's message (LLP 1125 §4): the runner's input, the arm absent
       if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`);
       let node, part = await partTap({ s, host, touch }, target, opts); if (part) return part; // `tap <node>/<part>` (agent-inspect.mjs)

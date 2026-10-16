@@ -57,9 +57,11 @@ export function parseStep(line) {
       call('tap', target, { mediaSession, ...(seconds != null ? { seconds: Number(seconds) } : {}) });
       break;
     }
-    // A MIDI input's message (LLP 1125 §4): `midi <input> <hex…>`.
+    // A MIDI input's message (LLP 1125 §4): `midi <input> <hex…>`; its clock (D9): `midi <input> clock <bpm> <ms>`.
     case 'midi': {
-      const input = word(), data = words.splice(0).map(w => /^[0-9a-f]{2}$/i.test(w) ? parseInt(w, 16) : invalid(`${w} is not a byte (two hex digits)`));
+      const input = word();
+      if (words[0] === 'clock') { words.shift(); call('tap', null, { midi: { input, clock: { bpm: Number(word()), ms: Number(word()) } } }); break; }
+      const data = words.splice(0).map(w => /^[0-9a-f]{2}$/i.test(w) ? parseInt(w, 16) : invalid(`${w} is not a byte (two hex digits)`));
       if (!data.length) invalid('midi <input> <hex…>');
       call('tap', null, { midi: { input, data } }); break;
     }

@@ -60,7 +60,7 @@ fn clock_out_and_clock_in_compile_with_and_without_bpm() {
 
 #[test]
 fn midi_steps_parse_and_reach_the_driver() {
-    let src = "test \"midi\"\n  prefer midi.state granted midi.outputs \"synth, iac\" midi.inputs \"keys\"\n  tap midi \"keys\" 90 3c 64 b0 07 7f\n  expect midi sent \"synth\" 99 4c 7f at 500\n  expect midi missing \"synth\" fc\n  expect midi sent \"synth\" 1e 0a 00\n";
+    let src = "test \"midi\"\n  prefer midi.state granted midi.outputs \"synth, iac\" midi.inputs \"keys\"\n  tap midi \"keys\" 90 3c 64 b0 07 7f\n  expect midi sent \"synth\" 99 4c 7f at 500\n  expect midi missing \"synth\" fc\n  expect midi sent \"synth\" 1e 0a 00\n  tap midi \"clk\" clock 125 1000\n";
     let tests = contract::tests(src).unwrap();
     let json = contract::tests_json(&tests);
     for want in [
@@ -69,12 +69,14 @@ fn midi_steps_parse_and_reach_the_driver() {
         r#"{"op":"expect-midi","output":"synth","data":[153,76,127],"present":true,"at":500,"line":4}"#,
         r#"{"op":"expect-midi","output":"synth","data":[252],"present":false,"line":5}"#,
         r#"{"op":"expect-midi","output":"synth","data":[30,10,0],"present":true,"line":6}"#,
+        r#"{"op":"tap-midi","input":"clk","clock":{"bpm":125,"ms":1000},"line":7}"#,
     ] {
         assert!(json.contains(want), "{want}\n{json}");
     }
     for (bad, why) in [
         ("tap midi \"keys\"", "expected a byte"),
         ("tap midi \"keys\" 9", "not a byte"),
+        ("tap midi \"keys\" clock 0 100", "a tempo above 0"),
         ("tap midi \"keys\" 90 3g", "not a byte"),
         ("expect midi \"synth\" 90 3c 64", "`sent` or `missing`"),
         ("prefer midi.colour red", "midi.state"),

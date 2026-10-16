@@ -397,8 +397,15 @@ export function tapWords(args, held = false) {
     }
     return opts;
   };
-  // A MIDI input's message (LLP 1125 §4): `tap midi "<input>" 90 3c 64`, each byte two hex digits.
-  if (first === 'midi' && form !== undefined && rest.length && rest.every((w) => /^[0-9a-f]{2}$/i.test(w))) return [null, { midi: { input: form, data: rest.map((w) => parseInt(w, 16)) } }];
+  // A MIDI input's message (LLP 1125 §4): `tap midi "<input>" 90 3c 64`, each byte two hex digits; or its clock (D9):
+  // `tap midi "<input>" clock <bpm> <ms>`. The input may be quoted, as a test step quotes it.
+  const input = /^".*"$/.test(form ?? '') ? inputJSON(form) : form;
+  if (first === 'midi' && form !== undefined && rest.length && rest.every((w) => /^[0-9a-f]{2}$/i.test(w))) return [null, { midi: { input, data: rest.map((w) => parseInt(w, 16)) } }];
+  if (first === 'midi' && form !== undefined && rest[0] === 'clock') {
+    const [bpm, ms] = [number(rest[1], 'clock'), number(rest[2], 'clock')];
+    if (rest.length !== 3 || !(bpm > 0 && ms >= 0)) refuse('tap midi "<input>" clock <bpm> <ms> takes a tempo above 0 and a length');
+    return [null, { midi: { input, clock: { bpm, ms } } }];
+  }
   if (held && first === 'move') {
     const by = form === 'by', [a, b, ...more] = by ? rest : [form, ...rest];
     const point = by ? { dx: number(a, 'move by'), dy: number(b, 'move by') } : { x: number(a, 'move'), y: number(b, 'move') };
@@ -445,6 +452,21 @@ export function tapWords(args, held = false) {
     // Most often a target of several words left unquoted (sb4 farm wave 4, 053: `tap Why are my…`).
     default: refuse(`unknown word ${JSON.stringify(form)}; a target of several words is quoted inside the op (\`tap "${args.join(' ').replace(/["\\]/g, '\\$&')}"\`), and after a target come only: tap <target> [at <x> <y> [modifiers <M>] | modifiers <M> | down [at <x> <y>] [modifiers <M>] | wheel <dx> <dy> [gesture] [at <x> <y>] [modifiers <M>] | mouse | dblclick | contextmenu | auxclick | clicks <1-3> (each [at <x> <y>] [modifiers <M>]) | hover | drop <path…> | into <key> … | pinch <scale> [at <x> <y>] | history <n> | mediasession <action> [seconds] | drag …]`);
   }
+}
+
+/** `tap midi "<input>" clock <bpm> <ms>` (LLP 1125 D9) as an arm delivers it: Timing Clock at `k · 60000 / (24 · bpm)` ms
+ * from now, k ≥ 1, through `ms`, in slices at most 50 ms long. Each slice is `{ to, ticks }`, its end and its ticks as ms
+ * from the start; the driver moves the clock to its end, then delivers its ticks, one runner call. A tempo whose tick is a
+ * whole number of ms (125, 100, 250) keeps every stamp exact. */
+export function clockSlices({ bpm, ms }) {
+  const interval = 60000 / (24 * bpm), out = [];
+  for (let k = 1, from = 0; from < ms;) {
+    const to = Math.min(from + 50, ms), ticks = [];
+    for (; k * interval <= to; k++) ticks.push(k * interval);
+    out.push({ to, ticks });
+    from = to;
+  }
+  return out;
 }
 
 /** A `tap`'s options checked before any host is asked: malformed ones are refused by name. Returns the mouse's button forms given. */

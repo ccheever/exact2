@@ -387,6 +387,11 @@ fn midi_step(step: &contract_syntax::MidiStep, s: &mut String) {
             q(input, s);
             s.push_str(&format!(",\"data\":{}", bytes(data)));
         }
+        MidiStep::TapClock { input, bpm, ms } => {
+            s.push_str("{\"op\":\"tap-midi\",\"input\":");
+            q(input, s);
+            s.push_str(&format!(",\"clock\":{{\"bpm\":{bpm},\"ms\":{ms}}}"));
+        }
         MidiStep::Expect {
             output,
             data,

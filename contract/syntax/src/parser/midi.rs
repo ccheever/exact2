@@ -63,11 +63,28 @@ impl Parser {
         Ok(out)
     }
 
-    /// After `tap`: `midi "<input>" <hex…>`.
+    /// After `tap`: `midi "<input>" <hex…>`, or `midi "<input>" clock <bpm>
+    /// <ms>` (LLP 1125 D9): ticks at that tempo for that long.
     pub(super) fn tap_midi(&mut self, span: Span) -> R<Step> {
         const USAGE: &str = "as in `tap midi \"keys\" 90 3c 64`";
         self.next();
         let input = self.str_lit("the input's id")?;
+        if self.at_ident("clock") {
+            self.next();
+            let bpm = self.step_number("the clock's tempo, beats a minute")?;
+            let ms = self.step_number("how long it ticks, milliseconds")?;
+            if !(bpm > 0.0 && ms >= 0.0) {
+                return self.err(
+                    "syntax-expected-step",
+                    "`tap midi \"<input>\" clock <bpm> <ms>` takes a tempo above 0 and a length",
+                );
+            }
+            self.newline()?;
+            return Ok(Step::Midi {
+                step: MidiStep::TapClock { input, bpm, ms },
+                span,
+            });
+        }
         let data = self.midi_bytes(USAGE)?;
         self.newline()?;
         Ok(Step::Midi {
