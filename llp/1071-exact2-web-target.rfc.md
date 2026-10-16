@@ -1784,6 +1784,41 @@ equal on the wasm page, the JS page and the Linux reference.
   wasm page does (the navroot plan 19,639 → 24,778 / 6,971 → 8,545; no app
   here has one).
 
+### Generated code at scale (2026-10-16, measured)
+
+The Bluesky clone (a 3.87 MB plan, 327 KB brotli-11) is the first app whose
+generated code is large: `.gen/app.js` 22.7 MB, the served `app.js` 21.0 MB
+(369 KB brotli-11, 1.13× the plan's, inside §7's 3× gate). The wire is not
+what costs; the raw size is, twice: Rolldown's bundle and minify (~1.0 s of
+a 2.5 s dev build) and V8's parse at load. A page's mount calls most of the
+generated functions, and V8 compiled each lazily on the main thread at its
+first call: of a 2.05 s module evaluation, 1.86 s was `ParseFunction` /
+`CompileCode` (Chrome trace, the dev build), the code's own running small.
+
+What the 22.7 MB is: `style::color_map` (9,237 B) inlined at each of 1,286
+bound colour sites, 11.88 MB (52%), and rebuilt at every call; repeated
+string literals of 64 B or more (icon paths the plan holds once), 1.66 MB;
+per-site radius validators 430 KB, metric maps 321 KB, iteration-budget
+loops 192 KB; the rest is per-element code (19,949 elements).
+
+Two levers, in order:
+1. *Compile hint.* The entry chunk leads with `//# allFunctionsCalledOnLoad`
+   (build.mjs, a `postBanner`: after the minifier, which drops comments), so
+   Chrome compiles the module eagerly on its streaming thread. Release page,
+   runtime up (no DevTools attached, five runs): 1.67–1.94 s → 0.48–0.53 s,
+   ~23 MB more JS heap (44 → 67 MB). Caltrain and RealWorld: no difference
+   past noise (60–110 ms either way). Other browsers ignore the comment.
+2. *Per-plan constants hoisted* to module scope (emit.rs's header):
+   the colour map once, its inner maps built once; metric maps, one radius
+   validator, long literals interned. 22.7 → ~8.5 MB estimated; the colour
+   map alone measured 22.7 → 10.9 MB, its dev build 3.2 → 2.5 s.
+
+Measuring note: a CDP client that enables the Network domain (Playwright
+does) captures each request's initiator stack, which makes V8 collect source
+positions by reparsing the giant generated functions: 0.4–1.4 s of
+`CollectSourcePositions` that a page without DevTools never pays. Time
+loads without it (Chrome's own log, or a raw CDP `Runtime.evaluate`).
+
 ## 8. Rulings and open questions for Charlie
 
 **Rulings.**
