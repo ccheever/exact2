@@ -33,7 +33,7 @@ const DRIVE = [
   ['--fail-fetch <prefix>', 'each fetch whose URL starts with it fails, from the first data load'],
   ['--url <url>', 'web: drive a page already served (the dev loop\'s) instead of building'],
   ['--browser chrome|firefox|webkit', 'web (default chrome; bunx playwright@1.63.0 install firefox webkit)'],
-  ['--sim <udid|name>', 'iOS: which simulator (default: a booted iPhone)'],
+  ['--sim <udid|name>', 'iOS: which simulator (default: the booted iPhone; of several, the one the app is on)'],
   ['--device · --phone <udid|name> · --reader', 'a connected iPhone (built with ios --device), and which · Android: the app on the Canvas reader (its APK)'],
   ['--plan <file>', 'a compiled plan (contract build -o) in place of the app\'s'],
   ['--world <file> · --open <file>', 'a game: a saved world to load · macOS: a document on its command line'],
@@ -190,10 +190,11 @@ Ports    none to choose: test's and agent's (headless Chrome over a pipe; a simu
       OPTIMIZE,
     ],
     get internal() { return appleRest(this.flags); },
-    body: `The first build takes minutes, later ones a minute or two; several booted simulators are
-refused, not guessed (set EXACT_SIM). test ios and agent ios run it first themselves when
-the build is missing or older than its sources; an edit to only app.contract or what app.ts
-imports runs its new plan on the existing build instead, in about a second.
+    body: `The first build takes minutes, later ones a minute or two. Of several booted simulators it
+takes the one the app is installed on, else refuses to guess (--sim or EXACT_SIM). test ios
+and agent ios run it first themselves when the build is missing or older than its sources;
+an edit to only app.contract or what app.ts imports runs its new plan on the existing build
+instead, in about a second.
 Ports    none. Runs to completion (--run too); --prebuild returns at once, the build going on
          apart from this shell (its pid printed; test and agent wait for it).`,
     example: 'bun exact.mjs ios --run',

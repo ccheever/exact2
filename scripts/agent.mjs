@@ -694,7 +694,7 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
   // An app's exact.mjs builds first instead, or bakes a plan-only edit to run on this build (agent-build.mjs, LLP 1116.003).
   const override = plan || hostFixture ? null : planOverride('ios', a, built);
   if (override) plan = override.plan; else refuseBuild('ios', built, a, { sample: hostFixture });
-  const dev = simulator();
+  const dev = simulator(undefined, { app: id, hint: '--sim <udid|name> (or EXACT_SIM)' });
   return exclusiveIOS(dev.udid, id, () => openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, hostFixture, touch, onProcess }));
 }
 async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, hostFixture, touch, onProcess }) {
