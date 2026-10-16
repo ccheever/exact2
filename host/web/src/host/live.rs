@@ -11,7 +11,10 @@ impl<D: DataSource> Host<D> {
     /// is coming) or `refused`.
     pub fn apply_live(&mut self, frame: &str) -> String {
         let Some(edit) = Edit::parse(frame) else {
-            return exact_runner::agent::error("live: not a tamber batch or snapshot");
+            return self.finish(
+                crate::batch::Batch::new(),
+                Some("live: not a tamber batch or snapshot"),
+            );
         };
         let (receipts, live, unsupported) = match self.runner.apply_live(&edit) {
             Ok(applied) => (

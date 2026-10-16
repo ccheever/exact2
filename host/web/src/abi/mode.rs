@@ -8,7 +8,7 @@ impl<D: DataSource> Bridge<D> {
     /// (LLP 1121 D5), set in one batch; after a `?`, only checked.
     pub fn set_mode(&mut self, len: usize) -> u32 {
         let Ok(text) = std::str::from_utf8(&self.input[..len.min(self.input.len())]) else {
-            return self.emit(exact_runner::agent::error("mode: invalid UTF-8"));
+            return self.refuse("mode: invalid UTF-8");
         };
         // `?` first: only ask whether they would be taken.
         let (check, text) = match text.strip_prefix('?') {
@@ -24,7 +24,7 @@ impl<D: DataSource> Bridge<D> {
             })
             .collect();
         let Some(pins) = pins else {
-            return self.emit(exact_runner::agent::error("mode: write axis=value pins"));
+            return self.refuse("mode: write axis=value pins");
         };
         let pins: Vec<(&str, &str)> = pins.iter().map(|(a, v)| (a.as_str(), v.as_str())).collect();
         let out = self.host.as_mut().map_or_else(
@@ -43,7 +43,7 @@ impl<D: DataSource> Bridge<D> {
     /// input buffer (LLP 1121 stage 4): applied in place; returns the batch.
     pub fn design_rows(&mut self, len: usize) -> u32 {
         let Ok(text) = std::str::from_utf8(&self.input[..len.min(self.input.len())]) else {
-            return self.emit(exact_runner::agent::error("live: invalid UTF-8"));
+            return self.refuse("live: invalid UTF-8");
         };
         let text = text.to_owned();
         let out = self.host.as_mut().map_or_else(

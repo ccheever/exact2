@@ -54,6 +54,9 @@ pub struct Bridge<D: DataSource> {
 mod clock;
 mod mode;
 
+#[cfg(test)]
+mod refusal_tests;
+
 impl<D: DataSource> Bridge<D> {
     /// Empty; `boot` fills it.
     pub const fn new() -> Bridge<D> {
@@ -151,9 +154,13 @@ impl<D: DataSource> Bridge<D> {
         &self.output[..len.min(self.output.len())]
     }
 
-    /// A named refusal (LLP 1047 D6) as the export's reply.
+    /// A named refusal (LLP 1047 D6), keeping the live runner's scheduled wakes.
     pub fn refuse(&mut self, message: &str) -> u32 {
-        self.emit(exact_runner::agent::error(message))
+        let batch = self.host.as_ref().map_or_else(
+            || crate::batch::Batch::new().finish(None, false, 0.0, Some(message)),
+            |host| host.finish(crate::batch::Batch::new(), Some(message)),
+        );
+        self.emit(batch)
     }
 
     fn emit(&mut self, s: String) -> u32 {
@@ -233,9 +240,9 @@ impl<D: DataSource> Bridge<D> {
     pub fn boot_module(&mut self, lengths: [usize; 3], admitted: D, let_go: bool) -> u32 {
         let busy = self.host.as_ref().is_some_and(|h| h.runner().has_pending());
         if !let_go && busy {
-            return self.emit(exact_runner::agent::error(
+            return self.refuse(
                 "module replacement waits for in-flight requests to settle; retry the update",
-            ));
+            );
         }
         let [plan, receipt, module] = lengths;
         if plan
@@ -246,9 +253,7 @@ impl<D: DataSource> Bridge<D> {
             || receipt > 1 << 20
             || module > 32 << 20
         {
-            return self.emit(exact_runner::agent::error(
-                "invalid module generation lengths",
-            ));
+            return self.refuse("invalid module generation lengths");
         }
         let result = std::str::from_utf8(&self.input[plan..plan + receipt])
             .map_err(|e| e.to_string())
@@ -263,10 +268,10 @@ impl<D: DataSource> Bridge<D> {
             });
         let mut data = match result {
             Ok(data) => data,
-            Err(error) => return self.emit(exact_runner::agent::error(&error)),
+            Err(error) => return self.refuse(&error),
         };
         if let Err(error) = data.activate() {
-            return self.emit(exact_runner::agent::error(&format!("{error:?}")));
+            return self.refuse(&format!("{error:?}"));
         }
         let viewport = self
             .host
@@ -316,10 +321,7 @@ impl<D: DataSource> Bridge<D> {
                 self.give_clock();
                 self.emit(batch)
             }
-            Err(e) => self.emit(format!(
-                "{{\"ops\":[],\"timers\":false,\"error\":\"boot: {}\"}}",
-                escape(&format!("{e:?}"))
-            )),
+            Err(e) => self.refuse(&format!("boot: {e:?}")),
         }
     }
 
@@ -354,10 +356,7 @@ impl<D: DataSource> Bridge<D> {
                 self.give_clock();
                 self.emit(batch)
             }
-            Err(e) => self.emit(format!(
-                "{{\"ops\":[],\"timers\":false,\"error\":\"boot: {}\"}}",
-                escape(&format!("{e:?}"))
-            )),
+            Err(e) => self.refuse(&format!("boot: {e:?}")),
         }
     }
 
@@ -523,7 +522,7 @@ impl<D: DataSource> Bridge<D> {
             // A press, with the modifiers held as a chord prefix (gallery F20).
             0 => {
                 let Some(event) = Event::press(&payload) else {
-                    return self.emit(r#"{"ops":[],"error":"invalid press modifiers"}"#.into());
+                    return self.refuse("invalid press modifiers");
                 };
                 event
             }
@@ -547,14 +546,14 @@ impl<D: DataSource> Bridge<D> {
             6 | 10 | 13 | 19 | 20 | 21 | 28..=48 | 50..=54 => {
                 match Event::of_host_kind(kind, &payload) {
                     Ok(event) => event,
-                    Err(error) => return self.emit(format!(r#"{{"ops":[],"error":"{error}"}}"#)),
+                    Err(error) => return self.refuse(error),
                 }
             }
             // @ref LLP 1038 D8 — the next ABI kind after scroll.
             14 => Event::Navigate(payload),
             15 => {
                 let Some(event) = Event::height_release_payload(&payload) else {
-                    return self.emit(r#"{"ops":[],"error":"invalid height release"}"#.into());
+                    return self.refuse("invalid height release");
                 };
                 event
             }
@@ -565,14 +564,14 @@ impl<D: DataSource> Bridge<D> {
                     Event::transform_release_payload(&payload)
                 };
                 let Some(event) = event else {
-                    return self.emit(r#"{"ops":[],"error":"invalid transform event"}"#.into());
+                    return self.refuse("invalid transform event");
                 };
                 event
             }
             18 => {
                 let Some(event) = self.input.get(..len).and_then(Event::reorder_drop_payload)
                 else {
-                    return self.emit(r#"{"ops":[],"error":"invalid reorder event"}"#.into());
+                    return self.refuse("invalid reorder event");
                 };
                 event
             }
@@ -583,7 +582,7 @@ impl<D: DataSource> Bridge<D> {
             26 => {
                 let payload_files = crate::link::linked().picker.and_then(|read| read(&payload));
                 let Some(files) = payload_files else {
-                    return self.emit(r#"{"ops":[],"error":"invalid picked files"}"#.into());
+                    return self.refuse("invalid picked files");
                 };
                 Event::Change(exact_runner::ControlValue::Files(files))
             }
@@ -592,7 +591,7 @@ impl<D: DataSource> Bridge<D> {
             23 => Event::Input(payload.into()),
             24 | 25 => {
                 let Some(on) = Event::checked_payload(&payload) else {
-                    return self.emit(r#"{"ops":[],"error":"invalid checked state"}"#.into());
+                    return self.refuse("invalid checked state");
                 };
                 if kind == 24 {
                     Event::Change(on)
@@ -635,7 +634,7 @@ impl<D: DataSource> Bridge<D> {
     /// A name alone clears a surface; name NUL JSON publishes it, even if empty.
     pub fn surface_record(&mut self, len: usize) -> u32 {
         let Ok(text) = std::str::from_utf8(&self.input[..len.min(self.input.len())]) else {
-            return self.emit(exact_runner::agent::error("surface record: invalid UTF-8"));
+            return self.refuse("surface record: invalid UTF-8");
         };
         let (name, json) = text
             .split_once('\0')
@@ -739,7 +738,7 @@ impl<D: DataSource> Bridge<D> {
     /// A topic the page module announced, in the input buffer.
     pub fn changed(&mut self, len: usize) -> u32 {
         let Ok(topic) = std::str::from_utf8(&self.input[..len.min(self.input.len())]) else {
-            return self.emit(exact_runner::agent::error("changed: invalid UTF-8"));
+            return self.refuse("changed: invalid UTF-8");
         };
         let topic = topic.to_owned();
         let out = self.host.as_mut().map_or_else(
@@ -776,9 +775,7 @@ impl<D: DataSource> Bridge<D> {
         let text = std::str::from_utf8(&self.input[..len.min(self.input.len())]).unwrap_or("");
         let mut fields = text.split('\0');
         let (Some(locale), Some(zone)) = (fields.next(), fields.next()) else {
-            return self.emit(exact_runner::agent::error(
-                "place: expected locale NUL timeZone",
-            ));
+            return self.refuse("place: expected locale NUL timeZone");
         };
         let seed = fields.next().and_then(|s| exact_num::parse_f64(s).ok());
         let (locale, zone) = (locale.to_owned(), zone.to_owned());

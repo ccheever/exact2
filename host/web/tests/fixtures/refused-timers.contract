@@ -1,0 +1,18 @@
+component App
+  state ticks = 0
+  state presented = 0
+  mutation reply as shape string
+  action tick
+    ticks = ticks + 1
+  action frame
+    presented = performanceNow()
+  action fetch
+    send reply = pending()
+  task ticker mount
+    every(1000, tick)
+  task display mount
+    every(frame, frame)
+  view
+    column
+      text `${ticks}` testId="ticks"
+      button "Fetch" press=fetch testId="fetch"

@@ -8,7 +8,7 @@ import { test, expect, mock, beforeEach, afterAll } from "bun:test";
 mock.module("./navigation.js", () => import("../web/navigation.js"));
 mock.module("./prompt-glue.js", () => ({}));
 mock.module("./names.js", () => ({ sourceTypes: {} }));
-const { clock, every, advance, armedAt } = await import("./rt.js");
+const { clock, every, advance, armedAt, commit, Refusal } = await import("./rt.js");
 const { beatAfter } = await import("./beat.js");
 
 // The page's clock, the test's own while it runs
@@ -27,6 +27,18 @@ function ticker(ms, spend = 0) {
 }
 
 beforeEach(() => { clock.now = 0; clock.timers.length = 0; wall = 0; });
+
+test("a refused commit and an invalid advance keep the live timer", () => {
+  const { seen, timer } = ticker(1000);
+  expect(commit(() => { throw new Refusal("invalid input"); })).toBe(false);
+  advance(NaN, true);
+  expect(clock.timers).toContain(timer);
+  expect(timer.due).toBe(1000);
+  wall = 1000;
+  advance(1000, true);
+  expect(seen).toEqual([[1000, 1000]]);
+  expect(timer.due).toBe(2000);
+});
 
 test("missed beats fire once, observing when they run, and keep their phase", () => {
   const { seen, timer } = ticker(1000);
