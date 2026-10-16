@@ -109,6 +109,8 @@ static void apply(ExactMixer *m) {
             for (int i = 0; i < EXACT_SOUND_SLOTS; i++) {
                 Voice *v = &m->slots[i];
                 if (v->live && v->id == op.id && op.at < v->end) v->end = op.at;
+                // Retracted before it sounded (an edit, a stop): its slot is free now, not at its start.
+                if (v->live && v->id == op.id && !v->started && op.at <= v->start) v->live = false;
             }
         } else if (op.kind == 3) {
             for (int i = 0; i < EXACT_SOUND_SLOTS; i++) m->slots[i].live = false;

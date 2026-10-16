@@ -84,6 +84,11 @@ final class SoundOutput {
     private var opened: Double?
     /// Voices skipped because the output was not open.
     private var skipped: UInt64 = 0
+    /// A sequence's timed haptics not yet played, by id (LLP 1125 D3), and
+    /// how many played more than 10 ms late: UIKit's feedback generators
+    /// cannot be scheduled ahead, so a blocked main thread delays them.
+    private var haptics: [UInt64: DispatchWorkItem] = [:]
+    private var hapticsLate: UInt64 = 0
     /// Seconds after a failure before a voice tries again; settable for tests.
     var retryAfter = 1.0
     /// The host clock, on CACurrentMediaTime's timebase; settable for tests.
@@ -106,6 +111,8 @@ final class SoundOutput {
     /// The session is destroyed, or a boot names other files: the arm is
     /// stopped and let go, and the session claim given back.
     func shutdown() {
+        haptics.values.forEach { $0.cancel() }
+        haptics = [:]
         close()
         #if os(iOS) || os(tvOS)
         AudioSession.release(ObjectIdentifier(self))
@@ -125,13 +132,29 @@ final class SoundOutput {
             let id = UInt64((op["id"] as? NSNumber)?.int64Value ?? 0), at = (op["at"] as? NSNumber)?.doubleValue ?? 0
             // Runner time to host seconds on CACurrentMediaTime's timebase (D6).
             let host = ExactEnv.t0 + at / 1000
-            if op["op"] as? String == "play" {
+            switch op["op"] as? String {
+            case "play":
                 if interrupted { say("sound skipped: interrupted"); continue }
                 guard let arm = ready(), let library = library() else { skipped += 1; continue }
                 library.op(arm.handle, 1, id, UInt32((op["sound"] as? NSNumber)?.intValue ?? 0), host, (op["gain"] as? NSNumber)?.floatValue ?? 1,
                            (op["playbackRate"] as? NSNumber)?.floatValue ?? 1, (op["pan"] as? NSNumber)?.floatValue ?? 0)
-            } else if let arm, let library = library() {
-                library.op(arm.handle, 2, id, 0, host, 0, 1, 0)
+            case "end":
+                if let arm, let library = library() { library.op(arm.handle, 2, id, 0, host, 0, 1, 0) }
+            // A sequence step's haptic plays on the main thread at its time; it never opens the output.
+            case "haptic":
+                guard let kind = op["kind"] as? String else { continue }
+                let item = DispatchWorkItem { [weak self] in
+                    guard let self else { return }
+                    self.haptics[id] = nil
+                    if self.now() - host > 0.010 { self.hapticsLate += 1 }
+                    Haptics.play(kind)
+                }
+                haptics[id] = item
+                DispatchQueue.main.asyncAfter(deadline: .now() + max(0, host - now()), execute: item)
+            case "unhaptic":
+                haptics.removeValue(forKey: id)?.cancel()
+            default:
+                continue
             }
         }
     }
@@ -242,7 +265,7 @@ final class SoundOutput {
     /// voice, `running` or `stopped` after it (`stopped` too while an
     /// interruption holds it); `failed`, with its `error`, after a failure.
     var state: [String: Any] {
-        var state: [String: Any] = ["kind": "avaudioengine", "skipped": skipped]
+        var state: [String: Any] = ["kind": "avaudioengine", "skipped": skipped, "hapticsLate": hapticsLate]
         if let arm {
             let c = counts(arm)
             state.merge(["state": started && c[3] == 1 ? "running" : "stopped", "live": c[0], "dropped": c[1], "late": c[2], "decoded": "\(files.count)/\(files.count)"]) { $1 }

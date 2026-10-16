@@ -1241,7 +1241,7 @@ public final class ExactSession {
     // or one distant wake. Runner retains ordered catch-up and its 4096-commit cap.
     func scheduleClock(due: Double?) {
         let agent = ExactEnv.agentMode || clock != nil
-        let wake = SessionClockTimer.wake(due: due, now: now(), agent: agent)
+        let wake = SessionClockTimer.wake(due: due, now: now(), agent: agent, hidden: PageFacts.hidden)
         // A frame task (LLP 1073 D5) keeps the link running; the agent's clock fires its virtual frames.
         frames.timerSoon = wake == .frame || (frames.tasks && !agent)
         // Keep a timer already armed for this deadline; most batches leave it unchanged.

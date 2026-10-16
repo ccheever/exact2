@@ -4,6 +4,8 @@
 // at its end; an End for a freed slot is ignored; a full ring counts its drop.
 // A voice's playback rate reads its sound by linear interpolation and moves
 // its end; its pan places it by Web Audio's equal-power law (LLP 1125 D10).
+// A second's lookahead fits: 288 slots and a ring of 1024 ops, and a voice
+// retracted before it starts frees its slot at once (LLP 1125 D3).
 import AudioToolbox
 import ExactSoundRender
 import XCTest
@@ -229,10 +231,28 @@ final class SoundMixerTests: XCTestCase {
     func testAFullRingDropsAndCounts() {
         let m = mixer()
         defer { exact_sound_mixer_free(m) }
-        for i in 0..<256 { XCTAssertTrue(exact_sound_push(m, 2, UInt64(i), 0, 0, 0, 1, 0)) }
+        for i in 0..<1024 { XCTAssertTrue(exact_sound_push(m, 2, UInt64(i), 0, 0, 0, 1, 0)) }
         XCTAssertFalse(exact_sound_push(m, 2, 999, 0, 0, 0, 1, 0))
         XCTAssertEqual(exact_sound_dropped(m), 1)
         _ = render(m, at: 40)
         XCTAssertTrue(exact_sound_push(m, 2, 999, 0, 0, 0, 1, 0), "a render empties the ring")
+    }
+
+    func testASecondAheadFitsAndARetractedVoiceFreesItsSlot() {
+        let m = mixer()
+        defer { exact_sound_mixer_free(m) }
+        let t = exact_sound_seconds(ticks(50))
+        // 288 voices waiting a second ahead, in slots; a 289th finds none.
+        for i in 0..<288 { XCTAssertTrue(exact_sound_push(m, 1, UInt64(i + 1), 0, t + 0.5 + Double(i) / 1000, 0.1, 1, 0)) }
+        XCTAssertTrue(exact_sound_push(m, 1, 289, 0, t + 0.9, 0.1, 1, 0))
+        _ = render(m, at: t)
+        XCTAssertEqual(exact_sound_live(m), 288)
+        XCTAssertEqual(exact_sound_dropped(m), 1)
+        // An edit retracts one before it starts: its slot is free in the same render, and a new voice takes it.
+        XCTAssertTrue(exact_sound_push(m, 2, 288, 0, t + 0.5 + 287.0 / 1000, 0, 1, 0))
+        XCTAssertTrue(exact_sound_push(m, 1, 290, 1, t + 0.95, 0.1, 1, 0))
+        _ = render(m, at: t + 512 / rate)
+        XCTAssertEqual(exact_sound_live(m), 288)
+        XCTAssertEqual(exact_sound_dropped(m), 1, "the new voice took the freed slot")
     }
 }

@@ -16,10 +16,11 @@
 #include <stdbool.h>
 #include <CoreAudioTypes/CoreAudioTypes.h>
 
-/// Voices sounding or waiting at once (LLP 1096 §9 Q2).
-#define EXACT_SOUND_SLOTS 32
-/// Ops the ring holds: room for 32 plays and 32 ends several times over.
-#define EXACT_SOUND_RING 256
+/// Voices in slots at once: 32 sounding (LLP 1125 D3's bound) and the 256
+/// a sequence may have issued that have not started.
+#define EXACT_SOUND_SLOTS 288
+/// Ops the ring holds: a second's lookahead of plays, and their ends.
+#define EXACT_SOUND_RING 1024
 
 typedef struct ExactMixer ExactMixer;
 
@@ -36,7 +37,8 @@ void exact_sound_set(ExactMixer *mixer, uint32_t index, const float *planes, uin
 /// (Web Audio's `playbackRate`, 1 the file's own) and placed at `pan` (−1
 /// left to 1 right; 0 is the voice as it was, unpanned), on a mono output
 /// panned in stereo and then down-mixed as Web Audio does; kind 2 ends voice
-/// `id` at `at` (an end for a slot already freed is ignored); kind 3 ends
+/// `id` at `at` (an end for a slot already freed is ignored; one at or
+/// before a voice's start that has not started frees its slot); kind 3 ends
 /// every voice now. False when the ring is full: the op is dropped and counted.
 bool exact_sound_push(ExactMixer *mixer, uint32_t kind, uint64_t id, uint32_t sound, double at, float gain, float rate, float pan);
 /// The source node's `outputPresentationLatency`: the delay from a buffer's
