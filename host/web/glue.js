@@ -753,7 +753,7 @@ function apply(batch) {
         p = httpHelpers().then(({ request }) => request(op, host))
           .then(r => safelyFulfill(requestIncarnation, op.ticket, r.kind, r.status, r.headers, r.body, performance.now() - started))
           .catch(error => safelyFulfill(requestIncarnation, op.ticket, 1, 0, "", encoder.encode(String(error)), performance.now() - started));
-        const counted = Promise.race([p, opened]); if (!/^(GET|HEAD)$/i.test(op.method)) counted.write = `${op.method} ${op.url}`; track(counted, op.ticket); p.finally(() => { forgettable.delete(controller); controllers.delete(controller); });
+        const counted = Promise.race([p, opened]); if (!/^(GET|HEAD)$/i.test(op.method) && /^https?:/i.test(op.url)) counted.write = `${op.method} ${op.url}`; track(counted, op.ticket); p.finally(() => { forgettable.delete(controller); controllers.delete(controller); });
         break;
       }
       case "command": { if (op.name === "relaunch") { location.reload(); break; }
@@ -1306,6 +1306,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
     const payload = new Uint8Array(plan.length + module.receipt.length + id.length);
     payload.set(plan); payload.set(module.receipt, plan.length); payload.set(id, plan.length + module.receipt.length);
     ptr = wasm.exact_in(payload.length); new Uint8Array(memory.buffer, ptr, payload.length).set(payload);
+    if (module.letGo) left = waiting(); // what this swap lets go, read at the swap: the stage load above yields
     len = wasm.exact_boot_module(plan.length, module.receipt.length, id.length, module.letGo ? 1 : 0);
   } else if (bytes) {
     ptr = wasm.exact_in(bytes.length + launch.length);

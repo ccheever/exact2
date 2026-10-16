@@ -517,7 +517,8 @@ under the same data-module revision, which a module edit changes), a write's
 fetch is aborted as every request's is (the server may or may not have
 seen it, and its `then` does not run), and a late answer from the old
 incarnation never lands. The journal says how many were let go and names
-each aborted write by its method and URL, the ones to check on the server.
+each HTTP write it aborted (not GET or HEAD) by method and URL, the ones to
+check on the server; a page-native call or a socket is only counted.
 The settle window lets a write that answers within a second land in the old
 runner, and its result carry; a `then` it scheduled for a later advance can
 still be lost to the swap. Only the dev loop lets go (`reloadGeneration`'s
