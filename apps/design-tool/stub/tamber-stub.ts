@@ -19,6 +19,13 @@ let refuseCommit = '';
 // The dev loop's page hello names, as a test sets it (`/__stub/page`): none
 // by default, as `tamber tool` alone.
 let PAGE: string | null = null;
+// The builds hello lists, as a test's `builds` event sets them, and the
+// pins' revision: a pin or preview (which replaces the build's pin, as the
+// server's does) is announced as a `builds` event, each pinned build naming
+// its `pinRevision`, and answered with it; its status is the test's to send.
+// The clients present: those whose long poll named them.
+let BUILDS: Record<string, any>[] = [], pins = 0;
+const present = new Set<string>();
 // The next poll says it missed events (more than the server keeps).
 let miss = false;
 // Held proposals, as a test holds them (`/__stub/hold`).
@@ -46,7 +53,20 @@ Bun.serve({ hostname, port: Number(port), routes: {
     POST: async (req) => {
       if (!authorized(req)) return send({ message: 'Not found.' }, 404);
       const request = await req.json().catch(() => ({}));
-      if (request.method === 'hello') return send({ ok: { protocol: 'tamber/1.1', format: 1, builds: [], app: '/stub/theme-fixture', files: FILES, epoch: EPOCH, design: 'app.tamber', page: PAGE } });
+      if (request.method === 'hello') return send({ ok: { protocol: 'tamber/1.1', format: 1, builds: BUILDS, app: '/stub/theme-fixture', files: FILES, epoch: EPOCH, design: 'app.tamber', page: PAGE } });
+      // A pin names a present client, and a build the server lists.
+      if (request.method === 'pin' || request.method === 'preview') {
+        if (!present.has(request.client)) return send({ error: { message: `\`${request.client}\` is not present: a client's pins live while its subscription or long poll does` } }, 409);
+        if (request.build && !BUILDS.some(b => b.id === request.build)) return send({ error: { message: `no registered build \`${request.build}\`` } }, 400);
+        const ids = request.build ? [request.build] : BUILDS.map(b => b.id);
+        pins += 1;
+        // Each record replaced, never edited: an event logged before keeps
+        // what it said.
+        BUILDS = BUILDS.map(b => ids.includes(b.id) ? { ...b, pin: request.method === 'preview' ? { mode: { [request.axis]: request.value } } : request.pin, pinRevision: pins } : b);
+        log.push({ event: 'builds', epoch: EPOCH, builds: BUILDS, seq: seq() + 1 });
+        save();
+        return send({ ok: { builds: ids, revision: pins } });
+      }
       // stub/dials.tamber as the real server read it (stub/dials.json;
       // scripts/design-tool.test.mjs checks the two still agree).
       // Only app.tamber has a canned design; another file is refused, as a
@@ -109,7 +129,8 @@ Bun.serve({ hostname, port: Number(port), routes: {
     OPTIONS: preflight,
     POST: async (req) => {
       if (!authorized(req)) return send({ message: 'Not found.' }, 404);
-      const { after = 0, epoch } = await req.json().catch(() => ({}));
+      const { after = 0, epoch, client } = await req.json().catch(() => ({}));
+      if (typeof client === 'string') present.add(client);
       const missed = (epoch !== undefined && epoch !== EPOCH) || miss;
       miss = false;
       return send({ events: missed ? [] : log.filter(e => e.seq > after), seq: seq(), epoch: EPOCH, missed, files: FILES, proposals: held });
@@ -124,6 +145,9 @@ Bun.serve({ hostname, port: Number(port), routes: {
       log.length = 0;
       held = [];
       holds = 0;
+      BUILDS = [];
+      pins = 0;
+      present.clear();
       save();
       return send({ ok: true });
     },
@@ -162,6 +186,12 @@ Bun.serve({ hostname, port: Number(port), routes: {
       const e = await req.json().catch(() => ({}));
       // An event's `files` are the digests from then on.
       if (e.files) FILES = { ...FILES, ...e.files };
+      // A `builds` event is the list hello gives from then on, and a
+      // `build-status` one that build's entry.
+      // (A record is the server's: its last refusal kept on it.)
+      if (e.event === 'builds') BUILDS = (e.builds ?? []).map((b: Record<string, unknown>) => ({ ...b }));
+      if (e.event === 'build-status') BUILDS = BUILDS.map(b => b.id === e.build?.id ? { ...b, ...e.build } : b);
+      if (e.event === 'unsupported') BUILDS = BUILDS.map(b => b.id === e.build ? { ...b, unsupported: { what: e.what, detail: e.detail ?? null } } : b);
       log.push({ event: 'changed', epoch: EPOCH, client: null, changed: [], edited: [], ...e, files: FILES, seq: seq() + 1 });
       save();
       return send({ ok: true });

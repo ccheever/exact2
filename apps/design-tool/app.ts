@@ -111,7 +111,7 @@ function change(e: any): Change | null {
 
 type Design = Result<'loadDesign'>;
 type Control = Design['groups'][number]['dials'][number];
-const noDesign = (error: string): Design => ({ ok: false, error, file: '', answer: ++designs, groups: [], columns: [], tokenGroups: [], names: [] });
+const noDesign = (error: string): Design => ({ ok: false, error, file: '', answer: ++designs, groups: [], columns: [], tokenGroups: [], names: [], axes: [] });
 let designs = 0;
 
 /** A number as Tamber writes one: a plain number, or a length's `Npx`; null
@@ -438,6 +438,38 @@ function wroteMine(ok: { write?: number; diff?: string }, redoneBy = '') {
   const n = changeset.find(c => c.write === ok.write);
   if (n) { n.mine = true; n.diff = ok.diff ?? ''; n.redoneBy = redoneBy; } else mine.push({ write: ok.write, diff: ok.diff ?? '', redoneBy });
 }
+// The dev loop's running builds (LLP 1122 D4), by id, only as the server
+// shows them: hello's list when the poll starts again (the first answer, a
+// gap, a new run), then the build events. Each with the revision of the
+// last pin frame it was sent (`pinRevision`, whoever sent it), and the last
+// command it could not apply, kept while that pin is its pin.
+type BuildState = { id: string; host: string; status: any; pin: any; pinRevision: number; unsupported: { what: string; detail: string | null } | null };
+let buildsNow = new Map<string, BuildState>();
+// The poll now (a newer one replaces it), and whether the build list must
+// be read again from hello (the poll started again, and no read has
+// succeeded since).
+let polls = 0, resync = true;
+const pinText = (pin: any) => pin ? [pin.scheme, pin.contrast && `contrast ${pin.contrast}`, ...Object.entries(pin.mode ?? {}).map(([a, v]) => `${a}=${v}`), pin.rootFontSize && `${pin.rootFontSize}px`].filter(Boolean).join(', ') : '';
+/** Builds as the panel lists them: each one's effective scheme, contrast,
+ * mode and root font size from its status (an app's own setScheme beats a
+ * pin, D3), its pin, whether its status has caught up with the last pin
+ * frame it was sent (a pin, or a hand-back; none before it reports), and
+ * the last command it could not apply, as the server keeps it. */
+const buildRows = () => [...buildsNow.values()].map(b => {
+  const st = b.status ?? {};
+  const mode = Object.entries((st.mode ?? {}) as Record<string, string>).map(([a, v]) => `${a}=${v}`).join(' ');
+  return {
+    id: b.id, host: b.host, reported: b.status != null, scheme: String(st.scheme ?? ''), contrast: String(st.contrast ?? ''), mode, rootFontSize: Number(st.rootFontSize ?? 0),
+    pin: pinText(b.pin), caughtUp: Number.isSafeInteger(st.revision) && st.revision >= b.pinRevision,
+    behind: Number.isSafeInteger(st.revision) && st.revision < b.pinRevision,
+    unsupported: b.unsupported ? `${b.unsupported.what}${b.unsupported.detail ? `: ${b.unsupported.detail}` : ''}` : '',
+  };
+});
+const buildOf = (b: any, was?: BuildState): BuildState => ({ id: String(b.id), host: String(b.host ?? was?.host ?? ''), status: b.status ?? null, pin: b.pin ?? null, pinRevision: Number(b.pinRevision ?? 0), unsupported: b.unsupported ?? null });
+/** The server's list, whole: a build it no longer lists is gone. */
+const takeBuilds = (list: any[]) => {
+  buildsNow = new Map((list ?? []).map(b => [String(b.id), buildOf(b)]));
+};
 // The app's design file, as hello names it: what "" reads.
 let designFile = '';
 let lastFiles: Record<string, string> = {};
@@ -731,7 +763,7 @@ const sources: Sources = {
         while (reads.size > 24) reads.delete(reads.keys().next().value!);
       }
       return {
-        ok: true, error: '', file: file || '', answer: number, groups: panel,
+        ok: true, error: '', file: file || '', answer: number, groups: panel, axes: axes.map(a => ({ name: a.name, values: a.values })),
         columns: columns.map(({ id, label }) => ({ id, label })),
         tokenGroups: [...groups].map(([name, rows]) => ({ name, tokens: rows })),
         names: [...names],
@@ -857,13 +889,19 @@ const sources: Sources = {
       return { column: c.id, label: c.label, ratio: typeof r === 'string' ? r : `${r.toFixed(2)}:1${p!.residual || q!.residual ? ' (fallback)' : ''}` };
     }) };
   },
-  waitChanges: async ([since, epoch]) => {
+  waitChanges: async ([since, epoch, , client]) => {
     // Up to 25 s with nothing new, and the server answers once there is.
-    // The first asks, at once, from the start of what the server keeps.
-    const { error, reply, used } = await call('/__tamber/events', epoch ? { after: since, epoch } : { after: 0, wait: false }, 40000);
+    // The first asks, at once, from the start of what the server keeps. It
+    // names the tool's client: a client is present while its poll is, and
+    // its pins live only while it is (LLP 1122 D4).
+    // A poll another has replaced (a new name starts one) changes nothing
+    // when it answers: the newer one reads the same events.
+    const gen = ++polls;
+    const { error, reply, used } = await call('/__tamber/events', epoch ? { after: since, epoch, client } : { after: 0, wait: false, client }, 40000);
     answers += 1;
-    const state = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, recent, undo: undoStack.length, redo: redoStack.length, session, held });
+    const state = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, recent, undo: undoStack.length, redo: redoStack.length, session, held, builds: buildRows() });
     if (error) return { ok: false, error, missed: false, ...state() };
+    if (gen !== polls) return { ok: true, error: '', missed: false, ...state() };
     const r = reply as { events?: unknown[]; seq?: number; epoch?: string; missed?: boolean; proposals?: any[] };
     // The open proposals, each with its proposer, diff and tokens; a
     // recomputed one says which it replaces, and is reviewed afresh.
@@ -882,7 +920,7 @@ const sources: Sources = {
     // session's inverses: undo and redo start again too.
     // Another run's session has none of this one's writes to commit: the
     // changeset starts again with it.
-    if (place.epoch && r.epoch !== place.epoch) { forget(); changeset = []; reads.clear(); }
+    if (place.epoch && r.epoch !== place.epoch) { forget(); changeset = []; reads.clear(); buildsNow = new Map(); }
     if ((place.epoch && r.epoch !== place.epoch) || r.missed) recent = [];
     // The session's changeset: every write since the tool opened (not the
     // backlog the first answer carries).
@@ -895,6 +933,21 @@ const sources: Sources = {
       changeset.unshift({ seq: Number(r.seq ?? 0), who: '', acceptedBy: '', write: 0, changed: [], files: [], before: {}, after: {}, mine: false, diff: '', values: new Map(), committed: false, gap: true });
     }
     if (epoch && !r.missed) for (const e of (r.events ?? []) as any[]) noted(e);
+    // The builds, as their events tell them.
+    for (const e of (r.events ?? []) as any[]) {
+      if (e.event === 'builds') takeBuilds(e.builds);
+      else if (e.event === 'build-status' && e.build?.id) buildsNow.set(String(e.build.id), buildOf(e.build, buildsNow.get(String(e.build.id))));
+      else if (e.event === 'unsupported') { const b = buildsNow.get(String(e.build)); if (b) b.unsupported = { what: String(e.what ?? ''), detail: e.detail ?? null }; }
+    }
+    // Starting again, the builds are the server's list now (its events
+    // before this answer are not sent): read at once, not a poll later, and
+    // again each poll until a read succeeds (the list kept meanwhile).
+    if (anew) resync = true;
+    if (resync) {
+      const now = await call('/__tamber', { method: 'hello' });
+      if (gen !== polls) return { ok: true, error: '', missed: false, ...state() };
+      if (!now.error) { takeBuilds((now.reply.ok as { builds?: any[] })?.builds ?? []); resync = false; }
+    }
     const fresh = (r.events ?? []).map(change).filter((c): c is Change => c !== null).reverse();
     recent = [...fresh, ...recent].slice(0, 50);
     place = { seq: Number(r.seq ?? 0), epoch: String(r.epoch ?? '') };
@@ -1118,6 +1171,36 @@ const sources: Sources = {
     const carried: string[] = [];
     const said = `${op.name} is ${value.trim()}${mode ? ` when ${whenText(op.whens[mode - 1].when ?? [])}` : ''} in the import, held again as ${fresh} with what was chosen: review it and accept.`;
     return { ...stacks(true, '', 'edited'), note: dropped.error ? `${said} The old one, ${proposal}, could not be dropped (${dropped.error}): drop it.` : said, carried };
+  },
+  loadAppAxes: async ([file]) => {
+    // The running app's axes while another file is open: its own design's,
+    // read again as the changes move (the open file's read is the app's
+    // when none is open).
+    if (!file) return { axes: [] };
+    const { error, reply } = await call('/__tamber', { method: 'describe' });
+    const axes = error ? [] : (((reply.ok as { ir?: { axes?: Axis[] } })?.ir?.axes) ?? []);
+    return { axes: axes.map(a => ({ name: a.name, values: a.values })) };
+  },
+  sendPin: async ([client, build, scheme, contrast, mode, rootFontSize, preview, handBack]) => {
+    // A pin on one build ("" every build): the facts `prefer` pins, each
+    // left out when ""; null to hand them back, only when asked (Hand back);
+    // or `preview`, one axis on one build, which replaces its pin. The rows
+    // follow the server's build events, which say when a status catches up.
+    const facts: Record<string, unknown> = {};
+    if (scheme) facts.scheme = scheme;
+    if (contrast) facts.contrast = contrast;
+    const modes = Object.fromEntries(mode.split(' ').filter(Boolean).map(w => w.split('=') as [string, string]));
+    if (Object.keys(modes).length) facts.mode = modes;
+    if (rootFontSize >= 4 && rootFontSize <= 64) facts.rootFontSize = rootFontSize;
+    const clear = !Object.keys(facts).length;
+    if (clear && !handBack && !preview) return { ok: false, error: 'Choose what to pin: a scheme, a contrast, a mode or a root font size.', note: '' };
+    const body = preview
+      ? { method: 'preview', client, build, axis: Object.keys(modes)[0], value: Object.values(modes)[0] }
+      : { method: 'pin', client, ...(build ? { build } : {}), pin: clear ? null : facts };
+    const { error, reply } = await call('/__tamber', body);
+    if (error) return { ok: false, error, note: '' };
+    const ok = reply.ok as { builds?: string[]; revision?: number };
+    return { ok: true, error: '', note: clear ? `Pins handed back on ${(ok.builds ?? []).length} build(s).` : `Pinned on ${(ok.builds ?? []).length} build(s).` };
   },
   dropHeld: async ([client, proposal]) => {
     const { error } = await call('/__tamber', { method: 'drop', client, proposal });

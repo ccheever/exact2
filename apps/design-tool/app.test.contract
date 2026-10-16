@@ -451,3 +451,128 @@ test "the canvas frames only a loopback origin: another host, a path, or the too
   clock data
   expect tree has "canvas-frame"
   request POST "/__stub/page" {"page": null} as ada
+
+test "builds: each with its effective facts from its status; a pin on one shows pinning until its status reaches the pin's revision, and only that build moves"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  expect tree has "no-builds"
+  // Pin waits for something to pin, and a root font size it can take.
+  expect disabled "pin-apply"
+  type "pin-font" "3"
+  expect disabled "pin-apply"
+  type "pin-font" ""
+  expect disabled "pin-preview"
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "status": {"scheme": "light", "contrast": "no-preference", "mode": {"dark-style": "black"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}, {"id": "ios-1", "host": "ios", "status": {"scheme": "dark", "contrast": "more", "mode": {"dark-style": "dim"}, "rootFontSize": 17, "revision": 0}, "pin": null, "pinRevision": 0}, {"id": "mac-1", "host": "macos", "status": null, "pin": null, "pinRevision": 0}]} as ada
+  clock +1
+  clock data
+  expect tree missing "no-builds"
+  expect text "build-status-web-1" == "light · dark-style=black · 16px"
+  expect text "build-status-ios-1" == "dark · contrast more · dark-style=dim · 17px"
+  expect text "build-status-mac-1" == "Not reported yet: it has not said what it shows."
+  expect tree missing "build-pin-web-1"
+  type "pin-build" "web-1"
+  type "pin-scheme" "dark"
+  type "pin-mode-dark-style" "dim"
+  tap "pin-apply"
+  clock data
+  expect text "pin-result" == "Pinned on 1 build(s)."
+  clock +1
+  clock data
+  expect text "build-pin-web-1" == "pinning: dark, dark-style=dim"
+  expect tree missing "build-pin-ios-1"
+  // Its status, at the pin's revision: the effective facts are the
+  // build's own (its app chose Black over the pin's Dim).
+  request POST "/__stub/event" {"event": "build-status", "build": {"id": "web-1", "host": "web", "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "black"}, "rootFontSize": 16, "revision": 1}, "pin": {"scheme": "dark", "mode": {"dark-style": "dim"}}, "pinRevision": 1}} as ada
+  clock +1
+  clock data
+  expect text "build-pin-web-1" == "pinned: dark, dark-style=dim"
+  expect text "build-status-web-1" == "dark · dark-style=black · 16px"
+  expect text "build-status-ios-1" == "dark · contrast more · dark-style=dim · 17px"
+  // Handed back: said until its status reaches the hand-back's revision.
+  tap "pin-clear"
+  clock data
+  expect text "pin-result" == "Pins handed back on 1 build(s)."
+  clock +1
+  clock data
+  expect text "build-pin-web-1" == "handing back"
+  request POST "/__stub/event" {"event": "build-status", "build": {"id": "web-1", "host": "web", "status": {"scheme": "light", "contrast": "no-preference", "mode": {"dark-style": "black"}, "rootFontSize": 16, "revision": 2}, "pin": null, "pinRevision": 2}} as ada
+  clock +1
+  clock data
+  expect tree missing "build-pin-web-1"
+  request POST "/__stub/restart" {} as ada
+
+test "builds: a preview replaces a build's pin; an unsupported pin is named until its status moves on; another client's pin is followed; a refused pin says why; a new run lists its own builds"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "status": {"scheme": "light", "contrast": "no-preference", "mode": {}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}]} as ada
+  clock +1
+  clock data
+  type "pin-build" "web-1"
+  type "pin-scheme" "dark"
+  type "pin-contrast" "more"
+  tap "pin-apply"
+  clock data
+  request POST "/__stub/event" {"event": "unsupported", "build": "web-1", "what": "pin.contrast", "detail": "the web has no contrast preference to set"} as ada
+  clock +1
+  clock data
+  expect text "build-pin-web-1" == "pinning: dark, contrast more"
+  expect text "build-unsupported-web-1" == "Not applied: pin.contrast: the web has no contrast preference to set"
+  // One axis previewed: the pin is that axis alone; the refusal stays
+  // until the build's status moves to the preview's revision.
+  type "pin-scheme" ""
+  type "pin-contrast" ""
+  type "pin-mode-dark-style" "dim"
+  tap "pin-preview"
+  clock data
+  clock +1
+  clock data
+  expect text "build-pin-web-1" == "pinning: dark-style=dim"
+  expect tree has "build-unsupported-web-1"
+  request POST "/__stub/event" {"event": "build-status", "build": {"id": "web-1", "host": "web", "status": {"scheme": "light", "contrast": "no-preference", "mode": {"dark-style": "dim"}, "rootFontSize": 16, "revision": 2}, "pin": {"mode": {"dark-style": "dim"}}, "pinRevision": 2, "unsupported": null}} as ada
+  clock +1
+  clock data
+  expect text "build-pin-web-1" == "pinned: dark-style=dim"
+  expect tree missing "build-unsupported-web-1"
+  // Another client's pin, announced by the server: followed, and not
+  // caught up until the status says so.
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "status": {"scheme": "light", "contrast": "no-preference", "mode": {}, "rootFontSize": 16, "revision": 2}, "pin": {"scheme": "light", "rootFontSize": 20}, "pinRevision": 3}]} as ada
+  clock +1
+  clock data
+  expect text "build-pin-web-1" == "pinning: light, 20px"
+  // A build gone from the server's list: a pin on it is refused.
+  request POST "/__stub/event" {"event": "builds", "builds": []} as ada
+  clock +1
+  clock data
+  expect tree has "no-builds"
+  tap "pin-apply"
+  clock data
+  expect text "pin-result" == "no registered build `web-1`"
+  // A new run of the server: its builds, from its hello, at once.
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "linux-1", "host": "linux", "status": null, "pin": null, "pinRevision": 0}]} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect tree has "build-linux-1"
+  expect tree missing "build-web-1"
+  request POST "/__stub/restart" {} as ada
+
+test "the pin form offers the app's own axes whichever file is open, and retyping the name keeps the tool's client while it is typed"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  clock +1
+  expect tree has "pin-mode-dark-style"
+  type "file" "brand.tamber"
+  clock data
+  expect tree has "pin-mode-dark-style"
+  tap "person"
+  expect tree has "rename-note"
+  expect state person == "Ada"
+  type "name" "Grace"
+  tap "save-name"
+  expect state person == "Grace"
+  expect tree missing "rename-note"

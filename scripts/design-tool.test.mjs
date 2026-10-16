@@ -661,7 +661,40 @@ test('T1a: an import reviewed through the file picker, overrides off until ticke
   }
 }, 900_000);
 
-test('T2: the canvas frames the dev loop\'s page, sandboxed, at the size chosen, with a link to open it', async () => {
+/** A build that holds no stream, as Linux's does, on the dev loop at
+ * `base`: it registers as `id`, polls its commands, and reports each pin's
+ * scheme as applied with the pin's revision, its mode always its own
+ * (dark-style=dim: an app's own choice beats a pin). After its first pin
+ * it reloads once (a new document, a new nonce, the same id) and keeps the
+ * frames it got. */
+async function polledBuild(base, id) {
+  let nonce = '', ack = 0, stopped = false, reloaded = false;
+  const frames = [];
+  const report = body => fetch(`${base}/__dev/report`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ nonce, ...body }) });
+  const hello = async () => {
+    ({ nonce } = await (await fetch(`${base}/__dev/hello`)).json());
+    ack = 0;
+    expect((await report({ kind: 'register', id, host: 'linux', capabilities: ['pin'] })).status).toBe(200);
+  };
+  await hello();
+  const loop = (async () => {
+    while (!stopped) {
+      const answer = await fetch(`${base}/__dev/commands?nonce=${nonce}&ack=${ack}`);
+      if (answer.status === 404) { await hello(); continue; }
+      const { seq, frames: got } = await answer.json();
+      ack = seq;
+      for (const f of got.filter(f => f.kind === 'pin')) {
+        frames.push({ ...f, reloaded, at: Date.now() });
+        await report({ kind: 'status', scheme: f.pin?.scheme ?? 'light', contrast: 'no-preference', mode: { 'dark-style': 'dim' }, rootFontSize: 16, revision: f.revision });
+        if (f.pin && !reloaded) { reloaded = true; await hello(); }
+      }
+      await new Promise(ok => setTimeout(ok, 200));
+    }
+  })();
+  return { frames, stop: async () => { stopped = true; await loop; } };
+}
+
+test('T2: the canvas frames the dev loop\'s page, sandboxed, at the size chosen; builds are listed with their effective facts, a pin on one moves only it, a reloaded build gets it back, and the tool gone hands it back', async () => {
   const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-canvas-'));
   for (const f of ['app.contract', 'app.tamber', 'app.json']) cpSync(resolve(ROOT, 'apps/theme-fixture', f), join(app, f));
   const listener = (await import('node:http')).createServer();
@@ -670,14 +703,25 @@ test('T2: the canvas frames the dev loop\'s page, sandboxed, at the size chosen,
   await new Promise(ok => listener.close(ok));
   const dist = mkdtempSync(join(tmpdir(), 'exact-design-tool-canvas-dist-'));
   const dev = spawn(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_APP_DIR: app, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
-  let tool;
+  let tool, other;
   try {
     const base = `http://127.0.0.1:${port}`;
     const devSaid = lines(dev);
     await devSaid.until(l => l.includes(`127.0.0.1:${port}/`), 600_000);
     tool = spawn(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--via', base, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
     const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000);
-    const replies = await drive(url, `design-tool-canvas-${process.pid}`, ['type name Ada', 'tap save-name', 'clock data', 'tree canvas', 'layout', 'type canvas-size tablet', 'layout', 'type canvas-size desktop', 'layout', 'clock +2000 real']);
+    other = await polledBuild(base, 'linux-1');
+    // A build's report reaches the tool on its long poll.
+    const wait = Array.from({ length: 2 }, () => ['clock +2000 real', 'clock data']).flat();
+    const replies = await drive(url, `design-tool-canvas-${process.pid}`, ['type name Ada', 'tap save-name', 'clock data', 'tree canvas', 'layout', 'type canvas-size tablet', 'layout', 'type canvas-size desktop', 'layout', 'clock +2000 real',
+      ...wait, 'state',
+      // Dark and Black pinned on the other build only.
+      'type pin-build linux-1', 'type pin-scheme dark', 'type pin-mode-dark-style black', 'tap pin-apply', 'clock data', ...wait, 'state',
+      // Open past one presence lease (35 s, each real-clock step at least
+      // 2 s): its polls keep the pin.
+      ...Array(18).fill('clock +2000 real'), 'clock data', 'state',
+    ]);
+    const closed = Date.now();
     const [tree] = replies.filter(r => r.nodes && !('x' in (r.nodes[0] ?? {})));
     const of = id => tree.nodes.find(n => n.props.testId === id);
     expect(of('canvas-frame')).toMatchObject({ type: 'WebView', url: base });
@@ -693,7 +737,38 @@ test('T2: the canvas frames the dev loop\'s page, sandboxed, at the size chosen,
     await devSaid.until(l => l.startsWith('page connected'), 1);
     // The page itself lets the tool's origin frame it.
     expect((await fetch(`${base}/`, { headers: { accept: 'text/html' } })).headers.get('content-security-policy')).toBe(`frame-ancestors 'self' ${TOOL_ORIGIN}`);
+    const states = replies.filter(r => r.resources);
+    expect(states[0].resources.hello.page).toBe(base);
+    // The frame's build and the other, each with the facts it reports.
+    const builds = states[0].resources.changes.builds;
+    const frame = builds.find(b => b.host === 'web-js');
+    expect(frame).toMatchObject({ pin: '', caughtUp: true });
+    expect(['light', 'dark']).toContain(frame.scheme);
+    expect(builds.find(b => b.id === 'linux-1')).toMatchObject({ host: 'linux', scheme: 'light', mode: 'dark-style=dim', pin: '' });
+    expect(states[1].slots.pinned).toMatchObject({ ok: true, note: 'Pinned on 1 build(s).' });
+    // The pinned build shows its effective mode, its own Dim, beside the
+    // pin's Black; the frame's build is as it was.
+    const after = new Map(states[1].resources.changes.builds.map(b => [b.id, b]));
+    expect(after.get('linux-1')).toMatchObject({ scheme: 'dark', mode: 'dark-style=dim', pin: 'dark, dark-style=black', caughtUp: true });
+    expect(after.get(frame.id)).toEqual(frame);
+    // Reloaded, the build was sent its pin again.
+    expect(states[2].resources.changes.builds.find(b => b.id === 'linux-1')).toMatchObject({ pin: 'dark, dark-style=black', caughtUp: true });
+    expect(other.frames.filter(f => f.pin).map(f => [f.reloaded, f.pin])).toEqual([[false, { scheme: 'dark', mode: { 'dark-style': 'black' } }], [true, { scheme: 'dark', mode: { 'dark-style': 'black' } }]]);
+    // The tool closed (its page gone, no unload request): the pin holds a
+    // while (its last long poll counts 35 s), then the server hands it back.
+    const until = Date.now() + 60_000;
+    while (other.frames.at(-1)?.pin && Date.now() < until) await new Promise(ok => setTimeout(ok, 500));
+    expect(other.frames.at(-1)).toMatchObject({ pin: null });
+    const held = other.frames.at(-1).at - closed;
+    expect(held).toBeGreaterThan(10_000);
+    // The lease (35 s) and the server's sweep (5 s), with a little room.
+    expect(held).toBeLessThan(45_000);
+    // While the tool was open, more than a lease went by with no hand-back.
+    const pinnedAt = other.frames.find(f => f.pin).at;
+    expect(closed - pinnedAt).toBeGreaterThan(36_000);
+    expect(other.frames.filter(f => !f.pin && f.at > pinnedAt && f.at < closed)).toEqual([]);
   } finally {
+    await other?.stop();
     if (tool) await stop(tool);
     await stop(dev);
     rmSync(app, { recursive: true, force: true });

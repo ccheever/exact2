@@ -99,6 +99,39 @@ shape Imported
   counted: string
   unmapped: Unmapped[]
 
+// A running build (LLP 1122 D4): its effective scheme, contrast, mode and
+// root font size from its status, its pin, whether its status has caught
+// up with the last pin frame the server sent it (any client's pin, or a
+// hand-back), and the last command it could not apply.
+shape Build
+  id: string
+  host: string
+  // Its status has come (none since it registered or reloaded, else).
+  reported: bool
+  scheme: string
+  contrast: string
+  mode: string
+  rootFontSize: number
+  pin: string
+  caughtUp: bool
+  // Its status names a pin revision older than the last frame it was sent.
+  behind: bool
+  unsupported: string
+
+shape AxisChoice
+  name: string
+  values: string[]
+
+// The app's own design's axes, read while another file is open.
+shape AppAxes
+  axes: AxisChoice[]
+
+// What a pin did.
+shape Pinned
+  ok: bool
+  error: string
+  note: string
+
 shape Changes
   ok: bool
   error: string
@@ -113,6 +146,7 @@ shape Changes
   redo: number
   session: number
   held: Held[]
+  builds: Build[]
 
 // A control drawn from a dial's declared metadata (LLP 1122 D7, LLP 1121
 // D4): `control` is `color`, `slider`, `stepper` or `select`.
@@ -190,6 +224,7 @@ shape Design
   columns: Column[]
   tokenGroups: TokenGroup[]
   names: string[]
+  axes: AxisChoice[]
 
 // A dial an expression names, and where its control is.
 shape DialInput
@@ -328,8 +363,17 @@ shape Contrast
 component DesignTool
   // Who this person is, asked once: every write is `design-tool:<person>`.
   state person = "" persist
+  state renaming = false
   // The canvas's size: a bare frame never sizes to its guest (LLP 1020 D1).
   state canvasSize = "phone" persist
+  // The pin being composed: which build ("" every build), and the facts
+  // `prefer` pins, each "" when left alone.
+  state pinBuild = ""
+  state pinScheme = ""
+  state pinContrast = ""
+  state pinMode: string[] = []
+  state pinFont = 0
+  mutation pinned as shape Pinned
   state draftName = ""
   // The long poll's place: the last sequence number seen, in which run, and
   // one more ask per answer, so an answer with nothing new asks again.
@@ -337,8 +381,13 @@ component DesignTool
   state epoch = ""
   state asks = 0
   resource hello = loadHello() as shape Hello else empty(ok=true)
-  resource changes = waitChanges(since, epoch, asks) as shape Changes else empty(ok=true)
   derive client = `design-tool:${person}`
+  // A pin's modes are the running app's: its own design's axes, whichever
+  // file is open (the last read of it).
+  resource appAxes = loadAppAxes(file, since, epoch) as shape AppAxes else empty()
+  derive pinAxes = file == "" ? design.axes : appAxes.axes
+  derive pinFontOk = pinFont == 0 or (pinFont >= 4 and pinFont <= 64)
+  resource changes = waitChanges(since, epoch, asks, client) as shape Changes else empty(ok=true)
   // The design file shown ("": the app's own), a group's "more" opened,
   // and the two tokens whose contrast is shown.
   state file = ""
@@ -429,9 +478,12 @@ component DesignTool
   action saveName
     if draftName.trim() != ""
       person = draftName.trim()
+      renaming = false
   action changeName
+    // The tool stays itself while the name is retyped: its long poll keeps
+    // naming it, so its pins hold.
     draftName = person
-    person = ""
+    renaming = true
   action dialNumber(name: string, n: number)
     editKind = "set-dial"
     editTarget = name
@@ -519,6 +571,29 @@ component DesignTool
     refresh design
   action chooseCanvasSize(size: string)
     canvasSize = size
+  action choosePinBuild(id: string)
+    pinBuild = id
+  action choosePinScheme(v: string)
+    pinScheme = v
+  action choosePinContrast(v: string)
+    pinContrast = v
+  action choosePinMode(axis: string, value: string)
+    pinMode = pinMode.filter(m => m.indexOf(`${axis}=`) != 0).concat(value == "" ? [] : [`${axis}=${value}`])
+  action choosePinFont(v: string)
+    pinFont = match parseNumber(v) { case some(n) => n, case none => 0 }
+  action applyPin
+    if not pending(pinned)
+      send pinned = sendPin(client, pinBuild, pinScheme, pinContrast, pinMode.join(" "), pinFont, false, false)
+  action clearPins
+    pinScheme = ""
+    pinContrast = ""
+    pinMode = []
+    pinFont = 0
+    if not pending(pinned)
+      send pinned = sendPin(client, pinBuild, "", "", "", 0, false, true)
+  action previewPin
+    if not pending(pinned) and pinBuild != "" and pinMode.length == 1
+      send pinned = sendPin(client, pinBuild, "", "", pinMode.join(" "), 0, true, false)
   action chooseKind(k: string)
     importKind = k
   action pickImport
@@ -583,14 +658,16 @@ component DesignTool
     main testId="root" width="100%" height="100%" display="flex" flex-direction="column"
       header display="flex" align-items="center" gap=12 padding="8px 16px"
         text "Design tool" role="heading" aria-level=1 flex=1
-        if person != ""
+        if person != "" and not renaming
           button press=changeName testId="person"
             text client
       scroll id="content" flex=1 min-height=0 padding=16
-        if person == ""
+        if person == "" or renaming
           column gap=8 max-width=420 testId="ask-name"
             text "Your name" role="heading" aria-level=2
             text "Every edit you make is written as yours, so others reading the history know who made it." color="-exact-secondary-label"
+            if renaming
+              text "A new name is a new client: pins this tool holds are handed back when it changes." color="-exact-secondary-label" font="-exact-footnote" testId="rename-note"
             input value=draftName input=editName submit=saveName placeholder="Ada" aria-label="Your name" testId="name"
             button press=saveName disabled=(draftName.trim() == "") buttonStyle="filled" testId="save-name"
               text "Continue"
@@ -629,6 +706,59 @@ component DesignTool
                 column gap=4 padding=16 border-radius=12 background-color="-exact-secondary-background" testId="no-app"
                   text "No app running" role="heading" aria-level=3
                   text "The canvas shows the app from its dev loop. Start one (bun exact.mjs web, in the app's directory), then open the tool through it: bun exact.mjs tamber tool --via <its URL>. Stop this tool first: it holds the design server, and --via refuses while it runs." color="-exact-secondary-label" testId="no-app-how"
+            // The builds (LLP 1122 D4): every running copy, its effective
+            // facts from its own report, and pins, which last while the tool
+            // runs (its long poll names it) and are handed back when it stops.
+            column gap=8 testId="builds"
+              text "Builds" role="heading" aria-level=2
+              if changes.builds.length == 0
+                text "No build is connected. The canvas's page is one once a dev loop runs; a device joins launched at the dev URL: bun exact.mjs ios --run --url <dev url>, or the Mac's likewise." color="-exact-secondary-label" testId="no-builds"
+              for b in changes.builds key=b.id
+                column gap=2 padding=8 border-radius=8 background-color="-exact-secondary-background" testId=`build-${b.id}`
+                  row gap=8 align-items="center"
+                    text `${b.host} · ${b.id}` font="-exact-footnote" flex=1
+                    if b.pin != ""
+                      text (b.caughtUp ? `pinned: ${b.pin}` : `pinning: ${b.pin}`) font="-exact-caption1" color=(b.caughtUp ? "-exact-secondary-label" : "-exact-system-orange") testId=`build-pin-${b.id}`
+                    else if b.behind
+                      text "handing back" font="-exact-caption1" color="-exact-system-orange" testId=`build-pin-${b.id}`
+                  if b.reported
+                    text `${b.scheme}${b.contrast != "" and b.contrast != "no-preference" ? ` · contrast ${b.contrast}` : ""}${b.mode != "" ? ` · ${b.mode}` : ""}${b.rootFontSize > 0 ? ` · ${b.rootFontSize}px` : ""}` testId=`build-status-${b.id}`
+                  else
+                    text "Not reported yet: it has not said what it shows." color="-exact-secondary-label" font="-exact-caption1" testId=`build-status-${b.id}`
+                  if b.unsupported != ""
+                    text `Not applied: ${b.unsupported}` color="-exact-system-orange" font="-exact-caption1" testId=`build-unsupported-${b.id}`
+              row gap=8 align-items="center" flex-wrap="wrap" testId="pin-form"
+                select value=pinBuild change=choosePinBuild aria-label="Pin on" testId="pin-build"
+                  option "Every build" value=""
+                  for b in changes.builds key=b.id
+                    option `${b.host} · ${b.id}` value=b.id
+                select value=pinScheme change=choosePinScheme aria-label="Scheme" testId="pin-scheme"
+                  option "Scheme…" value=""
+                  option "Light" value="light"
+                  option "Dark" value="dark"
+                select value=pinContrast change=choosePinContrast aria-label="Contrast" testId="pin-contrast"
+                  option "Contrast…" value=""
+                  option "More" value="more"
+                  option "Less" value="less"
+                  option "No preference" value="no-preference"
+                for a in pinAxes key=a.name
+                  select value=pinMode.filter(m => m.indexOf(`${a.name}=`) == 0).map(m => m.slice(a.name.length + 1)).join("") change=choosePinMode(a.name) aria-label=a.name testId=`pin-mode-${a.name}`
+                    option `${a.name}…` value=""
+                    for v in a.values key=v
+                      option v value=v
+                input type="number" min=4 max=64 value=(pinFont > 0 ? `${pinFont}` : "") placeholder="px" change=choosePinFont aria-label="Root font size" width=80 testId="pin-font"
+                button press=applyPin disabled=(pending(pinned) or (pinScheme == "" and pinContrast == "" and pinMode.length == 0 and pinFont == 0) or not pinFontOk) buttonStyle="filled" testId="pin-apply"
+                  text "Pin"
+                // One axis on one build, alone: it replaces that build's pin.
+                button press=previewPin disabled=(pending(pinned) or pinBuild == "" or pinMode.length != 1 or pinScheme != "" or pinContrast != "" or pinFont != 0) testId="pin-preview"
+                  text "Preview this mode only"
+                button press=clearPins disabled=pending(pinned) testId="pin-clear"
+                  text "Hand back"
+              match pinned
+                case some(p)
+                  text (p.ok ? p.note : p.error) color=(p.ok ? "-exact-secondary-label" : "-exact-system-red") testId="pin-result"
+                case none
+                  text "" display="none"
             if hello.files.length > 1
               select value=file change=chooseFile aria-label="Design file" testId="file"
                 option "The app's design" value=""

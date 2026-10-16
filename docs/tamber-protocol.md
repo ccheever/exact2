@@ -33,6 +33,7 @@ on macOS and Linux.
 - `tamber/1.3` (LLP 1122 T2) added:
   - `hello`'s `page`;
   - `frame-ancestors` on a dev loop's HTML;
+  - a build's `pinRevision` and `unsupported`;
   - the items marked *1.3* below.
 
 ## Where it runs
@@ -128,7 +129,9 @@ Each request is `POST /__tamber` with `{"method": "…", …}`.
 **`hello`** answers:
 - `protocol` and `format`;
 - `builds` (*1.2*): the registered development builds with an open stream, each `{id, host,
-  capabilities, plan, design, status, pin}` (see [The build channel](#the-build-channel-llp-1122-d4-12));
+  capabilities, plan, design, status, pin, pinRevision, unsupported}` (`pinRevision` and
+  `unsupported` *1.3*; see
+  [The build channel](#the-build-channel-llp-1122-d4-12));
 - `files`;
 - `app`: the app's directory, absolute (*1.1*);
 - `epoch`: this run of the server, the same value its events carry (*1.1*);
@@ -602,7 +605,8 @@ The tool drives no input into an app; a command changes only what `prefer` would
     the facts that paint, the `plan` and `design` digests, and the pin `revision` it applied.
     Sent on connect and on any change, the app's own `setScheme`, `setMode` and
     `setRootFontSize` included (at most once a turn).
-  - `unsupported`: a command or batch it can't apply, by name (`what`).
+  - `unsupported`: a command or batch it can't apply, by name (`what`), with the pin frame's
+    `revision` when it is one (*1.3*, optional).
   - `selected`: LLP 1122 D5's; its route is here, its sender comes with T2b.
 - **Commands down**, each a frame whose `kind` the host dispatches before any generation:
   - `pin` `{revision, pin}`: `pin` is `{scheme?: "light"|"dark", contrast?:
@@ -613,7 +617,20 @@ The tool drives no input into an app; a command changes only what `prefer` would
     `unsupported`.
 - **`pin`** `{client, build?, pin}` (write scope, as the wire's POSTs are) sends one to a build, or
   to every registered build without `build`. `preview` `{client, build, axis, value}` is the
-  same as pinning that build's mode for that axis. Answered `{builds, revision}`.
+  same as pinning that build's mode for that axis (it replaces that build's pin, as any pin
+  does). Answered `{builds, revision}`.
+  - **Caught up** (*1.3*). A build in `builds` (hello's and the events') names `pinRevision`, the
+    revision of the last `pin` frame it was sent: a pin, a hand-back, or its pin again when it
+    registers (revision 0 when it has none), whoever sent it. Its status has caught up when its
+    `revision` reaches that. A status older than the one kept is dropped (it can't rewind the
+    row), and one naming a revision this registration was never sent (a report from before a
+    restart) is kept with `revision` null: it acknowledges nothing. A pin to no build sends
+    nothing and leaves the revision as it is.
+  - Its `unsupported` `{what, detail}` is the last command it could not apply, the frame's whose
+    `revision` the report names (the web hosts name it), or, from a host that names none, the
+    one whose status it reports next (a host answers a frame before its status for it). It is
+    kept while the status stays at that revision and null once it moves to another (or the build
+    registers again); one for a revision the status has passed is dropped.
   - **Ownership.** A pin is its client's while the client is present: it holds an open
     subscription naming it, or a long poll naming it is open or was answered in the last 35
     seconds (a client whose fetch reads a body whole holds the wire by the long poll). A pin from

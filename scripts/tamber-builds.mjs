@@ -88,7 +88,7 @@ function reportRefused(r) {
     if (!maybe(r.mode, v => object(v) && Object.keys(v).length <= 64 && Object.entries(v).every(([a, x]) => a.length <= 64 && text(x, 64)))) return '`mode` is {axis: value}, or null';
     if (!maybe(r.rootFontSize, Number.isFinite) || !maybe(r.revision, v => Number.isSafeInteger(v) && v >= 0)) return '`rootFontSize` is a number and `revision` a whole number, or null';
   }
-  if (r.kind === 'unsupported' && (!maybe(r.what, v => text(v, 256)) || !maybe(r.detail, v => text(v, 4096)))) return '`what` and `detail` are strings';
+  if (r.kind === 'unsupported' && (!maybe(r.what, v => text(v, 256)) || !maybe(r.detail, v => text(v, 4096)) || !maybe(r.revision, v => Number.isSafeInteger(v) && v >= 0))) return '`what` and `detail` are strings, and `revision` a whole number';
   return null;
 }
 
@@ -98,6 +98,10 @@ export function buildChannel({ send = () => {}, log = () => {} } = {}) {
   const streams = new Map(); // nonce -> { write(frame), build: id | null, seen?, poll? }
   const builds = new Map(); // id -> { id, host, capabilities, plan, design, status, nonce }
   const pins = new Map(); // id -> { client, pin, revision }
+  // id -> the revision of the last pin frame it was sent (a pin, a hand
+  // back, its pin again on registering): its status has caught up when it
+  // reports that revision.
+  const sent = new Map();
   let revision = 0, greeting = () => null;
   // A bearer credential for the report route: unguessable.
   const nonce = () => randomBytes(16).toString('hex');
@@ -109,13 +113,15 @@ export function buildChannel({ send = () => {}, log = () => {} } = {}) {
     for (const [k] of open.slice(0, Math.max(0, open.length - POLLED + room))) close(k);
   };
   const close = (k) => { const s = streams.get(k); streams.delete(k); if (s?.build) announce(); };
-  const shown = b => ({ id: b.id, host: b.host, capabilities: b.capabilities, plan: b.plan, design: b.design, status: b.status ?? null, pin: pins.get(b.id)?.pin ?? null });
+  const shown = b => ({ id: b.id, host: b.host, capabilities: b.capabilities, plan: b.plan, design: b.design, status: b.status ?? null, pin: pins.get(b.id)?.pin ?? null, pinRevision: sent.get(b.id) ?? 0, unsupported: b.unsupported ? { what: b.unsupported.what, detail: b.unsupported.detail } : null });
   // A build is connected while the stream it registered on still names it.
   const connected = b => streams.get(b.nonce)?.build === b.id;
   const listed = () => [...builds.values()].filter(connected).map(shown);
   const announce = () => send({ event: 'builds', builds: listed() });
   const frame = (id, f) => { const b = builds.get(id); const s = b && streams.get(b.nonce); if (s) s.write(f); };
-  const pinFrame = id => ({ kind: 'pin', revision: pins.get(id)?.revision ?? revision, pin: pins.get(id)?.pin ?? null });
+  // A build with no pin is told so at revision 0: nothing for it to catch.
+  const pinFrame = id => (pins.has(id) ? { kind: 'pin', revision: pins.get(id).revision, pin: pins.get(id).pin } : { kind: 'pin', revision: 0, pin: null });
+  const sendPin = (id, f) => { sent.set(id, f.revision); frame(id, f); };
 
   return {
     /** A build's stream opened; `write(frame)` sends it one. Its nonce, for
@@ -193,28 +199,45 @@ export function buildChannel({ send = () => {}, log = () => {} } = {}) {
         for (const other of streams.values()) if (other !== s && other.build === r.id) other.build = null;
         // A stream is one build: another id registered on it replaces the
         // build it was, and that build's pin goes with it.
-        if (s.build && s.build !== r.id && builds.get(s.build)?.nonce === r.nonce) { builds.delete(s.build); pins.delete(s.build); }
+        if (s.build && s.build !== r.id && builds.get(s.build)?.nonce === r.nonce) { builds.delete(s.build); pins.delete(s.build); sent.delete(s.build); }
         s.build = r.id;
         builds.delete(r.id);
         builds.set(r.id, { id: r.id, host: r.host, capabilities: r.capabilities, plan: r.plan ?? null, design: r.design ?? null, status: null, nonce: r.nonce });
         // The oldest builds with no open stream forgotten, over the cap.
-        for (const [id, b] of builds) { if (builds.size <= BUILDS) break; if (!connected(b)) { builds.delete(id); pins.delete(id); } }
+        for (const [id, b] of builds) { if (builds.size <= BUILDS) break; if (!connected(b)) { builds.delete(id); pins.delete(id); sent.delete(id); } }
         log(`build registered: ${r.id} (${r.host})`);
         // Its pin, or none, as the server holds it now (a reload is a new
         // document; a pin cleared while it was away is cleared there too).
-        s.write(pinFrame(r.id));
+        const f = pinFrame(r.id);
+        sent.set(r.id, f.revision);
+        s.write(f);
         announce();
         return { status: 200, body: { id: r.id } };
       }
       const b = s.build && builds.get(s.build);
       if (!b) return { status: 409, body: { message: 'register first' } };
       if (r.kind === 'status') {
-        b.status = { scheme: r.scheme ?? null, contrast: r.contrast ?? null, mode: r.mode ?? null, rootFontSize: r.rootFontSize ?? null, revision: r.revision ?? null };
+        // A late report (older than the status kept) cannot rewind it; a
+        // revision this registration was never sent (an earlier run's, a
+        // report queued before it registered) acknowledges nothing.
+        const stored = b.status?.revision;
+        if (Number.isSafeInteger(r.revision) && Number.isSafeInteger(stored) && r.revision < stored) return { status: 204, body: null };
+        const at = Number.isSafeInteger(r.revision) && r.revision <= (sent.get(b.id) ?? 0) ? r.revision : null;
+        // A command it could not apply is its frame's: the revision it
+        // names, or (a host that names none) the one it reports next, as a
+        // host answers a frame before its status for it. Kept while its
+        // status stays at that revision, gone once it moves on.
+        if (b.unsupported && b.unsupported.revision === undefined) b.unsupported.revision = at;
+        else if (b.unsupported && b.unsupported.revision !== at) b.unsupported = null;
+        b.status = { scheme: r.scheme ?? null, contrast: r.contrast ?? null, mode: r.mode ?? null, rootFontSize: r.rootFontSize ?? null, revision: at };
         if (typeof r.plan === 'string') b.plan = r.plan;
         if (typeof r.design === 'string') b.design = r.design;
         send({ event: 'build-status', build: shown(b) });
       } else if (r.kind === 'unsupported') {
         log(`build ${b.id}: unsupported ${r.what ?? '?'}`);
+        // One for a frame its status has already moved past is old news.
+        const stale = Number.isSafeInteger(r.revision) && Number.isSafeInteger(b.status?.revision) && r.revision < b.status.revision;
+        if (!stale) b.unsupported = { what: r.what ?? '', detail: r.detail ?? null, ...(Number.isSafeInteger(r.revision) ? { revision: r.revision } : {}) };
         send({ event: 'unsupported', build: b.id, what: r.what ?? '', detail: r.detail ?? null });
       } else {
         send({ event: 'selected', build: b.id, selected: r.selected ?? null });
@@ -246,10 +269,12 @@ export function buildChannel({ send = () => {}, log = () => {} } = {}) {
       sweep();
       const targets = id == null ? listed().map(b => b.id) : [id];
       if (id != null && !listed().some(b => b.id === id)) return { error: `no registered build \`${id}\`` };
+      // To no build: nothing sent, the revision as it is.
+      if (!targets.length) return { builds: [], revision };
       revision += 1;
       for (const t of targets) {
         if (pin === null) pins.delete(t); else pins.set(t, { client, pin, revision });
-        frame(t, { kind: 'pin', revision, pin });
+        sendPin(t, { kind: 'pin', revision, pin });
       }
       // Commands are journaled with their client (LLP 1122 D4).
       log(`tamber: ${client} pinned ${JSON.stringify(pin)} on ${targets.join(', ') || 'no build'} (revision ${revision})`);
@@ -264,7 +289,7 @@ export function buildChannel({ send = () => {}, log = () => {} } = {}) {
       const mine = [...pins].filter(([, p]) => p.client === client).map(([id]) => id);
       if (!mine.length) return;
       revision += 1;
-      for (const id of mine) { pins.delete(id); frame(id, { kind: 'pin', revision, pin: null }); }
+      for (const id of mine) { pins.delete(id); sendPin(id, { kind: 'pin', revision, pin: null }); }
       announce();
     },
   };
