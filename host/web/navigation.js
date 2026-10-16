@@ -21,7 +21,7 @@ const tabsOf = nav => {
   }
   return [null, []];
 };
-const panelsOf = nav => tabsOf(nav)[1];
+export const panelsOf = nav => tabsOf(nav)[1];
 const stacksOf = nav => { const panels = panelsOf(nav); return panels.length ? panels.map(routesIn) : [nav ? routesIn(nav) : []]; };
 // @ref LLP 1115.002 D4, LLP 1116.004 D1.2 — the shared list/outer-press rule;
 // WIDE is the web's presentation threshold, not a different navigation rule.

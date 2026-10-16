@@ -15,7 +15,7 @@
 // host's `documentHead` writes them (document-glue.js). Where no head sets a
 // title it is the selected route's header's heading, else the app's name
 // (navigation.js `pageTitle`, both web targets': LLP 1115.000 D4.1).
-import { unselected, unselectedForHead, pageTitle } from "./navigation.js";
+import { unselected, unselectedForHead, pageTitle, panelsOf } from "./navigation.js";
 
 /** The active head's fields by prop name (`headTitle` …): what a renderer
  * reads (render.mjs), and the agent's `state.head`. */
@@ -88,4 +88,39 @@ export function markDocument() {
   Marked = false;
   for (const e of Docs) if (!e.isConnected) Docs.delete(e); else Marked ||= e.getAttribute("data-scrolldocument") === "true";
   document.documentElement?.toggleAttribute?.("data-scrolldocument", Marked);
+}
+
+// @ref LLP 1075.003 §3.7 — a navigation tab is built the first time it is
+// selected, as the runner builds it (runner/src/instance/tabs.rs): a panel the
+// compiler names (emit.rs, `panel_sites`) is made empty, and its contents are
+// made after the tree update of the commit whose tree first selects it (rt.js
+// `tp`), before its paint. The selection is the projection's: the panel whose
+// routes hold the root's `navigationKey`; while no built panel holds it, the
+// panel whose tab is `aria-selected` is built, else the first waiting one.
+const Waiting = new Map();
+/** Panel `e` waits; `build` makes its contents. What is returned forgets it. */
+export function waitTab(e, build) { Waiting.set(e, build); return () => Waiting.delete(e); }
+/** Whether `e` is a panel whose tab has never been selected: the agent's `unopened`. */
+export const unopened = e => Waiting.has(e);
+/** Build each waiting panel its root now selects, and any no root's tablist names. */
+export function openTabs() {
+  for (let open = toOpen(); open.length; open = toOpen()) for (const e of open) { const build = Waiting.get(e); Waiting.delete(e); build(); }
+}
+function toOpen() {
+  const open = [], roots = new Set();
+  for (const e of Waiting.keys()) {
+    let root = e.parentElement;
+    while (root && !root.hasAttribute("navigationKey")) root = root.parentElement;
+    if (!root?.hasAttribute("navigationBack")) root = null;
+    const panels = root ? panelsOf(root) : [];
+    if (!panels.includes(e)) { open.push(e); continue; }
+    if (roots.has(root)) continue;
+    roots.add(root);
+    const key = root.getAttribute("navigationKey");
+    if (panels.some(p => [...p.children].some(r => r.getAttribute("navigationKey") === key))) continue;
+    const named = [...root.getElementsByTagName("*")].filter(t => t.getAttribute("aria-selected") === "true").map(t => t.getAttribute("aria-controls"));
+    const waiting = panels.filter(p => Waiting.has(p)), chosen = waiting.find(p => named.includes(p.getAttribute("id"))) ?? waiting[0];
+    if (chosen) open.push(chosen);
+  }
+  return open;
 }

@@ -178,6 +178,9 @@ struct Em<'a> {
     site_attrs: bool,
     /// The JS dev loop's state checkpoint. Ordinary builds emit none of it.
     dev_reload: bool,
+    /// The tab panels whose contents wait for their first selection
+    /// (`exact_runner::instance::panel_sites`; tabs.js).
+    panels: Vec<exact_plan::NodesId>,
 }
 
 /// The runner's reserved sources the JS runtime answers itself: the page's
@@ -242,6 +245,7 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         refs: rows::can_refer(plan),
         site_attrs,
         dev_reload,
+        panels: exact_runner::instance::panel_sites(plan),
     };
     em.heights = em.height_targets();
     em.transforms = em.transform_targets();
@@ -1374,7 +1378,16 @@ impl Em<'_> {
             self.list = true;
             return self.each(r, &e, scope, Some(opts));
         }
+        // @ref LLP 1075.003 §3.7 — a tab's contents are made when it is first selected.
+        let panel = self.panels.binary_search(&exact_plan::NodesId(i)).is_ok();
+        if panel {
+            let tp = self.uses.rt("tp");
+            let _ = write!(self.out, "{tp}({e},()=>{{");
+        }
         self.children(self.sites.of_node(i), &e, scope)?;
+        if panel {
+            self.out.push_str("});");
+        }
         Ok(())
     }
 
