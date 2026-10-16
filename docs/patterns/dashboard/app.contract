@@ -102,7 +102,7 @@ component App
               // leads; the rows sit beside it, or under it on a phone.
               row flex-wrap="wrap" align-items="flex-start" gap=20 padding=16 max-width=1040 margin-left="auto" margin-right="auto"
                 column flex="1 1 320px" min-width=0 gap=20 testId="summary"
-                  SummaryCard(label="Spent", value=money(summary.spent), detail=detail, progress=some(min(1, summary.spent / summary.budget)), symbol=some("symbol:chart"))
+                  SummaryCard(label="Spent", value=money(summary.spent), detail=detail, progress=(summary.budget > 0 ? some(min(1, summary.spent / summary.budget)) : none), symbol=some("symbol:chart"))
                   // On this plain page a card is `-exact-secondary-background`, as the summary's is.
                   if summary.spent > 0
                     column gap=14 padding=20 border-radius=16 background-color="-exact-secondary-background" testId="by-category"

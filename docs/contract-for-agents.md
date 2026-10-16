@@ -290,7 +290,6 @@ what to write. Nothing runs because a value changed (no `useEffect` or watch).
 | A string is well-formed: a lone surrogate becomes U+FFFD (`"😀".slice(0, 1)`) | every host holds Unicode scalar values |
 | A stored number is finite: a commit that would put `NaN` or `Infinity` in a state or derive is refused, and the write that caused it does not land | every host can carry it |
 | `toFixed` and the format functions print `""` for a non-finite number | one rule for every format |
-| `min`/`max` drop a `NaN` operand (`max(NaN, 1)` is `1`) | today's roster; a debt |
 | Names hold hyphens, so subtraction takes spaces (`a - b`) | CSS's names |
 | A binding's list work is bounded (65,536 steps); a row's own binding has its own bound, so a row that searches another table costs rows × items (`lower-row-lookup`) | determinism on every host |
 | Sorting, grouping, joining and aggregates are the data module's; the view names an order it relies on where it reads it (`loadTasksByDueDate()`) | a view computes what it shows |

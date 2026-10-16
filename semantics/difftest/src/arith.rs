@@ -7,8 +7,8 @@
 //! `a + b`, `a - b`, `a * b`, `a / b`, `a % b`, `floor(a)`, `max(a, b)`,
 //! `min(a, b)`, `trunc(a)`, `-a`, `n` as a double, `ceil(a)`, `round(a)`
 //! (JavaScript's `Math.round`), and `a < b`, `a <= b`, `a == b`, as the
-//! runner does (`f64` operators, `f64::floor`, `f64::max`, `f64::min`,
-//! `f64::trunc`, `f64::ceil`, `stdlib::js_round`). Results are compared by
+//! runner does (`f64` operators, `f64::floor`, `stdlib::js_max`,
+//! `stdlib::js_min`, `f64::trunc`, `f64::ceil`, `stdlib::js_round`). Results are compared by
 //! bits, every NaN one. Each case also carries a numeral and two dates:
 //! `parseNumber` of the numeral and `calendarDiff` of the dates in years and
 //! in months (LLP 1102 §3.1, §3.4), as `exact_runner::stdlib` reads them;
@@ -91,8 +91,8 @@ fn expected(c: &Case) -> String {
         canon(a / b),
         canon(a % b),
         canon(a.floor()),
-        canon(a.max(b)),
-        canon(a.min(b)),
+        canon(stdlib::js_max(a, b)),
+        canon(stdlib::js_min(a, b)),
         canon(a.trunc()),
         canon(-a),
         canon(n as f64),
@@ -354,7 +354,7 @@ match line.splitOn \" \" with\n    \
 match OracleText.hexN 16 0 sa.toList, OracleText.hexN 16 0 sb.toList, sn.toNat?, sd.toNat?, sg.toNat? with\n      \
 | some (x, _), some (y, _), some n, some fd, some fg =>\n        \
 let a := F64.ofBits (UInt64.ofNat x)\n        let b := F64.ofBits (UInt64.ofNat y)\n        \
-out.putStrLn s!\"{{cb (a + b)}} {{cb (a - b)}} {{cb (a * b)}} {{cb (a / b)}} {{cb (Number.fmod a b)}} {{cb a.floor}} {{cb (Number.fmax a b)}} {{cb (Number.fmin a b)}} {{cb (Number.trunc a)}} {{cb (-a)}} {{cb (F64.ofNat n)}} {{cb a.ceil}} {{cb a.jsRound}} {{bit (decide (a < b))}}{{bit (decide (a ≤ b))}}{{bit (a == b)}} {{opt cb (Str.parseNumber num)}} {{opt toString (Str.calendarDiff d1 d2 false)}} {{opt toString (Str.calendarDiff d1 d2 true)}} [{{Format.toFixed a fd}}] [{{Format.formatDecimal a fg}}] [{{Format.formatDecimal (Number.trunc a) fg}}]\"\n      \
+out.putStrLn s!\"{{cb (a + b)}} {{cb (a - b)}} {{cb (a * b)}} {{cb (a / b)}} {{cb (Number.fmod a b)}} {{cb a.floor}} {{cb (Number.jsMax a b)}} {{cb (Number.jsMin a b)}} {{cb (Number.trunc a)}} {{cb (-a)}} {{cb (F64.ofNat n)}} {{cb a.ceil}} {{cb a.jsRound}} {{bit (decide (a < b))}}{{bit (decide (a ≤ b))}}{{bit (a == b)}} {{opt cb (Str.parseNumber num)}} {{opt toString (Str.calendarDiff d1 d2 false)}} {{opt toString (Str.calendarDiff d1 d2 true)}} [{{Format.toFixed a fd}}] [{{Format.formatDecimal a fg}}] [{{Format.formatDecimal (Number.trunc a) fg}}]\"\n      \
 | _, _, _, _, _ => out.putStrLn \"?\"\n    \
 | _ => out.putStrLn \"?\"\n",
         data = data.display().to_string()
