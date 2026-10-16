@@ -19,7 +19,7 @@
 // naming them; `tap "Sky off"` quotes several words); each op is one argument (quote it).
 // `tap … wheel <dx> <dy> gesture` sends the wheel as a trackpad's gesture —
 // began, changed, and the zero-delta lift that ends it (LLP 1033 D4a, macOS
-// only); `tap … hover` moves the pointer onto the target (LLP 1005 §3). --device: build/install first with build.mjs --device; no Mac-local plan/assets paths.
+// only). Linux scrollers with a `scrollend` handler instead receive a reader sample with a 100 ms quiet deadline. `tap … hover` moves the pointer onto the target (LLP 1005 §3). --device: build/install first with build.mjs --device; no Mac-local plan/assets paths.
 import { Cdp, browserDiagnosticNoise, launchLog, launchFailure, drivePagePort, webPort, closePage, backLayer, cdpEscape, exclusiveIOS, copyCdpFailureContext, chromium, closeWindowsBrowser, retainCleanupError, removeBrowserProfile, driveStore, traceLocators, parseFlags, launchFacts, listenOn, launchEnvironment, withEpoch, withFaults, refuseStale, unchecked, depInfoChanges, packagedBuildChanges, webChanges, bakedPlans, parityScript, netFlags } from './agent-launch.mjs';
 export { Cdp } from './agent-launch.mjs';
 import { sourceMapReaders, identifyInspectedNode, identifyLayoutNodes, withRegions, render, perfOp, partTap, readTrace, renderTrace, layoutArgs, tapRefusal, worldView, phoneTrace, stateOp, WORLD_LIMIT, worldFile, scaledScreenshot, FILM_FRAMES, FILM_PIXELS } from './agent-inspect.mjs';
@@ -974,10 +974,10 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       identifyLayoutNodes(l, t, mapped ? sourceMaps : null); withRegions(l.env);
       return l;
     },
-    async target(target) {
+    async target(target, withHandlers = false) {
       const text = String(target), colon = text.indexOf(':'), nodes = (await s.op({ op: 'tree' })).nodes; // one tree for every try
       const node = await s.find(target, false, false, nodes);
-      if (node) return { id: node.id };
+      if (node) return { id: node.id, ...(withHandlers ? { handlers: node.handlers } : {}) };
       const owner = colon < 0 ? null : await s.find(text.slice(0, colon), false, false, nodes); // an entity before a label holding a colon
       return owner ? { id: owner.id, entity: text.slice(colon + 1) } : { id: (await s.find(target, true, true, nodes)).id };
     },
@@ -1034,7 +1034,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       if (modifiers !== undefined && (opts.hover || opts.history !== undefined || opts.into || opts.drop || opts.pinch !== undefined)) throw new MalformedOperation('modifiers are held through a press, a click, a wheel, a contact or a drag');
       if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`);
       let node, part = await partTap({ s, host, touch }, target, opts); if (part) return part; // `tap <node>/<part>` (agent-inspect.mjs)
-      try { node = await s.target(target); }
+      try { node = await s.target(target, true); }
       catch (error) { throw await tapRefusal(s, target, error); } await refuseDisabled(s, node, target, opts); // a disabled control is refused the same on every host (LLP 1116.010 D3)
       // @ref LLP 1098 D10 — a media element's session action, as the platform's handler: no reveal, no box, never a press.
       if (opts.mediaSession !== undefined) return s.landed({ ...await carrier.input(node.id, 'mediasession', opts), tapped: node.id, target, delivery: 'substituted', carrier: host, mode: timing });
@@ -1059,12 +1059,10 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       }
       // @ref LLP 1038 D11 — no native carrier turns browser history into a press.
       if (opts.history !== undefined && host !== 'web') return s.tagged({ tapped: node.id, target, history: opts.history, delivery: 'unsupported', carrier: host, mode: timing });
-      // A gesture is the platform's, and only the AppKit carrier can phase
-      // one. Refusing beats quietly sending a bare delta: the whole reason
-      // this form exists is that a plain wheel tests a path a finger never
-      // takes, so a driver must never be told it sent a gesture when it did
-      // not (LLP 0382 — fail closed, loudly).
-      if (opts.gesture && !(host === 'macos' || host === 'mac')) throw new Error(`${host} cannot phase a wheel; \`gesture\` is the AppKit carrier's`);
+      // AppKit phases the gesture. Linux's completion fixture supplies a reader
+      // sample only to a scroller that handles scrollend; other carriers refuse.
+      const readerSample = host === 'linux' && node.handlers?.includes('scrollend');
+      if (opts.gesture && !(host === 'macos' || host === 'mac' || readerSample)) throw new Error(`${host} cannot phase a wheel; \`gesture\` is the AppKit carrier's`);
       if ((opts.contextmenu || opts.dblclick) && !['web', 'ios', 'macos', 'mac', ...(opts.dblclick ? [] : ['linux', 'android', 'windows'])].includes(host)) throw new Error(`${host} does not carry contextmenu/dblclick input`);
       if (button.length && s.contact) throw new Error(`${button[0]} requires the held contact to be released`);
       // A form this carrier cannot deliver as a hand's is answered `unsupported`, never sent as another input (#107).

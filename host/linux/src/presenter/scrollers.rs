@@ -231,6 +231,15 @@ impl<D: DataSource> Presenter<D> {
     /// Scroll `id` to `to`, clamped to its travel on the axes it scrolls
     /// along; where it then is, or `None` when `id` is no scroll container.
     pub fn scroll_to(&mut self, id: ViewId, to: (f32, f32)) -> Option<(f32, f32)> {
+        self.scroll_to_completion(id, to, Completion::Instant)
+    }
+
+    fn scroll_to_completion(
+        &mut self,
+        id: ViewId,
+        to: (f32, f32),
+        completion: Completion,
+    ) -> Option<(f32, f32)> {
         if !to.0.is_finite() || !to.1.is_finite() {
             return None;
         }
@@ -255,6 +264,7 @@ impl<D: DataSource> Presenter<D> {
             self.page = next;
         } else {
             self.scroll.insert(id, next);
+            self.scroll_end_moved(id, completion);
             self.collection_scrolled(id);
         }
         self.dirty = true;
@@ -280,9 +290,29 @@ impl<D: DataSource> Presenter<D> {
             return None;
         }
         let from = s.offset;
-        let to = self.scroll_to(id, (from.0 + by.0, from.1 + by.1))?;
+        let to =
+            self.scroll_to_completion(id, (from.0 + by.0, from.1 + by.1), Completion::Reader)?;
         self.reader.tracked.insert(id, (rev, to));
         Some((to.0 - from.0, to.1 - from.1))
+    }
+
+    /// An agent's phased wheel supplies one reader sample on the existing clock.
+    pub(crate) fn reader_wheel(&mut self, id: ViewId, dx: f32, dy: f32) -> Result<String, String> {
+        if self.host.route_visibility(id).1 || self.box_of(id).is_none() {
+            return Err(format!("view {id} is hidden or inert"));
+        }
+        let limits = self.collection_scroll_limits();
+        let s = self
+            .scroller(id, &limits)
+            .ok_or_else(|| format!("view {id} is not a scroller"))?;
+        let revision = self.reader_revision(&s);
+        self.reader_scrolled(id, (dx, dy), revision)
+            .ok_or_else(|| format!("view {id} refused the reader sample"))?;
+        Ok(format!(
+            "{{\"tapped\":{id},\"wheel\":[{},{}],\"gesture\":true}}",
+            num(dx as f64),
+            num(dy as f64)
+        ))
     }
 
     /// A driver from outside moves `id` itself from now on (the benchmark's

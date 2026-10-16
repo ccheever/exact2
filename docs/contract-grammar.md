@@ -1026,7 +1026,11 @@ offset is over, after its last `scroll`: the finger lifted with nothing thrown,
 the momentum or a smooth scroll stopped, or (a jump, a mouse wheel's notches)
 the offset still for 100 ms on Apple's hosts. It takes no payload. An app that
 needs to know a fling has stopped hears it, instead of restarting a timer on
-every `scroll`. Not yet on the Linux and Android host.
+every `scroll`. Linux and the shared Android Presenter complete notches and
+instant jumps at the next delivery point; reader samples use 100 ms quiet.
+Delivery uses the existing host clock after its runner work, so a late wake may
+run a later timer first. Android device qualification remains open (LLP 1005,
+“Linux, first step”).
 
 `intersect=action` offers an optional final `IntersectionObserverEntry` after
 any authored arguments. The record contains `isIntersecting: bool` and

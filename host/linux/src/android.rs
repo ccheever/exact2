@@ -555,8 +555,7 @@ fn run<D: DataSource + Default>(
                 log(&format!("exact: {e}"));
             }
         } else if p
-            .host()
-            .timer_due_ms()
+            .timer_or_scroll_due_ms()
             .is_some_and(|due| due <= now && now - last_tick >= frame_ms * 0.5)
         {
             last_tick = now;
@@ -637,7 +636,7 @@ fn run<D: DataSource + Default>(
                 )
             };
         }
-        let timeout = match p.host().timer_due_ms() {
+        let timeout = match p.timer_or_scroll_due_ms() {
             Some(due) => ((due - wall()).max(0.0).ceil() as c_int).min(1000),
             None => 1000,
         };

@@ -37,6 +37,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
         };
         self.scrolled = self.prefetching;
         self.scrolled_at = self.now();
+        self.p.scroll_end_reader_sampled(id, self.scrolled_at);
         if down != 0.0 && id != PAGE {
             if self.feed != Some(id) {
                 self.feed = Some(id);

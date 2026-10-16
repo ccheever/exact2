@@ -849,27 +849,17 @@ sits on that list carries the trade it would take.
   - Web `clock settle` can return `settled: true` during smooth scrolling and before a `scrollend` handler's jump chain finishes, as measured by LLP 1005's runtime probes.
   - Verify web lifetime parity: `rt.js` suppresses `scrollend` for a disconnected element or a gone owner but still delivers `scroll`; the `glue.js` end listener has no equivalent guard.
   - Physical macOS momentum completion remains unqualified; verify one end after the coast with a real trackpad, as in the existing momentum entry below.
-- **`scrollend` on the Linux and Android host** (2026-10-13; web and Apple have it):
-  implement the rule and time-owner design in
-  [LLP 1005, Scroll completion](llp/1005-plan-and-runner-v1.spec.md#scroll-completion).
-  A full implementation of that design is parked on the Mac Studio (branch
-  `q1013/scrollend-impl` at 401a2a2dc on 9479c6464, `~/lanes/q1013/wt/scrollend-impl`).
-  Eleven fix-and-review rounds (2026-10-14 and 15) brought the findings per round from
-  about ten to four, but fixes kept introducing regressions against main; the last review
-  found two (a ready reply superseded during a live `pump`; timers armed during catch-up
-  scheduled from a capped time). A differential harness at
-  `~/lanes/q1013/wt/scrolldiff` (`./check.sh --refresh`, REPORT.md, `reviewed/`) runs
-  3,204 seeded scenarios through main and the branch with live and seek clocks; at
-  401a2a2dc six of its seven reviewed regression cases still differ from main
-  (`python3 replay.py reviewed/<case>/scenario.jsonl`). Rethreading every host's time at
-  once is the risk: a smaller first step that adds completion without moving catch-up
-  out of `Host` may land sooner, and the harness can gate either. The earlier parked build is
-  `q1013/linux-scrollend`. The LLP reconciles its
-  14 review regressions and 12 committed tests against Chrome, and specifies completion
-  ordering, shell-wake budgets, Android paint deferral and agent-call limits. Keep one
-  loop over Host's time and Presenter's offsets, events and commands; native qualification
-  remains open. `host/linux/src/host.rs` is at its line cap; the parked branch extracts
-  its clock into `host_clock.rs`.
+- **`scrollend` on the Linux and Android host: full timing and device qualification**
+  (2026-10-15; [LLP 1005, Scroll completion](llp/1005-plan-and-runner-v1.spec.md#scroll-completion)):
+  the Presenter now completes moving notches and instant jumps at its next delivery
+  point (deferred notches share one completion after their frame's `scroll`),
+  reader samples after 100 ms quiet, and owned edge scrolling when it stops.
+  Lifetime cancellation and agent settle are covered; apps without handlers retain
+  main's behavior. Remaining: the full deadline-before-later-timers rule and its
+  snapshot/reentry budgets, plus Android device qualification. The first step keeps
+  Host's catch-up and shell call order. The earlier full implementation remains
+  parked on `q1013/scrollend-impl`; use the no-handler differential harness at
+  `~/lanes/q1013/wt/scrolldiff` to guard any later timing work.
 - **One presenter pass for the batches a frame lands together (iOS)** (2026-10-13, from the
   Bluesky clone's quotes fling): most fling frames apply four batches: the app's `scroll=` batch
   (the clone writes state every frame), one or two list fill slices that `landFill` lands inside

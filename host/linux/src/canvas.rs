@@ -1277,7 +1277,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
             if let Some(e) = p.animation_frame(now) {
                 eprintln!("exact: {e}");
             }
-        } else if p.host().timer_due_ms().is_some_and(|due| due <= now) {
+        } else if p.timer_or_scroll_due_ms().is_some_and(|due| due <= now) {
             if let Some(e) = p.advance(now) {
                 eprintln!("exact: {e}");
             }
@@ -1386,11 +1386,11 @@ impl<D: DataSource + Default> CanvasHost<D> {
         }
         self.animating()
     }
-
     /// Whether another frame is wanted at the next vsync.
     pub fn animating(&self) -> bool {
         // A moved paint owes a paint: the frame after scrolling stops.
         self.p.dirty()
+            || self.p.scroll_end_due().is_some_and(|due| due <= self.now())
             || self.p.needs_animation_frame()
             || self.p.host().wants_frames()
             || self.surfaces
@@ -1470,7 +1470,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
         if (self.painted_once && !self.lead) || self.owed_surfaces {
             return Some(0.0);
         }
-        let timer = (self.p.host().timer_due_ms()).map(|due| (due - self.now()).max(0.0));
+        let timer = (self.p.timer_or_scroll_due_ms()).map(|due| (due - self.now()).max(0.0));
         self.settle_due(timer)
     }
 
