@@ -169,6 +169,11 @@ pub const HOST_COMMANDS: &[&str] = &[
     "playSound",
     "playSounds",
     "stopSounds",
+    // @ref LLP 1125 D6, D7 — `requestMIDIAccess()` and `sendMIDI(output,
+    // data, at=)`: the runner keeps the MIDI queue and answers `exactMIDI()`,
+    // so every host skips them as the runner's own.
+    "requestMIDIAccess",
+    "sendMIDI",
 ];
 
 /// A written type as the author writes it: `Item[]`, `option<number>`.

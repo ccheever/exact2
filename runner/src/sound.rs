@@ -149,6 +149,9 @@ pub struct Voice {
     pub by: By,
     /// A sequence issued it (LLP 1125 D3).
     pub seq: bool,
+    /// The step a sequence issued it for, before its track's offset (LLP
+    /// 1125 D7); its own start otherwise.
+    step_at: f64,
     natural: f64,
 }
 
@@ -192,6 +195,8 @@ pub struct Haptic {
     /// Why it was retracted before its time, if it was: `edit`, or
     /// `cancelled` (a stop or a reload).
     pub by: Option<&'static str>,
+    /// The step it is for, before its track's offset.
+    step_at: f64,
 }
 
 impl Haptic {
@@ -311,13 +316,13 @@ impl Sounds {
             for call in calls {
                 match call {
                     Call::Play(args) => {
-                        s.play(plan, t, args, false, log);
+                        s.play(plan, t, args, None, log);
                     }
                     Call::Hits(Value::List(items)) => {
                         for item in items.iter() {
                             match item {
                                 Value::Record(f) => {
-                                    s.play(plan, t, &f[..], false, log);
+                                    s.play(plan, t, &f[..], None, log);
                                 }
                                 _ => log.push("sound dropped: a hit is not a record".into()),
                             }
@@ -354,21 +359,30 @@ impl Sounds {
     }
 
     /// One sequence step's sample at `t` (LLP 1125 D3), `args` as a
-    /// `playSound`'s; [`Added::Full`] when [`WAITING`] voices already wait
-    /// and this one would too. Inside [`Sounds::batch`].
+    /// `playSound`'s, for the step at `step_at`; [`Added::Full`] when
+    /// [`WAITING`] voices already wait and this one would too. Inside
+    /// [`Sounds::batch`].
     pub(crate) fn issue(
         &mut self,
         plan: &Plan,
         t: f64,
         args: &[Value],
+        step_at: f64,
         log: &mut Vec<String>,
     ) -> Added {
-        self.play(plan, t, args, true, log)
+        self.play(plan, t, args, Some(step_at), log)
     }
 
-    /// One sequence step's haptic at `at`, issued at `t`, journaled and
-    /// queued.
-    pub(crate) fn issue_haptic(&mut self, kind: &str, at: f64, t: f64, log: &mut Vec<String>) {
+    /// One sequence step's haptic at `at`, for the step at `step_at`,
+    /// issued at `t`, journaled and queued.
+    pub(crate) fn issue_haptic(
+        &mut self,
+        kind: &str,
+        at: f64,
+        step_at: f64,
+        t: f64,
+        log: &mut Vec<String>,
+    ) {
         self.next_haptic += 1;
         let id = self.next_haptic;
         log.push(format!("haptic {id} {kind} at {}", num(at)));
@@ -382,6 +396,7 @@ impl Sounds {
             kind: kind.to_string(),
             at,
             by: None,
+            step_at,
         });
         // Keep the last HAPTICS, letting the oldest played or retracted go
         // first: one still to come is kept for its retraction.
@@ -393,12 +408,12 @@ impl Sounds {
         }
     }
 
-    /// Haptics still waiting at `t` (`at >= t`), retracted with why; one
-    /// line when any was.
+    /// Haptics still waiting at `t` (`at >= t`), retracted with why (an
+    /// edit's only those for a step at or after `t`); one line when any was.
     pub(crate) fn retract_haptics(&mut self, t: f64, by: &'static str, log: &mut Vec<String>) {
         let mut n = 0;
         for h in self.haptics.iter_mut() {
-            if h.by.is_none() && h.at >= t {
+            if h.by.is_none() && h.at >= t && (by != "edit" || h.step_at >= t) {
                 h.by = Some(by);
                 self.ops.push(SoundOp::Unhaptic { id: h.id });
                 n += 1;
@@ -410,12 +425,14 @@ impl Sounds {
     }
 
     /// An edit at `t` (LLP 1125 D3): every sequence voice not started by `t`
-    /// ends as `edit` at its start, and so leaves the bound; the haptics
-    /// still to come are retracted. Inside [`Sounds::batch`].
+    /// for a step at or after `t` ends as `edit` at its start, and so leaves
+    /// the bound; so do its haptics still to come (a track's offset can put
+    /// an earlier step's output after `t`: it stays, LLP 1125 D7). Inside
+    /// [`Sounds::batch`].
     pub(crate) fn retract_seq(&mut self, t: f64, log: &mut Vec<String>) {
         let mut n = 0;
         for v in self.voices.iter_mut() {
-            if v.seq && v.by.sounds() && v.at >= t {
+            if v.seq && v.by.sounds() && v.at >= t && v.step_at >= t {
                 (v.ends, v.by) = (v.at, By::Edit);
                 n += 1;
             }
@@ -472,16 +489,17 @@ impl Sounds {
     }
 
     /// One `playSound(src, at, gain, group, playbackRate, pan)`, or one
-    /// hit's fields in the same order (a hit may stop after `group`); `seq`
-    /// when a sequence issues it.
+    /// hit's fields in the same order (a hit may stop after `group`); with
+    /// its step's time when a sequence issues it.
     fn play(
         &mut self,
         plan: &Plan,
         t: f64,
         args: &[Value],
-        seq: bool,
+        step_at: Option<f64>,
         log: &mut Vec<String>,
     ) -> Added {
+        let seq = step_at.is_some();
         let src = match args.first() {
             Some(v) if v.is_str() => v.text().to_string(),
             _ => return dropped(log, "sound dropped: the sound is not a string".into()),
@@ -553,6 +571,7 @@ impl Sounds {
             ends: at + length,
             by: By::End,
             seq,
+            step_at: step_at.unwrap_or(at),
             natural: at + length,
         };
         let mut cuts = Vec::new();

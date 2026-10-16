@@ -1074,7 +1074,15 @@ impl<'a> Lowerer<'a> {
                     aria_disabled.as_ref().unwrap_or(&a.value)
                 };
                 let (mut asm, mut depth) = (Asm::new(), locals);
-                let ty = expr::compile(self, &mut asm, value, scope, &mut depth)?;
+                let mut ty = expr::compile(self, &mut asm, value, scope, &mut depth)?;
+                // @ref LLP 1125 D8 — `midiinputs=[…]` as the prop carries it, joined by newlines.
+                if prop == exact_kernel::PropId::MidiInputs
+                    && matches!(&ty, Ty::List(t) if matches!(**t, Ty::String | Ty::Unknown))
+                {
+                    asm.str(self.b.str("\n"));
+                    asm.call(exact_plan::Stdlib::Join);
+                    ty = Ty::String;
+                }
                 values::check_prop_value(&a.name, value, a.span, prop, &ty)?;
                 // ARIA's word-valued states; a bool is written as `true`/`false`.
                 if values::aria_words(prop).is_some() && ty == Ty::Bool {

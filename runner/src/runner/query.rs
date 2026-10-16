@@ -60,6 +60,12 @@ impl<D: DataSource> Runner<D> {
                 .map(Answer::Now)
                 .map_err(|error| RunnerError::Data { resource, error });
         }
+        if source == crate::midi::SOURCE {
+            return self
+                .midi_answer(i)
+                .map(Answer::Now)
+                .map_err(|error| RunnerError::Data { resource, error });
+        }
         if source == crate::surface_record::SOURCE {
             let answer = self.links.surface_answer.ok_or_else(|| RunnerError::Data {
                 resource: resource.clone(),

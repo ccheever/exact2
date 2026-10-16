@@ -7,7 +7,7 @@
 //! answers is published by a commit of its own, as an answer's `then` is.
 
 use super::*;
-use crate::transport::{Answer, Seen, SOURCE};
+use crate::transport::{Answer, Out, Seen, SOURCE};
 
 impl<D: DataSource> Runner<D> {
     /// The gate step's part (LLP 1092 D8): each sequence's gate, its key's
@@ -63,13 +63,17 @@ impl<D: DataSource> Runner<D> {
         let before = self.transport.answer();
         let (now, live) = (self.now_ms, self.clock_live());
         let mut lines = Vec::new();
+        let mut out = Out {
+            sounds: &mut self.sounds,
+            midi: &mut self.midi,
+        };
         if let Some(seen) = seen {
             self.transport
-                .stood(&self.plan, &mut self.sounds, now, live, seen, &mut lines);
+                .stood(&self.plan, &mut out, now, live, seen, &mut lines);
         }
         if suspend {
             self.transport
-                .suspend(&self.plan, &mut self.sounds, now, &mut lines);
+                .suspend(&self.plan, &mut out, now, &mut lines);
         }
         self.transport_said(lines, before);
     }
@@ -89,8 +93,12 @@ impl<D: DataSource> Runner<D> {
         let before = self.transport.answer();
         let live = self.clock_live();
         let mut lines = Vec::new();
+        let mut out = Out {
+            sounds: &mut self.sounds,
+            midi: &mut self.midi,
+        };
         self.transport
-            .wake(&self.plan, &mut self.sounds, at, live, &mut lines);
+            .wake(&self.plan, &mut out, at, live, &mut lines);
         self.transport_said(lines, before);
     }
 
@@ -99,7 +107,10 @@ impl<D: DataSource> Runner<D> {
     pub(super) fn transport_end(&mut self) -> Option<ActionsId> {
         let before = self.transport.answer();
         let mut lines = Vec::new();
-        let action = self.transport.end(&self.plan, &mut lines);
+        let now = self.now_ms;
+        let action = self
+            .transport
+            .end(&self.plan, &mut self.midi, now, &mut lines);
         self.transport_said(lines, before);
         action
     }
@@ -150,11 +161,12 @@ impl<D: DataSource> Runner<D> {
     /// End every live voice before this runner is replaced (a dev reload,
     /// LLP 1096 D5); the host drains `take_sounds` before the restart.
     pub fn end_sounds(&mut self) {
-        if self.plan.sounds.is_empty() {
-            return;
-        }
         let mut lines = Vec::new();
-        self.sounds.reload(self.now_ms, &mut lines);
+        if !self.plan.sounds.is_empty() {
+            self.sounds.reload(self.now_ms, &mut lines);
+        }
+        // The MIDI queue as at a stop: every note ends (LLP 1125 D4).
+        self.midi.reload(self.now_ms, &mut lines);
         lines.into_iter().for_each(|l| self.log(l));
     }
 }

@@ -610,6 +610,7 @@ fn refine_params_from_view(
                             | "selectionchange"
                             | "beforeinput"
                             | "beforeunload"
+                            | "midimessage"
                             | "wheel"
                             | "drop"
                             | "swiperight"

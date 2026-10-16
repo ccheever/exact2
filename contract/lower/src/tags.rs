@@ -458,6 +458,10 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // DOM's `beforeunload` (studio diary R17): the window is closing or
         // the app quitting; an action that calls `preventDefault()` keeps it.
         "beforeunload" => AttrTarget::Handler("beforeunload"),
+        // @ref LLP 1125 D8 — `MIDIInput`'s event: every mounted element that
+        // declares it hears each message from an input its `midiinputs` lists.
+        "midimessage" => AttrTarget::Handler("midimessage"),
+        "midiinputs" => AttrTarget::Prop(p("midiInputs")),
         // DOM's `wheel` (studio diary R3) and `drop` of files (R19).
         "wheel" => AttrTarget::Handler("wheel"),
         "drop" => AttrTarget::Handler("drop"),
@@ -849,6 +853,9 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "interactiveWidget" | "keyboardAvoidingView" | "keyboardAvoiding" => "interactive-widget",
         "secureTextEntry" => "type",
         "onClick" | "onPress" => "press",
+        // Web MIDI's handler properties (LLP 1125 D8).
+        "onMIDIMessage" | "onmidimessage" | "midiMessage" => "midimessage",
+        "midiInputs" | "midi-inputs" => "midiinputs",
         // LLP 1081 D2: the names Exact invents are spelled `-exact-`.
         "tint-color" => "-exact-tint-color",
         "exit-animation" => "-exact-exit-animation",

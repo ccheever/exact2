@@ -192,6 +192,7 @@ const HOST_FACTS: &[&str] = &[
     "exactPage",
     "exactSurface",
     "exactTransport",
+    "exactMIDI",
 ];
 
 pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, String> {

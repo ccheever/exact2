@@ -760,3 +760,5 @@ fn a_held_hit_plays_at_a_late_wake_on_a_live_clock() {
         said(&r)
     );
 }
+
+mod midi;

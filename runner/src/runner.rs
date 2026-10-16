@@ -84,6 +84,7 @@ pub use lists::{ListTextPolicy, ListTextPosition};
 mod settlement;
 mod sockets;
 pub use sockets::{SocketReader, SocketState};
+pub mod midi;
 mod split;
 mod surface_record;
 mod time;
@@ -534,6 +535,8 @@ pub struct Runner<D: DataSource> {
     sounds: crate::sound::Sounds,
     /// The transport (LLP 1125 D3): the sequence playing and its record.
     transport: crate::transport::Transport,
+    /// MIDI (LLP 1125 D6–D8): the ports, the queue and what inputs delivered.
+    midi: crate::midi::Midi,
     /// The app's `setRootFontSize` over the host's size (LLP 1069.000 D3).
     root_font: root_font::RootFont,
     fonts: std::rc::Rc<std::cell::RefCell<crate::bridge::RuntimeFonts>>,
@@ -824,6 +827,7 @@ impl<D: DataSource> Runner<D> {
             strings: vm::intern(&plan),
             failed_mut: vec![None; plan.mutations.len()],
             transport: crate::transport::Transport::new(&plan),
+            midi: crate::runner::midi::queue(&plan, &data),
             plan,
             inspection_digest: std::cell::OnceCell::new(),
             action_binding_origin: std::rc::Rc::new(()),

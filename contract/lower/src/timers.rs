@@ -73,24 +73,19 @@ impl Lowerer<'_> {
 
     /// Every sequence of the root (LLP 1125 D2), in declaration order: its
     /// gate and key as a task's, and each `play` argument as plan code, an
-    /// omitted one a constant. Clock in and clock out are later stages'.
+    /// omitted one a constant. Clock in is a later stage's.
     pub(crate) fn sequences(
         &mut self,
         sequences: &[Sequence],
         scope: &Scope,
     ) -> Result<(), Vec<LowerError>> {
         for q in sequences {
-            for (option, stage, id) in [
-                ("clock", 4, "lower-sequence-clock"),
-                ("clockOut", 3, "lower-sequence-clock-out"),
-            ] {
-                if let Some((_, _, at)) = q.options.iter().find(|o| o.0 == option) {
-                    return Err(err_one(
-                        id,
-                        format!("`{option}=` is not built yet (LLP 1125 stage {stage}); a sequence keeps its own time from `bpm=`"),
-                        *at,
-                    ));
-                }
+            if let Some((_, _, at)) = q.options.iter().find(|o| o.0 == "clock") {
+                return Err(err_one(
+                    "lower-sequence-clock",
+                    "`clock=` is not built yet (LLP 1125 stage 4); a sequence keeps its own time from `bpm=`",
+                    *at,
+                ));
             }
             let code = |l: &mut Self, e: Option<&Expr>, default: Value| match e {
                 Some(e) => l.expr_code(e, scope, 0).map_err(|e| vec![e]),
@@ -105,7 +100,7 @@ impl Lowerer<'_> {
             let from = code(self, q.option("from"), Value::Number(0.0))?;
             let count_in = code(self, q.option("countIn"), Value::list(Vec::new()))?;
             let clock = code(self, None, Value::str(""))?;
-            let clock_out = code(self, None, Value::str(""))?;
+            let clock_out = code(self, q.option("clockOut"), Value::str(""))?;
             let ended = q.ended.as_ref().map(|(name, _)| {
                 self.actions[self
                     .root

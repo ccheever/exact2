@@ -69,6 +69,7 @@ pub mod save_file;
 /// `accept` matching, the HEIC rule, a `type @t` answer's paths.
 pub use runner::picker as picker_support;
 pub mod machine;
+pub mod midi;
 pub mod share;
 pub mod sound;
 pub mod stdlib;

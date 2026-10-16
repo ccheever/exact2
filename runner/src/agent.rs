@@ -20,6 +20,7 @@ use exact_kernel::{NodeRef, PropValue, RowValue, StyleId};
 use exact_plan::{BindingKind, Plan, TypeKind, TypesId, Value};
 use std::fmt::Write as _;
 
+mod midi;
 mod row;
 mod schedule;
 mod sound;
@@ -921,6 +922,7 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     sound::state(runner, request, &mut s);
     crate::wakelock::state(runner.kernel(), &mut s);
     transport::state(runner, &mut s);
+    midi::state(runner, request, &mut s);
     // The store's names, never its values (LLP 1018 D5).
     s.push_str(",\"store\":[");
     for (i, name) in runner.store_names().iter().enumerate() {

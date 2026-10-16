@@ -22,6 +22,15 @@ impl<D: DataSource> Runner<D> {
         if !self.plan.sounds.is_empty() && commands.iter().any(|c| c.name == "reload") {
             self.sounds.reload(self.now_ms, &mut lines);
         }
+        // `sendMIDI` and `requestMIDIAccess` (LLP 1125 D6, D7): the queue's.
+        let seek = !self.clock_live();
+        for c in commands {
+            match c.name.as_str() {
+                "sendMIDI" => self.midi.send(&c.args, self.now_ms, &mut lines),
+                "requestMIDIAccess" => self.midi.request(self.now_ms, seek, &mut lines),
+                _ => {}
+            }
+        }
         lines.into_iter().for_each(|l| self.log(l));
     }
 }

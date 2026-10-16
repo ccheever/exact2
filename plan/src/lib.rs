@@ -739,6 +739,7 @@ pub const RUNNER_OWNED_SOURCES: &[&str] = &[
     "exactSurface",
     "exactTime",
     "exactTransport",
+    "exactMIDI",
 ];
 
 /// Whether the runner answers `name` ([`RUNNER_OWNED_SOURCES`]).

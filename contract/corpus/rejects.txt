@@ -1753,14 +1753,21 @@ component A
   view
     text "a"
 ---
-== lower-sequence-clock-out
-# Clock out is LLP 1125 stage 3.
+== type-send-midi
+# A literal message is held to MIDI 1.0: no running status.
 component A
-  state on = false
-  sequence s when on
-    play([], bpm=120, clockOut="op-xy")
+  action go
+    sendMIDI("out", [144, 60, 100, 62, 100])
   view
-    text "a"
+    button "go" press=go
+---
+== type-request-midi-access
+# `requestMIDIAccess()` takes no arguments.
+component A
+  action go
+    requestMIDIAccess(true)
+  view
+    button "go" press=go
 ---
 == analyze-unknown-action
 # `ended=` names an action.
@@ -1803,3 +1810,17 @@ component A
   resource t = exactTransport() as shape T
   view
     text t.state
+---
+== bake-midi-field
+# A MIDI port answers its id, name, manufacturer and state only.
+shape Port
+  id: string
+  channel: number
+shape M
+  state: string
+  outputs: Port[]
+component A
+  resource m = exactMIDI() as shape M
+  view
+    text m.state
+---

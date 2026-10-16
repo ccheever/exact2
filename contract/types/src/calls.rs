@@ -419,7 +419,7 @@ pub(super) fn unknown_function(
         "`{name}` is not in the stdlib roster and is not an action; data comes from a `resource`"
     );
     // The runner's own sources (the `SOURCE` of runner/src/time.rs, viewport.rs, page.rs,
-    // delivery.rs, surface_record.rs, transport.rs), called like functions (r34 t7:
+    // delivery.rs, surface_record.rs, transport.rs, midi.rs), called like functions (r34 t7:
     // `exactTime().epochAtZero`).
     if matches!(
         name,
@@ -429,6 +429,7 @@ pub(super) fn unknown_function(
             | "exactDelivery"
             | "exactSurface"
             | "exactTransport"
+            | "exactMIDI"
     ) {
         let call = if name == "exactSurface" {
             "exactSurface(\"world\")".to_string()

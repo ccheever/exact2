@@ -39,13 +39,20 @@
 //!   a bad tempo stays stopped until its gate turns true again or its key
 //!   changes.
 //!
-//! A step's MIDI fields (`note`, `velocity`, `channel`, `length`) and a
-//! track's `offset` and `output` are read and type-checked but play nothing
-//! until MIDI comes in (LLP 1125 stage 3).
-//! @ref LLP 1125 D2–D5
+//! - **MIDI** (LLP 1125 D7). A step whose `note` is not −1 on a track with
+//!   an `output` is a note-on there and a note-off `duration` beats later
+//!   (`crate::midi`); `clockOut=` sends clock to an output. A track's
+//!   `offset` shifts its samples', notes' and haptics' times, never which
+//!   hits a window holds: at the arming an output before the commit's time
+//!   is played at it, at an edit it is skipped (it was played already), and
+//!   on a live clock one past at a fill is late. So an edit of `offset`
+//!   itself may play a step twice or not at all within the change's size,
+//!   a declared limit.
+//! @ref LLP 1125 D2–D5, D7
 
 use crate::agent::num;
-use crate::sound::{Added, Sounds, WAITING};
+use crate::midi::{Midi, Queued, HOLD, TICKS_PER_SECOND};
+use crate::sound::{Added, Sounds};
 use exact_plan::{ActionsId, Plan, Value};
 use std::collections::VecDeque;
 
@@ -62,6 +69,8 @@ pub const REFILL: f64 = 500.0;
 pub const SEGMENTS: usize = 1024;
 /// The most times a track may loop in a second.
 pub const LOOPS_PER_SECOND: f64 = 1000.0;
+/// The farthest a track's `offset` may move it, ms.
+pub const OFFSET_LIMIT: f64 = 500.0;
 /// The farthest `from` may be from beat 0, and the shortest a track may be,
 /// in beats: with them a loop's index stays below 2^53, where every whole
 /// number is exact, for thousands of years of play (a fill steps it by 1).
@@ -134,13 +143,17 @@ impl Segment {
 }
 
 /// One step as played: a sample's fields as `playSound` takes them, a
-/// haptic, or both.
+/// MIDI note (`note` −1 for none), a haptic, or any of them.
 #[derive(Clone, Debug)]
 struct Step {
     beat: f64,
     src: String,
     gain: f64,
     group: String,
+    note: f64,
+    velocity: f64,
+    channel: f64,
+    duration: f64,
     playback_rate: f64,
     pan: f64,
     haptic: String,
@@ -150,6 +163,8 @@ struct Step {
 struct Track {
     length: f64,
     loops: f64,
+    offset: f64,
+    output: String,
     steps: Vec<Step>,
 }
 
@@ -160,13 +175,34 @@ struct Play {
     bpm: f64,
     from: f64,
     count_in: Vec<Step>,
+    clock_out: String,
 }
 
-/// One hit of a window: its time, its track (0 the count-in) and step.
+/// One hit of a window: its time and beat, its track (0 the count-in) and
+/// step.
 struct Hit {
     at: f64,
+    beat: f64,
     track: usize,
     step: usize,
+}
+
+/// How a fill treats an output before the time it runs at (the module's
+/// rule for `offset`).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Fill {
+    /// The arming: played at the commit's time.
+    Arm,
+    /// An edit: skipped, it was played already.
+    Edit,
+    /// Its own wake: late on a live clock.
+    Wake,
+}
+
+/// The outputs a fill issues into: the voice table and the MIDI queue.
+pub(crate) struct Out<'a> {
+    pub(crate) sounds: &'a mut Sounds,
+    pub(crate) midi: &'a mut Midi,
 }
 
 /// A number field.
@@ -234,6 +270,7 @@ impl Play {
         for (i, track) in items(args.first()).iter().enumerate() {
             let f = items(Some(track));
             let (length, loops) = (number(f.first()), number(f.get(1)));
+            let (offset, output) = (f.get(2).map_or(0.0, |v| number(Some(v))), text(f.get(3)));
             let label = format!("sequence {name}: track {}", i + 1);
             let why = if !(length.is_finite() && length > 0.0) {
                 Some(format!(
@@ -249,6 +286,12 @@ impl Play {
                     "it would loop more than {} times a second",
                     num(LOOPS_PER_SECOND)
                 ))
+            } else if !(offset.is_finite() && offset.abs() <= OFFSET_LIMIT) {
+                Some(format!(
+                    "its offset {} is not within {} ms",
+                    num(offset),
+                    num(OFFSET_LIMIT)
+                ))
             } else {
                 None
             };
@@ -259,11 +302,16 @@ impl Play {
             let steps = items(f.get(4))
                 .iter()
                 .enumerate()
-                .filter_map(|(j, s)| step(plan, s, length, &format!("{label} step {}", j + 1), log))
+                .filter_map(|(j, s)| {
+                    let label = format!("{label} step {}", j + 1);
+                    step(plan, s, length, &output, &label, log)
+                })
                 .collect();
             tracks.push(Track {
                 length,
                 loops,
+                offset,
+                output,
                 steps,
             });
         }
@@ -276,6 +324,7 @@ impl Play {
                         plan,
                         s,
                         -from,
+                        "",
                         &format!("sequence {name}: count-in step {}", j + 1),
                         log,
                     )
@@ -284,11 +333,21 @@ impl Play {
         } else {
             Vec::new()
         };
+        let mut clock_out = text(args.get(5));
+        if !clock_out.is_empty() && bpm * 24.0 / 60.0 > TICKS_PER_SECOND {
+            log.push(format!(
+                "sequence {name}: clock out dropped: bpm {} is more than {} ticks a second",
+                num(bpm),
+                num(TICKS_PER_SECOND)
+            ));
+            clock_out.clear();
+        }
         Ok(Play {
             tracks,
             bpm,
             from,
             count_in,
+            clock_out,
         })
     }
 
@@ -300,6 +359,10 @@ impl Play {
                 && a.iter().zip(b).all(|(a, b)| {
                     n(a.beat, b.beat)
                         && n(a.gain, b.gain)
+                        && n(a.note, b.note)
+                        && n(a.velocity, b.velocity)
+                        && n(a.channel, b.channel)
+                        && n(a.duration, b.duration)
                         && n(a.playback_rate, b.playback_rate)
                         && n(a.pan, b.pan)
                         && a.src == b.src
@@ -309,10 +372,15 @@ impl Play {
         };
         n(self.bpm, other.bpm)
             && n(self.from, other.from)
+            && self.clock_out == other.clock_out
             && steps(&self.count_in, &other.count_in)
             && self.tracks.len() == other.tracks.len()
             && self.tracks.iter().zip(&other.tracks).all(|(a, b)| {
-                n(a.length, b.length) && n(a.loops, b.loops) && steps(&a.steps, &b.steps)
+                n(a.length, b.length)
+                    && n(a.loops, b.loops)
+                    && n(a.offset, b.offset)
+                    && a.output == b.output
+                    && steps(&a.steps, &b.steps)
             })
     }
 
@@ -333,10 +401,12 @@ impl Play {
     fn hits(&self, seg: &Segment, from: f64, to: f64) -> Vec<Hit> {
         let mut out = Vec::new();
         for (j, s) in self.count_in.iter().enumerate() {
-            let at = seg.time(self.from + s.beat);
+            let beat = self.from + s.beat;
+            let at = seg.time(beat);
             if from <= at && at < to {
                 out.push(Hit {
                     at,
+                    beat,
                     track: 0,
                     step: j,
                 });
@@ -352,10 +422,12 @@ impl Play {
             }
             while k <= last {
                 for (j, s) in t.steps.iter().enumerate() {
-                    let at = seg.time(k * t.length + s.beat);
+                    let beat = k * t.length + s.beat;
+                    let at = seg.time(beat);
                     if from <= at && at < to {
                         out.push(Hit {
                             at,
+                            beat,
                             track: i + 1,
                             step: j,
                         });
@@ -380,15 +452,38 @@ impl Play {
             i => &self.tracks[i - 1].steps[hit.step],
         }
     }
+
+    /// A hit's track's offset and output (none for the count-in).
+    fn track(&self, hit: &Hit) -> (f64, &str) {
+        match hit.track {
+            0 => (0.0, ""),
+            i => (self.tracks[i - 1].offset, &self.tracks[i - 1].output),
+        }
+    }
 }
 
 /// One step read from its record, or why not (journaled); a step with no
-/// sample and no haptic plays nothing here and is left out unsaid.
-fn step(plan: &Plan, v: &Value, length: f64, label: &str, log: &mut Vec<String>) -> Option<Step> {
+/// sample, no note its track sends (`output`) and no haptic plays nothing
+/// here and is left out unsaid.
+fn step(
+    plan: &Plan,
+    v: &Value,
+    length: f64,
+    output: &str,
+    label: &str,
+    log: &mut Vec<String>,
+) -> Option<Step> {
     let f = items(Some(v));
     let beat = number(f.first());
     let src = text(f.get(1));
     let haptic = text(f.get(8));
+    let (note, velocity, channel, duration) = (
+        f.get(4).map_or(-1.0, |v| number(Some(v))),
+        number(f.get(5)),
+        number(f.get(6)),
+        number(f.get(7)),
+    );
+    let whole = |n: f64, low: f64, high: f64| n.fract() == 0.0 && (low..=high).contains(&n);
     let (gain, playback_rate, pan) = (
         number(f.get(2)),
         f.get(9).map_or(1.0, |v| number(Some(v))),
@@ -410,6 +505,17 @@ fn step(plan: &Plan, v: &Value, length: f64, label: &str, log: &mut Vec<String>)
         Some("playbackRate is not a number".into())
     } else if !src.is_empty() && !pan.is_finite() {
         Some("pan is not a number".into())
+    } else if note != -1.0 && !whole(note, 0.0, 127.0) {
+        Some(format!("note {} is not -1 or a MIDI note 0–127", num(note)))
+    } else if note != -1.0 && !whole(velocity, 1.0, 127.0) {
+        Some(format!("velocity {} is not 1–127", num(velocity)))
+    } else if note != -1.0 && !whole(channel, 0.0, 15.0) {
+        Some(format!("channel {} is not 0–15", num(channel)))
+    } else if note != -1.0 && !(duration.is_finite() && duration > 0.0) {
+        Some(format!(
+            "duration {} is not a positive number of beats",
+            num(duration)
+        ))
     } else {
         None
     };
@@ -417,7 +523,7 @@ fn step(plan: &Plan, v: &Value, length: f64, label: &str, log: &mut Vec<String>)
         log.push(format!("{label} dropped: {why}"));
         return None;
     }
-    if src.is_empty() && haptic.is_empty() {
+    if src.is_empty() && haptic.is_empty() && (note == -1.0 || output.is_empty()) {
         return None;
     }
     Some(Step {
@@ -425,6 +531,10 @@ fn step(plan: &Plan, v: &Value, length: f64, label: &str, log: &mut Vec<String>)
         src,
         gain,
         group: text(f.get(3)),
+        note: if output.is_empty() { -1.0 } else { note },
+        velocity,
+        channel,
+        duration,
         playback_rate,
         pan,
         haptic,
@@ -487,6 +597,8 @@ pub struct Transport {
     issued_to: f64,
     /// Hits at `issued_to` a fill already issued (it stopped at the cap).
     skip: usize,
+    /// Notes the value read could not send were journaled.
+    unsent_told: bool,
     refill_due: f64,
     phase_due: f64,
     ended_due: f64,
@@ -516,6 +628,7 @@ impl Transport {
             reason: "",
             issued_to: 0.0,
             skip: 0,
+            unsent_told: false,
             refill_due: f64::INFINITY,
             phase_due: f64::INFINITY,
             ended_due: f64::INFINITY,
@@ -569,6 +682,20 @@ impl Transport {
         (self.segments.iter(), self.recorded)
     }
 
+    /// The beat at `t` while a sequence plays, by the segment that holds
+    /// it; −1 while stopped (LLP 1125 D8, rulings #13).
+    pub fn beat_at(&self, t: f64) -> f64 {
+        if self.owner.is_none() {
+            return -1.0;
+        }
+        self.segments
+            .iter()
+            .rev()
+            .find(|g| g.at <= t)
+            .or(self.segments.front())
+            .map_or(-1.0, |g| g.beat_at(t))
+    }
+
     /// The soonest of its own wakes: a fill or the count-in's end.
     pub fn wake_due(&self) -> f64 {
         self.refill_due.min(self.phase_due)
@@ -584,7 +711,7 @@ impl Transport {
     pub(crate) fn stood(
         &mut self,
         plan: &Plan,
-        sounds: &mut Sounds,
+        out: &mut Out<'_>,
         t: f64,
         live: bool,
         seen: Vec<Seen>,
@@ -595,14 +722,17 @@ impl Transport {
             let rising = s.on && (!was_on || s.key != was_key);
             if self.owner == Some(i) {
                 if !s.on {
-                    self.stop(plan, sounds, t, "gate", log);
+                    self.stop(plan, out, t, "gate", log);
                 } else if s.key != was_key {
-                    sounds.batch(|so| so.retract_seq(t, log));
-                    self.arm(plan, sounds, i, t, live, s.args, log);
+                    // A restart: Stop, then Start at its new beat 0 (rulings #9).
+                    out.sounds.batch(|so| so.retract_seq(t, log));
+                    out.midi.retract_seq(t, log);
+                    out.midi.end_seq(t, log);
+                    self.arm(plan, out, i, t, live, s.args, log);
                 } else if self.raw.len() != s.args.len()
                     || !self.raw.iter().zip(&s.args).all(|(a, b)| same(a, b))
                 {
-                    self.edit(plan, sounds, t, live, s.args, log);
+                    self.edit(plan, out, t, live, s.args, log);
                 }
             } else if rising {
                 match self.owner {
@@ -611,7 +741,7 @@ impl Transport {
                         plan.str(plan.sequences[i].name),
                         plan.str(plan.sequences[o].name)
                     )),
-                    None => self.arm(plan, sounds, i, t, live, s.args, log),
+                    None => self.arm(plan, out, i, t, live, s.args, log),
                 }
             }
         }
@@ -621,7 +751,7 @@ impl Transport {
     fn arm(
         &mut self,
         plan: &Plan,
-        sounds: &mut Sounds,
+        out: &mut Out<'_>,
         i: usize,
         t: f64,
         live: bool,
@@ -635,7 +765,7 @@ impl Transport {
             Err(why) => {
                 log.push(format!("sequence {name} did not play: {why}"));
                 // A restart's: the one playing stops.
-                self.stop(plan, sounds, t, "bpm", log);
+                self.stop(plan, out, t, "bpm", log);
                 self.state = State::Stopped;
                 self.reason = "bpm";
                 return;
@@ -659,17 +789,20 @@ impl Transport {
             State::Playing
         };
         self.reason = "";
+        out.midi
+            .clock_to(&play.clock_out, (play.from * 24.0).ceil(), t, log);
         self.play = Some(play);
         self.issued_to = t;
         self.skip = 0;
+        self.unsent_told = false;
         self.timing(t);
-        self.fill(plan, sounds, t, live, log);
+        self.fill(plan, out, t, live, Fill::Arm, log);
     }
 
     fn edit(
         &mut self,
         plan: &Plan,
-        sounds: &mut Sounds,
+        out: &mut Out<'_>,
         t: f64,
         live: bool,
         args: Vec<Value>,
@@ -681,7 +814,7 @@ impl Transport {
             Ok(play) => play,
             Err(why) => {
                 log.push(format!("sequence {name}: {why}"));
-                return self.stop(plan, sounds, t, "bpm", log);
+                return self.stop(plan, out, t, "bpm", log);
             }
         };
         self.raw = args;
@@ -702,12 +835,16 @@ impl Transport {
         } else {
             log.push(format!("sequence {name} edited"));
         }
-        sounds.batch(|s| s.retract_seq(t, log));
+        out.sounds.batch(|s| s.retract_seq(t, log));
+        out.midi.retract_seq(t, log);
+        let first = (seg.beat_at(t) * 24.0).ceil();
+        out.midi.clock_to(&play.clock_out, first, t, log);
         self.play = Some(play);
         self.issued_to = t;
         self.skip = 0;
+        self.unsent_told = false;
         self.timing(t);
-        self.fill(plan, sounds, t, live, log);
+        self.fill(plan, out, t, live, Fill::Edit, log);
     }
 
     /// The count-in's end and the last track's, under the current segment.
@@ -741,7 +878,7 @@ impl Transport {
     pub(crate) fn stop(
         &mut self,
         plan: &Plan,
-        sounds: &mut Sounds,
+        out: &mut Out<'_>,
         t: f64,
         reason: &'static str,
         log: &mut Vec<String>,
@@ -751,7 +888,8 @@ impl Transport {
         };
         let name = plan.str(plan.sequences[i].name);
         log.push(format!("sequence {name} stopped ({reason})"));
-        sounds.batch(|s| s.stop_seq(t, name, log));
+        out.sounds.batch(|s| s.stop_seq(t, name, log));
+        out.midi.stop_seq(t, log);
         self.state = State::Stopped;
         self.reason = reason;
         self.play = None;
@@ -766,12 +904,12 @@ impl Transport {
     pub(crate) fn suspend(
         &mut self,
         plan: &Plan,
-        sounds: &mut Sounds,
+        out: &mut Out<'_>,
         t: f64,
         log: &mut Vec<String>,
     ) {
         if self.owner.is_some() {
-            self.stop(plan, sounds, t, "background", log);
+            self.stop(plan, out, t, "background", log);
         }
     }
 
@@ -780,12 +918,19 @@ impl Transport {
         self.owner.and_then(|i| plan.sequences[i].ended)
     }
 
-    /// The last finite track ended at `t`: stopped, with the `ended=`
-    /// action to run, if any.
-    pub(crate) fn end(&mut self, plan: &Plan, log: &mut Vec<String>) -> Option<ActionsId> {
+    /// The last finite track ended at `t`: stopped, clock out sent Stop,
+    /// with the `ended=` action to run, if any.
+    pub(crate) fn end(
+        &mut self,
+        plan: &Plan,
+        midi: &mut Midi,
+        t: f64,
+        log: &mut Vec<String>,
+    ) -> Option<ActionsId> {
         let i = self.owner.take()?;
         let row = &plan.sequences[i];
         log.push(format!("sequence {} ended", plan.str(row.name)));
+        midi.end_seq(t, log);
         self.state = State::Stopped;
         self.reason = "ended";
         self.play = None;
@@ -800,7 +945,7 @@ impl Transport {
     pub(crate) fn wake(
         &mut self,
         plan: &Plan,
-        sounds: &mut Sounds,
+        out: &mut Out<'_>,
         at: f64,
         live: bool,
         log: &mut Vec<String>,
@@ -810,19 +955,22 @@ impl Transport {
             self.state = State::Playing;
         }
         if self.refill_due <= at {
-            self.fill(plan, sounds, at, live, log);
+            self.fill(plan, out, at, live, Fill::Wake, log);
         }
     }
 
-    /// Issue the hits in `[issued_to, at + LOOKAHEAD)`. On a live clock a
-    /// hit more than [`REFILL`] past (a stall's) is skipped, and said once;
-    /// one less past starts now. Never on a seek.
+    /// Issue the hits in `[issued_to, at + LOOKAHEAD)`, and clock out's
+    /// ticks before its end. On a live clock an output more than [`REFILL`]
+    /// past at its own wake (a stall's) is skipped, and said once; one less
+    /// past starts now. Never on a seek. `how` places an output before `at`
+    /// (the module's rule).
     fn fill(
         &mut self,
         plan: &Plan,
-        sounds: &mut Sounds,
+        out: &mut Out<'_>,
         at: f64,
         live: bool,
+        how: Fill,
         log: &mut Vec<String>,
     ) {
         let (Some(seg), Some(i)) = (self.segments.back().copied(), self.owner) else {
@@ -854,44 +1002,94 @@ impl Transport {
         };
         let from = self.issued_to;
         let to = at + LOOKAHEAD;
+        let late_before = if live { at } else { f64::NEG_INFINITY };
+        let end = play.end_beat();
+        out.midi
+            .ticks(|b| seg.time(b), to, end, late_before, at, log);
         let mut hits = play.hits(&seg, from, to);
         let skip = std::mem::take(&mut self.skip);
         let skipped = hits.iter().take(skip).take_while(|h| h.at == from).count();
         hits.drain(..skipped);
-        let mut late = 0;
-        let full = sounds.batch(|s| {
+        let (mut late, mut unsent) = (0, None);
+        let midi = &mut *out.midi;
+        let full = out.sounds.batch(|s| {
             for (k, hit) in hits.iter().enumerate() {
-                // Only a stall's: a wake's own lateness (the blocked hit's
-                // wake runs just after its time) is no reason to skip.
-                if live && hit.at < at - REFILL {
-                    late += 1;
-                    continue;
-                }
+                let (offset, output) = play.track(hit);
+                // Where an output before `at` goes: played now at the arming,
+                // skipped at an edit, late at a stalled live wake.
+                let place = |when: f64, late: &mut usize| -> Option<f64> {
+                    if when >= at {
+                        Some(when)
+                    } else if how == Fill::Arm {
+                        Some(at)
+                    } else if how == Fill::Edit {
+                        None
+                    } else if live && when < at - REFILL {
+                        *late += 1;
+                        None
+                    } else {
+                        Some(when)
+                    }
+                };
                 let step = play.step(hit);
+                let when = hit.at + offset;
+                let mut counted = late;
                 if !step.src.is_empty() {
-                    let args = [
-                        Value::str(&step.src),
-                        Value::Number(hit.at),
-                        Value::Number(step.gain),
-                        Value::str(&step.group),
-                        Value::Number(step.playback_rate),
-                        Value::Number(step.pan),
-                    ];
-                    if s.issue(plan, at, &args, log) == Added::Full {
-                        return Some(k);
+                    if let Some(when) = place(when, &mut counted) {
+                        let args = [
+                            Value::str(&step.src),
+                            Value::Number(when),
+                            Value::Number(step.gain),
+                            Value::str(&step.group),
+                            Value::Number(step.playback_rate),
+                            Value::Number(step.pan),
+                        ];
+                        if s.issue(plan, at, &args, hit.at, log) == Added::Full {
+                            return Some(k);
+                        }
+                    }
+                }
+                if step.note >= 0.0 {
+                    let off = seg.time(hit.beat + step.duration) + offset;
+                    // At an edit a note within the hold was handed already.
+                    let skip = how == Fill::Edit && when - HOLD <= at;
+                    match place(when, &mut counted).filter(|_| !skip) {
+                        Some(on) if midi.can_send(output) => {
+                            let status = 0x90 | step.channel as u8;
+                            let data = [status, step.note as u8, step.velocity as u8];
+                            let queued = midi.note(output, data, on, off.max(on), hit.at, at, log);
+                            if queued == Queued::Full {
+                                return Some(k);
+                            }
+                        }
+                        Some(_) => {
+                            unsent.get_or_insert(output.to_string());
+                        }
+                        None => {}
                     }
                 }
                 if !step.haptic.is_empty() {
-                    s.issue_haptic(&step.haptic, hit.at, at, log);
+                    if let Some(when) = place(when, &mut counted) {
+                        s.issue_haptic(&step.haptic, when, hit.at, at, log);
+                    }
                 }
+                // A hit is late once, however many of its outputs were.
+                late += usize::from(counted > late);
             }
             None
         });
         if late > 0 {
-            log.push(format!(
-                "sequence {}: {late} steps late, skipped",
-                plan.str(plan.sequences[i].name)
-            ));
+            log.push(format!("sequence {name}: {late} steps late, skipped"));
+        }
+        if let Some(output) = unsent.filter(|_| !self.unsent_told) {
+            self.unsent_told = true;
+            let ports = out.midi.ports();
+            let why = if ports.access != crate::midi::Access::Granted {
+                format!("access is {}", ports.access.word())
+            } else {
+                format!("{output} is not a connected output")
+            };
+            log.push(format!("sequence {name}: notes not sent: {why}"));
         }
         match full {
             Some(k) => {
@@ -899,11 +1097,12 @@ impl Transport {
                 let before = hits[..k].iter().rev().take_while(|h| h.at == t).count();
                 self.issued_to = t;
                 self.skip = before + if t == from { skipped } else { 0 };
-                // WAITING voices wait: the first to start frees a place,
-                // and the blocked hit is due no later than its own time
-                // (then it no longer waits: taps far ahead do not starve it).
-                debug_assert!(sounds.waiting(at) >= WAITING);
-                self.refill_due = sounds.next_start(at).map_or(t, |s| s.min(t));
+                // WAITING voices or QUEUED messages wait: the first to start
+                // or be handed frees a place, and the blocked hit is due no
+                // later than its own time (then it no longer waits: taps far
+                // ahead do not starve it).
+                let freed = [out.sounds.next_start(at), out.midi.next_handed(at)];
+                self.refill_due = freed.into_iter().flatten().fold(t, f64::min);
             }
             None => {
                 self.issued_to = to;

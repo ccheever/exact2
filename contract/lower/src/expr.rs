@@ -54,6 +54,11 @@ pub fn command_args<'e>(name: &str, args: &'e [Expr]) -> Vec<Option<&'e Expr>> {
             .chain(["at", "gain", "group", "playbackRate", "pan"].map(named))
             .collect();
     }
+    // @ref LLP 1125 D7 — the output and the data, then `at` (`none` for now).
+    if name == "sendMIDI" {
+        let mut positional = args.iter().filter(|a| !matches!(a, Expr::NamedArg(..)));
+        return vec![positional.next(), positional.next(), named("at")];
+    }
     // The Web Share API's members, the Notification API's title and
     // options, and `stopSounds`' group, in a fixed order, `none` where the
     // author gave none.

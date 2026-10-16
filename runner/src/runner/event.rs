@@ -277,6 +277,9 @@ pub enum Event {
     /// `beforeunload`, studio diary R17): an action that calls
     /// `preventDefault()` keeps it open.
     Beforeunload,
+    /// A MIDI input's message (LLP 1125 D8): the runner dispatches it to
+    /// each element that hears its input; no host sends it as an event.
+    MidiMessage(super::midi::MidiMessage),
     /// A wheel's turn or a trackpad's scroll over the view (DOM's `wheel`);
     /// a pinch arrives as one with Control held, as on the web.
     Wheel(super::WheelEvent),
@@ -562,6 +565,7 @@ impl Event {
                 .value(),
             ),
             Event::Wheel(w) => Some(w.value()),
+            Event::MidiMessage(m) => Some(m.value()),
             Event::Drop(d) => Some(d.value()),
             Event::Resize(r) => Some(r.value()),
             Event::Intersect {
@@ -1081,6 +1085,7 @@ impl<D: DataSource> Runner<D> {
                 Event::Message(_) => "message",
                 Event::Contextmenu | Event::ContextmenuAt(_) => "contextmenu",
                 Event::Beforeunload => "beforeunload",
+                Event::MidiMessage(_) => "midimessage",
                 Event::Wheel(_) => "wheel",
                 Event::Drop(_) => "drop",
                 Event::Dblclick => "dblclick",
@@ -1255,6 +1260,7 @@ impl<D: DataSource> Runner<D> {
                 (EventKind::Contextmenu, None, "contextmenu")
             }
             Event::Beforeunload => (EventKind::Beforeunload, None, "beforeunload"),
+            Event::MidiMessage(_) => (EventKind::Midimessage, None, "midimessage"),
             Event::Wheel(_) => (EventKind::Wheel, None, "wheel"),
             Event::Drop(_) => (EventKind::Drop, None, "drop"),
             Event::Dblclick => (EventKind::Dblclick, None, "dblclick"),

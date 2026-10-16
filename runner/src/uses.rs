@@ -551,6 +551,34 @@ pub fn runs_sounds(plan: &Plan) -> bool {
         || runs_command(plan, &["playSound", "playSounds", "stopSounds"])
 }
 
+/// Whether `plan` asks for MIDI ports or hears an input (LLP 1125 D6–D8):
+/// it reads `exactMIDI`, runs `sendMIDI` or `requestMIDIAccess`, declares a
+/// `midimessage` handler, or plays a sequence with `clockOut=`. What loads a
+/// host's MIDI arm (rulings #10); a sequence's notes alone do not, since
+/// without access no note is sent.
+pub fn uses_midi(plan: &Plan) -> bool {
+    plan.resources
+        .iter()
+        .any(|r| plan.str(r.source) == crate::midi::SOURCE)
+        || runs_command(plan, &["sendMIDI", "requestMIDIAccess"])
+        || plan.nodes.iter().any(|n| {
+            n.handlers
+                .iter()
+                .any(|h| plan.handler(h).event == exact_plan::EventKind::Midimessage)
+        })
+        || plan
+            .sequences
+            .iter()
+            .any(|q| constant_str(plan, plan.code(q.clock_out)) != Some(""))
+}
+
+/// Whether the runner keeps a MIDI queue the agent shows (`state.midi`):
+/// for a plan that [`uses_midi`] or declares a sequence, whose notes and
+/// clock go on it. The JS target bundles midi.js then.
+pub fn keeps_midi(plan: &Plan) -> bool {
+    uses_midi(plan) || !plan.sequences.is_empty()
+}
+
 fn runs_command(plan: &Plan, names: &[&str]) -> bool {
     let mut runs = false;
     plan.each_code(&mut |code| {

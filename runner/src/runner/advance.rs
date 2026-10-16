@@ -272,7 +272,7 @@ impl<D: DataSource> Runner<D> {
                 .filter(|(_, at)| **at <= now_ms)
                 .min_by(|(ia, a), (ib, b)| a.partial_cmp(b).unwrap().then(ia.cmp(ib)))
                 .map(|(m, at)| (m, *at));
-            let answer = Some(self.transport.answer_due)
+            let answer = Some(self.transport.answer_due.min(self.midi.answer_due))
                 .filter(|at| *at <= now_ms && then.is_none_or(|(_, then)| *at < then));
             let then_at = answer.or(then.map(|(_, at)| at));
             let next = self
@@ -292,10 +292,16 @@ impl<D: DataSource> Runner<D> {
                     };
                 }
                 self.now_ms = self.now_ms.max(at);
-                self.transport.answer_due = f64::INFINITY;
-                let readers = self.transport.readers.clone();
                 let ticket = self.next_ticket;
-                match self.scheduled(at, |r| r.commit_again(readers, "transport")) {
+                // The transport's first at one time, then `exactMIDI`'s (LLP 1125 D6).
+                let answered = if self.transport.answer_due <= at {
+                    self.transport.answer_due = f64::INFINITY;
+                    let readers = self.transport.readers.clone();
+                    self.scheduled(at, |r| r.commit_again(readers, "transport"))
+                } else {
+                    self.scheduled(at, |r| r.midi_answered())
+                };
+                match answered {
                     Ok(receipt) => receipts.push(Timed {
                         at_ms: self.now_ms,
                         receipt,

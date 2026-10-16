@@ -17,6 +17,7 @@ pub mod lean;
 mod logic;
 mod manifest;
 mod map;
+mod midi;
 pub mod native;
 pub mod picker;
 mod resolve;
@@ -946,6 +947,13 @@ fn first_frame<D: DataSource>(
     answered: bool,
 ) -> Result<Runner<D>, BakeError> {
     use exact_runner::{delivery, page, transport, viewport};
+    fact_shape(
+        plan,
+        exact_runner::midi::SOURCE,
+        exact_runner::midi::FIELDS,
+        "bake-midi-field",
+    )?;
+    midi::shape(plan)?;
     fact_shape(
         plan,
         delivery::SOURCE,
