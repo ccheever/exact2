@@ -35,8 +35,11 @@ impl<D: DataSource> Presenter<D> {
         }
         match self.dev.as_mut().map(|dev| dev.poll()) {
             Some(Ok(Some(generation))) => {
-                // A newer generation waits its own second.
-                self.dev.as_mut().unwrap().held_since = None;
+                // A newer generation waits its own second; the poll fetching
+                // the held one again does not restart it.
+                if self.pending_dev.as_ref().map(|g| &g.identity) != Some(&generation.identity) {
+                    self.dev.as_mut().unwrap().held_since = None;
+                }
                 self.pending_dev = Some(generation);
             }
             Some(Err(error)) => eprintln!("exact url: {error}; keeping the running app"),

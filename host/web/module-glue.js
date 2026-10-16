@@ -247,18 +247,23 @@ export async function prepare(payload, admitted, id = nextId++) {
     // Ask parked answers again, one at a time, in the turn that delivered:
     // after a background delivery, and after any answer's own, which lands
     // the operation in flight and issues the next, perhaps a parked answer's
-    // (prelude.js `settle`: "asked again after each delivery", D3). Until a
-    // pass delivers nothing: one answer's delivery can make another's head.
+    // or a let-go chain's (prelude.js `settle`: "asked again after each
+    // delivery", D3). Until a pass delivers nothing: one delivery can make
+    // another owner's operation the head. Each pass that goes on delivered
+    // one, and there are as many as operations, so it ends.
     const resettle = async () => {
-      for (let pass = 0; parked.length && pass < 64; pass++) {
-        const waiting = parked, before = deliveries; parked = [];
+      for (;;) {
+        const before = deliveries;
+        if (owed.size) await finishLetGo(storage, owed, letGoHooks);
+        if (disposed) return;
+        const waiting = parked; parked = [];
         for (const p of waiting) {
           if (disposed) { p.done.reject(new Error('module environment disposed')); continue; }
           context = p.context;
           try { await proceed(JSON.parse(win.__exact_settle(String(p.answer.call))), p.request, p.done); }
           catch (error) { for (const drop of context?.early.values() ?? []) drop(); storage.retire(context?.owner); context = null; p.done.reject(error); }
         }
-        if (deliveries === before) break;
+        if (deliveries === before || !(parked.length || owed.size)) break;
       }
     };
     // One background round, as the runner's background ticket runs it: wait
@@ -317,7 +322,7 @@ export async function prepare(payload, admitted, id = nextId++) {
             const before = deliveries;
             await proceed(answer, request, done);
             // In a turn of its own, after this one: this answer replies now.
-            if (deliveries !== before && parked.length) { const again = tail.then(resettle); tail = again.catch(() => {}); }
+            if (deliveries !== before && (parked.length || owed.size)) { const again = tail.then(resettle); tail = again.catch(() => {}); }
             return done;
           } catch (error) { for (const drop of context?.early.values() ?? []) drop(); storage.retire(context?.owner); context = null; throw error; }
         });
