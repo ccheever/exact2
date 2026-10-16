@@ -42,7 +42,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, resolve } from 'node:path';
 import { closeSync, copyFileSync, cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
-import { evictArms } from './arms.mjs';
+import { evictArms, snapshotSources } from './arms.mjs';
 import { DOCUMENT_UTIS, executableName, ownDocumentType, HOST_DEV, checkModuleRoster, copyShaders, appleCargoClaims, awaitBuildOutput, cargoLibraryTarget, claimBuildOutput, appSourceKey, bakeOutput, buildBake, contractLast, bakeTarget, developmentBuildEnv, developmentURLScheme, gpuModules, hermesBundle, injectedProfiles, resolveApp, verifyBakeFiles } from '../../scripts/app.mjs';
 import { copyStaticTreeIfPresent, listAssets } from '../web/serve.mjs';
 import { startSweep } from '../../scripts/sweep.mjs';
@@ -87,8 +87,8 @@ const refuseMixedTargets = (cmd, args, output) => {
  * Swift link. Its output goes to `log` (nothing reads a pipe meanwhile);
  * `done` waits for it, says what it said, and refuses what runApple refuses.
  * `repeated` is a step the build runs again in the foreground, which then
- * says its own failure. A build that ends early stops it. */
-function startApple(cmd, args, log, opts = {}) {
+ * says its own failure. A build that ends early stops it. `authored` restores paths in the log (`snapshotSources`). */
+function startApple(cmd, args, log, { authored, ...opts } = {}) {
   const out = openSync(log, 'w');
   const child = spawn(cmd, args, { cwd: root, ...opts, stdio: ['ignore', out, out] });
   closeSync(out);
@@ -101,6 +101,7 @@ function startApple(cmd, args, log, opts = {}) {
   return { stop, async done({ repeated = false } = {}) {
     const r = await exited;
     process.removeListener('exit', stop);
+    if (authored) writeFileSync(log, authored(readFileSync(log, 'utf8')));
     if (repeated && r.status !== 0) return false;
     const output = readFileSync(log, 'utf8');
     process.stderr.write(output);
@@ -984,20 +985,20 @@ async function main(args) {
   } else {
     webArgs.push('-target', `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-macos${targets.macos}`);
   }
-  // Each arm is one Swift file, compiled once per source, arguments and
-  // compiler and kept in the scratch path (rebuilt every time, the two cost
-  // 93 s of every build at load 120). The host's own arms are shared by every
-  // app's build; an app's module artifact (`own`) stays in its own directory.
-  // Each is written under this process's name and renamed, since another
-  // app's build may compile the same arm at once. A cached arm is copied out
-  // at once and marked used, so another build's `evictArms` keeps it.
+  // An arm is compiled once per sources, arguments and compiler, and kept in the
+  // scratch path (rebuilt every time, two cost 93 s of a build at load 120): the
+  // host's are shared by every app's build, an app's module artifact (`own`)
+  // stays in its own directory. Each is written under this process's name and
+  // renamed, as another app's build may compile it at once; a cached one is
+  // copied out at once and marked used, so another build's `evictArms` keeps it.
+  const snapshot = snapshotSources(modules.apple, resolve(webBuildDir, 'module-sources')); if (modules.apple.length) console.log(`host/apple: the app's Swift modules compile as they are now (${modules.apple.length} copied); an edit from here on needs another build`);
   const arm = (args, source, built, extra = '', own = false, optional = false) => { // optional: placing a failed one answers its log's path
-    const key = createHash('sha256').update(JSON.stringify([args.map(a => a === built ? '<out>' : a), [].concat(source).map(f => readFileSync(f, 'utf8')), swiftc, extra])).digest('hex').slice(0, 16);
+    const key = createHash('sha256').update(JSON.stringify([args.map(a => a === built ? '<out>' : snapshot.key(a)), [].concat(source).map(f => readFileSync(f, 'utf8')), swiftc, extra])).digest('hex').slice(0, 16);
     const dir = resolve(own ? linkRoot : swiftBuildRoot, 'arms'), cached = resolve(dir, `${key}-${basename(built)}`);
     try { const now = new Date(); utimesSync(cached, now, now); copyFileSync(cached, built); return async () => true; } catch {} // none, or evicted meanwhile
     mkdirSync(dir, { recursive: true });
     const making = `${cached}.${process.pid}.tmp`;
-    const log = resolve(webBuildDir, `arm-${beside.length}.log`), compile = startApple('xcrun', args.map(a => a === built ? making : a), log);
+    const log = resolve(webBuildDir, `arm-${beside.length}.log`), compile = startApple('xcrun', args.map(a => a === built ? making : a), log, { authored: snapshot.authored });
     beside.push(compile);
     return async () => {
       if (!await compile.done({ repeated: optional })) return log;
@@ -1039,7 +1040,7 @@ async function main(args) {
   // from app.json `data` beside the glue (built, never committed).
   const dataKeys = resolve(linkRoot, `ExactDataKeys-${app.id}.swift`);
   if (modules.apple.length) writeDataKeys(app, dataKeys, ios ? 'ios' : 'macos');
-  const moduleSources = modules.apple.length ? [resolve(root, 'host/apple/modules/ExactNativeModule.swift'), dataKeys, ...modules.apple] : [];
+  const moduleSources = modules.apple.length ? [resolve(root, 'host/apple/modules/ExactNativeModule.swift'), dataKeys, ...snapshot.copies] : [];
   const modulesBuilt = moduleSources.length ? resolve(webBuildDir, modulesLoadName) : null;
   // The slice of each `modules/apple/*.xcframework` for this build, read
   // from the xcframework's own Info.plist (`AvailableLibraries`: platform,

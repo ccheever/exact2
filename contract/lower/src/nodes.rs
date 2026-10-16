@@ -408,8 +408,9 @@ impl Lowerer<'_> {
                 origins.resize(bindings.len(), Origin::Tag);
             }
         }
+        let mut native_font = button.as_ref().map(|b| b.native);
         if t.node_type == NodeType::TextInput {
-            self.field_appearance(tag, expanded, *span, &mut bindings)?;
+            native_font = Some(self.field_appearance(tag, expanded, *span, &mut bindings)?);
             if let Some(origins) = &mut origins {
                 origins.resize(bindings.len(), Origin::Tag);
             }
@@ -526,6 +527,42 @@ impl Lowerer<'_> {
                     bad.span(),
                 );
             }
+        }
+        if let Some(styles) = &mut self.text_styles {
+            let style = warnings::TextStyle {
+                native: native_font,
+                font: expanded
+                    .iter()
+                    .rev()
+                    .find(|a| matches!(a.name.as_str(), "font" | "font-size"))
+                    .cloned(),
+                layout: expanded
+                    .iter()
+                    .filter(|a| {
+                        matches!(
+                            a.name.as_str(),
+                            "width"
+                                | "min-width"
+                                | "max-width"
+                                | "display"
+                                | "position"
+                                | "flex"
+                                | "flex-basis"
+                                | "flex-grow"
+                                | "popover"
+                        )
+                    })
+                    .cloned()
+                    .collect(),
+            };
+            styles
+                .entry((*span, *instance, tag.clone()))
+                .and_modify(|known| {
+                    if known.as_ref() != Some(&style) {
+                        *known = None;
+                    }
+                })
+                .or_insert(Some(style));
         }
         let id = self.b.node(
             t.node_type as u8,

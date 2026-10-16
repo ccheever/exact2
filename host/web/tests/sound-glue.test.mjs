@@ -1,8 +1,9 @@
 // The web's output for the voice table (LLP 1096 D6, D7, §5), in Chrome,
 // Firefox and WebKit: sound-glue.js over an OfflineAudioContext at 48 kHz,
 // rendered and read back by frame, its runner time mapped through an output
-// timestamp the test supplies; the held voice of a `{0, 0}` timestamp; the
-// Audio Session API; and the drop before a user activation. Firefox and
+// timestamp the test supplies; a voice's playback rate and pan (LLP 1125
+// D10); the held voice of a `{0, 0}` timestamp; the Audio Session API; and the
+// drop before a user activation. Firefox and
 // WebKit come from Playwright (`bunx playwright@1.63.0 install firefox
 // webkit`), Chrome from the machine's; an engine that is missing is skipped.
 import { afterAll, test, expect } from 'bun:test';
@@ -26,9 +27,9 @@ const page = session => `<!doctype html><meta charset="utf-8"><div id="exact-roo
     for (let i = 0; i < frames; i++) b.setInt16(44 + 2 * i, Math.round(value * 32767), true);
     return b.buffer;
   };
-  // An output over an OfflineAudioContext of \`seconds\`, its timestamp \`stamp()\`, runner time 0 at 1000 ms.
-  window.offline = (seconds, files, stamp = () => ({ contextTime: 0, performanceTime: 1000 }), now = () => 1000) => {
-    const context = new OfflineAudioContext({ numberOfChannels: 1, length: 48000 * seconds, sampleRate: 48000 }), lines = [];
+  // An output over an OfflineAudioContext of \`seconds\` and \`channels\`, its timestamp \`stamp()\`, runner time 0 at 1000 ms.
+  window.offline = (seconds, files, stamp = () => ({ contextTime: 0, performanceTime: 1000 }), now = () => 1000, channels = 1) => {
+    const context = new OfflineAudioContext({ numberOfChannels: channels, length: 48000 * seconds, sampleRate: 48000 }), lines = [];
     const out = globalThis.exact.installSound({ files: Object.keys(files), log: l => lines.push(l), origin: () => 1000, context, timestamp: stamp, now, activated: () => true, fetchFile: src => Promise.resolve(files[src]) });
     return { out, context, lines };
   };
@@ -133,6 +134,42 @@ for (const engine of engines) {
       expect(got.late).toBe(0);
       expect(got.lateValue).toBeCloseTo(0.5, 3);
       expect(got.lateCount).toBe(1);
+      expect(got.lines).toEqual([]);
+    } finally { await b.close(); server.close(); }
+  }, 60_000);
+
+  engineTest[engine](`${engine}: a voice's playback rate shortens it and its pan places it`, async () => {
+    const b = await browser(engine);
+    if (!b) throw new Error(`${engine} did not launch`);
+    const server = await serve();
+    try {
+      const p = await b.newPage();
+      await p.goto(server.url);
+      await p.waitForFunction(() => window.ready);
+      const got = await p.evaluate(async () => {
+        const last = data => { for (let i = data.length - 1; i >= 0; i--) if (Math.abs(data[i]) > 1e-4) return i; return -1; };
+        // 4800 frames at twice the rate, from 250 ms: frames 12000 to 14400.
+        const r = offline(1, { 'assets/a.wav': wav(4800, 0.5) });
+        r.out.ops([{ op: 'play', id: 1, sound: 0, at: 250, gain: 1, playbackRate: 2 }]);
+        await decoded(r.out);
+        const rate = (await r.context.startRendering()).getChannelData(0);
+        // In stereo: hard left, half right (Web Audio's equal-power law for a mono input), and centred (no panner).
+        const s = offline(1, { 'assets/a.wav': wav(4800, 0.5) }, undefined, undefined, 2);
+        s.out.ops([{ op: 'play', id: 1, sound: 0, at: 100, gain: 1, pan: -1 }, { op: 'play', id: 2, sound: 0, at: 400, gain: 1, pan: 0.5 }, { op: 'play', id: 3, sound: 0, at: 700, gain: 1 }]);
+        await decoded(s.out);
+        const rendered = await s.context.startRendering(), left = rendered.getChannelData(0), right = rendered.getChannelData(1);
+        const frame = ms => 48 * ms + 100;
+        return { last: last(rate), first: rate.findIndex(x => Math.abs(x) > 1e-4), mid: rate[13000],
+          hardLeft: [left[frame(100)], right[frame(100)]], half: [left[frame(400)], right[frame(400)]], centre: [left[frame(700)], right[frame(700)]], lines: [...r.lines, ...s.lines] };
+      });
+      expect(got.first).toBe(12000);
+      expect(got.mid).toBeCloseTo(0.5, 3);
+      expect(Math.abs(got.last - 14399)).toBeLessThanOrEqual(2);
+      expect(got.hardLeft[0]).toBeCloseTo(0.5, 3);
+      expect(got.hardLeft[1]).toBeCloseTo(0, 3);
+      expect(got.half[0]).toBeCloseTo(0.5 * Math.cos(0.75 * Math.PI / 2), 3);
+      expect(got.half[1]).toBeCloseTo(0.5 * Math.sin(0.75 * Math.PI / 2), 3);
+      expect(got.centre).toEqual([expect.closeTo(0.5, 3), expect.closeTo(0.5, 3)]);
       expect(got.lines).toEqual([]);
     } finally { await b.close(); server.close(); }
   }, 60_000);

@@ -229,7 +229,7 @@ public final class ExactApp {
     /// connection.
     public func connect(_ url: String) {
         connection?.close()
-        connection = PlanURL.open(url, acceptProgram: { [weak self] program in
+        connection = PlanURL.open(url, program: devProgram, acceptProgram: { [weak self] program in
             guard let self else { return false }
             if let old = self.devProgram { return old == program }
             self.devProgram = program

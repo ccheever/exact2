@@ -265,7 +265,7 @@ test('action dialog commands keep modal focus and preserve bare close as window 
   try {
     const page = await browser.newPage();
     await page.setContent('<div id="exact-root"><button id="opener">Open</button><button id="outside">Outside</button><dialog id="form"><button id="first">First</button><button id="last">Last</button></dialog><div id="box"></div></div><dialog id="other"></dialog>');
-    const source = readFileSync(new URL('../../web-js/commands.js', import.meta.url), 'utf8').replace(/^import .*;$/m, '').replace('export const commands', 'const commands');
+    const source = readFileSync(new URL('../../web-js/commands.js', import.meta.url), 'utf8').replace(/^import .*$/gm, '').replace('export const commands', 'const commands');
     await page.addScriptTag({content: `${source}\nwindow.journal=[];window.quit=0;window.close=()=>quit++;window.hostCommands=commands(line=>journal.push(line));`});
     const glue = readFileSync(new URL('../glue.js', import.meta.url), 'utf8');
     const runtime = readFileSync(new URL('../../web-js/rt.js', import.meta.url), 'utf8');
@@ -276,7 +276,7 @@ test('action dialog commands keep modal focus and preserve bare close as window 
       ${glue.slice(glue.indexOf('function attach('), glue.indexOf('function viewFor('))}
       attach(el, 1, ['close']);
       const clock = {agent: true, now: 0, timers: []}, start = 0, Mutations = [], OnHooks = {}, Owner = null;
-      const onEnd = () => {};
+      const onEnd = () => {}; let Propagating = null;
       ${runtime.slice(runtime.indexOf('export function on('), runtime.indexOf('// Each event family')).replace('export function', 'function')}
       on(el, 'close', () => jsClosed.push(document.activeElement.id));
     })();`});

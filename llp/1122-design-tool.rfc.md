@@ -1021,3 +1021,44 @@ lands with or after the Tamber stage it needs.
 - **Known gap:** a reference whose target has modes the reference lacks gets no rows for them.
 
 T1 and T1a are complete.
+
+### T2, steps 1–3: the canvas, builds and pins, scrubs (`1943d781d`, `7c4e3dfca`, `029a3587c`; fill in the landed shas)
+
+- **The canvas** is one sandboxed `iframe` at `hello.page` (*1.3*, the dev loop's own origin, or
+  null with no loop), with phone, tablet and desktop sizes and "open in a tab". The dev loops'
+  HTML carries `frame-ancestors 'self' http://127.0.0.1:7740`. `'self'` is there because the
+  directive checks the whole ancestor chain, so an app framing its own pages needs it.
+- **Builds and pins:** the build list comes from the server, with each build's effective facts from
+  its status, and pinning, pinned or handing back by revision (`pinRevision`, *1.3*). Each build's
+  last refusal is listed (`unsupported`). The tool names itself on its long poll, so its pins hold
+  while it runs and are handed back about 35 s after it closes.
+- **Scrubs:** "Scrub live" sits beside Apply, an explicit choice and never the default. A
+  scrub opens on that button rather than on pressing a control, since no press reaches the tool.
+  - One frame is in flight at a time, the latest value.
+  - Keep (or letting go of a slider) writes once and is one undo step.
+  - Cancel and Escape wait for the server to let go, and leaving the edit cancels first.
+  - It is not offered for a rebuild edit or with no loop, and the tool says why.
+
+### T2's gate: met, the web page's structural reload tracked apart (2026-10-16; the run is `~/x2theme/t2-gate-run.txt`)
+
+The run was on the Bluesky clone, on the wasm loop with the tool driven in headless Chrome, plus
+the iOS simulator and the Mac.
+
+| Gate line | Result |
+|---|---|
+| The clone runs in the tool's frame and on the iOS simulator and the Mac | **Met.** |
+| A token or dial scrub, chosen explicitly, updates all three with no reload whenever `live` | **Met.** `primary_500`: about 0.6 s per preview, all three design digests moved, no reload, the file untouched until Keep wrote one line. |
+| A structural edit hot-reloads all three and keeps their slots | **Met on iOS and the Mac; not met on the web page.** The wasm page holds its generation while the app has requests pending, which was so before T2 (queued). |
+| A cancelled scrub restores every copy | **Met.** |
+| `pin` shows Dim on one copy, and the tool shows each copy's effective mode | **Met.** |
+| Closing the tool clears its pins on every build, and a reloaded build gets its pins back | **Met.** The pins were handed back 38 s after the tool closed. |
+| A report without the current nonce is refused | **Met** (403). |
+
+- **The lead's ruling:** the gate is met. The web page's structural reload is tracked as its own
+  fix (reload1, `~/x2theme/reload-brief.md`), which theme2 signs off when it comes.
+- **On the JS loop,** the clone's JS-target page busy-loops in headless Chrome (queued at stage 4).
+  Being same-site with the tool, it stalled the tool's renderer, so the live lines were driven over
+  the wire there, and they reached iOS and the Mac.
+- **Follow-ups before T2b:**
+  - frame the page at a different site (`localhost`), so a heavy app can't stall the tool;
+  - serialize the canvas host's refusal and status posts.

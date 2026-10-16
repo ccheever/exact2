@@ -162,6 +162,15 @@ function named(id, nodes, fallback) {
 /** Who a finding is about: a control's label by its control, a native view by its kind and text. */
 const who = (f, nodes) => f.of != null && f.text != null ? `${named(f.of, nodes)}'s label ${JSON.stringify(f.text)}` : named(f.id, nodes, f.name ? f.name + (f.text ? ` ${JSON.stringify(f.text)}` : '') : null);
 
+/** The entry of app.json's `verify.accept` that takes a finding as the app's design, or undefined: its kind, and the
+ *  testId of its node or of the control whose label it is (`node`; a non-empty prefix and one trailing `*` match a prefix:
+ *  a bare `*`, which the schema refuses too, matches nothing, so no entry accepts a kind everywhere). */
+export function accepts(entries, f, nodes) {
+  const ids = [f.id, f.of].map((id) => (id == null ? null : nodes.get(id)?.props?.testId)).filter((id) => id != null).map(String);
+  const takes = (node, id) => (/^[^*]+\*$/.test(node) ? id.startsWith(node.slice(0, -1)) : !node.includes('*') && id === node);
+  return entries.find((e) => e.finding === f.kind && ids.some((id) => takes(String(e.node), id)));
+}
+
 /** One line a finding. */
 function line(f, nodes) {
   const box = `[${f.box[0]},${f.box[1]} ${f.box[2]}×${f.box[3]}]`, d = f.detail;
@@ -187,10 +196,11 @@ function advise(a, width, nodes) {
 }
 
 /** The text a check prints: per scheme, its findings (at most SHOWN, then a count), or one line saying there are none; then its advice. */
-export function report(runs, nodes, host) {
+export function report(runs, trees, host) {
   const out = [];
-  for (const run of runs) {
-    const head = `check ${host} · ${run.scheme}${run.asked && run.asked !== run.scheme ? ` (asked ${run.asked}: the app keeps its own scheme)` : ''}`;
+  for (const [i, run] of runs.entries()) {
+    const nodes = trees[i];
+    const head = `check ${host} · ${run.scheme}${run.asked && run.asked !== run.scheme ? ` (asked ${run.asked}: the app keeps its own scheme)` : ''}${run.accepted?.length ? ` (${run.accepted.length} accepted)` : ''}`;
     if (!run.findings.length) out.push(`${head}: no findings (text fits, nothing covered or overlapping, targets ≥ ${run.target}, no horizontal overflow, contrast ≥ 4.5:1 or 3:1 large, cards show)`);
     else {
       out.push(`${head}: ${run.findings.length} finding${run.findings.length === 1 ? '' : 's'}`);
@@ -203,15 +213,16 @@ export function report(runs, nodes, host) {
 }
 
 /** `check [light|dark|both]` on a session: the host's observation and a capture under each scheme asked, judged; the scheme is put back.
- *  `shots(viewport, scheme)` names a file to keep each capture in (verify's), else they go with the check. */
-export async function checkOp(s, args = [], { shots } = {}) {
+ *  `shots(viewport, scheme)` names a file to keep each capture in (verify's), else they go with the check. A finding an
+ *  entry of `accept` (app.json `verify.accept`) takes is the run's `accepted`, each with its line and the entry, not a finding. */
+export async function checkOp(s, args = [], { shots, accept = [] } = {}) {
   const word = args[0] ?? 'current';
   if (!['current', 'light', 'dark', 'both'].includes(word) || args.length > 1) throw new MalformedOperation('check [light|dark|both]: the presented screen, judged in text; `check dark` under prefers-color-scheme dark, `check both` under each');
   if (!['web', 'ios', 'host-ios'].includes(s.host)) throw new Error(`check: the web and iOS hosts carry it, not ${s.host}`);
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-check-'));
   const first = await s.op({ op: 'check' });
   const asked = word === 'both' ? ['light', 'dark'] : word === 'current' ? [first.scheme] : [word];
-  const runs = [];
+  const runs = [], trees = [];
   let preferred = null;
   try {
     for (const scheme of asked) {
@@ -221,6 +232,8 @@ export async function checkOp(s, args = [], { shots } = {}) {
       const taken = await s.carrier.screenshot(path, obs.capture?.window === true); // iOS observes in the window's points: a sheet is not in the viewport's picture
       const png = decodePng(readFileSync(path));
       runs.push({ scheme: obs.scheme, asked: scheme, target: obs.target, viewport: obs.viewport, findings: judge(obs, png, { host: s.host === 'web' ? 'web' : 'ios' }), ...(obs.advice ? { advice: obs.advice } : {}) });
+      // The tree as this scheme shows it: a view only one scheme shows is named, and accepted, by its own testId.
+      trees.push(new Map(((await s.op({ op: 'tree' })).nodes ?? []).map((n) => [n.id, n])));
       // A capture kept for a person or an agent to look at is a pixel a point once judged, as `agent`'s are: a third of an iPhone's pixels each way.
       if (shots && taken?.scale > 1) writeFileSync(path, encodePng(shrink(png, Math.round(png.width / taken.scale), Math.round(png.height / taken.scale))));
     }
@@ -228,7 +241,17 @@ export async function checkOp(s, args = [], { shots } = {}) {
     if (preferred && preferred !== first.scheme) await s.prefer({ 'prefers-color-scheme': first.scheme }).catch(() => {});
     rmSync(dir, { recursive: true, force: true });
   }
-  const nodes = new Map(((await s.op({ op: 'tree' })).nodes ?? []).map((n) => [n.id, n]));
-  const runsOut = runs.map((r) => ({ ...r, findings: r.findings.map((f) => ({ ...f, node: who(f, nodes) })) }));
-  return s.tagged({ check: runsOut, text: report(runs, nodes, s.host) });
+  return s.tagged(settle(runs, trees, accept, s.host));
+}
+
+/** The runs judged, each against the tree its own scheme showed (`trees[i]`): what `accept` takes is the run's `accepted`, each
+ *  with its line and the entry; every finding is named. `{check, text}`, as `check` replies. */
+export function settle(runs, trees, accept, host) {
+  for (const [n, r] of runs.entries()) {
+    const nodes = trees[n], taken = r.findings.map((f) => accepts(accept, f, nodes));
+    r.accepted = r.findings.flatMap((f, i) => (taken[i] ? [{ ...f, line: `${line({ ...f, hint: undefined }, nodes)}; accepted: ${taken[i].why}`, accept: taken[i] }] : []));
+    r.findings = r.findings.filter((_, i) => !taken[i]);
+  }
+  const named = (fs, nodes) => fs.map((f) => ({ ...f, node: who(f, nodes) }));
+  return { check: runs.map((r, i) => ({ ...r, findings: named(r.findings, trees[i]), accepted: named(r.accepted, trees[i]) })), text: report(runs, trees, host) };
 }

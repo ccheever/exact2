@@ -120,6 +120,7 @@ pub(crate) struct Lowerer<'a> {
     /// The app's theme, resolved (LLP 1095 D4).
     pub theme: Vec<theme::ThemeEntry>,
     sites: Option<Sites>,
+    text_styles: Option<&'a mut warnings::TextStyles>,
     pub types: &'a Types,
     pub root: &'a contract_syntax::Component,
     pub ty_ids: BTreeMap<String, TypesId>,
@@ -202,7 +203,7 @@ pub fn lower(
     _analysis: &Analysis,
     asset_root: Option<&Path>,
 ) -> Result<Plan, LowerError> {
-    lower_with_sites(checked, _analysis, asset_root, false, Profile::Web)
+    lower_with_sites(checked, _analysis, asset_root, false, Profile::Web, None)
         .map(|(plan, _)| plan)
         .map_err(|mut all| all.swap_remove(0))
 }
@@ -210,13 +211,15 @@ pub fn lower(
 /// Lower, reporting every independent refusal: each element and each of its
 /// attributes is lowered whatever its siblings' fate (at most
 /// [`MAX_REFUSALS`]). `mapped` also returns the development source sites;
-/// `profile` is the surface the plan is for.
+/// `profile` is the surface the plan is for. `warned` collects diagnostics using
+/// the same control appearance decisions as the plan.
 pub fn lower_all(
     checked: &Checked<'_>,
     analysis: &Analysis,
     asset_root: Option<&Path>,
     mapped: bool,
     profile: Profile,
+    warned: Option<&mut Vec<LowerError>>,
 ) -> Result<(Plan, Option<Sites>), Vec<LowerError>> {
     if mapped && checked.expanded.instances.is_empty() {
         return Err(vec![LowerError {
@@ -225,7 +228,19 @@ pub fn lower_all(
             span: checked.expanded.root.span,
         }]);
     }
-    lower_with_sites(checked, analysis, asset_root, mapped, profile)
+    let mut text_styles = warnings::TextStyles::new();
+    let result = lower_with_sites(
+        checked,
+        analysis,
+        asset_root,
+        mapped,
+        profile,
+        warned.as_ref().map(|_| &mut text_styles),
+    );
+    if let Some(out) = warned {
+        out.extend(warnings::with_text_styles(checked, &text_styles));
+    }
+    result
 }
 
 fn lower_with_sites(
@@ -234,6 +249,7 @@ fn lower_with_sites(
     asset_root: Option<&Path>,
     capture_sites: bool,
     profile: Profile,
+    text_styles: Option<&mut warnings::TextStyles>,
 ) -> Result<(Plan, Option<Sites>), Vec<LowerError>> {
     // Keep the exact expansion whose root and row slots inference checked.
     let Checked {
@@ -253,6 +269,7 @@ fn lower_with_sites(
         b: PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, compiler_identity()),
         theme: Vec::new(),
         sites: capture_sites.then(|| Sites::declared(ex)),
+        text_styles,
         types,
         root,
         ty_ids: BTreeMap::new(),

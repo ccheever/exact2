@@ -484,7 +484,7 @@ fn refusals_name_what_the_author_wrote_and_suggest_one_repair() {
             "expected an expression, found `{`; Contract has no `{…}`: a handler names an action (`press=add`, `press=add(item)`) and a value is written directly (`width=10`)",
         ),
         // The app farm's guesses (round 1): a tag, a count, a placeholder.
-        (app("", "heading \"T\""), "lower-unknown-tag", "unknown tag `heading`; a heading is `text role=\"heading\" aria-level=1` (2 and on for the level)"),
+        (app("", "heading \"T\""), "lower-unknown-tag", "unknown tag `heading`; a heading is `h1` (to `h6` for the level)"),
         (app("", "table"), "lower-unknown-tag", "unknown tag `table`; a table or grid is `view display=\"grid\"` with `grid-template-columns`, or a `column` of `row`s"),
         (app("  state xs = [1]\n", "text count(xs).toString()"), "type-refused-idiom", "write `x.length`, of text or of a list"),
         (app("  state xs = [1]\n", "text xs.size.toString()"), "type-not-a-record", "`number[]` has no fields: write `x.length`, of text or of a list"),

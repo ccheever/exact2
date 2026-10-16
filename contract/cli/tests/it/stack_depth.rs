@@ -322,6 +322,7 @@ fn probe_view_pass_on_a_small_stack() {
                         None,
                         false,
                         contract_lower::Profile::Web,
+                        None,
                     )
                     .unwrap();
                 });
@@ -334,6 +335,7 @@ fn probe_view_pass_on_a_small_stack() {
                     None,
                     false,
                     contract_lower::Profile::Web,
+                    None,
                 )
                 .unwrap()
                 .0;

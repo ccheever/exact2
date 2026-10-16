@@ -48,6 +48,7 @@ mod lift;
 pub(crate) mod look;
 mod native;
 pub(crate) mod neutral;
+pub(crate) mod numerals;
 pub use native::NativeKind;
 mod order;
 mod placed;
@@ -540,6 +541,8 @@ pub struct Painter {
     svg_layers: Vec<(ViewId, Presented)>,
     /// How many boxes the last walk painted: the next one's room.
     boxes_hint: usize,
+    /// Numeric text rolling (LLP 1077 D15), and the clock it rolls by.
+    pub(crate) numerals: numerals::Numerals,
 }
 
 // O(painted owners) references and numeric publication metadata, not copied
@@ -639,6 +642,7 @@ impl Painter {
             rows: Default::default(),
             boxes_hint: 0,
             svg_layers: Vec::new(),
+            numerals: Default::default(),
         }
     }
 
@@ -855,6 +859,7 @@ impl Painter {
         }
         // Publication is the ownership boundary. On Err the previous accepted
         // set remains intact; candidate leases simply unwind with `walk`.
+        self.numerals.painted();
         if finished.is_ok() {
             self.accepted_text = walk.text;
         } else {

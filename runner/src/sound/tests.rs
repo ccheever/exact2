@@ -1,6 +1,7 @@
 //! The voice table through a runner (LLP 1096 §5): retrigger, past starts,
 //! groups by start time, stops, the bound, drops, a refused commit, reload,
-//! the seek rule, no wake, and the record.
+//! the seek rule, no wake, and the record; a voice's playback rate and pan
+//! (LLP 1125 D10).
 
 use crate::sound::{By, SoundOp, Voice};
 use crate::{DataError, DataSource, Runner};
@@ -17,16 +18,27 @@ shape Hit
   gain: number
   group: string
 
+shape Tape
+  src: string
+  at: number
+  gain: number
+  group: string
+  playbackRate: number
+  pan: number
+
 component Kit
   state n = 0
   state ahead = 0
   resource hits = hits(n) as shape Hit[]
+  resource tapes = tapes(n) as shape Tape[]
   action three
     playSound("assets/kick.wav")
     playSound("assets/kick.wav")
     playSound("assets/kick.wav")
   action list
     playSounds(hits)
+  action tapeList
+    playSounds(tapes)
   action past
     playSound("assets/kick.wav", at=performanceNow() - 10)
   action computed(s: string, a: number, g: number)
@@ -46,6 +58,10 @@ component Kit
     n = 99
   action again
     reload()
+  action tape(rate: number, pan: number)
+    playSound("assets/kick.wav", playbackRate=rate == -1 ? 0 / 0 : rate, pan=pan == -9 ? 1 / 0 : pan)
+  action slowHat(ms: number)
+    playSound("assets/hat.wav", at=performanceNow() + ms, group="hat", playbackRate=0.5, pan=0.25)
   action window
     playSounds(hits)
     ahead = performanceNow() + 100
@@ -63,11 +79,28 @@ struct Kit {
 
 impl DataSource for Kit {
     fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
-        assert_eq!(source, "hits");
         let n = match args.first() {
             Some(Value::Number(n)) => *n,
             _ => 0.0,
         };
+        // A tape: the kit's hit with a rate and a pan, 2 and 0.5 (LLP 1125 D10).
+        if source == "tapes" {
+            return Ok(Value::list(
+                (0..n as usize)
+                    .map(|i| {
+                        Value::record(vec![
+                            Value::str("assets/kick.wav"),
+                            Value::Number(100.0 * i as f64),
+                            Value::Number(1.0),
+                            Value::str(""),
+                            Value::Number(2.0),
+                            Value::Number(0.5),
+                        ])
+                    })
+                    .collect(),
+            ));
+        }
+        assert_eq!(source, "hits");
         if n == 99.0 {
             return Ok(Value::str("not a list"));
         }
@@ -194,7 +227,7 @@ fn every_call_is_a_new_voice() {
     let ops = r.take_sounds();
     assert_eq!(ops.len(), 3);
     assert!(
-        matches!(ops[1], SoundOp::Play { id: 2, sound: 1, at, gain } if at == 50.0 && gain == 1.0)
+        matches!(ops[1], SoundOp::Play { id: 2, sound: 1, at, gain, playback_rate, pan, .. } if at == 50.0 && gain == 1.0 && playback_rate == 1.0 && pan == 0.0)
     );
 }
 
@@ -394,4 +427,86 @@ fn the_record_keeps_1024_voices_and_counts_what_it_let_go() {
     assert!(state.contains("\"recorded\":1024"), "{}", &state[..200]);
     let shown = crate::agent::handle(&r, r#"{"op":"state"}"#);
     assert_eq!(shown.matches("\"src\":").count(), 64);
+}
+
+#[test]
+fn a_playback_rate_moves_the_end_as_on_tape_and_pan_rides_along() {
+    let mut r = boot();
+    let tape = |r: &mut Runner<Kit>, rate: f64, pan: f64| {
+        r.act("tape", vec![Value::Number(rate), Value::Number(pan)])
+            .unwrap();
+    };
+    // The 250 ms kick at twice the rate lasts 125 ms; at half, 500.
+    tape(&mut r, 2.0, -0.5);
+    tape(&mut r, 0.5, 0.0);
+    // A computed rate or pan outside its range is clamped before it is stored.
+    tape(&mut r, 10.0, -3.0);
+    tape(&mut r, 0.0, 2.0);
+    let v = voices(&r);
+    let got: Vec<(f64, f64, f64)> = v.iter().map(|v| (v.playback_rate, v.pan, v.ends)).collect();
+    assert_eq!(
+        got,
+        [
+            (2.0, -0.5, 125.0),
+            (0.5, 0.0, 500.0),
+            (4.0, -1.0, 62.5),
+            (0.25, 1.0, 1000.0)
+        ]
+    );
+    let lines = journal(&r);
+    for want in [
+        "sound 1 assets/kick.wav at 0 gain 1 playbackRate 2 pan -0.5",
+        "sound 2 assets/kick.wav at 0 gain 1 playbackRate 0.5",
+        "sound 3 assets/kick.wav at 0 gain 1 playbackRate 4 pan -1",
+    ] {
+        assert!(lines.iter().any(|l| l == want), "{want}: {lines:?}");
+    }
+    let ops = r.take_sounds();
+    assert!(matches!(
+        ops[0],
+        SoundOp::Play { id: 1, playback_rate, pan, .. } if playback_rate == 2.0 && pan == -0.5
+    ));
+    // Non-finite: the voice is dropped and the commit stands.
+    tape(&mut r, -1.0, 0.0);
+    tape(&mut r, 1.0, -9.0);
+    assert_eq!(voices(&r).len(), 4);
+    let lines = journal(&r);
+    for want in [
+        "sound dropped: playbackRate is not a number (assets/kick.wav)",
+        "sound dropped: pan is not a number (assets/kick.wav)",
+    ] {
+        assert!(lines.iter().any(|l| l == want), "{want}: {lines:?}");
+    }
+    // `state.sounds` names the rate and pan only when they are not 1 and 0.
+    let state = crate::agent::handle(&r, r#"{"op":"state","sounds":"all"}"#);
+    assert!(
+        state.contains(r#""group":null,"playbackRate":2,"pan":-0.5,"ends":125,"#),
+        "{state}"
+    );
+    assert!(
+        state.contains(r#""group":null,"playbackRate":0.5,"ends":500,"#),
+        "{state}"
+    );
+    // A hit's shape may carry the rate and pan after its group.
+    let mut r = boot_with(SOURCE, 2.0);
+    r.act("tapeList", vec![]).unwrap();
+    let got: Vec<(f64, f64, f64)> = voices(&r)
+        .iter()
+        .map(|v| (v.playback_rate, v.pan, v.ends))
+        .collect();
+    assert_eq!(got, [(2.0, 0.5, 125.0), (2.0, 0.5, 225.0)]);
+}
+
+#[test]
+fn a_group_cuts_at_the_end_a_rate_gives() {
+    let mut r = boot();
+    // The 100 ms hat at half the rate would ring to 200; the next hat at 150 cuts it.
+    r.act("slowHat", vec![Value::Number(0.0)]).unwrap();
+    assert_eq!(ends(&r), [(1, 200.0, By::End)]);
+    r.act("hat", vec![Value::Number(150.0)]).unwrap();
+    assert_eq!(ends(&r)[0], (1, 150.0, By::Group));
+    // One at 250 starts after the slow hat's end: nothing to cut.
+    r.act("slowHat", vec![Value::Number(250.0)]).unwrap();
+    r.act("hat", vec![Value::Number(460.0)]).unwrap();
+    assert_eq!(ends(&r)[2], (3, 450.0, By::End));
 }

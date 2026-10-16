@@ -579,13 +579,15 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
             // source matching every clause given, or none; a dropped call is not a voice.
             case 'expect-sound': {
               const sounds = (await s.state(undefined, undefined, false, false, { sounds: 'all' })).sounds;
-              const clauses = ['at', 'gain', 'ends', 'by'].filter((k) => st[k] != null), said = clauses.map((k) => ` ${k} ${st[k]}`).join('');
+              const clauses = ['at', 'gain', 'ends', 'playbackRate', 'pan', 'by'].filter((k) => st[k] != null), said = clauses.map((k) => ` ${k} ${st[k]}`).join('');
+              // `state.sounds` names a voice's rate and pan only when not 1 and 0 (LLP 1125 D10).
+              const field = (v, k) => v[k] ?? { playbackRate: 1, pan: 0 }[k];
               if (!sounds) { failures.push(`${at}: the app declares no sound, so the runner keeps no voice table`); break; }
               const first = sounds.voices[0]?.at ?? Infinity;
               if (sounds.evicted > 0 && (st.at != null ? st.at < first : !st.present)) { failures.push(`${at}: voices before t=${first} are no longer recorded (the record keeps the last ${sounds.recorded})`); break; }
-              const found = sounds.voices.some((v) => v.src === st.src && clauses.every((k) => v[k] === st[k]));
+              const found = sounds.voices.some((v) => v.src === st.src && clauses.every((k) => field(v, k) === st[k]));
               if (found !== st.present) {
-                const of = sounds.voices.filter((v) => v.src === st.src).slice(-8).map((v) => `#${v.id} at ${v.at} gain ${v.gain} ends ${v.ends} by ${v.by}`);
+                const of = sounds.voices.filter((v) => v.src === st.src).slice(-8).map((v) => `#${v.id} at ${v.at} gain ${v.gain}${v.playbackRate != null ? ` playbackRate ${v.playbackRate}` : ''}${v.pan != null ? ` pan ${v.pan}` : ''} ends ${v.ends} by ${v.by}`);
                 // A voice is recorded by the commit that issued it: no clock hint applies.
                 failures.push(`${at}: expected ${st.present ? 'a' : 'no'} voice of "${st.src}"${said}; ${of.length ? `its voices: ${of.join('; ')}` : 'it has no voice'}`);
               }

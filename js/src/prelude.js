@@ -1156,9 +1156,8 @@
     // flight is its own (an unawaited POST), and it claims it whoever else
     // is pending. One made only after it finished ran in a continuation it
     // settled for another answer: with another answer in flight, which may
-    // be that one, it is left to it (review r4a, finding 1); with none, it
-    // waits for the fetch itself. Either way nothing is left behind (Grok's
-    // batch 2 review).
+    // be that one, it is left to it; with none, it waits for the fetch
+    // itself. Either way nothing is left behind.
     var finished = call.status === "done" || call.status === "failed", others = false;
     if (finished && moduleWide) calls.forEach(function (c) { if (c !== call && !c.letGo && c.status === "pending") others = true; });
     for (var i = 0; i < call.tickets.length; i++) {
@@ -1236,7 +1235,8 @@
           throw new Error("native.call() called from background work: it was never run. Call it inside an answer");
         }
         if (!currentCall || currentCall.status !== "pending") throw new Error("native call outside an answer");
-        return JSON.parse(host(6, "call", JSON.stringify(request)));
+        try { return JSON.parse(host(6, "call", JSON.stringify(request))); } // at bake, no module: storage's refusal (LLP 1067 D4)
+        catch (e) { throw e && e.message === "bake" ? storageError("native.call() is unavailable during bake: the build links no native module", "bake") : e; }
       };
       // Null only where no module can be (a page with no page module). Else an
       // object; whether a module is linked is the device's fact, not the

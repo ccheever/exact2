@@ -5,7 +5,8 @@ UIKit's bars, `check` light and dark on the first screen and where each test end
 relaunch ([tests](tests.md#before-you-call-it-done)). A clean `verify ios` is done. `verify ios`,
 `test ios` and `agent ios` build first when the build is missing or older than its sources (log
 `.exact/ios-build.log`). The first build takes minutes, so start it early with `--prebuild`: it
-returns at once and a drive started meanwhile waits for it.
+returns at once and a drive started meanwhile waits for it. Keep editing: it builds the Swift as
+it was; the next drive builds the edit.
 
 An edit to only `.contract` files or what `app.ts` imports reaches iOS in seconds, with no native
 rebuild: the drive bakes the new plan and runs it on the build you have (a bake error fails it,
@@ -22,13 +23,13 @@ bun exact.mjs agent ios --storage s1 "tap add-item" "clock settle" \
 
 | Flag or op | What it does |
 | --- | --- |
-| `check`, `check dark`, `check both` | What is wrong with the screen, one line each: clipped text, a control covered (a bar, the keyboard, a sheet) or overlapping, a target under 44 pt, a view past the screen's side, low contrast, a card that does not show. |
-| `--chrome agent` | Opt-in: paints the authored header and tablist. `exact.mjs` drives with UIKit's bars, as the app shows them. |
-| `--scale 3` | Screenshots at the device's pixels; `agent` takes 1 pixel a point (402×874). |
-| `screenshot <file> window` | The whole screen, bars included; a plain one is the window's too while an alert or sheet is up. |
-| `clock settle` | Ends a push's, sheet's or alert's transition: after opening or closing one, and before tapping inside an alert. |
-| `--timing platform`, `--touch platform` | UIKit's own transition timing (default: frozen); every tap and drag a real touch through XCTest, aimed where UIKit draws the target. |
-| `--sim <udid\|name>` (`EXACT_SIM`), `--device`, `--phone <udid\|name>` | Which simulator (default: the booted one the app is on), or a connected iPhone after `bun exact.mjs ios --device`. |
+| `check`, `check dark`, `check both` | What is wrong with the screen, one line each: clipped text, a control covered (a bar, the keyboard) or overlapping, a target under 44 pt, a view past the screen's edge, low contrast, a card that doesn't show. |
+| `--chrome agent` | Opt-in: paints the authored header and tablist; else the drive has UIKit's bars. |
+| `--scale 3` | Screenshots at the device's pixels; else 1 pixel a point (402×874). |
+| `screenshot <file> window` | The whole screen, bars included (a plain one too while an alert or sheet is up). |
+| `clock settle` | Ends a push's, sheet's or alert's transition: after opening or closing one, before tapping in an alert. |
+| `--timing platform`, `--touch platform` | UIKit's own transition timing (default: frozen); every tap and drag a real touch through XCTest, at where UIKit draws the target. |
+| `--sim <udid\|name>` (`EXACT_SIM`), `--device`, `--phone <udid\|name>` | Which simulator (default: the booted one with the app), or a connected iPhone after `bun exact.mjs ios --device`. |
 
 - Drive by `testId`, never by coordinates; on a bar button, the search field, a segment or a tab
   it is the `accessibilityIdentifier`.

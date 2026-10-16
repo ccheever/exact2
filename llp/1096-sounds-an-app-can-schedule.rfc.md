@@ -1096,8 +1096,9 @@ Each commit passes the five checks.
 - **`stopSounds(at=)`, fades, gain automation.** Both outputs could do them
   at the sample (Web Audio's `stop(when)` and `setValueAtTime`; the mixer's
   end frame). Needs a consumer, such as a stop at the bar's end or a fade.
-- **Pitch and rate, pan, loops.** Needs a consumer that a WAV per variant
-  cannot serve.
+- **Loops.** Needs a consumer that a WAV per variant cannot serve. (Pitch
+  and rate, and pan, were deferred here too; LLP 1125 D10 adds them as
+  `playbackRate=` and `pan=`.)
 - **Synthesis** (snake F1's `playTone(frequency, ms)`, an `OscillatorNode`).
   A declared WAV beep serves F1. Needs a tone whose parameters come from
   state.

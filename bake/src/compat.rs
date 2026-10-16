@@ -217,8 +217,9 @@ fn commands_digest() -> String {
         let shape = match *name {
             "share" => "3",
             "showNotification" => "5",
-            "closeNotification" | "stopSounds" | "playSounds" => "1",
-            "playSound" => "4",
+            "closeNotification" | "stopSounds" => "1",
+            "playSounds" => "1:4|5|6",
+            "playSound" => "6",
             "scrollIntoView" => "4|7",
             "saveFile" => "3|4",
             _ => "positional",
@@ -705,8 +706,9 @@ mod tests {
                 let shape = match *name {
                     "share" => "3",
                     "showNotification" => "5",
-                    "closeNotification" | "stopSounds" | "playSounds" => "1",
-                    "playSound" => "4",
+                    "closeNotification" | "stopSounds" => "1",
+                    "playSounds" => "1:4|5|6",
+                    "playSound" => "6",
                     "scrollIntoView" => list_shape,
                     "saveFile" => "3|4",
                     _ => "positional",

@@ -727,7 +727,8 @@ impl Batch {
     }
 
     /// `{"op":"sound","files":[…],"ops":[…]}` (LLP 1096 D7): the voice
-    /// table's ops, `{"op":"play","id":…,"sound":…,"at":…,"gain":…}` and
+    /// table's ops, `{"op":"play","id":…,"sound":…,"at":…,"gain":…}` (with
+    /// `playbackRate` and `pan` when not 1 and 0, LLP 1125 D10) and
     /// `{"op":"end","id":…,"at":…}`, in runner milliseconds. `plan` at a
     /// boot names the files to decode, in declaration order (a new boot
     /// silences the last one's voices); nothing is sent when there is
@@ -764,14 +765,25 @@ impl Batch {
                     sound,
                     at,
                     gain,
-                } => push_text!(
-                    &mut s,
-                    "{{\"op\":\"play\",\"id\":{},\"sound\":{},\"at\":{},\"gain\":{}}}",
-                    id,
-                    sound,
-                    Shortest(*at),
-                    Shortest(*gain)
-                ),
+                    playback_rate,
+                    pan,
+                } => {
+                    push_text!(
+                        &mut s,
+                        "{{\"op\":\"play\",\"id\":{},\"sound\":{},\"at\":{},\"gain\":{}",
+                        id,
+                        sound,
+                        Shortest(*at),
+                        Shortest(*gain)
+                    );
+                    if *playback_rate != 1.0 {
+                        push_text!(&mut s, ",\"playbackRate\":{}", Shortest(*playback_rate));
+                    }
+                    if *pan != 0.0 {
+                        push_text!(&mut s, ",\"pan\":{}", Shortest(*pan));
+                    }
+                    s.push('}');
+                }
                 SoundOp::End { id, at } => push_text!(
                     &mut s,
                     "{{\"op\":\"end\",\"id\":{},\"at\":{}}}",

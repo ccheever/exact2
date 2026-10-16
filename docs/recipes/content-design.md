@@ -7,8 +7,9 @@
   `font-size` on a `button` makes it your own box; the parts keep a button's semantics, a
   44-point target and legible ink. `contract vocab <Part>` gives each one's props and a call to paste:
   `RoundButton`, `AnswerTile`, `SummaryCard`, `RingProgress`, `StatBar`, `RowText`, `Badge`,
-  `DoneMark`, `EmptyState`. `RoundButton` is a circle for a word (about 7 characters fit): a main
-  action of more words ("Start quiz") is a `button buttonStyle="filled"`; the compiler warns.
+  `DoneMark`, `EmptyState`. `RoundButton` keeps an 80 px circle (about 7 characters),
+  warning `lower-text-px-width` at accessibility sizes. For more words or a width
+  that grows with text, use `button buttonStyle="filled"`.
 - **A status is a `Badge`** ("Full" beside the title). **An action that can't be taken is
   disabled with its reason** under it (`disabled=full`; in a grouped list, the section's
   `footer`), never left enabled to refuse after the tap.

@@ -71,6 +71,16 @@ impl Assets {
             self.append_batches(batches, slots);
             return Ok(());
         }
+        if self.remove_models(w, drawn, revisions) {
+            r.part_looks(&self.part_bases, &self.part_looks);
+            r.levels(&self.levels, &self.lods);
+            if let Err(error) = r.instances(&self.records) {
+                self.structure = None;
+                return Err(error);
+            }
+            self.append_batches(batches, slots);
+            return Ok(());
+        }
         let structure = Structure {
             models: w
                 .query::<(&Mesh, &Transform)>()
@@ -106,6 +116,120 @@ impl Assets {
         self.structure = Some(structure);
         self.append_batches(batches, slots);
         Ok(())
+    }
+
+    /// Visibility changes and despawns often only remove models. Their survivors
+    /// retain the same draw records; compact them without resolving every node,
+    /// material and LOD again. All eligibility checks precede any mutation.
+    fn remove_models(
+        &mut self,
+        w: &World,
+        drawn: &[(exact_game::Entity, bool)],
+        revisions: [u64; 3],
+    ) -> bool {
+        let Some(structure) = &mut self.structure else {
+            return false;
+        };
+        if structure.revisions != revisions {
+            return false;
+        }
+        let mut keep = Vec::new();
+        let mut at = 0;
+        for ((entity, (mesh, _)), &(expected, visible)) in
+            w.query::<(&Mesh, &Transform)>().iter().zip(drawn)
+        {
+            debug_assert_eq!(entity, expected);
+            let Mesh::Asset(name) = mesh else { continue };
+            if !visible {
+                continue;
+            }
+            while at < structure.models.len() && structure.models[at].0 != entity {
+                at += 1;
+            }
+            if at == structure.models.len() || structure.models[at].1 != *name {
+                return false;
+            }
+            keep.push(at);
+            at += 1;
+        }
+        let digests = look_digests(w);
+        if keep.iter().any(|&i| {
+            let slot = structure.models[i].0.index();
+            digests.get(&slot) != self.digests.get(&slot)
+        }) {
+            return false;
+        }
+        self.ranges.retain(|slot, _| {
+            keep.binary_search_by_key(slot, |&i| structure.models[i].0.index())
+                .is_ok()
+        });
+        let mut remap = vec![u32::MAX; self.records.len()];
+        let (mut records, mut parts) = (0, 0);
+        for &i in &keep {
+            let Some(range) = self.ranges.get_mut(&structure.models[i].0.index()) else {
+                continue; // A declared model may not have resident draws yet.
+            };
+            for offset in 0..range.count {
+                let old = range.first + offset;
+                let new = records + offset;
+                remap[old] = new as u32;
+                self.records[new] = self.records[old].clone();
+                let base = self.part_bases[old];
+                let part = base & !REPLACE;
+                self.part_bases[new] = (base & REPLACE)
+                    | if part == 0 {
+                        0
+                    } else {
+                        part - range.part_first as u32 + parts as u32
+                    };
+            }
+            self.levels
+                .copy_within(range.first..range.first + range.count, records);
+            self.part_looks
+                .copy_within(range.part_first..range.part_first + range.part_count, parts);
+            range.first = records;
+            range.part_first = parts;
+            records += range.count;
+            parts += range.part_count;
+        }
+        self.records.truncate(records);
+        self.part_bases.truncate(records);
+        self.levels.truncate(records);
+        self.part_looks.truncate(parts);
+        self.entities
+            .retain(|entity| self.ranges.contains_key(&entity.index()));
+        for group in self.groups.values_mut() {
+            group.retain_mut(|slot| {
+                let record = remap[(*slot - RENDER_SLOT_BASE) as usize];
+                if record == u32::MAX {
+                    false
+                } else {
+                    *slot = RENDER_SLOT_BASE + record;
+                    true
+                }
+            });
+        }
+        self.lods.retain_mut(|lod| {
+            let record = remap[lod.record as usize];
+            if record == u32::MAX {
+                false
+            } else {
+                lod.record = record;
+                true
+            }
+        });
+        let mut index = 0;
+        let mut keep = keep.into_iter().peekable();
+        structure.models.retain(|_| {
+            let retained = keep.peek() == Some(&index);
+            if retained {
+                keep.next();
+            }
+            index += 1;
+            retained
+        });
+        self.digests = digests;
+        true
     }
 
     fn append_batches(&self, batches: &mut Vec<Batch>, slots: &mut Vec<u32>) {
@@ -340,6 +464,10 @@ impl Assets {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "assets_tests.rs"]
+mod tests;
 
 /// Each entity's `NodeMaterials` and `MaterialOverrides` content, by slot.
 fn look_digests(w: &World) -> BTreeMap<u32, u64> {

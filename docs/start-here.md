@@ -262,10 +262,10 @@ or position (`each t, i in tasks key=t.id`, ``testId=`task-${i}` ``).
    `buttonStyle="filled"` on the screen's main action. A `button` with no
    `buttonStyle` is the platform's: tinted text on iOS, so one that must read as a
    button there says `"bordered"`, and Cancel or Edit says nothing.
-2. **A `header` holds a heading (`text "Title" role="heading" aria-level=1`), one text
-   after it (the subtitle) and buttons** (or a search field, a `tablist`); anything else
-   isn't in the iOS bar. A control fixed under the bar goes with an inline title
-   (`aria-level=2`); one that may scroll away, in the list's first section.
+2. **A `header` holds a heading (`h1 "Title"`), one text after it (the subtitle) and
+   buttons** (or a search field, a `tablist`); anything else isn't in the iOS bar. A
+   control fixed under the bar goes with an inline title (`h2`); one that may scroll
+   away, in the list's first section.
 3. **`width="100%"` with padding overflows**, as in CSS: drop the width; a `flex=1` field
    takes `min-width=0`.
 

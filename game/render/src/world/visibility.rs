@@ -5,12 +5,33 @@ use exact_game::{Entity, Parent, Visible, World};
 #[derive(Default)]
 pub(super) struct Visibility {
     states: Vec<u8>,
+    parents: Vec<Option<Entity>>,
     path: Vec<Entity>,
 }
 
 impl Visibility {
-    pub fn begin(&mut self) {
+    pub fn begin(&mut self, w: &World) {
         self.states.fill(0);
+        self.parents.fill(None);
+        // Read each component column once, rather than looking it up for every
+        // draw and ancestor. `get` still checks full entity liveness before
+        // consulting these slot-indexed rows, including cached hidden parents.
+        for (entity, visible) in w.query::<&Visible>().iter() {
+            if !visible.0 {
+                let index = entity.index() as usize;
+                if self.states.len() <= index {
+                    self.states.resize(index + 1, 0);
+                }
+                self.states[index] = 3;
+            }
+        }
+        for (entity, parent) in w.query::<&Parent>().iter() {
+            let index = entity.index() as usize;
+            if self.parents.len() <= index {
+                self.parents.resize(index + 1, None);
+            }
+            self.parents[index] = Some(parent.0);
+        }
     }
 
     pub fn get(&mut self, w: &World, mut entity: Entity) -> bool {
@@ -31,11 +52,8 @@ impl Visibility {
             }
             self.states[index] = 1;
             self.path.push(entity);
-            if w.get::<Visible>(entity).is_some_and(|v| !v.0) {
-                break false;
-            }
-            match w.get::<Parent>(entity) {
-                Some(parent) => entity = parent.0,
+            match self.parents.get(index).copied().flatten() {
+                Some(parent) => entity = parent,
                 None => break true,
             }
         };
@@ -52,6 +70,35 @@ mod tests {
     use exact_game::Transform;
 
     #[test]
+    fn sparse_columns_clear_removed_rows_between_scans() {
+        let mut w = World::new(60, 0);
+        let leaf = w.spawn(());
+        for _ in 0..(exact_game::PAGE * 3) {
+            w.spawn(());
+        }
+        let hidden = w.spawn(Visible(false));
+        let parent = w.spawn(Parent(hidden));
+        w.insert(leaf, Parent(parent));
+        let mut cache = Visibility::default();
+        let check = |w: &World, cache: &mut Visibility| {
+            cache.begin(w);
+            // Querying a leaf first must include ancestors outside its page.
+            for e in [leaf, parent, hidden] {
+                assert_eq!(cache.get(w, e), w.is_visible(e));
+            }
+        };
+        check(&w, &mut cache);
+        w.remove::<Visible>(hidden);
+        check(&w, &mut cache);
+        w.insert(hidden, Parent(leaf));
+        check(&w, &mut cache);
+        w.remove::<Parent>(parent);
+        check(&w, &mut cache);
+        w.despawn(hidden);
+        check(&w, &mut cache);
+    }
+
+    #[test]
     fn shared_visibility_matches_current_rows_after_edits_cycles_and_recycling() {
         let mut w = World::new(60, 0);
         let root = w.spawn(());
@@ -61,11 +108,11 @@ mod tests {
             .collect();
         let mut cache = Visibility::default();
         let check = |w: &World, cache: &mut Visibility| {
-            cache.begin();
+            cache.begin(w);
             for &entity in leaves.iter().chain([&middle, &root]).rev() {
                 assert_eq!(cache.get(w, entity), w.is_visible(entity));
             }
-            cache.begin();
+            cache.begin(w);
             for &entity in leaves.iter().chain([&middle, &root]) {
                 assert_eq!(cache.get(w, entity), w.is_visible(entity));
             }
@@ -83,7 +130,7 @@ mod tests {
         let replacement = w.spawn(Visible(true));
         assert_eq!(replacement.index(), root.index());
         assert_ne!(replacement, root);
-        cache.begin();
+        cache.begin(&w);
         assert!(cache.get(&w, replacement));
         assert!(!cache.get(&w, middle)); // Old parent generation at a cached slot.
         check(&w, &mut cache);
@@ -91,7 +138,7 @@ mod tests {
         check(&w, &mut cache);
         let mut other = World::new(60, 0);
         let entity = other.spawn(Visible(false));
-        cache.begin();
+        cache.begin(&other);
         assert!(!cache.get(&other, entity)); // Scratch can serve another world.
     }
 }

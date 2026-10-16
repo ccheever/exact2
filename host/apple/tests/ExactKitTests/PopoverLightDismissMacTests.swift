@@ -21,6 +21,12 @@ private final class TrackingTextView: KeyWindowTextView {
     override func mouseDown(with event: NSEvent) { super.mouseDown(with: event) }
 }
 
+private final class TrackingFieldEditorOwner: NSObject, NSWindowDelegate {
+    let editor = TrackingTextView(frame: .zero)
+    override init() { super.init(); editor.isFieldEditor = true }
+    func windowWillReturnFieldEditor(_ sender: NSWindow, to client: Any?) -> Any? { editor }
+}
+
 final class PopoverLightDismissMacTests: XCTestCase {
     private var window: NSWindow!
     private var monitor: Any?
@@ -103,15 +109,16 @@ final class PopoverLightDismissMacTests: XCTestCase {
                                windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0)!
         }
         let down = event(.leftMouseDown), up = event(.leftMouseUp)
-        if byHand {
-            hand = (up.timestamp, up.locationInWindow)
-            for type in [NSEvent.EventType.mouseEntered, .mouseExited].reversed() {
-                NSApp.postEvent(NSEvent.enterExitEvent(with: type, location: up.locationInWindow, modifierFlags: [], timestamp: up.timestamp,
-                                                       windowNumber: window.windowNumber, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil)!, atStart: true)
-            }
-        }
+        if byHand { hand = (up.timestamp, up.locationInWindow) }
         NSApp.postEvent(up, atStart: true)
         NSApp.sendEvent(down)
+        if byHand {
+            // Tracking has ended; append behind any release left for the application.
+            for type in [NSEvent.EventType.mouseEntered, .mouseExited] {
+                NSApp.postEvent(NSEvent.enterExitEvent(with: type, location: up.locationInWindow, modifierFlags: [], timestamp: up.timestamp,
+                                                       windowNumber: window.windowNumber, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil)!, atStart: false)
+            }
+        }
         var left = false
         // The events the hand's click left are sent before the run loop turns
         // in the default mode: taken here in a mode no check is scheduled in.
@@ -197,11 +204,39 @@ final class PopoverLightDismissMacTests: XCTestCase {
         for (round, view) in [text, text, search, search, message, message, text].enumerated() {
             p.press(2)
             XCTAssertTrue(p.menus.isOpen(pop), "round \(round)")
-            // A field editor already editing leaves the release in the queue, as a stock NSTextView does.
+            // On macOS 27 the earlier default-mode turns install the fields'
+            // gesture recognizers. Even a field's first press can then leave
+            // the release to the application, through its normal editor.
             let tracked = click(view, byHand: true)
-            if round.isMultiple(of: 2) { XCTAssertTrue(tracked, "round \(round): the view's loop took the release") }
+            if view === text { XCTAssertTrue(tracked, "round \(round): the text view's loop took the release") }
+            if let field = view as? NSTextField { XCTAssertNotNil(field.currentEditor(), "round \(round): the field took the press") }
             XCTAssertNotEqual(NSApp.currentEvent?.type, .leftMouseUp, "round \(round): AppKit sent another event after the release")
             XCTAssertFalse(p.menus.isOpen(pop), "round \(round): light dismiss by a hand's press in \(type(of: view))")
+        }
+    }
+
+    func testAHandsPressesInTrackingFieldEditorsCloseThePopoverEachTime() throws {
+        let (p, _) = try fixture()
+        let pop = try XCTUnwrap(p.views[3]), page = try XCTUnwrap(p.views[1])
+        // Enter editing before the press so it reaches an editor that runs
+        // mouseDown's tracking loop. The session's own fields above retain
+        // their normal editor and also cover the press that begins editing.
+        let owner = TrackingFieldEditorOwner()
+        window.delegate = owner
+        let search = NSSearchField(frame: NSRect(x: 260, y: 100, width: 200, height: 30))
+        let field = NSTextField(frame: NSRect(x: 260, y: 180, width: 200, height: 30))
+        page.addSubview(search); page.addSubview(field)
+        withExtendedLifetime(owner) {
+            for (round, control) in [search, search, field, field, search].enumerated() {
+                p.press(2)
+                XCTAssertTrue(p.menus.isOpen(pop), "round \(round)")
+                XCTAssertTrue(window.makeFirstResponder(control))
+                XCTAssertTrue(control.currentEditor() === owner.editor)
+                XCTAssertTrue(click(owner.editor, byHand: true), "round \(round): the field editor's loop took the release")
+                XCTAssertTrue(control.currentEditor() === owner.editor, "round \(round): the field took the press")
+                XCTAssertNotEqual(NSApp.currentEvent?.type, .leftMouseUp, "round \(round): AppKit sent another event after the release")
+                XCTAssertFalse(p.menus.isOpen(pop), "round \(round): light dismiss though the field editor's loop took the release")
+            }
         }
     }
 

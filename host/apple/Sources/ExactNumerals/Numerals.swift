@@ -82,25 +82,10 @@ private final class NumeralRoll {
         guard plain != model.plain || model.version == 0 else { return }
         // `numeric-countdown` always rolls down; `numeric` rolls the way the
         // number moved, as SwiftUI's own callers say.
-        model.down = mode == "numeric-countdown" || Self.leadingNumber(plain) < Self.leadingNumber(model.plain)
+        model.down = mode == "numeric-countdown" || leadingNumber(plain) < leadingNumber(model.plain)
         model.plain = plain
         model.text = (try? AttributedString(attributed, including: \.uiKit)) ?? AttributedString(plain)
         model.version += 1
-    }
-
-    /// The number a string starts with, its group separators skipped: `0`
-    /// when it starts with none.
-    static func leadingNumber(_ value: String) -> Double {
-        var digits = ""
-        var seenDigit = false, seenDot = false
-        for (index, ch) in value.drop(while: { $0 == " " }).enumerated() {
-            if (ch == "-" || ch == "−" || ch == "+") && index == 0 { digits.append(ch == "−" ? "-" : ch); continue }
-            if ch.isASCII && ch.isNumber { digits.append(ch); seenDigit = true; continue }
-            if ch == "," && seenDigit { continue }
-            if ch == "." && !seenDot { digits.append(ch); seenDot = true; continue }
-            break
-        }
-        return seenDigit ? Double(digits) ?? 0 : 0
     }
 }
 #else
