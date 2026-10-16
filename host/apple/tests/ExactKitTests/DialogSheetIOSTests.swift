@@ -289,6 +289,26 @@ final class DialogSheetIOSTests: XCTestCase {
         XCTAssertEqual(closed, [20])
     }
 
+    func testAConfirmationOverASheetMovesTheModalBoundary() throws {
+        let (p, controller, scene) = page()
+        guard scene else { throw missing("scene", "a presentation completes only in a scene's window") }
+        p.dialogCommand("showModal", "form")
+        let sheet = try sheet(controller)
+        settle { !p.menus.inTransition }
+        let previous = p.openTopLayer
+        p.dialogCommand("showModal", "confirm")
+        settle { !p.menus.inTransition }
+        XCTAssertTrue(sheet.presentedViewController is UIAlertController)
+        let open = p.openTopLayer
+        XCTAssertEqual(open.frames.last?.0, 20)
+        XCTAssertEqual(open.modal, open.frames.count - 1)
+        p.dialogCommand("close", "confirm")
+        settle { !p.menus.inTransition }
+        let restored = p.openTopLayer
+        XCTAssertEqual(restored.modal, previous.modal)
+        XCTAssertEqual(restored.frames.map { $0.0 }, previous.frames.map { $0.0 })
+    }
+
     /// Capture without presenting: UIKit may deliver the action callback
     /// after dismissing the alert. This tests that path without a scene.
     private final class DismissedAlertController: UIViewController {

@@ -154,7 +154,7 @@ extension Presenter {
     /// top layer is ordered by its place there; one in a window of its own
     /// stands in front of the page, the sheets in the order they opened and
     /// then the popovers, which every dialog closes as it opens. And the
-    /// index of the front modal route's (RouteSheetMac.swift), a
+    /// index of the front modal dialog's, alert's or route's, a
     /// presentation the runner keeps live with what is above it, and the
     /// rest inert (LLP 1123 D2).
     package var openTopLayer: (frames: [(UInt32, CGRect)], modal: Int?) {
@@ -186,7 +186,10 @@ extension Presenter {
         }
         let alerts = (carrying("popover") + carrying("tag:dialog"))
             .filter { self.alerts.isOpen($0) }.map { ($0.id, CGRect.zero) }
-        return (painted + alerts, ordered.lastIndex { dialogs.presentsRoute($0) })
+        let modal = alerts.isEmpty
+            ? ordered.lastIndex { $0 === dialogs.active || dialogs.presentsRoute($0) }
+            : painted.count + alerts.count - 1
+        return (painted + alerts, modal)
     }
     package var openTopLayerFrames: [(UInt32, CGRect)] { openTopLayer.frames }
 }
