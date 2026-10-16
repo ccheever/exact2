@@ -305,7 +305,12 @@ bitmap stays shared and unchanged; no tinted asset enters the image cache.
   with appearance. Intrinsic reports run on the next main-queue turn and require
   the original view identity and load generation, so a replaced source or retired
   node cannot receive them. `object-fit`, padding and rounded clipping apply to
-  the content box; symbols bypass the bitmap drawing path. `layout <node>` reports
+  the content box; symbols bypass the bitmap drawing path. Under `fill`, CSS's
+  initial `object-fit`, a symbol keeps its aspect, centred and scaled to fit
+  (`scaleAspectFit`, `scaleProportionallyUpOrDown`), as an SVG's default
+  `preserveAspectRatio` keeps it and as the web's symbol mask already drew it
+  (amended 2026-10-16: stretched, a `chevron.right` in a 16 × 16 box drew
+  about 40% wider than its glyph, as the euxy port's list rows showed). `layout <node>` reports
   `native.symbol` with renderer class, source, resolved name, `found`, missing `reason`, intrinsic
   size and frame.
 - **Tinted rasters** (2026-09-26) use the one decoded bitmap the raster

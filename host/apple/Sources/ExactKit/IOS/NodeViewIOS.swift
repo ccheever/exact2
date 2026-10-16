@@ -561,13 +561,16 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         let content = contentBox()
         leaf.frame = content; leaf.clipsToBounds = true
         switch style["object_fit"]?.string ?? "fill" {
-        case "contain": leaf.contentMode = .scaleAspectFit
         case "cover": leaf.contentMode = .scaleAspectFill
         case "none": leaf.contentMode = .center
         case "scale-down":
             let size = image?.size ?? .zero
             leaf.contentMode = size.width <= content.width && size.height <= content.height ? .center : .scaleAspectFit
-        default: leaf.contentMode = .scaleToFill
+        // `contain`, and `fill`: a symbol is a vector glyph, which keeps its
+        // aspect in a box of another shape as an SVG's default
+        // `preserveAspectRatio` (`xMidYMid meet`) keeps it, and as the web
+        // host's symbol mask draws it (LLP 1011 §4).
+        default: leaf.contentMode = .scaleAspectFit
         }
         // A square box clips nothing the content box does not.
         if cornerRadii(in: bounds).allSatisfy({ $0 == 0 }) { if leaf.layer.mask != nil { leaf.layer.mask = nil }; return }
