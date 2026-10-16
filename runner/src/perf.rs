@@ -54,6 +54,8 @@ pub struct Work {
     pub moves: bool,
     /// The last transaction a batch trailer reported ([`Runner::seq_range`]).
     pub reported: std::cell::Cell<u64>,
+    /// Measuring waits for the host's first ask ([`Runner::measure_later`]).
+    pub later: bool,
 }
 
 /// The node `site` sits under in the plan, through its region's arm when it
@@ -82,6 +84,9 @@ pub fn reply<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         return "{\"unavailable\":true}".into();
     }
     let ids = runner.ids();
+    if ids.work.sites.is_empty() && ids.work.later {
+        return error("perf: this build's work is not measured until first asked, by the agent's first request or a trace (LLP 1079 D1)");
+    }
     if ids.work.sites.is_empty() {
         return error("perf: this build measures no work (production trust, LLP 1079 D1)");
     }

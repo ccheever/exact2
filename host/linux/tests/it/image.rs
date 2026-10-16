@@ -33,15 +33,9 @@ fn sampled_raster_does_not_change_object_fit_natural_geometry() {
 #[test]
 fn sampled_pixels_keep_natural_auto_axes_and_min_max_layout() {
     use exact_linux::{presenter::PainterChoice, Presenter};
-    use exact_runner::{DataError, DataSource, Value};
+
     use std::io::Write;
     use std::time::Duration;
-    struct NoData;
-    impl DataSource for NoData {
-        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
-            Err(DataError::UnknownSource(source.into()))
-        }
-    }
     let dir = std::env::temp_dir().join(format!("exact-natural-layout-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let mut encoder = png::Encoder::new(
@@ -74,7 +68,7 @@ fn sampled_pixels_keep_natural_auto_axes_and_min_max_layout() {
         .unwrap();
         let (mut presenter, error) = Presenter::boot_with(
             &plan.encode(),
-            NoData,
+            (),
             (800., 600.),
             1.,
             dir.clone(),
@@ -100,14 +94,8 @@ fn sampled_pixels_keep_natural_auto_axes_and_min_max_layout() {
 #[test]
 fn raster_tint_preserves_alpha_background_and_border_in_both_painters() {
     use exact_linux::{presenter::PainterChoice, Presenter};
-    use exact_runner::{DataError, DataSource, Value};
+
     use std::time::Duration;
-    struct NoData;
-    impl DataSource for NoData {
-        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
-            Err(DataError::UnknownSource(source.into()))
-        }
-    }
     let dir = std::env::temp_dir().join(format!("exact-raster-tint-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let mut pixels = tiny_skia::Pixmap::new(12, 4).unwrap();
@@ -140,8 +128,7 @@ fn raster_tint_preserves_alpha_background_and_border_in_both_painters() {
     let mut failures = Vec::new();
     for choice in choices {
         let (mut p, error) =
-            Presenter::boot_with(&plan.encode(), NoData, (80., 60.), 1., dir.clone(), choice)
-                .unwrap();
+            Presenter::boot_with(&plan.encode(), (), (80., 60.), 1., dir.clone(), choice).unwrap();
         assert!(error.is_none(), "{error:?}");
         p.wait_images(Duration::from_secs(3));
         for (dark, expected) in [
@@ -152,7 +139,7 @@ fn raster_tint_preserves_alpha_background_and_border_in_both_painters() {
                 let k = p.host().kernel();
                 let id = k.node_by_key(k.find_by_test_id("flip")[0]).unwrap().id;
                 p.tap(id).unwrap();
-                p.run_commands(|| NoData);
+                p.run_commands(|| ());
             }
             let frame = p.frame();
             for ((x, y), expected) in [

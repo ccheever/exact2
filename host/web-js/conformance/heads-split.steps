@@ -1,0 +1,12 @@
+resize 1000x900
+tap open-detail
+tap commit
+tap list-commit
+tap toggle-head
+resize 420x900
+tap commit
+tap toggle-head
+resize 1000x900
+tap commit
+tap list-commit
+tap back

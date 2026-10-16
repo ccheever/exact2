@@ -6,16 +6,16 @@ use std::cell::Cell as Counter;
 const SOURCE: &str = r#"
 component App
   state showing = true
-  resource rows = rows() as shape list<number>
+  resource rows = rows() as shape number[]
   action toggle
     showing = !showing
   view
     column
       button press=toggle testId="toggle"
         text "toggle"
-      when showing
+      if showing
         list virtualized=true height=160 width=240 testId="history"
-          each row in rows key=row
+          for row in rows key=row
             text `${row}` testId=`row-${row}`
 "#;
 
@@ -71,6 +71,7 @@ fn facts(snapshot: &CollectionSnapshot, top: f64) -> CollectionFeedback {
         port_cross: 240.,
         port_main: 160.,
         cross: 240.,
+        padding: [0.0; 2],
         measurements: Vec::new(),
         focus_view: None,
         interaction_view: None,
@@ -145,12 +146,12 @@ fn collection_feedback_submits_edge_request_without_another_bridge_call() {
     }
     let source = r#"component App
   state cursor = 0
-  resource rows = rows(cursor) as shape list<number>
+  resource rows = rows(cursor) as shape number[]
   action next
     cursor = 1
   view
     list virtualized=true height=160 width=240 reachend=next
-      each row in rows key=row
+      for row in rows key=row
         text `${row}`
 "#;
     let plan = contract::compile(source).unwrap().encode();
@@ -363,6 +364,7 @@ fn ordinary_eager_list_has_no_collection_metadata() {
         port_cross: 240.,
         port_main: 160.,
         cross: 240.,
+        padding: [0.0; 2],
         measurements: vec![],
         focus_view: None,
         interaction_view: None,
@@ -484,8 +486,8 @@ fn rows_the_data_moves_still_play_their_layout_transition() {
   state tall = false
   state nudged = false
   state padded = false
-  resource rows = rows(step) as shape list<number>
-  resource others = rows(0) as shape list<number>
+  resource rows = rows(step) as shape number[]
+  resource others = rows(0) as shape number[]
   action next
     step = step + 1
   action grow
@@ -505,11 +507,11 @@ fn rows_the_data_moves_still_play_their_layout_transition() {
       button press=pad testId="pad"
         text "pad"
       list virtualized=true height=200 width=240 padding-left=(padded ? 20 : 0) padding-right=(padded ? 0 : 20) testId="edited"
-        each row in rows key=row
+        for row in rows key=row
           column height=(tall and row == 0 ? 80 : 20) width=200 position="relative" left=(nudged and row == 1 ? 20 : 0) -exact-layout-transition=(row == 0 ? "none" : "300ms ease-in-out")
             text `${row}`
       list virtualized=true height=200 width=240 testId="other"
-        each row in others key=row
+        for row in others key=row
           column -exact-layout-transition="300ms ease-in-out"
             text `${row}`
 "#;

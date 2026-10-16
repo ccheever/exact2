@@ -1,8 +1,30 @@
+import { MalformedOperation, inputJSON } from './agent-keys.mjs';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { renderAx } from './agent-ax.mjs';
+import { decodePng, shrink } from './png.mjs';
+
+/** Film's bounds (LLP 1012.001.000 D2): a drive's pictures, not a recording, decoded in memory at once. */
+export const FILM_FRAMES = 240, FILM_PIXELS = 64e6;
+export const WORLD_LIMIT = 256 * 1024 * 1024;
+export function worldFile(path) {
+  if (statSync(path).size > WORLD_LIMIT) throw new Error('world carrier exceeds 256 MiB limit; inspect `state world:*` and reduce saved entities before `screenshot checkpoint.world world save`');
+  const bytes = readFileSync(path);
+  if (bytes.length > WORLD_LIMIT) throw new Error('world carrier exceeds 256 MiB limit; inspect `state world:*` and reduce saved entities before `screenshot checkpoint.world world save`');
+  return bytes;
+}
+
+/** A capture's pixels, decoded once, at the drive's `--scale`: shrunk by area from the capture's own pixels a point, never enlarged. */
+export function scaledScreenshot(r, scale, host) {
+  const png = decodePng(readFileSync(r.screenshot)), drawn = r.scale ?? png.width / r.w, said = Math.round(drawn * 100) / 100;
+  if (scale === undefined) return { image: png, shrunk: false };
+  if (!Number.isFinite(drawn)) throw new Error(`--scale: the ${host} capture did not say its size in points`);
+  if (scale > drawn + 1e-3) throw new Error(`--scale ${scale}: this ${host} capture is ${said} pixel${said === 1 ? '' : 's'} a point; a screenshot is never enlarged`);
+  if (drawn - scale <= 1e-3) return { image: png, shrunk: false };
+  return { image: shrink(png, Math.max(1, Math.round(png.width * scale / drawn)), Math.max(1, Math.round(png.height * scale / drawn))), shrunk: true };
+}
 
 /** @ref LLP 1035.005 D3 / 1035.002 D6 — only the driver reads source maps.
  * The locator discovers candidates; the node's same-reply digest decides whether
@@ -125,7 +147,7 @@ export function identifyLayoutNodes(layout, tree, maps) {
  * [<depth>]`, `layout agree [<limit>]` — the keyword wins over a testId of
  * that name, which a numeric id still reaches. Returns `layout`'s arguments. */
 export function layoutArgs(args) {
-  const count = (word) => { const n = Number(word); if (!Number.isInteger(n)) throw new Error(`layout: ${word} is not an integer`); return n; };
+  const count = (word) => { const n = Number(word); if (!Number.isInteger(n)) throw new MalformedOperation(`layout: ${word} is not an integer`); return n; };
   if (args[0] === 'agree') return [undefined, undefined, { agree: true, ...(args[1] != null ? { limit: count(args[1]) } : {}) }];
   if (args[1] === 'native') return [args[0], undefined, { native: args[2] != null ? { depth: count(args[2]) } : {} }];
   if (args[1] === 'at') return [args[0], [Number(args[2]), Number(args[3])]];
@@ -157,8 +179,16 @@ export function identifyInspectedNode(reply, target) {
  *   layout  viewport W×H [· safe-area T R B L · keyboard K, when any is not 0] [· status bar light-content|dark-content (#id), iOS] · clock C ms
  *           #{id} [{testId}] {Type} {x},{y} {w}×{h} scroll {sx},{sy} [overscroll {ox},{oy}]
  *   logs    "(N earlier lines dropped by the journal ring)" when dropped > 0; the journal lines as they are;
- *           the host's lines indented two spaces; "(nothing new)" when there is nothing
- *   state   the JSON, indented two spaces
+ *           the host's lines indented two spaces; on an iOS simulator, the newest crash report of the build
+ *           on that simulator since the last `logs` (its path, how it ended, the crashing thread's top
+ *           frames); "(nothing new)" when there is nothing
+ *   state   [epoch E · incarnation I · clock C ms], then one line per other section: `{name} {JSON on one line}`;
+ *           an app's state (a reply with `slots`) without its empty sections (`emptySection`), a world's whole
+ *   tap, type  [ERROR {error} · ]tapped|typed #{id} "{target}" [· at X,Y, a contact's phase or a drag] · delivery D · epoch E
+ *           [· incarnation I, when not 1] · clock C ms [· key=JSON for every other field but carrier and mode];
+ *           a contact's phase reads `tap {phase}`, a held request's answer `answered @{ticket} "{choice}"`, a reply with
+ *           an error or `delivery: unsupported` `tap`|`type`, never `tapped`|`typed`; a delivered input whose answers did
+ *           not land keeps its verb and says `landing failed: …`
  *   perf    {target} — seq [A..]B · clock [X..]Y ms · incarnation I [· partial: N walked]
  *           one row per site: component, file:line (or `site N`), then each counter the host has
  *   perf frames  period P ms (source) · presented N · late L · missed M [· overruns O] · segments S, the window's
@@ -169,6 +199,7 @@ export function render(op, r) {
   if (op === 'ax' || (op === 'tree' && r.ax)) return renderAx(r); // LLP 1080.002 D9
   const q = JSON.stringify;
   switch (op) {
+    case 'check': return r.text; // LLP 1116.003 D8 (agent-check.mjs)
     case 'tree': {
       const entities = Array.isArray(r.entities) ? r.entities : r.nodes?.some((n) => n.components) ? r.nodes : null;
       if (entities) return [`epoch ${r.epoch} · incarnation ${r.incarnation} · clock ${r.clock} ms · tick ${r.tick} · ${entities.length} entities`, ...entities.map((e) => `${'  '.repeat(e.depth ?? 0)}${e.name ?? ''}#${e.id} (${(e.components ?? []).join(', ')})${e.tags?.length ? ' ' + e.tags.join(' ') : ''}`), ...(r.truncated ? ['(truncated)'] : [])].join('\n');
@@ -177,7 +208,7 @@ export function render(op, r) {
       for (const n of r.nodes) {
         const depth = Math.max(0, n.depth - rootDepth);
         const p = n.props ?? {};
-        lines.push(`${'  '.repeat(depth)}${n.type}#${n.id}${p.testId != null ? ` [${p.testId}]` : ''}${p.hatch != null ? ` hatch=${q(p.hatch)}` : ''}${p.text != null ? ` ${q(p.text)}` : ''}${p.value != null ? ` value=${q(p.value)}` : ''}${p.accessibilityLabel != null ? ` label=${q(p.accessibilityLabel)}` : ''}${p.checked != null ? ` checked=${p.checked}` : ''}${n.focused ? " [focused]" : ""}${n.inactive ? " [inactive]" : ""}${n.world ? ` world{${n.world.name}} · ${n.world.entities} entities · tick ${n.world.tick}` : ""}${n.handlers?.length ? ` (${n.handlers.join(', ')})` : ''}${n.url != null ? ` url=${q(n.url)} loading=${n.loading}` : ''}`);
+        lines.push(`${'  '.repeat(depth)}${n.type}#${n.id}${p.testId != null ? ` [${p.testId}]` : ''}${p.hatch != null ? ` hatch=${q(p.hatch)}` : ''}${p.text != null ? ` ${q(p.text)}` : ''}${p.value != null ? ` value=${q(p.value)}` : ''}${p.accessibilityLabel != null ? ` label=${q(p.accessibilityLabel)}` : ''}${p.checked != null ? ` checked=${p.checked}` : ''}${n.focused ? " [focused]" : ""}${n.inactive ? " [inactive]" : ""}${n.unshown ? " [not in the iOS bar: hidden in the app]" : ""}${n.world ? ` world{${n.world.name}} · ${n.world.entities} entities · tick ${n.world.tick}` : ""}${n.handlers?.length ? ` (${n.handlers.join(', ')})` : ''}${n.url != null ? ` url=${q(n.url)} loading=${n.loading}` : ''}`);
         for (const g of n.guest ?? []) lines.push(`${'  '.repeat(depth + g.depth + 1)}[guest] ${g.tag}${g.id != null ? `#${g.id}` : ''}${g.testId != null ? ` [${g.testId}]` : ''}${g.text != null ? ` ${q(g.text)}` : ''}`);
       }
       return lines.join('\n');
@@ -204,17 +235,45 @@ export function render(op, r) {
       return lines.join('\n');
     }
     case 'logs':
-      return [...(r.dropped > 0 ? [`(${r.dropped} earlier lines dropped by the journal ring)`] : []), ...r.lines, ...(r.world ?? []).flatMap((w) => w.lines.map((line) => 'world ' + line)), ...(r.host ?? []).map((l) => '  ' + l)].join('\n') || '(nothing new)';
-    case 'state':
-      return q(r, null, 2);
+      return [...(r.dropped > 0 ? [`(${r.dropped} earlier lines dropped by the journal ring)`] : []), ...r.lines, ...(r.world ?? []).flatMap((w) => w.lines.map((line) => 'world ' + line)), ...(r.host ?? []).map((l) => '  ' + l), ...(r.crash ?? [])].join('\n') || '(nothing new)';
+    case 'state': {
+      if (!r || typeof r !== 'object' || Array.isArray(r)) return q(r);
+      // One line a section: pretty-printing cost an app's state more than half again its JSON (Caltrain, 2026-10-09).
+      const { epoch, incarnation, clock, ...rest } = r, app = 'slots' in r;
+      const head = [epoch != null && `epoch ${epoch}`, incarnation != null && `incarnation ${incarnation}`, clock != null && `clock ${clock} ms`].filter(Boolean).join(' · ');
+      return [head, ...Object.entries(rest).filter(([, v]) => !(app && emptySection(v))).map(([k, v]) => `${k} ${q(v)}`)].filter(Boolean).join('\n');
+    }
     case 'perf':
       return renderPerf(r);
     case 'type':
-      if (r.steps) return r.steps.map(step => `${step.op} ${step.args.map(a => typeof a === 'string' ? a : q(a)).join(' ')}\n${step.error ? 'ERROR ' + step.error : render(step.op, step.reply)}`).join('\n');
-      return q(r);
+      if (r?.steps) return r.steps.map(step => `${step.op} ${step.args.map(a => typeof a === 'string' ? a : q(a)).join(' ')}\n${step.error ? 'ERROR ' + step.error : render(step.op, step.reply)}`).join('\n');
+    // falls through: a single input's reply
+    case 'tap': {
+      if (!r || typeof r !== 'object') return q(r);
+      // `carrier` and `mode` are the drive's own (its host, its timing): the JSON keeps them. So does a press's `at`, a
+      // point only a hit-test diagnosis reads; a contact's phase and a drag answer with where the finger is, so theirs shows.
+      const { tapped, typed, target, phase, delivery, epoch, incarnation, clock, at, carrier, mode, error, landError, answered, ticket, ...rest } = r, id = tapped ?? typed;
+      // An input that did not happen (a failure, a form the carrier cannot deliver) never reads in the past tense, and a
+      // failure says so first; a phase names itself (`tap down`), held or not.
+      // A held request's answer (`tap @3 cancel`) was given: `answered @3 "cancel"`.
+      const verb = error != null || phase != null || delivery === 'unsupported' ? `${op}${phase != null ? ` ${phase}` : ''}` : answered != null ? 'answered' : tapped != null ? 'tapped' : typed != null ? 'typed' : op;
+      const head = `${error != null ? `ERROR ${error} · ` : ''}${verb}${ticket != null ? ` @${ticket}` : ''}${answered != null ? ` ${q(answered)}` : ''}${id != null ? ` #${id}` : ''}${target != null ? ` ${q(target)}` : ''}`;
+      const where = (phase != null || r.drag != null) && at != null ? (Array.isArray(at) ? `at ${at.join(',')}` : `at=${q(at)}`) : null;
+      // Delivered, but what it started did not land (`landed`): said next to the verb, which stays `tapped`.
+      return [head, landError != null && `landing failed: ${landError}`, where, delivery != null && `delivery ${delivery}`, epoch != null && `epoch ${epoch}`, incarnation != null && incarnation !== 1 && `incarnation ${incarnation}`, clock != null && `clock ${clock} ms`,
+        ...Object.entries(rest).map(([k, v]) => `${k}=${q(v)}`)].filter(Boolean).join(' · ');
+    }
     default:
       return q(r);
   }
+}
+
+/** A section an app's `state` transcript leaves out (LLP 1012 §7; the JSON keeps every one): null, an empty list or an
+ * empty record — one that holds nothing, so leaving it out hides no value. Nothing else is judged: a host's defaults
+ * (a hidden keyboard, an idle navigation) show, since the renderer cannot know them on every host. A world's or an
+ * entity's reply has no `slots` and is never filtered: its empty `busy` or `entities` is the answer. */
+export function emptySection(v) {
+  return v === null || (typeof v === 'object' && (Array.isArray(v) ? !v.length : !Object.keys(v).length));
 }
 
 /**
@@ -247,7 +306,7 @@ function renderNode(n) {
   // (AppKit, UIKit) has no order to offer, and the transcript must not
   // depend on which host answered.
   const sorted = (o) => Object.entries(o ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-  for (const [row, v] of sorted(n.style)) out.push(`  ${row} = ${typeof v.value === 'string' ? v.value : q(v.value)} (${v.source}${v.from != null ? ` from #${v.from}` : ''}${v.origin ? `, ${v.origin}` : ''}${v.applied != null ? `, applied ${v.applied}` : ''})`);
+  for (const [row, v] of sorted(n.style)) out.push(`  ${row} = ${typeof v.value === 'string' ? v.value : q(v.value)} (${v.source}${v.from != null ? ` from #${v.from}` : ''}${v.origin ? `, ${v.origin}` : ''}${v.applied != null ? `, applied ${v.applied}` : ''}${v.token ? `, token ${v.token.names.join(' ') || v.token.text} in ${v.token.modes || 'the one tuple'}${v.token.implied ? ', implied by the boundary' : ''}` : ''})`);
   // @ref LLP 1043.000 §3 D4, D7 — web geometry is paragraph-content-local.
   const flowSpace = n.flow?.coordinate_space === 'content' ? 'leaf content box' : 'leaf border box';
   for (const { kind, ...values } of n.flow_shapes ?? []) out.push(`  flow ${kind} ${Object.entries(values).map(([k, v]) => `${k}=${q(v)}`).join(' ')} (${flowSpace})`);
@@ -303,7 +362,7 @@ export async function perfOp(s, args, line, step) {
   if (args[0] === 'frames') {
     const at = word => { const i = args.indexOf(word); return i < 0 ? undefined : Number(args[i + 1]); };
     const live = at('live'), late = at('late');
-    if (live !== undefined && !(Number.isInteger(live) && live > 0 && live <= 120000)) throw Error('perf frames live <ms>: a whole number of milliseconds, 1–120000');
+    if (live !== undefined && !(Number.isInteger(live) && live > 0 && live <= 120000)) throw new MalformedOperation('perf frames live <ms>: a whole number of milliseconds, 1–120000');
     return s.perf(null, { frames: true, late, ...(live !== undefined ? { live } : {}) });
   }
   // `perf hatches` (LLP 1075.003.000.001 §3.3): the hatches' calls and what their code counted.
@@ -311,8 +370,8 @@ export async function perfOp(s, args, line, step) {
     const read = () => s.op({ op: 'perf', hatches: true });
     const at = line.search(/\sduring\s/);
     if (at < 0) return read();
-    const ops = [...line.slice(at).matchAll(/"((?:[^"\\]|\\.)*)"/g)].map(m => JSON.parse(`"${m[1]}"`));
-    if (!ops.length) throw Error('perf hatches during: quote each op, as perf hatches during "tap start" "clock +1000"');
+    const ops = [...line.slice(at).matchAll(/"((?:[^"\\]|\\.)*)"/g)].map(m => inputJSON(`"${m[1]}"`));
+    if (!ops.length) throw new MalformedOperation('perf hatches during: quote each op, as perf hatches during "tap start" "clock +1000"');
     const before = await read();
     for (const op of ops) await step(op);
     return hatchDelta(before, await read());
@@ -320,8 +379,8 @@ export async function perfOp(s, args, line, step) {
   const target = args[0] && args[0] !== 'during' ? args[0] : undefined;
   const at = line.search(/\sduring\s/);
   if (at < 0) return s.perf(target);
-  const ops = [...line.slice(at).matchAll(/"((?:[^"\\]|\\.)*)"/g)].map(m => JSON.parse(`"${m[1]}"`));
-  if (!ops.length) throw Error('perf … during: quote each op, as perf feed during "tap start" "clock +1000"');
+  const ops = [...line.slice(at).matchAll(/"((?:[^"\\]|\\.)*)"/g)].map(m => inputJSON(`"${m[1]}"`));
+  if (!ops.length) throw new MalformedOperation('perf … during: quote each op, as perf feed during "tap start" "clock +1000"');
   const before = await s.perf(target);
   for (const op of ops) await step(op);
   return perfDelta(before, await s.perf(target));
@@ -383,6 +442,7 @@ function renderPerf(r) {
   if (r.calls && r.hatches) return renderHatchPerf(r);
   if (r.virtual) return 'virtual clock: no frame was presented (LLP 1079 D4); `perf frames live <ms>` measures a live window';
   if (r.unavailable) return 'this host observes no presented frames';
+  if (r.unmeasured) return `frames not measured: ${r.unmeasured}`;
   if (r.lifetime) {
     const w = r.window ?? {}, f = n => n == null ? '—' : `${n} ms`;
     const out = [`period ${r.period.ms} ms (${r.period.source}) · presented ${r.lifetime.presented} · late ${r.lifetime.late} · missed ${r.lifetime.missed}${r.lifetime.overruns != null ? ` · overruns ${r.lifetime.overruns}` : ''} · segments ${r.lifetime.segments}${r.covers?.length ? ` · covers ${r.covers.join(', ')}` : ''}`,
@@ -532,9 +592,31 @@ function renderAgreement(a) {
   return out.join('\n');
 }
 
+/** The `state` op's words (LLP 1116.007 D3.9). `state` is the whole record; `state <target>` a view's own (a game's `world:*`
+ * or `world:entity`: its entities); a name that is no view but a state, derive or resource, or a field of the record
+ * (`mediaSession`), reads that, down a dotted path (`groceries.0.done`) as an authored `expect state` does. A view's testId
+ * keeps its meaning when a state is named alike. */
+export async function stateOp(s, args) {
+  const page = { ...(args.includes('from') ? { from: Number(args[args.indexOf('from') + 1]) } : {}), ...(args.includes('limit') ? { limit: Number(args[args.indexOf('limit') + 1]) } : {}), ...(args.includes('resources') ? { resources: true } : {}) };
+  const read = (target) => s.state(target, args[1] === 'under' ? args[2] : undefined, args[1] === 'pose', args[1] === 'busy', page);
+  if (args[0] == null) return read();
+  try { return await read(args[0]); } catch (error) {
+    if (!/^no view matches/.test(error.message)) throw error;
+    const record = await s.state(), bag = { ...record.resources, ...record.derives, ...record.slots };
+    const [name, ...fields] = args[0].split('.'), has = (o, k) => o !== null && typeof o === 'object' && Object.hasOwn(o, k);
+    let got = has(bag, name) ? bag[name] : record[name], path = name;
+    if (!has(bag, name) && !has(record, name)) { error.message += `; nor is it a state, derive, resource or field of \`state\`: ${Object.keys(bag).join(', ') || 'none declared'}`; throw error; }
+    for (const field of fields) {
+      if (!has(got, field)) throw new Error(`state ${path} has no field "${field}" (${got !== null && typeof got === 'object' ? `its fields: ${Object.keys(got).join(', ')}` : `it is ${JSON.stringify(got)}`})`);
+      got = got[field]; path += `.${field}`;
+    }
+    return got;
+  }
+}
+
 /** Explain a refused placed-child tap using the world's own visibility. */
 export async function tapRefusal(session, target, error) {
-  if (error.transport) return error; // the carrier failed: no diagnostic read can answer
+  if (error.transport || error.malformed) return error; // App state cannot explain malformed input or a failed transport.
   try {
     for (const canvas of (await session.tree()).nodes.filter(n => n.world)) {
       const canvasName = canvas.props?.testId ?? canvas.id;
@@ -572,7 +654,7 @@ export function worldView(session, name) {
     state: entity => session.state(`${name}:${entity}`),
     save: path => session.screenshot(path, name, 'save'),
     run: ms => {
-      if (!Number.isFinite(ms) || ms < 0) throw new Error('run duration must be finite and nonnegative');
+      if (!Number.isFinite(ms) || ms < 0) throw new MalformedOperation('run duration must be finite and nonnegative');
       // Like Sim::run, establish the current epoch after deferred assets settle
       // before moving time. Otherwise a newly ready world can eat the first seek.
       return session.clock('+0').then(() => session.clock(`+${ms}`));
@@ -599,4 +681,13 @@ export function worldView(session, name) {
     },
     hold: (code, ms) => session.type(name, {key:code, for:ms}),
   };
+}
+
+// @ref LLP 1123 D10 — the layout regions, `env(-exact-<region>-inset-<edge>)`: the Apple hosts report UIKit's and
+// AppKit's; a host that reports none resolves each to its safe area, which is what its facts then say too.
+const REGIONS = ['safe-area-corners', 'layout-margins', 'layout-margins-corners', 'readable-content', 'readable-content-corners'];
+export function withRegions(env) {
+  if (!env || typeof env !== 'object') return env;
+  for (const region of REGIONS) for (const edge of ['top', 'right', 'bottom', 'left']) env[`-exact-${region}-inset-${edge}`] ??= env[`safe-area-inset-${edge}`] ?? 0;
+  return env;
 }

@@ -14,6 +14,10 @@ final class TextField: UITextField {
     override func textRect(forBounds bounds: CGRect) -> CGRect { owner?.nativeEditorRect(in: bounds) ?? super.textRect(forBounds: bounds) }
     override func editingRect(forBounds bounds: CGRect) -> CGRect { owner?.nativeEditorRect(in: bounds) ?? super.editingRect(forBounds: bounds) }
     override func placeholderRect(forBounds bounds: CGRect) -> CGRect { owner?.nativeEditorRect(in: bounds) ?? super.placeholderRect(forBounds: bounds) }
+    #if !os(tvOS)
+    /// A search field's clear button sits where `UISearchTextField`'s does.
+    override func clearButtonRect(forBounds bounds: CGRect) -> CGRect { owner?.searchChrome?.clearButtonRect(forBounds: bounds) ?? super.clearButtonRect(forBounds: bounds) }
+    #endif
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         let remaining=owner?.pressedControls(presses,down:true) ?? presses
         if remaining.isEmpty { return }
@@ -47,9 +51,21 @@ final class TextField: UITextField {
         if ok, let owner { selections?.focused(owner) }
         return ok
     }
+    override func setMarkedText(_ markedText: String?, selectedRange: NSRange) {
+        if let selections = owner?.presenter?.fieldSelections {
+            selections.nativeEdit(owner, replacement: markedText ?? "", marked: true) { super.setMarkedText(markedText, selectedRange: selectedRange) }
+        } else { super.setMarkedText(markedText, selectedRange: selectedRange) }
+    }
+    override func insertText(_ text: String) {
+        if let selections = owner?.presenter?.fieldSelections {
+            selections.nativeEdit(owner, replacement: text, marked: markedTextRange != nil) { super.insertText(text) }
+        } else { super.insertText(text) }
+    }
     override func deleteBackward() {
         if heard != "Backspace", let owner, !owner.disabled, owner.presenter?.keyDown(at: owner, "Backspace") == true { return }
-        super.deleteBackward()
+        if let selections = owner?.presenter?.fieldSelections {
+            selections.nativeEdit(owner, replacement: "", marked: markedTextRange != nil) { super.deleteBackward() }
+        } else { super.deleteBackward() }
     }
     // DOM's clipboard events, before the field's own (#125, Clipboard.swift).
     override func copy(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.copy(_:))) { super.copy(sender) } }
@@ -80,13 +96,26 @@ package final class TextArea: UITextView {
     /// The Markdown styler when `markup="markdown"` (LLP 1045 D5).
     package var markup: MarkdownEditing?
 
+    package override func setMarkedText(_ markedText: String?, selectedRange: NSRange) {
+        if let selections = owner?.presenter?.fieldSelections {
+            selections.nativeEdit(owner, replacement: markedText ?? "", marked: true) { super.setMarkedText(markedText, selectedRange: selectedRange) }
+        } else { super.setMarkedText(markedText, selectedRange: selectedRange) }
+    }
     package override func insertText(_ text: String) {
         // UIKeyInput (including the software keyboard) need not ask the
         // text-view delegate before insertion. Handle a plain Return here;
         // the command's own native insertion bypasses through `applying`.
         if text == "\n", let editor = markup, !editor.applying,
            markedTextRange == nil, owner?.formatMarkup("newline", selection: selectedRange) == true { return }
-        super.insertText(text)
+        if let selections = owner?.presenter?.fieldSelections {
+            selections.nativeEdit(owner, replacement: text, marked: markedTextRange != nil) { super.insertText(text) }
+        } else { super.insertText(text) }
+    }
+
+    package override func deleteBackward() {
+        if let selections = owner?.presenter?.fieldSelections {
+            selections.nativeEdit(owner, replacement: "", marked: markedTextRange != nil) { super.deleteBackward() }
+        } else { super.deleteBackward() }
     }
 
     package override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
@@ -102,6 +131,15 @@ package final class TextArea: UITextView {
         let remaining=owner?.pressedControls(presses,down:false) ?? presses
         if !remaining.isEmpty {super.pressesCancelled(remaining,with:event)}
     }
+    package override func becomeFirstResponder() -> Bool {
+        let wasFirst = isFirstResponder
+        let focused = super.becomeFirstResponder()
+        // Read-only selection has no editing-began delegate callback.
+        if focused, !wasFirst, isFirstResponder, let owner {
+            owner.presenter?.focus(owner.id)
+        }
+        return focused
+    }
     package override func resignFirstResponder() -> Bool {
         let wasFirst = isFirstResponder
         if wasFirst, markedTextRange == nil { markup?.bookmark = selectedRange }
@@ -111,11 +149,11 @@ package final class TextArea: UITextView {
         // transient selection surface after focus moves elsewhere.
         #if os(tvOS)
         // tvOS text views do not edit, so every session is read-only.
-        if resigned, wasFirst, let owner, owner.handlers.contains("blur") {
+        if resigned, wasFirst, let owner {
             owner.presenter?.blur(owner.id)
         }
         #else
-        if resigned, wasFirst, !isEditable, let owner, owner.handlers.contains("blur") {
+        if resigned, wasFirst, !isEditable, let owner {
             owner.presenter?.blur(owner.id)
         }
         #endif
@@ -174,12 +212,14 @@ package final class TextArea: UITextView {
         typingAttributes.merge(attributes) { _, authored in authored }
     }
     var placeholder = "" { didSet { setNeedsDisplay() } }
+    /// The authored `::placeholder` colour (LLP 1104 D3); nil, UIKit's.
+    var placeholderColor: UIColor?
     package override func draw(_ rect: CGRect) {
         super.draw(rect)
         if text.isEmpty, !placeholder.isEmpty {
             (placeholder as NSString).draw(in: bounds.inset(by: textContainerInset), withAttributes: [
                 .font: font ?? UIFont.systemFont(ofSize: 16),
-                .foregroundColor: UIColor.placeholderText,
+                .foregroundColor: placeholderColor ?? ThemeRoles.color("placeholder", in: self, or: UIColor.placeholderText),
             ])
         }
     }
@@ -244,11 +284,18 @@ extension NodeView {
         f.textContainerInset = .zero
         f.textContainer.lineFragmentPadding = 0
         f.delegate = self
+        #if os(iOS)
+        // Not the screen's scroller: the status bar scrolls that (LLP 1115).
+        f.scrollsToTop = false
+        #endif
         addSubview(f)
         textArea = f
     }
     func configureMarkup() {
         guard let f = textArea as? TextArea else { return }
+        #if os(iOS)
+        f.pasteDelegate = props["markup"] == "markdown" ? nil : self
+        #endif
         if props["markup"] == "markdown" {
             if f.markup == nil { f.markup = MarkdownLink.installed?.editor() }
         } else if let editor = f.markup, f.markedTextRange == nil {
@@ -283,14 +330,15 @@ extension NodeView {
         textArea?.textAlignment = NSTextAlignment(rawValue: textAlignmentCode) ?? .left
         guard let f = textArea, let t = text else { return }
         guard f.markedTextRange == nil else { layoutTextArea(); return }
-        f.font = t.font(size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")))
+        f.font = t.font(size: number("font_size", PageFacts.defaultRootFontSize), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")))
         f.textColor = color("text_color", SystemColor.canvasText)
         f.tintColor = isNativeTextControl ? caretColor ?? channels("accent_color").map { TextEngine.color($0) } : caretColor
         if isNativeTextControl {
             f.typingAttributes[.kern] = number("letter_spacing")
             f.textStorage.addAttribute(.kern, value: number("letter_spacing"), range: NSRange(location: 0, length: f.textStorage.length))
         }
-        (f as? TextArea)?.configureNativeChrome(isNativeTextControl)
+        (f as? TextArea)?.placeholderColor = placeholderColor
+        (f as? TextArea)?.configureNativeChrome(isNativeTextControl, cell: isCellField)
         (f as? TextArea)?.applyLineHeight(usedLineHeight)
         restyleMarkup()
         f.setNeedsDisplay()
@@ -303,19 +351,22 @@ extension NodeView {
         #else
         if isNativeTextControl {
             area.frame = bounds
-            if let r = nativeFieldContent {
+            if let r = kernelContentBox {
                 area.textContainerInset = UIEdgeInsets(top: r.minY, left: r.minX, bottom: max(0, bounds.height - r.maxY), right: max(0, bounds.width - r.maxX))
             }
         } else { area.frame = contentBox() }
         #endif
     }
-    /// The app's value into the editor: nothing while text is being composed
-    /// (held until the composition ends), else the changed middle only, with
-    /// the selection carried through (LLP 1045 D5).
+    /// The app's value into the editor: the changed middle only, with the
+    /// selection carried through (LLP 1045 D5). The value the editor already
+    /// shows changes nothing, so a composition and its selection stand. A
+    /// different one is held while text is marked, the last one written,
+    /// and applied when the composition ends (`FieldComposition.swift`).
     func writeValue(_ value: String, into f: UITextView) {
         if (f.text ?? "").utf16.elementsEqual(value.utf16) { pendingValue = nil; return }
         if f.markedTextRange != nil { pendingValue = value; return }
         pendingValue = nil
+        toldText = nil
         guard let edit = minimalTextEdit(from: f.text ?? "", to: value) else { return }
         // Native undo ranges refer to the old buffer. An external edit has
         // no position map for those ranges; discard only this view's history.
@@ -332,11 +383,12 @@ extension NodeView {
     }
     package func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
         TextInputLimit.allows(textView.text ?? "", range: range, replacement: text, props: props)
+            && (presenter?.fieldSelections.shouldEdit(self, range: range, replacement: text, marked: textView.markedTextRange != nil) ?? true)
     }
     package func textViewDidChange(_ textView: UITextView) {
         if let editor = (textView as? TextArea)?.markup, editor.applying || editor.styling { return }
         textView.setNeedsDisplay()
-        if !disabled { presenter?.typed(id, textView.text ?? "", input: handlers.contains("input")) }
+        if !disabled { typedText(textView.text ?? "") }
         if textView.markedTextRange == nil, let held = pendingValue { writeValue(held, into: textView) }
         configureMarkup()
         restyleMarkup()
@@ -353,14 +405,14 @@ extension NodeView {
         presenter?.collections.pinsChanged()
         presenter?.editing = self
         presenter?.fieldSelections.focused(self)
-        if handlers.contains("focus") { presenter?.focus(id) }
+        presenter?.focus(id)
         presenter?.reveal(self)
         publishMarkupSelection(force: true)
     }
     package func textViewDidEndEditing(_ textView: UITextView) { presenter?.collections.pinsChanged();
         if presenter?.editing === self { presenter?.editing = nil }
         presenter?.commitEdit(id, textView.text ?? "", change: handlers.contains("change"))
-        if handlers.contains("blur") { presenter?.blur(id) }
+        presenter?.blur(id)
     }
 }
 #endif

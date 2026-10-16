@@ -111,6 +111,7 @@ impl<D: DataSource> Presenter<D> {
         });
         let declared: Vec<ViewId> = preorder
             .into_iter()
+            .filter(|&id| self.alert_allows(id))
             .filter(|&id| {
                 kernel.node(id).is_some_and(|n| {
                     n.props
@@ -151,7 +152,8 @@ impl<D: DataSource> Presenter<D> {
             .node(button)
             .is_none_or(|n| n.props.bool(PropId::Disabled) == Some(true));
         if !repeat && !disabled {
-            self.dispatch_press(button, now_ms, false);
+            self.note_press(button, true);
+            self.activate_with(button, now_ms, false);
         }
         true
     }

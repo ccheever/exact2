@@ -67,8 +67,8 @@ component App
   state count = 0
   state draft = ""
   state disabled = false
-  resource initial = rows() as shape list<Row>
-  mutation changed as shape list<Row>
+  resource initial = rows() as shape Row[]
+  mutation changed as shape Row[]
   derive rows = match changed { case some(value) => value, case none => initial }
   action drop(item: string, before: option<string>)
     send changed = move(item, before)
@@ -81,7 +81,7 @@ component App
     box width="100%" height="100%"
       box position="absolute" left=20 top=40 width=300 height=184
         list id="items" testId="list" width="100%" height="100%" border-width=2 padding=0 virtualized=true reorderdrop=drop
-          each x in rows key=x.id
+          for x in rows key=x.id
             box testId=`row-${x.id}` height=x.height background-color=x.color
               box testId=`grip-${x.id}` width="100%" height="100%" reorderFor="items" touch-action="none" disabled=disabled
       button position="absolute" top=300 testId="disable" press=disable
@@ -169,7 +169,7 @@ fn physical_vertical_contact_catches_wrapper_and_keeps_typing_live() {
     assert!(p.collection_interaction().is_none());
 }
 #[test]
-fn latest_unproved_release_cannot_dispatch_previous_gap_and_late_up_is_inert() {
+fn unmeasured_release_cannot_dispatch_previous_gap_and_late_up_is_inert() {
     let mut p = boot();
     let (_, point) = recognize(&mut p);
     p.pointer_move(point.0, point.1 + 60., 20.).unwrap();
@@ -319,11 +319,14 @@ fn edge_scroll_reads_actual_offset_and_keeps_stationary_source_in_view() {
     let before = p.rect_of(id(&p, "row-0")).unwrap();
     let list = id(&p, "list");
     let old = p.scroll_of(list).1;
+    assert_eq!(old, 0., "the first edge sample establishes its clock");
     assert!(p.needs_animation_frame());
+    p.tick(20.);
+    assert_eq!(p.scroll_of(list).1, old);
     p.tick(70.);
     p.frame();
     let after = p.rect_of(id(&p, "row-0")).unwrap();
-    assert!(p.scroll_of(list).1 > old);
+    assert!((p.scroll_of(list).1 - old - 720. * 0.032).abs() < 0.001);
     assert!((after.1 - before.1).abs() < 0.01, "{before:?} {after:?}");
     assert!(p
         .host()
@@ -355,9 +358,14 @@ fn edge_scroll_authored_counter_preserves_hold_position_and_one_terminal_drop() 
     p.pointer_move(point.0, y, 20.).unwrap();
     let before = p.rect_of(id(&p, "row-0")).unwrap();
     let old_scroll = p.scroll_of(list).1;
+    // The first frame in the band starts the edge's clock, as the page's first
+    // animation frame does; the next scrolls.
+    p.tick(38.);
+    assert_eq!(p.scroll_of(list).1, old_scroll);
+    assert_eq!(p.host().runner().slot("scrolls"), Some(&Value::Number(0.)));
     p.tick(70.);
     assert_eq!(p.host().runner().slot("scrolls"), Some(&Value::Number(1.)));
-    assert!(p.scroll_of(list).1 > old_scroll);
+    assert!((p.scroll_of(list).1 - old_scroll - 720. * 0.032).abs() < 0.001);
     assert!(p
         .host()
         .engine()
@@ -386,6 +394,7 @@ fn edge_scroll_authored_deletion_and_width_reflow_still_cancel_before_drop() {
         let y = port.1 + port.3 - 8.;
         let width_before = p.host().kernel().node(list).unwrap().frame.width;
         p.pointer_move(point.0, y, 20.).unwrap();
+        p.tick(38.);
         p.tick(70.);
         assert_eq!(p.host().runner().slot("scrolls"), Some(&Value::Number(1.)));
         assert!(!p
@@ -433,7 +442,7 @@ fn typing_under_empty_when_arms_preserves_mapping_hold_and_exactly_one_drop() {
         .lines()
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
-    let source = format!("{head}        when shown\n          when windowed\n{list}      button position=\"absolute\"{tail}");
+    let source = format!("{head}        if shown\n          if windowed\n{list}      button position=\"absolute\"{tail}");
     let mut p = boot_source(&source);
     let (wrapper, point) = recognize(&mut p);
     p.pointer_move(point.0, point.1 + 60., 20.).unwrap();
@@ -508,18 +517,18 @@ const CARDS: &str = r#"shape Card
   col: string
 component App
   state log = ""
-  resource columns = columns() as shape list<string>
-  resource initial = cards() as shape list<Card>
-  mutation changed as shape list<Card>
+  resource columns = columns() as shape string[]
+  resource initial = cards() as shape Card[]
+  mutation changed as shape Card[]
   derive cards = match changed { case some(value) => value, case none => initial }
   action dropCard(col: string, item: string, before: option<string>)
     log = `${item}>${col}@${match before { case some(k) => k, case none => "" }}`
     send changed = move(item, col, match before { case some(k) => k, case none => "" })
   view
     row gap=20
-      each col in columns key=col
+      for col in columns key=col
         list id=`col-${col}` testId=`list-${col}` virtualized=true reorderGroup="cards" reorderdrop=dropCard(col) width=150 height=200
-          each card in filter(cards, k => k.col == col) key=card.id
+          for card in cards.filter(k => k.col == col) key=card.id
             box testId=`grip-${card.id}` height=40 reorderFor=`col-${col}` touch-action="none"
               text card.id
 "#;
@@ -555,10 +564,11 @@ fn a_grouped_row_crosses_to_another_list_and_its_session_finishes() {
         .runner()
         .reorder_json()
         .contains("\"to\":\"col-b\",\"before\":null"));
-    assert!(p.pointer_up(b1.0, b1.1 + 25., 30.).unwrap());
+    assert!(p.pointer_up(b1.0, b1.1 + 25., 20_000.).unwrap());
+    assert_eq!(p.host().runner().now_ms(), 20_000.);
     assert_eq!(p.host().runner().slot("log"), Some(&Value::str("a1>b@")));
     assert!(p.needs_animation_frame(), "the ghost springs onto the row");
-    for t in [50., 100., 400., 1500.] {
+    for t in [20_050., 20_100., 20_400., 21_500.] {
         p.tick(t);
     }
     assert!(!p.needs_animation_frame());

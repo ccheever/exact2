@@ -1,0 +1,23 @@
+# Tamber: the `.tamber` grammar, its checker and the build's one evaluator.
+# @ref LLP 1121 D2 — a leaf below the Contract compiler, the `tamber` verbs
+# and the design tool's wasm; a shipped build never carries it.
+[package]
+name = "exact-tamber"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Tamber designs: parse, check and fold to the IR (LLP 1121)"
+publish = false
+
+[lib]
+name = "exact_tamber"
+crate-type = ["rlib"]
+
+[dependencies]
+exact-color = { path = "../color" }
+exact-num = { path = "../num" }
+# The DTCG importer reads JSON (LLP 1121 D14).
+serde_json = "1.0"
+
+[dev-dependencies]
+exact-kernel = { path = "../kernel" }

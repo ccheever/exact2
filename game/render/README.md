@@ -81,8 +81,11 @@ stage; unsupported finer intervals are `null`.
 
 One compute pass after skinning (`cull.wgsl`, three dispatches) tests every opaque
 item against the camera frustum and each cascade's light box, then writes each view's
-visible slots into its own region, **in retained order** — equal-depth ties resolve
-exactly as unculled — and fills that view's `draw_indexed_indirect` arguments.
+visible slots into its own region and fills that view's `draw_indexed_indirect`
+arguments. The camera's region takes a group's 64-item chunks nearest first (a
+counting sort over 256 depth steps, for groups of 16 chunks or more), so depth
+tested before shading rejects what they hide; within a chunk, and in the cascades,
+order is the retained order, so equal-depth ties resolve as unculled.
 Draws read their region through a dynamic offset on the scene group's `slots`
 binding with a zero first instance, so WebGPU's optional `indirect-first-instance`
 is not required. The CPU keeps the draw groups (batch × winding, recomputed each
@@ -110,6 +113,39 @@ cannot hold the per-view lists (only region padding can exceed them below
 `max_slots()`) draws every group directly and unculled, with identical pixels.
 Culling does not reduce CPU draw calls; measurements are in
 [bench/README.md](../bench/README.md#culling-and-environment-lighting--2026-09-23).
+
+## Forward variants for tiling GPUs
+
+The forward pipelines beyond the eight made at construction are made on first use
+(`Pipelines::forward_variant`), keyed by what the frame needs. *Lean* compiles
+without the fill and local lights and the grid when no light or material uses
+them: their registers, unused, cost a mobile GPU most of its occupancy. *Early*
+forces depth tests before shading (`SHADER_EARLY_DEPTH_TEST`) when no slot is
+fading, whose dither discards. *Uniform* reads a one-colour sky's irradiance and
+radiance without evaluating either. *Direct* (Android and iOS, `set_direct`), for
+a frame that needs nothing of its HDR image afterwards (no hook, bloom, SSAO,
+quad or model draws): the shader tonemaps, and 4× MSAA in the target's format
+resolves into the target itself — half the bytes a sample, no tone pass. Each
+leaves the image as it was; direct moves MSAA edges only, each sample tonemapped
+before the resolve (`effects::a_direct_frame_draws_what_the_tone_pass_draws`).
+On a Pixel 5 (Adreno 620) these took 64,000 cubes from 4 to 60 frames a second
+([bench/README.md](../bench/README.md#phone--cubes-on-a-pixel-5-2026-10-16)).
+
+## Occlusion
+
+A frame whose lists hold 32,768 slots or more (`Renderer::set_occlusion_items`)
+first draws what the camera drew last frame, depth only at this frame's poses,
+into a texture a quarter of the frame's size, builds a pyramid of the farthest
+depth under each texel, and the cull drops from the camera's lists what lies
+behind it wherever it can cover (occlusion.rs, cull.wgsl `occluded`). Only
+closed convex meshes occlude (`occlusion::inscribed`), each shrunk and pushed
+back by a texel (occluder.wgsl), so no crack narrower than a texel between two
+occluders hides what shows through it: the frame is the frame drawn without
+occlusion, sample for sample (`effects::occlusion_*`). It is off for a frame
+after a new setup, a level-of-detail change or with anything fading. At 256,000
+cubes on a Pixel 5 the camera then draws 42,000 of the 140,000 the frustum
+keeps; drawn unshrunk, 18,000, at the cost of the far cubes seen through a
+crack narrower than a texel.
 
 ## Effects
 

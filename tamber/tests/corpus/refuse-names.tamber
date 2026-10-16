@@ -1,0 +1,25 @@
+tamber names
+
+dials
+  accent: color = #1083fe
+
+theme
+  unknown = brand.missing
+  via.var = var(--surface)
+  cycle.a = cycle.b
+  cycle.b = color-mix(in srgb, cycle.a, white)
+  self = light-dark(#fff, self)
+  -exact-label = -exact-label
+  twice = #000
+  twice = #111
+  -exact-secondary-label = #000
+  secondary-label = #111
+  accent = #000
+  white = #fff
+  inherit = #000
+  -exact-nonesuch = #000
+  uses.cycle = cycle.a
+
+exports
+  twice
+  not.declared

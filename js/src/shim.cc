@@ -7,6 +7,7 @@
 #include <hermes/hermes.h>
 #include <jsi/jsi.h>
 #include <ibex2_jsi.h>
+#include <jsi/instrumentation.h>
 
 #include <cstdint>
 #include <cstdlib>
@@ -29,6 +30,21 @@ public:
 
 private:
   std::vector<uint8_t> bytes_;
+};
+
+// Bytecode its caller keeps until the runtime is destroyed (engine.rs: the
+// binary's own, or the module's, which the engine holds), read in place.
+// Hermes refuses a buffer that is not aligned for its file header; such a
+// buffer is copied (`OwnedBytes`).
+class BorrowedBytes : public jsi::Buffer {
+public:
+  BorrowedBytes(const uint8_t *data, size_t size) : data_(data), size_(size) {}
+  size_t size() const override { return size_; }
+  const uint8_t *data() const override { return data_; }
+
+private:
+  const uint8_t *data_;
+  size_t size_;
 };
 
 // (ctx, op, a, b, out) -> 0 with `out` null (undefined) or a malloc'd string.
@@ -231,7 +247,11 @@ void *exact_js_create(uint32_t max_heap_bytes, HostFn host, BytesFn bytes, void 
 int exact_js_load(void *h, const uint8_t *data, size_t len, char **out) {
   auto *state = static_cast<State *>(h);
   try {
-    auto buffer = std::make_shared<OwnedBytes>(std::vector<uint8_t>(data, data + len));
+    std::shared_ptr<jsi::Buffer> buffer;
+    if (reinterpret_cast<uintptr_t>(data) % 16 == 0)
+      buffer = std::make_shared<BorrowedBytes>(data, len);
+    else
+      buffer = std::make_shared<OwnedBytes>(std::vector<uint8_t>(data, data + len));
     state->rt->evaluateJavaScript(buffer, "app.hbc");
     return 0;
   } catch (const jsi::JSError &e) {
@@ -274,6 +294,12 @@ int exact_js_harden(void *h, const uint8_t *harden, size_t harden_len, char **ou
   auto *state = static_cast<State *>(h);
   try {
     state->adapter->capture_intrinsics();
+    // Hermes' young generation is one heap segment that keeps every page it
+    // has touched, so its footprint is the furthest point allocation reaches
+    // between two collections. The freeze below allocates about 1.3 MB,
+    // nearly all of it garbage; collecting what the runtime and prelude
+    // allocated first (0.65 MB, half of it live) lets it reuse their pages.
+    state->rt->instrumentation().collectGarbage("bootstrap");
     ibex2::jsi_adapter::CompiledScript script{"harden", harden, harden_len};
     state->adapter->harden(script);
     return 0;

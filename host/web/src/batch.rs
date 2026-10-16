@@ -194,6 +194,17 @@ impl Batch {
             }
             id.push_to(&mut s);
         }
+        s.push_str("],\"visits\":[");
+        for (i, (id, url)) in change.visits.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            s.push('[');
+            id.push_to(&mut s);
+            s.push(',');
+            quote(url, &mut s);
+            s.push(']');
+        }
         s.push_str("]}");
         self.ops.push(s);
     }
@@ -321,6 +332,19 @@ impl Batch {
         let mut s = String::from("{\"op\":\"keyframes\",\"name\":");
         quote(name, &mut s);
         s.push_str(",\"css\":");
+        quote(css, &mut s);
+        s.push('}');
+        self.ops.push(s);
+    }
+
+    /// `{"op":"theme","css":…}`: the theme's `:root` rule (LLP 1095 D4), at
+    /// a boot whose plan has one (none for an empty rule), and after a live
+    /// edit moves the roles (LLP 1121 stage 5).
+    pub fn theme(&mut self, css: &str) {
+        if css.is_empty() {
+            return;
+        }
+        let mut s = String::from("{\"op\":\"theme\",\"css\":");
         quote(css, &mut s);
         s.push('}');
         self.ops.push(s);
@@ -617,6 +641,11 @@ impl Batch {
             s.push_str(",\"bodyFrom\":");
             quote(path, &mut s);
         }
+        // Absent is `follow` (http-body.js)
+        if r.request.redirect != exact_runner::Redirect::Follow {
+            s.push_str(",\"redirect\":");
+            quote(r.request.redirect.name(), &mut s);
+        }
         s.push_str(",\"body\":\"");
         s.push_str(&exact_runner::agent::base64(&r.request.body));
         s.push_str("\",\"cache\":\"");
@@ -633,13 +662,23 @@ impl Batch {
 
     /// `{"op":"store","tier":"secret","name":…,"value":…|null}` — a secret
     /// the app kept or forgot (LLP 1018 D1), for the page to persist after
-    /// the commit (`localStorage` under `exact.secret.<name>`).
+    /// the commit (`localStorage` under `exact.secret.<name>`); `"plain"`
+    /// for a persisted state (LLP 1116 D5), kept under its own name. A kept
+    /// answer's bytes go as base64, since `localStorage` holds text.
     pub fn store(&mut self, w: &exact_runner::StoreWrite) {
-        let mut s = String::from("{\"op\":\"store\",\"tier\":\"secret\",\"name\":");
+        let tier = if w.name.starts_with(exact_runner::Store::STATE) {
+            "plain"
+        } else {
+            "secret"
+        };
+        let mut s = format!("{{\"op\":\"store\",\"tier\":\"{tier}\",\"name\":");
         quote(&w.name, &mut s);
         s.push_str(",\"value\":");
         match &w.value {
-            Some(v) => quote(v, &mut s),
+            Some(v) if w.name.starts_with(exact_runner::Store::KEPT) => {
+                quote(&exact_runner::agent::base64(v), &mut s)
+            }
+            Some(v) => quote(&String::from_utf8_lossy(v), &mut s),
             None => s.push_str("null"),
         }
         s.push('}');
@@ -692,7 +731,8 @@ impl Batch {
     }
 
     /// `{"op":"sound","files":[…],"ops":[…]}` (LLP 1096 D7): the voice
-    /// table's ops, `{"op":"play","id":…,"sound":…,"at":…,"gain":…}` and
+    /// table's ops, `{"op":"play","id":…,"sound":…,"at":…,"gain":…}` (with
+    /// `playbackRate` and `pan` when not 1 and 0, LLP 1125 D10) and
     /// `{"op":"end","id":…,"at":…}`, in runner milliseconds. `plan` at a
     /// boot names the files to decode, in declaration order (a new boot
     /// silences the last one's voices); nothing is sent when there is
@@ -729,24 +769,64 @@ impl Batch {
                     sound,
                     at,
                     gain,
-                } => push_text!(
-                    &mut s,
-                    "{{\"op\":\"play\",\"id\":{},\"sound\":{},\"at\":{},\"gain\":{}}}",
-                    id,
-                    sound,
-                    Shortest(*at),
-                    Shortest(*gain)
-                ),
+                    playback_rate,
+                    pan,
+                } => {
+                    push_text!(
+                        &mut s,
+                        "{{\"op\":\"play\",\"id\":{},\"sound\":{},\"at\":{},\"gain\":{}",
+                        id,
+                        sound,
+                        Shortest(*at),
+                        Shortest(*gain)
+                    );
+                    if *playback_rate != 1.0 {
+                        push_text!(&mut s, ",\"playbackRate\":{}", Shortest(*playback_rate));
+                    }
+                    if *pan != 0.0 {
+                        push_text!(&mut s, ",\"pan\":{}", Shortest(*pan));
+                    }
+                    s.push('}');
+                }
                 SoundOp::End { id, at } => push_text!(
                     &mut s,
                     "{{\"op\":\"end\",\"id\":{},\"at\":{}}}",
                     id,
                     Shortest(*at)
                 ),
+                // A sequence step's haptic, at its time (LLP 1125 D3).
+                SoundOp::Haptic { id, kind, at } => {
+                    push_text!(&mut s, "{{\"op\":\"haptic\",\"id\":{},\"kind\":", id);
+                    quote(kind, &mut s);
+                    push_text!(&mut s, ",\"at\":{}}}", Shortest(*at));
+                }
+                SoundOp::Unhaptic { id } => {
+                    push_text!(&mut s, "{{\"op\":\"unhaptic\",\"id\":{}}}", id)
+                }
             }
         }
         s.push_str("]}");
         self.ops.push(s);
+    }
+
+    /// This batch's ops, for another batch to carry (`Host::ending`).
+    pub(crate) fn into_ops(self) -> Vec<String> {
+        self.ops
+    }
+
+    /// The runner's timed outputs since the last take (LLP 1096 D7, LLP
+    /// 1125 D7): the voice table's `sound` op and the MIDI queue's `midi`
+    /// op; at a `boot`, the files to decode and whether MIDI's arm loads.
+    pub fn timed<D: exact_runner::DataSource>(
+        &mut self,
+        runner: &mut exact_runner::Runner<D>,
+        boot: bool,
+    ) {
+        self.sound(runner.take_sounds(), boot.then(|| runner.plan()));
+        let uses = boot && exact_runner::uses::uses_midi(runner.plan());
+        if let Some(op) = exact_runner::midi::batch_op(&runner.take_midi(), uses) {
+            self.ops.push(op);
+        }
     }
 
     /// `{"op":"destroy","id":…}`.
@@ -913,5 +993,45 @@ mod quote_tests {
             super::quote(s, &mut quoted);
             assert!(a.starts_with(&format!("[{quoted},")), "{a}");
         }
+    }
+}
+
+#[cfg(test)]
+mod store_tests {
+    use exact_runner::StoreWrite;
+
+    /// A kept answer's bytes cross `localStorage` as base64 and come back
+    /// whole; a secret is its text.
+    #[test]
+    fn a_kept_answers_bytes_round_trip_through_the_page() {
+        let bytes = vec![0, 255, b'|', 0x80, b'\0'];
+        let mut batch = super::Batch::new();
+        batch.store(&StoreWrite {
+            name: "exact.kept.answer".into(),
+            value: Some(bytes.clone()),
+        });
+        batch.store(&StoreWrite {
+            name: "token".into(),
+            value: Some(b"s3cret".to_vec()),
+        });
+        let out = batch.finish(None, false, 0.0, None);
+        assert!(
+            out.contains("\"name\":\"exact.kept.answer\",\"value\":\"AP98gAA=\""),
+            "{out}"
+        );
+        assert!(
+            out.contains("\"name\":\"token\",\"value\":\"s3cret\""),
+            "{out}"
+        );
+        // An older build's hex is kept empty: never used, and still forgettable
+        let page = "exact.kept.answer\0AP98gAA=\0token\0s3cret\0exact.kept.hex\0!!";
+        assert_eq!(
+            crate::abi::page_snapshot(page.as_bytes()),
+            [
+                ("exact.kept.answer".to_string(), bytes),
+                ("token".to_string(), b"s3cret".to_vec()),
+                ("exact.kept.hex".to_string(), Vec::new())
+            ]
+        );
     }
 }

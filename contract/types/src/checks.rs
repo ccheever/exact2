@@ -4,10 +4,11 @@ use super::{
     arms, disagree, err, infer, ComponentTypes, Ref, Scope, Shapes, Sink, Ty, TypeError, Types,
 };
 use contract_syntax::{
-    Attr, Binding, Component, Expr, File, Node, Owner, Span, TemplatePart, TypeExpr, HOST_COMMANDS,
+    Attr, Component, Expr, File, Node, Owner, Span, TemplatePart, TypeExpr, HOST_COMMANDS,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
+mod midi;
 mod sounds;
 
 /// Reject recursive functions without revisiting completed subgraphs.
@@ -125,9 +126,13 @@ fn calls_in(e: &Expr, indices: &BTreeMap<&str, usize>, out: &mut Vec<usize>) {
     }
 }
 
+pub(super) use super::enums::accepts_expr;
+
 /// Check compatibility without constructing a discarded merged type.
 pub(super) fn can_unify(a: &Ty, b: &Ty) -> bool {
     match (a, b) {
+        (Ty::String, Ty::Enum(_)) => true,
+        (Ty::Enum(a), Ty::Enum(b)) => b.iter().all(|value| a.contains(value)),
         (Ty::Unknown, _) | (_, Ty::Unknown) => true,
         (Ty::Option(a), Ty::Option(b)) | (Ty::List(a), Ty::List(b)) => can_unify(a, b),
         (Ty::Action(a), Ty::Action(b)) => {
@@ -153,6 +158,25 @@ pub(super) fn call_arity<P: std::fmt::Display>(
     } else {
         format!("{required} to {}", params.len())
     };
+    if contract_syntax::idioms::is_method(name) && !params.is_empty() {
+        // `x.slice(…)` counts what is in its parentheses (LLP 1116.015 D2).
+        let rest = &params[1..];
+        let required = required.saturating_sub(1);
+        let count = if required == rest.len() {
+            rest.len().to_string()
+        } else {
+            format!("{required} to {}", rest.len())
+        };
+        return format!(
+            "`.{name}(…)` takes {count} argument(s), given {}; expected `{}.{name}({})`",
+            given.saturating_sub(1),
+            match params[0].contains(' ') {
+                true => format!("({})", params[0]),
+                false => params[0].clone(),
+            },
+            rest.join(", ")
+        );
+    }
     format!(
         "`{name}` takes {count} argument(s), given {given}; expected `{name}({})`",
         params.join(", ")
@@ -488,181 +512,6 @@ fn collect_owner_scopes(
     complete
 }
 
-/// A slot's fill, checked where `children` stands with its caller's scope
-/// and providers (LLP 1035.005.000 D9: the slot's own section does not
-/// reach it).
-#[derive(Clone)]
-struct Fill {
-    nodes: Vec<Node>,
-    scope: Scope,
-    provides: Vec<(String, Ty, Span)>,
-}
-
-/// Check the concrete provider path to every inject after component typing:
-/// `provides` is the root's `provide` section, `scope` its scope.
-pub(super) fn check_injects(
-    nodes: &[Node],
-    provides: &[Binding],
-    scope: &Scope,
-    types: &Types,
-    file: &File,
-) -> Result<(), TypeError> {
-    let mut provided = Vec::new();
-    for b in provides {
-        provided.push((
-            b.name.clone(),
-            infer(&b.expr, scope, &types.shapes)?,
-            b.span,
-        ));
-    }
-    check_inject_nodes(nodes, scope, types, file, &mut provided, None, 0)
-}
-
-#[allow(clippy::too_many_arguments)]
-fn check_inject_nodes(
-    nodes: &[Node],
-    scope: &Scope,
-    types: &Types,
-    file: &File,
-    provides: &mut Vec<(String, Ty, Span)>,
-    fill: Option<&Fill>,
-    depth: u32,
-) -> Result<(), TypeError> {
-    for node in nodes {
-        match node {
-            Node::Element { children, .. } => {
-                check_inject_nodes(children, scope, types, file, provides, fill, depth)?;
-            }
-            Node::Use {
-                name,
-                children,
-                span,
-                ..
-            } => {
-                // A use of an unknown component was refused and never expanded.
-                let Some(target) = file
-                    .components
-                    .iter()
-                    .position(|component| &component.name == name)
-                else {
-                    continue;
-                };
-                let target_c = &file.components[target];
-                let target_t = &types.components[target];
-                for (j, inject) in target_c.injects.iter().enumerate() {
-                    let Some((_, got, provided_at)) = provides
-                        .iter()
-                        .rev()
-                        .find(|(provided, _, _)| provided == &inject.name)
-                    else {
-                        continue;
-                    };
-                    let want = &target_t.props[target_c.props.len() + j];
-                    if !can_unify(want, got) {
-                        return err(
-                            "type-provide",
-                            format!(
-                                "the provided `{}` is `{got}`, but `{name}` injects `{want}`",
-                                inject.name
-                            ),
-                            *provided_at,
-                        );
-                    }
-                }
-                if depth >= 32 {
-                    return err(
-                        "syntax-inline-depth",
-                        format!("component `{name}` nests too deeply (a cycle?)"),
-                        *span,
-                    );
-                }
-                let target_scope = types.component_scope(target_c, target_t);
-                let child_fill = target_c.slot.then(|| Fill {
-                    nodes: children.clone(),
-                    scope: scope.clone(),
-                    provides: provides.clone(),
-                });
-                let outer = provides.len();
-                for b in &target_c.provides {
-                    let got = infer(&b.expr, &target_scope, &types.shapes)?;
-                    provides.push((b.name.clone(), got, b.span));
-                }
-                let checked = check_inject_nodes(
-                    &target_c.view,
-                    &target_scope,
-                    types,
-                    file,
-                    provides,
-                    child_fill.as_ref(),
-                    depth + 1,
-                );
-                provides.truncate(outer);
-                checked?;
-            }
-            Node::Children { .. } => {
-                if let Some(fill) = fill {
-                    check_inject_nodes(
-                        &fill.nodes,
-                        &fill.scope,
-                        types,
-                        file,
-                        &mut fill.provides.clone(),
-                        None,
-                        depth,
-                    )?;
-                }
-            }
-            Node::When {
-                then, otherwise, ..
-            } => {
-                check_inject_nodes(then, scope, types, file, provides, fill, depth)?;
-                check_inject_nodes(otherwise, scope, types, file, provides, fill, depth)?;
-            }
-            Node::Each {
-                var,
-                index,
-                list,
-                body,
-                ..
-            } => {
-                let ty = infer(list, scope, &types.shapes)?;
-                let Ty::List(item) = ty else {
-                    return err(
-                        "type-each-list",
-                        format!("`each` needs a list, given `{ty}`"),
-                        list.span(),
-                    );
-                };
-                let mut inner = scope.clone();
-                inner.push_each(var, index.as_deref(), *item);
-                check_inject_nodes(body, &inner, types, file, provides, fill, depth)?;
-            }
-            Node::Match {
-                subject,
-                some,
-                none,
-                ..
-            } => {
-                let ty = infer(subject, scope, &types.shapes)?;
-                let Ty::Option(item) = ty else {
-                    return err(
-                        "type-match-subject",
-                        format!("`match` needs an option, given `{ty}`"),
-                        subject.span(),
-                    );
-                };
-                let mut inner = scope.clone();
-                inner.push_region(Some((some.0.clone(), Ref::Bound(0), *item)));
-                check_inject_nodes(&some.1, &inner, types, file, provides, fill, depth)?;
-                let mut none_scope = scope.clone();
-                none_scope.push_region(None);
-                check_inject_nodes(none, &none_scope, types, file, provides, fill, depth)?;
-            }
-        }
-    }
-    Ok(())
-}
-
 /// The three pickers' positional arguments (LLP 1069.010 D2): an element
 /// id, then `multiple` (a bool) for `showOpenFilePicker` or
 /// `suggestedName` (a string) for `showSaveFilePicker`.
@@ -766,12 +615,14 @@ fn save_file_args(
     Ok(())
 }
 
-/// `share(title=, text=, url=)` (LLP 1069.003 D1): the Web Share API's
-/// member names, named only, each a string, at least one of `text` and
-/// `url`. Whether `url` is absolute is the host's to refuse: a value is not
-/// known here.
+/// `share(title=, text=, url=, files=)` (LLP 1069.003 D1; LLP 1125 D12):
+/// the Web Share API's member names, named only, at least one of `text`,
+/// `url` and `files`; each a string but `files`, a list of strings. A
+/// literal file is an `app:/` path or an element's `"#id"`. Whether `url`
+/// is absolute and whether the grants cover a path are the host's to
+/// refuse: a value is not known here.
 fn share_args(args: &[Expr], scope: &Scope, shapes: &Shapes, span: Span) -> Result<(), TypeError> {
-    const NAMES: [&str; 3] = ["title", "text", "url"];
+    const NAMES: [&str; 4] = ["title", "text", "url", "files"];
     let mut seen = BTreeSet::new();
     for arg in args {
         let Expr::NamedArg(name, value, at) = arg else {
@@ -784,7 +635,9 @@ fn share_args(args: &[Expr], scope: &Scope, shapes: &Shapes, span: Span) -> Resu
         if !NAMES.contains(&name.as_str()) {
             return err(
                 "type-share-argument",
-                format!("`share` has no argument `{name}`; it takes title=, text= and url="),
+                format!(
+                    "`share` has no argument `{name}`; it takes title=, text=, url= and files="
+                ),
                 *at,
             );
         }
@@ -796,6 +649,10 @@ fn share_args(args: &[Expr], scope: &Scope, shapes: &Shapes, span: Span) -> Resu
             );
         }
         let t = infer(value, scope, shapes)?;
+        if name == "files" {
+            share_files(value, &t)?;
+            continue;
+        }
         if Ty::String.unify(&t).is_none() {
             return err(
                 "type-share-argument",
@@ -804,17 +661,49 @@ fn share_args(args: &[Expr], scope: &Scope, shapes: &Shapes, span: Span) -> Resu
             );
         }
     }
-    if !seen.contains("text") && !seen.contains("url") {
+    if !seen.contains("text") && !seen.contains("url") && !seen.contains("files") {
         return err(
             "type-share-argument",
-            "`share` needs `text=` or `url=`",
+            "`share` needs `text=`, `url=` or `files=`",
             span,
         );
     }
     Ok(())
 }
 
-/// `showNotification(title=, body=, tag=, showTrigger=)`: the Notification
+/// `files=`: a list of strings; a literal list shares something, and each
+/// literal entry is an `app:/` path or an `"#id"` (LLP 1125 D12).
+fn share_files(value: &Expr, t: &Ty) -> Result<(), TypeError> {
+    if Ty::List(Box::new(Ty::String)).unify(t).is_none() {
+        return err(
+            "type-share-argument",
+            format!(
+                "`files=` is a list of strings, `app:/` paths and `\"#id\"` entries, not `{t}`"
+            ),
+            value.span(),
+        );
+    }
+    let Expr::List(items, at) = value else {
+        return Ok(());
+    };
+    if items.is_empty() {
+        return err("type-share-argument", "`files=[]` shares nothing", *at);
+    }
+    for item in items {
+        let Expr::Str(s, at) = item else { continue };
+        let id = s.strip_prefix('#');
+        if id.is_some_and(str::is_empty) || (id.is_none() && !s.starts_with("app:/")) {
+            return err(
+                "type-share-argument",
+                format!("`files=` takes `app:/` paths and an element's `\"#id\"`, not \"{s}\""),
+                *at,
+            );
+        }
+    }
+    Ok(())
+}
+
+/// `showNotification(title=, body=, tag=, showTrigger=, navigate=)`: the Notification
 /// API's title and options by name, named only, `title` required; strings,
 /// and `showTrigger` a number (when to show it, in epoch milliseconds: the
 /// Notification Triggers draft's `TimestampTrigger`). `closeNotification(tag)`:
@@ -827,7 +716,7 @@ fn notification_args(
     shapes: &Shapes,
     span: Span,
 ) -> Result<(), TypeError> {
-    const USAGE: &str = "`showNotification(title=…, body=…, tag=…, showTrigger=…)`";
+    const USAGE: &str = "`showNotification(title=…, body=…, tag=…, showTrigger=…, navigate=…)`";
     if name == "closeNotification" {
         let one = matches!(args, [tag] if !matches!(tag, Expr::NamedArg(..)));
         if !one || Ty::String.unify(&infer(&args[0], scope, shapes)?).is_none() {
@@ -849,12 +738,12 @@ fn notification_args(
             );
         };
         let want = match arg_name.as_str() {
-            "title" | "body" | "tag" => Ty::String,
+            "title" | "body" | "tag" | "navigate" => Ty::String,
             "showTrigger" => Ty::Number,
             other => {
                 return err(
                     "type-notification-argument",
-                    format!("`showNotification` has no argument `{other}`; it takes title=, body=, tag= and showTrigger="),
+                    format!("`showNotification` has no argument `{other}`; it takes title=, body=, tag=, showTrigger= and navigate="),
                     *at,
                 )
             }
@@ -921,7 +810,7 @@ fn into_view_args(
     };
     let Some(key) = key else {
         // Any string names the element, as `focus` takes one.
-        if infer(list, scope, shapes)? != Ty::String {
+        if !infer(list, scope, shapes)?.is_string() {
             return err(
                 "type-scroll-into-view",
                 format!("the element is named by its `id`, a string: {USAGE}"),
@@ -930,11 +819,11 @@ fn into_view_args(
         }
         if let Some(Expr::NamedArg(_, _, at)) = args
             .iter()
-            .find(|a| matches!(a, Expr::NamedArg(name, ..) if name == "row"))
+            .find(|a| matches!(a, Expr::NamedArg(name, ..) if name == "row" || name == "offset"))
         {
             return err(
                 "type-scroll-into-view",
-                "`row=` names an inner list's outer row: it goes with a list's `id` and a row's key",
+                "`row=` and `offset=` go with a list's `id` and a row's key",
                 *at,
             );
         }
@@ -973,6 +862,16 @@ fn into_view_options(
         let allowed: &[&str] = match name.as_str() {
             "block" | "inline" => &["start", "center", "end", "nearest"],
             "behavior" => &["auto", "instant", "smooth"],
+            "offset" => {
+                if infer(value, scope, shapes)? != Ty::Number {
+                    return err(
+                        "type-scroll-into-view",
+                        "`offset` is a number of CSS pixels into the row",
+                        *at,
+                    );
+                }
+                continue;
+            }
             "row" => {
                 infer(value, scope, shapes)?;
                 continue;
@@ -1023,12 +922,18 @@ pub(super) fn check_command(
         };
         return err("type-unknown-command", message, span);
     }
+    if name == "relaunch" && !args.is_empty() {
+        return err("type-relaunch", "`relaunch()` takes no arguments", span);
+    }
     if name == "preventDefault" && !args.is_empty() {
         return err(
             "type-prevent-default",
             "`preventDefault()` takes no arguments: it prevents the default action of the event that ran this action (a key's, a wheel's scroll, a `beforeunload`'s close)",
             span,
         );
+    }
+    if matches!(name, "showPopover" | "hidePopover" | "togglePopover") {
+        return super::selection::popover_args(name, args, scope, shapes, span);
     }
     if name == "close" && args.len() > 1 {
         return err(
@@ -1040,7 +945,7 @@ pub(super) fn check_command(
     if name == "stopPropagation" && !args.is_empty() {
         return err(
             "type-stop-propagation",
-            "`stopPropagation()` takes no arguments: it stops the key event that ran this action at this handler, so no ancestor's `key` handler hears it",
+            "`stopPropagation()` takes no arguments: it stops the event that ran this action (a key, focus, the pointer's down or up, a wheel) at this handler, so no ancestor's handler hears it",
             span,
         );
     }
@@ -1065,7 +970,7 @@ pub(super) fn check_command(
         const USAGE: &str = "`scrollBy(\"element-id\", x, y)`, pixels to move by";
         let ok = match args {
             [id, x, y] => {
-                infer(id, scope, shapes)? == Ty::String
+                infer(id, scope, shapes)?.is_string()
                     && infer(x, scope, shapes)? == Ty::Number
                     && infer(y, scope, shapes)? == Ty::Number
             }
@@ -1083,14 +988,44 @@ pub(super) fn check_command(
     if name == "fastSeek" || name == "load" {
         return super::media::command_args(name, args, scope, shapes, span);
     }
+    if name == "removeAllRanges" && !args.is_empty() {
+        return err(
+            "type-remove-all-ranges",
+            "`removeAllRanges()` takes no arguments",
+            span,
+        );
+    }
     if name == "setSelectionRange" {
         return crate::selection::selection_range_args(args, scope, shapes, span);
+    }
+    if name == "setRangeText" {
+        return crate::selection::range_text_args(args, scope, shapes, span);
     }
     if name == "setRootFontSize" {
         return root_font_size_args(args, scope, shapes, span);
     }
+    // @ref LLP 1121 D5 — an axis and its value; lowering checks literal
+    // ones against the design's axes.
+    if name == "setMode" {
+        let [axis, value] = args else {
+            return err("type-set-mode", "`setMode(axis, value)` takes an axis of the app's design and one of its values: `setMode(\"dark-style\", \"dim\")`", span);
+        };
+        for a in [axis, value] {
+            if !matches!(infer(a, scope, shapes)?, Ty::String) {
+                return err(
+                    "type-set-mode",
+                    "`setMode(axis, value)` takes two strings: `setMode(\"dark-style\", \"dim\")`",
+                    a.span(),
+                );
+            }
+        }
+        return Ok(());
+    }
     if matches!(name, "playSound" | "playSounds" | "stopSounds") {
         return sounds::args(name, args, scope, shapes, span);
+    }
+    if matches!(name, "requestMIDIAccess" | "sendMIDI") {
+        return midi::args(name, args, scope, shapes, span);
     }
     if name == "postMessage" {
         // The web's argument order, `postMessage(message, target)`: the target
@@ -1103,7 +1038,7 @@ pub(super) fn check_command(
                 span,
             );
         };
-        if !matches!(infer(text, scope, shapes)?, Ty::String) {
+        if !infer(text, scope, shapes)?.is_string() {
             return err(
                 "type-post-message",
                 format!("the message is a string: {USAGE}"),
@@ -1125,10 +1060,11 @@ pub(super) fn check_command(
     Ok(())
 }
 
-/// `setRootFontSize(px)`, a number of CSS pixels, or `setRootFontSize("medium")`,
-/// CSS's keyword for the host's own size (LLP 1069.000 D3). A size the
-/// source spells as zero or less is refused here; a computed one, when it
-/// runs.
+/// `setRootFontSize(px)`, a number of CSS pixels, `setRootFontSize("125%")`,
+/// a percentage of the host's size that follows it (LLP 1121 D6), or
+/// `setRootFontSize("medium")`, CSS's keyword for the host's own size (LLP
+/// 1069.000 D3). A size the source spells as zero or less, or a string that
+/// is neither, is refused here; a computed one, when it runs.
 fn root_font_size_args(
     args: &[Expr],
     scope: &Scope,
@@ -1136,9 +1072,9 @@ fn root_font_size_args(
     span: Span,
 ) -> Result<(), TypeError> {
     let fits = match args {
-        [Expr::Str(s, _)] => s == "medium",
+        [Expr::Str(s, _)] => s == "medium" || exact_num::css_percent(s).is_some(),
         [Expr::Number(n, _)] => *n > 0.0,
-        [arg] => matches!(infer(arg, scope, shapes)?, Ty::Number),
+        [arg] => matches!(infer(arg, scope, shapes)?, Ty::Number | Ty::String),
         _ => false,
     };
     if fits {
@@ -1146,7 +1082,7 @@ fn root_font_size_args(
     }
     err(
         "type-root-font-size",
-        "`setRootFontSize(px)` takes the root font size in px, above 0 (`rem` follows it, as `:root { font-size }`), or `setRootFontSize(\"medium\")` for the host's own size",
+        "`setRootFontSize(px)` takes the root font size in px, above 0 (`rem` follows it, as `:root { font-size }`), `setRootFontSize(\"125%\")` a percentage of the host's size above 0, which keeps following it, or `setRootFontSize(\"medium\")` for the host's own size",
         span,
     )
 }
@@ -1196,7 +1132,7 @@ pub(super) fn check_view(nodes: &[Node], scope: &Scope, shapes: &Shapes, sink: &
                     Ok(Ty::Bool) => {}
                     Ok(_) => sink.push(TypeError {
                         id: "type-condition",
-                        message: "`when` needs a bool".into(),
+                        message: "`if` needs a bool".into(),
                         span: cond.span(),
                     }),
                     Err(e) => sink.push(e),
@@ -1213,12 +1149,12 @@ pub(super) fn check_view(nodes: &[Node], scope: &Scope, shapes: &Shapes, sink: &
                 ..
             } => {
                 let item = match infer(list, scope, shapes) {
-                    // `each x in []`: nothing says what `x` would be.
+                    // `for x in []`: nothing says what `x` would be.
                     Ok(Ty::List(item)) if !item.is_complete() => {
                         sink.push(TypeError {
                             id: "type-cannot-infer",
                             message: format!(
-                                "cannot infer what `{}` holds: `each` needs a typed list, and `[]` shows nothing",
+                                "cannot infer what `{}` holds: `for` needs a typed list, and `[]` shows nothing",
                                 var
                             ),
                             span: list.span(),
@@ -1229,7 +1165,7 @@ pub(super) fn check_view(nodes: &[Node], scope: &Scope, shapes: &Shapes, sink: &
                     Ok(lt) => {
                         sink.push(TypeError {
                             id: "type-each-list",
-                            message: format!("`each` needs a list, given `{lt}`"),
+                            message: format!("`for` needs a list, given `{lt}`"),
                             span: list.span(),
                         });
                         continue;
@@ -1242,7 +1178,7 @@ pub(super) fn check_view(nodes: &[Node], scope: &Scope, shapes: &Shapes, sink: &
                 let mut inner = scope.clone();
                 inner.push_each(var, index.as_deref(), item);
                 match infer(key, &inner, shapes) {
-                    Ok(Ty::String | Ty::Number | Ty::Bool) => {}
+                    Ok(Ty::String | Ty::Enum(_) | Ty::Number | Ty::Bool) => {}
                     Ok(kt) => sink.push(TypeError {
                         id: "type-each-key",
                         message: format!("a key must be a string, number, or bool, not `{kt}`"),
@@ -1374,7 +1310,7 @@ fn glass_group_value(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, Typ
         Expr::Ternary(..) | Expr::Match { .. } => {
             let (ta, tb) = arms(e, scope, shapes, glass_group_value)?;
             let either = |a: &Ty, b: &Ty| {
-                matches!((a, b), (Ty::Number, Ty::String) | (Ty::String, Ty::Number))
+                (a == &Ty::Number && b.is_string()) || (a.is_string() && b == &Ty::Number)
             };
             match ta.unify(&tb) {
                 Some(t) => Ok(t),
@@ -1426,7 +1362,7 @@ fn style_value(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError
         return infer(e, scope, shapes);
     }
     let (ta, tb) = arms(e, scope, shapes, style_value)?;
-    let dimension = |t: &Ty| matches!(t, Ty::Number | Ty::String);
+    let dimension = |t: &Ty| t == &Ty::Number || t.is_string();
     match ta.unify(&tb) {
         Some(t) => Ok(t),
         None if dimension(&ta) && dimension(&tb) => Ok(Ty::Unknown),

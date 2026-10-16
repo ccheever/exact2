@@ -145,10 +145,17 @@ pub struct Spec {
     pub overflow_wrap: exact_kernel::OverflowWrap,
     /// CSS whitespace processing mode.
     pub white_space: exact_kernel::WhiteSpace,
+    /// CSS `text-wrap-style`; `balance` balances the lines before the first
+    /// forced break (`shaping::ShapedSource::balanced`).
+    pub text_wrap_style: exact_kernel::TextWrapStyle,
     /// CSS paragraph base direction.
     pub direction: exact_kernel::Direction,
     /// CSS `text-indent`, points: the first line's inset from its start edge.
     pub text_indent: f32,
+    /// CSS `text-box-trim` and `text-box-edge` (Inline Layout 3 §4).
+    pub text_box_trim: exact_kernel::TextBoxTrim,
+    /// The edges a trim cuts to.
+    pub text_box_edge: exact_kernel::TextBoxEdge,
 }
 
 impl Spec {
@@ -205,8 +212,11 @@ impl Spec {
             line_clamp: request.paragraph.line_clamp,
             overflow_wrap: request.paragraph.overflow_wrap,
             white_space: request.paragraph.white_space,
+            text_wrap_style: request.paragraph.text_wrap_style,
             direction: request.paragraph.direction,
             text_indent: request.paragraph.text_indent,
+            text_box_trim: request.paragraph.text_box_trim,
+            text_box_edge: request.paragraph.text_box_edge,
         };
         spec.shown(request.paragraph.markup == exact_kernel::Markup::Markdown)
     }
@@ -612,6 +622,14 @@ impl TextEngine {
         self.install_plan_assets(plan, &Assets::embedded(assets.to_path_buf()));
     }
 
+    /// Add newly interned installed-family lists before the next measure.
+    pub fn install_runtime(&mut self, compiled: usize, lists: &[String]) {
+        let added = self.catalog.borrow_mut().install_runtime(compiled, lists);
+        if !added.is_empty() {
+            self.paragraphs.invalidate_families(added);
+        }
+    }
+
     fn install_plan_assets(&mut self, plan: &Plan, assets: &Assets) {
         *self = Self::with_catalog(catalog::Catalog::for_assets(plan, assets));
     }
@@ -915,10 +933,16 @@ impl TextEngine {
         transform: Transform,
         mask: Option<&Mask>,
         clip: (f32, f32, f32, f32),
-    ) {
+    ) -> std::ops::Range<u32> {
         // Glyph positions already carry device scale. The GPU stream is separate
         // and remains full; only this CPU loop selects conservative ink spans.
         let glyph_ts = transform.pre_scale(1.0 / scale, 1.0 / scale);
+        let height = target.height();
+        let mut rows = if glyph_ts.is_identity() {
+            0..0
+        } else {
+            0..height
+        };
         paragraph.layouts();
         let mut catalog = paragraph.source.catalog.borrow_mut();
         let mut cache = paragraph.ink.borrow_mut();
@@ -949,9 +973,22 @@ impl TextEngine {
             let Some(glyph) = catalog.glyph(key, ink.color) else {
                 return;
             };
+            let gy = y - glyph.top;
+            if glyph_ts.is_identity() {
+                let start = (i64::from(gy) - 1).clamp(0, i64::from(height)) as u32;
+                let end = (i64::from(gy) + i64::from(glyph.pixmap.height()) + 1)
+                    .clamp(0, i64::from(height)) as u32;
+                if start < end {
+                    rows = if rows.is_empty() {
+                        start..end
+                    } else {
+                        rows.start.min(start)..rows.end.max(end)
+                    };
+                }
+            }
             target.draw_pixmap(
                 x + glyph.left,
-                y - glyph.top,
+                gy,
                 glyph.pixmap.as_ref(),
                 &paint,
                 glyph_ts,
@@ -978,6 +1015,7 @@ impl TextEngine {
                 draw(g, baseline, ink);
             }
         }
+        rows
     }
 }
 
@@ -1048,9 +1086,18 @@ impl TextMeasurer for Measurer {
 
     fn field_chrome(
         &mut self,
-        _request: &exact_kernel::FieldChromeRequest,
+        request: &exact_kernel::FieldChromeRequest,
     ) -> exact_kernel::FieldChrome {
-        crate::paint::control::field_chrome()
+        crate::paint::control::field_chrome(request.font.size, request.labelled)
+    }
+
+    /// The shell's own field measures a field it hosts (LLP 1115.001 D8).
+    fn field_text(
+        &mut self,
+        kind: exact_kernel::FieldKind,
+        request: &TextMeasureRequest<'_>,
+    ) -> Option<TextMetrics> {
+        crate::fields::measure(&mut self.0.borrow_mut(), kind, request)
     }
 
     fn set_language(&mut self, language: &str) {
@@ -1196,3 +1243,11 @@ mod css_tests;
 #[cfg(test)]
 #[path = "text/eviction_tests.rs"]
 mod eviction_tests;
+
+#[cfg(test)]
+#[path = "text/text_box_tests.rs"]
+mod text_box_tests;
+
+#[cfg(test)]
+#[path = "text/balance_tests.rs"]
+mod balance_tests;

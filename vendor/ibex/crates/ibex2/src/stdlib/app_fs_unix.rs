@@ -8,7 +8,7 @@ use crate::{
 use std::{
     ffi::{CStr, CString},
     fs::File,
-    io::{self, Read, Write},
+    io::{self, Write},
     os::fd::{AsRawFd, FromRawFd},
     path::Path,
     sync::Arc,
@@ -32,6 +32,9 @@ fn open_at(dir: &File, path: &str, flags: i32) -> io::Result<File> {
 }
 fn open_at_mode(dir: &File, path: &str, flags: i32, mode: u32) -> io::Result<File> {
     let path = name(path)?;
+    open_at_raw(dir, &path, flags, mode)
+}
+fn open_at_raw(dir: &File, path: &CStr, flags: i32, mode: u32) -> io::Result<File> {
     // SAFETY: the descriptor and terminated pathname are live throughout openat.
     let fd = unsafe {
         libc::openat(
@@ -49,6 +52,9 @@ fn open_at_mode(dir: &File, path: &str, flags: i32, mode: u32) -> io::Result<Fil
 }
 fn directory(dir: &File, path: &str) -> io::Result<File> {
     open_at(dir, path, libc::O_RDONLY | libc::O_DIRECTORY)
+}
+fn directory_raw(dir: &File, path: &CStr) -> io::Result<File> {
+    open_at_raw(dir, path, libc::O_RDONLY | libc::O_DIRECTORY, 0o600)
 }
 fn mkdir(dir: &File, path: &str) -> io::Result<()> {
     mkdir_mode(dir, path, 0o700)
@@ -68,6 +74,9 @@ fn mkdir_mode(dir: &File, path: &str, mode: libc::mode_t) -> io::Result<()> {
 }
 fn unlink(dir: &File, path: &str, is_dir: bool) -> io::Result<()> {
     let path = name(path)?;
+    unlink_raw(dir, &path, is_dir)
+}
+fn unlink_raw(dir: &File, path: &CStr, is_dir: bool) -> io::Result<()> {
     if unsafe {
         libc::unlinkat(
             dir.as_raw_fd(),
@@ -98,7 +107,11 @@ fn rename(from: &File, source: &str, to: &File, target: &str) -> io::Result<()> 
         Err(io::Error::last_os_error())
     }
 }
-fn names(dir: &File) -> io::Result<Vec<String>> {
+fn each_name(
+    dir: &File,
+    limit: usize,
+    mut visit: impl FnMut(&CStr) -> io::Result<()>,
+) -> io::Result<()> {
     let duplicate = directory(dir, ".")?;
     use std::os::fd::IntoRawFd;
     let fd = duplicate.into_raw_fd();
@@ -107,33 +120,105 @@ fn names(dir: &File) -> io::Result<Vec<String>> {
         unsafe { libc::close(fd) };
         return Err(io::Error::last_os_error());
     }
-    let mut out = Vec::new();
+    let mut count = 0;
+    let mut failure = None;
     loop {
+        // POSIX distinguishes EOF from failure using errno. A stale errno from
+        // a successful visit must not hide or invent an enumeration error.
+        #[cfg(target_vendor = "apple")]
+        unsafe {
+            *libc::__error() = 0;
+        }
+        #[cfg(target_os = "linux")]
+        unsafe {
+            *libc::__errno_location() = 0;
+        }
+        #[cfg(target_os = "android")]
+        unsafe {
+            *libc::__errno() = 0;
+        }
         let entry = unsafe { libc::readdir(stream) };
         if entry.is_null() {
+            #[cfg(any(target_vendor = "apple", target_os = "linux", target_os = "android"))]
+            {
+                let error = io::Error::last_os_error();
+                if error.raw_os_error().is_some_and(|code| code != 0) {
+                    failure = Some(error);
+                }
+            }
             break;
         }
-        let s = unsafe { CStr::from_ptr((*entry).d_name.as_ptr()) }
-            .to_string_lossy()
-            .into_owned();
-        if s != "." && s != ".." {
-            out.push(s);
+        let s = unsafe { CStr::from_ptr((*entry).d_name.as_ptr()) };
+        if s.to_bytes() != b"." && s.to_bytes() != b".." {
+            if let Err(error) = visit(s) {
+                failure = Some(error);
+                break;
+            }
+            count += 1;
+            if count == limit {
+                break;
+            }
         }
     }
     unsafe { libc::closedir(stream) };
+    if let Some(error) = failure {
+        return Err(error);
+    }
+    Ok(())
+}
+fn names(dir: &File) -> io::Result<Vec<String>> {
+    let mut out = Vec::new();
+    let mut used = 0;
+    each_name(dir, usize::MAX, |s| {
+        crate::stdlib::fs::push_name(&mut out, &mut used, s.to_string_lossy().into_owned())
+    })?;
     out.sort();
     Ok(out)
 }
+fn batch_names(dir: &File) -> io::Result<Vec<CString>> {
+    let mut out = Vec::new();
+    each_name(dir, 256, |s| {
+        out.push(s.to_owned());
+        Ok(())
+    })?;
+    Ok(out)
+}
+fn require_progress(dir: &File, entries: &[CString], removed: bool) -> io::Result<bool> {
+    if removed {
+        return Ok(false);
+    }
+    let next = batch_names(dir)?;
+    if next.is_empty() {
+        Ok(true)
+    } else if next == entries {
+        Err(io::Error::from_raw_os_error(libc::ENOTEMPTY))
+    } else {
+        Ok(false)
+    }
+}
 fn remove(dir: &File, path: &str) -> io::Result<()> {
-    match directory(dir, path) {
+    remove_raw(dir, &name(path)?).map(|_| ())
+}
+fn remove_raw(dir: &File, path: &CStr) -> io::Result<bool> {
+    match directory_raw(dir, path) {
         Ok(child) => {
-            for entry in names(&child)? {
-                remove(&child, &entry)?;
+            loop {
+                let entries = batch_names(&child)?;
+                if entries.is_empty() {
+                    break;
+                }
+                let mut removed = false;
+                for entry in &entries {
+                    removed |= remove_raw(&child, entry)?;
+                }
+                if require_progress(&child, &entries, removed)? {
+                    break;
+                }
             }
-            unlink(dir, path, true)
+            unlink_raw(dir, path, true).map(|_| true)
         }
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(_) => unlink(dir, path, false),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(_) => unlink_raw(dir, path, false).map(|_| true),
     }
 }
 fn atomic(dir: &File, target: &str, data: &[u8]) -> io::Result<()> {
@@ -248,27 +333,18 @@ impl AppDirectories {
         let (parent, leaf) = self.open_parent(path)?;
         open_at(&parent, &leaf, libc::O_RDONLY | libc::O_NONBLOCK).map_err(error)
     }
-    /// Exact patch 9 (`fs.compressImage`): a regular file's bytes, at most
-    /// `cap` of them, read through the opened descriptor, under `fs.read`.
-    /// Public since Exact patch 10: an embedder's request body from an app
-    /// file (exact2 LLP 1108 D6 R2, `exactBodyFrom`) reads through it.
-    pub fn read_capped(
+    pub(crate) fn prepare_atomic(
         &self,
         grants: &GrantSet,
         path: &str,
-        cap: u64,
-    ) -> Result<Vec<u8>, HostError> {
-        let mut bytes = Vec::new();
-        self.open_file(grants, path)?
-            .take(cap)
-            .read_to_end(&mut bytes)
-            .map_err(error)?;
-        Ok(bytes)
+    ) -> Result<AtomicTarget, HostError> {
+        self.parse(path)?;
+        crate::boundary::admit(grants, &Operation::FsWrite { path: path.into() })?;
+        let (parent, leaf) = self.open_parent(path)?;
+        Ok(AtomicTarget { parent, leaf })
     }
-    /// Exact patch 10: a regular file opened for reading through the
-    /// directory handles, under `fs.read`, as [`Self::read_capped`] opens it,
-    /// for an embedder that reads it in its own steps (exact2's
-    /// `exactBodyFrom` stops between chunks when its request has ended).
+    /// Open a granted regular file relative to the retained app roots.
+    /// Trusted Rust callers own subsequent read scheduling and byte bounds.
     pub fn open_file(&self, grants: &GrantSet, path: &str) -> Result<File, HostError> {
         self.parse(path)?;
         crate::boundary::admit(grants, &Operation::FsRead { path: path.into() })?;
@@ -277,6 +353,25 @@ impl AppDirectories {
             return Err(error("read needs a regular file"));
         }
         Ok(file)
+    }
+    /// Read at most `cap` bytes, refusing a larger file, observing cancellation between chunks.
+    pub fn read_capped(
+        &self,
+        grants: &GrantSet,
+        path: &str,
+        cap: u64,
+    ) -> Result<Vec<u8>, HostError> {
+        self.read_bounded(grants, path, cap, &|| false)
+    }
+    pub fn read_bounded(
+        &self,
+        grants: &GrantSet,
+        path: &str,
+        cap: u64,
+        canceled: &dyn Fn() -> bool,
+    ) -> Result<Vec<u8>, HostError> {
+        crate::stdlib::fs::read_bounded_file(self.open_file(grants, path)?, cap, canceled)
+            .map_err(error)
     }
     pub(crate) fn run(
         &self,
@@ -314,13 +409,13 @@ impl AppDirectories {
         let data = data.unwrap_or(&[]);
         match op {
             FsOp::ReadFile => {
-                let mut bytes = Vec::new();
-                let mut file = self.open(path)?;
+                let file = self.open(path)?;
                 if !file.metadata().map_err(error)?.is_file() {
                     return Err(error("read needs a regular file"));
                 }
-                file.read_to_end(&mut bytes).map_err(error)?;
-                Ok(FsResult::Bytes(bytes))
+                Ok(FsResult::Bytes(
+                    crate::stdlib::fs::read_result(file).map_err(error)?,
+                ))
             }
             FsOp::ReadDir => Ok(FsResult::Names(names(&self.open(path)?).map_err(error)?)),
             FsOp::Stat => {
@@ -409,6 +504,25 @@ impl AppDirectories {
         }
     }
 }
+/// Native recursive removal shares the bounded raw-name iterator used by app roots.
+pub(crate) fn remove_native(path: &Path) -> Result<FsResult, HostError> {
+    let parent_path = path
+        .parent()
+        .ok_or_else(|| error("cannot remove filesystem root"))?;
+    let leaf = path
+        .file_name()
+        .ok_or_else(|| error("remove needs a filename"))?;
+    use std::os::unix::ffi::OsStrExt;
+    let leaf = CString::new(leaf.as_bytes()).map_err(error)?;
+    let parent = match File::open(parent_path) {
+        Ok(parent) => parent,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(FsResult::Done),
+        Err(e) => return Err(error(e)),
+    };
+    remove_raw(&parent, &leaf).map_err(error)?;
+    Ok(FsResult::Done)
+}
+
 pub(crate) fn atomic_native(path: &Path, data: &[u8]) -> Result<FsResult, HostError> {
     let parent = path
         .parent()
@@ -421,7 +535,7 @@ pub(crate) fn atomic_native(path: &Path, data: &[u8]) -> Result<FsResult, HostEr
     Ok(FsResult::Done)
 }
 
-/// Exact document paths resolve beneath the directory retained at selection.
+/// Chosen document paths resolve beneath the directory retained at selection.
 /// Every component is opened relative to an owned descriptor with NOFOLLOW;
 /// neither a replaced root name nor a descendant symlink redirects an op.
 fn document_metadata(parent: &File, leaf: Option<&str>) -> io::Result<libc::stat> {
@@ -501,11 +615,9 @@ pub(crate) fn document(
     };
     match op {
         FsOp::ReadFile => {
-            let mut file = open()?;
+            let file = open()?;
             regular(&file)?;
-            let mut bytes = Vec::new();
-            file.read_to_end(&mut bytes)?;
-            Ok(FsResult::Bytes(bytes))
+            Ok(FsResult::Bytes(crate::stdlib::fs::read_result(file)?))
         }
         FsOp::ReadDir => {
             let dir = match leaf {
@@ -590,12 +702,22 @@ pub fn resolve_sqlite(
         )?;
         let real = crate::stdlib::fs::realize(&path);
         crate::boundary::admit(
-            &crate::grant::realized_fs(grants),
+            &grants.realized_fs(),
             &Operation::SqliteOpen {
                 path: real.to_string_lossy().into_owned(),
             },
         )?;
         Ok(real)
+    }
+}
+
+pub(crate) struct AtomicTarget {
+    parent: File,
+    leaf: String,
+}
+impl AtomicTarget {
+    pub(crate) fn write(self, data: &[u8]) -> Result<(), HostError> {
+        atomic(&self.parent, &self.leaf, data).map_err(error)
     }
 }
 
@@ -733,6 +855,71 @@ mod tests {
             f.call(FsOp::ReadDir, "app:/data", None, None).unwrap(),
             FsResult::Names(vec![])
         );
+    }
+    #[test]
+    fn recursive_remove_drains_multiple_bounded_batches() {
+        let f = Fixture::new();
+        let large = f.path.join("cache/large");
+        std::fs::create_dir(&large).unwrap();
+        for index in 0..600 {
+            let name = format!("{index:05}{}", "x".repeat(250));
+            std::fs::write(large.join(name), b"").unwrap();
+        }
+        assert_eq!(
+            batch_names(&File::open(&large).unwrap()).unwrap().len(),
+            256
+        );
+        assert_eq!(
+            f.call(FsOp::Remove, "app:/cache/large", None, None)
+                .unwrap(),
+            FsResult::Done
+        );
+        assert!(!large.exists());
+    }
+    #[test]
+    fn recursive_remove_requires_progress_each_pass() {
+        let f = Fixture::new();
+        let tree = f.path.join("cache/tree");
+        std::fs::create_dir(&tree).unwrap();
+        std::fs::write(tree.join("file"), b"x").unwrap();
+        let child = File::open(tree).unwrap();
+        let entries = batch_names(&child).unwrap();
+        assert!(!require_progress(&child, &entries, true).unwrap());
+        assert_eq!(
+            require_progress(&child, &entries, false)
+                .unwrap_err()
+                .raw_os_error(),
+            Some(libc::ENOTEMPTY)
+        );
+    }
+    #[test]
+    fn recursive_remove_allows_concurrent_removal_after_listing() {
+        let f = Fixture::new();
+        let tree = f.path.join("cache/tree");
+        std::fs::create_dir(&tree).unwrap();
+        std::fs::write(tree.join("file"), b"x").unwrap();
+        let child = File::open(&tree).unwrap();
+        let entries = batch_names(&child).unwrap();
+        assert_eq!(entries.len(), 1);
+        std::fs::remove_file(tree.join("file")).unwrap();
+        assert!(!remove_raw(&child, &entries[0]).unwrap());
+        assert!(require_progress(&child, &entries, false).unwrap());
+        std::fs::write(tree.join("replacement"), b"x").unwrap();
+        assert!(!require_progress(&child, &entries, false).unwrap());
+    }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn recursive_remove_keeps_non_utf8_filename_bytes() {
+        use std::os::unix::ffi::OsStrExt;
+        let f = Fixture::new();
+        let tree = f.path.join("cache/tree");
+        std::fs::create_dir(&tree).unwrap();
+        std::fs::write(tree.join(std::ffi::OsStr::from_bytes(b"bad\xff")), b"x").unwrap();
+        assert_eq!(
+            f.call(FsOp::Remove, "app:/cache/tree", None, None).unwrap(),
+            FsResult::Done
+        );
+        assert!(!tree.exists());
     }
     #[test]
     fn traversal_and_symlink_escape_fail_closed_and_root_replacement_stays_pinned() {

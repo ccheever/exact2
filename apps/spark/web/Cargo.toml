@@ -10,6 +10,14 @@ build = "build.rs"
 [lib]
 name = "spark_web"
 crate-type = ["cdylib", "rlib"]
+test = false
+bench = false
+
+[[bin]]
+name = "spark-dev"
+path = "src/bin/spark-dev.rs"
+test = false
+bench = false
 
 [dependencies]
 exact-logic = { path = "../../../logic" }

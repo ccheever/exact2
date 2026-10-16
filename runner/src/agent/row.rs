@@ -60,6 +60,19 @@ pub(super) fn row_json(row: StyleId, v: RowValue<'_>, out: &mut String) {
             };
             quote(&text, out)
         }
+        RowValue::Dimension(Dimension::Region(region, edge, offset)) => {
+            let name = format!("{}{}", region.prefix(), edge.name());
+            let text = if offset == 0.0 {
+                format!("env({name})")
+            } else {
+                format!(
+                    "calc(env({name}) {} {}px)",
+                    if offset < 0.0 { "-" } else { "+" },
+                    num(offset.abs() as f64)
+                )
+            };
+            quote(&text, out)
+        }
         RowValue::Dimension(Dimension::Segment(var, x, y, offset)) => {
             let var = var.name();
             let text = if offset == 0.0 {
@@ -122,6 +135,7 @@ pub(super) fn row_json(row: StyleId, v: RowValue<'_>, out: &mut String) {
         RowValue::AnimationTimeline(t) => quote(&t.css(), out),
         RowValue::AnimationRange(r) => quote(&r.css(), out),
         RowValue::TimelineScope(s) => quote(&s.css(), out),
+        RowValue::PositionTryFallbacks(s) => quote(&s.css(), out),
         RowValue::BackgroundImage(g) | RowValue::MaskImage(g) => quote(&g.css(), out),
         RowValue::TextShadow(s) => quote(&s.css(), out),
         RowValue::BoxShadow(s) => quote(&s.css(), out),

@@ -23,6 +23,10 @@ pub(crate) struct Sources {
     pub(crate) packages: Vec<Package>,
     /// Every `package.json` a resolution read, refused or not.
     pub(crate) consulted: Vec<PathBuf>,
+    /// Each source's text as compiled, its SHA-256 (hex), by source id: the
+    /// source map says them, so a reader knows a file has not moved since
+    /// (LLP 1122 D5, D6's fail-closed rule).
+    pub(crate) digests: Vec<String>,
 }
 
 /// One name a `use` brought: where it is written, and the declaration it
@@ -77,6 +81,14 @@ impl Sources {
         Ok(())
     }
 
+    /// Every source's path and the SHA-256 of its text as compiled.
+    pub(crate) fn digested(&self) -> impl Iterator<Item = (&Path, &str)> + '_ {
+        self.paths
+            .iter()
+            .map(PathBuf::as_path)
+            .zip(self.digests.iter().map(String::as_str))
+    }
+
     pub(crate) fn path(&self, span: contract_syntax::Span) -> &Path {
         &self.paths[span.source_id as usize]
     }
@@ -104,6 +116,7 @@ pub(crate) fn load(
         sources: Sources {
             paths: vec![path.to_path_buf()],
             origins: vec![Origin::App],
+            digests: vec![digest(src)],
             imports: Vec::new(),
             packages: Vec::new(),
             consulted: Vec::new(),
@@ -124,9 +137,107 @@ pub(crate) fn load(
         return Err(resolve(&loader.sources, all));
     }
     match loader.scope() {
-        Ok(file) => Ok((file, loader.sources)),
+        Ok(mut file) => {
+            file.design = design(path, &mut loader.sources).map_err(|e| vec![e])?;
+            Ok((file, loader.sources))
+        }
         Err(all) => Err(resolve(&loader.sources, all)),
     }
+}
+
+/// Where the app's design is (LLP 1121 D2): the file `app.json`'s
+/// `"tamber"` names, else `app.tamber` beside the app's `app.contract`.
+pub fn design_path(root: &Path) -> Option<PathBuf> {
+    let dir = root.parent()?;
+    let named = std::fs::read_to_string(dir.join("app.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .and_then(|app| app.get("tamber")?.as_str().map(|p| dir.join(p)));
+    named.or_else(|| {
+        let beside = dir.join("app.tamber");
+        (root.file_name()? == "app.contract" && beside.is_file()).then_some(beside)
+    })
+}
+
+std::thread_local! {
+    /// A scrub's design text (LLP 1121 stage 4, commit 6), compiled in
+    /// place of the file's while [`with_design_text`] runs.
+    static DESIGN_TEXT: std::cell::RefCell<Option<(PathBuf, String)>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Run `f` with `text` read as the design at `path`, written to no file:
+/// a scrub's preview, which the dev loop compiles and never publishes.
+pub fn with_design_text<R>(path: &Path, text: String, f: impl FnOnce() -> R) -> R {
+    /// Puts the text before back however `f` ends, a panic included.
+    struct Restore(Option<(PathBuf, String)>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            let before = self.0.take();
+            DESIGN_TEXT.with(|t| *t.borrow_mut() = before);
+        }
+    }
+    let key = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let _restore = Restore(DESIGN_TEXT.with(|t| t.replace(Some((key, text)))));
+    f()
+}
+
+/// The app's design, read (LLP 1121 D2), and a source of its own, so a
+/// refusal in it names it.
+fn design(
+    root: &Path,
+    sources: &mut Sources,
+) -> Result<Option<contract_syntax::DesignSource>, CompileError> {
+    let Some(path) = design_path(root) else {
+        return Ok(None);
+    };
+    let key = path.canonicalize().unwrap_or_else(|_| path.clone());
+    let scrubbed = DESIGN_TEXT.with(|t| {
+        t.borrow()
+            .as_ref()
+            .and_then(|(p, text)| (*p == key).then(|| text.clone()))
+    });
+    let read = scrubbed.map_or_else(|| std::fs::read_to_string(&path), Ok);
+    let text = read.map_err(|e| CompileError {
+        pass: "use",
+        id: "tamber-unreadable".into(),
+        message: format!("the app's design `{}`: {e}", path.display()),
+        span: Span::default(),
+        file: Some(path.clone().into()),
+        related: Box::new([]),
+    })?;
+    sources.paths.push(path.clone());
+    sources.origins.push(Origin::App);
+    sources.digests.push(digest(&text));
+    Ok(Some(contract_syntax::DesignSource {
+        path: path.display().to_string(),
+        text,
+        source_id: (sources.paths.len() - 1) as u32,
+        bindable: code_beside(root),
+    }))
+}
+
+/// @ref LLP 1121 D7 — whether the app at `root` (its `app.contract`) has code
+/// beside it that can name a design token outside its views: a TypeScript
+/// data module (`app.ts`), a Rust data crate (`data/Cargo.toml`), or native
+/// modules or hatches its `app.json` declares. The driver's half of
+/// `contract_lower::names_tokens_outside_views`.
+fn code_beside(root: &Path) -> bool {
+    let dir = root.parent().unwrap_or(Path::new("."));
+    if dir.join("app.ts").is_file() || dir.join("data/Cargo.toml").is_file() {
+        return true;
+    }
+    let manifest = std::fs::read_to_string(dir.join("app.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok());
+    manifest.is_some_and(|m| {
+        let declared = |key: &str| match &m[key] {
+            serde_json::Value::Array(a) => !a.is_empty(),
+            serde_json::Value::Object(o) => !o.is_empty(),
+            _ => false,
+        };
+        declared("modules") || declared("hatches")
+    })
 }
 
 /// The `use` lines each file of the program rooted at `path` lacks (LLP
@@ -143,6 +254,7 @@ pub(crate) fn use_fixes(
         sources: Sources {
             paths: vec![root_key.clone()],
             origins: vec![Origin::App],
+            digests: vec![digest(src)],
             imports: Vec::new(),
             packages: Vec::new(),
             consulted: Vec::new(),
@@ -221,6 +333,7 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
         sources: Sources {
             paths: vec![root_key.clone()],
             origins: vec![Origin::App],
+            digests: vec![digest(src)],
             imports: Vec::new(),
             packages: Vec::new(),
             consulted: Vec::new(),
@@ -240,7 +353,7 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
         .into_iter()
         .map(|e| loader.sources.resolve(e))
         .collect();
-    let sources = loader
+    let mut sources: Vec<Source> = loader
         .sources
         .paths
         .iter()
@@ -250,6 +363,12 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
             origin: origin.clone(),
         })
         .collect();
+    // The app's design is a source too: a capture copies it, a watcher
+    // watches it (LLP 1121 D2).
+    sources.extend(design_path(&root_key).map(|path| Source {
+        path,
+        origin: Origin::App,
+    }));
     SourceGraph {
         sources,
         packages: loader.sources.packages,
@@ -355,6 +474,7 @@ impl Loader<'_> {
                     let used = self.sources.paths.len();
                     self.sources.paths.push(key.clone());
                     self.sources.origins.push(resolved.origin);
+                    self.sources.digests.push(digest(&used_src));
                     self.active.push(key.clone());
                     self.load_source(&key, &used_src, used as u32)?;
                     self.active.pop();
@@ -809,6 +929,10 @@ impl Loader<'_> {
             timelines: all!(timelines),
             // CSS `@color-profile`s are global by name too (LLP 1100 D3).
             color_profiles: all!(color_profiles),
+            // The app's theme is its root file's (LLP 1095 D4).
+            theme: files[0].theme.take(),
+            // The design is the app's, read beside its root (`design`).
+            design: None,
             fns: all!(fns),
             components: all!(components),
         }
@@ -899,4 +1023,13 @@ fn name_error(id: &str, message: String, span: Span) -> CompileError {
 
 fn use_error(id: &str, message: String, u: &UseDecl) -> CompileError {
     name_error(id, message, u.span)
+}
+
+/// The SHA-256 of a source's text, hex.
+fn digest(text: &str) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(text.as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }

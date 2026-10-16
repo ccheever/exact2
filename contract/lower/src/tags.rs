@@ -1,7 +1,7 @@
 //! The tag and attribute table: Contract's view vocabulary onto the kernel's.
 //!
 //! @ref LLP 1004 D2 (kernel ordinals from `exact-kernel`, never redeclared)
-//! @ref `rules/RULES.md` §Scope (the web is the standard: every row here is a
+//! @ref LLP 1115 §2 (names stay CSS: every row here is a
 //! CSS property or an HTML attribute by its CSS/HTML name)
 //! @ref LLP 1017 §8.1 (the literal CSS names, hyphens as grammar, no aliases;
 //! `testId` and explicitly declared host-policy props aside)
@@ -13,6 +13,7 @@
 //! (`size`, `fontSize`, `radius`, `label`) is refused with the CSS name it
 //! became.
 use exact_kernel::{NodeType, PropId, StyleId};
+use exact_plan::BindingsRow;
 /// What an attribute lowers to.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AttrTarget {
@@ -81,7 +82,8 @@ pub fn tag(name: &str) -> Option<Tag> {
             &[(StyleId::PositionType, "absolute")],
             &[(PropId::SemanticTag, "dialog")],
         ),
-        // @ref LLP 1021 D1 — HTML's separator, its UA sheet's rows; void.
+        // @ref LLP 1021 D1 — HTML's separator, one hairline (LLP 1115.000
+        // D10.3); void.
         "hr" => view(crate::menus::HR, &[(PropId::SemanticTag, "hr")]),
         "main" => view(&[], &[(PropId::SemanticTag, "main")]),
         "header" => view(&[], &[(PropId::SemanticTag, "header")]),
@@ -308,8 +310,10 @@ pub fn tag(name: &str) -> Option<Tag> {
         },
         // @ref LLP 1069.001 (amended 2026-10-07) — HTML's `progress` with no
         // `value`, indeterminate: the platform's activity indicator, a
-        // measured leaf (20 × 20 until sized). ARIA's role is `progressbar`;
-        // the lowering adds `aria-busy` (`Lowerer::progress_rows`).
+        // measured leaf (20 × 20 until sized); the lowering adds `aria-busy`.
+        // @ref LLP 1116 D8 — with a `value` (and `max`, strings as a
+        // range's), the determinate bar, sized by HTML's UA sheet. ARIA's
+        // role is `progressbar` either way.
         "progress" => Tag {
             node_type: NodeType::Control,
             fixed_styles: &[],
@@ -431,11 +435,16 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "rows" => AttrTarget::Prop(p("rows")),
         "maxlength" => AttrTarget::Prop(p("maxlength")),
         "cancel" => AttrTarget::Handler("cancel"),
+        "close" => AttrTarget::Handler("close"),
+        "toggle" => AttrTarget::Handler("toggle"),
         "select" => AttrTarget::Handler("select"),
         "hover" => AttrTarget::Handler("hover"),
         "focus" => AttrTarget::Handler("focus"),
         "blur" => AttrTarget::Handler("blur"),
+        "focusin" => AttrTarget::Handler("focusin"),
+        "focusout" => AttrTarget::Handler("focusout"),
         "key" => AttrTarget::Handler("key"),
+        "keycapture" => AttrTarget::Handler("keycapture"),
         // DOM's `keyup`: a key's release, bubbling as `key` does (#140).
         "keyup" => AttrTarget::Handler("keyup"),
         "submit" => AttrTarget::Handler("submit"),
@@ -449,18 +458,26 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // DOM's `beforeunload` (studio diary R17): the window is closing or
         // the app quitting; an action that calls `preventDefault()` keeps it.
         "beforeunload" => AttrTarget::Handler("beforeunload"),
+        // @ref LLP 1125 D8 — `MIDIInput`'s event: every mounted element that
+        // declares it hears each message from an input its `midiinputs` lists.
+        "midimessage" => AttrTarget::Handler("midimessage"),
+        "midiinputs" => AttrTarget::Prop(p("midiInputs")),
         // DOM's `wheel` (studio diary R3) and `drop` of files (R19).
         "wheel" => AttrTarget::Handler("wheel"),
         "drop" => AttrTarget::Handler("drop"),
         "copy" => AttrTarget::Handler("copy"),
         "cut" => AttrTarget::Handler("cut"),
         "paste" => AttrTarget::Handler("paste"),
+        "beforeinput" => AttrTarget::Handler("beforeinput"),
         "selectionchange" => AttrTarget::Handler("selectionchange"),
         "reachstart" => AttrTarget::Handler("reachstart"),
+        "intersect" => AttrTarget::Handler("intersect"),
+        "intersect-margin" => AttrTarget::Prop(p("intersectMargin")),
         "reachend" => AttrTarget::Handler("reachend"),
         "swiperight" => AttrTarget::Handler("swiperight"),
         "refresh" => AttrTarget::Handler("refresh"),
         "scroll" => AttrTarget::Handler("scroll"),
+        "scrollend" => AttrTarget::Handler("scrollend"),
         "pan" => AttrTarget::Handler("pan"),
         "panrelease" => AttrTarget::Handler("panrelease"),
         "navigate" => AttrTarget::Handler("navigate"),
@@ -526,9 +543,17 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "navigationBack" => AttrTarget::Prop(p("navigationBack")),
         "navigationPresentation" => AttrTarget::Prop(p("navigationPresentation")),
         "navigationDetent" => AttrTarget::Prop(p("navigationDetent")),
+        "navigationGrabber" => AttrTarget::Prop(p("navigationGrabber")),
+        // @ref LLP 1125 D11 — the Screen Wake Lock API's one type, on any element.
+        "wakelock" => AttrTarget::Prop(p("wakelock")),
+        // @ref LLP 1115.000 D5.2 — a route's say over the platform's bar:
+        // `none` for a full-bleed screen.
+        "navigationBar" => AttrTarget::Prop(p("navigationBar")),
         "navigationSource" | "sharedElement" => AttrTarget::Prop(p(name)),
         // @ref LLP 1075.003 §3.5 — the route's content scroll view, by HTML id.
         "navigationScroll" => AttrTarget::Prop(p("navigationScroll")),
+        // @ref LLP 1116.004 D1.2 — a wide window's split: "none", or the list column's width.
+        "navigationSplit" => AttrTarget::Prop(p("navigationSplit")),
         // @ref LLP 1075.003.000 — the node the app's native code receives.
         "hatch" => AttrTarget::Prop(p("hatch")),
         "closedby" => AttrTarget::Prop(p("closedby")),
@@ -547,9 +572,12 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "swipeIndicator" => AttrTarget::Prop(p("swipeIndicator")),
         "aria-live" => AttrTarget::Prop(p("accessibilityLive")),
         "aria-busy" => AttrTarget::Prop(p("accessibilityBusy")),
+        "aria-atomic" => AttrTarget::Prop(p("accessibilityAtomic")),
         "autofocus" => AttrTarget::Prop(p("autofocus")),
         "action" => AttrTarget::Prop(p("action")),
         "aria-label" => AttrTarget::Prop(p("accessibilityLabel")),
+        "-exact-menu" => AttrTarget::Prop(p("menuPlacement")),
+        "-exact-menu-remove" => AttrTarget::Prop(p("menuRemove")),
         "aria-keyshortcuts" => AttrTarget::Prop(p("accessibilityKeyShortcuts")),
         "aria-description" => AttrTarget::Prop(p("accessibilityHint")),
         "aria-level" => AttrTarget::Prop(p("accessibilityHeadingLevel")),
@@ -579,7 +607,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // The viewport meta's `interactive-widget`, read from the first root
         // (LLP 1008 §9): `resizes-content` shrinks the layout viewport to a
         // software keyboard's top, so what is pinned to the bottom rises with
-        // it; the default, `resizes-visual`, insets the viewport instead.
+        // it, iOS's default (LLP 1116 D2); `resizes-visual`, the web's
+        // default and iOS's opt-out, insets the viewport instead.
         "interactive-widget" => AttrTarget::Prop(p("interactiveWidget")),
         "value" => AttrTarget::Prop(p("value")),
         "estimated-item-height" => AttrTarget::Prop(p("estimatedItemHeight")),
@@ -637,6 +666,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "aria-selected" => AttrTarget::Prop(p("accessibilitySelected")),
         "aria-expanded" => AttrTarget::Prop(p("accessibilityExpanded")),
         "aria-pressed" => AttrTarget::Prop(p("accessibilityPressed")),
+        "aria-disabled" => AttrTarget::Prop(p("accessibilityDisabled")),
         "aria-modal" => AttrTarget::Prop(p("accessibilityModal")),
         "aria-hidden" => AttrTarget::Prop(p("accessibilityElementsHidden")),
         "aria-invalid" => AttrTarget::Prop(p("accessibilityInvalid")), // onboarding F22, spreadsheet F20
@@ -650,6 +680,12 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "aria-required" => AttrTarget::Prop(p("accessibilityRequired")),
         "aria-haspopup" => AttrTarget::Prop(p("accessibilityHasPopup")),
         "aria-current" => AttrTarget::Prop(p("accessibilityCurrent")), // Depot: a nav link's page
+        // @ref LLP 1116 D8 — a range role's value (`progressbar`, `slider`,
+        // `meter`, …), numbers written as HTML writes them (`aria_values`).
+        "aria-valuenow" => AttrTarget::Prop(p("accessibilityValueNow")),
+        "aria-valuemin" => AttrTarget::Prop(p("accessibilityValueMin")),
+        "aria-valuemax" => AttrTarget::Prop(p("accessibilityValueMax")),
+        "aria-valuetext" => AttrTarget::Prop(p("accessibilityValueText")),
         // SVG 2 attributes CSS cannot set (LLP 1055 D1/D2), by their SVG names.
         "viewBox" => AttrTarget::Prop(p("viewBox")),
         "preserveAspectRatio" => AttrTarget::Prop(p("preserveAspectRatio")),
@@ -791,6 +827,11 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "alignSelf" => "align-self",
         "boxSizing" => "box-sizing",
         "fit" | "objectFit" => "object-fit",
+        // UIKit's, SwiftUI's and React Native's shrink-to-fit (LLP 1116.001 D1.4).
+        "adjustsFontSizeToFitWidth"
+        | "adjustsFontSizeToFit"
+        | "minimumScaleFactor"
+        | "minimumFontScale" => "-exact-fit",
         "justify" | "justifyContent" => "justify-content",
         "overflowX" => "overflow-x",
         "overflowY" => "overflow-y",
@@ -805,9 +846,16 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "autoComplete" | "textContentType" | "autoCompleteType" => "autocomplete",
         "viewportFit" | "safeArea" | "safeAreaView" => "viewport-fit",
         "statusBarStyle" | "barStyle" | "StatusBar" => "status-bar-style",
+        // Android's view attribute, UIKit's idle timer, Expo's hook (LLP 1125 D11).
+        "keepScreenOn" | "keep-screen-on" | "idleTimerDisabled" | "keepAwake" | "wakeLock" => {
+            "wakelock"
+        }
         "interactiveWidget" | "keyboardAvoidingView" | "keyboardAvoiding" => "interactive-widget",
         "secureTextEntry" => "type",
         "onClick" | "onPress" => "press",
+        // Web MIDI's handler properties (LLP 1125 D8).
+        "onMIDIMessage" | "onmidimessage" | "midiMessage" => "midimessage",
+        "midiInputs" | "midi-inputs" => "midiinputs",
         // LLP 1081 D2: the names Exact invents are spelled `-exact-`.
         "tint-color" => "-exact-tint-color",
         "exit-animation" => "-exact-exit-animation",
@@ -936,9 +984,7 @@ pub(crate) fn html_tag(name: &str) -> Option<&'static str> {
         "label" => {
             "a label is `text` beside its field, and the field is named by `aria-label` (or `aria-labelledby` with the text's `id`)"
         }
-        "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "heading" => {
-            "a heading is `text role=\"heading\" aria-level=1` (2 and on for the level)"
-        }
+        "heading" => "a heading is `h1` (to `h6` for the level)",
         // The app farm's guesses (round 1): each names the Contract form
         // that does the job.
         "small" | "code" | "pre" | "paragraph" | "subtitle" => {
@@ -951,7 +997,7 @@ pub(crate) fn html_tag(name: &str) -> Option<&'static str> {
             "a table or grid is `view display=\"grid\"` with `grid-template-columns`, or a `column` of `row`s"
         }
         "details" | "summary" => {
-            "there is no `details`: keep `open` in state, show the body `when open`, and toggle it from a `button`"
+            "there is no `details`: keep `open` in state, show the body `if open`, and toggle it from a `button`"
         }
         "hstack" | "vstack" | "stack" | "flex" => "a horizontal stack is `row`, a vertical one `column`",
         "container" | "card" => "a box is `view` (or `column`, `row`), styled by a `style` declared in this file",
@@ -1242,4 +1288,167 @@ pub(crate) fn multicol_on_flex(
         return crate::err("lower-attr-tag", format!("`{}` makes a block a multi-column container, and `{tag}` makes a flex or grid container, where CSS ignores it; write `view` (a block) for columns", a.name), a.span);
     }
     Ok(())
+}
+
+impl crate::Lowerer<'_> {
+    /// @ref LLP 1115 §3, LLP 1115.000 D3.5 — a link's unsaid colour is the
+    /// platform's link role (the tint on iOS, `linkColor` on macOS, the
+    /// accent on the web), as the UA's `a:link` is: a run with an `href` in
+    /// its paragraph, and a block `link` of text (a `tel:` or `mailto:`
+    /// value, a "Learn more"), which a hand-built screen draws in the tint.
+    /// A `link` holding a row or a column, or given a `role`, is its
+    /// author's row or button and keeps inheriting. Pushed before the
+    /// author's rows, so a `color` on the link, the run or a class wins. A
+    /// terminal entry's block link is left as it is: what a terminal shows
+    /// for a link is the terminal's to decide (`QUEUE.md`).
+    ///
+    /// An `href` that turns out empty is no link (`Props::link` is how a
+    /// host reads the value), so the row follows the value: a computed
+    /// `href` chooses between the role and `inherit` as it changes, and a
+    /// written `href=""` gets no row. A package that writes `href=r.href`
+    /// on every run of a paragraph, empty for plain prose, then colours
+    /// only its links.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn link_color(
+        &mut self,
+        tag: &str,
+        parent_tag: Option<&str>,
+        attrs: &[contract_syntax::Attr],
+        children: &[contract_syntax::Node],
+        scope: &crate::Scope,
+        locals: u16,
+        bindings: &mut Vec<BindingsRow>,
+    ) {
+        use contract_syntax::{BinOp, Expr, Node, TemplatePart};
+        // Texts and images alone, an `if` or a `for` of them included.
+        fn words(node: &Node) -> bool {
+            match node {
+                Node::Element { tag, .. } => tag == "text" || tag == "image",
+                Node::When {
+                    then, otherwise, ..
+                } => then.iter().chain(otherwise).all(words),
+                Node::Each { body, .. } => body.iter().all(words),
+                Node::Match { some, none, .. } => some.1.iter().chain(none).all(words),
+                Node::Use { .. } | Node::Children { .. } => false,
+            }
+        }
+        let has = |name: &str| attrs.iter().any(|a| a.name == name);
+        let href = attrs.iter().rev().find(|a| a.name == "href");
+        let run = tag == "text" && parent_tag == Some("text") && href.is_some();
+        let block = tag == "link"
+            && self.profile != crate::Profile::Terminal
+            && !has("role")
+            && !children.is_empty()
+            && children.iter().all(words);
+        if !(run || block) {
+            return;
+        }
+        let link = match href.map(|a| &a.value) {
+            Some(Expr::Str(to, _)) if to.is_empty() => return,
+            // A written target, a template with words of its own, or a
+            // block `link` that is its `press`: a link whatever happens.
+            None | Some(Expr::Str(..)) => self.fixed(true, "LinkText"),
+            Some(Expr::Template(parts, _))
+                if parts
+                    .iter()
+                    .any(|p| matches!(p, TemplatePart::Text(t) if !t.is_empty())) =>
+            {
+                self.fixed(true, "LinkText")
+            }
+            Some(to) => {
+                let span = to.span();
+                let word = |w: &str| Box::new(Expr::Str(w.into(), span));
+                let empty = Expr::Binary(BinOp::Eq, Box::new(to.clone()), word(""), span);
+                let chosen =
+                    Expr::Ternary(Box::new(empty), word("inherit"), word("LinkText"), span);
+                // A value the attribute's own lowering refuses is said there.
+                let Ok(code) = self.expr_code(&chosen, scope, locals) else {
+                    return;
+                };
+                code
+            }
+        };
+        bindings.push(crate::style_row(StyleId::TextColor, link, crate::IMPLIED));
+    }
+
+    /// @ref LLP 1115 D3 — a heading is the platform's text style for its
+    /// level, as a hand-built screen's would be: 1 `title1`, 2 `title2`, 3
+    /// `title3`, 4 and on `headline` (ARIA's default level is 2), at the
+    /// style's size for the root font size and its emphasized weight (LLP
+    /// 1116 D7): bold for a title, whose own weight is regular, as Apple's
+    /// emphasized title styles and the web's headings are; `headline`'s own
+    /// semibold. A level chosen
+    /// between literals (`aria-level=(top ? 1 : 2)`) chooses between their
+    /// styles; any other computed level is 2's. Pushed before the author's
+    /// rows, so a written `font-size` or `font-weight` wins; an inherited one
+    /// is unsaid and does not.
+    pub(crate) fn heading_style(
+        &mut self,
+        tag: &str,
+        attrs: &[contract_syntax::Attr],
+        scope: &crate::Scope,
+        locals: u16,
+        bindings: &mut Vec<BindingsRow>,
+    ) -> Result<(), crate::LowerError> {
+        use contract_syntax::Expr;
+        let heading = attrs
+            .iter()
+            .any(|a| a.name == "role" && matches!(&a.value, Expr::Str(v, _) if v == "heading"));
+        if tag != "text" || !heading {
+            return Ok(());
+        }
+        let style = |level: f64| {
+            let name = match level {
+                1.0 => "title1",
+                3.0 => "title3",
+                n if n >= 4.0 => "headline",
+                _ => "title2",
+            };
+            let id = exact_kernel::style::relative::text_style(&format!("-exact-{name}"));
+            let weight =
+                exact_kernel::TEXT_STYLES[usize::from(id.expect("a schema text style"))].weight;
+            (name, if weight == 400 { 700 } else { weight })
+        };
+        // The level's literal leaves, each mapped; `None` when one is computed.
+        fn leaves(e: &Expr, f: &dyn Fn(f64) -> Expr) -> Option<Expr> {
+            Some(match e {
+                Expr::Number(n, _) => f(*n),
+                Expr::Str(v, _) => f(v.trim().parse().ok()?),
+                Expr::Ternary(c, yes, no, span) => Expr::Ternary(
+                    c.clone(),
+                    Box::new(leaves(yes, f)?),
+                    Box::new(leaves(no, f)?),
+                    *span,
+                ),
+                _ => return None,
+            })
+        }
+        let level = attrs
+            .iter()
+            .find(|a| a.name == "aria-level")
+            .map(|a| &a.value);
+        if level.is_none() {
+            // ARIA's default level, said: a host that reads the level (iOS's
+            // header-shaped route takes only a heading with one) sees 2.
+            let expr = self.expr_code(&Expr::Number(2.0, Default::default()), scope, locals)?;
+            let level = p("accessibilityHeadingLevel");
+            bindings.push(crate::prop_row(level, expr, crate::IMPLIED));
+        }
+        let span = level.map_or_else(Default::default, |l| l.span());
+        let two = Expr::Number(2.0, span);
+        let level = level
+            .filter(|l| leaves(l, &|_| two.clone()).is_some())
+            .unwrap_or(&two);
+        let size = leaves(level, &|n| {
+            Expr::Str(format!("-exact-{}", style(n).0), span)
+        })
+        .expect("literal leaves");
+        let weight =
+            leaves(level, &|n| Expr::Number(f64::from(style(n).1), span)).expect("literal leaves");
+        for (row, value) in [(StyleId::FontSize, size), (StyleId::FontWeight, weight)] {
+            let expr = self.expr_code(&value, scope, locals)?;
+            bindings.push(crate::style_row(row, expr, crate::IMPLIED));
+        }
+        Ok(())
+    }
 }

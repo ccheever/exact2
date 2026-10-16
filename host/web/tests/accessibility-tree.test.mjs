@@ -15,6 +15,7 @@ import { chromium, refuseStale, webChanges } from '../../../scripts/agent-launch
 import { axClean, axParity } from '../../../scripts/agent-ax.mjs';
 import { resolveApp } from '../../../scripts/app.mjs';
 import { jsTargetBuild } from '../serve.mjs';
+import { need, notApplicable } from '../../../scripts/coverage.mjs';
 
 const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
 const app = resolveApp('caltrain');
@@ -22,28 +23,26 @@ const wasmDist = resolve(process.env.EXACT_WEB_DIST ?? resolve(ROOT, 'host/web/d
 const jsDist = process.env.EXACT_WEB_JS_DIST ? resolve(process.env.EXACT_WEB_JS_DIST) : null;
 
 async function prerequisite() {
-  if (process.env.EXACT_GLUE_FAST === '1') return 'the async glue step does not build apps; the web-build-test step runs this test';
   const { unavailable } = chromium();
-  if (unavailable) return unavailable;
+  if (unavailable) return ['chrome', unavailable];
   try {
     await assertWebDistApp(wasmDist, app);
-    if (jsTargetBuild(wasmDist)) return `${wasmDist} is a JS-target build; this test reads the wasm target (bun host/web/build.mjs caltrain-web --wasm)`;
+    if (jsTargetBuild(wasmDist)) return ['fixture', `${wasmDist} is a JS-target build; this test reads the wasm target (bun host/web/build.mjs caltrain-web --wasm)`];
     refuseStale('web', resolve(wasmDist, '.exact-build.json'), webChanges(wasmDist, app).all, 'bun host/web/build.mjs caltrain-web --wasm');
-  } catch (error) { return error.message; }
+  } catch (error) { return ['fixture', error.message]; }
   return null;
 }
-const unavailable = await prerequisite();
-if (unavailable) console.warn(`SKIP: ${unavailable}`);
-// The async lane's own step requires it: a skip there would pass on nothing.
-if (unavailable && process.env.EXACT_AX_REQUIRED === '1') test('tree --ax prerequisites', () => { throw new Error(unavailable); });
-const check = unavailable ? test.skip : test;
+// The async glue step does not build apps; the web-ax-test step runs these, with EXACT_REQUIRED.
+const missing = process.env.EXACT_GLUE_FAST === '1' ? null : await prerequisite();
+const check = process.env.EXACT_GLUE_FAST === '1' ? notApplicable('the async glue step does not build apps; the web-ax-test step runs this test')
+  : need(...(missing ?? ['chrome', null]));
 
 let tmp, plan;
 function fixture() {
   if (plan) return plan;
   tmp = mkdtempSync(resolve(tmpdir(), 'exact-ax-'));
   plan = resolve(tmp, 'accessibility.plan');
-  const c = spawnSync('cargo', ['run', '-q', '--release', '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/accessibility.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
+  const c = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/accessibility.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
   if (c.status !== 0) throw new Error('the accessibility fixture does not compile: ' + c.stderr);
   return plan;
 }
@@ -60,6 +59,11 @@ async function fixtureControls(s) {
     const e = find(r, testId);
     expect(e && [e.role, e.name, e.via === 'self' || e.via === 'owner']).toEqual([role, name, true]);
   }
+  // LLP 1115.000 D12.5: a heading is `role="heading"`; an `aria-level` alone is words, and no element in Chrome's tree
+  // is a heading named by them.
+  expect(find(r, 'heading').states.level).toBe(2);
+  expect(r.ax.elements.filter(e => e.testId === 'level-only' || e.name === 'Level only').map(e => e.role).filter(role => role === 'heading')).toEqual([]);
+  expect(r.ax.elements.some(e => e.name === 'Level only')).toBe(true);
   // Coverage: one element per unignored node Chrome reported, the dropped kinds aside.
   const { nodes } = await s.carrier.call('Accessibility.getFullAXTree');
   expect(r.ax.elements.length).toBe(nodes.filter(n => !n.ignored && !['InlineTextBox', 'RootWebArea'].includes(n.role?.value)).length);
@@ -112,7 +116,7 @@ check('tree --ax: a reload between the brackets is retried, never joined across 
   } finally { await s.close(); }
 }, 120000);
 
-(jsDist ? check : test.skip)('tree --ax: the wasm and JS targets agree by testId on the fixture controls', async () => {
+(jsDist || missing || process.env.EXACT_GLUE_FAST === '1' ? check : need('fixture', 'no JS Caltrain dist: name one with EXACT_WEB_JS_DIST'))('tree --ax: the wasm and JS targets agree by testId on the fixture controls', async () => {
   const read = async dist => { const s = await open({ host: 'web', plan: fixture(), webDist: dist }); try { return await s.tree(null, { ax: true }); } finally { await s.close(); } };
   const [wasm, js] = [await read(wasmDist), await read(jsDist)];
   const { findings, unjoined } = axParity(wasm, js, Object.keys(CONTROLS));

@@ -1,5 +1,6 @@
 //! The web host's integration tests: one binary, so one link and one launch.
 
+mod again;
 mod agent;
 mod animation;
 mod aria;
@@ -14,6 +15,7 @@ mod holds;
 mod host;
 mod lengths;
 mod lists;
+mod modes;
 mod navigation;
 mod page;
 mod paint_order;
@@ -23,6 +25,7 @@ mod presence;
 mod projection;
 mod request;
 mod request_refusal;
+mod spacing;
 mod springs;
 mod surface_record;
 mod tint;

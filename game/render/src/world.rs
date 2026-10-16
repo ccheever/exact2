@@ -6,10 +6,17 @@ use std::collections::BTreeMap;
 pub(crate) mod assets;
 pub(crate) mod scene;
 mod upload;
+mod visibility;
 pub(crate) use scene::snap as trace_snap;
 use scene::Scene;
 
 // The same feed algorithm runs against the GPU and the recording test backend.
+/// Pages in one transform write: 2 MiB, so the queue's staging buffer fits a
+/// block its allocator keeps. A larger one is allocated alone and freed after
+/// the frame, its pages faulted in and zeroed by the kernel each tick (Android's
+/// `MemoryHints::MemoryUsage` keeps 4 MiB host blocks).
+const RUN_PAGES: usize = 2 * 1024 * 1024 / (PAGE * 40);
+
 pub(crate) trait Writes {
     fn attachments(
         &mut self,
@@ -48,6 +55,8 @@ pub(crate) trait Writes {
         _: &[exact_game::Entity],
         _: bool,
         _: crate::models::Moved<'_>,
+        _: &[PreparedPose],
+        _: Option<&[(u32, [f32; 10])]>,
     ) {
     }
     fn quads(&mut self, _: &World, _: bool, _: bool, _: bool) -> Result<(), RenderError> {
@@ -56,6 +65,17 @@ pub(crate) trait Writes {
     fn max_slots(&self) -> u32;
     fn begin_tick(&mut self);
     fn transforms(&mut self, first: u32, floats: &[f32], both: bool) -> Result<(), RenderError>;
+    /// `transforms` of `len` floats that `fill` writes as bytes, where the writer
+    /// can take them without a copy of its own.
+    fn transforms_with(
+        &mut self,
+        first: u32,
+        len: usize,
+        both: bool,
+        fill: &mut crate::buffers::Fill<'_>,
+    ) -> Result<(), RenderError> {
+        self.transforms(first, &crate::buffers::filled(len, fill), both)
+    }
     fn previous(&mut self, first: u32, floats: &[f32]) -> Result<(), RenderError>;
     fn materials(&mut self, first: u32, floats: &[f32]) -> Result<(), RenderError>;
     fn mesh(&mut self, vertices: &[Vertex], indices: &[u32]) -> MeshId;
@@ -145,9 +165,11 @@ impl<const ASSETS: bool> Writes for crate::renderer::RendererWithAssets<ASSETS> 
         entities: &[exact_game::Entity],
         initial: bool,
         moved: crate::models::Moved<'_>,
+        poses: &[PreparedPose],
+        resets: Option<&[(u32, [f32; 10])]>,
     ) {
         if ASSETS {
-            self.model_poses(w, entities, initial, moved);
+            self.model_poses(w, entities, initial, moved, poses, resets);
         }
     }
     fn quads(
@@ -184,6 +206,18 @@ impl<const ASSETS: bool> Writes for crate::renderer::RendererWithAssets<ASSETS> 
         } else {
             self.write_transforms(first, floats)
         }
+    }
+    fn transforms_with(
+        &mut self,
+        first: u32,
+        len: usize,
+        both: bool,
+        fill: &mut crate::buffers::Fill<'_>,
+    ) -> Result<(), RenderError> {
+        if both {
+            return self.write_transforms_both(first, &crate::buffers::filled(len, fill));
+        }
+        self.write_transforms_with(first, len, fill)
     }
     fn previous(&mut self, first: u32, floats: &[f32]) -> Result<(), RenderError> {
         self.write_previous_transforms(first, floats)
@@ -400,16 +434,22 @@ pub struct Feed {
     groups: Vec<Group>,
     shapes: BTreeMap<(Shape, bool), usize>,
     batches: Vec<Batch>,
+    draw_entities: Vec<(exact_game::Entity, bool)>,
+    visibility: visibility::Visibility,
+    parent_changes: visibility::ParentChanges,
     slots: Vec<u32>,
     page_scratch: Box<[f32; PAGE * 12]>,
     dimensions: Vec<[f32; 3]>,
     scratch: Vec<f32>,
+    /// The transform pages a feed writes: first entity, floats, overrides.
+    changed: Vec<(u32, usize, std::ops::Range<usize>)>,
+    previous: Vec<(u32, [f32; 10])>,
     transforms: [upload::Pages; 2],
     materials: upload::Pages,
     current: usize,
     generation: u64,
     parents: Vec<exact_game::Entity>,
-    overrides: Vec<(exact_game::Entity, [f32; 10])>,
+    overrides: Vec<PreparedPose>,
     // Each Transform page's range in `overrides`, rebuilt with them.
     override_pages: Vec<std::ops::Range<usize>>,
     // Each slot's occupant generation + 1 at the last history swap (0: none).
@@ -439,10 +479,15 @@ impl Default for Feed {
             groups: Vec::new(),
             shapes: BTreeMap::new(),
             batches: Vec::new(),
+            draw_entities: Vec::new(),
+            visibility: Default::default(),
+            parent_changes: Default::default(),
             slots: Vec::new(),
             page_scratch: Box::new([0.0; PAGE * 12]),
             dimensions: Vec::new(),
             scratch: Vec::new(),
+            changed: Vec::new(),
+            previous: Vec::new(),
             transforms: Default::default(),
             materials: Default::default(),
             current: 0,
@@ -487,13 +532,14 @@ impl Feed {
         }
         self.materials.reset();
         self.parents.clear();
+        self.parent_changes.reset();
+        self.previous.clear();
         self.override_pages.clear();
         self.occupants.clear();
         self.override_cursor = None;
         self.buffer_cursors = [None; 2];
         self.model_cursor = None;
-        self.assets.records.clear();
-        self.assets.entities.clear();
+        self.assets.reset();
     }
 
     /// Feed one completed tick. With Sim::advance_with, call only when ticks_left < 2.
@@ -574,6 +620,26 @@ impl Feed {
             || next.lod != old.lod
             || next.live != old.live
             || next.membership != old.membership;
+        let draw_entities = if batches {
+            // Entity/parent/visibility revisions include cameras, particles and
+            // gameplay-only rows. Rebuild draw records only if their effective
+            // membership changed, or a draw's own mesh/LOD/assets changed.
+            self.visibility.begin(w);
+            let entities: Vec<_> = w
+                .query::<(&Mesh, &Transform)>()
+                .iter()
+                .map(|(entity, _)| (entity, self.visibility.get(w, entity)))
+                .collect();
+            batches = initial
+                || next.assets != old.assets
+                || next.mesh != old.mesh
+                || next.viewmodel != old.viewmodel
+                || next.lod != old.lod
+                || entities != self.draw_entities;
+            Some(entities)
+        } else {
+            None
+        };
         // Present rewrites looks every tick: patch changed content in place.
         if !batches && looks_changed && !self.assets.patch_looks(w, r)? {
             batches = true;
@@ -590,12 +656,28 @@ impl Feed {
         }
         let parent_changed = next.parent != old.parent;
         let offset_changed = next.offset != old.offset;
+        if initial || parent_changed {
+            self.parent_changes.begin(w);
+        }
         if moved || (self.history_pending && w.tick() != self.tick) {
+            self.previous.clear();
             r.begin_tick();
             self.current = 1 - self.current;
             // Parented global poses: every one when the hierarchy changed, else
             // only those in blocks whose poses changed since the last pass.
             // Membership too: a parented entity can gain its Transform later.
+            // A scene without offsets already has exact propagated globals.
+            // Check once per feed, not once per entity's entire parent chain.
+            let has_offsets = w.query::<&exact_game::Offset>().iter().next().is_some();
+            let globals = w.globals();
+            let world_pose = |e| {
+                if has_offsets {
+                    scene::drawn(w, e)
+                } else {
+                    globals.get(e)
+                }
+                .map(scene::decompose)
+            };
             let rebuilt = initial
                 || parent_changed
                 || offset_changed
@@ -604,8 +686,8 @@ impl Feed {
             if rebuilt {
                 self.overrides.clear();
                 for (e, _) in w.query::<(&Parent, &Transform)>().iter() {
-                    if let Some(t) = scene::pose(w, e) {
-                        self.overrides.push((e, floats(t)));
+                    if let Some(t) = world_pose(e) {
+                        self.overrides.push(PreparedPose::new(e, t));
                     }
                 }
                 // Unparented entities drawn at an offset are patched the same way.
@@ -615,16 +697,16 @@ impl Feed {
                     .without::<Parent>()
                     .iter()
                 {
-                    if let Some(t) = scene::pose(w, e) {
-                        self.overrides.push((e, floats(t)));
+                    if let Some(t) = world_pose(e) {
+                        self.overrides.push(PreparedPose::new(e, t));
                     }
                 }
                 if self.overrides.len() > parented {
-                    self.overrides.sort_by_key(|(e, _)| e.index());
+                    self.overrides.sort_by_key(|p| p.entity.index());
                 }
                 self.override_pages.clear();
-                for (i, (e, _)) in self.overrides.iter().enumerate() {
-                    let page = e.index() as usize / PAGE;
+                for (i, pose) in self.overrides.iter().enumerate() {
+                    let page = pose.entity.index() as usize / PAGE;
                     if self.override_pages.len() <= page {
                         self.override_pages.resize(page + 1, i..i);
                     }
@@ -638,10 +720,13 @@ impl Feed {
                         .get(block as usize / PAGE)
                         .cloned()
                         .unwrap_or_default();
-                    for (e, pose) in &mut self.overrides[range] {
-                        if let Some(t) = scene::pose(w, *e) {
-                            *pose = floats(t);
-                        }
+                    for pose in &mut self.overrides[range] {
+                        pose.valid = if let Some(t) = world_pose(pose.entity) {
+                            pose.values = floats(t);
+                            true
+                        } else {
+                            false
+                        };
                     }
                 }
             }
@@ -658,14 +743,15 @@ impl Feed {
                 for e in self
                     .parents
                     .iter()
-                    .chain(self.overrides.iter().map(|(e, _)| e))
+                    .chain(self.overrides.iter().map(|p| &p.entity))
                 {
                     self.transforms[self.current].invalidate(e.index() as usize / PAGE);
                 }
             }
             let pages = w.pages::<Transform>();
-            let mut run = 0;
-            self.scratch.clear();
+            // The changed pages, then each run of adjacent ones written straight
+            // into the queue's staging memory: 64,000 moving entities are 2.5 MB a tick.
+            self.changed.clear();
             for page in pages.iter() {
                 let len = page_len(page.first, r.max_slots()) * 10;
                 let index = page.first as usize / PAGE;
@@ -678,24 +764,45 @@ impl Feed {
                 let mut values = &page.floats()[..len];
                 if parented {
                     self.page_scratch[..len].copy_from_slice(values);
-                    for (e, pose) in &self.overrides[range] {
-                        let at = (e.index() - page.first) as usize * 10;
-                        self.page_scratch[at..at + 10].copy_from_slice(pose);
+                    for pose in &self.overrides[range.clone()] {
+                        let at = (pose.entity.index() - page.first) as usize * 10;
+                        self.page_scratch[at..at + 10].copy_from_slice(&pose.values);
                     }
                     values = &self.page_scratch[..len];
                 }
                 if self.transforms[self.current].dirty(index, page.generation, values, true) {
-                    if !self.scratch.is_empty()
-                        && run + (self.scratch.len() / 10) as u32 != page.first
-                    {
-                        r.transforms(run, &self.scratch, initial)?;
-                        self.scratch.clear();
-                    }
-                    if self.scratch.is_empty() {
-                        run = page.first;
-                    }
-                    self.scratch.extend_from_slice(values);
+                    self.changed.push((page.first, len, range));
                 }
+            }
+            // Walked beside `changed`, both ascending.
+            let mut walk = pages.iter();
+            let mut start = 0;
+            while start < self.changed.len() {
+                let mut end = start + 1;
+                while end < self.changed.len()
+                    && end - start < RUN_PAGES
+                    && self.changed[end - 1].0 + (self.changed[end - 1].1 / 10) as u32
+                        == self.changed[end].0
+                {
+                    end += 1;
+                }
+                let run = &self.changed[start..end];
+                let floats = run.iter().map(|(_, len, _)| len).sum();
+                let overrides = &self.overrides;
+                r.transforms_with(run[0].0, floats, initial, &mut |put| {
+                    let mut at = 0;
+                    for (first, len, range) in run {
+                        let page = walk.by_ref().find(|p| p.first == *first).unwrap();
+                        let bytes = crate::buffers::bytes(&page.floats()[..*len]);
+                        put(at, bytes);
+                        for pose in &overrides[range.clone()] {
+                            let o = at + (pose.entity.index() - first) as usize * 40;
+                            put(o, crate::buffers::bytes(&pose.values));
+                        }
+                        at += bytes.len();
+                    }
+                })?;
+                start = end;
             }
             self.buffer_cursors[self.current] = Some(w.pose_cursor());
             if initial {
@@ -706,9 +813,6 @@ impl Feed {
                 } else {
                     a[0].clone_from(&b[0]);
                 }
-            }
-            if !self.scratch.is_empty() {
-                r.transforms(run, &self.scratch, initial)?;
             }
             // A slot whose occupant changed since the last swap has no history of
             // its own: an entity spawned in an earlier tick of a multi-tick
@@ -727,38 +831,45 @@ impl Feed {
                     {
                         continue;
                     }
-                    if let Some(t) = scene::pose(w, e) {
-                        r.previous(e.index(), &floats(t))?;
+                    if let Some(t) = world_pose(e) {
+                        self.previous.push((e.index(), floats(t)));
                         self.transforms[1 - self.current].invalidate(slot / PAGE);
                     }
                 }
             }
             if !initial {
                 for &e in w.fresh() {
-                    if let Some(t) = scene::pose(w, e) {
-                        r.previous(e.index(), &floats(t))?;
+                    if let Some(t) = world_pose(e) {
+                        self.previous.push((e.index(), floats(t)));
                         self.transforms[1 - self.current].invalidate(e.index() as usize / PAGE);
                     }
                 }
-                for &(e, t) in
-                    self.overrides
-                        .iter()
-                        .take(if parent_changed || !w.fresh().is_empty() {
-                            usize::MAX
-                        } else {
-                            0
-                        })
+                for pose in self
+                    .overrides
+                    .iter()
+                    .take(if parent_changed || !w.fresh().is_empty() {
+                        usize::MAX
+                    } else {
+                        0
+                    })
                 {
-                    if !w.is_fresh(e) && scene::snap(w, e, parent_changed) {
-                        r.previous(e.index(), &t)?;
+                    let (e, t) = (pose.entity, pose.values);
+                    if !w.is_fresh(e)
+                        && if parent_changed {
+                            self.parent_changes.get(w, e)
+                        } else {
+                            scene::snap(w, e, false)
+                        }
+                    {
+                        self.previous.push((e.index(), t));
                         self.transforms[1 - self.current].invalidate(e.index() as usize / PAGE);
                     }
                 }
                 if parent_changed {
                     for &e in &self.parents {
-                        if !w.has::<Parent>(e) {
-                            if let Some(t) = scene::pose(w, e) {
-                                r.previous(e.index(), &floats(t))?;
+                        if !w.has::<Parent>(e) && self.parent_changes.get(w, e) {
+                            if let Some(t) = world_pose(e) {
+                                self.previous.push((e.index(), floats(t)));
                                 self.transforms[1 - self.current]
                                     .invalidate(e.index() as usize / PAGE);
                             }
@@ -768,16 +879,40 @@ impl Feed {
             }
             if rebuilt {
                 self.parents.clear();
-                self.parents.extend(self.overrides.iter().map(|(e, _)| *e));
+                self.parents.extend(self.overrides.iter().map(|p| p.entity));
+            }
+            // A hierarchy edit can snap thousands of children. Coalesce their
+            // history resets just like current-pose pages; one GPU write per
+            // entity otherwise allocates thousands of staging transfers.
+            self.previous.sort_unstable_by_key(|(slot, _)| *slot);
+            self.previous.dedup_by_key(|(slot, _)| *slot);
+            self.scratch.clear();
+            let mut first = 0;
+            for &(slot, pose) in &self.previous {
+                if !self.scratch.is_empty() && first + (self.scratch.len() / 10) as u32 != slot {
+                    r.previous(first, &self.scratch)?;
+                    self.scratch.clear();
+                }
+                if self.scratch.is_empty() {
+                    first = slot;
+                }
+                self.scratch.extend_from_slice(&pose);
+            }
+            if !self.scratch.is_empty() {
+                r.previous(first, &self.scratch)?;
             }
             self.history_pending = moved && !initial;
         }
+        let drawn = draw_entities.as_deref().unwrap_or(&self.draw_entities);
         if batches {
             self.dimensions.fill([1.0; 3]);
             for group in &mut self.groups {
                 group.slots.clear();
             }
-            for (e, (mesh, _)) in w.query::<(&Mesh, &Transform)>().iter() {
+            for ((e, (mesh, _)), &(expected, visible)) in
+                w.query::<(&Mesh, &Transform)>().iter().zip(drawn)
+            {
+                debug_assert_eq!(e, expected);
                 mesh.validate().map_err(RenderError::scene)?;
                 if matches!(mesh, Mesh::Asset(_)) {
                     continue;
@@ -788,7 +923,7 @@ impl Feed {
                     self.dimensions.resize(slot + 1, [1.0; 3]);
                 }
                 self.dimensions[slot] = dimensions(mesh);
-                if !w.is_visible(e) {
+                if !visible {
                     continue;
                 }
                 let viewmodel = w.has::<ViewModel>(e);
@@ -915,7 +1050,7 @@ impl Feed {
         if batches {
             if next.assets != 0 || !self.assets.records.is_empty() {
                 self.assets
-                    .batches(w, r, &mut self.batches, &mut self.slots)?;
+                    .batches(w, r, drawn, &mut self.batches, &mut self.slots)?;
             }
             r.batches(&self.batches, &self.slots)?;
         }
@@ -928,14 +1063,27 @@ impl Feed {
             self.changed_pages
                 .extend(self.changed_blocks.iter().map(|&b| b as usize / PAGE));
             // An offset moves drawn model poses without a simulated pose write.
-            let moved = if initial || parent_changed || offset_changed || batches {
+            let moved = if initial
+                || parent_changed
+                || offset_changed
+                || next.assets != old.assets
+                || next.mesh != old.mesh
+            {
                 crate::models::Moved::All
             } else {
                 crate::models::Moved::Pages {
                     pages: &self.changed_pages,
+                    reconcile: batches,
                 }
             };
-            r.model_poses(w, &self.assets.entities, initial || parent_changed, moved);
+            r.model_poses(
+                w,
+                &self.assets.entities,
+                initial,
+                moved,
+                &self.overrides,
+                Some(&self.previous),
+            );
         }
         if initial || next.opacity != old.opacity || next.live != old.live || parent_changed {
             effective_opacity(w, &mut self.fades_next);
@@ -986,6 +1134,12 @@ impl Feed {
         );
         self.tick = w.tick();
         self.versions = Some(next);
+        if initial || parent_changed {
+            self.parent_changes.commit();
+        }
+        if let Some(entities) = draw_entities {
+            self.draw_entities = entities;
+        }
         Ok(())
     }
 }
@@ -1018,6 +1172,38 @@ fn check_page(
         }
     }
     Ok(())
+}
+pub(crate) struct PreparedPose {
+    entity: exact_game::Entity,
+    values: [f32; 10],
+    valid: bool,
+}
+impl PreparedPose {
+    fn new(entity: exact_game::Entity, pose: Transform) -> Self {
+        Self {
+            entity,
+            values: floats(pose),
+            valid: true,
+        }
+    }
+}
+/// Reuse the exact uploaded pose; absent or invalid rows keep the world lookup.
+pub(crate) fn prepared_pose(
+    w: &World,
+    e: exact_game::Entity,
+    poses: &[PreparedPose],
+) -> Option<Transform> {
+    poses
+        .binary_search_by_key(&e.index(), |p| p.entity.index())
+        .ok()
+        .map(|i| &poses[i])
+        .filter(|p| p.entity == e && p.valid)
+        .map(|p| Transform {
+            position: glam::Vec3::from_slice(&p.values[..3]),
+            rotation: glam::Quat::from_array(p.values[3..7].try_into().unwrap()),
+            scale: glam::Vec3::from_slice(&p.values[7..]),
+        })
+        .or_else(|| scene::pose(w, e))
 }
 pub(crate) fn floats(t: Transform) -> [f32; 10] {
     [

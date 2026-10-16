@@ -309,10 +309,12 @@ impl Resolver<'_, '_> {
             Some(b) => Viewport {
                 width: b.width,
                 height: b.height,
+                ..vp
             },
             None => Viewport {
                 width: w,
                 height: h,
+                ..vp
             },
         };
         let at = tf::mul(ctm, place);

@@ -32,6 +32,15 @@ impl Parser {
                 }
             }
         }
+        if !refreshes.is_empty()
+            && matches!(self.peek_kind(), TokenKind::Ident(word)
+                if !matches!(word.as_str(), "queue" | "refreshes" | "then"))
+        {
+            return self.err(
+                "syntax-expected-newline",
+                "separate refreshed resources with commas: `refreshes board, feed`",
+            );
+        }
         let then = if self.clause_ahead("then", &mut continued) {
             let then_span = self.next().span;
             Some(self.named_ident(then_span).map(|name| (name, then_span))?)
@@ -102,28 +111,13 @@ impl Parser {
         let span = self.expect_word("task")?;
         let name = self.named_ident(span)?;
         // @ref LLP 1092 D7 — `mount`, or a gate: `when cond [key=expr]`, or
-        // `key=expr` alone (`when true`), spelled as `each` spells its key.
-        let (mut gate, mut key) = (None, None);
-        if self.at_ident("when") {
-            self.next();
-            gate = Some(self.expr()?);
-            if self.at_ident("key") {
-                self.next();
-                self.expect_punct("=")?;
-                key = Some(self.expr()?);
-            }
-        } else if self.at_ident("key") {
-            self.next();
-            self.expect_punct("=")?;
-            key = Some(self.expr()?);
-        } else if !self.at_ident("mount") {
+        // `key=expr` alone (`when true`), spelled as `for` spells its key.
+        let Some((gate, key)) = self.gate()? else {
             return self.err(
                 "syntax-task-start",
                 format!("`task {name}` starts at `mount`, or while a condition holds: `when cond`, `when cond key=expr` or `key=expr`"),
             );
-        } else {
-            self.next();
-        }
+        };
         self.newline()?;
         let mut timer = None;
         self.block(|p| {

@@ -1,15 +1,29 @@
 // Session setup shared by the agent CLI and its programmatic driver.
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { accessSync, constants, existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { accessSync, constants, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { basename, delimiter, dirname, relative, resolve } from 'node:path';
+import { basename, delimiter, dirname, isAbsolute, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { types as utilTypes } from 'node:util';
 import { filesystemLock } from './filesystem.mjs';
 import { bakeOutput, linuxBinary, moduleDirectory, pendingBuildInputs, resolveApp, windowsFile, shaderWatchRoots, webDist } from './app.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
+
+/** The compiler's warnings in what a build said (LLP 1116.004 D7), each once as `contract build` prints
+ * it, `file:line:col warning [id] text`: the web compiler's or a bake's own line, or Cargo's for a build
+ * script's (`warning: <crate>@<version>: …`); its file from `cwd` when it is below it. */
+export function compilerWarnings(text, cwd = process.cwd()) {
+  const lines = new Set();
+  for (const line of String(text ?? '').split('\n')) {
+    const m = /^(?:warning: [\w-]+@[^\s:]+: )?(\S(?:.*?\S)?):(\d+:\d+ warning \[[\w-]+\] .*)$/.exec(line);
+    if (!m) continue;
+    const near = relative(cwd, m[1]);
+    lines.add(`${isAbsolute(m[1]) && !near.startsWith('..') ? near : m[1]}:${m[2]}`);
+  }
+  return [...lines];
+}
 
 /** Preserve the original operation failure and any owned cleanup handle. */
 export function retainCleanupError(error, failure) {
@@ -109,17 +123,142 @@ export async function closeWindowsBrowser(child, cdp, exited, profile, terminate
 /** Where a web drive's named scratch store lives (`--storage <name>`), kept between drives as a native one is (dash,
  * weather, kanban: a second drive opened an empty store): Chrome's profile for it, beside the native stores' cache
  * (agent-test.mjs `storeBase`), and the port its page is served on — an origin's storage is its host and port's, so
- * one name is one port, from its hash, below the ephemeral range. */
+ * one name is one port, from its hash, below the ephemeral range. A store is its app's: its id's and its directory's
+ * (LLP 1116.004 D8: a bake-off's contacts read an earlier round's `contacts.json`, written under the same default
+ * id and store name), so two apps of one id never open each other's. */
 /** The store a drive with `env` uses: the driver's environment under the drive's own, as `runTests` places and removes
- * it and a native host sees it (review b5-c 3). */
-export const driveStore = (appId, storage, env, platform = process.platform) => {
+ * it and a native host sees it (review b5-c 3). `app` is resolveApp's: its `id` and `dir`. */
+export const driveStore = (app, storage, env, platform = process.platform) => {
   const launched = { ...process.env, ...(env ?? {}) };
-  return webStore(appId, storage, launched, launched.HOME || homedir(), platform);
+  return webStore(app, storage, launched, launched.HOME || homedir(), platform);
 };
-export function webStore(appId, storage, env = process.env, home = homedir(), platform = process.platform) {
+/** An app directory's twelve hex digits, which name its development stores: a drive's profiles here, and the
+ * page's own storage in a development web build (host/web-js/build.mjs `DEVELOPMENT_STORE`). `dir` is canonical
+ * (resolveApp's, through symlinks), so one app has one digest however it was reached. */
+export const appDigest = dir => createHash('sha256').update(dir).digest('hex').slice(0, 12);
+/** A host file as a development web build ships it for the app at `dir`: its `DEVELOPMENT_STORE` names the app's
+ * own store (storage-environment.js, rt.js `Kept`). A release ships the file as written, null: the id alone. */
+export const developmentStore = (code, dir) => code.replaceAll('const DEVELOPMENT_STORE = null;', `const DEVELOPMENT_STORE = ${JSON.stringify(appDigest(dir))};`);
+export function webStore({ id, dir }, storage, env = process.env, home = homedir(), platform = process.platform) {
+  if (!id || !dir) throw new Error('webStore: an app\'s id and directory name its store');
   const cache = platform === 'darwin' ? resolve(home, 'Library/Caches') : env.XDG_CACHE_HOME?.startsWith('/') ? env.XDG_CACHE_HOME : resolve(home, '.cache');
-  const base = resolve(cache, 'exact', appId, 'agent-web');
-  return { base, profile: resolve(base, storage), port: 20000 + createHash('sha256').update(`${appId}/${storage}`).digest().readUInt32BE(0) % 28000 };
+  const digest = appDigest(dir), base = resolve(cache, 'exact', id, `agent-web-${digest}`);
+  return { base, profile: resolve(base, storage), port: 20000 + createHash('sha256').update(`${id}/${digest}/${storage}`).digest().readUInt32BE(0) % 28000 };
+}
+
+/** Chrome's flags for conformance's network (host/web-js/conformance/net.mjs), when
+ *  `EXACT_NET_PROXY` names its proxy: every outside request goes through it, loopback
+ *  (the page's own server) excepted, and its run's certificate is trusted by its SPKI
+ *  digest (`EXACT_NET_SPKI`). */
+export function netFlags(environment = process.env) {
+  if (!environment.EXACT_NET_PROXY) return [];
+  return [`--proxy-server=http://${environment.EXACT_NET_PROXY}`, `--ignore-certificate-errors-spki-list=${environment.EXACT_NET_SPKI}`,
+    // Chrome's implicit bypass covers link-local addresses too: `<-loopback>` drops it, and loopback is named instead
+    '--proxy-bypass-list=<-loopback>;127.0.0.1;localhost;[::1]',
+    // Chrome's own services (sign-in, updates, safe browsing), which would otherwise ask the proxy for Google's hosts
+    '--disable-background-networking', '--disable-sync', '--no-pings', '--disable-domain-reliability', '--disable-client-side-phishing-detection',
+    '--disable-features=AutofillServerCommunication,OptimizationHints,MediaRouter,CertificateTransparencyComponentUpdater,NetworkTimeServiceQuerying'];
+}
+
+/** Playwright's launch and context options for the same network: Firefox and WebKit through the
+ *  proxy, loopback direct, and the run's certificate accepted (Playwright has no SPKI pin). */
+export function netOptions(environment = process.env) {
+  if (!environment.EXACT_NET_PROXY) return { launch: {}, context: {} };
+  return { launch: { proxy: { server: `http://${environment.EXACT_NET_PROXY}`, bypass: '127.0.0.1,localhost' } }, context: { ignoreHTTPSErrors: true } };
+}
+
+/** Own a named Chrome profile before resetting it, including when two drives
+ * choose different page ports. The OS releases the lock if the driver dies. */
+export async function exclusiveWebStore(options, launch) {
+  if (options.storage === undefined || options.browser !== 'chrome' || options.reuse) return launch();
+  const app = resolveApp(options.app), store = driveStore(app, options.storage, options.env);
+  mkdirSync(store.base, {recursive: true});
+  let release, acquired;
+  const ready = new Promise(resolve => { acquired = resolve; });
+  const lifetime = new Promise(resolve => { release = resolve; });
+  const holding = filesystemLock(store.base + '-locks', `${options.storage}/.lock`, async () => { acquired(); await lifetime; });
+  try { await Promise.race([ready, holding]); }
+  catch (error) { throw new Error(`--storage ${options.storage}: profile lock failed (${error.message}); close any drive of this store or use another name`); }
+  const unlock = async () => { release(); await holding; };
+  try {
+    const carrier = await launch(), close = carrier.close.bind(carrier);
+    let closed;
+    carrier.close = () => closed ??= (async () => { await close(); await unlock(); })();
+    return carrier;
+  } catch (error) { await unlock(); throw error; }
+}
+
+/** The one port a web drive's page is served on, `--port <n>` else `EXACT_PORT`, or null for the default (a free port;
+ * a named store's from its hash). Builders on a shared machine must keep every listener in an assigned range (app farm
+ * wave 1: 21 builds could not). A test run serves its tests on it one at a time. A named store's data is its origin's,
+ * so drive one store on one port. */
+export function webPort(flag, env = process.env) {
+  const given = flag ?? env.EXACT_PORT;
+  if (given === undefined || given === '') return null;
+  const port = Number(given);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`${flag === undefined ? 'EXACT_PORT' : '--port'} ${given}: a port number, 1–65535`);
+  return port;
+}
+
+/** Temporary tests own a fresh page origin; a persistent named drive keeps its port. */
+export function webPortRange(env = process.env) {
+  if (env.PORT_LO === undefined && env.PORT_HI === undefined) return null;
+  const lo = Number(env.PORT_LO), hi = Number(env.PORT_HI);
+  if (!Number.isInteger(lo) || !Number.isInteger(hi) || lo < 1 || hi > 65535 || lo > hi)
+    throw new Error(`PORT_LO/PORT_HI must name an inclusive port range, 1–65535 (got ${env.PORT_LO}/${env.PORT_HI})`);
+  return [lo, hi];
+}
+export function drivePagePort(fixed, kept, temporary = false, env = process.env) {
+  if (fixed != null) return fixed;
+  const range = webPortRange(env), port = !temporary ? kept?.port : null;
+  return port != null && (!range || (port >= range[0] && port <= range[1])) ? port : 0;
+}
+
+/** Listen on `port` (0: any free one). A named port still held is asked again for `ms`: the run's last page, or the
+ * last run's, can still be letting go of it (app farm wave 1: "port in use" between runs). `named` (`--port`/EXACT_PORT)
+ * says so in the refusal, and when the port is in Linux's ephemeral range, which any outgoing connection can borrow. */
+export async function listenOn(server, port, host = '127.0.0.1', ms = port ? 2000 : 0, named = false, env = process.env) {
+  const range = port === 0 ? webPortRange(env) : null;
+  if (range) {
+    for (let candidate = range[0]; candidate <= range[1]; candidate++) {
+      try { return await listenOn(server, candidate, host, 0, false, {}); }
+      catch (error) { if (error.code !== 'EADDRINUSE') throw error; }
+    }
+    throw Object.assign(new Error(`ports ${range[0]}–${range[1]} (PORT_LO/PORT_HI) are all in use`), {code: 'EADDRINUSE'});
+  }
+  for (const end = Date.now() + ms; ; await new Promise((r) => setTimeout(r, 100))) {
+    try {
+      return await new Promise((ok, fail) => {
+        const listening = () => { server.off('error', failed); ok(server.address().port); }, failed = (e) => { server.off('listening', listening); fail(e); };
+        server.once('error', failed).once('listening', listening).listen(port, host);
+      });
+    }
+    catch (e) {
+      if (e.code === 'EADDRINUSE' && Date.now() < end) { server.close(() => {}); continue; }
+      if (e.code !== 'EADDRINUSE' || !named) throw e;
+      let range = null; try { range = readFileSync('/proc/sys/net/ipv4/ip_local_port_range', 'utf8').trim().split(/\s+/).map(Number); } catch {}
+      const borrowed = range && port >= range[0] && port <= range[1] ? `; it is in this machine's ephemeral range (${range[0]}–${range[1]}), which outgoing connections borrow for a while, so a port outside it is steadier` : '';
+      throw Object.assign(new Error(`port ${port} (--port or EXACT_PORT) is in use: another drive or program holds it${borrowed}`), { code: e.code });
+    }
+  }
+}
+
+/** A launching Chrome's stderr, unfiltered: the last lines, and the first fatal one, which the native stack trace
+ * after it pushes out of any tail (app farm 082: "Socket path too long" under a long TMPDIR read as a bare stack). */
+export function launchLog(limit = 8) {
+  const log = { tail: [], fatal: null, add(line) {
+    if (!log.fatal && /:FATAL:|\bCheck failed\b/.test(line)) log.fatal = line;
+    log.tail.push(line); if (log.tail.length > limit) log.tail.shift();
+  } };
+  return log;
+}
+
+/** Why Chrome did not start or answer, from its `launchLog` (the pipe only closes). */
+export function launchFailure(error, log, { alive, chrome, env = process.env }) {
+  const tail = log.tail.slice(-6), lines = log.fatal && !tail.includes(log.fatal) ? [log.fatal, '…', ...tail] : tail;
+  const temp = env.TMPDIR || tmpdir(), socket = /Socket path too long/i.test(log.fatal ?? '')
+    ? `\nChrome keeps a Unix socket under TMPDIR (${temp}, ${temp.length} characters), and a socket's path must fit in 107 bytes: give the drive a shorter TMPDIR.` : '';
+  return new Error(`Chrome ${alive ? 'did not answer' : 'did not start'} (${error.message}); CHROME=${chrome}\n${lines.map(l => '  chrome: ' + l).join('\n') || '  (it printed nothing)'}${socket || (alive ? '' : '\nSet CHROME to a browser that runs here.')}`);
 }
 
 /** One browser lookup for the agent and its tests: an explicit override,
@@ -145,14 +284,20 @@ export function parseFlags(argv) {
     if (argv[i] === '--json') flags.json = true;
     else if (argv[i] === '--world') flags.world = resolve(argv[++i]);
     else if (argv[i] === '--plan') flags.plan = resolve(argv[++i]);
+    else if (argv[i] === '--backend') { const value = argv[++i]; if (!value || value.startsWith('--')) throw new Error('--backend <url>: name the backend origin'); process.env.EXACT_BACKEND_ORIGIN = value; }
     else if (argv[i] === '--app') flags.app = argv[++i];
     else if (argv[i] === '--browser') flags.browser = argv[++i];
     else if (argv[i] === '--size') flags.size = argv[++i].split('x').map(Number);
+    // A number, or what was typed, which `open` refuses by name (`--scale 1x`, a missing value).
+    else if (argv[i] === '--scale') { const v = argv[++i] ?? ''; flags.scale = v.trim() !== '' && Number.isFinite(Number(v)) ? Number(v) : v; }
     else if (argv[i] === '--test') flags.test = argv[++i];
     else if (argv[i] === '--session') flags.session = argv[++i];
     else if (argv[i] === '--open') (flags.open ??= []).push(resolve(argv[++i]));
     else if (argv[i] === '--url') flags.url = argv[++i];
     else if (argv[i] === '--device') flags.device = true;
+    // Android: the app on the Canvas reader (its APK), not the Linux host headless. Said as the variable
+    // `agent-android.mjs` reads, as `--sim` is said as EXACT_SIM: the driver's own file is at its line cap.
+    else if (argv[i] === '--reader') { flags.reader = true; process.env.EXACT_ANDROID_READER = '1'; }
     else if (argv[i] === '--seed') flags.seed = Number(argv[++i]);
     else if (argv[i] === '--locale') flags.locale = argv[++i];
     else if (argv[i] === '--time-zone') flags.timeZone = argv[++i];
@@ -161,11 +306,17 @@ export function parseFlags(argv) {
     else if (argv[i] === '--touch') flags.touch = argv[++i];
     else if (argv[i] === '--chrome') flags.chrome = argv[++i];
     else if (argv[i] === '--phone') flags.phone = argv[++i];
+    else if (argv[i] === '--sim') flags.sim = argv[++i];
     else if (argv[i] === '--storage') flags.storage = argv[++i];
+    else if (argv[i] === '--keep-storage') flags.keepStorage = true;
+    else if (argv[i] === '--reset-storage') flags.resetStorage = true;
+    else if (argv[i] === '--port') flags.port = argv[++i];
     // A driver fault armed before the app's first data load (LLP 1103 D3): every fetch whose URL starts with it fails.
     else if (argv[i] === '--fail-fetch') flags.failFetch = [flags.failFetch, argv[++i]].filter(Boolean).join('\n');
     else rest.push(argv[i]);
   }
+  if (flags.keepStorage && flags.resetStorage) throw new Error('--keep-storage and --reset-storage are mutually exclusive');
+  if ((flags.keepStorage || flags.resetStorage) && flags.storage === undefined) throw new Error('--keep-storage and --reset-storage need --storage <name>');
   return { flags, rest };
 }
 
@@ -208,17 +359,11 @@ export function parityScript({ mediaClock = 'wall', lineHeight = null } = {}) {
     Element.prototype.setAttribute = function (name, value) { const r = setAttribute.call(this, name, value); if (this instanceof HTMLMediaElement && String(name).toLowerCase() === 'src') reset(this); return r; };
     addEventListener('ratechange', e => { if (page.has(e.target)) swallow(e); }, true);
     addEventListener('loadstart', e => { if (e.target instanceof HTMLMediaElement) { of(e.target); real.def.set.call(e.target, 0); real.rate.set.call(e.target, 0); } }, true); }` : '';
-  // The cross-browser parity sheet (`lineHeight` set) also pins a default native button's UA metrics to
-  // Chrome's: each engine's UA sheet sizes a bare `<button>` its own way (plain HTML, 16px page: padding
-  // 1px 6px in Chrome, 1px 4px in Firefox, 0 6px 1px and an 11px font in WebKit, so "Case 1" is 58.3, 52.9
-  // and 50.6 px wide), and with these rows all three agree within 0.3 px. Only the styles that keep the UA
-  // box (`bordered`, the default, and `gray`); the others set their own padding (host/web/index.html).
-  // A native field (`data-native`) the same way: its UA padding, border and `normal` line height differ
-  // (plain HTML, 16px system-ui: an input is 24, 26 and 30 px tall, a two-row textarea 42, 48 and 46).
-  // Over index.html's `[data-native] { all: revert }`, under a field's authored (inline) rows.
-  const controls = "#exact-root button:is([data-button-style=bordered],[data-button-style=gray]){padding:1px 6px;border-width:2px}"
-    + ` #exact-root input[data-native]{padding:1px 2px;border-width:2px;line-height:${lineHeight}}`
-    + ` #exact-root textarea[data-native]{padding:2px;border-width:1px;line-height:${lineHeight}}`;
+  // The cross-browser parity sheet (`lineHeight` set) also pins a native field's (`data-native`) line
+  // height, `normal` in each engine's own metric. Its padding and border, like every native button's,
+  // are the page's own since LLP 1116 D1 (host/web/index.html), the same in every engine. Over index.html's
+  // field rule, under a field's authored (inline) rows.
+  const controls = `#exact-root input[data-native],#exact-root textarea[data-native]{line-height:${lineHeight}}`;
   const line = lineHeight != null ? `{ const s = new CSSStyleSheet(); s.replaceSync('body{line-height:${lineHeight}} ${controls}'); document.adoptedStyleSheets = [...document.adoptedStyleSheets, s]; }` : '';
   return media + line;
 }
@@ -243,6 +388,14 @@ export function withFaults(href, failFetch) {
   return url.href;
 }
 
+/** The page address at another date at the clock's zero (a test's `reload`, LLP 1116.009 D1): `epoch` Unix ms, else the address as it is. */
+export function withEpoch(href, epoch) {
+  if (epoch === undefined) return href;
+  const url = new URL(href);
+  url.searchParams.set('epoch', String(epoch));
+  return url.href;
+}
+
 /** Launch lines from `state.faults` (LLP 1103 D3): a reload relaunches with the table as it is now. */
 export const faultSpecOf = faults => (faults ?? []).map(f => [f.prefix, f.times ?? '-', f.left ?? '-', f.hits, f.armed ? 1 : 0].join('\t')).join('\n');
 
@@ -254,7 +407,8 @@ export function launchFacts({seed, locale, timeZone, epoch, failFetch, env = {}}
   if (!Number.isSafeInteger(epoch) || epoch < 0) throw new Error('epoch: an ISO date, Unix milliseconds at or after 1970, or now');
   locale = locale ?? env.EXACT_AGENT_LOCALE ?? 'en-US';
   timeZone = timeZone ?? env.EXACT_AGENT_TIME_ZONE ?? 'UTC';
-  if (!Number.isSafeInteger(seed) || seed < 0) throw new Error('seed: an integer from 0 through 2^53 - 1');
+  // Below 2^32, as every host draws it (LLP 1116.005 D5): refused, not wrapped.
+  if (!Number.isSafeInteger(seed) || seed < 0 || seed >= 2 ** 32) throw new Error('seed: a whole number from 0 through 2^32 - 1 (4294967295)');
   // Refuse malformed drive input before starting a process on any host.
   locale = Intl.getCanonicalLocales(locale)[0];
   if (!locale) throw new Error('locale: a BCP 47 language tag');
@@ -314,7 +468,55 @@ const GENERATED = /\/build\/[^/]+\/out\//;
 const DIRECTORY_WATCH = /\/[^./]+$/;
 /** Dep-info's inputs modified after `since`, or gone, generated outputs and never-present watched directories aside. */
 export function depInfoNewer(since, bin, info) {
-  return depInfoInputs(bin, info).filter(p => !GENERATED.test(p)).filter(p => { try { return statSync(p).mtimeMs > since; } catch { return !DIRECTORY_WATCH.test(p); } }).map(shown);
+  const skips = new Map();
+  // What no build reads: a build's output, installed packages (their declarations are inputs of their own) and a
+  // hidden tree; within an app, also what its other freshness checks pass over (`notBuildInput`, and the names
+  // `newerThan` skips, a README or a test), each outside the trees a build takes files from.
+  const skipFor = dir => {
+    let app = dir;
+    while (!existsSync(resolve(app, 'app.json')) && dirname(app) !== app) app = dirname(app);
+    if (!existsSync(resolve(app, 'app.json'))) return (path, isDir) => isDir && UNWATCHED_TREE.test(basename(path));
+    if (!skips.has(app)) {
+      const ignored = notBuildInput(app);
+      skips.set(app, (path, isDir) => !INPUT_TREE.test(relative(app, path))
+        && (isDir ? UNWATCHED_TREE.test(basename(path)) || ignored(path) : ignored(path) || NOT_INPUT.test(basename(path))));
+    }
+    return skips.get(app);
+  };
+  return [...new Set(depInfoInputs(bin, info).filter(p => !GENERATED.test(p)).flatMap(p => {
+    let stat;
+    try { stat = statSync(p); } catch { return DIRECTORY_WATCH.test(p) ? [] : [shown(p)]; }
+    if (!stat.isDirectory()) return stat.mtimeMs > since ? [shown(p)] : [];
+    const dir = resolve(p);
+    return watchedChanges(since, dir, skipFor(dir));
+  }))];
+}
+
+const UNWATCHED_TREE = /^(target|node_modules|\..*)$/;
+/** A directory in dep-info is a build script's watch, which Cargo scans recursively. It changed when a file under it
+ * that a build reads was modified after `since`, or when a directory in it was (an entry created, removed or renamed)
+ * after `since` and not by the creation of an entry no build reads: the JS build creates `app.contract.d.ts` in the
+ * app directory after a native build, which moves the directory's mtime to that file's birth and is no change to
+ * that build. A later write to such an entry explains nothing; a filesystem without birth times excuses nothing. */
+function watchedChanges(since, dir, skip) {
+  const out = [];
+  const walk = at => {
+    let entries; try { entries = readdirSync(at, { withFileTypes: true }); } catch { return; }
+    let created = -Infinity;
+    for (const e of entries) {
+      const path = resolve(at, e.name);
+      let stat; try { stat = statSync(path); } catch { continue; }
+      const isDir = stat.isDirectory();
+      if (skip(path, isDir)) created = Math.max(created, stat.birthtimeMs || -Infinity);
+      else if (isDir) walk(path);
+      else if (stat.mtimeMs > since) out.push(shown(path));
+    }
+    // The directory's mtime lands a few microseconds after the entry's birth.
+    const mtime = statSync(at).mtimeMs;
+    if (mtime > since && mtime > created + 1) out.push(shown(at));
+  };
+  walk(dir);
+  return out;
 }
 
 /** Cargo's dep-info beside a binary: every source input newer than the binary, or gone. */
@@ -405,8 +607,10 @@ export function gitIgnored(dir, keep = []) {
 // saved world, an export — and the trees a build takes files from (the bake's
 // assets and deck, a game's art and logic, a native module's scripts, the host
 // crates, fonts and strings). A build reads more than the bake captures, so the
-// rule names the outputs and leaves everything else an input.
-export const OUTPUT = /\.(png|jpe?g|gif|webp|apng|avif|bmp|log|txt|mov|mp4|webm|pdf|trace|world|csv|tsv)$/i;
+// rule names the outputs and leaves everything else an input. A local server's
+// database and its journal are written as the app runs (round 4's book-club: a
+// write-ahead log made every native drive stale; LLP 1116.002 D4).
+export const OUTPUT = /\.(png|jpe?g|gif|webp|apng|avif|bmp|log|txt|mov|mp4|webm|pdf|trace|world|csv|tsv|db|sqlite3?)(-(wal|shm|journal))?$/i;
 export const INPUT_TREE = /^(assets|deck|gpu|art|modules|fonts|strings|logic|data|web|apple|ios|macos|linux)(\/|$)/;
 // An agent's own tree (notes: shots/, tools/; platformer: drive.sh, tools/*.ops)
 // and a test file are never inputs, even when the name looks like a source.
@@ -417,26 +621,69 @@ const TEST_FILE = /(^|\/)[^/]*\.test\.(?:m?js|ts|rs|contract)$/;
 // `gameNonInput`'s), and a stale build run as fresh is worse than a rebuild.
 const HELPER = /\.(?:sh|ops)$/;
 const SCRIPT_TREE = /^(logic|data|gpu|render|art|assets|deck|modules)(\/|$)/;
+// What app.ts reaches (LLP 1116.003 D1.1). The bake captures every TypeScript
+// and JSON file but type-checks and bundles from the entry alone (its tsconfig's
+// `files` is `__exact_entry.ts`, which imports app.ts: js/bake/src/typescript.mjs),
+// so a file app.ts never imports — a backend the app reaches only over HTTP
+// (round 5's book-club `server/index.ts`), a script — is no build's input. Read
+// by scanning each source's module specifiers (type-only imports and references
+// included) and taking every file a relative one can resolve to as the bake's
+// resolution would, a `typescript.sources` mount as if beside app.ts under its
+// name: over-inclusion costs only a rebuild. Null (every TypeScript file counts)
+// without an app.ts, or when tsconfig maps bare specifiers (`paths`, `baseUrl`).
+const SPECIFIER = /(?:\bfrom\s*|\bimport\s*\(?\s*|\brequire\s*\(\s*|<reference\s+path\s*=\s*)(['"])([^'"\n]+)\1/g;
+export const MODULE_FILE = /\.(tsx?|json)$/;
+export const CONFIG_JSON = /^(app|package|jsconfig|tsconfig[^/]*)\.json$/;
+/** The declarations the bake writes beside app.ts: its output, never an input. */
+export const DECLARATIONS = 'app.contract.d.ts';
+/** The files app.ts imports, transitively (and itself), by path; or null. */
+export function moduleGraph(dir, manifest) {
+  const entry = resolve(dir, 'app.ts');
+  if (!existsSync(entry)) return null;
+  try { if (/"(paths|baseUrl)"\s*:/.test(readFileSync(resolve(dir, 'tsconfig.json'), 'utf8'))) return null; } catch {}
+  const mounts = Object.entries(manifest?.typescript?.sources ?? {}).map(([name, path]) => [resolve(dir, name), resolve(dir, String(path))]);
+  const disk = path => { for (const [at, real] of mounts) if (path === at || path.startsWith(at + '/')) return real + path.slice(at.length); return path; };
+  const graph = new Set(), seen = new Set(), queue = [entry];
+  while (queue.length) {
+    const at = queue.pop(), file = disk(at);
+    let isFile = false; try { isFile = statSync(file).isFile(); } catch {}
+    if (seen.has(at) || !isFile) continue;
+    seen.add(at); graph.add(file);
+    if (!/\.tsx?$/.test(file)) continue;
+    for (const [, , spec] of readFileSync(file, 'utf8').matchAll(SPECIFIER)) {
+      if (!spec.startsWith('.')) continue;
+      const base = resolve(dirname(at), spec), stem = base.replace(/\.(m?js|jsx)$/, '');
+      queue.push(base, ...['.ts', '.tsx', '.d.ts', '.json', '/index.ts', '/index.tsx', '/index.d.ts'].map(end => base + end), ...['.ts', '.tsx', '.mts', '.d.ts'].map(end => stem + end));
+    }
+  }
+  return graph;
+}
+
 /** A skip for an app's own files that no build reads. A file a build can
  * read always counts, ignored by Git or not: what the bake captures, anything
  * in an input tree, under `keep` (declared shader roots) or in one of the
  * app's Rust crates (which can `include_bytes!` any file beside them), and
  * what `app.json` names (an icon). Shots, tools, repros and test files never
- * count (LLP 1012: a drive refuses a stale build, not an agent's notes). Of
- * the rest, a helper script outside a script tree, a gitignored file, or a
- * picture, log, note, export or saved world is not an input. */
+ * count (LLP 1012: a drive refuses a stale build, not an agent's notes), nor
+ * TypeScript or JSON app.ts never imports (`moduleGraph`). Of the rest, a
+ * helper script outside a script tree, a gitignored file, or a picture, log,
+ * note, export or saved world is not an input. */
 export function notBuildInput(dir, keep = []) {
   const ignored = gitIgnored(dir, keep);
   const under = (path, roots) => roots.some(p => path === p || path.startsWith(p + '/'));
   let manifest = ''; try { manifest = readFileSync(resolve(dir, 'app.json'), 'utf8'); } catch {}
+  let parsed = {}; try { parsed = JSON.parse(manifest); } catch {}
+  const graph = moduleGraph(dir, parsed);
   const inCrate = path => {
     for (let at = dirname(path); at.startsWith(dir + '/'); at = dirname(at)) if (existsSync(resolve(at, 'Cargo.toml'))) return true;
     return false;
   };
   return path => {
     const rel = relative(dir, path);
-    if ((AGENT_TREE.test(rel) && !under(path, keep)) || TEST_FILE.test(rel)) return true;
-    if (BUILD_SOURCE.test(rel) || INPUT_TREE.test(rel) || under(path, keep) || inCrate(path) || manifest.includes(rel)) return false;
+    if ((AGENT_TREE.test(rel) && !under(path, keep)) || TEST_FILE.test(rel) || rel === DECLARATIONS) return true;
+    const native = INPUT_TREE.test(rel) || under(path, keep) || inCrate(path) || manifest.includes(rel);
+    if (graph && MODULE_FILE.test(rel) && !CONFIG_JSON.test(rel) && !native && !graph.has(path)) return true;
+    if (BUILD_SOURCE.test(rel) || native) return false;
     if (HELPER.test(rel) && !SCRIPT_TREE.test(rel)) return true;
     return OUTPUT.test(rel) || ignored(path);
   };
@@ -445,7 +692,10 @@ export function notBuildInput(dir, keep = []) {
 /** An Apple build's receipt: its Rust and Swift inputs by digest, then by mtime the app's own files the receipt leaves out on purpose (the root build script's watches: the contract, app.json, data, shaders, assets — what the baked plan and bundle are made from). */
 export function receiptChanges(receipt, app) {
   if (!existsSync(receipt)) return [];
-  const { build, target } = JSON.parse(readFileSync(receipt, 'utf8')), since = statSync(receipt).mtimeMs;
+  const { build, target, started } = JSON.parse(readFileSync(receipt, 'utf8'));
+  // A file edited while the build ran is newer than what it read, though older than the receipt written at its end
+  // (LLP 1116.008 D2): the build's own start bounds it, else (an older receipt) the receipt's time.
+  const since = Math.min(statSync(receipt).mtimeMs, Date.parse(started) || Infinity);
   const ignored = notBuildInput(app.dir, shaderWatchRoots(app));
   // A game's proof, pins and helper scripts are not native inputs either
   // (game/proof.mjs shares gameNonInput). A non-game keeps every real source.
@@ -461,7 +711,10 @@ export function receiptChanges(receipt, app) {
   const archive = `lib${app.crate(platform).replace(/-/g, '_')}.d`;
   let infos = []; try { infos = readdirSync(resolve(app.target, target)).map(p => resolve(app.target, target, p, archive)).filter(existsSync); } catch {}
   const info = infos.sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0];
-  const tools = info ? depInfoNewer(since, null, info) : [];
+  // It names every source the bake captured (its rerun-if-changed): of the app's own, those the
+  // walk above skips are no input here either (a backend app.ts never imports); one gone still counts.
+  const skipped = path => { const at = resolve(ROOT, path); return at.startsWith(app.dir + '/') && existsSync(at) && skip(at); };
+  const tools = info ? depInfoNewer(since, null, info).filter(path => !skipped(path)) : [];
   return [...new Set([...(build?.binary ? pendingBuildInputs(build) : []), ...own, ...tools])];
 }
 
@@ -484,15 +737,18 @@ export function webInputs(app, js, since = -Infinity) {
   const roots = js ? ['host/web-js', 'contract', 'plan', 'kernel/tables', { shallow: 'host/web' }] : ['host/web', 'runner', 'kernel', 'svg-filter', 'plan', 'motion', 'num', 'contract'];
   const ignored = notBuildInput(app.dir, shaderWatchRoots(app));
   const notInput = path => Boolean(app.manifest?.game) && gameNonInput(relative(app.dir, path));
+  const backend = resolve(app.dir, '.exact/backend-origin');
   const appFiles = newerThan(since, [app.dir], path => /\/(apple|ios|macos|linux)$/.test(path) && path.startsWith(app.dir + '/') || ignored(path) || notInput(path));
   const shared = newerThan(since, roots.map(r => typeof r === 'string' ? resolve(ROOT, r) : { shallow: resolve(ROOT, r.shallow) }));
+  // Absence is an input too: removing a selection must invalidate its bake.
+  appFiles.push(backend);
   return { app: appFiles, shared };
 }
 const contentDigest = path => { try { return createHash('sha1').update(readFileSync(resolve(ROOT, path))).digest('hex'); } catch { return null; } };
 /** Content digests of every input of a web build, recorded in its marker. */
 export function webInputDigests(app, js) {
   const { app: own, shared } = webInputs(app, js);
-  return Object.fromEntries([...own, ...shared].map(path => [path, contentDigest(path)]));
+  return {...Object.fromEntries([...own, ...shared].map(path => [path, contentDigest(path)])), EXACT_BACKEND_ORIGIN: process.env.EXACT_BACKEND_ORIGIN ?? null};
 }
 /** Inputs whose content changed since the build in `dist`. Modification times only
  * nominate candidates; a checkout that rewrote a file with its own bytes is not a
@@ -504,6 +760,7 @@ export function webChanges(dist, app) {
   const changed = path => !built.inputs || built.inputs[path] !== contentDigest(path);
   const { app: own, shared: roots } = webInputs(app, built.target === 'js', statSync(marker).mtimeMs);
   const appChanges = own.filter(changed), shared = roots.filter(changed);
+  if ((built.inputs?.EXACT_BACKEND_ORIGIN ?? null) !== (process.env.EXACT_BACKEND_ORIGIN ?? null)) appChanges.push('EXACT_BACKEND_ORIGIN');
   return { app: appChanges, shared, all: [...new Set([...appChanges, ...shared])] };
 }
 
@@ -581,6 +838,7 @@ export class Cdp {
     this.next = 1;
     this.pending = new Map();
     this.listeners = [];
+    this.closeListeners = new Set();
     this.closed = null;
     let buf = '';
     output.setEncoding('utf8');
@@ -605,6 +863,8 @@ export class Cdp {
   fail(why) {
     this.closed ??= why;
     for (const [id, p] of this.pending) { this.pending.delete(id); p.reject(new Error(`${why} (${p.method})`), 'transport'); }
+    for (const listener of this.closeListeners) listener(this.closed);
+    this.closeListeners.clear();
   }
   send(method, params = {}, sessionId, timeoutMs = 15000) {
     if (this.closed) return Promise.reject(finishCdpFailure(new Error(`${this.closed} (${method})`),
@@ -631,7 +891,7 @@ export class Cdp {
  * activation, as for a person), answered "Stay". Either the dialog or the target's detach comes; after the second the
  * page is gone. */
 export async function closePage(req, { cdp, sessionId, call, frame }) {
-  if (Object.keys(req).some(k => !['op', 'close'].includes(k)) || req.close !== true) return { error: 'tap close takes no other input fields' };
+  if (Object.keys(req).some(k => !['op', 'close'].includes(k)) || req.close !== true) return { malformed: true, error: 'tap close takes no other input fields' };
   let listener, timer;
   const outcome = new Promise((ok) => {
     listener = (msg) => {
@@ -651,6 +911,22 @@ export async function closePage(req, { cdp, sessionId, call, frame }) {
     return { closed: false, kept: 'a `beforeunload` called `preventDefault()`: the browser asked "Leave site?", answered "Stay"', delivery: 'browser-window', native: 'Page.close' };
   } finally { clearTimeout(timer); cdp.listeners.splice(cdp.listeners.indexOf(listener), 1); }
 }
+
+/** The agent's `back` on the web (LLP 1116.006 D4), the carrier's half: an open modal `dialog` or `role="alertdialog"`
+ * popover takes the Escape a person presses, a real key the browser makes the dialog's close request (`closedby="none"`
+ * keeps it open, as a `cancel` handler that prevents it does). `escape` presses it (CDP's, or Playwright's keyboard).
+ * Null with none open: the page's agent then takes the browser's Back from the selected route (navigation.js `back`). */
+export async function backLayer(req, { evaluate, escape, frame }) {
+  if (Object.keys(req).some(k => !['op', 'back'].includes(k)) || req.back !== true) return { malformed: true, error: 'tap back takes no other input fields' };
+  const open = `document.querySelectorAll('dialog:modal, [role="alertdialog"]:popover-open').length`, before = await evaluate(open);
+  if (!before) return null;
+  await escape();
+  await frame();
+  return { back: 'dialog', delivery: 'platform', ...(await evaluate(open) >= before ? { refused: 'the dialog stayed open: its closedby is "none", or a `cancel` handler prevented the close' } : {}) };
+}
+
+/** Escape pressed through CDP, down and up, as a keyboard's (`backLayer`). */
+export const cdpEscape = (call) => async () => { for (const type of ['rawKeyDown', 'keyUp']) await call('Input.dispatchKeyEvent', { type, key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 }); };
 
 /** The simulator has one running process per bundle id, across every checkout.
  * Hold an OS lock through launch and close; a crashed driver releases it through

@@ -38,6 +38,8 @@ enum TextMetricKey {
         h.combine(spec.direction); h.combine(spec.whiteSpace)
         h.combine(spec.textIndent); h.combine(spec.hyphens)
         if spec.hyphens == 2 { h.combine(spec.language) }
+        h.combine(spec.textBoxTrim); h.combine(spec.textBoxOver); h.combine(spec.textBoxUnder)
+        h.combine(spec.balance ? 1 : 0)
         return h.finalize()
     }
     static func hash(_ request: ExactMeasureRequest) -> Int {
@@ -58,6 +60,8 @@ enum TextMetricKey {
         // A Markdown request hashes apart from the plain request of its one
         // source run; a plain request hashes as its Spec does.
         if request.markup != 0 { h.combine(Int(request.markup)) }
+        h.combine(Int(request.text_box_trim)); h.combine(Int(request.text_box_over)); h.combine(Int(request.text_box_under))
+        h.combine(Int(request.text_wrap_style))
         return h.finalize()
     }
     private static func equalFields(_ raw: ExactTextRun, _ owned: Run) -> Bool {
@@ -76,6 +80,8 @@ enum TextMetricKey {
               Int(request.line_clamp) == geometry.lineClamp, Int(request.overflow_wrap) == geometry.overflowWrap,
               Int(request.direction) == geometry.direction, Int(request.white_space) == geometry.whiteSpace,
               CGFloat(request.text_indent) == geometry.textIndent, Int(request.hyphens) == geometry.hyphens,
+              Int(request.text_box_trim) == geometry.textBoxTrim, Int(request.text_box_over) == geometry.textBoxOver,
+              Int(request.text_box_under) == geometry.textBoxUnder, (request.text_wrap_style == 1) == geometry.balance,
               let strut = geometry.strut, equalFields(request.strut, strut) else { return false }
         let runs = UnsafeBufferPointer(start: request.runs, count: request.count)
         for i in runs.indices {
@@ -122,11 +128,38 @@ final class TextIdentity: Hashable {
     var ownedBytes: Int { utf8Bytes + geometry.runs.count * MemoryLayout<Run>.stride + runEnds.count * MemoryLayout<Int>.stride }
 }
 
+extension Spec {
+    /// Paint does not affect wrapping. Retain run boundaries and metric styles.
+    var geometry: Spec {
+        var value = self
+        value.color = [0, 0, 0, 255]
+        value.ellipsis = false
+        value.source = SourceMap()
+        for i in value.runs.indices {
+            value.runs[i].hidden = false
+            value.runs[i].fixedInk = false
+            value.runs[i].color = nil
+            value.runs[i].decoration = ""
+            value.runs[i].href = ""
+            value.runs[i].background = nil
+            value.runs[i].shadow = nil
+            value.runs[i].stroke = nil
+        }
+        if var strut = value.strut {
+            strut.text = ""; strut.color = nil; strut.decoration = ""; strut.href = ""; strut.background = nil
+            strut.shadow = nil; strut.stroke = nil
+            value.strut = strut
+        }
+        return value
+    }
+}
+
 /// Text/font metrics are interned by exact Run equality, not a digest or ABI
 /// pointer. Width and paint keys then share that owned identity and its Strings.
 struct TextPaint: Hashable {
     struct Inline: Hashable {
         let hidden: Bool
+        let fixedInk: Bool
         let color: [Double]?
         let decoration: String
         let href: String
@@ -140,7 +173,7 @@ struct TextPaint: Hashable {
     init(_ spec: Spec) {
         color = spec.color
         ellipsis = spec.ellipsis
-        runs = spec.runs.map { Inline(hidden: $0.hidden, color: $0.color, decoration: $0.decoration, href: $0.href, background: $0.background,
+        runs = spec.runs.map { Inline(hidden: $0.hidden, fixedInk: $0.fixedInk, color: $0.color, decoration: $0.decoration, href: $0.href, background: $0.background,
                                       shadow: $0.shadow, stroke: $0.stroke) }
     }
     func applying(to identity: TextIdentity) -> Spec {
@@ -149,6 +182,7 @@ struct TextPaint: Hashable {
         spec.ellipsis = ellipsis
         for i in spec.runs.indices {
             spec.runs[i].hidden = runs[i].hidden
+            spec.runs[i].fixedInk = runs[i].fixedInk
             spec.runs[i].color = runs[i].color
             spec.runs[i].decoration = runs[i].decoration
             spec.runs[i].href = runs[i].href

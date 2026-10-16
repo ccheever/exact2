@@ -16,6 +16,7 @@ import { assertWebDistApp, open } from '../../../scripts/agent.mjs';
 import { chromium, refuseStale, webChanges } from '../../../scripts/agent-launch.mjs';
 import { resolveApp } from '../../../scripts/app.mjs';
 import { jsTargetBuild } from '../serve.mjs';
+import { need } from '../../../scripts/coverage.mjs';
 
 const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
 const app = resolveApp('caltrain');
@@ -38,8 +39,7 @@ async function fixtureUnavailable() {
   return null;
 }
 const unavailable = await fixtureUnavailable();
-if(unavailable) console.warn(`SKIP: ${unavailable}`);
-const check = unavailable ? test.skip : test;
+const check = need(browserUnavailable ? 'chrome' : 'fixture', unavailable);
 
 const SOURCE = `component App
   state x = 0
@@ -57,7 +57,7 @@ const SOURCE = `component App
       box testId="card" width=300 height=300 background-color="#f06" touch-action="none" pan=moved panrelease=released
 `;
 
-check(`a flick releases at its speed; a slow drag and a pause before lifting near rest${unavailable ? ` — ${unavailable}` : ''}`, async () => {
+check(`a flick releases at its speed; a slow drag and a pause before lifting near rest`, async () => {
   const tmp = mkdtempSync(resolve(tmpdir(), 'exact-panrelease-'));
   const plan = resolve(tmp, 'pan.plan');
   let s;

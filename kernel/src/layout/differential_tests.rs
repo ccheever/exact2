@@ -20,10 +20,10 @@ fn style(id: u32, rows: &[(StyleId, StyleValue)]) -> Op {
         patch: Box::new(patch),
     }
 }
-fn t(s: &str) -> StyleValue {
+fn t(s: &str) -> StyleValue<'_> {
     StyleValue::Text(s.into())
 }
-fn n(x: f64) -> StyleValue {
+fn n(x: f64) -> StyleValue<'static> {
     StyleValue::Number(x)
 }
 #[derive(Default)]
@@ -71,7 +71,9 @@ fn seeded_512_trees_match_fresh_frames_content_and_baselines() {
                     id,
                     prop: PropId::Text,
                     value: PropValue::Str(
-                        "alpha beta longerword ".repeat(2 + random(&mut seed, 16) as usize),
+                        "alpha beta longerword "
+                            .repeat(2 + random(&mut seed, 16) as usize)
+                            .into(),
                     ),
                 });
                 ops.push(style(
@@ -255,4 +257,102 @@ fn unpublished_layout_writes_are_bounded_by_live_nodes() {
     tree.taffy.compute_layout(node, Size::MAX_CONTENT).unwrap();
     tree.remove(node);
     assert!(tree.taffy.take_layout_changes().is_empty());
+}
+
+fn alert_fixture() -> Kernel {
+    let mut k = Kernel::with_monospace();
+    k.apply(
+        0,
+        0,
+        &[
+            Op::CreateView {
+                id: 1,
+                node_type: NodeType::View,
+            },
+            Op::CreateView {
+                id: 2,
+                node_type: NodeType::Text,
+            },
+            Op::SetProp {
+                id: 1,
+                prop: PropId::AccessibilityLabel,
+                value: PropValue::Str("A title which wraps as generated content".into()),
+            },
+            Op::SetProp {
+                id: 2,
+                prop: PropId::Text,
+                value: PropValue::Str("An authored row".into()),
+            },
+            style(
+                1,
+                &[
+                    (StyleId::Display, t("flex")),
+                    (StyleId::FlexWrap, t("wrap")),
+                    (StyleId::Width, n(160.)),
+                ],
+            ),
+            Op::SetChildren {
+                id: 1,
+                children: vec![2],
+            },
+            Op::AttachRoot { id: 1 },
+        ],
+    )
+    .unwrap();
+    k
+}
+
+#[test]
+fn alert_prefix_lifecycle_keeps_the_engine_count_and_rebuild_exact() {
+    let offer = Offer::definite(200., 300.);
+    let mut k = alert_fixture();
+    assert_eq!(k.engine_nodes(), k.live_count());
+    k.set_alert_prefix(1, true).unwrap();
+    assert_eq!(k.engine_nodes(), k.live_count() + 1);
+    k.compute_layout(1, offer).unwrap();
+    let first = k.alert_prefix_frame(1).unwrap();
+
+    // Refresh queues the derived leaf. Closing and reopening in the same
+    // batch must clear that bookkeeping and allocate exactly one replacement.
+    k.set_alert_prefix(1, true).unwrap();
+    k.set_alert_prefix(1, false).unwrap();
+    assert_eq!(k.engine_nodes(), k.live_count());
+    k.set_alert_prefix(1, true).unwrap();
+    assert_eq!(k.engine_nodes(), k.live_count() + 1);
+    k.compute_layout(1, offer).unwrap();
+    assert_eq!(k.alert_prefix_frame(1), Some(first));
+    assert!(!k.tree().faulted());
+
+    let mut rebuilt = k.rehydrate(Box::new(MonospaceMeasurer::default()));
+    rebuilt.compute_layout(1, offer).unwrap();
+    assert_eq!(rebuilt.engine_nodes(), rebuilt.live_count() + 1);
+    assert_eq!(rebuilt.alert_prefix_frame(1), Some(first));
+
+    k.apply(0, 1, &[Op::DestroyView { id: 1 }]).unwrap();
+    assert_eq!(k.engine_nodes(), 0, "owner removal also removes its prefix");
+}
+
+#[test]
+fn alert_prefix_is_the_same_first_child_in_fresh_trial_and_adopted_trees() {
+    let mut k = alert_fixture();
+    k.set_alert_prefix(1, true).unwrap();
+    let mut arena = k.arena().clone();
+    let root = arena.slot_of(1).unwrap();
+
+    let fresh = LayoutTree::rebuild(&mut arena);
+    let fresh_root = arena.taffy(root).unwrap();
+    let fresh_prefix = fresh.alert_prefixes[&root];
+    assert_eq!(fresh.taffy.children(fresh_root).unwrap()[0], fresh_prefix);
+    assert_eq!(fresh.node_count(), arena.live_count() + 1);
+
+    let (mut trial, nodes) = LayoutTree::of_subtrees(&arena, &[root]);
+    let trial_root = nodes[&root];
+    let trial_prefix = trial.alert_prefixes[&root];
+    assert_eq!(trial.taffy.children(trial_root).unwrap()[0], trial_prefix);
+    assert_eq!(trial.node_count(), arena.live_count() + 1);
+
+    let holder = trial.new_leaf(taffy::Style::default(), root, false);
+    trial.adopt(&arena, root, holder, &nodes);
+    assert_eq!(trial.taffy.children(holder).unwrap()[0], trial_prefix);
+    assert_eq!(trial.node_count(), arena.live_count() + 2);
 }

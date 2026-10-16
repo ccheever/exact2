@@ -85,6 +85,97 @@ fn fixture() -> Kernel {
 }
 
 #[test]
+fn inline_run_inheritance_matches_leaf_styles_after_override_clear_and_reparent() {
+    let mut k = Kernel::new(Box::new(MonospaceMeasurer::default()));
+    let mut ops: Vec<_> = (1..=10)
+        .map(|id| Op::CreateView {
+            id,
+            node_type: if id == 1 || id == 10 {
+                NodeType::View
+            } else {
+                NodeType::Text
+            },
+        })
+        .collect();
+    let patch = |id, rows: &[(StyleId, &str)]| {
+        style(id, |s| {
+            for &(row, value) in rows {
+                let value = value.parse().map_or_else(
+                    |_| exact_kernel::StyleValue::Text(value.into()),
+                    exact_kernel::StyleValue::Number,
+                );
+                s.set_dynamic(row, &value).unwrap();
+            }
+        })
+    };
+    ops.extend([
+        patch(
+            1,
+            &[
+                (StyleId::FontSize, "20"),
+                (StyleId::LineHeight, "1.5"),
+                (StyleId::FontWeight, "600"),
+                (StyleId::FontStyle, "italic"),
+                (StyleId::FontFamily, "3"),
+                (StyleId::LetterSpacing, "2"),
+                (StyleId::FontVariantNumeric, "tabular-nums"),
+            ],
+        ),
+        patch(
+            2,
+            &[
+                (StyleId::TextTransform, "capitalize"),
+                (StyleId::Hyphens, "none"),
+            ],
+        ),
+        font(3, 12.0),
+        font(5, 40.0),
+        prop(4, PropId::Text, "hel"),
+        prop(6, PropId::Text, "lo\u{ad}"),
+        prop(7, PropId::Text, " world"),
+        prop(8, PropId::Text, ""),
+        prop(9, PropId::Text, "suppressed"),
+        prop(10, PropId::Text, "non-inline"),
+        children(8, &[9]),
+        children(5, &[6, 8]),
+        children(3, &[4, 5]),
+        children(2, &[3, 7]),
+        children(1, &[2, 10]),
+        Op::AttachRoot { id: 1 },
+    ]);
+    apply(&mut k, &ops);
+    let check = |k: &Kernel, leaves: &[u32], sizes: &[f32]| {
+        let runs = k.node(2).unwrap().text_runs();
+        assert_eq!(runs.len(), leaves.len());
+        for ((run, &id), &size) in runs.iter().zip(leaves).zip(sizes) {
+            assert_eq!(run.style, k.node(id).unwrap().text_style(), "leaf {id}");
+            assert_eq!(run.style.font_size, size);
+            assert_eq!(run.style.line_height, Some(size * 1.5));
+        }
+        assert_eq!(
+            runs.iter().map(|r| r.text.as_ref()).collect::<Vec<_>>(),
+            ["Hel", "lo\u{34f}", "", " World"]
+        );
+    };
+    check(&k, &[4, 6, 8, 7], &[12.0, 40.0, 40.0, 20.0]);
+    apply(&mut k, &[font(3, 16.0)]);
+    check(&k, &[4, 6, 8, 7], &[16.0, 40.0, 40.0, 20.0]);
+    let mut mask = StyleMask::EMPTY;
+    mask.set(StyleId::FontSize);
+    apply(
+        &mut k,
+        &[Op::ClearStyle {
+            id: 5,
+            mask,
+            written: false,
+        }],
+    );
+    check(&k, &[4, 6, 8, 7], &[16.0, 16.0, 16.0, 20.0]);
+    apply(&mut k, &[children(3, &[4]), children(2, &[3, 5, 7])]);
+    check(&k, &[4, 6, 8, 7], &[16.0, 20.0, 20.0, 20.0]);
+}
+
+#[test]
 fn unrelated_typing_and_offer_changes_leave_paragraph_identity_stable() {
     let mut k = fixture();
     apply(&mut k, &[prop(3, PropId::Text, &"giant ".repeat(25_000))]);
@@ -136,6 +227,7 @@ fn metric_changes_invalidate_only_affected_owners_and_propagate_inheritance() {
         &[Op::ClearStyle {
             id: 7,
             mask: StyleMask::of(StyleId::FontSize),
+            written: false,
         }],
     );
     assert!(!inherited.same_metrics(&stamp(&k, 8)));
@@ -166,6 +258,7 @@ fn paint_changes_keep_metric_proof_and_update_source_mapping_revision() {
         &[Op::ClearStyle {
             id: 1,
             mask: StyleMask::of(StyleId::TextColor),
+            written: false,
         }],
     );
     assert!(old.same_metrics(&stamp(&k, 2)));
@@ -189,6 +282,7 @@ fn noops_and_rejected_mixed_batches_preserve_every_stamp() {
             Op::ClearStyle {
                 id: 2,
                 mask: StyleMask::of(StyleId::TextColor),
+                written: false,
             },
         ],
     );
@@ -285,6 +379,7 @@ fn detaching_a_container_refreshes_descendant_inheritance_before_becoming_root()
             Op::ClearStyle {
                 id: 7,
                 mask: StyleMask::of(StyleId::FontSize),
+                written: false,
             },
         ],
     );
@@ -332,6 +427,7 @@ fn attaching_an_orphan_container_only_remeasures_changed_inherited_values() {
             Op::ClearStyle {
                 id: 7,
                 mask: StyleMask::of(StyleId::FontSize),
+                written: false,
             },
             font(1, 24.0),
         ],

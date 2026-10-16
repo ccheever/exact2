@@ -1,0 +1,192 @@
+// Starter: list-detail over your own REST server (server.ts), polled, every failure in words.
+// app.ts fetches with a bearer token, the persona's name, and answers a refusal or a lost server
+// as data. Who is signed in is the bar's pull-down menu, kept with `persist` across
+// launches. `bun server.ts` serves the dev loop; `test` and `verify` run it
+// themselves, on an empty database. A smaller app deletes what it doesn't need: the persona
+// switcher (`persona`, `signIn`, its bar button and menu, the `persona` argument of every
+// source), the delete (`askRemove`,
+// `remove`, the dialog, the server's DELETE), the notes (the shape's field, the title's
+// `enterkeyhint`, the sections, the server's column), or the lock (the shape's `locked`, `setLock`, the badge, the switch, the server's PATCH).
+// Compose as the platform does, and keep its detail route and add sheet when trimming: a row
+// pushes its detail, create and edit are sheets, a phone gets one column and a wide window two
+// (`responsive-columns`); not a form above one long list.
+use Badge from "exact:content"
+
+routes nav
+  items "/"
+    item "/item/:id"
+    add "/add"
+
+shape Item
+  id: string
+  title: string
+  notes: string
+  locked: bool
+
+shape Items
+  ok: bool
+  error: string
+  items: Item[]
+
+shape Reply
+  ok: bool
+  error: string
+
+fn titleOf(items: Item[], id: string): string = match first(items.filter(i => i.id == id)) { case some(i) => i.title, case none => "" }
+
+component App
+  state draftTitle = ""
+  state draftNotes = ""
+  state submitted = false
+  state persona = "Ada" persist
+  resource lib = loadItems(persona) as shape Items else empty(ok=true)
+  mutation added as shape Reply refreshes lib then afterSave
+  mutation removed as shape Reply refreshes lib
+  mutation lockSaved as shape Reply refreshes lib
+  derive selected = match stack(nav).filter(e => e.name == "item").at(-1) { case some(e) => e.params.id, case none => "" }
+  derive saveError = match added { case some(r) => r.error, case none => "" }
+  derive removeError = match removed { case some(r) => r.error, case none => "" }
+  // A failed poll keeps the last list, its reason above it; a refused delete says why there too.
+  derive listError = pending(removed) ? "" : removeError != "" ? removeError : lib.error
+  // Said after the first Save, in red under the field; the next attempt clears it.
+  derive formError = not submitted ? "" : draftTitle.trim() == "" ? "Enter a title." : pending(added) ? "" : saveError
+
+  task poll mount
+    every(4000, pull)
+
+  action pull
+    refresh lib
+  action signIn(p: string)
+    persona = p
+  action openAdd
+    draftTitle = ""
+    draftNotes = ""
+    submitted = false
+    nav = push(nav, "/add")
+  action back
+    nav = back(nav)
+  // A row is a link to its item; the browser's Back, Forward and a deep link arrive here too.
+  // A phone pushes the item; a wide window replaces the one beside the list.
+  action follow(url: string)
+    nav = top(nav).name == "item" and url.startsWith("/item/") ? replace(nav, url) : go(nav, url)
+  action editTitle(v: string)
+    draftTitle = v
+  action editNotes(v: string)
+    draftNotes = v
+  action save
+    submitted = true
+    if draftTitle.trim() != "" and not pending(added)
+      send added = addItem(persona, draftTitle.trim(), draftNotes.trim())
+  // The sheet closes only on an ok reply; a refusal keeps it open, saying why.
+  action afterSave
+    if saveError == "" and top(nav).name == "add"
+      nav = back(nav)
+  action setLock(on: bool)
+    send lockSaved = lockItem(persona, selected, on)
+  action askRemove
+    showModal("remove")
+  action remove
+    send removed = removeItem(persona, selected)
+    nav = back(nav)
+
+  view
+    // A phone pushes an item; a wide window shows it beside the list by itself, because a row
+    // draws the disclosure chevron (`contract vocab navigationSplit`).
+    main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow testId="app" width="100%" height="100%"
+      for e in stack(nav) key=e.id
+        if e.name == "items"
+          column navigationKey=`${e.id}` navigationScroll="items-list" position="absolute" inset=0
+            // A large title (`aria-level=1`) collapses as the list scrolls: nothing sits fixed between
+            // the bar and the list. A control that stays goes in the bar; one that may scroll away, in the list.
+            header display="flex" align-items="center" padding="8px 16px"
+              text "Starter" role="heading" aria-level=1 flex=1
+              button popovertarget="persona-menu" aria-label=`Signed in as ${persona}` testId="persona"
+                image "symbol:person"
+              button press=openAdd aria-label="Add Item" testId="add-item"
+                image "symbol:add"
+            list id="items-list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+              // A failed poll or a refused delete, in red over the rows it is about.
+              if listError != ""
+                section
+                  row
+                    text listError color="-exact-system-red" flex=1 min-width=0 testId="list-error"
+              section
+                // A title over its notes; the chevron says the row pushes. It only navigates, so it is a link.
+                for it in lib.items key=it.id
+                  link href=path("item", it.id) testId=`item-${it.id}`
+                    column flex=1 min-width=0 gap=2 padding-top=4 padding-bottom=4
+                      text it.title
+                      if it.notes != ""
+                        text it.notes font="-exact-subheadline" color="-exact-secondary-label" line-clamp=1
+                    // A status is a badge, not coloured text: `some("-exact-system-orange")` for Full.
+                    if it.locked
+                      Badge(label="Locked", tint=none)
+                    image "symbol:forward-chevron"
+                footer
+                  text (lib.items.length == 0 ? "Nothing yet. Tap + to add the first item." : "") testId="items-empty"
+        if e.name == "item"
+          column navigationKey=`${e.id}` navigationScroll="item-detail" position="absolute" inset=0
+            header display="flex" align-items="center" padding="8px 16px"
+              text titleOf(lib.items, e.params.id) role="heading" aria-level=2
+            list id="item-detail" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+              for it in lib.items.filter(x => x.id == e.params.id) key=it.id
+                ItemSections(item=it, setLock=setLock, askRemove=askRemove)
+        if e.name == "add"
+          column navigationKey=`${e.id}` navigationPresentation="modal" navigationScroll="add-form" position="absolute" inset=0
+            // Cancel, title and Save: three items, so `space-between` centres the title. With two (a Close and a
+            // title) it would push the title to the far edge: say nothing and the web centres a sheet's title.
+            header display="flex" align-items="center" justify-content="space-between" padding="8px 16px"
+              button id="back" press=back testId="add-cancel"
+                text "Cancel"
+              text "New Item" role="heading"
+              button press=save buttonStyle="bordered-prominent" testId="add-save"
+                text "Save"
+            list id="add-form" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+              section
+                // The message sits in the field's row, under the field.
+                row
+                  column flex=1 min-width=0 gap=4
+                    input value=draftTitle input=editTitle placeholder="Title" aria-label="Title"
+                      autofocus=true enterkeyhint="next" testId="add-title"
+                    if formError != ""
+                      text formError font="-exact-footnote" color="-exact-system-red" testId="add-error"
+              section
+                header
+                  text "Notes"
+                row padding-top=8 padding-bottom=8
+                  textarea value=draftNotes input=editNotes placeholder="Optional" aria-label="Notes"
+                    rows=4 testId="add-notes" flex=1 min-width=0
+      // Who is signed in: the bar button's pull-down (iOS: a UIMenu, the choice checked).
+      column id="persona-menu" popover="auto" role="menu"
+        for p in ["Ada", "Grace"] key=p
+          button role="menuitemradio" aria-checked=(persona == p) press=signIn(p) popovertarget="persona-menu"
+            popovertargetaction="hide" testId=`persona-${p}`
+            text p
+      dialog id="remove" role="alertdialog" aria-label="Delete Item?"
+        text "This can’t be undone."
+        button press=remove destructive=true commandfor="remove" command="close" testId="remove-confirm"
+          text "Delete"
+        button commandfor="remove" command="close" testId="remove-cancel"
+          text "Cancel"
+
+// One item: its notes, its lock, and Delete, which asks first, or says why it can't.
+component ItemSections
+  props
+    item: Item
+    setLock: action
+    askRemove: action
+  view
+    section
+      header
+        text "Notes"
+      row padding-top=10 padding-bottom=10
+        text (item.notes == "" ? "No notes." : item.notes) flex=1 min-width=0
+          color=(item.notes == "" ? "-exact-secondary-label" : "-exact-label") testId="detail-notes"
+    section
+      row
+        text "Locked"
+        input type="checkbox" switch checked=item.locked change=setLock aria-label="Locked" testId="lock-item"
+      button press=askRemove destructive=true disabled=item.locked testId="delete-item"
+        text "Delete Item"
+      footer
+        text (item.locked ? "Unlock this item to delete it." : "") testId="delete-reason"

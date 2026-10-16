@@ -1,11 +1,16 @@
-// `share(title=, text=, url=)` (LLP 1069.003): the system share sheet, in
-// ExactKit so an embedder (LLP 1031) gets it with the session. The runner
-// rules first — bad data refused, and under the agent the request held for
-// `tap @t shared|cancel`, never a sheet (D6) — then iOS opens a
+// `share(title=, text=, url=, files=)` (LLP 1069.003): the system share
+// sheet, in ExactKit so an embedder (LLP 1031) gets it with the session. The
+// runner rules first — bad data refused, and under the agent the request
+// held for `tap @t shared|cancel`, never a sheet (D6), unless
+// `EXACT_DEVICE=real` asks for the real one (LLP 1069.007 D8) — then iOS opens a
 // UIActivityViewController and macOS an NSSharingServicePicker, anchored to
 // the node whose input ran the action (D3). The outcome is a journal line
 // only (D2). Native hosts share from any action (Q2): a timer's share opens
-// at the window's centre.
+// at the window's centre. `files=` (LLP 1125 D12): an `app:/` file goes as
+// a copy read as `readFile` reads it; an `"#id"` as a PNG of that node's view as it is drawn now,
+// at the display's scale, written to a scratch directory removed when the
+// sheet closes. Under the agent nothing is drawn: the hold records the
+// entries.
 #if canImport(UIKit)
 import UIKit
 typealias ShareAnchorView = UIView
@@ -16,19 +21,52 @@ typealias ShareAnchorView = NSView
 
 extension ExactSession {
     func share(_ args: [Any], source: UInt32?) {
-        var request: [String: Any] = ["command": "share", "agent": ExactEnv.agentMode]
+        var request: [String: Any] = ["command": "share", "agent": PageFacts.substituted]
         for (i, key) in ["title", "text", "url"].enumerated() where i < args.count {
             if let value = args[i] as? String { request[key] = value }
         }
+        if args.count > 3, let files = args[3] as? [Any] { request["files"] = files }
         if let source { request["source"] = source }
-        guard runtime.command(request)["present"] as? Bool == true else { return }
+        let ruling = runtime.command(request)
+        guard ruling["present"] as? Bool == true else { return }
         var items: [Any] = []
         if let text = request["text"] as? String { items.append(text) }
         if let url = (request["url"] as? String).flatMap(URL.init(string:)) { items.append(url) }
+        // Each entry is written into a folder of its own in a scratch
+        // directory removed when the sheet closes: an app file as a copy read
+        // through the library's confined path (`fs.read` admitted, no link
+        // followed at any component), a picture as its PNG.
+        var scratch: URL?
+        let discard = { if let scratch { try? FileManager.default.removeItem(at: scratch) } }
+        for (index, file) in (ruling["files"] as? [[String: Any]] ?? []).enumerated() {
+            do {
+                let dir = scratch ?? FileManager.default.temporaryDirectory.appendingPathComponent("exact-share-\(UUID().uuidString)", isDirectory: true)
+                scratch = dir
+                if let path = file["path"] as? String {
+                    let url = try ShareSheet.scratchFile(dir, index, (path as NSString).lastPathComponent)
+                    let ask = try JSONSerialization.data(withJSONObject: ["op": "shareFile", "path": path, "to": url.path])
+                    let reply = (try? JSONSerialization.jsonObject(with: Data(agent(String(decoding: ask, as: UTF8.self)).utf8))) as? [String: Any]
+                    guard reply?["file"] is String else {
+                        discard(); log("share: refused: \(reply?["error"] as? String ?? "\(path) could not be read")"); return
+                    }
+                    items.append(url)
+                } else if let id = file["id"] as? String, let view = (file["view"] as? NSNumber)?.uint32Value {
+                    guard let node = presenter.views[view], let picture = ShareSheet.picture(of: node) else {
+                        discard(); log("share: refused: #\(id) is not drawn"); return
+                    }
+                    let url = try ShareSheet.scratchFile(dir, index, ShareSheet.pictureName(id))
+                    try picture.png.write(to: url)
+                    items.append(url)
+                    log("share: picture of #\(id): \(picture.width)×\(picture.height) px, \(picture.png.count) bytes")
+                }
+            } catch {
+                discard(); log("share: refused: \(error.localizedDescription)"); return
+            }
+        }
         let (view, rect) = presenter.shareAnchor(source)
         guard let view, ShareSheet.present(items, title: request["title"] as? String, from: view, at: rect,
-                                           outcome: { [weak self] line in self?.log(line) }) != nil
-        else { log("share: refused: no window to present from"); return }
+                                           outcome: { [weak self] line in discard(); self?.log(line) }) != nil
+        else { discard(); log("share: refused: no window to present from"); return }
     }
 }
 
@@ -46,8 +84,8 @@ extension Presenter {
             if shown(v) { return (v, v.bounds) }
             var at: ShareAnchorView? = v.superview
             while let a = at, (a as? NodeView)?.props["popover"] == nil { at = a.superview }
-            if let name = (at as? NodeView)?.props["id"],
-               let invoker = carrying("popovertarget").first(where: { $0.props["popovertarget"] == name && shown($0) }) {
+            if let popover = at as? NodeView,
+               let invoker = (carrying("popovertarget") + carrying("commandfor")).first(where: { invocation(of: $0)?.target === popover && shown($0) }) {
                 return (invoker, invoker.bounds)
             }
         }
@@ -62,6 +100,46 @@ extension Presenter {
 }
 
 enum ShareSheet {
+    /// Where entry `index` of a share is written under `dir`: a folder of its
+    /// own, so two entries whose names come out alike (`#card.one` and
+    /// `#card-one`, or two files of one name) stay two files, each with a
+    /// readable name for whoever receives it.
+    static func scratchFile(_ dir: URL, _ index: Int, _ name: String) throws -> URL {
+        let folder = dir.appendingPathComponent(String(index), isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return folder.appendingPathComponent(name)
+    }
+    /// A picture's file name: the id's letters, digits, `-` and `_`, others as `-`.
+    static func pictureName(_ id: String) -> String {
+        String(id.unicodeScalars.map { CharacterSet.alphanumerics.contains($0) || $0 == "-" || $0 == "_" ? Character($0) : "-" }) + ".png"
+    }
+    /// A PNG of `view` and its subviews as they are drawn now, at the
+    /// display's scale, and its size in pixels; nil for a view with no area.
+    static func picture(of view: ShareAnchorView) -> (png: Data, width: Int, height: Int)? {
+        let bounds = view.bounds
+        guard bounds.width > 0, bounds.height > 0 else { return nil }
+        #if canImport(UIKit)
+        let format = UIGraphicsImageRendererFormat.preferred()
+        let scale = view.traitCollection.displayScale
+        format.scale = scale > 0 ? scale : format.scale
+        format.opaque = false
+        let image = UIGraphicsImageRenderer(bounds: bounds, format: format).image { context in
+            // On screen, the render server's composite (what a person sees);
+            // off it, the layer tree drawn here.
+            if view.window == nil || !view.drawHierarchy(in: bounds, afterScreenUpdates: false) {
+                view.layer.render(in: context.cgContext)
+            }
+        }
+        guard let png = image.pngData(), let cg = image.cgImage else { return nil }
+        return (png, cg.width, cg.height)
+        #else
+        guard let rep = view.bitmapImageRepForCachingDisplay(in: bounds) else { return nil }
+        view.cacheDisplay(in: bounds, to: rep)
+        guard let png = rep.representation(using: .png, properties: [:]) else { return nil }
+        return (png, rep.pixelsWide, rep.pixelsHigh)
+        #endif
+    }
+
     /// Open the platform's sheet with `items` off `view`'s `rect`; `outcome`
     /// gets the journal line. Returns what was shown, nil when nothing could
     /// present it.

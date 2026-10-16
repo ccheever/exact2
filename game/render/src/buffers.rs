@@ -26,6 +26,20 @@ pub(crate) fn bytes<T: Packed>(values: &[T]) -> &[u8] {
     unsafe { std::slice::from_raw_parts(values.as_ptr().cast(), size_of_val(values)) }
 }
 
+/// Writes bytes at an offset: how a [`Fill`] puts its data.
+pub(crate) type Put<'a> = dyn FnMut(usize, &[u8]) + 'a;
+/// Puts a write's bytes wherever its writer keeps them; a writer calls it once.
+pub(crate) type Fill<'a> = dyn FnMut(&mut Put<'_>) + 'a;
+/// `len` floats that `fill` puts as bytes: the copying path beside a write into
+/// staging memory.
+pub(crate) fn filled(len: usize, fill: &mut Fill<'_>) -> Vec<f32> {
+    let mut out = vec![0u8; len * 4];
+    fill(&mut |at, bytes| out[at..at + bytes.len()].copy_from_slice(bytes));
+    out.chunks_exact(4)
+        .map(|b| f32::from_ne_bytes([b[0], b[1], b[2], b[3]]))
+        .collect()
+}
+
 pub(crate) struct Buffer {
     pub raw: wgpu::Buffer,
     pub live: u64,
@@ -84,6 +98,20 @@ impl Buffer {
         }
         queue.write_buffer(&self.raw, offset, data);
         self.live = self.live.max(offset + data.len() as u64);
+    }
+    /// Write `len` bytes at `offset` that `fill` puts straight into the queue's
+    /// staging memory: no copy of the data beside the one the queue makes.
+    pub fn write_with(&mut self, queue: &wgpu::Queue, offset: u64, len: u64, fill: &mut Fill<'_>) {
+        let Some(size) = wgpu::BufferSize::new(len) else {
+            return;
+        };
+        match queue.write_buffer_with(&self.raw, offset, size) {
+            Some(mut view) => {
+                fill(&mut |at, bytes| view.slice(at..at + bytes.len()).copy_from_slice(bytes))
+            }
+            None => return,
+        }
+        self.live = self.live.max(offset + len);
     }
 }
 
@@ -176,6 +204,42 @@ impl Targets {
             depth,
             resolved,
             tone_bind,
+        }
+    }
+}
+
+/// A direct frame's 4x MSAA colour (the target's format) and depth, at the
+/// target's own size: the forward pass resolves into the target itself. Both are
+/// transient: neither is stored past the pass.
+pub(crate) struct DirectTargets {
+    pub format: wgpu::TextureFormat,
+    pub size: wgpu::Extent3d,
+    pub color: wgpu::TextureView,
+    pub depth: wgpu::TextureView,
+}
+
+impl DirectTargets {
+    pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat, size: wgpu::Extent3d) -> Self {
+        let texture = |format| {
+            device
+                .create_texture(&wgpu::TextureDescriptor {
+                    label: Some("game direct"),
+                    size,
+                    mip_level_count: 1,
+                    sample_count: 4,
+                    dimension: wgpu::TextureDimension::D2,
+                    format,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                        | wgpu::TextureUsages::TRANSIENT_ATTACHMENT,
+                    view_formats: &[],
+                })
+                .create_view(&Default::default())
+        };
+        Self {
+            format,
+            size,
+            color: texture(format),
+            depth: texture(wgpu::TextureFormat::Depth32Float),
         }
     }
 }

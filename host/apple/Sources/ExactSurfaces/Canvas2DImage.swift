@@ -82,6 +82,9 @@ final class Canvas2DHost: Canvas2DEnv {
     /// canvas the policy allows, animating or not.
     static var recordAlways = ProcessInfo.processInfo.environment["EXACT_CANVAS_RECORD"] == "always"
     private var layers: [UInt32: CALayer] = [:]
+    /// Where each bitmap shows (`place`). A bitmap drawn at a new size before
+    /// its view lays out is stretched into the old box.
+    private var placements: [UInt32: (box: CGRect, radii: [CGSize])] = [:]
     /// Replay runs off the main thread, in order (LLP 1056 §8 stage 4, as
     /// built): a list row's canvas cost 130 ms/s of an iPhone's main thread
     /// in a fling. The row's box, mask and scale apply with its batch; its
@@ -195,18 +198,7 @@ final class Canvas2DHost: Canvas2DEnv {
             parent.insertSublayer(layer, at: 0)
             #endif
         }
-        let box = (payload["box"] as? [Any])?.compactMap { ($0 as? NSNumber)?.doubleValue } ?? []
-        if box.count == 4 { layer.frame = CGRect(x: box[0], y: box[1], width: box[2], height: box[3]) }
-        // A rounded canvas clips its bitmap to the content edge's curve, as
-        // the web clips replaced content.
-        let radii = (payload["radii"] as? [Any])?.compactMap { ($0 as? NSNumber).map { CGFloat($0.doubleValue) } } ?? []
-        if radii.count == 8, radii.contains(where: { $0 > 0 }) {
-            let mask = (layer.mask as? CAShapeLayer) ?? CAShapeLayer()
-            mask.path = Canvas2DHost.rounded(CGRect(origin: .zero, size: layer.bounds.size), radii)
-            layer.mask = mask
-        } else {
-            layer.mask = nil
-        }
+        if let placed = placements[id] { Self.place(layer, placed.box, placed.radii) }
         layer.contentsScale = max(1, scale)
         let actual = parent.contentsScale
         if (payload["stretch"] as? NSNumber)?.boolValue != true, actual >= 1, abs(actual - scale) > 0.01, actual != reported {
@@ -359,18 +351,11 @@ final class Canvas2DHost: Canvas2DEnv {
             Canvas2DStats.shown(gpu: false, recorded: recording != nil, ms: 0)
             if let recording {
                 let r = self.recorders[id] ?? { let r = Canvas2DRecordLayer(); layer.addSublayer(r); self.recorders[id] = r; return r }()
-                r.show(recording)
+                r.show(recording, in: layer.bounds.size)
             } else {
                 self.recorders[id]?.hide()
             }
         }
-    }
-
-    /// A rectangle with four corner radii (top-left, top-right, bottom-right,
-    /// bottom-left), in a y-down layer.
-    static func rounded(_ r: CGRect, _ radii: [CGFloat]) -> CGPath {
-        let sizes = stride(from: 0, to: 8, by: 2).map { CGSize(width: radii[$0], height: radii[$0 + 1]) }
-        return BorderPaint.roundedRect(r, BorderPaint.reduced(sizes, in: r))
     }
 
     /// An agent's picture waits for the replays already dispatched to show.
@@ -379,8 +364,33 @@ final class Canvas2DHost: Canvas2DEnv {
         while pending > 0 && Date() < end { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.002)) }
     }
 
+    func place(_ id: UInt32, in box: CGRect, radii: [CGSize]) {
+        if let placed = placements[id], placed.box == box, placed.radii == radii { return }
+        placements[id] = (box, radii)
+        guard let layer = layers[id] else { return }
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        Self.place(layer, box, radii)
+        recorders[id]?.bounds = CGRect(origin: .zero, size: box.size)
+        CATransaction.commit()
+    }
+
+    /// Frames the bitmap's layer at the content box and clips it to the
+    /// content edge's curve, as the web clips replaced content.
+    private static func place(_ layer: CALayer, _ box: CGRect, _ radii: [CGSize]) {
+        layer.frame = box
+        let bounds = CGRect(origin: .zero, size: box.size)
+        if radii.contains(where: { $0.width > 0 && $0.height > 0 }) {
+            let mask = (layer.mask as? CAShapeLayer) ?? CAShapeLayer()
+            mask.path = BorderPaint.roundedRect(bounds, BorderPaint.reduced(radii, in: bounds))
+            layer.mask = mask
+        } else {
+            layer.mask = nil
+        }
+    }
+
     func forget(_ id: UInt32) {
         // Every retired view is forgotten here; only a canvas has a replayer.
+        placements.removeValue(forKey: id)
         guard sequence.removeValue(forKey: id) != nil else { return }
         shown.removeValue(forKey: id)
         born.removeValue(forKey: id)

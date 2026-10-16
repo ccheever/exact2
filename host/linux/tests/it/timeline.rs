@@ -4,20 +4,7 @@
 //! at f(photo) in every frame, with nothing Linux-specific; and in a list of
 //! cards that each drive `--swipe`, each row's label follows its own card.
 use exact_linux::{presenter::PainterChoice, Presenter};
-use exact_runner::{DataError, DataSource};
 use std::path::PathBuf;
-
-#[derive(Default)]
-struct Empty;
-impl DataSource for Empty {
-    fn query(
-        &mut self,
-        name: &str,
-        _: &[exact_runner::Value],
-    ) -> Result<exact_runner::Value, DataError> {
-        Err(DataError::UnknownSource(name.into()))
-    }
-}
 
 const APP: &str = r##"keyframes fade
   from opacity=1
@@ -36,19 +23,19 @@ component App
           box testId="handle" position="absolute" left=0 top=0 width="100%" height="100%" transformDragFor="photo" transformgeometry=geometry transformrelease=release touch-action="none"
 "##;
 
-fn id(p: &Presenter<Empty>, name: &str) -> u32 {
+fn id(p: &Presenter<()>, name: &str) -> u32 {
     let k = p.host().kernel();
     k.node_by_key(k.find_by_test_id(name)[0]).unwrap().id
 }
 
 /// The photo's presented `y` and the backdrop's presented opacity.
-fn shown(p: &Presenter<Empty>) -> (f32, f32) {
+fn shown(p: &Presenter<()>) -> (f32, f32) {
     let photo = p.host().presented(id(p, "photo"));
     let backdrop = p.host().presented(id(p, "backdrop"));
     (photo.translate.1, backdrop.opacity)
 }
 
-fn follows(p: &Presenter<Empty>) -> (f32, f32) {
+fn follows(p: &Presenter<()>) -> (f32, f32) {
     let (y, o) = shown(p);
     let f = (1. - y / 300.).clamp(0., 1.);
     assert!(
@@ -62,7 +49,7 @@ fn follows(p: &Presenter<Empty>) -> (f32, f32) {
 fn a_backdrop_follows_the_contact_and_the_release_spring_in_every_frame() {
     let (mut p, error) = Presenter::boot_with(
         &contract::compile(APP).unwrap().encode(),
-        Empty,
+        (),
         (400., 500.),
         1.,
         PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
@@ -124,7 +111,7 @@ component Row
 "##;
 
 /// Each row's card `x` and its label's opacity and scale.
-fn rows(p: &Presenter<Empty>) -> Vec<(f32, f32, f32)> {
+fn rows(p: &Presenter<()>) -> Vec<(f32, f32, f32)> {
     (1..=4)
         .map(|n| {
             let card = p.host().presented(id(p, &format!("card-{n}")));
@@ -135,7 +122,7 @@ fn rows(p: &Presenter<Empty>) -> Vec<(f32, f32, f32)> {
 }
 
 /// Row 2's label at f(its card), and every other row at rest.
-fn only_row_two(p: &Presenter<Empty>) -> f32 {
+fn only_row_two(p: &Presenter<()>) -> f32 {
     let shown = rows(p);
     let (x, opacity, scale) = shown[1];
     let f = (x / 64.).clamp(0., 1.);
@@ -153,7 +140,7 @@ fn only_row_two(p: &Presenter<Empty>) -> f32 {
 fn in_a_list_of_cards_each_label_follows_its_own_card() {
     let (mut p, error) = Presenter::boot_with(
         &contract::compile(LIST).unwrap().encode(),
-        Empty,
+        (),
         (400., 500.),
         1.,
         PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
@@ -250,7 +237,7 @@ component App
 fn an_unresolved_name_holds_time_zero_and_an_inactive_one_has_no_effect() {
     let (mut p, error) = Presenter::boot_with(
         &contract::compile(UNRESOLVED).unwrap().encode(),
-        Empty,
+        (),
         (400., 500.),
         1.,
         PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
@@ -258,7 +245,7 @@ fn an_unresolved_name_holds_time_zero_and_an_inactive_one_has_no_effect() {
     )
     .unwrap();
     assert!(error.is_none(), "{error:?}");
-    let shown = |p: &Presenter<Empty>| {
+    let shown = |p: &Presenter<()>| {
         ["m-label", "z-label", "t-label", "t-card-a"].map(|t| {
             let v = p.host().presented(id(p, t));
             if t.ends_with("card-a") {
@@ -269,7 +256,7 @@ fn an_unresolved_name_holds_time_zero_and_an_inactive_one_has_no_effect() {
         })
     };
     assert_eq!(shown(&p), [0., 0.55, 0.55, 0.]);
-    let swipe = |p: &mut Presenter<Empty>, y: f32, at: f64| {
+    let swipe = |p: &mut Presenter<()>, y: f32, at: f64| {
         assert!(p.pointer_down(100., y, at).unwrap());
         assert!(
             p.pointer_move(108., y, at + 8.).unwrap(),
@@ -277,7 +264,7 @@ fn an_unresolved_name_holds_time_zero_and_an_inactive_one_has_no_effect() {
         );
         assert!(p.pointer_move(148., y, at + 24.).unwrap());
     };
-    let settle = |p: &mut Presenter<Empty>, y: f32, at: f64| {
+    let settle = |p: &mut Presenter<()>, y: f32, at: f64| {
         assert!(p.pointer_up(148., y, at).unwrap());
         for frame in 1..=90 {
             p.tick(at + frame as f64 * 16.);
@@ -334,7 +321,7 @@ component App
 
 /// The top card's presented `x`, after checking its face's tilt and the next
 /// card's rise against it.
-fn dealt(p: &Presenter<Empty>) -> f32 {
+fn dealt(p: &Presenter<()>) -> f32 {
     let x = p.host().presented(id(p, "top")).translate.0;
     let tilt = p.host().presented(id(p, "face")).rotate;
     let rise = p.host().presented(id(p, "next")).scale;
@@ -353,7 +340,7 @@ fn dealt(p: &Presenter<Empty>) -> f32 {
 fn a_thrown_card_tilts_its_face_and_raises_the_next_in_every_frame() {
     let (mut p, error) = Presenter::boot_with(
         &contract::compile(DECK).unwrap().encode(),
-        Empty,
+        (),
         (400., 500.),
         1.,
         PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),

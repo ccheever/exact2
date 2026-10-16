@@ -50,8 +50,7 @@ final class BoxPaintMacTests: XCTestCase {
         DisplayRange.pinned = 4
         defer { DisplayRange.pinned = pinned }
         let p = presenter(), loader = RasterLoader()
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("scripts/fixtures/color")
+        let root = Bundle.module.resourceURL!.appendingPathComponent("ColorFixtures")
         let resolver = AssetResolver(root: root)
         defer { loader.shutdown(); withExtendedLifetime(resolver) {} }
         let node = NodeView(id: 1, kind: "image", presenter: p)
@@ -61,7 +60,7 @@ final class BoxPaintMacTests: XCTestCase {
         node.loadGeneration += 1
         loader.load(node, source: "pq.heic", resolver: resolver)
         let deadline = Date(timeIntervalSinceNow: 5)
-        while node.raster == nil && Date() < deadline { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01)) }
+        while node.raster == nil && Date() < deadline { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01)) }
         XCTAssertTrue(try XCTUnwrap(node.raster?.image).isHDR)
         node.imageLayer?.removeFromSuperlayer(); node.imageLayer = nil
         node.flightLook = FlightLook(image: node.bounds)
@@ -160,7 +159,7 @@ final class BoxPaintMacTests: XCTestCase {
         image.loadGeneration = 1
         loader.load(image, source: "red.png", resolver: resolver)
         let end = Date(timeIntervalSinceNow: 5)
-        while image.raster == nil && Date() < end { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01)) }
+        while image.raster == nil && Date() < end { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01)) }
         image.layer?.displayIfNeeded()
         return (page, image)
     }

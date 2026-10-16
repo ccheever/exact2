@@ -88,8 +88,8 @@ const PAINT: &str = r##"component App
       button "Widen" testId="widen" press=widen height=30
       button "Hide" testId="hide" press=hide height=30
       button "Bump" testId="bump" press=bump height=30
-      when shown
-        column hatch="paint" data-n=toString(n) testId="box" width=(wide ? 120 : 60) height=40 margin-left=20 margin-top=20 border-radius=20 background-color="#0000ff"
+      if shown
+        column hatch="paint" data-n=n.toString() testId="box" width=(wide ? 120 : 60) height=40 margin-left=20 margin-top=20 border-radius=20 background-color="#0000ff"
 "##;
 
 /// Every moment records again: one half of the box, past every edge, the
@@ -514,7 +514,7 @@ const CLOCK: &str = r##"component App
     column width=300 height=300
       button "Start" testId="start" press=start height=30
       button "Halt" testId="halt" press=halt height=30
-      column hatch="clock" data-run=(running ? "true" : "false") data-frames=toString(frames) data-presses=toString(presses) press=press testId="clock" width=24 height=24
+      column hatch="clock" data-run=(running ? "true" : "false") data-frames=frames.toString() data-presses=presses.toString() press=press testId="clock" width=24 height=24
 "##;
 
 /// The fixture's clock hatch: a ticket while its node says to run.
@@ -692,7 +692,7 @@ const STORM: &str = r##"component App
     n = n + 1
   view
     column width=300 height=300
-      column hatch="storm" data-n=toString(n) press=bump testId="storm" width=24 height=24
+      column hatch="storm" data-n=n.toString() press=bump testId="storm" width=24 height=24
 "##;
 
 /// More acts than a command may run: a click for every change, begun on the clock.
@@ -796,7 +796,7 @@ const ASKS: &str = r##"component App
       button "Arm" testId="arm" press=arm height=30
       button "Loop" testId="loop" press=loop height=30
       button "Stop" testId="stop" press=stop height=30
-      button "Pressed" hatch="presser" data-armed=(armed ? "true" : "false") data-loop=(looping ? toString(presses) : "off") press=pressed testId="pressed" height=30
+      button "Pressed" hatch="presser" data-armed=(armed ? "true" : "false") data-loop=(looping ? presses.toString() : "off") press=pressed testId="pressed" height=30
       input hatch="feed" data-feed=(armed ? "Palo Alto, CA" : "") value=text input=edit maxlength=9 testId="fed" width=200 height=30
       input hatch="feed" data-feed=(armed ? "hunter2" : "") type="password" value=secret input=hide testId="secret" width=200 height=30
       input hatch="feed" data-feed=(armed ? "no" : "") value="locked" disabled=true testId="locked" width=200 height=30
@@ -889,7 +889,7 @@ const WORDS: &str = r##"component App
     column width=300 height=300
       button "Hide" testId="hide" press=hide height=30
       column hatch="known" testId="known" width=40 height=40
-      when shown
+      if shown
         column hatch="unknown" testId="unknown" width=40 height=40
 "##;
 
@@ -1081,4 +1081,171 @@ fn the_scopes_are_told_a_change_once_end_in_order_and_are_built_again_after_a_re
     p.end_hatches();
     p.hatch_turn();
     assert!(notes().is_empty());
+}
+
+// A field with a hatch, its word's value, and a way to change and remove it.
+const BESIDE: &str = r##"component App
+  state text = ""
+  state tone = "calm"
+  state shown = true
+  action edit(value: string)
+    text = value
+  action busy
+    tone = "busy"
+  action hide
+    shown = false
+  view
+    column data-mood=tone
+      if shown
+        input hatch="feed" data-tone=tone value=text input=edit testId="fed" width=200 height=30
+      button press=busy testId="busy" width=50 height=30
+      button press=hide testId="hide" width=50 height=30
+"##;
+
+/// A moment the reader's hatches were told: its scope, its moment, its
+/// node, its word and its `data-*` words.
+type Told = (i32, i32, u32, String, Vec<(String, String)>);
+
+/// The moments the reader's hatches were told (`hatches/reader.rs`).
+fn told() -> Vec<Told> {
+    moments(&crate::hatches::reader::take().unwrap_or_default())
+}
+
+/// The app's and nodes' moments in `words`; an ended ticket (scope 8) is
+/// passed over.
+fn moments(words: &[i32]) -> Vec<Told> {
+    let string = |at: &mut usize| {
+        let n = words[*at] as usize;
+        let bytes: Vec<u8> = words[*at + 1..*at + 1 + n.div_ceil(4)]
+            .iter()
+            .flat_map(|w| w.to_le_bytes())
+            .take(n)
+            .collect();
+        *at += 1 + n.div_ceil(4);
+        String::from_utf8(bytes).unwrap()
+    };
+    let (mut out, mut at) = (Vec::new(), 0);
+    while at < words.len() {
+        if words[at] == 8 {
+            at += 2;
+            continue;
+        }
+        let (scope, moment, node) = (words[at], words[at + 1], words[at + 2] as u32);
+        at += 7;
+        let word = string(&mut at);
+        string(&mut at);
+        let count = words[at];
+        at += 1;
+        let data = (0..count)
+            .map(|_| (string(&mut at), string(&mut at)))
+            .collect();
+        out.push((scope, moment, node, word, data));
+    }
+    out
+}
+
+#[test]
+fn the_readers_hatches_are_told_every_moment_and_act_by_the_nodes_number() {
+    let mut p = boot::<()>(BESIDE, &["feed"]);
+    p.set_hatches(Some(crate::hatches::install_with_reader::<()>(&["feed"])));
+    crate::hatches::reader::take();
+    first_pixel(&mut p);
+    p.hatch_turn();
+    let fed = id(&p, "fed");
+    let pair = |k: &str, v: &str| (k.to_owned(), v.to_owned());
+    assert_eq!(
+        told(),
+        [
+            (1, 0, 0, String::new(), vec![pair("mood", "calm")]),
+            (3, 0, fed, "feed".into(), vec![pair("tone", "calm")]),
+        ],
+        "the app, then the node, each built"
+    );
+    // A word that changes is a changed moment, the root's for the app too.
+    tap(&mut p, "busy");
+    p.hatch_turn();
+    assert_eq!(
+        told(),
+        [
+            (1, 1, 0, String::new(), vec![pair("mood", "busy")]),
+            (3, 1, fed, "feed".into(), vec![pair("tone", "busy")]),
+        ]
+    );
+    // What the reader's handle asks runs as a Rust hatch's act does.
+    use crate::hatches::reader::act;
+    assert_eq!(act(fed, 4, Some("Palo Alto")), 1);
+    assert_eq!(act(fed + 1000, 1, None), -1, "no such node");
+    p.hatch_turn();
+    let value = |p: &Presenter<()>| {
+        p.host()
+            .kernel()
+            .node(fed)
+            .and_then(|n| n.props.str(PropId::Value).map(str::to_owned))
+    };
+    assert_eq!(value(&p).as_deref(), Some("Palo Alto"));
+    // Its clock is exact2's: a frame ticket ticks each frame with the
+    // session's clock, an `after` fires once, and either stops.
+    let ticket = act(0, 5, None);
+    let after = act(0, 6, Some("100"));
+    assert!(ticket >= 0 && after > ticket);
+    crate::hatches::reader::take();
+    assert!(p.wants_frames(), "a ticket asks for frames");
+    assert!(p.animation_frame(16.0).is_none());
+    let words = crate::hatches::reader::take().unwrap();
+    assert_eq!((words[0], words[1] as i64), (5, ticket), "{words:?}");
+    let now = f64::from_bits(((words[2] as u32 as u64) << 32) | words[3] as u32 as u64);
+    assert_eq!(now, p.host().now());
+    assert!(p.advance(p.host().now() + 100.0).is_none());
+    let words = crate::hatches::reader::take().unwrap_or_default();
+    assert!(
+        words.windows(2).any(|w| w == [6, after as i32]),
+        "{words:?}"
+    );
+    assert_eq!(act(0, 8, Some(&ticket.to_string())), 1);
+    assert!(!p.wants_frames(), "stopped");
+    assert_eq!(act(0, 8, Some(&ticket.to_string())), -1, "once");
+    // Input on an observed node is told after exact2's own dispatch.
+    let heard = act(fed, 7, None);
+    crate::hatches::reader::take();
+    tap(&mut p, "fed");
+    let words = crate::hatches::reader::take().unwrap_or_default();
+    let at = words
+        .windows(3)
+        .position(|w| w == [7, heard as i32, fed as i32]);
+    let at = at.unwrap_or_else(|| panic!("no input told: {words:?}"));
+    assert_eq!(
+        (words[at + 3], words[at + 4]),
+        (1, 0),
+        "a pointer, going down"
+    );
+    // A hosted view is named to the reader where the node is painted.
+    assert_eq!(crate::hatches::reader::hosted(fed), None);
+    assert_eq!(act(fed, 13, None), 1);
+    assert_eq!(act(fed, 13, None), 2, "given another");
+    assert_eq!(crate::hatches::reader::hosted(fed), Some(2));
+    assert_eq!(act(0, 9, Some("hello")), 1, "diagnostics");
+    // The node's end is told, and its number takes no act after it.
+    tap(&mut p, "hide");
+    p.hatch_turn();
+    let words = crate::hatches::reader::take().unwrap_or_default();
+    assert_eq!(
+        moments(&words),
+        [(3, 2, fed, "feed".into(), vec![pair("tone", "busy")])]
+    );
+    // Its observer ended with it, and the reader is told so.
+    assert!(
+        words.windows(2).any(|w| w == [8, heard as i32]),
+        "{words:?}"
+    );
+    assert_eq!(
+        act(fed, 9, Some("gone")),
+        -1,
+        "an ended node's diagnostics are not the module's"
+    );
+    assert_eq!(act(fed, 1, None), -1);
+    assert_eq!(
+        crate::hatches::reader::hosted(fed),
+        None,
+        "its view is let go"
+    );
 }

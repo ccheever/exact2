@@ -1,0 +1,10 @@
+{
+  "text": {
+    "primary": {
+      "color": {
+        "value": "{colors.white}",
+        "type": "color"
+      }
+    }
+  }
+}

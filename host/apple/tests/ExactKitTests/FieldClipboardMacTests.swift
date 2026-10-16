@@ -73,7 +73,7 @@ final class FieldClipboardMacTests: XCTestCase {
         let field = try XCTUnwrap(p.views[3]?.field)
         XCTAssertTrue(window.makeFirstResponder(field))
         let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
-        XCTAssertTrue(editor is FieldEditor, "a field heard by a clipboard handler takes its own editor")
+        XCTAssertTrue(editor is FieldEditor, "the session's editor, which says what the window's does not")
         editor.setSelectedRange(NSRange(location: 5, length: 0))
         pasteboard("BLOCK")
         XCTAssertTrue(editor.tryToPerform(#selector(NSText.paste(_:)), with: nil))
@@ -88,11 +88,22 @@ final class FieldClipboardMacTests: XCTestCase {
         XCTAssertEqual(heard.count, 2)
     }
 
-    func testAFieldNobodyHearsKeepsTheWindowsEditor() throws {
+    /// A field nobody hears edits in the session's editor too (it tells
+    /// its node of marked text, `FieldCompositionMacTests`), and its edit
+    /// actions are the editor's own: no event, nothing prevented.
+    func testAFieldNobodyHearsFiresNothingFromItsEditor() throws {
         let p = presenter(textarea: [])
         let field = try XCTUnwrap(p.views[3]?.field)
         XCTAssertTrue(window.makeFirstResponder(field))
-        XCTAssertFalse(field.currentEditor() is FieldEditor)
+        let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
+        XCTAssertTrue(editor is FieldEditor)
+        editor.setSelectedRange(NSRange(location: 5, length: 0))
+        pasteboard("BLOCK")
+        XCTAssertTrue(editor.tryToPerform(#selector(NSText.paste(_:)), with: nil))
+        XCTAssertEqual(editor.string, "helloBLOCK", "the paste nobody hears is the editor's")
+        editor.selectAll(nil)
+        XCTAssertTrue(editor.tryToPerform(#selector(NSText.copy(_:)), with: nil))
+        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "helloBLOCK")
         XCTAssertTrue(heard.isEmpty)
     }
 }

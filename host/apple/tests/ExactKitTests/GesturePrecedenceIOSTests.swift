@@ -83,8 +83,32 @@ final class GesturePrecedenceIOSTests: XCTestCase {
         XCTAssertNil(node.gestureRecognizers?.first { $0 is PointerRecognizer })
     }
 
+    /// A touch's offsets are from the content box layout sent: a padding the
+    /// style rows cannot resolve (5% of a 400-point containing block) is 20
+    /// points in, as the canvas or paragraph inside it is drawn. A made touch
+    /// is at the box's corner.
+    func testATouchsOffsetsAreFromTheContentBoxLayoutSent() throws {
+        let p = host([
+            ["op": "create", "id": 1, "kind": "view", "handlers": ["pointerdown"]],
+            ["op": "style", "id": 1, "style": ["padding_left": ["pct": 5], "padding_top": 4]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 100.0],
+            ["op": "fieldContent", "id": 1, "rect": [20.0, 4.0, 180.0, 96.0]]
+        ])
+        var samples: [PointerSample] = []
+        p.onPointer = { _, _, sample in samples.append(sample) }
+        let node = try XCTUnwrap(p.views[1])
+        let g = try XCTUnwrap(node.gestureRecognizers?.compactMap { $0 as? PointerRecognizer }.first)
+        let touch = UITouch()
+        g.touchesBegan([touch], with: UIEvent())
+        XCTAssertEqual(samples.last?.x, -20); XCTAssertEqual(samples.last?.y, -4)
+        g.touchesCancelled([touch], with: UIEvent())
+    }
+
     /// Nested pointer nodes: the innermost enabled one takes the touch, as
-    /// on the web and macOS; a disabled inner one passes it out.
+    /// on the web and macOS, and sends the down and the up to every node from
+    /// it up that hears them, innermost first (Charlie, 2026-10-15); a
+    /// disabled inner one passes it out.
     func testTheInnermostEnabledPointerNodeTakesTheTouch() throws {
         let p = host([
             ["op": "create", "id": 1, "kind": "view", "handlers": ["pointerdown", "pointerup"]],
@@ -101,8 +125,41 @@ final class GesturePrecedenceIOSTests: XCTestCase {
         XCTAssertTrue(outer.nearer(touched), "the inner pointer node is nearer")
         XCTAssertFalse(inner.nearer(touched))
         XCTAssertFalse(outer.nearer(p.views[1]), "a touch on the outer node itself is its own")
+        var log: [String] = []
+        p.onPointer = { id, kind, _ in log.append("\(kind == .down ? "down" : kind == .up ? "up" : "move") \(id)") }
+        let touch = UITouch()
+        inner.touchesBegan([touch], with: UIEvent())
+        inner.touchesEnded([touch], with: UIEvent())
+        XCTAssertEqual(log, ["down 2", "down 1", "up 1"])
         p.views[2]?.props["disabled"] = "true"
         XCTAssertFalse(outer.nearer(touched), "a disabled inner node passes it out")
+    }
+
+    /// `stopPropagation()` ends one dispatch and nothing else (decided under
+    /// Charlie's delegation, 2026-10-15): a down stopped at the inner node
+    /// never reaches the outer one, yet its up does and the inner node keeps
+    /// the touch's moves.
+    func testAStoppedDownStillSendsItsUpAndKeepsTheTouch() throws {
+        let p = host([
+            ["op": "create", "id": 1, "kind": "view", "handlers": ["pointerdown", "pointerup"]],
+            ["op": "create", "id": 2, "kind": "view", "handlers": ["pointerdown", "pointermove"]],
+            ["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 100.0],
+            ["op": "frame", "id": 2, "x": 10.0, "y": 10.0, "w": 80.0, "h": 60.0]
+        ])
+        var log: [String] = []
+        // The inner node's handler calls `stopPropagation()`: the batch it commits sets the flag.
+        p.onPointer = { id, kind, _ in
+            log.append("\(kind == .down ? "down" : kind == .up ? "up" : "move") \(id)")
+            if id == 2, kind == .down { p.propagationStopped = true }
+        }
+        let inner = try XCTUnwrap(p.views[2]?.gestureRecognizers?.compactMap { $0 as? PointerRecognizer }.first)
+        let touch = UITouch()
+        inner.touchesBegan([touch], with: UIEvent())
+        inner.touchesMoved([touch], with: UIEvent())
+        inner.touchesEnded([touch], with: UIEvent())
+        XCTAssertEqual(log, ["down 2", "move 2", "up 1"])
+        XCTAssertFalse(p.propagationStopped, "the stop was that dispatch's alone")
     }
 
     func testTheSecondTapStillPressesAndDblclickComesAfterIt() throws {

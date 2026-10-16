@@ -4,7 +4,9 @@
 //! clock busy for it; it still measures a reversal against the curve, and
 //! drops it once it would have ended.
 use super::*;
+use crate::path::PathValue;
 use crate::Easing;
+use std::sync::Arc;
 
 /// A transition a host plays: from `from` to `to`, starting (delay
 /// included) at `start` engine seconds, along `curve`.
@@ -65,16 +67,7 @@ impl Engine {
             return None;
         }
         let running = slot.running()?;
-        let curve = match &running.curve {
-            crate::transition::Curve::Easing { easing, duration } => PlayedCurve::Easing {
-                easing: easing.clone(),
-                duration: *duration,
-            },
-            crate::transition::Curve::Spring { .. } => {
-                let (duration, values) = running.spring_frames()?;
-                PlayedCurve::Frames { duration, values }
-            }
-        };
+        let curve = played_curve(running)?;
         // A played transition is its host's: it never waits for a frame
         // here (LLP 1003.001 D8).
         let played = PlayedTransition {
@@ -96,6 +89,27 @@ impl Engine {
         Some(played)
     }
 
+    /// A `d` transition its host plays (LLP 1115.003 D4): the paths at its
+    /// ends, when it starts moving and its curve, from progress 0 to 1.
+    /// `None` when `node`'s `d` is not moving or the engine samples it.
+    pub fn played_path(
+        &self,
+        node: u64,
+    ) -> Option<(Arc<PathValue>, Arc<PathValue>, f64, PlayedCurve)> {
+        let key = (node, Property::D);
+        if !self.played.contains(&key) {
+            return None;
+        }
+        let running = self.slots.get(&key)?.running()?;
+        let track = self.paths.get(&node)?;
+        Some((
+            track.from.clone(),
+            track.target.clone(),
+            running.start,
+            played_curve(running)?,
+        ))
+    }
+
     /// Played transitions that would have ended by `now` are dropped: their
     /// slots settle at the target they already present.
     pub(super) fn retire_played(&mut self, now: f64) {
@@ -111,4 +125,18 @@ impl Engine {
             !done
         });
     }
+}
+
+/// A running transition's shape, as a host plays it.
+fn played_curve(running: &crate::transition::Running) -> Option<PlayedCurve> {
+    Some(match &running.curve {
+        crate::transition::Curve::Easing { easing, duration } => PlayedCurve::Easing {
+            easing: easing.clone(),
+            duration: *duration,
+        },
+        crate::transition::Curve::Spring { .. } => {
+            let (duration, values) = running.spring_frames()?;
+            PlayedCurve::Frames { duration, values }
+        }
+    })
 }

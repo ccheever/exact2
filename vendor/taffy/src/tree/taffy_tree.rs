@@ -13,7 +13,7 @@ use crate::geometry::{Point, Size};
 use crate::style::{AvailableSpace, Display, Style};
 use crate::sys::DefaultCheapStr;
 use crate::tree::{
-    Cache, ClearState, Layout, LayoutInput, LayoutOutput, LayoutPartialTree, NodeId, PrintTree, RequestedAxis, RoundTree,
+    ClearState, Layout, LayoutInput, LayoutOutput, LayoutPartialTree, NodeId, PrintTree, RequestedAxis, RoundTree,
     RunMode,
     TraversePartialTree, TraverseTree, StaticPosition,
 };
@@ -108,7 +108,10 @@ struct NodeData {
 
     /// The final results of the layout computation.
     /// These may be rounded or unrounded depending on what the `use_rounding` config setting is set to.
-    pub(crate) final_layout: Layout,
+    ///
+    /// EXACT PATCH 35: written only by rounding, so allocated on its first
+    /// write; `None` reads as `Layout::new()`.
+    pub(crate) final_layout: Option<Box<Layout>>,
 
     /// Whether the node has context data associated with it or not
     pub(crate) has_context: bool,
@@ -121,8 +124,8 @@ struct NodeData {
     /// subtree's algorithms read (`tree/memo.rs`).
     pub(crate) memo_root: bool,
 
-    /// The cached results of the layout computation
-    pub(crate) cache: Cache,
+    /// EXACT PATCH 30: cached layout results, allocated on their first store.
+    pub(crate) cache: super::cache::LazyCache,
 
     /// The computation result from layout algorithm
     #[cfg(feature = "detailed_layout_info")]
@@ -135,15 +138,22 @@ impl NodeData {
     pub fn new(style: Rc<Style>) -> Self {
         Self {
             style,
-            cache: Cache::new(),
+            cache: super::cache::LazyCache::new(),
             unrounded_layout: Layout::new(),
-            final_layout: Layout::new(),
+            final_layout: None,
             has_context: false,
             replay_tracked: false,
             memo_root: false,
             #[cfg(feature = "detailed_layout_info")]
             detailed_layout_info: DetailedLayoutInfo::None,
         }
+    }
+
+    /// EXACT PATCH 35: the final layout, `Layout::new()` before rounding wrote one.
+    #[inline]
+    fn final_layout(&self) -> &Layout {
+        static UNWRITTEN: Layout = Layout::new();
+        self.final_layout.as_deref().unwrap_or(&UNWRITTEN)
     }
 
     /// Marks a node and all of its ancestors as requiring relayout
@@ -189,6 +199,8 @@ pub struct TaffyTree<NodeContext = ()> {
     // not its children (the caller's record), and the static position each one's parent kept.
     hoisted_absolutes: SecondaryMap<DefaultKey, Vec<NodeId>>,
     static_positions: SecondaryMap<DefaultKey, StaticPosition>,
+    // EXACT PATCH 30: each multi-column container's height bounds, as its final layout resolved them.
+    multicol_bounds: SecondaryMap<DefaultKey, (Option<f32>, Option<f32>)>,
 
     // EXACT PATCH 29: the layouts of marked roots, by what they read.
     memo: Memo,
@@ -326,7 +338,7 @@ impl<NodeContext> PrintTree for TaffyTree<NodeContext> {
     #[inline(always)]
     fn get_final_layout(&self, node_id: NodeId) -> Layout {
         if self.config.use_rounding {
-            self.nodes[node_id.into()].final_layout
+            *self.nodes[node_id.into()].final_layout()
         } else {
             self.nodes[node_id.into()].unrounded_layout
         }
@@ -454,6 +466,17 @@ where
                 (Display::Grid, true) => compute_grid_layout(tree, node_id, inputs),
                 (_, false) => {
                     let node_key = node_id.into();
+                    // EXACT PATCH 30: a multi-column leaf (a paragraph) reports its height
+                    // bounds as the block path does
+                    #[cfg(feature = "block_layout")]
+                    {
+                        let style = &*tree.taffy.nodes[node_key].style;
+                        let bounds = (inputs.run_mode == RunMode::PerformLayout && style.multicol.is_some())
+                            .then(|| crate::compute::leaf::height_bounds(&inputs, style, tree.taffy.calc_resolver));
+                        if let Some((min, max)) = bounds {
+                            tree.set_multicol_bounds(node_id, min, max);
+                        }
+                    }
                     let style = &tree.taffy.nodes[node_key].style;
                     let has_context = tree.taffy.nodes[node_key].has_context;
                     let node_context = has_context.then(|| tree.taffy.node_context_data.get_mut(node_key)).flatten();
@@ -649,6 +672,7 @@ where
                     self.set_unrounded_layout(nodes[*node as usize], &layout);
                 }
                 Event::Static { node, position } => self.set_static_position(nodes[*node as usize], *position),
+                Event::Bounds { node, min, max } => self.set_multicol_bounds(nodes[*node as usize], *min, *max),
                 Event::End { output } => break Some(*output),
                 Event::Visit { .. } | Event::Query { .. } => {
                     let root = (at == memo.first).then_some(inputs);
@@ -882,6 +906,17 @@ where
         self.taffy.static_positions.insert(node_id.into(), position);
     }
 
+    fn set_multicol_bounds(&mut self, node_id: NodeId, min: Option<f32>, max: Option<f32>) {
+        // Raise the maximum to a larger minimum, as the layout clamps the box (CSS 2 §10.7)
+        let max = max.map(|max| min.map_or(max, |min| max.max(min)));
+        if let Some(rec) = self.rec.as_mut() {
+            if let Some(node) = rec.index(node_id) {
+                rec.events.push(Event::Bounds { node, min, max });
+            }
+        }
+        self.taffy.multicol_bounds.insert(node_id.into(), (min, max));
+    }
+
     #[inline(always)]
     fn hoisted_absolute_count(&self, node_id: NodeId) -> usize {
         let count = self.taffy.hoisted_absolutes.get(node_id.into()).map_or(0, Vec::len);
@@ -1039,7 +1074,11 @@ where
 
     #[inline(always)]
     fn set_final_layout(&mut self, node_id: NodeId, layout: &Layout) {
-        self.taffy.nodes[node_id.into()].final_layout = *layout;
+        let final_layout = &mut self.taffy.nodes[node_id.into()].final_layout;
+        match final_layout {
+            Some(held) => **held = *layout,
+            None => *final_layout = Some(Box::new(*layout)),
+        }
     }
 }
 
@@ -1070,6 +1109,7 @@ impl<NodeContext> TaffyTree<NodeContext> {
             calc_resolver: |_, _| 0.0,
             hoisted_absolutes: SecondaryMap::new(),
             static_positions: SecondaryMap::new(),
+            multicol_bounds: SecondaryMap::new(),
             memo: Memo::default(),
         }
     }
@@ -1152,6 +1192,7 @@ impl<NodeContext> TaffyTree<NodeContext> {
     /// Drops all nodes in the tree
     pub fn clear(&mut self) {
         self.nodes.clear();
+        self.node_context_data.clear();
         self.children.clear();
         self.parents.clear();
         self.changed_layouts.clear();
@@ -1159,6 +1200,7 @@ impl<NodeContext> TaffyTree<NodeContext> {
         self.layout_inputs.clear();
         self.hoisted_absolutes.clear();
         self.static_positions.clear();
+        self.multicol_bounds.clear();
     }
 
     /// Remove a specific node from the tree and drop it
@@ -1183,9 +1225,11 @@ impl<NodeContext> TaffyTree<NodeContext> {
         let _ = self.children.remove(key);
         let _ = self.parents.remove(key);
         let _ = self.nodes.remove(key);
+        self.node_context_data.remove(key);
         self.layout_inputs.remove(key);
         self.hoisted_absolutes.remove(key);
         self.static_positions.remove(key);
+        self.multicol_bounds.remove(key);
         if let Some(index) = self.changed_layout_indices.remove(key) {
             self.changed_layouts.swap_remove(index);
             if let Some(&moved) = self.changed_layouts.get(index) {
@@ -1432,7 +1476,7 @@ impl<NodeContext> TaffyTree<NodeContext> {
     #[inline]
     pub fn layout(&self, node: NodeId) -> TaffyResult<&Layout> {
         if self.config.use_rounding {
-            Ok(&self.nodes[node.into()].final_layout)
+            Ok(self.nodes[node.into()].final_layout())
         } else {
             Ok(&self.nodes[node.into()].unrounded_layout)
         }
@@ -1504,6 +1548,17 @@ impl<NodeContext> TaffyTree<NodeContext> {
     /// container is remembered; marking any other box does nothing.
     pub fn set_memo_root(&mut self, node: NodeId, on: bool) {
         self.nodes[node.into()].memo_root = on;
+    }
+
+    /// EXACT PATCH 30: a multi-column container's `min-height` and `max-height` as its last
+    /// final layout resolved and applied them, border box: a larger minimum raises the maximum.
+    pub fn multicol_bounds(&self, node: NodeId) -> (Option<f32>, Option<f32>) {
+        self.multicol_bounds.get(node.into()).copied().unwrap_or_default()
+    }
+
+    /// Forget recorded layouts when a calc handle's environment changes.
+    pub fn forget_memo(&mut self) {
+        self.memo.clear();
     }
 
     /// Remember marked roots' layouts (the default) or lay them out as any
@@ -1626,6 +1681,29 @@ mod tests {
     use crate::style::{Dimension, Display, FlexDirection};
     use crate::style_helpers::*;
     use crate::util::sys;
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    #[derive(Debug)]
+    struct DropCounter {
+        name: &'static str,
+        drops: Rc<Cell<usize>>,
+    }
+
+    impl Drop for DropCounter {
+        fn drop(&mut self) {
+            self.drops.set(self.drops.get() + 1);
+        }
+    }
+
+    fn counted(name: &'static str) -> (DropCounter, Rc<Cell<usize>>) {
+        let drops = Rc::new(Cell::new(0));
+        (DropCounter { name, drops: Rc::clone(&drops) }, drops)
+    }
+
+    fn slot(node: NodeId) -> u32 {
+        u64::from(node) as u32
+    }
 
     fn size_measure_function(
         inputs: LayoutInput,
@@ -1708,6 +1786,74 @@ mod tests {
         let node = taffy.new_leaf(Style::default()).unwrap();
 
         let _ = taffy.remove(node).unwrap();
+    }
+
+    #[test]
+    fn remove_releases_context_across_replacement_and_slot_reuse() {
+        let mut taffy = TaffyTree::new();
+        let (removed_context, removed_drops) = counted("removed");
+        let (survivor_context, survivor_drops) = counted("survivor");
+        let removed = taffy.new_leaf_with_context(Style::default(), removed_context).unwrap();
+        let survivor = taffy.new_leaf_with_context(Style::default(), survivor_context).unwrap();
+
+        taffy.remove(removed).unwrap();
+        assert_eq!(removed_drops.get(), 1);
+        assert!(taffy.get_node_context(removed).is_none());
+        assert_eq!(taffy.get_node_context(survivor).map(|context| context.name), Some("survivor"));
+        assert_eq!(survivor_drops.get(), 0);
+
+        let (reused_context, reused_drops) = counted("reused");
+        let reused = taffy.new_leaf_with_context(Style::default(), reused_context).unwrap();
+        assert_eq!(slot(reused), slot(removed));
+        assert_eq!(removed_drops.get(), 1);
+        assert_eq!(taffy.get_node_context(reused).map(|context| context.name), Some("reused"));
+
+        let (replacement_context, replacement_drops) = counted("replacement");
+        taffy.set_node_context(reused, Some(replacement_context)).unwrap();
+        assert_eq!(reused_drops.get(), 1);
+        assert_eq!(replacement_drops.get(), 0);
+        assert_eq!(taffy.get_node_context(reused).map(|context| context.name), Some("replacement"));
+
+        taffy.remove(reused).unwrap();
+        assert_eq!(replacement_drops.get(), 1);
+        assert!(taffy.get_node_context(reused).is_none());
+        assert_eq!(taffy.get_node_context(survivor).map(|context| context.name), Some("survivor"));
+        drop(taffy);
+        assert_eq!(removed_drops.get(), 1);
+        assert_eq!(reused_drops.get(), 1);
+        assert_eq!(replacement_drops.get(), 1);
+        assert_eq!(survivor_drops.get(), 1);
+    }
+
+    #[test]
+    fn clear_releases_contexts_and_reused_slots_start_empty() {
+        let mut taffy = TaffyTree::new();
+        let (first_context, first_drops) = counted("first");
+        let (second_context, second_drops) = counted("second");
+        let first = taffy.new_leaf_with_context(Style::default(), first_context).unwrap();
+        let second = taffy.new_leaf_with_context(Style::default(), second_context).unwrap();
+
+        taffy.clear();
+        assert_eq!(first_drops.get(), 1);
+        assert_eq!(second_drops.get(), 1);
+        assert!(taffy.get_node_context(first).is_none());
+        assert!(taffy.get_node_context(second).is_none());
+
+        let (fresh_context, fresh_drops) = counted("fresh");
+        let fresh = taffy.new_leaf_with_context(Style::default(), fresh_context).unwrap();
+        assert!(slot(fresh) == slot(first) || slot(fresh) == slot(second));
+        assert_eq!(first_drops.get(), 1);
+        assert_eq!(second_drops.get(), 1);
+        assert_eq!(fresh_drops.get(), 0);
+        assert_eq!(taffy.get_node_context(fresh).map(|context| context.name), Some("fresh"));
+
+        taffy.clear();
+        assert_eq!(fresh_drops.get(), 1);
+        assert!(taffy.get_node_context(fresh).is_none());
+        drop(taffy);
+        assert_eq!(first_drops.get(), 1);
+        assert_eq!(second_drops.get(), 1);
+        assert_eq!(fresh_drops.get(), 1);
     }
 
     #[test]

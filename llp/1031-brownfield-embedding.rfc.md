@@ -471,6 +471,10 @@ the app-owned Apple namespace returned by `appleArtifacts(app).embed`
 30.6 MB unstripped — the linked delta above is what a binary pays), the
 C header, the GPU module, the shaders and assets, the cohort's
 `compat.json`, and a receipt; `ExactKit` is the package at `host/apple`.
+With `--device --archive out.ipa --embed`, the build writes both the IPA and
+that embed directory without a phone. GPU products in the embed directory
+are the signed frameworks captured for the IPA (LLP 1009 D6), copied intact
+into the embedding app's `Frameworks/`; without `--archive` they remain dylibs.
 
 The base measurement is the **final linked delta against
 `host/apple/macos/floor.swift`** — the empty AppKit app `metrics.mjs

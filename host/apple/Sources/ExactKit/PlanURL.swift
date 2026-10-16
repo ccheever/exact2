@@ -5,10 +5,13 @@
 // the app for all-session acceptance, and subscribe to the server's events
 // so an edit re-fetches. Transactional: a candidate replaces the
 // running app only after its bytes hash clean and boot runs; every failure
-// keeps the last good app on screen. `{rebuilt}` is session-terminal — the
-// wasm-side program changed, so a new plan against this binary's data crate
-// would be a poisoned boot; the menu's Reload starts over after the host is
-// rebuilt. One connection per app (LLP 1031 D11), never per session.
+// keeps the last good app on screen. `{rebuilt}`, or a generation for
+// another program, takes no generation — the wasm-side program changed, so a
+// new plan against this binary's data crate would be a poisoned boot — but
+// the host stays connected and registered, reconnects across restarts, and
+// takes the next generation for its own program; rebuilding the host, or the
+// menu's Reload, starts over. One connection per app (LLP 1031 D11), never
+// per session.
 import CryptoKit
 import Foundation
 
@@ -62,48 +65,69 @@ public struct ExactDevelopmentPlan {
         }
     }
 
+    /// The plan and, when one is beside it, its module pair, read as one
+    /// candidate: a partial pair or an oversized file is refused.
+    private func read(for app: ExactApp) throws -> (plan: Data, module: ExactModule?) {
+        let files = self.files
+        func read(_ index: Int, limit: Int) throws -> Data {
+            let url = files[index]
+            let a = try FileManager.default.attributesOfItem(atPath: url.path)
+            guard let size = a[.size] as? NSNumber, size.intValue <= limit else {
+                throw NSError(domain: "ExactDevelopmentPlan", code: 1, userInfo: [NSLocalizedDescriptionKey: "\(url.lastPathComponent) exceeds the development artifact limit"])
+            }
+            let bytes = try Data(contentsOf: url)
+            guard bytes.count <= limit else { throw CocoaError(.fileReadTooLarge) }
+            return bytes
+        }
+        let plan = try read(0, limit: 32 << 20)
+        guard hasModule else { return (plan, nil) }
+        var javascript: ExactModule?, rust: ExactModule?
+        if files[1...2].contains(where: { FileManager.default.fileExists(atPath: $0.path) }) {
+            javascript = ExactModule(receipt: try read(1, limit: 1 << 20), bytecode: try read(2, limit: 32 << 20))
+        }
+        if files.count > baseFiles.count && !(app.rustPolicy.mode == "off" && javascript != nil) {
+            let policy = app.rustPolicy
+            let prefix = policy.mode == "wasm" ? "rust/wasm" : "rust/" + policy.mode + "/" + policy.target
+            guard policy.mode != "off",
+                  let index = files.firstIndex(where: { $0.path.hasSuffix(prefix + "/app.module.json") }) else {
+                throw NSError(domain: "ExactDevelopmentPlan", code: 1, userInfo: [NSLocalizedDescriptionKey: "no Rust replacement matching this binary's executor and target"])
+            }
+            let receiptIndex = index
+            let json = try JSONSerialization.jsonObject(with: read(index, limit: 1 << 20)) as? [String: Any]
+            guard let row = json?["module"] as? [String: Any], let name = row["file"] as? String,
+                  ["app.module.wasm", "app.module.dylib", "app.module.so", "app.module.dll", "app.module.bin"].contains(name),
+                  let index = files.firstIndex(where: { $0.path.hasSuffix(prefix + "/" + name) }) else { throw CocoaError(.fileNoSuchFile) }
+            rust = ExactModule(receipt: try read(receiptIndex, limit: 1 << 20), bytecode: try read(index, limit: 32 << 20))
+        }
+        guard let module = try DevelopmentModules.combine(javascript: javascript, rust: rust) else { throw CocoaError(.fileNoSuchFile) }
+        return (plan, module)
+    }
+
     @discardableResult
     public func apply(to app: ExactApp) -> Bool {
-        let files = self.files
         do {
-            func read(_ index: Int, limit: Int) throws -> Data {
-                let url = files[index]
-                let a = try FileManager.default.attributesOfItem(atPath: url.path)
-                guard let size = a[.size] as? NSNumber, size.intValue <= limit else {
-                    throw NSError(domain: "ExactDevelopmentPlan", code: 1, userInfo: [NSLocalizedDescriptionKey: "\(url.lastPathComponent) exceeds the development artifact limit"])
-                }
-                let bytes = try Data(contentsOf: url)
-                guard bytes.count <= limit else { throw CocoaError(.fileReadTooLarge) }
-                return bytes
-            }
-            let plan = try read(0, limit: 32 << 20)
-            let label = files[0].lastPathComponent
-            if hasModule {
-                var javascript: ExactModule?, rust: ExactModule?
-                if files[1...2].contains(where: { FileManager.default.fileExists(atPath: $0.path) }) {
-                    javascript = ExactModule(receipt: try read(1, limit: 1 << 20), bytecode: try read(2, limit: 32 << 20))
-                }
-                if files.count > baseFiles.count && !(app.rustPolicy.mode == "off" && javascript != nil) {
-                    let policy = app.rustPolicy
-                    let prefix = policy.mode == "wasm" ? "rust/wasm" : "rust/" + policy.mode + "/" + policy.target
-                    guard policy.mode != "off",
-                          let index = files.firstIndex(where: { $0.path.hasSuffix(prefix + "/app.module.json") }) else {
-                        throw NSError(domain: "ExactDevelopmentPlan", code: 1, userInfo: [NSLocalizedDescriptionKey: "no Rust replacement matching this binary's executor and target"])
-                    }
-                    let receiptIndex = index
-                    let json = try JSONSerialization.jsonObject(with: read(index, limit: 1 << 20)) as? [String: Any]
-                    guard let row = json?["module"] as? [String: Any], let name = row["file"] as? String,
-                          ["app.module.wasm", "app.module.dylib", "app.module.so", "app.module.dll", "app.module.bin"].contains(name),
-                          let index = files.firstIndex(where: { $0.path.hasSuffix(prefix + "/" + name) }) else { throw CocoaError(.fileNoSuchFile) }
-                    rust = ExactModule(receipt: try read(receiptIndex, limit: 1 << 20), bytecode: try read(index, limit: 32 << 20))
-                }
-                guard let module = try DevelopmentModules.combine(javascript: javascript, rust: rust) else { throw CocoaError(.fileNoSuchFile) }
-                return app.applyGeneration(ExactGeneration(plan: plan, assets: app.resolver, module: module), label: label, commit: { true })
-            }
-            return app.apply(plan, label: label)
+            let (plan, module) = try read(for: app)
+            let label = baseFiles[0].lastPathComponent
+            guard let module else { return app.apply(plan, label: label) }
+            return app.applyGeneration(ExactGeneration(plan: plan, assets: app.resolver, module: module), label: label, commit: { true })
         } catch {
             fputs("exact: local generation refused: \(error.localizedDescription)\n", stderr)
             return false
+        }
+    }
+
+    /// The plan and its module pair as the launch generation (`EXACT_PLAN`
+    /// naming a local bake, LLP 1116.003): the first boot runs it as a build
+    /// that baked it would, fresh, with nothing carried from the embedded
+    /// plan. Call before the first session; nil once installed, else why not.
+    public func installInitial(on app: ExactApp) -> String? {
+        do {
+            let (plan, module) = try read(for: app)
+            guard let module else { return "\(baseFiles[0].lastPathComponent) has no module beside it" }
+            app.installInitial(ExactGeneration(plan: plan, assets: app.resolver, module: module))
+            return nil
+        } catch {
+            return "local generation refused: \(error.localizedDescription)"
         }
     }
 }
@@ -341,22 +365,38 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
 
     /// The app owns the identity: replacing a connection must not restart an
     /// already current app, while another kind of apply invalidates the identity.
-    static func open(_ page: String, acceptProgram: @escaping (String?) -> Bool, current: @escaping () -> String?, waiting: @escaping () -> Bool = { false }, apply: @escaping (Generation, String) -> Bool) -> PlanURL? {
+    static func open(_ page: String, program: String? = nil, acceptProgram: @escaping (String?) -> Bool, current: @escaping () -> String?, plan: @escaping () -> String? = { nil }, waiting: @escaping () -> Bool = { false }, held: @escaping () -> Bool = { false }, design: @escaping (String) -> String = { _ in "unsupported" }, channel: @escaping ([String: Any]) -> Void = { _ in }, apply: @escaping (Generation, String, Bool) -> Bool) -> PlanURL? {
         guard let u = URL(string: page), u.host != nil, sameOrigin(u, u) else {
             fputs("exact url: not an HTTP app URL: \(page)\n", stderr)
             return nil
         }
-        let connection = PlanURL(u, acceptProgram: acceptProgram, current: current, waiting: waiting, apply: apply)
+        let connection = PlanURL(u, acceptProgram: acceptProgram, current: current, plan: plan, waiting: waiting, held: held, design: design, channel: channel, apply: apply)
+        // The program the app already runs (a connection replaced): the one
+        // this connection takes.
+        connection.adopted = program
         connection.resolveAndBoot()
         return connection
     }
 
     let page: URL
     private let currentGeneration: () -> String?
-    private let applyGeneration: (Generation, String) -> Bool
+    private let runningPlan: () -> String?
+    /// The candidate, its label, and `letGo` (requests in flight do not hold it back).
+    private let applyGeneration: (Generation, String, Bool) -> Bool
+    /// A live design batch or snapshot (LLP 1121 stage 4) applied to the
+    /// app; answers applied, stale, structure or refused.
+    private let applyDesign: (String) -> String
+    /// A build-channel frame (LLP 1122 D4): a hello with a new nonce, or a
+    /// command (`BuildChannel.commands`).
+    private let channel: ([String: Any]) -> Void
     private let preparationPending: () -> Bool
+    /// Whether requests in flight held the last preparation back (its second's clock).
+    private let requestsHeld: () -> Bool
     private let acceptProgram: (String?) -> Bool
     var terminal: String?
+    /// The program of the last generation this host took (or the app ran
+    /// when this connection opened): the only one it takes again.
+    private var adopted: String?
     private var observed: Revision?
     private var retiredEpochs = Set<String>()
     private var pending: Revision?
@@ -375,12 +415,16 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
         return URLSession(configuration: config, delegate: self, delegateQueue: .main)
     }()
 
-    private init(_ page: URL, acceptProgram: @escaping (String?) -> Bool, current: @escaping () -> String?, waiting: @escaping () -> Bool = { false }, apply: @escaping (Generation, String) -> Bool) {
+    private init(_ page: URL, acceptProgram: @escaping (String?) -> Bool, current: @escaping () -> String?, plan: @escaping () -> String?, waiting: @escaping () -> Bool = { false }, held: @escaping () -> Bool = { false }, design: @escaping (String) -> String, channel: @escaping ([String: Any]) -> Void, apply: @escaping (Generation, String, Bool) -> Bool) {
         self.page = page
         self.acceptProgram = acceptProgram
         currentGeneration = current
+        runningPlan = plan
         applyGeneration = apply
+        applyDesign = design
+        self.channel = channel
         preparationPending = waiting
+        requestsHeld = held
     }
 
     @discardableResult
@@ -390,6 +434,10 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
         pending = nil
         Array(fetches.values).forEach { $0.cancel() }
         fetches.removeAll()
+        // A snapshot fetch cancelled with the rest: the generation this
+        // resolves syncs its design once applied.
+        syncing = false
+        waitingFrames.removeAll()
         return resolution
     }
 
@@ -398,6 +446,8 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
         beginResolution()
         stream?.cancel()
         stream = nil
+        reports.removeAll()
+        reporting?.cancel()
         session.invalidateAndCancel()
     }
 
@@ -409,7 +459,7 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
     // MARK: discovery and immutable generation fetches (LLP 1023 D1–D3)
 
     private func resolveAndBoot() {
-        guard !closed, terminal == nil else { return }
+        guard !closed else { return }
         stream?.cancel()
         stream = nil
         let generation = beginResolution()
@@ -457,7 +507,7 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
         let fetch = BoundedFetch(origin: page, limit: limit) { [weak self] result in
             guard let self else { return }
             self.fetches.removeValue(forKey: id)
-            guard !self.closed, self.terminal == nil, generation == self.resolution else { return }
+            guard !self.closed, generation == self.resolution else { return }
             completion(result)
         }
         fetches[id] = fetch
@@ -509,11 +559,13 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
     /// All fetch completions also carry a local resolution, so a response
     /// started before a newer announcement cannot commit afterward.
     private func observe(_ revision: Revision) -> Bool {
-        guard acceptProgram(revision.program) else {
-            terminal = "the dev server rebuilt the app's native code — rebuild and relaunch this host (the last good plan is still running)"
-            status(terminal!)
-            beginResolution()
-            stream?.cancel()
+        // Its program, once known, is the only one it takes; until then the
+        // session pins the first (`acceptProgram`), except while it waits,
+        // when an unknown program cannot be checked and is not pinned.
+        if let known = adopted {
+            guard revision.program == known else { waitForProgram(); return false }
+        } else if terminal != nil || !acceptProgram(revision.program) {
+            waitForProgram()
             return false
         }
         if let old = observed {
@@ -525,6 +577,11 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
             }
         }
         observed = revision
+        if let program = revision.program { adopted = program }
+        if terminal != nil {
+            terminal = nil
+            status("dev: the server runs this host's native code again")
+        }
         return true
     }
 
@@ -604,10 +661,19 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
         let canonical = "{\"assets\":[" + assets.map(\.canonical).joined(separator: ",") + "]" + moduleCanonical + ",\"plan\":" + plan.canonical + rustCanonical + "}"
         let identity = PlanURL.hash(Data(canonical.utf8))
         if let dev = json["dev"] as? [String: Any] {
+            // A valid envelope first, so a refused one pins no program.
             guard let revision = PlanURL.revision(dev), revision.identity == identity,
                   expected == nil || revision == expected,
                   let path = dev["events"] as? String, let events = URL(string: path, relativeTo: base)?.absoluteURL,
-                  PlanURL.sameOrigin(events, page), observe(revision) else {
+                  PlanURL.sameOrigin(events, page) else {
+                failed("invalid or obsolete dev generation at \(base)", generation: generation)
+                return
+            }
+            guard observe(revision) else {
+                // Built for other native code: no generation, but the
+                // stream, so the build stays registered and takes the next
+                // one for its own.
+                if terminal != nil { if shouldSubscribe { subscribe(events) }; return }
                 failed("invalid or obsolete dev generation at \(base)", generation: generation)
                 return
             }
@@ -655,11 +721,18 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
                         let candidate = Generation(identity: identity, plan: payloads[0], assets: resolver, module: logic)
                         payloads.removeAll()
                         let fetched = ProcessInfo.processInfo.systemUptime
+                        // Asked again while the host is preparing, or while requests are in flight;
+                        // a second after they first held it, they are let go, as the web's dev loop does (LLP 1007 §6).
+                        var heldSince: TimeInterval?
                         func commitCandidate() {
                             guard !self.closed, self.terminal == nil, generation == self.resolution else { return }
-                            if applyGeneration(candidate, "generation ← " + (page.host ?? "")) {
+                            let letGo = heldSince.map { ProcessInfo.processInfo.systemUptime - $0 >= 1 } ?? false
+                            if applyGeneration(candidate, "generation ← " + (page.host ?? ""), letGo) {
+                                // Its plan carries its own design; value-only edits since are the server's.
+                                syncDesign()
                                 status(String(format: "generation %@: envelope %.1f ms, payloads %.1f ms, preparation %.1f ms", String(identity.prefix(12)), envelopeMs, (fetched - payloadStarted) * 1000, (ProcessInfo.processInfo.systemUptime - fetched) * 1000))
                             } else if preparationPending() {
+                                if requestsHeld() { heldSince = heldSince ?? ProcessInfo.processInfo.systemUptime }
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: commitCandidate)
                             } else {
                                 status("the host refused the generation; keeping the running app")
@@ -721,6 +794,9 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
     private func subscribe(_ url: URL) {
         stream?.cancel()
         buffer.removeAll()
+        // A new stream's nonce comes with its hello; reports wait for it.
+        nonce = nil
+        reports.removeAll()
         var request = URLRequest(url: url)
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         let task = session.dataTask(with: request)
@@ -761,9 +837,34 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        guard task === stream, !closed, terminal == nil else { return }
+        guard task === stream else { return }
+        // Its nonce ended with it: no report goes out under it again.
+        nonce = nil
+        guard !closed else { return }
         if (error as? URLError)?.code == .cancelled { return }
         failed("events disconnected; resolving the current generation", generation: resolution)
+    }
+
+    /// The dev server's native code is no longer this host's (it rebuilt it,
+    /// or a generation names another program). The last good plan keeps
+    /// running and no generation is fetched, but the host stays connected and
+    /// registered and keeps reconnecting across the server's restarts, so the
+    /// generation for its own code, when the server has it again, is taken.
+    private func waitForProgram() {
+        if terminal == nil {
+            terminal = "the dev server rebuilt the app's native code — rebuild and relaunch this host (the last good plan is still running)"
+            status(terminal!)
+        }
+        settle()
+    }
+
+    /// A resolution with no generation to follow (the app runs it already,
+    /// or waits for its program): a design snapshot being fetched is fetched
+    /// again, as no generation will sync the design.
+    private func settle() {
+        let resync = syncing
+        beginResolution()
+        if resync { syncDesign() }
     }
 
     private func failed(_ message: String, generation: UInt64) {
@@ -772,7 +873,7 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
         let delay = retrySeconds
         retrySeconds = min(retrySeconds * 2, 5)
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            guard let self, !self.closed, self.terminal == nil, self.resolution == generation else { return }
+            guard let self, !self.closed, self.resolution == generation else { return }
             self.resolveAndBoot()
         }
     }
@@ -791,22 +892,127 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
     private func handle(_ frame: [String: Any]) {
         retrySeconds = 1
         if frame["rebuilt"] != nil {
-            terminal = "the dev server rebuilt the app's native code — rebuild and relaunch this host (the last good plan is still running)"
-            status(terminal!)
-            beginResolution()
-            stream?.cancel()
+            waitForProgram()
             return
         }
         if let error = frame["error"] as? String { status("dev: \(error)"); return }
+        if let kind = frame["kind"] as? String, kind == "tamber-batch" || kind == "tamber-snapshot" {
+            design(frame)
+            return
+        }
+        // The build channel (LLP 1122 D4), development builds only: a command
+        // before any generation; a new stream's hello registers again, under
+        // the same id.
+        if let kind = frame["kind"] as? String, BuildChannel.commands.contains(kind) { if BuildChannel.enabled { channel(frame) }; return }
+        if BuildChannel.enabled, frame["hello"] as? Bool == true, let next = frame["nonce"] as? String, next != nonce, next.utf8.count <= 128 {
+            nonce = next
+            reports.removeAll()
+            channel(frame)
+        }
         if frame["ready"] as? Bool == false { return }
-        guard let revision = PlanURL.revision(frame), terminal == nil, observe(revision) else { return }
-        if currentGeneration() == revision.identity { beginResolution(); return }
+        guard let revision = PlanURL.revision(frame), observe(revision) else { return }
+        if currentGeneration() == revision.identity { settle(); return }
         guard pending != revision,
               let path = frame["envelope"] as? String, let url = URL(string: path, relativeTo: page)?.absoluteURL,
               PlanURL.sameOrigin(url, page) else { return }
         let generation = beginResolution()
         pending = revision
         fetchEnvelope(url, subscribe: false, generation: generation, expected: revision)
+    }
+
+    // MARK: the live table (LLP 1121 D13, stage 4)
+
+    /// A batch (a notice is one with no tokens) applied on its base; a build
+    /// on another design fetches the snapshot. One at a time, in the stream's
+    /// order: a frame that arrives while a snapshot is fetched waits for it,
+    /// so a snapshot never lands over a newer batch.
+    private func design(_ frame: [String: Any]) {
+        guard let data = try? JSONSerialization.data(withJSONObject: frame),
+              let text = String(data: data, encoding: .utf8) else { return }
+        if syncing { waitingFrames.append(text); return }
+        let answer = applyDesign(text)
+        if answer == "stale" { syncDesign() } else if answer.hasPrefix("refused") { status("live: \(answer)") }
+    }
+
+    private var syncing = false
+    private var waitingFrames: [String] = []
+
+    /// The design the server's builds run, when it is not the plan's own.
+    func syncDesign() {
+        guard !syncing, let url = URL(string: "/__dev/design", relativeTo: page)?.absoluteURL else { return }
+        syncing = true
+        var request = URLRequest(url: url)
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        fetch(request, limit: PlanURL.planLimit, generation: resolution) { [weak self] result in
+            guard let self else { return }
+            self.syncing = false
+            if case let .success((data, response)) = result, response.statusCode == 200, let text = String(data: data, encoding: .utf8) {
+                let answer = self.applyDesign(text)
+                if answer != "applied" { self.status("live: the snapshot was \(answer)") }
+            }
+            let frames = self.waitingFrames
+            self.waitingFrames.removeAll()
+            for text in frames {
+                if self.syncing { self.waitingFrames.append(text); continue }
+                if self.applyDesign(text) == "stale" { self.syncDesign() }
+            }
+        }
+    }
+
+    // MARK: the build channel (LLP 1122 D4)
+
+    /// The nonce the stream's hello gave, which every report carries; nil
+    /// once that stream ends.
+    private(set) var nonce: String?
+    /// The nonce a register succeeded on: no other report goes before it.
+    private var registered: String?
+    private var reports: [(nonce: String, body: [String: Any])] = []
+    private var reporting: BoundedFetch?
+    /// Before a dev generation commits, report the embedded or cached plan
+    /// that actually booted. Its digest must not deduplicate a whole generation.
+    var plan: String? { currentGeneration() ?? runningPlan() }
+
+    /// A `POST /__dev/report` with the nonce, and the plan for a register or
+    /// a status: one at a time, in order, at most 16 waiting, on the page's
+    /// origin. None before a hello; one whose nonce is no longer the
+    /// stream's, or that would go before its register succeeded, is dropped.
+    func report(_ body: [String: Any]) {
+        guard BuildChannel.enabled, let nonce, reports.count < 16 else { return }
+        var body = body
+        if body["plan"] == nil, body["kind"] as? String == "register" || body["kind"] as? String == "status" { body["plan"] = plan ?? NSNull() }
+        reports.append((nonce, body))
+        sendReport()
+    }
+
+    private func sendReport() {
+        guard reporting == nil, !closed, let url = URL(string: "/__dev/report", relativeTo: page)?.absoluteURL else { return }
+        while let next = reports.first, next.nonce != nonce || (next.body["kind"] as? String != "register" && registered != next.nonce) { reports.removeFirst() }
+        guard let first = reports.first else { return }
+        let (sent, body) = (first.nonce, first.body)
+        reports.removeFirst()
+        var payload = body
+        payload["nonce"] = sent
+        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { sendReport(); return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = data
+        let register = body["kind"] as? String == "register"
+        // Its own rung: a new generation's `beginResolution` does not cancel it.
+        let fetch = BoundedFetch(origin: page, limit: 4096) { [weak self] result in
+            guard let self else { return }
+            self.reporting = nil
+            switch result {
+            case let .success((_, response)) where response.statusCode < 300:
+                if register { self.registered = sent }
+            case let .success((data, response)):
+                self.status("build channel: report refused (\(response.statusCode)): \(String(decoding: data, as: UTF8.self))")
+            case let .failure(failure): self.status("build channel: report failed: \(failure.message)")
+            }
+            self.sendReport()
+        }
+        reporting = fetch
+        fetch.start(request)
     }
 
     private func status(_ message: String) { fputs("exact url: \(message)\n", stderr) }

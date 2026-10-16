@@ -14,15 +14,16 @@
 // case: {lines} (the observation), {outside} (exact-web-js refused the
 // program: outside the JS target) or {error} (the driver failed).
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import { createDocument } from '../../../host/web-js/dom.js';
+import { driverRuntime, localImports } from '../../../host/web-js/glue.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../../..');
-const webJs = resolve(root, 'host/web-js'), web = resolve(root, 'host/web');
+const webJs = resolve(root, 'host/web-js');
 
 // ---------------------------------------------------------------- values
 const bits = new DataView(new ArrayBuffer(8));
@@ -30,8 +31,9 @@ const hex = n => { bits.setFloat64(0, n); return bits.getBigUint64(0).toString(1
 const fromHex = h => { bits.setBigUint64(0, BigInt('0x' + h)); return bits.getFloat64(0); };
 /** A batch value (numbers as their bits) as a runtime value. */
 const decode = v => v === null || typeof v !== 'object' ? v : Array.isArray(v) ? v.map(decode) : fromHex(v.$);
-/** A runtime value's key, numbers by their bits (the oracle's `canonical`). */
-const key = v => typeof v === 'number' ? 'n' + hex(v) : Array.isArray(v) ? '[' + v.map(key).join(',') + ']' : JSON.stringify(v ?? null);
+/** A runtime value's key, numbers by their bits, NaN canonical (the oracle's `canonical`):
+ * the runner's NaN and the module's may differ in sign. */
+const key = v => typeof v === 'number' ? number(v) : Array.isArray(v) ? '[' + v.map(key).join(',') + ']' : JSON.stringify(v ?? null);
 const quote = s => '"' + [...s].map(c => c === '"' ? '\\"' : c === '\\' ? '\\\\' : c === '\n' ? '\\n' : c === '\r' ? '\\r' : c === '\t' ? '\\t'
   : c.codePointAt(0) < 0x20 ? '\\u00' + c.codePointAt(0).toString(16).padStart(2, '0') : c).join('') + '"';
 const number = n => 'n' + (n !== n ? '7ff8000000000000' : hex(n));
@@ -87,11 +89,8 @@ const fire = (e, type) => { for (const f of [...(e.$listeners?.[type] ?? [])]) f
 function runtime(dir) {
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
-  for (const f of readdirSync(webJs)) if (f.endsWith('.js')) cpSync(resolve(webJs, f), resolve(dir, f));
-  for (const f of ['frames.js', 'motion-glue.js', 'group-glue.js', 'input-glue.js', 'markup-editor.js', 'textflow-glue.js', 'timer-glue.js', 'presence-glue.js', 'native-glue.js',
-    'geometry-glue.js', 'resize-glue.js', 'collection-glue.js', 'image-glue.js', 'media-glue.js', 'navigation.js', 'canvas2d-glue.js', 'auth-glue.js', 'storage-environment.js', 'http-body.js', 'grant-admission.js'])
-    cpSync(resolve(web, f), resolve(dir, f));
-  writeFileSync(resolve(dir, 'admission.js'), readFileSync(resolve(webJs, 'admission.js'), 'utf8').replaceAll("'../web/grant-admission.js'", "'./grant-admission.js'"));
+  for (const f of driverRuntime(root)) cpSync(resolve(root, f), resolve(dir, basename(f)));
+  for (const f of ['admission.js', 'agent.js']) writeFileSync(resolve(dir, f), localImports(readFileSync(resolve(webJs, f), 'utf8')));
   writeFileSync(resolve(dir, 'draw.js'), 'export const drawer = null;\n');
   writeFileSync(resolve(dir, 'path2d.js'), 'export const browserPath2D = globalThis.Path2D;\n');
   writeFileSync(resolve(dir, 'admission-data.js'), "import {createGrantSet} from './admission.js';export const tsGrantSet=createGrantSet(''),rustGrantSet=createGrantSet('');\n");
@@ -116,9 +115,16 @@ async function build(compiler, dir, file) {
 // ---------------------------------------------------------------- one case
 async function drive(code, c, hostSources) {
   const document = createDocument();
+  // The page's storage: the device's store at launch (LLP 1116 D5), which
+  // persist.js reads as a slot is made and writes after each commit.
+  const kept = new Map(Object.entries(c.stored ?? {}));
+  const localStorage = {
+    get length() { return kept.size; }, key: i => [...kept.keys()][i] ?? null,
+    getItem: k => kept.has(k) ? kept.get(k) : null, setItem: (k, v) => { kept.set(k, String(v)); }, removeItem: k => { kept.delete(k); },
+  };
   const ctx = vm.createContext({
     document, location: { pathname: '/', search: '', href: 'http://difftest.invalid/', origin: 'http://difftest.invalid' },
-    history: { replaceState() {}, pushState() {}, go() {}, state: null }, localStorage: { length: 0, key() {}, getItem() { return null; }, setItem() {}, removeItem() {} },
+    history: { replaceState() {}, pushState() {}, go() {}, state: null }, localStorage,
     addEventListener() {}, removeEventListener() {}, navigator: {},
     matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }),
     getComputedStyle: () => ({ getPropertyValue: () => '' }),
@@ -192,14 +198,29 @@ async function drive(code, c, hostSources) {
   const walk = (e, f, windowed) => { for (const k of e.childNodes) if (k.nodeType === 1) { f(k); if (!(windowed && windowedList(k))) walk(k, f, windowed); } };
   const windowedList = e => e.getAttribute('role') === 'list' && [...e.childNodes].some(k => k.nodeType === 1 && k.getAttribute('role') === 'listitem' && k.getAttribute('data-listitemkey') !== null);
   const find = id => { let hit = null; walk(root, e => { if (!hit && e.getAttribute('data-testid') === id) hit = e; }, false); return hit; };
+  // What the store keeps for a persisted state, read back by its slot's type
+  // (persist.js's text: a non-finite number as its name).
+  const revive = (v, t) => t === 'n' && typeof v === 'string' ? Number(v) : Array.isArray(t) && t[0] === '?' ? (v === null ? null : revive(v, t[1]))
+    : Array.isArray(t) && Array.isArray(v) ? v.map(x => revive(x, t[1])) : v;
+  const storeLines = () => {
+    for (const name of c.persisted ?? []) {
+      const i = names[0].indexOf(name), text = localStorage.getItem('exact.state.' + name);
+      let shown = '-';
+      try { if (text != null) shown = typed(revive(JSON.parse(text), types[0][i]), types[0][i]); } catch {}
+      out.push(`store ${name} ${shown}`);
+    }
+  };
   const observe = () => {
-    names.forEach((group, g) => group.forEach((name, i) => {
-      // The locale slot (`#locale`) is no root slot the runner shows.
-      if (name.startsWith('#')) return;
-      let v;
-      try { v = state[g][i](); } catch (e) { notes.push(`# js: ${['slot', 'derive', 'resource'][g]} ${name}: ${e.message}`); return; }
-      out.push(`${['slot', 'derive', 'resource'][g]} ${name} ${typed(v, types[g][i])}`);
-    }));
+    names.forEach((group, g) => {
+      if (g === 1) storeLines(); // after the slots, as observe.rs writes them
+      group.forEach((name, i) => {
+        // The locale slot (`#locale`) is no root slot the runner shows.
+        if (name.startsWith('#')) return;
+        let v;
+        try { v = state[g][i](); } catch (e) { notes.push(`# js: ${['slot', 'derive', 'resource'][g]} ${name}: ${e.message}`); return; }
+        out.push(`${['slot', 'derive', 'resource'][g]} ${name} ${typed(v, types[g][i])}`);
+      });
+    });
     // Each queue's waiting sends (LLP 1092 D12), in declaration order, as observe.rs writes them.
     for (const m of Mutations) if (m.queue) out.push(`queued ${m.name} ${m.wait?.length ?? 0}`);
     out.push(...commands); commands = [];

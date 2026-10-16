@@ -50,9 +50,10 @@ struct StdlibEntry {
     name: String,
     params: Vec<String>,
     /// The trailing parameters a call may omit, as the constant each
-    /// defaults to (LLP 1088 D2), in JavaScript's spelling: only
-    /// `Number.MAX_VALUE`, an index past any end, since a plan's number
-    /// constants are finite.
+    /// defaults to (LLP 1088 D2), in JavaScript's spelling: for a `number`
+    /// only `Number.MAX_VALUE`, an index past any end, since a plan's
+    /// number constants are finite; for a literal choice only `""`, which
+    /// no call can write (LLP 1116 D8: `formatNumber`'s currency code).
     #[serde(default)]
     optional: Vec<String>,
     returns: String,
@@ -260,11 +261,15 @@ fn validate(schema: &Schema) {
     for f in &schema.stdlib {
         assert!(
             f.optional.len() <= f.params.len()
-                && f.optional.iter().all(|d| d == "Number.MAX_VALUE")
                 && f.params[f.params.len() - f.optional.len()..]
                     .iter()
-                    .all(|p| p == "number"),
-            "format: stdlib `{}` optional defaults must be trailing numbers, `Number.MAX_VALUE`",
+                    .zip(&f.optional)
+                    .all(|(p, d)| match d.as_str() {
+                        "Number.MAX_VALUE" => p == "number",
+                        "\"\"" => p.starts_with('"'),
+                        _ => false,
+                    }),
+            "format: stdlib `{}` optional defaults must be trailing: `Number.MAX_VALUE` for a number, `\"\"` for a literal choice",
             f.name
         );
     }
@@ -395,10 +400,17 @@ fn main() {
             );
             let _ = writeln!(
                 w,
-                "    pub fn defaults(self) -> &'static [f64] {{ match self {{"
+                "    pub fn defaults(self) -> &'static [StdlibDefault] {{ match self {{"
             );
             for f in schema.stdlib.iter().filter(|f| !f.optional.is_empty()) {
-                let ds: Vec<&str> = f.optional.iter().map(|_| "f64::MAX").collect();
+                let ds: Vec<&str> = f
+                    .optional
+                    .iter()
+                    .map(|d| match d.as_str() {
+                        "Number.MAX_VALUE" => "StdlibDefault::Number(f64::MAX)",
+                        _ => "StdlibDefault::Str(\"\")",
+                    })
+                    .collect();
                 let _ = writeln!(
                     w,
                     "        Stdlib::{} => &[{}],",
@@ -414,7 +426,7 @@ fn main() {
             );
             let _ = writeln!(
                 w,
-                "    pub fn omitted(self, given: usize) -> &'static [f64] {{ let d = self.defaults(); &d[(given + d.len()).saturating_sub(self.arity()).min(d.len())..] }}"
+                "    pub fn omitted(self, given: usize) -> &'static [StdlibDefault] {{ let d = self.defaults(); &d[(given + d.len()).saturating_sub(self.arity()).min(d.len())..] }}"
             );
             let _ = writeln!(w, "    /// Declared return type, as the table spells it.");
             let _ = writeln!(
@@ -433,6 +445,12 @@ fn main() {
         }
         let _ = writeln!(w, "}}");
         let _ = writeln!(w);
+        if name == "Stdlib" {
+            let _ = writeln!(
+                w,
+                "/// The constant a trailing optional parameter takes when a call omits it\n/// (LLP 1088 D2): a number, or the empty string no call can write for a\n/// literal choice (LLP 1116 D8).\n#[derive(Debug, Clone, Copy, PartialEq)]\npub enum StdlibDefault {{\n    /// A number constant.\n    Number(f64),\n    /// A string constant.\n    Str(&'static str),\n}}\n"
+            );
+        }
     }
 
     // ---- opcodes ----------------------------------------------------------
@@ -698,6 +716,115 @@ fn main() {
     let _ = writeln!(w, "        w.into_vec()");
     let _ = writeln!(w, "    }}");
 
+    // structure: the canonical bytes without the design's values
+    let _ = writeln!(w, "    /// The plan's structure (LLP 1121 stage 4, commit 3): its canonical bytes with the design's values left out (`theme` rows' `value`, `theme_slices`' `value`, but a profile colour's, which a host takes at boot; a role override's is a value too, LLP 1121 stage 5), so two plans that differ only in token values have equal structures (the builder interns the values after every other string, so none moves another's id). A dev loop compares them to send a value-only edit as a batch instead of a new plan.");
+    let _ = writeln!(w, "    pub fn structure(&self) -> Vec<u8> {{");
+    // Strings only the design's values name are left out of the pool; code
+    // names strings by id, so the rest stay, in place.
+    let _ = writeln!(
+        w,
+        "        let design = |r: &ThemeRow| !self.str(r.value).contains(\"(--\");"
+    );
+    let _ = writeln!(
+        w,
+        "        let mut values = vec![false; self.strings.len()];"
+    );
+    let _ = writeln!(
+        w,
+        "        for r in &self.theme {{ if design(r) {{ values[r.value.0 as usize] = true; }} }}"
+    );
+    let _ = writeln!(w, "        for r in &self.theme_slices {{ if !self.str(r.value).contains(\"(--\") {{ values[r.value.0 as usize] = true; }} }}");
+    for t in &schema.tables {
+        for f in &t.fields {
+            if !matches!(parse_codec(&f.codec), Codec::Str)
+                || (f.name == "value" && (t.name == "theme" || t.name == "theme_slices"))
+            {
+                continue;
+            }
+            let _ = writeln!(
+                w,
+                "        for r in &self.{} {{ values[r.{}.0 as usize] = false; }}",
+                t.name, f.name
+            );
+        }
+    }
+    let _ = writeln!(w, "        for r in &self.theme {{ if !design(r) {{ values[r.value.0 as usize] = false; }} }}");
+    // And every string the bytecode names: code that pushes a design value's
+    // text keeps it. Code that does not walk whole keeps every string.
+    let _ = writeln!(
+        w,
+        "        let mut r = Reader::new(&self.code); let mut whole = true;"
+    );
+    let _ = writeln!(w, "        'code: while !r.is_empty() {{ let Some(op) = r.u8().ok().and_then(Opcode::from_wire) else {{ whole = false; break; }}; for operand in op.operands() {{ let ok = match operand {{ Operand::U8 | Operand::Enum(_) => r.u8().is_ok(), Operand::U16 => r.u16().is_ok(), Operand::U32 | Operand::Idx(_) => r.u32().is_ok(), Operand::F64 => r.f64().is_ok(), Operand::Str => match r.u32() {{ Ok(v) => {{ if let Some(x) = values.get_mut(v as usize) {{ *x = false; }} true }} Err(_) => false }} }}; if !ok {{ whole = false; break 'code; }} }} }}");
+    let _ = writeln!(
+        w,
+        "        if !whole {{ values.iter_mut().for_each(|v| *v = false); }}"
+    );
+    let _ = writeln!(w, "        let mut w = Writer::default();");
+    let _ = writeln!(w, "        w.bytes(MAGIC); w.u32(FORMAT_VERSION); w.u64(FORMAT_DIGEST); w.u64(self.kernel_schema_digest); w.u64(self.compiler_identity);");
+    for f in &schema.header {
+        if f.codec == "string" {
+            let _ = writeln!(w, "        w.string(&self.{});", f.name);
+        } else {
+            let _ = writeln!(
+                w,
+                "        w.u32(self.{}.map_or(u32::MAX, |v| v.0));",
+                f.name
+            );
+        }
+    }
+    let _ = writeln!(
+        w,
+        "        for (s, value) in self.strings.iter().zip(&values) {{ if !*value {{ w.string(s); }} }}"
+    );
+    let _ = writeln!(
+        w,
+        "        w.u32(self.code.len() as u32); w.bytes(&self.code);"
+    );
+    let _ = writeln!(
+        w,
+        "        w.u32(self.data.len() as u32); w.bytes(&self.data);"
+    );
+    for t in &schema.tables {
+        let _ = writeln!(w, "        w.u32(self.{}.len() as u32);", t.name);
+        let _ = writeln!(w, "        for r in &self.{} {{", t.name);
+        for f in &t.fields {
+            // A token's value is the design's, a role override's too (LLP
+            // 1121 stage 5), unless it names a profile's colour.
+            if f.name == "value" && t.name == "theme" {
+                let _ = writeln!(w, "            if self.str(r.value).contains(\"(--\") {{ w.string(self.str(r.value)); }}");
+                continue;
+            }
+            if f.name == "value" && t.name == "theme_slices" {
+                let _ = writeln!(
+                    w,
+                    "            if self.str(r.value).contains(\"(--\") {{ w.string(self.str(r.value)); }}"
+                );
+                continue;
+            }
+            let stmt = match parse_codec(&f.codec) {
+                Codec::U8 => format!("w.u8(r.{});", f.name),
+                Codec::U16 => format!("w.u16(r.{});", f.name),
+                Codec::U32 => format!("w.u32(r.{});", f.name),
+                Codec::I32 => format!("w.i32(r.{});", f.name),
+                Codec::F64 => format!("w.f64(r.{});", f.name),
+                Codec::Bool => format!("w.u8(r.{} as u8);", f.name),
+                Codec::Str => format!("w.u32(r.{}.0);", f.name),
+                Codec::Enum(_) => format!("w.u8(r.{} as u8);", f.name),
+                Codec::Idx(_) => format!("w.u32(r.{}.0);", f.name),
+                Codec::Opt(_) => format!("w.u32(r.{}.map_or(u32::MAX, |v| v.0));", f.name),
+                Codec::Range(_) => format!("w.u32(r.{f}.start); w.u32(r.{f}.len);", f = f.name),
+                Codec::Code | Codec::Bytes => {
+                    format!("w.u32(r.{f}.offset); w.u32(r.{f}.len);", f = f.name)
+                }
+            };
+            let _ = writeln!(w, "            {stmt}");
+        }
+        let _ = writeln!(w, "        }}");
+    }
+    let _ = writeln!(w, "        w.into_vec()");
+    let _ = writeln!(w, "    }}");
+
     // decode
     let _ = writeln!(w, "    /// Decode and validate whole. Every index, range, code, and data reference is checked before the plan is returned; a failure names the row.");
     let _ = writeln!(
@@ -765,7 +892,9 @@ fn main() {
                 Codec::U32 => "s.u32()".to_string(),
                 Codec::I32 => "s.i32()".to_string(),
                 Codec::F64 => "s.f64()".to_string(),
-                Codec::Bool => "s.u8() != 0".to_string(),
+                // 0 or 1, nothing else: a corrupted byte is not a `true`
+                // (a binding's `written` is a claim about its author).
+                Codec::Bool => format!("{{ let v = s.u8(); match v {{ 0 => false, 1 => true, _ => s.fail(PlanError::UnknownEnum {{ table: \"{}\", field: \"{}\", value: v }}, false) }} }}", t.name, f.name),
                 Codec::Str => "StrId(s.u32())".to_string(),
                 Codec::Enum(e) => format!("{{ let v = s.u8(); match {e}::from_wire(v) {{ Some(e) => e, None => s.fail(PlanError::UnknownEnum {{ table: \"{}\", field: \"{}\", value: v }}, {e}::ALL[0]) }} }}", t.name, f.name),
                 Codec::Idx(tt) => format!("{}Id(s.u32())", pascal(&tt)),

@@ -1,24 +1,20 @@
 #!/usr/bin/env bun
-// The smoke drives the resolved app through the agent API (LLP 1012) on the
-// web, macOS, iOS, or Linux. Every app gets the generic host fixtures and its
-// own app.test.contract; Caltrain's landmarks, interactions, GPU reference,
-// and deck run when its fixture root is present. Not a blocking check (it needs Chrome or
-// a window server): `bun scripts/smoke.mjs <web|macos|ios|linux> [--shot <png>]`
-// --app-only runs the complete selected app drive and its Contract tests,
-// not the unrelated bare-plan host fixtures. On the web those fixtures run on
-// a second build that links every capability (LLP 1047 D7); --app-only skips
-// it too. ios --device selects a phone.
-// after `bun host/web/build.mjs` / `bun host/apple/build.mjs [--ios]` /
-// `cargo build --profile host-dev -p caltrain-linux`.
+// Drive an app through the agent API (LLP 1012), its app.test.contract and generic host
+// fixtures; Caltrain's interactions run when its fixture root is present.
+// `bun scripts/smoke.mjs <web|macos|ios|linux> [--shot <png>]`; ios --device selects a phone.
+// Build native apps first with host/apple/build.mjs [--ios] or cargo build --profile host-dev
+// -p <app>-linux. The web builds here. --app-only skips bare-plan host fixtures and their
+// all-capabilities web build (LLP 1047 D7), keeping the app drive and its Contract tests.
 import { spawnSync } from 'node:child_process';
-import { createHash, verify } from 'node:crypto';
+import { createHash, randomUUID, verify } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { browserDiagnosticNoise, open as openAgent, render, runTests as runAgentTests } from './agent.mjs';
+import { driveStore } from './agent-launch.mjs';
 import { HOST_DEV, resolveApp, withAppFixture } from './app.mjs';
-import { agree, explainNode, hostSections, httpFrameSmoke, poolingDrive } from './smoke-inspect.mjs';
+import { agree, explainNode, hostSections, httpFrameSmoke, poolingDrive, rebooted } from './smoke-inspect.mjs';
 import { DirectoryOrigin, parseWebRoot, webReleasePath, webRootPath } from './origin.mjs';
 import { jsTargetBuild, readStaticFile, serveStatic } from '../host/web/serve.mjs';
 import { canonicalBytes, publicKeyFromRaw, webRelease } from './deploy.mjs';
@@ -376,6 +372,35 @@ if (host === 'host' || host === 'host-ios') {
   const hcheck = (ok, what) => { trace(`${ok ? 'ok' : 'FAIL'} ${what}`); if (!ok) hostFailures.push(what); return ok; };
   const settleHost = async (ms = 300) => { await sleep(ms); };
   try {
+    if (host === 'host') {
+      // A notification uses openURL's path; inject between the launch callbacks in the real embedded host.
+      const source = resolve(dir, 'notification.contract'), plan = resolve(dir, 'notification.plan'), launchControl = resolve(dir, 'launch-control');
+      writeFileSync(source, `routes nav
+  home "/"
+    thread "/thread/:id"
+  notfound
+component App
+  state got = "none"
+  action follow(location: string)
+    got = location
+    nav = open(nav, location)
+  view
+    main navigationKey=\`\${top(nav).id}\` navigationBack="back" navigate=follow testId="root"
+      text top(nav).url testId="location"
+      text got testId="got"
+`);
+      const built = spawnSync(resolve(ROOT, 'target/debug/contract'), ['build', source, '-o', plan], { cwd: ROOT, encoding: 'utf8' });
+      if (built.status !== 0) throw new Error(built.stderr || built.error?.message || 'notification fixture failed to compile');
+      writeFileSync(launchControl, 'open b app://thread/42\n');
+      const cold = await open({ host, session: 'b', plan, env: { EXACT_HOST_CONTROL: launchControl } }); try {
+        let tree = await cold.tree();
+        hcheck(byTestId(tree, 'location')?.props.text === '/thread/42', `embedded launch location survives view attachment: ${JSON.stringify(byTestId(tree, 'location')?.props)}`);
+        hcheck(byTestId(tree, 'got')?.props.text === 'none', 'a cold notification location does not run the warm navigate action');
+        cold.session = 'a'; hcheck(byTestId(await cold.tree(), 'location')?.props.text === '/', 'the other embedded session keeps its launch route');
+        cold.session = 'b'; await cold.type('root', '/thread/43'); tree = await cold.tree();
+        hcheck(byTestId(tree, 'location')?.props.text === '/thread/43' && byTestId(tree, 'got')?.props.text === '/thread/43', 'a mounted embedded session hears warm navigation');
+      } finally { await cold.close(); }
+    }
     hcheck(Array.isArray(s.sessions) && s.sessions.join(',') === 'a,b', `the host announced sessions ${JSON.stringify(s.sessions)}, not a,b`);
     // 1. Two sessions of one plan, overlapping ids, answering apart.
     const ta = await s.tree();
@@ -427,7 +452,9 @@ if (host === 'host' || host === 'host-ios') {
         let shown = 0;
         for (let i = 0; i < 40 && !(shown > 0); i++) { await sleep(50); shown = (await s.layout()).env['keyboard-inset-height']; }
         s.session = 'a';
-        await s.tap('caltrain-main');
+        // Its ground, a point at its top left: a plain tap names `main`, which has no press, and is refused when its
+        // middle holds a control (LLP 1012 §1) — the departure card a finger there would press.
+        await s.tap('caltrain-main', { at: [2, 2] });
         s.session = 'b';
         const kept = (await s.layout()).env['keyboard-inset-height'];
         const sb3 = await s.state();
@@ -487,7 +514,9 @@ if (host === 'web') {
   }
 }
 
-const s = await open({ host, browser: 'chrome' });
+// A fresh named store admits app storage without sharing another drive's profile or port.
+const appDrive = host === 'web' ? { storage: `smoke-${randomUUID()}`, env: { EXACT_AGENT_EPHEMERAL_PORT: '1' } } : {};
+const s = await open({ host, browser: 'chrome', ...appDrive });
 // A web artifact's staged capabilities (LLP 1047.000 §9): the page boots
 // without them, and the first agent call loads inspection before it asks.
 const stages = async () => host === 'web' && !jsTargetBuild(selectedWebDist) ? JSON.parse(await s.carrier.evaluate('JSON.stringify(exact.stages())')) : {};
@@ -500,6 +529,7 @@ try {
   // 1. Every resolved app must produce a tree and a rendered root. A
   // `caltrain-main` root admits Caltrain's fixture; once admitted, every
   // landmark its later steps need is required rather than silently skipped.
+  if (host === 'web') { await s.clock('data'); check((await s.state()).storage?.available === true, 'the app drive has no scratch store'); }
   let tree = await s.tree();
   check(tree.roots?.length > 0 && tree.nodes.length > 0, `${app.name} produced no live roots`);
   if (staged.inspection) check((await stages()).inspection === 'loaded', 'the first agent call did not load the inspection stage');
@@ -757,6 +787,7 @@ try {
   failures.push(`the ${app.name} drive stopped: ${error.message}`);
 } finally {
   await s.close();
+  if (appDrive.storage) rmSync(driveStore(app, appDrive.storage, appDrive.env).profile, { recursive: true, force: true });
 }
 
 // 8. The nested case (LLP 1010, the scroll fixture): a scroll node that
@@ -800,7 +831,7 @@ if (apple && !device) await httpFrameSmoke({ host, open, check });
         check(attrs.lang === lang && attrs.dir === dir, 'the document element carries lang and dir');
         if (jsTargetBuild(selectedWebDist)) { // a JS page (the plan compiled ahead) reloads, its launch facts in its URL
           await f.carrier.evaluate('location.reload()').catch(() => {});
-          for (let i = 0; i < 200 && !(await f.carrier.evaluate("document.readyState === 'complete' && document.getElementById('exact-root')?.dataset.bootMs != null && !!globalThis.exact?.agentSettled").catch(() => false)); i++) await sleep(25);
+          await rebooted(f.carrier);
           await f.carrier.evaluate('exact.ready'); } else await f.carrier.evaluate('fetch("/__plan").then(r => r.arrayBuffer()).then(b => exact.reload(new Uint8Array(b)))');
         check(byTestId(await f.tree(), 'place')?.props.text === expected, 'web reload retains launch facts');
         const attrsAfter = await f.carrier.evaluate('({lang:document.documentElement.lang,dir:document.documentElement.dir})');
@@ -1124,7 +1155,8 @@ if (deckFixture) {
 // top safe area; web and Linux report zero. Focusing the input
 // at the bottom: on iOS the software keyboard rises, the viewport insets
 // itself by the keyboard's height and reveals the field above it, the layout
-// viewport untouched — a browser's visual viewport; a tap on the dismiss
+// viewport untouched — a browser's visual viewport, which the fixture asks
+// for (`resizes-visual`; iOS's default resizes, LLP 1116 D2); a tap on the dismiss
 // button takes the focus, and the keyboard goes. `layout.env` reports both,
 // by the web's `env()` names, on every host.
 {
@@ -1397,7 +1429,7 @@ if (existsSync(appTests)) {
 // 14. Native modules (LLP 1024 D8): the fixture's whole seam, when the app is it.
 if (app.modules.tags.includes('exact-fixture') && ['web', 'macos', 'ios'].includes(host)) {
   const { nativeSmoke } = await import('./smoke-native.mjs');
-  await nativeSmoke({ host, open, check, webDist: selectedWebDist });
+  await nativeSmoke({ host, open, check, webDist: selectedWebDist, device });
 }
 // A painting host loads no module; the fixture's hatches run there (LLP 1075.003.000.001 §8 stage 4).
 if (app.modules.tags.includes('exact-fixture') && host === 'linux') await (await import('./smoke-native.mjs')).paintingHatchSmoke({ host, open, check });

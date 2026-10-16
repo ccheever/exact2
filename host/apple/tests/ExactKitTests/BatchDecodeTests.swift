@@ -11,7 +11,7 @@ extension JSONDecoder {
     func decode(_ type: NodeStyle.Type, from data: Data) throws -> NodeStyle {
         try data.withUnsafeBytes {
             var reader = BatchReader(bytes: $0.bindMemory(to: UInt8.self))
-            let style = try reader.values()
+            let style = try CalculatedLength.decode(reader.values())
             try reader.end()
             return style
         }
@@ -96,7 +96,7 @@ final class BatchDecodeTests: XCTestCase {
         let rows = [
             #"{"op":"create","id":4294967295,"kind":"text","props":{"text":"α 👩‍🚀 é\n\"\\\u0001"},"style":{"opacity":0.5,"text_color":[[1,2,3,4],[5,6,7,8]],"future":{"b":true,"n":null}},"handlers":["press","press","change"]}"#,
             #"{"op":"props","id":1,"set":{"href":"/a"},"clear":["text"]}"#,
-            #"{"op":"style","id":1,"style":{"a":true,"b":false,"c":null,"d":"x","e":[1,"x",{}]}}"#,
+            #"{"op":"style","id":1,"style":{"a":true,"b":false,"c":null,"d":"x","e":[1,"x",{}],"future":{"calc":"user data","env":{"theme":"dark"}}}}"#,
             #"{"op":"children","id":1,"ids":[0,1,4294967295]}"#,
             #"{"op":"roots","ids":[1,2]}"#,
             #"{"op":"paragraph","id":1,"runs":[{"id":2,"parent":1,"paint":true,"props":{"text":"a","href":"/"},"style":{"line_height":1.25,"font_size":17.3,"font_weight":600,"font_family":1,"letter_spacing":0.1,"font_style":"italic","text_decoration_line":"underline","text_color":[[1,2,3,4],[5,6,7,8]],"ignored":[true]},"handlers":["press"]},{"id":3,"parent":2,"style":{"line_height":"21px","text_color":[1,2,3,4]}}]}"#,
@@ -106,6 +106,7 @@ final class BatchDecodeTests: XCTestCase {
             #"{"op":"destroy","id":1,"ignored":{"deep":[null,true,"x"]}}"#,
             #"{"op":"flow","id":1,"shapes":[{"rect":[0,1,2,3]}]}"#,
             #"{"op":"surface","id":1,"name":"map","values":[1,true,null,["x"]]}"#,
+            #"{"op":"surface","id":1,"name":"map","values":[{"calc":"user data","env":{"theme":"dark"}}]}"#,
             #"{"op":"command","name":"openURL","args":["https://example.com",false,null]}"#,
             #"{"op":"hold","token":"18446744073709551615","x":1,"y":2}"#,
             #"{"op":"height-drag","id":1,"handleKey":"18446744073709551615","target":null,"targetKey":null}"#,

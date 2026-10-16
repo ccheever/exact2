@@ -3,9 +3,9 @@
 component App
   state hay = "Hello, World"
   state needle = "World"
-  derive inc = includes(hay, needle)
-  derive sw = startsWith(hay, needle)
-  derive ew = endsWith(hay, needle)
+  derive inc = hay.includes(needle)
+  derive sw = hay.startsWith(needle)
+  derive ew = hay.endsWith(needle)
   action setNeedle(v: string)
     needle = v
   action setHay(v: string)

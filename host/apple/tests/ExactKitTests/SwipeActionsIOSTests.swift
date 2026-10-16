@@ -121,6 +121,72 @@ final class SwipeActionsIOSTests: XCTestCase {
         XCTAssertTrue(p.swipeActions.refusal(of: owner)?.contains("\"delete\" names no one descendant of it") == true, p.swipeActions.refusal(of: owner) ?? "none")
     }
 
+    /// Actions that say `appearance="none"` keep their paint
+    /// (PaintedSwipesIOS.swift): no cell, the row's own scroll, its actions
+    /// VoiceOver's custom actions on the content and hidden from it; its
+    /// own drag leaves it open (another painted row's closes it).
+    func testAPaintedRowSwipesByItsScrollWithTheSwipesBehaviours() throws {
+        let p = fixture()
+        let owner = try XCTUnwrap(p.views[1]), body = try XCTUnwrap(p.views[3]), delete = try XCTUnwrap(p.views[4])
+        var paint = BatchOp(op: .style, nodeID: 4)
+        paint.style = ["appearance": "none", "written": ["appearance"]]
+        apply(p, [paint])
+        XCTAssertFalse(p.swipeActions.ownsAction(4), "no native action")
+        p.swipeActions.touch(owner)
+        XCTAssertNil(p.swipeActions.cell(of: owner), "no cell: the row paints its actions")
+        let scroll = try XCTUnwrap(owner.scroll, "the row's own scroll")
+        XCTAssertEqual(scroll.contentSize.width, 390)
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        let action = try XCTUnwrap(body.accessibilityCustomActions?.first)
+        XCTAssertEqual(action.name, "Delete")
+        _ = action.actionHandler?(action)
+        XCTAssertEqual(pressed, [4], "VoiceOver's custom action presses it")
+        XCTAssertTrue(delete.accessibilityElementsHidden, "the painted control, behind the content, is not read twice")
+
+        // Open, then a drag begins on it.
+        scroll.contentOffset.x = 90
+        p.swipeActions.painted.began(try XCTUnwrap(p.views[1]))
+        XCTAssertEqual(scroll.contentOffset.x, 90, "its own drag leaves it open")
+        // A native row opening closes it (one row of either kind open).
+        p.swipeActions.painted.closeAll()
+        XCTAssertEqual(scroll.contentOffset.x, 0, accuracy: 0.5, "closed")
+
+        // No longer a swipe action: what the row installed goes, and its
+        // old VoiceOver action, still held, presses nothing.
+        var unswipe = BatchOp(op: .props, nodeID: 1)
+        unswipe.clear = ["swipeTrailing"]
+        apply(p, [unswipe])
+        XCTAssertNil(body.accessibilityCustomActions, "no action left on the content")
+        XCTAssertFalse(delete.accessibilityElementsHidden, "the button is VoiceOver's again")
+        pressed = []
+        XCTAssertEqual(action.actionHandler?(action), false)
+        XCTAssertEqual(pressed, [], "the stale action presses nothing")
+    }
+
+    /// A painted row's full swipe presses the action at the edge the drag
+    /// went past: the trailing one at the right, unless the row is laid out
+    /// right to left, when the trailing actions are at the left.
+    func testAPaintedFullSwipeFollowsTheRowsLayoutDirection() throws {
+        for rtl in [false, true] {
+            let p = fixture()
+            let owner = try XCTUnwrap(p.views[1])
+            var paint = BatchOp(op: .style, nodeID: 4)
+            paint.style = ["appearance": "none", "written": ["appearance"]]
+            // Right to left, the content is at the right and Delete at the left.
+            apply(p, [paint] + (rtl ? [frame(3, 90, 300, 80), frame(4, 0, 90, 80)] : []))
+            owner.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
+            let scroll = try XCTUnwrap(owner.scroll)
+            var pressed: [UInt32] = []
+            p.onPress = { pressed.append($0) }
+            // Held by the rubber band 60 points (20% of the row) past the edge.
+            scroll.contentOffset.x = rtl ? -60 : 150
+            var target = scroll.contentOffset
+            p.swipeActions.painted.willEnd(owner, scroll, target: &target)
+            XCTAssertEqual(pressed, [4], rtl ? "rightward, past the left edge: trailing" : "leftward, past the right edge: trailing")
+        }
+    }
+
     /// The agent's tap on an action no swipe revealed (an authored test's
     /// `tap delete-…`, splitter rough 12) presses its control as UIKit's
     /// action would, and leaves the row at rest again; a disabled control's

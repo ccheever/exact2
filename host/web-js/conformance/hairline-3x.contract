@@ -1,0 +1,25 @@
+// linux: layout
+// agent: scale=3
+// `hairline.contract` at 3x (LLP 1115.000 D10.3, D14.2), a phone's scale: a
+// hairline is a third of a point, where an authored `0.5` is a device pixel
+// and a half on one host and snapped to one on another. The same boxes, the
+// browser's against the kernel's.
+component Hairline
+  state edged = true
+  action flip
+    edged = not edged
+  view
+    column testId="root" width=420 box-sizing="border-box" padding=16 gap=12
+      button testId="flip" press=flip width=80 height=28
+        text "flip" line-height="18px"
+      box testId="all" height=20 border="-exact-hairline solid -exact-separator"
+      box testId="bottom" height=20 border-bottom-width="-exact-hairline" border-bottom-style="solid"
+      box testId="bound" height=20 border-top-width=(edged ? "-exact-hairline" : 0) border-top-style="solid"
+      box testId="line" height="-exact-hairline" background-color="-exact-separator"
+      row gap="-exact-hairline" testId="gapped"
+        box width=20 height=20 testId="gap-a"
+        box width=20 height=20 testId="gap-b"
+      box testId="ruled"
+        box height=20 testId="above"
+        hr testId="rule"
+        box height=20 testId="below"

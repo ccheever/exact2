@@ -7,8 +7,11 @@ use std::io::{Read, Write};
 use std::os::unix::io::{AsRawFd, RawFd};
 #[path = "../../apple/src/executor_core.rs"]
 mod core;
-/// A new executor waits for a native-worker slot only under test (the core's `reserve`).
-const WAIT_FOR_SLOT: bool = cfg!(test);
+/// A new executor waits for a native-worker slot under test: the crate's own
+/// tests, and the integration binaries, whose every test's presenters share
+/// one process's bound (`test-wait`, which only the dev-dependency on this
+/// crate turns on). A presenter's executor is refused at the bound instead.
+const WAIT_FOR_SLOT: bool = cfg!(any(test, feature = "test-wait"));
 
 /// Ordered native work plus explicitly independent HTTP, with a poll wake.
 pub struct Executor {
@@ -16,20 +19,32 @@ pub struct Executor {
     wake: UnixStream,
     note: Option<String>,
 }
+/// The Linux host's transports: rustls over ureq and the portable WebSocket.
+fn portable_host() -> ibex2::host::Host {
+    ibex2::host::Host::with_transport(Box::new(ibex2::transport::RustlsHttpTransport::new()))
+        .with_socket_transport(Box::new(
+            ibex2::transport::websocket::TcpSocketTransport::new(),
+        ))
+}
+
 impl Executor {
     /// Start native transport owners from the app's grants.
     pub fn start(grants: &str) -> Self {
         let (wake, signal) = UnixStream::pair().expect("executor socketpair");
         wake.set_nonblocking(true).expect("nonblocking wake");
         signal.set_nonblocking(true).expect("nonblocking signal");
-        #[cfg(not(target_vendor = "apple"))]
-        let (host, note) = {
-            let transport = ibex2::transport::RustlsHttpTransport::new();
-            let note = Some(format!("trust roots: {}", transport.roots()));
-            (ibex2::host::Host::with_transport(Box::new(transport)), note)
+        // A Mac build takes the platform's transports, but under conformance's network
+        // (`EXACT_NET_PROXY`, host/web-js/conformance/net.mjs) speaks as the Linux one
+        // does: rustls and portable sockets take the run's proxy and trust from the
+        // environment, and NSURLSession takes neither
+        let portable =
+            cfg!(not(target_vendor = "apple")) || std::env::var_os("EXACT_NET_PROXY").is_some();
+        let (host, note) = if portable {
+            let roots = ibex2::transport::RustlsHttpTransport::new().roots();
+            (portable_host(), Some(format!("trust roots: {roots}")))
+        } else {
+            (ibex2::host::Host::new(), None)
         };
-        #[cfg(target_vendor = "apple")]
-        let (host, note) = (ibex2::host::Host::new(), None);
         // Grants that do not parse hold nothing: the journal says so once,
         // and every request's refusal names the line (the core's).
         let (bindings, note) = match ibex2::grant::GrantSet::parse(&exact_runner::io_grants(grants))
@@ -43,7 +58,8 @@ impl Executor {
                 )
             }
         };
-        let core = core::Core::start(
+        // The other owners, scoped grants and streams take the same transports as the first
+        let core = core::Core::start_on(
             bindings,
             grants,
             Box::new(move || {
@@ -51,6 +67,11 @@ impl Executor {
                 // (or retirement) because the presenter hasn't drained a pipe.
                 let _ = (&signal).write(&[1]);
             }),
+            if portable {
+                std::sync::Arc::new(portable_host)
+            } else {
+                std::sync::Arc::new(ibex2::host::Host::new)
+            },
         );
         Self { core, wake, note }
     }
@@ -74,12 +95,20 @@ impl Executor {
         self.core.ordered_idle()
     }
     /// Called only after the runner has no retained ordered admission refusals.
-    pub fn resume_ordered(&self) {
-        self.core.resume_ordered();
+    /// Admits the ordered requests held behind them; returns any of those
+    /// refused at a limit, for the host to record on their tickets.
+    pub fn resume_ordered(&self) -> Vec<(u64, &'static str)> {
+        self.core.resume_ordered()
     }
     /// Let go of the work for tickets the runner no longer holds.
     pub fn forget(&self, held: impl Fn(u64) -> bool) {
         self.core.forget(held);
+    }
+    /// Settle a re-ask (`Dispatch::Again`) in its ordered place, with no
+    /// work (LLP 1041 §8.4, amended 2026-10-09); kept pending while the
+    /// window is full. An error is terminal, for the host to record.
+    pub fn again(&self, request: &RequestOut) -> Result<(), &'static str> {
+        self.core.again(request.ticket)
     }
     /// Admit work, or return a refusal without an overflow queue.
     pub fn run(&self, request: RequestOut, work: Option<Work>) -> Result<(), &'static str> {
@@ -106,5 +135,13 @@ impl Executor {
     /// A wake another thread may keep: a native module's announcements.
     pub fn waker(&self) -> std::sync::Arc<dyn Fn() + Send + Sync> {
         self.core.waker()
+    }
+    /// Send a mutation's socket batch whose commit stood (LLP 1016.000 D7).
+    pub fn socket(&self, batch: &exact_runner::SocketSend) -> Result<Vec<(u64, u64, u64)>, String> {
+        self.core.socket(batch)
+    }
+    /// Each open socket's buffered bytes, by its stream ticket, live.
+    pub fn socket_reader(&self) -> exact_runner::SocketReader {
+        self.core.socket_reader()
     }
 }

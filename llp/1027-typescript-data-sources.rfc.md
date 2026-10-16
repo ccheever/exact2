@@ -19,6 +19,10 @@ recorded in D6 (2026-09-07).
 D11 — a source may adopt the compiled value the runner already holds for
 its query, so an app keeps its list data once, not twice.
 
+**Amendment (2026-10-16, Charlie's euxy goal: the port starts faster than
+its native ports):** a kept answer may be 256 KiB, not 4 KiB, by its
+measured boot cost (D4, "Kept up to 256 KiB").
+
 **Tooling runtime (Charlie, 2026-09-14):** Bun replaces Node for the bake and
 repository scripts. Rolldown remains the app bundler, and `hermesc` remains the
 bytecode compiler; the resident producer and existing dev server retain their behavior.
@@ -483,8 +487,9 @@ such an answer needs is one store entry and its result is a fifty-byte
 record, so the runner now **keeps the answer**: the last fresh value of
 every store-reading resource is written beside the app's secrets under
 `exact.kept.<resource>` (arguments and value, canonical bytes; never
-granted to the app, never counted as a read, never a revision; capped at
-8 KB), persisted by the host like any store write. At a boot whose source
+granted to the app, never counted as a read, never a revision; capped,
+at 4 KiB as built and 256 KiB since 2026-10-16, below), persisted by the
+host like any store write. At a boot whose source
 is not ready (`DataSource::ready`, false for an unloaded module) the
 first frame shows the kept answer if its arguments still match and its
 value still fits, else the compiled **empty-store placeholder** the bake
@@ -500,7 +505,7 @@ uses for cached login state. `js/tests/castle.rs` drives all three.
 **Identifying arguments (LLP 1027.005, accepted 2026-10-02).** A declaration
 `source(call, …) with context, …` sends all arguments to its source, and a
 change to any argument asks again. Its kept entry contains only the call's
-identifying arguments and the value, under the same 8 KB bound and encoding.
+identifying arguments and the value, under the same bound and encoding.
 At a boot whose source is unready, that persisted entry may seed the first
 frame only when its argument count and identifying values match and its
 value fits the current shape. Without `with`, all arguments identify the
@@ -526,7 +531,8 @@ Crew port found it (report D14). Apple now routes `exact.kept.*` to
 one listing at launch, and the app's own secrets stay in the Keychain
 (`host/apple/src/store.rs`, `Platform`). The host adds that one kv grant
 itself; the app still cannot read a kept answer. The web keeps them in
-page storage as before; Linux keeps nothing.
+page storage as before; Linux then kept nothing (since LLP 1027.007 D13 it keeps
+them in the same kv scope, written with the commit).
 
 **Written off the commit (2026-10-05).** Each kept answer was written in
 the commit that kept it (a file, a rename, a sync), on the owner thread,
@@ -540,6 +546,82 @@ write is journaled at a later commit, by the successor of a host a reload
 replaced; an answer a crash (or macOS's sudden termination) loses is
 fetched again. The app's secrets stay synchronous (LLP 1018).
 
+**Kept up to 256 KiB (amended 2026-10-16, Charlie's euxy goal: the port
+starts faster than its native ports).** The bound was 4 KiB as built (this
+text said 8 KB, which the code never was), sized for "a session, a list of
+names".
+The euxy port's splash types on the active pattern from its library
+resource, a 60 KB answer, so it was never kept: every launch showed the
+unlit splash until Hermes and `app.ts` answered after first pixel, and
+waited for that answer before the 900 ms type-on and fade began. The SwiftUI
+port reads its library (a JSON file in Application Support) synchronously
+before its first frame, as a native app does. What the bound protects,
+measured on an iPhone 17 simulator (iOS 27, Release, an M-series Mac; the
+median of 100 rounds of `ibex2`'s kv `FileStore` and the runner's
+`Value::decode` and shape check on a library-shaped answer):
+
+| Kept entry | Read (listing, open) | Decode | Shape check | Boot, in all | Encode at the commit | Write (writer thread) |
+|---|---|---|---|---|---|---|
+| 4 KiB | 0.58 ms | 0.01 ms | 0.00 ms | 0.62 ms | 0.01 ms | 10.2 ms |
+| 64 KiB | 0.54 ms | 0.10 ms | 0.01 ms | 0.69 ms | 0.05 ms | 9.4 ms |
+| 256 KiB | 0.40 ms | 0.46 ms | 0.08 ms | 0.95 ms | 0.17 ms | 8.9 ms |
+| 1 MiB | 0.61 ms | 1.00 ms | 0.18 ms | 1.85 ms | 0.36 ms | 9.6 ms |
+
+- *Boot read and decode.* The file read is a directory listing and an open,
+  the same at any size (0.4 to 0.6 ms from run to run); decoding and
+  checking the shape grow at 1 to 2 µs per KiB. From run to run the whole
+  is 0.8 to 0.95 ms at 256 KiB, 1.2 to 1.4 ms at 512 KiB and 1.8 to 2.4 ms
+  at 1 MiB.
+- *The commit.* Encoding runs on the main thread at each fresh answer; the
+  write, a fresh file synced and renamed, is the writer thread's and costs
+  its `fsync`, about 9 ms at any size.
+- *Disk and the writer's memory.* One file per store-reading resource, and
+  at most one waiting value per key: each at most the bound, and all of
+  them at most the total below.
+- *Staleness.* Unchanged by size: admission is still by identity and shape,
+  and `data_ready` still asks again.
+- *Page storage.* The wasm web target keeps answers in `localStorage` as
+  base64 (`exact.secret.exact.kept.<resource>`), in the origin's quota of
+  about 5 M characters that the app's secrets and persisted states share; a
+  256 KiB answer takes about 350 K of it. The default JS target keeps none.
+  Linux keeps them in the same kv scope as Apple (LLP 1027.007 D13),
+  written with the commit.
+
+The kept answers are also bounded together, at twice one answer's bound
+(512 KiB): the runner, which knows every entry, forgets the longest others
+when keeping one would pass it, in the same commit, and says so (`kept
+answers are at most 512 KiB together: forgot …`), and the Apple and Linux
+hosts read no more than that into a launch's snapshot. The read, decode and
+shape check run before the first frame on the thread that boots the runner,
+the main thread on Apple (`snapshot_in`, then `kept_seed`): two entries of
+256 KiB, listed, read and decoded, took 1.9 to 2.0 ms on the simulator,
+measured while the Mac ran at a load average near 300 (one 4 KiB entry took
+1.1 to 1.3 ms under the same load, so most of it is the file system). A
+physical phone is not measured. The total also bounds a native host's disk
+beside the app's own files and the page's share of its quota (about 700 K
+characters). The page treats the kept answers as the cache they are
+(`navigation.js`, `storeInPage`): a secret or persisted state the quota
+refuses sets every kept answer aside and is written again, and the kept
+answers are put back if it still fails; a kept answer the quota refuses
+leaves the older one, which the next launch may still match, and is warned.
+Native stores are files under the app's container, with no quota a cache
+could exhaust before a secret: the total is their bound.
+
+So one answer may be 256 KiB of identifying arguments and value, four times
+what a first screen like euxy's needs, and two such answers fit together; a
+third is kept by forgetting the longest other, whose screen shows its
+placeholder at the next launch. An answer over 256 KiB is forgotten and `too
+big to keep` is said once, naming the bound. On the port (Release, iPhone 17 simulator, a 440-pattern
+library, median of 10 launches each, alternating), time to interactive (the
+splash's fade complete) went from 1494 ms to 1114 ms (another set: 1549 to
+1117 ms); the SwiftUI and UIKit ports measured 1210 and 1275 ms on a
+simulator of the same model. Its first frame now shows the splash typing on
+the active pattern, and lays out the screen beneath it too (242 views, first
+draw at 398 ms; 137 views at 270 ms before), work the old launch did once the
+answer came. The port also had to stop identifying its library by the
+launch's clock: `library() with time.epochAtZero`, since an epoch that
+differs at every launch never matches the kept entry (LLP 1027.005).
+
 **Storage readers (2026-09-07):** the same `resources.reader` marker covers
 filesystem and SQLite access. A storage call records an external read even when
 bake refuses it; it does not invent a secret read or key. Storage-backed resources
@@ -552,6 +634,23 @@ every resource that showed a compiled answer, even one whose arguments are
 the bake's. Only an `else` row is not asked. The module at launch is not the
 module the bake ran, and the web asks it at launch. Feed's no-argument
 `explore()` stayed empty on macOS while the web filled it (LLP 1048.003 D6).
+
+**A store holding secrets passes the build-time answer over (approved
+2026-10-10 via lead).** A store reader's compiled answer is the bake's,
+from an empty store: signed out by construction, and indistinguishable to
+the app from a real answer. At a boot whose source is not ready and whose
+store opened holding a granted secret, that answer is known not to describe
+this device, so a store reader with no kept answer to show (none, or one refused)
+shows its declared `else` placeholder instead, pending, and `data_ready`
+asks it as any placeholder (the Bluesky clone's signed-in launch flashed
+`myFeeds`' signed-out empty list). Without an `else` the build-time answer
+stands, as before; so does it at a store with no granted secret, a fresh
+install's. The runner's own `exact.kept.*` and `exact.state.*` entries are not
+secrets. The launch's snapshot decides, not a write before readiness: the
+store's answer then is the source's to give at `data_ready`. The
+journal says `<resource> shows its placeholder until its source answers:
+the store holds secrets its build-time answer did not see`. The Rust runner
+does this; the web JS target's `rt.js` does not yet (QUEUE).
 
 The alternative — create the engine before boot, since it is 0.3 ms —
 was considered and not taken, not because the number is large but because the rule
@@ -941,9 +1040,9 @@ lets a frame render first; on the bench's mobile profile that frame held a
 press's request 60–80 ms. A source's GET now leaves when the source records it:
 `module-glue.js` starts it when the origin is one of the module's own
 `net.fetch` grants and the request has no body, and the runner's `request` op
-for the same method, URL and headers, with `cache: default` and redirects
-refused (LLP 1016 D2), claims the response in flight instead of fetching. Admission and the
-answer are unchanged: a GET the turn doesn't report is aborted as the turn
+for the same method, URL and headers, with `cache: default` and
+redirects followed (LLP 1016 D2), claims the response in flight instead of
+fetching. Admission and the answer are unchanged: a GET the turn doesn't report is aborted as the turn
 ends, and one the runner doesn't claim while the report is delivered is aborted
 a task later. The glue also loads the body reader at data readiness. RealWorld
 (nine runs, load 33): a press after a 3-second read, 313 → 252 ms (React 211);
@@ -1365,7 +1464,11 @@ uses app-scoped IndexedDB files and pinned official SQLite WASM in a dedicated
 worker. Each file operation is transactional; SQLite holds a Web Lock on its
 file and shared ancestor locks until close, preventing another connection or a
 filesystem mutation from losing committed data. Same-tab filesystem mutations
-serialize; conflicts with other tabs or live databases return `Unavailable`.
+serialize; conflicts with other tabs or live databases wait for Web Locks,
+bounded by 10 seconds for the whole acquisition (EX4, Charlie, 2026-10-12).
+A timeout aborts the pending request, releases all acquired ancestors and
+returns `Unavailable`/`EBUSY` naming the path and wait. A database still owns
+its file until close; waiting never grants two handles the same image.
 Database bytes are ordinary SQLite files in the same namespace. Single-file reads
 fetch only the requested IndexedDB record; directory listing reads its directory
 record and descendant keys in the same transaction, without file contents. Read

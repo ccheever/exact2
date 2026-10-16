@@ -132,12 +132,12 @@ extension NodeView {
 
     /// Live children may reorder around an exit, but the ghost keeps its
     /// existing slot rather than being moved to the end of the native tree.
+    /// Its slot is among the nodes: a view of the host's own in the same
+    /// parent (the Mac's table under a list's rows) is no sibling of theirs.
     static func keepingGhosts(_ children: [NodeView], in parent: PaintView) -> [NodeView] {
         var result = children
-        for (index, view) in parent.subviews.enumerated() {
-            if let ghost = view as? NodeView, ghost.paintGhost {
-                result.insert(ghost, at: min(index, result.count))
-            }
+        for (index, node) in parent.subviews.compactMap({ $0 as? NodeView }).enumerated() where node.paintGhost {
+            result.insert(node, at: min(index, result.count))
         }
         return result
     }

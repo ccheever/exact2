@@ -2,12 +2,13 @@
 //! `linear-gradient()`, `radial-gradient()` and `conic-gradient()` (CSS
 //! Images 3 §3, Images 4 §3.3). @ref LLP 1066, LLP 1077 D5
 //!
-//! Stops are resolved to percentages when parsed (CSS's fix-up), so the row
+//! Percentage stops are fixed up when parsed; length stops at paint time, so the row
 //! holds what every host paints and `css()` is canonical. Geometry depends on
 //! the box, so it is resolved by the host at paint time through
 //! [`Gradient::geometry`]; a colour may be a `light-dark()` pair, resolved per
 //! appearance like any colour row (LLP 1034).
 
+pub use crate::style::wide::Lookup;
 use crate::style::{Color, ColorValue};
 use std::fmt::Write as _;
 
@@ -25,9 +26,11 @@ pub const MAX_LAYERS: usize = 4;
 /// One gradient.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Gradient {
+    /// Repeat from the first stop to the last (linear gradients only).
+    pub repeating: bool,
     /// Linear or radial, and how it is placed in the box.
     pub kind: GradientKind,
-    /// At least two; positions are percentages 0–100, nondecreasing.
+    /// At least two; percentage-only lists are fixed up, lengths await the box.
     pub stops: Vec<Stop>,
     /// `in <space> [<method> hue]`, as written (LLP 1100 D2).
     pub interpolation: Option<exact_color::Interpolation>,
@@ -38,8 +41,21 @@ pub struct Gradient {
 pub struct Stop {
     /// The colour, possibly a `light-dark()` pair.
     pub color: ColorValue,
-    /// Percent of the gradient line (linear) or ray (radial), 0–100.
+    /// Position in `unit`, along the gradient line (linear) or ray (radial).
     pub at: f32,
+    /// The authored unit; omitted stops need the box when mixed with lengths.
+    pub unit: StopUnit,
+}
+
+/// A stop position before the box is known.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StopUnit {
+    /// Percent of the gradient line.
+    Percent,
+    /// CSS pixels along the gradient line.
+    Px,
+    /// An omitted position, distributed by CSS's fix-up.
+    Auto,
 }
 
 /// The gradient's shape.
@@ -288,7 +304,7 @@ fn one_gradient(css: &str) -> Result<Gradient, &'static str> {
             .join(" ");
     }
     let (kind, first) = match lower[..open].trim_end() {
-        "linear-gradient" => linear_prelude(&prelude)?,
+        "linear-gradient" | "repeating-linear-gradient" => linear_prelude(&prelude)?,
         "radial-gradient" => radial_prelude(&prelude)?,
         "conic-gradient" => conic_prelude(&prelude)?,
         _ => return Err(EXPECTED),
@@ -299,7 +315,13 @@ fn one_gradient(css: &str) -> Result<Gradient, &'static str> {
     let first = first || interpolation.is_some();
     let conic = matches!(kind, GradientKind::Conic { .. });
     let stops = stops(&args[usize::from(first)..], conic)?;
+    if matches!(kind, GradientKind::Radial { .. })
+        && stops.iter().any(|s| s.unit == StopUnit::Px && s.at < 0.0)
+    {
+        return Err("negative radial length stops are not implemented");
+    }
     Ok(Gradient {
+        repeating: lower.starts_with("repeating-linear-gradient"),
         kind,
         stops,
         interpolation,
@@ -307,6 +329,11 @@ fn one_gradient(css: &str) -> Result<Gradient, &'static str> {
 }
 
 impl Gradient {
+    /// Wire text retaining native colour references.
+    pub fn wire(&self) -> String {
+        self.text(ColorText::Wire)
+    }
+
     /// Canonical CSS of the one gradient.
     pub fn css(&self) -> String {
         self.text(ColorText::Css)
@@ -322,6 +349,9 @@ impl Gradient {
                 };
             }
         };
+        if self.repeating {
+            out.push_str("repeating-");
+        }
         match self.kind {
             GradientKind::Linear(Direction::Angle(deg)) => {
                 let _ = write!(out, "linear-gradient({}deg", exact_num::Shortest32(deg));
@@ -359,7 +389,15 @@ impl Gradient {
         for stop in &self.stops {
             out.push_str(", ");
             color_text(&mut out, stop.color, mode);
-            let _ = write!(out, " {}%", exact_num::Shortest32(stop.at));
+            match stop.unit {
+                StopUnit::Auto => {}
+                StopUnit::Percent => {
+                    let _ = write!(out, " {}%", exact_num::Shortest32(stop.at));
+                }
+                StopUnit::Px => {
+                    let _ = write!(out, " {}px", exact_num::Shortest32(stop.at));
+                }
+            }
         }
         out.push(')');
         out
@@ -376,7 +414,14 @@ impl Gradient {
     /// extends them, so no painter has to (Vello's ramp starts its first
     /// stretch at 0 whatever the first stop's offset).
     pub fn resolved(&self, dark: bool) -> Vec<(f32, Color)> {
-        if let Some(ramp) = self.interpolated(dark) {
+        self.resolved_with(dark, &crate::style::wide::wide)
+    }
+
+    /// [`resolved`](Self::resolved), each wide stop's colour read through
+    /// `wide` (a retained gradient's captured values, LLP 1121 stage 4);
+    /// any other colour as ever.
+    pub fn resolved_with(&self, dark: bool, wide: Lookup<'_>) -> Vec<(f32, Color)> {
+        if let Some(ramp) = self.interpolated_with(dark, wide) {
             return ramp
                 .into_iter()
                 .map(|(at, c, a)| (at, Color::from_linear_srgb(c, a)))
@@ -385,7 +430,15 @@ impl Gradient {
         let mut out: Vec<(f32, Color)> = self
             .stops
             .iter()
-            .map(|s| (s.at / 100.0, s.color.resolve(dark)))
+            .map(|s| {
+                let c = match s.color {
+                    ColorValue::Wide(id) => {
+                        wide(id).map_or(Color::TRANSPARENT, |w| w.fallback().resolve(dark))
+                    }
+                    other => other.resolve(dark),
+                };
+                (s.at / 100.0, c)
+            })
             .collect();
         if let Some(&(_, c)) = out.first().filter(|s| s.0 > 0.0) {
             out.insert(0, (0.0, c));
@@ -399,12 +452,21 @@ impl Gradient {
     /// As written; else Oklab when a stop is a modern colour; `None` is
     /// legacy sRGB, as CSS says.
     pub fn interpolation(&self, dark: bool) -> Option<exact_color::Interpolation> {
+        self.interpolation_with(dark, &crate::style::wide::wide)
+    }
+
+    fn interpolation_with(
+        &self,
+        dark: bool,
+        wide: Lookup<'_>,
+    ) -> Option<exact_color::Interpolation> {
         self.interpolation.or_else(|| {
             self.stops
                 .iter()
                 .any(|s| match s.color {
-                    ColorValue::Wide(id) => crate::style::wide::wide(id)
-                        .is_some_and(|w| w.modern[usize::from(dark && w.dark.is_some())]),
+                    ColorValue::Wide(id) => {
+                        wide(id).is_some_and(|w| w.modern[usize::from(dark && w.dark.is_some())])
+                    }
                     _ => false,
                 })
                 .then_some(exact_color::Interpolation::OKLAB)
@@ -414,9 +476,17 @@ impl Gradient {
     /// The sampled ramp when not legacy sRGB: positions 0–1, extended
     /// linear sRGB and alpha.
     pub fn interpolated(&self, dark: bool) -> Option<Vec<(f32, [f64; 3], f64)>> {
-        let how = self.interpolation(dark)?;
+        self.interpolated_with(dark, &crate::style::wide::wide)
+    }
+
+    fn interpolated_with(
+        &self,
+        dark: bool,
+        lookup: Lookup<'_>,
+    ) -> Option<Vec<(f32, [f64; 3], f64)>> {
+        let how = self.interpolation_with(dark, lookup)?;
         let wide = |c: ColorValue| match c {
-            ColorValue::Wide(id) => crate::style::wide::wide(id).map(|w| w.half(dark)),
+            ColorValue::Wide(id) => lookup(id).map(|w| w.half(dark)),
             other => {
                 let c = other.resolve(dark);
                 Some(exact_color::Wide {
@@ -570,11 +640,7 @@ const EXPECTED: &str =
 /// with, and why: a browser would paint each, so every build refuses them
 /// where it can see them and the web target drops them at run time, as the
 /// native hosts do (studio diary R15).
-pub const REFUSED: [(&str, &str); 6] = [
-    (
-        "repeating-linear-gradient(",
-        "repeating-linear-gradient() is not implemented; a gradient paints once",
-    ),
+pub const REFUSED: [(&str, &str); 5] = [
     (
         "repeating-radial-gradient(",
         "repeating-radial-gradient() is not implemented; a gradient paints once",
@@ -897,7 +963,7 @@ fn stops(args: &[&str], conic: bool) -> Result<Vec<Stop>, &'static str> {
         }
         conic.then(|| angle(w)).flatten().map(|deg| deg / 3.6)
     };
-    let mut authored: Vec<(ColorValue, Option<f32>)> = Vec::new();
+    let mut authored: Vec<(ColorValue, Option<f32>, StopUnit)> = Vec::new();
     for arg in args {
         let words = split_top(arg, ' ');
         let mut split = words.len();
@@ -919,18 +985,28 @@ fn stops(args: &[&str], conic: bool) -> Result<Vec<Stop>, &'static str> {
             return Err("a color in a profile's space (`color(--name …)`) is drawn by the platform and never mixed: not in a gradient");
         }
         if split == words.len() {
-            authored.push((color, None));
+            authored.push((color, None, StopUnit::Auto));
         }
         for w in &words[split..] {
-            let n = percent(w).ok_or(if conic {
-                "a conic stop's position is a percentage or an angle"
+            let lower = w.to_ascii_lowercase();
+            let w = lower.as_str();
+            let (n, unit) = if let Some(n) = percent(w) {
+                if !(0.0..=100.0).contains(&n) {
+                    return Err("a stop's position is from 0% to 100%; positions past the ends are not implemented");
+                }
+                (n, StopUnit::Percent)
+            } else if !conic {
+                let n = if let Some(px) = w.strip_suffix("px") {
+                    exact_num::parse_f32(px).ok()
+                } else {
+                    exact_num::parse_f32(w).ok().filter(|n| *n == 0.0)
+                }.filter(|n| n.is_finite())
+                    .ok_or("a stop's position is a percentage or a px length (or unitless zero); other lengths are not implemented")?;
+                (n, StopUnit::Px)
             } else {
-                "a stop's position is a percentage; lengths are not implemented"
-            })?;
-            if !(0.0..=100.0).contains(&n) {
-                return Err("a stop's position is from 0% to 100%; positions past the ends are not implemented");
-            }
-            authored.push((color, Some(n)));
+                return Err("a conic stop's position is a percentage or an angle");
+            };
+            authored.push((color, Some(n), unit));
         }
     }
     if authored.len() < 2 {
@@ -939,36 +1015,50 @@ fn stops(args: &[&str], conic: bool) -> Result<Vec<Stop>, &'static str> {
     if authored.len() > MAX_STOPS {
         return Err("a gradient takes at most 64 colour stops");
     }
-    let last = authored.len() - 1;
-    let mut at: Vec<Option<f32>> = authored.iter().map(|s| s.1).collect();
-    at[0] = at[0].or(Some(0.0));
-    at[last] = at[last].or(Some(100.0));
-    let mut high = 0.0f32;
-    for p in at.iter_mut().flatten() {
-        high = high.max(*p);
-        *p = high;
+    let mut stops: Vec<Stop> = authored
+        .into_iter()
+        .map(|(color, at, unit)| Stop {
+            color,
+            at: at.unwrap_or(0.0),
+            unit,
+        })
+        .collect();
+    if !stops.iter().any(|s| s.unit == StopUnit::Px) {
+        fix_up(&mut stops);
+    }
+    Ok(stops)
+}
+
+/// CSS Images 3 §3.4.3, after every position has the same unit.
+fn fix_up(stops: &mut [Stop]) {
+    let last = stops.len() - 1;
+    if stops[0].unit == StopUnit::Auto {
+        stops[0].at = 0.0;
+        stops[0].unit = StopUnit::Percent;
+    }
+    if stops[last].unit == StopUnit::Auto {
+        stops[last].at = 100.0;
+        stops[last].unit = StopUnit::Percent;
+    }
+    let mut high = f32::NEG_INFINITY;
+    for s in stops.iter_mut().filter(|s| s.unit != StopUnit::Auto) {
+        high = high.max(s.at);
+        s.at = high;
     }
     let mut i = 0;
     while i < last {
         let from = i;
         i += 1;
-        while at[i].is_none() {
+        while stops[i].unit == StopUnit::Auto {
             i += 1;
         }
-        let (a, b) = (at[from].unwrap_or(0.0), at[i].unwrap_or(100.0));
+        let (a, b) = (stops[from].at, stops[i].at);
         let gap = (i - from) as f32;
-        for (k, p) in at.iter_mut().enumerate().take(i).skip(from + 1) {
-            *p = Some(a + (b - a) * (k - from) as f32 / gap);
+        for (k, s) in stops.iter_mut().enumerate().take(i).skip(from + 1) {
+            s.at = a + (b - a) * (k - from) as f32 / gap;
+            s.unit = StopUnit::Percent;
         }
     }
-    Ok(authored
-        .into_iter()
-        .zip(at)
-        .map(|((color, _), at)| Stop {
-            color,
-            at: at.unwrap_or(0.0),
-        })
-        .collect())
 }
 
 fn is_position(word: &str) -> bool {
@@ -982,3 +1072,5 @@ fn is_position(word: &str) -> bool {
 
 #[cfg(test)]
 mod tests;
+
+mod placed;

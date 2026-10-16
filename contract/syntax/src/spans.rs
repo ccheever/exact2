@@ -1,6 +1,6 @@
 //! Exhaustive source-range traversal for compiler-owned AST transformations.
 
-use crate::{ast::*, Span};
+use crate::{ast::*, sequence::Sequence, Span};
 
 /// Visit every source range, without changing the AST's non-location fields.
 /// Destructuring is exhaustive so new syntax must account for its locations.
@@ -81,10 +81,12 @@ macro_rules! structs {
 }
 structs! {
     NameSpans { names, sources }
-    File { names, routes, uses, fonts, sounds, shapes, styles, keyframes, timelines, color_profiles, fns, tests, launch, components }
+    File { names, routes, uses, fonts, sounds, shapes, styles, keyframes, timelines, color_profiles, theme, design, fns, tests, launch, components }
     KeyframesDecl { name, frames, span }
     TimelineDecl { name, span }
     ColorProfileDecl { name, attrs, span }
+    ThemeDecl { entries, span }
+    DesignSource { path, text, source_id, bindable }
     KeyframeDecl { selectors, attrs, span }
     RoutesDecl { slot, rows, span }
     RouteDecl { name, pattern, parent, tab, notfound, fields, span }
@@ -98,8 +100,10 @@ structs! {
     StyleDecl { name, attrs, span }
     ShapeDecl { name, fields, span }
     Field { name, ty, span }
-    Component { name, props, injects, provides, slot, states, derives, resources, mutations,
-        actions, tasks, view, span }
+    Component { name, props, injects, provides, slot, states, persist, derives, resources,
+        mutations, actions, tasks, sequences, view, span }
+    Sequence { name, gate, key, tracks, options, ended, span }
+    Persist { name, span }
     Binding { name, expr, span }
     ResourceDecl { name, source, args, identity, shape, placeholder, span }
     Placeholder { source, args, span }
@@ -107,7 +111,7 @@ structs! {
     Param { name, ty, span }
     Action { name, params, body, span }
     Task { name, kind, gate, key, timer, span }
-    Attr { name, value, span }
+    Attr { name, value, span, written }
 }
 
 macro_rules! record_variants {
@@ -125,13 +129,18 @@ record_variants! {
     Step {
         Tap { target, form, modifiers, span }, Drag { target, dx, dy, to, from, mouse, press, over, hold, during, span },
         Size { width, height, span }, Epoch { value, span }, TimeZone { zone, span },
-        Locale { tag, span }, Seed { seed, span }, BeforeData { span }, FailFetch { prefix, times, span }, PassFetch { prefix, span }, Type { target, text, append, span }, Key { target, key, phase, duration, span },
+        Locale { tag, span }, Seed { seed, span }, Fresh { seed, span }, BeforeData { span }, FailFetch { prefix, times, span }, PassFetch { prefix, span }, Request { method, path, body, persona, status, span }, Type { target, text, append, span }, Key { target, key, phase, duration, span },
         Pick { target, paths, span }, Clipboard { target, edit, text, span },
-        Clock { arg, span }, Reload { span }, Close { span }, Resize { width, height, span }, Screenshot { path, span }, ExpectTree { target, present, span },
+        Clock { arg, span }, Reload { span }, Close { span }, Back { span }, Resize { width, height, span }, Screenshot { path, span }, ExpectTree { target, present, span }, ExpectDisabled { target, disabled, span },
         ExpectText { target, value, span }, ExpectState { name, value, span },
-        ExpectSound { src, present, at, gain, ends, by, span },
+        ExpectSound { src, present, at, gain, ends, playback_rate, pan, by, span },
         ExpectMediaSession { field, value, span }, ExpectMediaSessionAction { action, present, span },
+        Midi { step, span },
     }
+}
+// MIDI's test steps carry no spans of their own.
+impl VisitSpans for crate::MidiStep {
+    fn visit_spans(&mut self, _: &mut impl FnMut(&mut Span)) {}
 }
 record_variants! {
     Stmt {
@@ -152,7 +161,7 @@ record_variants! {
 impl VisitSpans for TypeExpr {
     fn visit_spans(&mut self, visit: &mut impl FnMut(&mut Span)) {
         match self {
-            Self::Named(_, span) => visit(span),
+            Self::Enum(_, span) | Self::Named(_, span) => visit(span),
             Self::Option(inner, span) | Self::List(inner, span) => {
                 inner.visit_spans(visit);
                 visit(span);

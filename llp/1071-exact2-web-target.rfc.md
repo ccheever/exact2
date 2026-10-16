@@ -918,8 +918,9 @@ bytes against a plan without the feature):
   gap), +178 B; `exactSurface`, a GPU module's published record decoded
   against each reader's shape as `surface_record.rs` decodes it, +549 B.
 - **Localized strings** (LLP 1060): the tables in the module, the locale
-  slot at the base for initializers and then the table the page's locale
-  reads, with `exactTime` answered again, as the runner's first
+  slot resolved from the page's launch locale before state initializers,
+  including newly added state on a dev reload. After mount,
+  `exactTime` is answered again, as the runner's first
   `set_place`; `t` fills MF2 simple messages; the resolved table sets
   `lang` and `dir`; `exactTime.resolvedLocale` names it. +625 B with two
   one-key tables.
@@ -1614,9 +1615,13 @@ for the request, the executor and the reply), and settlement takes it as the
 resource's failure, as it takes a failed reply: the commit stands, the value it
 had stays, `failed(resource)` is true and the journal says `resource <name>
 failed: <why>` (runner/src/runner/settlement.rs; with nothing to keep it still
-refuses). A source's own refusal (unknown source, bad arguments, unavailable)
+refuses). A Rust source's own refusal (unknown source, bad arguments, unavailable)
 still refuses the commit, on both runners: `rust-data.js` now throws those as a
-refusal, where the JS runtime used to take them as failures. Messages Stress asks
+refusal, where the JS runtime used to take them as failures. TypeScript runtime
+answers follow LLP 1027.000 D3's failure-parity amendment (Charlie, 2026-10-08):
+a failed resource keeps its value or placeholder, a failed send ends unsent,
+and the input or action commits. This includes synchronous and queued sends.
+Messages Stress asks
 for the whole history up to 10,000 records (about 2.3 MB of bodies) and, past
 that, its virtualized transcript asks overlapping 200-record windows, as the
 bounded mode does (`derive paged`), saying so in its mode line; a failed
@@ -1731,18 +1736,27 @@ equal on the wasm page, the JS page and the Linux reference.
   `net.fetch` grant (a request outside the grants went out where the wasm
   host refused it); it has since 001e43d03, the whole-set grant admission
   (`issues/20260924-grant-readers-disagree.md`). The page consumes the Rust
-  parser's deeply frozen normalized form and applies native outcome parity to
-  Exact API fetches. It follows redirects, then refuses and discards a response
-  whose final URL is outside the grants. Browser fetch cannot expose a manual
-  redirect target, so an intermediate hop is necessarily contacted before
-  that final admission. If the browser itself rejects a redirect hop before
-  producing any `Response` — for example CORS rejection or an unreachable
-  destination — the page cannot observe the destination and reports `Network`,
-  not native's per-hop `Refused`; this is the declared web deviation. Every
-  redirect that does produce a response retains outcome parity: an ungranted
-  final URL is `Refused` with `outside the app's grants (net.fetch)`. Web grants
-  are parity, not a security boundary (the app is page code and retains direct
-  browser fetch). The other two are fixed below.
+  parser's deeply frozen normalized form to check Exact API fetches. It follows
+  redirects, then refuses and discards a response whose final URL is outside
+  the grants. Browser fetch cannot expose a manual
+  redirect target, so Exact cannot admit every hop before contact. On pages
+  served by the render server, CSP `connect-src` allows the page's own origin
+  and the app's granted origins; a scoped request can have narrower grants.
+  CSP blocks a hop outside the page origin and app grants before contact:
+  browser fetch reports `Network`, while native refuses that hop as `Refused`.
+  A hop granted to the app but not the source can still receive a 307 POST body
+  and return to a source-granted final URL: web succeeds while native refuses
+  before contacting that hop. Static and dev pages have no CSP. There, a 307
+  can send its method and body to an ungranted intermediate origin. If the
+  chain then returns to a granted origin, the web accepts its final response while native refuses
+  at the ungranted hop. Without CSP, an ungranted final URL is refused and
+  discarded with `outside the app's grants (net.fetch)` after contact. If the
+  browser rejects a hop before producing any `Response` — for example CORS
+  rejection or an unreachable destination — the page cannot observe that
+  destination and reports `Network`, not native's per-hop `Refused`. Web
+  grants seek parity for Exact API fetches, not a standalone browser sandbox:
+  page code retains direct browser fetch, subject to a rendered page's CSP
+  where present. The other two are fixed below.
 
 **Navigation roots without a router, and `prepend` under Bun** (2026-10-02):
 - *A navigation root in a plan with no `routes`.* The emitted module
@@ -1817,3 +1831,24 @@ equal on the wasm page, the JS page and the Linux reference.
    against a runner, so that the Linux host can be the reference for state
    and tree? (§7, "A conformance reference without the wasm page": designed,
    not built; until then the wasm page stays conformance's reference.)
+
+### Intersection visibility (2026-10-12)
+
+Codex implements Charlie's issue-fix ruling 5 in both web targets through one
+lazy `intersect-glue.js` adapter over the browser's IntersectionObserver.
+LLP 1005's "Intersection visibility" defines the payload, root, margin and
+lifetime. The JS target passes the two-field record to the action; wasm sends
+host kind 44 (`0|1,ratio`) through the runner's typed event. No adapter is loaded
+before first paint. Native observation is outside this first slice and remains
+an explicit deviation in LLP 1001 and the open filesystem issue.
+
+### Owned socket sends (2026-10-13)
+
+The TypeScript stream adapter implements LLP 1016.000 D7: the mapper keeps
+its resource's socket handle, mutations stage sends until their commit
+stands, and protocol frames reach the mapper in order without coalescing.
+This is a declared difference from the wasm oracle, which remains
+receive-only. `host/web-js/socket.test.mjs` builds and drives the JS app in
+Chrome against a local echo peer; `host/web/socket.test.mjs` holds the
+transport bounds deterministically. Rust and native adapters remain work
+in the open bidirectional-stream issue.

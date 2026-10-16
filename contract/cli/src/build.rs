@@ -52,16 +52,22 @@ fn error(id: &str, message: String, file: Option<&str>) -> contract::CompileErro
 }
 
 fn report(error: &contract::CompileError, json: bool, code: u8) -> ExitCode {
-    report_all(std::slice::from_ref(error), json, code)
+    report_all(std::slice::from_ref(error), &[], json, code)
 }
 
-/// Every diagnostic: one JSON array, or each on its own lines.
-fn report_all(errors: &[contract::CompileError], json: bool, code: u8) -> ExitCode {
+/// Every diagnostic, the refusals and then the warnings (LLP 1116 D6): one
+/// JSON array, or each on its own lines.
+fn report_all(
+    errors: &[contract::CompileError],
+    warnings: &[contract::CompileError],
+    json: bool,
+    code: u8,
+) -> ExitCode {
     if json {
-        let all: Vec<String> = errors.iter().map(|e| e.to_json()).collect();
+        let all: Vec<String> = errors.iter().chain(warnings).map(|e| e.to_json()).collect();
         println!("[{}]", all.join(","));
     } else {
-        for error in errors {
+        for error in errors.iter().chain(warnings) {
             eprintln!("{error}");
         }
     }
@@ -92,7 +98,7 @@ pub(super) fn run(args: &[String]) -> ExitCode {
     // older than the game's Rust they are warnings, never hiding the
     // compile's own refusals (the platformer's diary, R4).
     let surfaces = contract::surface_findings(Path::new(input));
-    let refused = match &surfaces {
+    let mut refused = match &surfaces {
         Ok(s) if s.newer.is_none() => s.findings.clone(),
         Ok(_) => Vec::new(),
         // An unreadable declaration; the compile reports unreadable sources.
@@ -102,21 +108,45 @@ pub(super) fn run(args: &[String]) -> ExitCode {
             .cloned()
             .collect(),
     };
-    let compiled = contract::compile_path_all_unchecked(Path::new(input), true);
+    refused.extend(crate::ambient::check(Path::new(input)));
+    if let Ok(warnings) = contract::resource_clock_warnings(Path::new(input)) {
+        for finding in warnings {
+            eprintln!("warning: {finding}");
+        }
+    }
+    // Warnings never fail the build; they follow its refusals (LLP 1116 D6).
+    let (compiled, warnings) = contract::compile_path_all_warned(Path::new(input), true);
     if let Ok(s) = &surfaces {
         if s.newer.is_some() {
             crate::surface_warnings(s);
         }
     }
     let (plan, map) = match compiled {
-        Ok(_) if !refused.is_empty() => return report_all(&refused, json, 1),
+        Ok(_) if !refused.is_empty() => return report_all(&refused, &warnings, json, 1),
         Ok(compiled) => compiled,
         Err(mut errors) => {
             errors.extend(refused);
             errors.truncate(contract::MAX_DIAGNOSTICS);
-            return report_all(&errors, json, 1);
+            return report_all(&errors, &warnings, json, 1);
         }
     };
+    // Existing declarations are an author's data seam. Refresh them from this
+    // successful compile, including imported source changes, without creating
+    // declarations for builds that never requested TypeScript.
+    let declaration = format!("{input}.d.ts");
+    if Path::new(&declaration).is_file() {
+        let exports = contract::design_exports(Path::new(&input));
+        let types = match contract::typescript_exporting(&plan, exports.as_deref()) {
+            Ok(types) => types,
+            Err(message) => return report(&error("contract-types", message, Some(input)), json, 1),
+        };
+        if std::fs::read(&declaration).ok().as_deref() != Some(types.as_bytes()) {
+            if let Err(error) = write_output(&declaration, types.as_bytes()) {
+                return report(&error, json, 1);
+            }
+            eprintln!("{declaration}: regenerated, since a source's signature changed (the types app.ts imports)");
+        }
+    }
     let bytes = plan.encode();
     if let Some(output) = output {
         if let Some(map) = map.as_ref().filter(|_| want_map) {
@@ -134,8 +164,9 @@ pub(super) fn run(args: &[String]) -> ExitCode {
         }
     }
     if json {
-        // A complete JSON value even on success; no prose on either stream.
-        println!("[]");
+        // A complete JSON value even on success, the warnings its only
+        // entries; no prose on either stream.
+        return report_all(&[], &warnings, true, 0);
     } else {
         println!(
             "{input}: {} slots, {} derives, {} resources, {} actions, {} nodes, {} regions, {} bytes",
@@ -161,6 +192,9 @@ pub(super) fn run(args: &[String]) -> ExitCode {
                     top.join(", ")
                 );
             }
+        }
+        for warning in &warnings {
+            eprintln!("{warning}");
         }
     }
     ExitCode::SUCCESS

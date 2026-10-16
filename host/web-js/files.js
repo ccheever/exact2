@@ -60,7 +60,7 @@ OnHooks.file = (e, kind, f) => {
   e.addEventListener('exact-picked', ev => {
     const files = records(ev.detail);
     if (!files) return say('picker: refused: a malformed payload');
-    f(files, ["", false, 0, 0, "none"]); // its `InputEvent`, as the runner's: no value, no text selection
+    f(files, ["", false, 0, 0, "none", "", null, false, false]); // its `InputEvent`, as the runner's: no value, no text selection
   });
   return true;
 };
@@ -97,11 +97,15 @@ export async function answer(req) {
 Object.assign(x(), { files: { holds, answer } });
 
 // ---------------------------------------------------------------- showPicker (picker.rs)
-const tokens = el => (el.getAttribute('accept') ?? '').split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
+export const tokens = el => (el.getAttribute('accept') ?? '').split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
 const MIME = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', heic: 'image/heic', heif: 'image/heif', avif: 'image/avif', tif: 'image/tiff', tiff: 'image/tiff',
-  mp4: 'video/mp4', mov: 'video/quicktime', m4v: 'video/x-m4v', webm: 'video/webm', json: 'application/json', md: 'text/markdown', markdown: 'text/markdown', txt: 'text/plain' };
-const accepts = (accept, name, mime) => accept.some(t => t === '.' + extension(name) || t === mime || (t.endsWith('/*') && mime.split('/')[0] === t.slice(0, -2)));
-const paths = v => { const l = v.split('\n').map(s => s.trim()).filter(Boolean); return l.length === 1 ? l[0].split(/\s+/) : l; };
+  mp4: 'video/mp4', mov: 'video/quicktime', m4v: 'video/x-m4v', webm: 'video/webm', pdf: 'application/pdf', json: 'application/json', md: 'text/markdown', markdown: 'text/markdown', txt: 'text/plain', html: 'text/html', htm: 'text/html', xml: 'application/xml', log: 'text/plain', csv: 'text/csv', tsv: 'text/tab-separated-values', css: 'text/css', yaml: 'application/yaml', yml: 'application/yaml' };
+export const accepts = (accept, name, mime) => !accept.length || accept.some(t => t === '*/*' || t === '.' + extension(name) || t === mime || (t.endsWith('/*') && mime.split('/')[0] === t.slice(0, -2)));
+export const deliveredType = (mime, accept) => {
+  const heic = mime === 'image/heic' || mime === 'image/heif', keeps = accept.some(t => ['*/*', 'image/*', 'image/heic', 'image/heif', '.heic', '.heif'].includes(t));
+  return heic && !keeps && accept.some(t => t.startsWith('image/')) ? 'image/jpeg' : mime;
+};
+const paths = v => { const l = v.split('\n').map(s => s.trim()).filter(Boolean); return v.includes('\n') ? l : String(v).trim().split(/\s+/).filter(Boolean); };
 Hosts.showPicker = id => {
   const found = byId(String(id ?? ''));
   const el = found?.el.localName === 'input' && found.el.type === 'file' ? found.el : null;
@@ -122,8 +126,7 @@ Hosts.showPicker = id => {
     if (list.length > 1 && !multiple) return `this input takes one file, not ${list.length}`;
     for (const p of list) {
       const name = p.split(/[\\/]/).pop(), mime = MIME[extension(name)] ?? 'application/octet-stream';
-      const heic = mime === 'image/heic' || mime === 'image/heif', keeps = accept.some(t => ['image/*', 'image/heic', 'image/heif', '.heic', '.heif'].includes(t));
-      const delivered = heic && !keeps && accept.some(t => t.startsWith('image/')) ? 'image/jpeg' : mime;
+      const delivered = deliveredType(mime, accept);
       if (!(delivered === mime && accepts(accept, name, mime)) && !accepts(accept, name, delivered)) return `${name} (${mime}) is not among accept="${accept.join(',')}"`;
     }
     return null;
@@ -156,14 +159,24 @@ Hosts.saveFile = (...args) => {
 };
 
 // ---------------------------------------------------------------- share (share.rs)
-Hosts.share = (title, text, url) => {
+Hosts.share = (title, text, url, files) => {
   const refuse = why => say(`share: refused: ${why}`);
-  if (text == null && url == null) return refuse('needs text= or url=');
+  files ??= [];
+  if (!Array.isArray(files) || files.some(f => typeof f !== 'string')) return refuse('files= is a list of strings');
+  if (text == null && url == null && !files.length) return refuse('needs text=, url= or files=');
   if (url != null && !/^https?:\/\/[^/?#\s]\S*$/i.test(url)) return refuse('url is not an absolute http: or https: URL');
+  // `files=` (LLP 1125 D12): app:/ files behind `fs.read`; a picture of an element is refused on the web.
+  for (const f of files) {
+    if (f.startsWith('#')) return refuse('a picture of an element is not available on the web');
+    const rest = f.startsWith('app:/') ? f.slice(5).split('/') : [];
+    if (rest.length < 2 || rest.some(p => !p || p === '.' || p === '..' || p.includes('\0'))) return refuse(`${f} is neither an app:/ file nor an element's #id`);
+    if (!coversPath(appGrantSet(), 'fs.read', f)) return refuse(`${f} is outside the app's fs.read grants`);
+  }
   // The pressed node anchors the sheet (the press's own event, in whose commit commands run).
   const source = globalThis.event?.currentTarget, anchor = source instanceof Element ? viewId(source) : null;
-  if (clock.agent) return hold('share', null, { title: title ?? null, text: text ?? null, url: url ?? null, anchor }, (_, req) => { say(req.choice === 'shared' ? 'share: shared' : 'share: dismissed'); });
+  if (clock.agent) return hold('share', null, { title: title ?? null, text: text ?? null, url: url ?? null, files, anchor }, (_, req) => { say(req.choice === 'shared' ? 'share: shared' : 'share: dismissed'); });
   if (typeof navigator.share !== 'function') return refuse('unavailable');
+  if (files.length) return void counted(glue().then(m => m.share({ title, text, url }, files.map(path => ({ path })))).then(say));
   navigator.share(Object.fromEntries(Object.entries({ title, text, url }).filter(([, v]) => v != null)))
     .then(() => 'share: shared', e => e?.name === 'AbortError' ? 'share: dismissed' : `share: refused: ${e?.name ?? e}`).then(say);
 };

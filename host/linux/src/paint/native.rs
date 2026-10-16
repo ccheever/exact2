@@ -18,9 +18,39 @@ pub enum NativeKind {
     /// A GPU canvas's window (LLP 1009): the reader makes one and gives it
     /// to the host, whose module presents into it.
     Surface = 3,
+    /// A text field the shell hosts (LLP 1115.001 D8): the platform's own
+    /// field, drawn here in the content box of the container this host
+    /// paints. What it is and what it holds are not in the stream: the
+    /// shell is told of its fields beside it (`presenter/hosted.rs`).
+    Field = 4,
+    /// A view an app's Kotlin hatch hosts at a node's border box (LLP
+    /// 1115.001.000 D4), over the node's own paint: what it is is the
+    /// reader's; the props carry how many times the node has been given one.
+    Hatch = 5,
 }
 
 impl Painter {
+    /// @ref LLP 1115.001.000 D4 — a view a Kotlin hatch hosts at `node`:
+    /// over its paint, in its border box `rect`, where the node is. A node
+    /// that is a platform element already is named by its own kind.
+    pub(super) fn hosted_view(&mut self, node: &NodeRef<'_>, rect: Rect4, ts: Transform) {
+        let element = matches!(
+            node.node_type,
+            NodeType::Video
+                | NodeType::WebView
+                | NodeType::NativeView
+                | NodeType::TextInput
+                | NodeType::Canvas
+        );
+        if let Some(generation) = crate::hatches::reader::hosted(node.id).filter(|_| !element) {
+            // Never a kept recording: the view comes and goes between paints.
+            self.row_refuse();
+            let props = format!("{{\"gen\":{generation}}}");
+            self.backend
+                .native(node.id, NativeKind::Hatch, &Shape::rect(rect), ts, &props);
+        }
+    }
+
     /// Name `node`'s platform element to the backend.
     pub(super) fn native(
         &mut self,

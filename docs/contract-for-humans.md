@@ -1,8 +1,9 @@
 # Contract: a guide for humans
 
 Contract describes an application's interface, state, and interactions. Exact
-compiles it for the web and native hosts. You write the view once; CSS names and
-web behavior are the default across those hosts. Network access, persistent
+compiles it for the web and native hosts. You write the view once, in CSS's names
+and layout; what you leave unsaid (controls, colour, type, how a press or a scroll
+feels) is each platform's own (LLP 1115). Network access, persistent
 storage, and substantial computation belong in a TypeScript or Rust data module.
 
 This guide describes the implementation on `main` on 2026-10-02, including
@@ -94,12 +95,12 @@ component Counter
   action reset
     count = 0
   view
-    column padding=24 gap=12
-      text `Count: ${count}` testId="count" font-size=24
+    column gap=12
+      text `Count: ${count}` role="heading" aria-level=1 testId="count"
       row gap=8
-        button press=increment testId="increment" padding=12
+        button press=increment testId="increment"
           text "Add one"
-        button press=reset testId="reset" padding=12
+        button press=reset testId="reset"
           text "Reset"
 ```
 
@@ -178,10 +179,10 @@ subtraction. `x-1` is still subtraction, but spaces make the intention clearer.
 
 Use ordinary decimal numbers, double-quoted strings, and backtick templates.
 Single-quoted strings, exponent notation, digit separators, `null`, and
-`undefined` are not the language's literal forms. Strings accept exactly six
-escapes: `\n`, `\t`, `\"`, `\\`, ``\` `` and `\$`. Template text is kept verbatim:
-a backslash there is not an escape. Templates can contain expressions, quoted
-strings, and nested templates. Keep an individual string or template on one
+`undefined` are not the language's literal forms. Strings and template text
+accept the escapes `\n`, `\t`, `\"`, `\\`, ``\` `` and `\$`, and a Unicode code
+point as JavaScript writes it, `\u{2011}` or `\u2011`. Templates can contain
+expressions, quoted strings, and nested templates. Keep an individual string or template on one
 source line.
 
 Newlines inside parentheses, brackets, and expression braces continue the same
@@ -189,9 +190,9 @@ logical line. Element attributes may continue on deeper-indented lines:
 
 ```text
 text title
-  font-size=24
-  font-weight=700
-  color="#243044"
+  role="heading"
+  aria-level=2
+  color="-exact-secondary-label"
 ```
 
 An attribute continuation starts with `name=`. A child starts with a tag or a
@@ -201,10 +202,12 @@ formatting, or `contract fmt file.contract` to write it.
 ## Values and types
 
 Contract has closed types: `number`, `string`, `bool`, declared records,
-`option<T>`, and `list<T>`. Component interfaces can also use the bare type
+`option<T>`, and `T[]`. Component interfaces can also use the bare type
 `action`. There is no authored `any`, nullable field shorthand, or arbitrary
-JavaScript object. The compiler infers states and derives, but fields, component
-props, injections, and function signatures declare their types.
+JavaScript object. The compiler infers states and derives, and a state may
+declare its type (`state picked: option<Item> = none`); fields, component props,
+injections, and function signatures declare theirs. A list type is written as in
+TypeScript: `string[]`, `Item[]`, `option<number>[]`.
 
 ```contract
 shape Fields
@@ -246,7 +249,8 @@ derive caption = match selected {
 
 The `some` branch's binding exists only in that branch. Both arms are required.
 A state initialized to `none` needs enough information elsewhere, usually an
-action's assignment of `some(...)`, to infer the element type. Actions and the
+action's assignment of `some(...)`, to infer the element type, or a declared
+type (`state picked: option<Item> = none`). Actions and the
 view see that type, but derives are typed first: match such a state in the view,
 not in a derive. Similarly, `[]` needs an inferable list element type. A list
 literal such as `[1, 2]` holds its items, which share one type; a list the screen
@@ -261,7 +265,7 @@ reason to keep a second mutable copy of a filtered list or a display label.
 
 ```text
 state query = ""
-derive visible = filter(items, item => includes(item.title, query))
+derive visible = items.filter(item => item.title.includes(query))
 action search(value: string)
   query = value
 ```
@@ -289,8 +293,9 @@ component Snapshot
       text `${count}/${observed}` testId="value"
 ```
 
-After the first press, the text is `1/0`. The local `before` saw the old count.
-To reuse a newly computed value, compute it once first:
+After the first press, the text is `1/0`. The local `before` saw the old count,
+and the compiler warns of the read (`analyze-read-after-assign`). To reuse a newly
+computed value, compute it once first:
 
 ```text
 action step
@@ -326,7 +331,7 @@ nonzero number, list, or option is not implicitly true.
 ```text
 count > 0 and not loading
 selected != none
-length(items) > 0
+items.length > 0
 busy ? "Working…" : "Save"
 ```
 
@@ -349,9 +354,13 @@ do not capture component state (they can read `performanceNow()`). Pass values a
 are reserved against redefinition. See the grammar reference for the complete
 [standard-function list](contract-grammar.md#standard-functions-and-intrinsics).
 
-Use free functions rather than methods: `trim(title)`, `includes(title, query)`,
-`length(items)`, `first(items)`, and `at(items, -1)`. `first` and `at` return
-options; `at` counts a negative index from the end. There is no `items[0]` syntax.
+The web's string and array methods are written as methods, with their web names
+and meanings: `title.trim()`, `title.includes(query)`, `items.length`,
+`items.at(-1)`, `price.toFixed(2)`. The rest of the standard functions are called
+as functions: `first(items)`, `round(n)`, `formatNumber(n, "compact")`. Writing
+`trim(title)` is refused with the method form to write instead, and a method
+Contract lacks (`items.reduce(…)`) is refused. `first` and `at` return options;
+`at` counts a negative index from the end. There is no `items[0]` syntax.
 
 `map` and `filter` accept a callback with zero, one, or two parameters: the item
 and its zero-based index. The callback is a single expression, reads its lexical
@@ -359,12 +368,12 @@ environment, and returns a value. `filter` requires a boolean. `join` accepts a
 list of strings, numbers, or booleans and a string separator.
 
 ```text
-derive names = map(people, (person, i) => `${i + 1}. ${person.name}`)
-derive adults = filter(people, person => person.age >= 18)
-derive caption = join(names, ", ")
+derive names = people.map((person, i) => `${i + 1}. ${person.name}`)
+derive adults = people.filter(person => person.age >= 18)
+derive caption = names.join(", ")
 ```
 
-Callbacks can build records. They cannot return view nodes. Use `each` to build
+Callbacks can build records. They cannot return view nodes. Use `for` to build
 repeated UI, not `map`. General closures, reducers, sorting, and arbitrary list
 mutation belong in the data module when the supplied operations do not suffice.
 
@@ -376,24 +385,24 @@ inside parentheses. The compiler checks tags, attributes, leaf-node children,
 and handler signatures.
 
 ```text
-text "Heading" font-size=24
+text "Heading" role="heading"
 image "/assets/photo.jpg" width=120 height=80 object-fit="cover"
 Card(title="Heading", selected=selected)
 ```
 
 Positional values depend on the tag. Prefer a corpus example when using a new
-tag. The app's root view must be exactly one element: a `when`, `each`, or `match`
+tag. The app's root view must be exactly one element: an `if`, `for`, or `match`
 there is refused, so put a stable element around conditional or repeated content.
 A child component used inside an element may return a region or several nodes.
 
-`when` conditionally creates nodes:
+`if` conditionally creates nodes:
 
 ```text
 column
-  when pending(results)
+  if pending(results)
     text "Loading…"
   else
-    text `${length(results)} results`
+    text `${results.length} results`
 ```
 
 `match` renders an option's alternatives:
@@ -406,10 +415,10 @@ match selected
     text "Nothing selected"
 ```
 
-`each` repeats a subtree, with an optional index and a required stable key:
+`for` repeats a subtree, with an optional index and a required stable key:
 
 ```text
-each item, i in items key=item.id
+for item, i in items key=item.id
   row gap=8
     text `${i + 1}`
     ItemRow(item=item, open=open)
@@ -424,12 +433,22 @@ For long lists, use a bounded virtualized collection:
 
 ```text
 list virtualized=true height=500 estimated-item-height=64
-  each item in items key=item.id
+  for item in items key=item.id
     column padding=12
       text item.title
 ```
 
-A virtualized list has exactly one direct `each`, whose body has one flow root.
+The children of a `list` whose rows go down the page are its rows, and each
+platform draws a row as its own list does: UIKit's separators and the cell's
+highlight on iOS, a table on the Mac, one line between rows on the web and the
+Linux desktop, none on Android. Draw no separator and no press of your own.
+What you do write on a row wins: a border on its top or bottom edge replaces the
+separator there (`border-bottom="none"` for a child that is no row, a count or an
+empty state), and `appearance="none"` on the list keeps rows that are yours, a
+transcript or a feed of cards. A list laid out sideways is a carousel and gets
+none of it.
+
+A virtualized list has exactly one direct `for`, whose body has one flow root.
 A vertical list needs a real height bound (`height`, `max-height`, or growing
 `flex` in a bounded parent). A horizontal one needs a literal `display="flex"` and
 a literal positive `height`, takes `estimated-item-width`, and refuses a nonzero
@@ -477,7 +496,7 @@ and a descendant's typed `inject` section:
 ```contract
 component App
   provide
-    accent = "#3355aa"
+    accent = "-exact-system-indigo"
   view
     Label(title="Hello")
 
@@ -506,7 +525,7 @@ component App
 component Card
   slot
   view
-    column padding=16 border-radius=12 background-color="#eeeeee"
+    column padding=16 border-radius=12 background-color="-exact-secondary-background"
       children
 ```
 
@@ -538,7 +557,7 @@ shape SaveResult
 component Items
   state query = ""
   state notice = ""
-  resource items = loadItems(query) as shape list<Item>
+  resource items = loadItems(query) as shape Item[]
   mutation saved as shape SaveResult refreshes items then afterSave
   action search(value: string)
     query = value
@@ -555,44 +574,47 @@ component Items
   view
     column gap=8 padding=16
       input value=query input=search testId="query"
-      when pending(items)
+      if pending(items)
         text "Loading…"
-      when failed(items)
+      if failed(items)
         button press=retry testId="retry"
           text "Try again"
-      each item in items key=item.id
+      for item in items key=item.id
         button press=save(item.id) testId=`item-${item.id}`
           text item.title
       text notice testId="notice"
 ```
 
-The `refreshes items` clause re-reads `items` when the mutation is sent (an answer
-the source gives at once shows immediately) and forces it again when the reply
-lands. `then afterSave` runs a parameterless action in its own commit at the
+The `refreshes items` clause asks `items` again when the reply lands. To show the
+save before then, the data module exports an `overlay` for `loadItems` (the [agent
+guide](contract-for-agents.md#optimistic-writes-the-overlay) has the pattern).
+`then afterSave` runs a parameterless action in its own commit at the
 host's next clock advance, once for every answer that landed before it, so it
 reads the latest answer (the agent driver lands it at the end of the input
 that settled the answer). It does not run for a failure that brought no answer,
 and it must not send its own mutation. Do not use `then` as a general event queue.
 
 `pending(resourceOrMutation)` asks whether a request is in flight.
-`failed(resource)` asks whether the current resource request failed without an
-answer. Both take the declared name, not an arbitrary value. `failed` does not
-accept a mutation: a mutation whose request fails without an answer stops being
-pending and keeps its previous value, and its `then` does not run. A domain error
-returned in a shaped answer is data to inspect, not a failed transport request.
+`failed(resourceOrMutation)` asks whether its latest admitted request failed
+without an answer. Both take the declared name. A failed mutation keeps its
+previous value and runs no `then`; its next send clears the failure. A domain
+error returned in a shaped answer is data, not a failed request.
 
-`failure(resource)` says why, so the view can tell a lost connection from a bug:
-`none` until the request fails, then `some` of a `Failure` record with a `code`
-from a short closed list (`offline`, `timeout`, `refused`, `shape`, `storage`,
-`error`; the grammar says when each applies) and a `message` for a developer.
-The code is the same on every host; the message is not, so branch on the code:
+`failure(resourceOrMutation)` says why: `none` until a request fails, then
+`some` of a `Failure` record. Its `code` preserves a nonempty source `reason`,
+such as a Snapback refusal's `SLOT_FULL`; otherwise it is an infrastructure
+class (`offline`, `timeout`, `refused`, `shape`, `storage`, `error`; the grammar
+says when each applies). `message` is for a developer; `reason` also retains
+the source's domain code, or is empty.
+The code and the reason are the same on every host; the message is not, so
+branch on the code or the reason:
 
 ```contract
 shape Item
   id: string
 
 component Items
-  resource items = loadItems() as shape list<Item> else empty()
+  resource items = loadItems() as shape Item[] else empty()
   derive banner = match failure(items) { case some(f) => f.code == "offline" ? "You're offline" : "Couldn't load items", case none => "" }
   view
     text banner testId="banner"
@@ -689,14 +711,14 @@ shape Quote
 component ReadingList
   state draft = ""
   state notice = ""
-  resource books = books() as shape list<Book>
+  resource books = books() as shape Book[]
   resource quote = quote() as shape Quote else empty(text="…")
   mutation saved as shape Saved refreshes books then afterSave
   action edit(value: string)
     draft = value
   action add
-    if trim(draft) != ""
-      send saved = addBook(trim(draft))
+    if draft.trim() != ""
+      send saved = addBook(draft.trim())
       draft = ""
   action afterSave
     match saved
@@ -706,14 +728,14 @@ component ReadingList
         notice = ""
   view
     column padding=24 gap=12
-      text "Reading list" font-size=28 font-weight=700
-      text quote.text color="#6b7280" testId="quote"
+      text "Reading list" role="heading" aria-level=1
+      text quote.text color="-exact-secondary-label" testId="quote"
       row gap=8
         input value=draft input=edit submit=add placeholder="A book" aria-label="New book" testId="title" flex=1
         button press=add testId="add"
           text "Add"
       text notice testId="notice"
-      each book in books key=book.id
+      for book in books key=book.id
         text book.title testId=`book-${book.id}`
 ```
 
@@ -751,7 +773,7 @@ function withBooks<T>(storage: Storage, work: (db: Database) => Promise<T>): Pro
 }
 
 const sources: Sources = {
-  // A read: SQLite rows to the declared `list<Book>`. Integers arrive as
+  // A read: SQLite rows to the declared `Book[]`. Integers arrive as
   // bigint, so convert them. At build (bake) time there is no storage: the
   // refusal's code is 'bake', and an empty list is the first frame's value.
   // The app asks again when it runs.
@@ -797,7 +819,7 @@ call outside them fails. The capabilities are:
 
 | Grant | Allows |
 |---|---|
-| `net.fetch https://api.example.com` | `fetch` to that origin (`https://*.example.com` for its subdomains). A redirect must stay inside the grants too; one that leaves them fails naming where it led: `outside the app's grants (net.fetch): redirected to https://other.example` |
+| `net.fetch https://api.example.com` | `fetch` to that origin (`https://*.example.com` for its subdomains). Native checks each redirect before contact. Web checks the final response URL. On render-server pages, `connect-src` uses app grants: a hop outside the page origin and app grants is blocked before contact (`Network`); a hop the app grants but this source does not can receive a 307 POST body and return to a source-granted final URL, succeeding on web while native refuses. Static and dev pages have no such CSP, so even an app-ungranted hop can be contacted and a return chain can succeed. Without CSP, an ungranted final URL fails after contact, naming where it led: `outside the app's grants (net.fetch): redirected to https://other.example` |
 | `net.websocket wss://api.example.com` | a WebSocket to that origin |
 | `sqlite.open app:/data/name.db` | `storage.sqlite.open` on that path |
 | `fs.read app:/data/dir`, `fs.write app:/data/dir` | `storage.fs` under that prefix (`app:/data`, `app:/cache`, `app:/tmp`) |
@@ -813,8 +835,8 @@ call outside them fails. The capabilities are:
   and seeds are arguments: pass `performanceNow()` from the Contract (the
   [data-module reference](reference.md#generate-typescript-data-source-types) has the full list).
 - *There is no storage or network at build time.* The build bakes each
-  resource's first value into the plan, and a storage call then is refused
-  with `code: 'bake'`. An uncaught storage refusal leaves the resource unbaked;
+  resource's first value into the plan, and a storage or `native.call` then is refused
+  with `code: 'bake'`. An uncaught refusal leaves the resource unbaked;
   its placeholder (or the type's zero) shows until the app asks again at launch.
   Catching that code can also supply a first-frame value, as `books` does.
   Other source errors still fail the build. A source used as an `else` placeholder
@@ -896,10 +918,10 @@ parenthood, and do not assume border-box sizing. Set it when it matters.
 Numeric dimensions normally mean pixels. Unit-bearing values and keywords are
 strings: `width="50%"`, `height="auto"`, `padding-top="env(safe-area-inset-top)"`,
 `width="calc(100% - 24px)"`, and CSS's `min()`, `max()` and `clamp()` over px,
-the safe-area insets and viewport lengths: `padding-bottom="clamp(15px,
+percentages, the safe-area insets and viewport lengths: `padding-bottom="clamp(15px,
 env(safe-area-inset-bottom), 60px)"`, `bottom="calc(max(15px,
-env(safe-area-inset-bottom)) + 44px)"` (no percentage inside one: the kernel
-resolves them before layout). Supported values are property-specific; this is not
+env(safe-area-inset-bottom)) + 44px)"`, `width="min(50%, 600px)"`. Supported values
+are property-specific; this is not
 an unrestricted browser stylesheet. The compiler and kernel reject unsupported
 names or values. `line-height=1.5` is a ratio; `line-height="24px"` is fixed.
 
@@ -908,7 +930,7 @@ A reusable `style` contains literal style values:
 ```contract
 style Panel
   padding=16 gap=8 border-radius=12
-  background-color="#f0f2f5"
+  background-color="-exact-secondary-background"
 
 component App
   view
@@ -932,8 +954,8 @@ and SVG presentation properties. The actual declaration inventory is
 and shorthands resolved by [`tags.rs`](../contract/lower/src/tags.rs). Use those
 instead of assuming every CSS property or unit exists. A value is held to one
 grammar on every host, a computed one too: `background-image` takes
-`linear-`, `radial-` and `conic-gradient()` with percentage stops, so a
-template naming `repeating-linear-gradient(` or `url(` fails the build, and a
+`linear-`, `radial-`, `conic-` and `repeating-linear-gradient()` with percentage
+stops; linear/radial stops also take px lengths. A template naming `url(` fails the build, and a
 computed value that is refused at run time is dropped and journaled on the web
 as on a Mac (`invalid background-image value …; unset`), never painted by the
 browser alone.
@@ -944,7 +966,9 @@ blurs the backdrop, then increases its saturation. `saturate(0)` is grayscale;
 `saturate(180%)` is the same as `saturate(1.8)`. A function may appear only once.
 Web, macOS and Linux apply these functions; iOS/tvOS use the fixed `.light`
 system material approximation. macOS samples only the parent layer's subtree
-and clips children to the filter's border box. `backgroundMaterial` wins when
+and clips children to the filter's border box, so make a glass panel a sibling
+of what it covers (a floating composer beside its scrolling transcript), not a
+child of an empty wrapper. `backgroundMaterial` wins when
 both are present, and backdrop filters do not animate.
 
 Bound scroll containers. A typical full-height column gives its scroller
@@ -963,8 +987,15 @@ one, as a radiogroup names itself by its visible heading) wins over `aria-label`
 this one) and `aria-description` are its description. `aria-invalid`,
 `aria-required`, `aria-haspopup` and `aria-current` (a navigation link's
 `"page"`, a wizard's `"step"`) take their ARIA words or a bool; UIKit has no
-property for those four, so iOS exposes none of them.
-Font sizes, touch targets, focus behavior, and contrast remain author decisions.
+property for those four, so iOS exposes none of them. A drawn range —
+`role="progressbar"`, `"slider"`, `"meter"`, `"scrollbar"` or `"spinbutton"` —
+takes `aria-valuenow`, `aria-valuemin` and `aria-valuemax` (numbers; ARIA's 0
+and 100 where a bound is unsaid) and `aria-valuetext`: it is one element, its
+children unread, and its value is the platform's (UIKit's `accessibilityValue`
+as a percentage, "30%", or the text; AppKit's value, minimum and maximum, the
+text its description). A `progress` or `input type="range"` says its own value.
+Leave font sizes, colours and control metrics unsaid and the platform supplies them;
+what you set on a node wins.
 
 Declare bundled fonts at file scope:
 
@@ -992,17 +1023,18 @@ A text field is the platform's own by default (LLP 1104): `input` with no type
 or `text`, `email`, `password`, `search`, `tel`, `url`, `number`, and `textarea`
 outside the Markdown editor. On the web it inherits the page's font and
 colour, as a CSS reset does. Disabled and placeholder appearances are the
-platform's. A background, border or radius makes it your own box, as in a
+platform's; CSS's `::placeholder` block, under the field or in a `style`,
+colours its placeholder (`color` alone, its alpha its own). A background, border or radius makes it your own box, as in a
 browser; `appearance="none"` says so explicitly. A row on any conditional
 class or value arm counts. `appearance="auto"` asks for the native field and
 refuses those rows; `background-clip` and `background-attachment` are allowed.
-Appearance is a literal, from the class then your own attribute; use `when`
+Appearance is a literal, from the class then your own attribute; use `if`
 with two fields to switch it.
 
 `input` and `change` carry the control's new value as the final action argument:
 a string for a text field, textarea or `select`, a boolean for a checkbox or
 switch, the radio's `value` for `type="radio"`, a number for `type="range"`, and
-a `list<Picked>` for a file input. An action taking one more parameter also
+a `Picked[]` for a file input. An action taking one more parameter also
 hears the target as the event leaves it, an `InputEvent`: its `value` (a
 checkbox's own), `checked`, and a text field's `selectionStart`, `selectionEnd`
 and `selectionDirection` ([form controls](contract-grammar.md#form-controls-radio-inputevent-setselectionrange)).
@@ -1020,8 +1052,8 @@ keeps it from its ancestors' `key` handlers with `stopPropagation()`
 
 The complete event inventory and payload groups are in the
 [event reference](contract-grammar.md#events). HTML controls include `select` and
-`option`, and `progress` with no `value`, the platform's activity indicator
-([activity](contract-grammar.md#activity-progress)); inspect [the control tests](../contract/cli/tests/it/controls.rs) for
+`option`, and `progress`: with `value` and `max` the platform's progress bar,
+with no `value` its activity indicator ([progress](contract-grammar.md#progress-progress)); inspect [the control tests](../contract/cli/tests/it/controls.rs) for
 the checkbox/switch, radio, range, select and date/time conventions instead of
 assuming a browser Event object. `input type="radio"` is HTML's: the radios of
 one `name` are a group, exclusive, and the arrow keys move the check among them.
@@ -1036,8 +1068,9 @@ compiler does not check most commands' arguments, and hosts differ: the
 JavaScript web target has no `openURL`, and Linux carries neither `focus` nor
 `openURL`. Check the host you target.
 
-A file `input` needs a literal `accept`; types other than images and video must
-be listed in `app.json`'s `file_handlers`. `showPicker` delivers a `list<Picked>`
+A file `input` with no `accept`, an empty `accept`, or `accept="*/*"` offers any
+file. A specific `accept` must be literal; types other than images and video
+must be listed in `app.json`'s `file_handlers`. `showPicker` delivers a `Picked[]`
 to the addressed element's `change` handler, while `showOpenFilePicker`,
 `showDirectoryPicker` and `showSaveFilePicker` deliver `doc:` handle strings;
 cancellation uses `cancel`. Where a browser has no open pickers (Firefox,
@@ -1111,7 +1144,12 @@ The kernel's optional host measure hook supplies the fitting size before the
 first frame and handles wrapping at the offered width. Existing hosts keep
 their intrinsic-size report until they implement it.
 
-`buttonStyle` needs a native button and defaults to `bordered`. If the default
+`buttonStyle` needs a native button. With none, a button is the platform's
+default: plain tinted text on iOS, as UIKit's and SwiftUI's own button is, a push
+button on macOS, and bordered on the web, where a bare text button reads as
+unstyled. So say what the action is: `filled` for the screen's main action,
+`bordered` for one that must read as a button, and nothing for a
+secondary or inline one (`contract vocab button`). If the default
 makes your button bare, `lower-button-style` names the first reason: remove it,
 or write `appearance="none"` without `buttonStyle`. The accepted styles are `plain`, `gray`,
 `tinted`, `filled`, `borderless`, `bordered`, `bordered-tinted`,
@@ -1137,7 +1175,7 @@ title, an optional second `text` (a value) or a `column` of two texts (a
 subtitle), and an optional trailing accessory — a `forward-chevron` or
 `checkmark` image, a checkbox or switch `input`, or a `button` holding only
 `image "symbol:info"`. `destructive` draws a row red. Any other row is custom
-and keeps its own views. A section written `background-color="transparent"` has no card: its rows sit on the list's background with no separators or corners, as a profile header does (LLP 1084 §6.2). That literal is the only `background-color` a section takes, and not beside a `class`; a section that gains and loses its card is two sections under `when`.
+and keeps its own views. A section written `background-color="transparent"` has no card: its rows sit on the list's background with no separators or corners, as a profile header does (LLP 1084 §6.2). That literal is the only `background-color` a section takes, and not beside a `class`; a section that gains and loses its card is two sections under `if`.
 
 ```text
 list appearance="auto" listStyle="inset-grouped" flex=1
@@ -1184,15 +1222,17 @@ component App
     nav = go(nav, url)
   view
     main navigationKey=`${current.id}` navigationBack="back" navigate=followLink width="100%" height="100%"
-      each e in stack(nav) key=e.id
-        column navigationKey=`${e.id}` position="absolute" inset=0 gap=8 background-color="#ffffff"
-          text e.name testId=`route-${e.id}`
-          when e.name == "item"
+      for e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` position="absolute" inset=0 gap=8
+          header
+            if e.name == "item"
+              button id="back" press=back testId=`back-${e.id}`
+                text "Back"
+            text e.name role="heading" aria-level=1 testId=`route-${e.id}`
+          if e.name == "item"
             text e.params.id
           button press=showItem testId=`open-${e.id}`
             text "Open item"
-          button id="back" press=back testId=`back-${e.id}`
-            text "Back"
 ```
 
 A navigation stack is built this way: one row per entry of `stack(nav)`, keyed by
@@ -1207,13 +1247,21 @@ and browser history.
 
 A row with `navigationPresentation="modal"` is a sheet on iOS; `navigationDetent`
 sets its resting heights, space-separated: `large` (the default), `medium`, a
-point height (`"300"`), or `fit-content`, the route's content height, which
-follows the content as rows arrive or text wraps. A point height and
-`fit-content` stop at the sheet's tallest and leave out the bottom safe area,
-which UIKit adds below; so under `viewport-fit="cover"` a route that pads
-`env(safe-area-inset-bottom)` gets it twice. With one height the sheet does not
+point height (`"300"`), a percentage of the sheet's tallest (`"45%"`, above 0%
+and at most 100%; `"100%"` is `large`), or `fit-content`, the route's content
+height, which follows the content as rows arrive or text wraps. A point height, a
+percentage and `fit-content` stop at the sheet's tallest and leave out the bottom
+safe area, which UIKit adds below; so under `viewport-fit="cover"` a route that
+pads `env(safe-area-inset-bottom)` gets it twice. With one height the sheet does not
 expand and shows no grabber; with several (`"300 large"`) it is dragged between
-them, the first to start. `fit-content` goes alone or as `"fit-content large"`.
+them, the first to start. UIKit takes them shortest to tallest, and a point height
+and a share of the tallest cross on some screen (`"300 45%"` is 300 then 360 on an
+800-point sheet, 300 then 270 on a 600-point one), so the heights before `large`
+are of one kind, points or percentages (`medium` is half), each taller than the
+one before, and `large` goes last; a literal that breaks this is refused. A point
+height that a small screen's tallest reaches, with a taller detent after it, is
+left out there, so `"900 large"` on a phone is `large` alone.
+`fit-content` goes alone or as `"fit-content large"`.
 It measures the route laid out on its own with its height left to its
 content, as CSS's `fit-content` does, so nothing the sheet gives it counts:
 rows do not shrink into it, and a percentage `height` or `flex-grow` takes
@@ -1288,15 +1336,16 @@ component Undo
     text toast testId="toast"
 ```
 
-The timer exists while `toast != ""` holds, as a `when` arm's nodes do, and a new
-`toastUntil` restarts it, as a new key makes a new `each` row: a replaced toast
+The timer exists while `toast != ""` holds, as an `if` arm's nodes do, and a new
+`toastUntil` restarts it, as a new key makes a new `for` row: a replaced toast
 gets its whole five seconds. Nothing runs when the gate changes, and an idle task
 keeps no host awake. The action runs at the deadline exactly, so it clears the
 toast without testing the time again. Gates and keys read state, never `performanceNow()`
 (LLP 1092).
 
-`performanceNow()` reads milliseconds since boot on the runner's clock (the driver's clock
-under the agent); it is not a date. For the date, read the reserved `exactTime`
+`performanceNow()` reads milliseconds since this launch of the app on the runner's clock (it
+restarts at 0 on every launch; the driver's clock under the agent); it is not a date, and
+anything stored or sent takes `time.epochAtZero + performanceNow()` instead. For the date, read the reserved `exactTime`
 source and add `time.epochAtZero + performanceNow()`. There is no `now()`; the
 compiler refuses it and names both. Advancing the clock alone does not
 necessarily trigger rendering: a derive using `performanceNow()` reevaluates when a later
@@ -1403,7 +1452,7 @@ component Responsive
   resource viewport = exactViewport() as shape Viewport
   view
     column
-      when viewport.width >= 900
+      if viewport.width >= 900
         text "Wide layout"
       else
         text "Compact layout"
@@ -1424,7 +1473,7 @@ component Finished
   resource page = exactPage() as shape Page
   view
     main
-      when page.hasFocus
+      if page.hasFocus
         text "Build finished" role="status"
 ```
 
@@ -1433,7 +1482,11 @@ inventing platform-specific Contract files. Safe-area lengths use CSS `env()`;
 viewport metadata uses the root element's `viewport-fit` and `interactive-widget`
 attributes. `exactViewport` also carries `prefersReducedMotion`,
 `prefersReducedTransparency`, `prefersContrast` and `prefersColorScheme`: facts
-for the app to honor, not automatic engine policy. Available fields are documented beside their source validation and
+for the app to honor, not automatic engine policy. `displayMode: string` reads
+CSS's current `display-mode`: the browser's media query on the web,
+`fullscreen` or `standalone` for the window on macOS, and `standalone` on
+other native hosts. `navigationType` is how the browser loaded the page
+(`navigate`, `reload` or `back_forward`), and empty in a native app. Available fields are documented beside their source validation and
 [the viewport design](../llp/1039-viewport-facts.rfc.md); start with [the viewport corpus](../contract/corpus/viewport.contract).
 
 Localized strings live in the app's `strings/<locale>.json` files. Author calls
@@ -1482,7 +1535,8 @@ Do not replace virtual time with sleeps.
 For diagnosis, use `build --json`, `symbols --name <name>`, and
 `build -o /tmp/app.plan --map`, which writes `/tmp/app.plan.map.json`. The
 development source map connects node layout
-to declarations, component calls, and style origins. Then drive the actual app:
+to declarations, component calls, and style origins, and says each source's
+SHA-256 as compiled (`sources`), so a reader can tell a file moved since. Then drive the actual app:
 
 ```sh
 bun scripts/agent.mjs web tree state logs "screenshot /tmp/app.png"
@@ -1499,7 +1553,13 @@ dry run, which expects a committed tree (or `--dirty`); publication uses `--yes`
 an origin, a signing key, and the configured signed streams. Read
 [LLP 1030.000](../llp/1030.000-dev-server-as-deployer.rfc.md) before changing
 trust or publishing. Writing Contract does not require inventing a deployment
-service.
+service. To share an iOS app through AppDrop, add `"appdrop": {}` under
+`deploy`: a deploy whose table has an iOS binary row builds the unsigned `.ipa`
+after the streams and publishes it to AppDrop. The first one creates the link
+and writes it to `deploy.appdrop.url`; commit that, and the install page offers
+it for iOS. Later ones publish the link's next version (`$APPDROP_MANAGE_KEY`,
+or the key the appdrop CLI saved, authorizes it). Bundle-only changes go over
+the air and never reach AppDrop.
 
 ## Where to go next
 

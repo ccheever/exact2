@@ -25,6 +25,7 @@ mod local_shadows;
 mod lod;
 mod model_pipeline;
 mod models;
+mod occlusion;
 mod perf;
 mod pipeline;
 mod placed;
@@ -395,6 +396,20 @@ mod tests {
             .validate(&module)
             .unwrap();
         }
+    }
+
+    #[test]
+    fn the_early_forward_entry_points_validate_with_the_capability() {
+        use exact_gpu::wgpu::naga;
+        let source = super::pipeline::early_forward_source();
+        let module = naga::front::wgsl::parse_str(&source)
+            .unwrap_or_else(|error| panic!("{}", error.emit_to_string(&source)));
+        naga::valid::Validator::new(
+            naga::valid::ValidationFlags::all(),
+            naga::valid::Capabilities::EARLY_DEPTH_TEST,
+        )
+        .validate(&module)
+        .unwrap();
     }
 }
 

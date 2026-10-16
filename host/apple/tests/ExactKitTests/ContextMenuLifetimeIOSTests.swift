@@ -15,15 +15,14 @@ final class ContextMenuLifetimeIOSTests: XCTestCase {
         func addCompletion(_ completion: @escaping () -> Void) { completion() }
     }
     /// A source (1) naming popover 2, whose rows are a preview (3) and an item (4).
-    private func presenter() -> Presenter {
-        if ExactEnv.agentMode { return Presenter() }
+    private func presenter(kind: String = "button") -> Presenter {
         let p = Presenter()
         window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
         p.viewport.frame = window.bounds
         window.addSubview(p.viewport)
         window.makeKeyAndVisible()
         p.apply(wireBatch([
-            ["op": "create", "id": 1, "kind": "button", "handlers": ["press", "focus", "blur"], "props": ["contextPopover": "m"]],
+            ["op": "create", "id": 1, "kind": kind, "handlers": ["press", "focus", "blur"], "props": ["contextPopover": "m"]],
             ["op": "create", "id": 2, "kind": "view", "props": ["popover": "auto", "id": "m"]],
             ["op": "create", "id": 3, "kind": "button", "handlers": ["press"], "props": ["contextPreview": "true"]],
             ["op": "create", "id": 4, "kind": "button", "handlers": ["press"], "props": ["accessibilityLabel": "Pin"]],
@@ -37,6 +36,45 @@ final class ContextMenuLifetimeIOSTests: XCTestCase {
         ]))
         return p
     }
+    private final class LongPress: UILongPressGestureRecognizer {
+        override var state: UIGestureRecognizer.State { get { .began } set {} }
+    }
+
+    func testDisabledOnAContainerDoesNotSuppressItsContextMenu() throws {
+        let p = presenter(kind: "view")
+        defer { p.menus.reset(); window.isHidden = true }
+        let source = try XCTUnwrap(p.views[1]), pop = try XCTUnwrap(p.views[2])
+        source.handlers.insert("contextmenu")
+        p.apply(wireBatch([
+            ["op": "props", "id": 1, "set": ["disabled": "true"]],
+            ["op": "props", "id": 9, "set": ["disabled": "true"]],
+        ]))
+        XCTAssertTrue(p.menus.eligible(source, contextMenu: true), "disabled on the source or a container ancestor means nothing")
+        XCTAssertTrue(source.contextMenuSource === source)
+        var heard: [UInt32] = []
+        p.onClipboard = { id, kind, _ in if kind == 10 { heard.append(id) } }
+        source.openContext(LongPress())
+        XCTAssertEqual(heard, [1], "the recognized long press runs its context action")
+        if ExactEnv.agentMode {
+            p.menus.reset()
+            XCTAssertTrue(p.menus.agentContext(source))
+            XCTAssertTrue(p.menus.isOpen(pop))
+        } else {
+            let (interaction, configuration, _) = try opened(p)
+            XCTAssertEqual(heard, [1, 1], "the native interaction runs its context action too")
+            p.menus.context.contextMenuInteraction(interaction, willEndFor: configuration, animator: nil)
+        }
+        p.menus.reset()
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["inert": "true"]]]))
+        XCTAssertFalse(p.menus.eligible(source, contextMenu: true))
+        XCTAssertNil(source.contextMenuSource)
+
+        let button = presenter()
+        defer { button.menus.reset(); window.isHidden = true }
+        button.apply(wireBatch([["op": "props", "id": 1, "set": ["disabled": "true"]]]))
+        XCTAssertFalse(button.menus.eligible(try XCTUnwrap(button.views[1]), contextMenu: true), "a form control stays disabled")
+    }
+
     private func opened(_ p: Presenter) throws -> (UIContextMenuInteraction, UIContextMenuConfiguration, UIViewController) {
         let source = try XCTUnwrap(p.views[1])
         let interaction = try XCTUnwrap(source.interactions.compactMap { $0 as? UIContextMenuInteraction }.first)
@@ -44,6 +82,46 @@ final class ContextMenuLifetimeIOSTests: XCTestCase {
         let controller = try XCTUnwrap(p.menus.context.lift(try XCTUnwrap(p.menus.context.open)))
         XCTAssertTrue(p.menus.context.lift(try XCTUnwrap(p.menus.context.open)) === controller, "asked again, the same controller")
         return (interaction, configuration, controller)
+    }
+
+    func testCommandsCloseTheContextMenuAndReturnItsPreviewImmediately() throws {
+        let p = presenter()
+        defer { p.menus.reset() }
+        let pop = try XCTUnwrap(p.views[2]), row = try XCTUnwrap(p.views[3])
+        for command in ["hidePopover", "togglePopover"] {
+            let (interaction, configuration, _) = try opened(p)
+            p.menus.context.contextMenuInteraction(interaction, willDisplayMenuFor: configuration, animator: nil)
+            XCTAssertTrue(p.menus.isOpen(pop))
+            p.menus.action(command, ["m"])
+            XCTAssertFalse(p.menus.isOpen(pop), command)
+            XCTAssertTrue(pop.isHidden)
+            XCTAssertTrue(row.superview === pop.container)
+            p.menus.context.contextMenuInteraction(interaction, willEndFor: configuration, animator: nil)
+        }
+    }
+
+    func testLiftedPreviewKeepsAuthoredARIAUnavailableAndRefreshesItsButton() throws {
+        let p = presenter()
+        defer { p.menus.reset(); window.isHidden = true }
+        p.buttonFace = { _ in var face = ButtonFace(); face.title = "Inside"; return face }
+        p.apply(wireBatch([
+            ["op": "create", "id": 5, "kind": "control", "props": ["type": "button"], "handlers": ["press"], "style": ["appearance": "auto"]],
+            ["op": "frame", "id": 5, "x": 0, "y": 0, "w": 80, "h": 40],
+            ["op": "children", "id": 3, "ids": [5]],
+        ]))
+        let (_, _, controller) = try opened(p)
+        let preview = try XCTUnwrap(p.views[3]), child = try XCTUnwrap(p.views[5])
+        XCTAssertTrue(preview.superview === controller.view)
+        let button = try XCTUnwrap(p.controls.controls[5] as? UIButton)
+        for disabled in [true, false, true] {
+            p.apply(wireBatch([["op": "props", "id": 9, "set": ["accessibilityDisabled": String(disabled)]]]))
+            XCTAssertEqual(child.ariaUnavailable, disabled)
+            XCTAssertEqual(button.accessibilityTraits.contains(.notEnabled), disabled)
+            XCTAssertTrue(button.isEnabled, "ARIA changes exposure, not input")
+        }
+        p.apply(wireBatch([["op": "props", "id": 3, "set": ["accessibilityDisabled": "false"]]]))
+        XCTAssertFalse(child.ariaUnavailable, "the nearest explicit value wins")
+        XCTAssertFalse(button.accessibilityTraits.contains(.notEnabled))
     }
 
     func testABatchWhileLiftedMovesTheRowsHomeAndItsSize() throws {
@@ -148,6 +226,18 @@ final class ContextMenuLifetimeIOSTests: XCTestCase {
         XCTAssertEqual(touches.first?.cancelsTouchesInView, false)
         XCTAssertEqual(touches.first?.delaysTouchesBegan, false)
         XCTAssertEqual((p.viewport.gestureRecognizers ?? []).filter { $0 is BarTouch }.count, 1, "and one on the viewport, carried into a presentation")
+    }
+
+    func testDisabledPopoverRefusesThePreviewPress() throws {
+        try XCTSkipIf(ExactEnv.agentMode, "the agent paints the popover")
+        let p = presenter()
+        defer { p.menus.reset(); window.isHidden = true }
+        let (interaction, configuration, _) = try opened(p)
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["disabled": "true"]]]))
+        p.menus.context.contextMenuInteraction(interaction, willPerformPreviewActionForMenuWith: configuration, animator: Commit())
+        XCTAssertEqual(pressed, [], "a preview press keeps the raw disabled check on its authored ancestry")
     }
 
     func testAnInertPopoverRefusesTheCommit() throws {

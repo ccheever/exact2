@@ -5,6 +5,18 @@
 // the device it runs on.
 import Foundation
 
+extension ExactEnv {
+    /// Whether the dev menu was asked for: `EXACT_DEV_MENU` at launch, else
+    /// as the build's environment had it (`ExactDevMenu` in Info.plist; an
+    /// installed iOS app is launched with no environment), else the person's
+    /// `ExactDevMenu` default, which shows a release Mac build's hidden menu
+    /// (`defaults write <bundle id> ExactDevMenu -bool YES`, LLP 1115 D9).
+    /// `0` is off, anything else on; `nil` when none says, and the
+    /// platform's default holds.
+    public static let devMenu: Bool? = environment["EXACT_DEV_MENU"].map { $0 != "0" } ?? appMetadata["ExactDevMenu"] as? Bool
+        ?? UserDefaults.standard.object(forKey: "ExactDevMenu") as? Bool
+}
+
 enum BuildInfo {
     /// The menu's first lines, from a bundle's info dictionary, `now` for the
     /// build's age. A key the build did not stamp (an older build, a test
@@ -89,4 +101,16 @@ private extension ISO8601DateFormatter {
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return f
     }()
+}
+
+extension ExactEnv {
+    /// Whether this binary is a build that ships: baked with production
+    /// trust, or stamped `release` or `archive` by `build.mjs`. An app with
+    /// no updater (`deploy.store` "0") records no trust in `compat.json`, so
+    /// the stamp is what says its `--release` build is one. Such a build
+    /// measures frames, hatch calls and its plan sites' work for `perf` (LLP
+    /// 1079) only from when something first reads them
+    /// (`ExactSession.measurePerf`), so one that nobody drives keeps no frame
+    /// sampler display link, times nothing and keeps no counter per site.
+    static let releaseBuild = productionBake || ["release", "archive"].contains(appMetadata["ExactBuildKind"] as? String ?? "")
 }

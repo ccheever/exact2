@@ -21,6 +21,7 @@ fn demand(view: u64, source: u64, output_mib: u64, scratch_mib: u64) -> Demand {
             generation: 1,
             pixels,
             variant: variant::SRGB8,
+            crop: Crop::default(),
         },
         metadata: Metadata {
             natural: PixelSize {
@@ -299,6 +300,32 @@ fn budget_waiter_retries_when_last_native_owner_releases_bytes() {
         .unwrap();
     assert_eq!(permit.key().source, 1);
     drop(permit);
+    worker.join().unwrap();
+}
+
+/// A source to read arrives as a wake with no decode: a worker waiting for
+/// work returns at once to read it.
+#[test]
+fn a_wake_with_no_decode_returns_a_waiting_worker() {
+    let gate = Gate::new();
+    let session = gate.session();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let worker_gate = gate.clone();
+    let worker = std::thread::spawn(move || {
+        let started = std::time::Instant::now();
+        let permit = worker_gate.wait_work(std::time::Duration::from_secs(10));
+        tx.send((permit.is_none(), started.elapsed())).unwrap();
+    });
+    // Wake until the worker has returned: a wake before it waits is seen by
+    // its sequence check, one after by the condition variable.
+    let (none, waited) = loop {
+        session.wake();
+        if let Ok(result) = rx.recv_timeout(std::time::Duration::from_millis(10)) {
+            break result;
+        }
+    };
+    assert!(none);
+    assert!(waited < std::time::Duration::from_secs(5), "{waited:?}");
     worker.join().unwrap();
 }
 
@@ -912,4 +939,71 @@ fn the_same_pixels_in_two_variants_are_two_entries() {
     // Two keys, so two decodes: a variant never answers for another.
     assert!(gate.next_decode().is_some());
     assert!(gate.next_decode().is_some());
+}
+
+/// Two parts of one picture at one size (a photo in two boxes of different
+/// shape) are two entries; a view asking for a part again shares it; and no
+/// part is offered to a view that wants the picture whole (`covering`).
+#[test]
+fn a_part_answers_only_for_its_own_crop() {
+    let gate = Gate::new();
+    let session = gate.session();
+    let drops = Arc::new(AtomicUsize::new(0));
+    let full = PixelSize {
+        width: 1024,
+        height: 1024,
+    };
+    let part = |view, x| {
+        let mut d = demand(view, 1, 1, 0);
+        d.key.crop = Crop { x, y: 0, full };
+        d
+    };
+    let left = session.request(part(1, 0)).unwrap();
+    let right = session.request(part(2, 768)).unwrap();
+    let again = session.request(part(3, 0)).unwrap();
+    assert_eq!(session.stats().pending_jobs, 2, "one decode for each crop");
+    complete(gate.next_decode().unwrap(), &drops);
+    complete(gate.next_decode().unwrap(), &drops);
+    assert!(gate.next_decode().is_none());
+    let (left, right, again) = (
+        session.take_ready(left).unwrap(),
+        session.take_ready(right).unwrap(),
+        session.take_ready(again).unwrap(),
+    );
+    let pixels = |r: &RasterLease| Arc::as_ptr(r.payload::<Arc<Backing>>().unwrap());
+    assert_eq!(pixels(&left), pixels(&again));
+    assert_ne!(pixels(&left), pixels(&right));
+    let at_least = PixelSize {
+        width: 1,
+        height: 1,
+    };
+    assert_eq!(
+        session.covering(1, 1, variant::SRGB8, at_least, u64::MAX),
+        None,
+        "a part is never the whole picture"
+    );
+    let whole = session.request(demand(4, 1, 1, 0)).unwrap();
+    complete(gate.next_decode().unwrap(), &drops);
+    assert!(session.take_ready(whole).is_some());
+    assert_eq!(
+        session.covering(1, 1, variant::SRGB8, at_least, u64::MAX),
+        Some(demand(4, 1, 1, 0).key.pixels)
+    );
+}
+
+/// A source to read that arrives while a worker looks for one, after it
+/// read the wake sequence and before it waits, ends the wait at once: the
+/// worker does not sleep through it to the backstop.
+#[test]
+fn a_wake_while_the_worker_looked_ends_its_wait_at_once() {
+    let gate = Gate::new();
+    let session = gate.session();
+    let since = gate.wake_sequence();
+    session.wake();
+    let started = std::time::Instant::now();
+    assert!(gate
+        .wait_work_since(since, std::time::Duration::from_secs(10))
+        .is_none());
+    let waited = started.elapsed();
+    assert!(waited < std::time::Duration::from_secs(5), "{waited:?}");
 }

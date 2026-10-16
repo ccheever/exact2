@@ -338,6 +338,7 @@ fn layout<D: DataSource>(r: &mut Runner<D>, width: f32) -> Vec<(usize, Frame)> {
         port_cross: width as f64,
         port_main: 320.0,
         cross: width as f64,
+        padding: [0.0; 2],
         measurements: vec![],
         focus_view: None,
         interaction_view: None,
@@ -566,10 +567,27 @@ mod region_admission {
     // Registration needs two direct branches. Add ONLY its test envelope: the
     // original List, every row/component/action and the composer remain intact.
     // Both variants are admission fixtures, not a proposed application patch.
+    /// Where the app's one virtualized list (the transcript) starts: its line, whatever
+    /// attributes precede `virtualized=true` on it.
+    fn transcript_list() -> usize {
+        let lists: Vec<usize> = APP
+            .match_indices("\n        list ")
+            .map(|(i, _)| i + 1)
+            .filter(|&i| {
+                APP[i..]
+                    .lines()
+                    .next()
+                    .unwrap()
+                    .contains("virtualized=true")
+            })
+            .collect();
+        assert_eq!(lists.len(), 1, "the app has one virtualized list");
+        lists[0]
+    }
+
     fn envelope(fixed_control: bool) -> String {
-        let start = APP.find("        list virtualized=true").unwrap();
+        let start = transcript_list();
         let end = start + APP[start..].find("      else\n").unwrap();
-        assert_eq!(APP.matches("        list virtualized=true").count(), 1);
         let size = if fixed_control {
             "height=500"
         } else {
@@ -699,13 +717,16 @@ mod region_admission {
 
     #[test]
     fn real_messages_test_envelope_preserves_the_full_authored_list_block() {
-        let start = APP.find("        list virtualized=true").unwrap();
+        let start = transcript_list();
         let end = start + APP[start..].find("      else\n").unwrap();
         for fixed in [false, true] {
             let source = envelope(fixed);
             assert!(source.starts_with(&APP[..start]));
             assert!(source.ends_with(&APP[end..]));
-            let list = source.find("          list virtualized=true").unwrap();
+            // The list's own line, indented one level more inside the envelope.
+            let list = source
+                .find(&format!("  {}", APP[start..].lines().next().unwrap()))
+                .unwrap();
             let pending = source[list..]
                 .find("          text \"Preparing messages…\"")
                 .unwrap()
@@ -900,6 +921,7 @@ mod region_admission {
             port_cross: port.width as f64,
             port_main: port.height as f64,
             cross: row_width as f64,
+            padding: [0.0; 2],
             measurements,
             focus_view: None,
             interaction_view: None,

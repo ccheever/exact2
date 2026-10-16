@@ -1,15 +1,15 @@
 //! @ref LLP 1038 D2–D5, D7, D9 — the plan/value boundary of the router.
 //!
 //! Chunk (c)'s compiler declares these positional records, in this exact order:
-//! Router { tab: string, tabs: list<Tab>, next: number },
-//! Tab { name: string, stack: list<Entry> },
+//! Router { tab: string, tabs: Tab[], next: number },
+//! Tab { name: string, stack: Entry[] },
 //! Entry { id: number, name: string, url: string, tab: string, params: Params },
 //! Params { one string field per distinct :name, in first-declaration order }.
 //! The header slot's type leads to every shape; global type-row order is immaterial.
 //! The compiler checks the route table; its types are checked once at boot.
 //! No host interprets slots.
 
-use super::{Carried, DataSource, Runner, RunnerError};
+use super::{Carried, CommitReceipt, DataSource, Runner, RunnerError};
 use exact_kernel::SortedSet;
 use exact_plan::{Plan, SlotsId, Stdlib, TypeKind, TypesId, Value};
 use exact_route::{Entry, Router, Tab, Table};
@@ -24,6 +24,8 @@ pub struct RouterChange {
     pub url: String,
     /// Removed ids, in the old value's tab/stack order.
     pub removed: Vec<u64>,
+    /// Every retained visit's canonical location, in tab/stack order.
+    pub visits: Vec<(u64, String)>,
 }
 
 /// The router seam (LLP 1047 D4): what the runner and its VM ask of a plan's
@@ -515,6 +517,12 @@ impl Routing for RouterContext {
             top: top.id,
             url: top.url.clone(),
             removed,
+            visits: r
+                .tabs
+                .iter()
+                .flat_map(|t| &t.stack)
+                .map(|e| (e.id, e.url.clone()))
+                .collect(),
         }))
     }
 
@@ -576,6 +584,13 @@ impl<D: DataSource> Runner<D> {
                 continue;
             }
             self.init_slot(i, carried)?;
+            // Where the viewer is, known at launch (`launching_with`): the
+            // locale `set_place` writes, before any initializer calls `t`.
+            if Some(i) == locale && crate::time::launch_place().is_some() {
+                if let Some(resolved) = self.plan.resolve_locale(&self.place.locale) {
+                    self.slots[i] = Value::str(resolved);
+                }
+            }
         }
         Ok(())
     }
@@ -600,6 +615,7 @@ impl<D: DataSource> Runner<D> {
             .and_then(|c| c.slots.iter().find(|(n, _)| n == name))
             .map(|(_, v)| v.clone())
             .filter(|v| v.conforms(&self.plan, row.ty));
+        let carried = kept.is_some();
         let v = match kept {
             Some(v) => v,
             None => self.eval(row.init, &[], &[])?,
@@ -607,7 +623,13 @@ impl<D: DataSource> Runner<D> {
         if !v.conforms(&self.plan, row.ty) {
             return Err(RunnerError::SlotType { slot: name.into() });
         }
-        self.slots[i] = v;
+        // A persisted slot takes the store's value over its initializer's
+        // (LLP 1116 D5); a carried value is this session's and wins.
+        self.slots[i] = if carried {
+            v
+        } else {
+            self.restore_persisted(i, v)
+        };
         Ok(())
     }
 
@@ -661,6 +683,97 @@ impl<D: DataSource> Runner<D> {
         self.router
             .as_ref()
             .is_some_and(|r| r.matches_pattern(location))
+    }
+
+    /// The location of the visit beneath visit `id` on the stack that holds
+    /// it, or `None` (no router, no such visit, or a stack's root). A host's
+    /// own Back for a route with no authored Back control delivers it to the
+    /// navigation root's `navigate`, as the web's history Back does (LLP
+    /// 1115 D5; LLP 1038 D11 as amended 2026-10-03).
+    pub fn location_beneath(&self, id: u64) -> Option<String> {
+        let (_, router) = self.carry_router()?;
+        router.tabs.iter().find_map(|tab| {
+            let at = tab.stack.iter().position(|e| e.id == id)?;
+            at.checked_sub(1).map(|below| tab.stack[below].url.clone())
+        })
+    }
+
+    /// The platform's own Back from the selected visit `id`, for a route
+    /// with no authored Back control under a navigation root with no
+    /// `navigate` handler (LLP 1115 D5): the router's `back`, written by the
+    /// runner as one commit of its own, as the app's `nav = back(nav)`
+    /// would be — journaled as `host back`, refused like any commit. `None`
+    /// (nothing done) without a router, or when `id` is not the selected
+    /// top or is its stack's root: a Back the app already took, or one
+    /// with nowhere to go.
+    pub fn host_back(&mut self, id: u64) -> Result<Option<CommitReceipt>, RunnerError> {
+        let Some(context) = self.router.as_deref() else {
+            return Ok(None);
+        };
+        let slot = context.slot().0 as usize;
+        let current = self.slots[slot].clone();
+        let Some(router) = context.read(&current) else {
+            return Ok(None);
+        };
+        if exact_route::top(&router).map(|e| e.id) != Some(id) || exact_route::depth(&router) < 2 {
+            return Ok(None);
+        }
+        let Some(next) = context.call(&self.plan, Stdlib::Back, &[current]) else {
+            return Ok(None);
+        };
+        self.host_commit(slot, next, "host back")
+    }
+
+    /// The platform's own navigation to `location` under a navigation root
+    /// with no `navigate` handler: the browser's Forward, or a same-origin
+    /// link to a declared route (LLP 1115.000 D4.3). It is the router's
+    /// `go`, written by the runner as one commit of its own, as the app's
+    /// `nav = go(nav, location)` would be — journaled as `host go`, refused
+    /// like any commit. `None` (nothing done) without a router, or when
+    /// `go` leaves the router as it is: no route matches `location`, or it
+    /// is already the selected top.
+    pub fn host_go(&mut self, location: &str) -> Result<Option<CommitReceipt>, RunnerError> {
+        let Some(context) = self.router.as_deref() else {
+            return Ok(None);
+        };
+        let slot = context.slot().0 as usize;
+        let current = self.slots[slot].clone();
+        let Some(router) = context.read(&current) else {
+            return Ok(None);
+        };
+        let next = context
+            .call(&self.plan, Stdlib::Go, &[current, Value::str(location)])
+            .filter(|next| context.read(next).is_some_and(|r| r != router));
+        self.log_router_refusals();
+        match next {
+            Some(next) => self.host_commit(slot, next, "host go"),
+            None => Ok(None),
+        }
+    }
+
+    /// One commit of the runner's own that writes the router `next`.
+    fn host_commit(
+        &mut self,
+        slot: usize,
+        next: Value,
+        what: &str,
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
+        let was_poisoned = self.poisoned;
+        let checkpoint = self.checkpoint(false);
+        let result = if self.poisoned {
+            Err(RunnerError::Poisoned)
+        } else {
+            self.slots[slot] = next;
+            self.router_change()
+                .and_then(|_| self.settle(false))
+                .and_then(|_| self.gate_step())
+                .and_then(|_| self.update())
+        };
+        self.conclude(checkpoint, &result, was_poisoned);
+        self.arm_then(result.is_ok());
+        self.arm_next(result.is_ok());
+        self.log_outcome(what, &result, was_poisoned);
+        result.map(Some)
     }
 
     /// The evaluated arguments of a settled resource (the bake's cache key).

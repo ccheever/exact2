@@ -104,8 +104,9 @@ fn memory_hints() -> wgpu::MemoryHints {
 }
 
 /// Optional features, each granted only where the adapter has it: timestamp
-/// diagnostics (no queries or buffers until a surface arms them) and the two
-/// block-compressed texture families a surface may choose its payloads from.
+/// diagnostics (no queries or buffers until a surface arms them), the two
+/// block-compressed texture families a surface may choose its payloads from, and
+/// forced early depth tests (a game's forward shaders, where nothing discards).
 /// @ref llp/1046.003-game-engine-as-built.explainer.md#compressed-textures-2026-09-23
 pub fn requested_features() -> wgpu::Features {
     wgpu::Features::TIMESTAMP_QUERY
@@ -113,6 +114,7 @@ pub fn requested_features() -> wgpu::Features {
         | wgpu::Features::TIMESTAMP_QUERY_INSIDE_PASSES
         | wgpu::Features::TEXTURE_COMPRESSION_BC
         | wgpu::Features::TEXTURE_COMPRESSION_ASTC
+        | wgpu::Features::SHADER_EARLY_DEPTH_TEST
 }
 
 /// Request each optional capacity independently; a low inter-stage limit must

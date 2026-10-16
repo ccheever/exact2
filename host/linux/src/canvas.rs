@@ -6,10 +6,8 @@
 //! RenderThread, with its glyph atlas) does the drawing; text is drawn with
 //! `Canvas.drawGlyphs` from the same font files Parley shaped with, so
 //! measurement and pixels agree.
-//!
 //! The presenter lives on the Android main thread ([`CanvasHost`]); every
 //! call comes from there.
-//!
 //! The stream is `u32` words (floats as bits), little-endian:
 //! - `1 MATRIX a b c d e f` — device pixels; the rest of the stream until
 //!   the next MATRIX is drawn under it (saved/restored by the reader around
@@ -46,6 +44,8 @@
 //! - `40 SHADOW color sigma x y w h radii×8 bx by bw bh bradii×8` — an outer
 //!   `box-shadow`: the rounded rect blurred by `sigma` (local units), drawn only
 //!   outside the border box `b…` (`canvas/shadow.rs`)
+//! - `43 SHADER len …` — the next RRECT, PATH or STROKE paints with a gradient shader (`canvas/gradient.rs`)
+//! - `44 BLUR sigma` — the next GLYPHS draws through a blur of `sigma`, local units (`canvas/glyphs.rs`)
 //! - `25 DASH phase n d×n` — the next STROKE is dashed: `n` (even) on/off lengths and the
 //!   offset into them, in the stroke's own units (SVG `stroke-dasharray`, `stroke-dashoffset`)
 //!
@@ -135,10 +135,30 @@ static SLOTS: std::sync::LazyLock<bool> =
 /// from the decoded picture, a copy rather than a decode.
 const IDLE_FRAMES: u64 = 10;
 
+#[path = "canvas/access.rs"]
+mod access;
+#[path = "canvas/agent.rs"]
+pub mod agent;
 #[path = "canvas/clip.rs"]
 mod clip;
+#[path = "canvas/colors.rs"]
+mod colors;
+pub use colors::colors;
+#[path = "canvas/device.rs"]
+mod device;
+#[path = "canvas/field.rs"]
+pub mod field;
+#[path = "canvas/glyphs.rs"]
+mod glyphs;
+#[path = "canvas/gradient.rs"]
+mod gradient;
+#[path = "canvas/input.rs"]
+mod input;
+pub use device::{configure, window, Told};
 #[path = "canvas/jni.rs"]
 pub mod jni;
+#[path = "canvas/journal.rs"]
+mod journal;
 #[path = "canvas/keys.rs"]
 mod keys;
 #[path = "canvas/layer.rs"]
@@ -146,14 +166,22 @@ mod layer;
 pub use jni_sys;
 #[path = "canvas/picture.rs"]
 mod picture;
+#[path = "canvas/reader.rs"]
+mod reader;
 #[path = "canvas/refine.rs"]
 mod refine;
+#[path = "canvas/requests.rs"]
+mod requests;
+#[path = "canvas/scroll.rs"]
+mod scroll;
 #[path = "canvas/shadow.rs"]
 mod shadow;
 #[path = "canvas/slot.rs"]
 mod slot;
 #[path = "canvas/stream.rs"]
 mod stream;
+#[path = "canvas/surface.rs"]
+mod surface;
 pub use picture::Picture;
 use picture::WeakPicture;
 pub use stream::drawing;
@@ -222,6 +250,8 @@ pub struct Recorder {
     again: Option<slot::Again>,
     /// Nodes the reader animates, apart (`crate::host::lower`).
     layers: layer::Layers,
+    /// The blur the next glyphs are drawn through, local units (`glyphs.rs`).
+    blur: f32,
 }
 
 /// A picture slot recording: its id, the row's ops so far, the row's matrix,
@@ -276,6 +306,7 @@ impl Recorder {
             slot_contexts: HashMap::new(),
             again: None,
             layers: Default::default(),
+            blur: 0.0,
         }
     }
 
@@ -512,10 +543,7 @@ impl Backend for Recorder {
     }
 
     fn fill_gradient(&mut self, s: &Shape, g: &GradientPaint, ts: Transform) {
-        // Not in this benchmark's rows: the first stop stands in (a gap).
-        if let Some(&(_, c)) = g.stops.first() {
-            self.fill(s, crate::paint::rgba(c), ts);
-        }
+        self.gradient_rect(s, g, ts);
     }
 
     fn fill_border(&mut self, part: &BorderFill, ts: Transform) {
@@ -547,9 +575,13 @@ impl Backend for Recorder {
             self.ops.extend([CLIP_PATH, 0]);
             self.path(clip);
         }
+        if let Some(ring) = &part.ring_clip {
+            self.ops.extend([CLIP_PATH, 1]);
+            self.path(ring);
+        }
         self.ops.extend([PATH, Self::color(part.color), 1]);
         self.path(&part.region);
-        if part.clip.is_some() {
+        for _ in 0..usize::from(part.clip.is_some()) + usize::from(part.ring_clip.is_some()) {
             self.ops.push(RESTORE);
         }
     }
@@ -645,43 +677,14 @@ impl Backend for Recorder {
         origin: (f32, f32),
         ts: Transform,
     ) {
-        // Glyphs can overhang their box a little (italics, accents).
-        let bounds = (
-            origin.0 - 2.0,
-            origin.1 - 2.0,
-            paragraph.width + 4.0,
-            paragraph.height + 4.0,
-        );
-        let bounds = clip::map(bounds, ts);
-        if self.culled(bounds) {
-            return;
-        }
-        self.need(bounds);
-        self.transform(ts.pre_translate(origin.0, origin.1));
-        for run in text.glyph_runs(paragraph, palette) {
-            if run.paint.color[3] == 0 {
-                continue;
-            }
-            let Some(file) = run.file.clone().or_else(|| self.face_file(&run.font)) else {
-                continue;
-            };
-            let font = self.font(&file, run.weight, &run.synthesis);
-            self.ops.extend([GLYPHS, font]);
-            self.f(run.size);
-            self.ops.push(Self::color(run.paint.color));
-            self.f(if run.synthetic_italic { -0.25 } else { 0.0 });
-            self.ops.push(run.glyphs.len() as u32);
-            for (id, x, y) in &run.glyphs {
-                self.ops.push(*id);
-                self.f(*x);
-                self.f(*y);
-            }
-        }
+        self.glyphs(text, paragraph, palette, origin, ts);
+    }
+
+    fn text_blur(&mut self, sigma: f32) {
+        self.blur = sigma;
     }
 
     fn svg_path(&mut self, s: &crate::paint::SvgPaint<'_>, ts: Transform) {
-        // Solid inks only (symbols, plain SVG shapes); a gradient or pattern
-        // draws nothing here (a gap of this backend).
         let ops: Vec<PathOp> = s
             .path
             .0
@@ -698,12 +701,13 @@ impl Backend for Recorder {
             clip::map((x - grow, y - grow, w + 2.0 * grow, h + 2.0 * grow), ts)
         }));
         self.transform(ts);
-        if let Some(crate::paint::Ink::Solid(c)) = &s.fill {
-            self.ops
-                .extend([PATH, Self::color(*c), u32::from(s.even_odd)]);
+        if let Some(c) = s.fill.as_ref().and_then(|ink| self.ink(ink)) {
+            self.ops.extend([PATH, c, u32::from(s.even_odd)]);
             self.path(&ops);
         }
-        if let Some(crate::paint::Ink::Solid(c)) = &s.stroke {
+        // A gradient's SHADER goes before the DASH, which the reader keeps
+        // as it does a shader until the STROKE.
+        if let Some(c) = s.stroke.as_ref().and_then(|ink| self.ink(ink)) {
             if !s.dash.is_empty() {
                 self.ops.push(DASH);
                 // A layer playing the dash offset finds its phase here.
@@ -714,7 +718,7 @@ impl Backend for Recorder {
                     self.f(*d);
                 }
             }
-            self.ops.extend([STROKE, Self::color(*c)]);
+            self.ops.extend([STROKE, c]);
             self.f(s.width);
             self.ops.extend([u32::from(s.cap), u32::from(s.join)]);
             self.path(&ops);
@@ -896,7 +900,7 @@ impl Backend for Recorder {
     fn finish(&mut self) -> Result<Pixmap, String> {
         self.layers_finish();
         let ops = std::mem::take(&mut self.ops);
-        FINISHED.with(|f| *f.borrow_mut() = Some(ops));
+        FINISHED.with(|f| agent::kept(f.borrow_mut().replace(ops)));
         Pixmap::new(1, 1).ok_or_else(|| "placeholder".to_string())
     }
 }
@@ -966,11 +970,14 @@ pub struct CanvasHost<D: DataSource> {
     /// last of them was (ms).
     moved: u32,
     moved_at: f64,
-    /// When the last scroll step came, whether a pass waits for more, and
-    /// whether the last pass left rows to build.
+    /// When the last scroll step came, whether a pass waits for more,
+    /// whether the last pass left rows to build, whether it led, and whether
+    /// a lead's rows are still to retire.
     scrolled_at: f64,
     waiting: bool,
     leftover: bool,
+    led: bool,
+    settling: bool,
     /// A touch began or ended: paint the next frame.
     force: bool,
     /// A scroll came since the last collection pass: the frame drawing it
@@ -1013,7 +1020,7 @@ pub struct CanvasHost<D: DataSource> {
     origin_ns: i64,
     clock_sent: bool,
     tracks: HashMap<u32, Vec<u32>>,
-    /// The scroller [`CanvasHost::scroll`] moves.
+    /// The scroller [`CanvasHost::scroll`] moves, and a finger last did.
     feed: Option<ViewId>,
     /// Whether the windows' lead is back after the first frame (and after
     /// a touch's response).
@@ -1029,6 +1036,8 @@ pub struct CanvasHost<D: DataSource> {
     /// the rows that show (a slice of 0); the lead follows that frame.
     responding: bool,
     tracks_epoch: u64,
+    /// The reader's window and what it was last told to draw around the page.
+    shell: device::Shell,
 }
 
 struct Painted {
@@ -1045,30 +1054,37 @@ const MOVES: u32 = 30;
 const MOVES_MOUNTED: u32 = 6;
 
 impl<D: DataSource + Default> CanvasHost<D> {
-    /// Boot `D`'s app over a view of `size` pixels at `scale` pixels per
-    /// point. Assets use the Linux environment; the carrier directly selects
-    /// its Canvas recorder and enables the reader's native motion lowering.
+    /// Boot `D`'s app in a window of `size` pixels at `scale` pixels per
+    /// point, with the insets the reader told for it (`device.rs`). Assets
+    /// use the Linux environment; the carrier directly selects its Canvas
+    /// recorder and enables the reader's native motion lowering.
     pub fn boot(
         plan: &'static [u8],
         compat: &'static str,
         size: (u32, u32),
         scale: f32,
+        hatches: Option<crate::hatches::Install>,
     ) -> Result<CanvasHost<D>, String> {
         let started = std::time::Instant::now();
         let origin_ns = monotonic_ns();
         // Motion lowering still reads this policy; painter construction is direct.
         std::env::set_var("EXACT_PAINTER", "canvas");
-        // Twelve viewports of decoded pictures: the reader's copy is a GPU
+        // Eleven viewports of decoded pictures: the reader's copy is a GPU
         // buffer (no heap copy, no upload), a picture decoded again costs
         // more than the memory it holds, and pictures are kept at the size
-        // they show at (`image::png_decode::DecodePlan`), so twelve hold what
-        // a fling through heavy's photos comes back to (Pixel 10 Pro XL, 24k
-        // px/s: CPU -9% against eight, end PSS 530 MB against 495; Views 485).
+        // they show at (`image::png_decode::DecodePlan`). Twelve until they
+        // were asked for at mount (below): heavy then ended 10 MB higher.
         if std::env::var_os("EXACT_IMAGE_VIEWPORTS").is_none() {
-            std::env::set_var("EXACT_IMAGE_VIEWPORTS", "12");
+            std::env::set_var("EXACT_IMAGE_VIEWPORTS", "11");
+        }
+        // A picture is asked for when its row is built (`presenter::images`).
+        if std::env::var_os("EXACT_PICTURES_AT_MOUNT").is_none() {
+            std::env::set_var("EXACT_PICTURES_AT_MOUNT", "1");
         }
         std::env::set_var("EXACT_SCALE", scale.to_string());
-        let viewport = (size.0 as f32 / scale, size.1 as f32 / scale);
+        let told = device::windowed(size, scale);
+        let whole = (size.0 as f32 / scale, size.1 as f32 / scale);
+        let viewport = told.map_or(whole, |told| told.inside());
         // The first frame realizes only the rows that show; the window's lead
         // follows once it is out ([`CanvasHost::frame`]).
         exact_runner::set_lead_scale(0.0);
@@ -1080,9 +1096,14 @@ impl<D: DataSource + Default> CanvasHost<D> {
         crate::app::row_reuse_from_env(true);
         #[cfg(target_os = "android")]
         crate::surfaces::prepare_gpu(compat);
+        // The device's colours, before anything is resolved by a role (D4).
+        let palette = colors::palette();
+        if let Some(palette) = &palette {
+            palette.tell();
+        }
         let mut config = crate::app::Config::from_env_static(plan, compat);
-        config.scale = scale;
-        let (p, error) = crate::app::boot_presenter_with_painter::<D>(
+        (config.scale, config.hatches) = (scale, hatches);
+        let (mut p, error) = crate::app::boot_presenter_with_painter::<D>(
             &mut config,
             viewport,
             crate::presenter::PainterBoot::canvas(),
@@ -1090,13 +1111,25 @@ impl<D: DataSource + Default> CanvasHost<D> {
         if let Some(e) = error {
             eprintln!("exact: {e}");
         }
+        p.set_live_clock(Some(crate::presenter::wall_since(started)));
+        // What the reader read of the device, before the first frame (D3.1).
+        if let Some(e) = device::configured().and_then(|d| p.set_device(&d)) {
+            eprintln!("exact: device: {e}");
+        }
+        // The reader takes what the presenter asks of the platform (D5),
+        // and makes the top layer's windows (D10) and the bars (D11).
+        p.serve_requests();
+        surface::serve(&mut p);
+        if let Some(palette) = &palette {
+            p.set_palette(palette);
+        }
         eprintln!(
             "exact: canvas {}x{} px, scale {scale}, boot {:.1} ms",
             size.0,
             size.1,
             started.elapsed().as_secs_f64() * 1000.0
         );
-        Ok(CanvasHost {
+        let mut host = CanvasHost {
             p,
             started,
             scale,
@@ -1107,6 +1140,8 @@ impl<D: DataSource + Default> CanvasHost<D> {
             scrolled_at: 0.0,
             waiting: false,
             leftover: false,
+            led: false,
+            settling: false,
             force: false,
             scrolled: false,
             prefetching: false,
@@ -1133,7 +1168,13 @@ impl<D: DataSource + Default> CanvasHost<D> {
             painted_once: false,
             gpu_waiting: false,
             responding: false,
-        })
+            shell: Default::default(),
+        };
+        // The page's place in the window, once its root is known (D3.3).
+        if let Some(told) = told {
+            host.set_window(told);
+        }
+        Ok(host)
     }
 
     /// A reader's `ANativeWindow` of `size` pixels for canvas `view`, alive
@@ -1151,7 +1192,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
     }
 
     fn now(&self) -> f64 {
-        self.started.elapsed().as_secs_f64() * 1000.0
+        agent::clock(&self.p).unwrap_or_else(|| self.started.elapsed().as_secs_f64() * 1000.0)
     }
 
     /// One turn: the presenter's work, then a recording when anything
@@ -1163,8 +1204,8 @@ impl<D: DataSource + Default> CanvasHost<D> {
             exact_runner::set_lead_scale(1.0);
             self.p.refine_deferred(true);
         }
+        let now = self.now();
         let p = &mut self.p;
-        let now = self.started.elapsed().as_secs_f64() * 1000.0;
         let _frame = Section::begin(c"exact frame");
         p.hold_collections(self.scrolled);
         let frame = self.frame_held(now);
@@ -1210,12 +1251,15 @@ impl<D: DataSource + Default> CanvasHost<D> {
             }
             p.poll_update();
             p.run_commands(D::default);
+            p.hatch_turn();
         }
-        if p.host().wants_frames() {
+        // The presenter's clock: the runner's frame tasks and timers, and
+        // the hatches' tickets and `after`s.
+        if p.wants_frames() {
             if let Some(e) = p.animation_frame(now) {
                 eprintln!("exact: {e}");
             }
-        } else if p.host().timer_due_ms().is_some_and(|due| due <= now) {
+        } else if p.timer_due_ms().is_some_and(|due| due <= now) {
             if let Some(e) = p.advance(now) {
                 eprintln!("exact: {e}");
             }
@@ -1229,6 +1273,9 @@ impl<D: DataSource + Default> CanvasHost<D> {
             if p.module_pending() {
                 p.first_pixel();
             }
+        }
+        if !quick && self.p.dirty() {
+            self.fit();
         }
         if let Some(mut shift) = self.shift(now) {
             // A play that changed since the last stream (a row that came
@@ -1321,20 +1368,16 @@ impl<D: DataSource + Default> CanvasHost<D> {
         }
         self.animating()
     }
-
     /// Whether another frame is wanted at the next vsync.
     pub fn animating(&self) -> bool {
         // A moved paint owes a paint: the frame after scrolling stops.
         self.p.dirty()
+            || self.p.scroll_end_due().is_some_and(|due| due <= self.now())
             || self.p.needs_animation_frame()
-            || self.p.host().wants_frames()
+            || self.p.wants_frames()
+            // An act a hatch's moment queued runs at the next turn.
+            || self.p.hatch_in_flight() > 0
             || self.surfaces
-    }
-
-    /// Whether a moved paint owes a paint: once moves pause (a frame
-    /// without one), the paint brings boxes, hits and pictures up to date.
-    pub fn owed(&self) -> bool {
-        (self.moved > 0 && self.moves < 1000) || self.waiting
     }
 
     fn owed_at(&self, now: f64) -> bool {
@@ -1399,6 +1442,18 @@ impl<D: DataSource + Default> CanvasHost<D> {
         self.borrowed = borrowed;
     }
 
+    /// Its session's roles as this thread's, or (`false`) no longer: a host
+    /// handed between threads (`startAsync`'s boot thread to the one that
+    /// runs it) leaves one and takes the other (LLP 1121 stage 5).
+    pub fn roles_here(&mut self, here: bool) {
+        let runner = self.p.host_mut().runner_mut();
+        if here {
+            runner.install_roles();
+        } else {
+            runner.uninstall_roles();
+        }
+    }
+
     /// Milliseconds until the next timer, if any.
     pub fn next_due(&self) -> Option<f64> {
         // The windows' lead is owed a turn as soon as the first frame is out,
@@ -1411,10 +1466,8 @@ impl<D: DataSource + Default> CanvasHost<D> {
         if (self.painted_once && !self.lead) || self.owed_surfaces {
             return Some(0.0);
         }
-        self.p
-            .host()
-            .timer_due_ms()
-            .map(|due| (due - self.now()).max(0.0))
+        let timer = (self.p.timer_due_ms()).map(|due| (due - self.now()).max(0.0));
+        self.settle_due(timer)
     }
 
     /// The descriptors that wake the presenter (executor replies, decoded images).
@@ -1422,65 +1475,9 @@ impl<D: DataSource + Default> CanvasHost<D> {
         [self.p.executor_fd(), self.p.image_fd()]
     }
 
-    /// Scroll what is under the viewport's center by `dy` pixels.
-    pub fn scroll(&mut self, dy: f32) {
-        let (x, y) = (self.viewport.0 / 2.0, self.viewport.1 / 2.0);
-        let _s = Section::begin(c"exact scroll");
-        self.scrolled = self.prefetching;
-        self.scrolled_at = self.now();
-        self.travel.scrolled(dy / self.scale);
-        self.p.hold_collections(self.prefetching);
-        // The feed: the scroller the first wheel at the centre took, moved
-        // directly after (a nested list under the centre would take it).
-        let moved = self
-            .feed
-            .is_some_and(|id| self.p.scroll_by(id, dy / self.scale));
-        if !moved && self.feed.is_none() {
-            self.p.wheel_at(x, y, 0.0, dy / self.scale);
-            self.feed = self.p.last_wheel();
-        }
-        self.p.hold_collections(false);
-    }
-
-    /// A touch (0 down, 1 up, 2 move, 3 cancel) at pixels.
-    pub fn touch(&mut self, action: i32, x: f32, y: f32) {
-        let _s = Section::begin(c"exact touch");
-        self.force |= action != 2;
-        if action != 2 && self.painted_once {
-            self.p.slice_collections(Some(0), 0.0);
-            self.responding = true;
-            self.lead = false;
-        }
-        let now = self.now();
-        let (x, y) = (x / self.scale, y / self.scale);
-        let r = match action {
-            0 => self.p.pointer_down(x, y, now).map(|_| ()),
-            1 => self.p.pointer_up(x, y, now).map(|_| ()),
-            2 => self.p.pointer_move(x, y, now).map(|_| ()),
-            _ => self.p.pointer_cancel(now),
-        };
-        if let Err(e) = r {
-            eprintln!("exact: {e}");
-        }
-    }
-
     /// A picture announced by `IMAGE_DEF`, once (premultiplied RGBA rows).
     pub fn image(id: u32) -> Option<Picture> {
         image(id)
-    }
-
-    /// The view is `size` pixels after all (the reader booted at the size it
-    /// expected).
-    pub fn resize(&mut self, size: (u32, u32)) {
-        let viewport = (size.0 as f32 / self.scale, size.1 as f32 / self.scale);
-        if viewport == self.viewport {
-            return;
-        }
-        self.viewport = viewport;
-        if let Some(e) = self.p.resize(viewport.0, viewport.1) {
-            eprintln!("exact: resize: {e}");
-        }
-        self.force = true;
     }
 }
 

@@ -13,7 +13,7 @@
 // - `exactSurface` (LLP 1047 D3; runner/src/surface_record.rs): a GPU
 //   surface's published record, decoded against each reader's shape.
 import { data, Resources, commit, R, Refusal } from "./rt.js";
-import { preferences, onPreferences, pageReporter, fold, foldEnv, onFold, preferFold } from "./navigation.js";
+import { displayMode, preferences, onPreferences, pageReporter, fold, foldEnv, onFold, preferFold } from "./navigation.js";
 
 const again = (source, why) => () => commit(() => { for (const r of Resources) if (r.source === source) R(r); }, why);
 // `readers`: resource name → [its fields, in its shape's order, …].
@@ -25,9 +25,10 @@ export function viewport(readers) {
   (data.reserved ??= {}).exactViewport = (_, a, name) => {
     const p = preferences(), f = fold();
     return byName(readers, name, { width: innerWidth, height: innerHeight, prefersReducedMotion: !!(p & 1), prefersReducedTransparency: !!(p & 2),
+      displayMode: displayMode(),
       prefersContrast: CONTRAST[(p >> 2) & 3], prefersColorScheme: p & 16 ? "dark" : "light",
       devicePosture: f.posture, horizontalViewportSegments: f.cols, verticalViewportSegments: f.rows, // @ref LLP 1078 D2, D6
-      colorGamut: GAMUT[(p >> 8) & 3], dynamicRange: p & 1024 ? "high" : "standard", // @ref LLP 1100 D9
+      colorGamut: GAMUT[(p >>> 26) & 3], dynamicRange: p & (1 << 28) ? "high" : "standard", // @ref LLP 1100 D9
       pointer: p & 64 ? "none" : p & 32 ? "coarse" : "fine", hover: p & 128 ? "none" : "hover" });
   };
   if (typeof addEventListener !== "function") return;
@@ -46,8 +47,8 @@ export function page(readers) {
   const facts = typeof document === "object" && document.createElement ? pageReporter(agent) : null;
   (data.reserved ??= {}).exactPage = (_, a, name) => {
     // A render has no page: the bake's answer (runner/src/page.rs `Page::default`).
-    const f = facts ? facts.read() : { "visibility-state": "visible", online: true, "can-share": false, "can-open-files": false, "has-focus": true };
-    return byName(readers, name, { visibilityState: f["visibility-state"], onLine: f.online, canShare: f["can-share"], canOpenFiles: f["can-open-files"], hasFocus: f["has-focus"] });
+    const f = facts ? facts.read() : { "visibility-state": "visible", online: true, "can-share": false, "can-share-files": false, "can-share-pictures": false, "can-open-files": false, "has-focus": true, "navigation-type": "" };
+    return byName(readers, name, { visibilityState: f["visibility-state"], onLine: f.online, canShare: f["can-share"], canShareFiles: f["can-share-files"], canSharePictures: f["can-share-pictures"], canOpenFiles: f["can-open-files"], hasFocus: f["has-focus"], navigationType: f["navigation-type"] });
   };
   if (!facts) return;
   const changed = again("exactPage", "page");
@@ -109,6 +110,7 @@ function shaped(t, v, path, name) {
     if (t === "u") return v === null ? null : fail();
     return (t === "n" && typeof v === "number") || (t === "b" && typeof v === "boolean") || (t === "s" && typeof v === "string") ? v : fail();
   }
+  if (Array.isArray(t) && t[0] === "e") return v === undefined ? t[1][0] : typeof v === "string" ? v : fail();
   if (t[0] === "?") return v == null ? null : shaped(t[1], v, path, name);
   if (Array.isArray(t)) {
     if (v === undefined) return [];

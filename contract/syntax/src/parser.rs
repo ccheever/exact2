@@ -5,7 +5,7 @@
 //! in the first column, so one run reports each declaration's first error.
 
 use crate::ast::*;
-use crate::lexer::{escaped, template_expr_end, LexError, Lexer, Token, TokenKind};
+use crate::lexer::{escape, template_expr_end, LexError, Lexer, Token, TokenKind};
 use crate::Span;
 
 mod color_profile;
@@ -13,11 +13,16 @@ mod decls;
 mod expr;
 mod keyframes;
 mod media_session;
+mod midi;
 mod names;
+mod parts;
 #[path = "routes.rs"]
 mod routes;
+mod sequence;
 mod sounds;
 mod steps;
+mod theme;
+mod view;
 pub use steps::{is_launch, same_launch};
 use steps::{launch_word, LAUNCH};
 
@@ -80,6 +85,8 @@ pub fn parse_source_all(src: &str, source_id: u32) -> Result<File, Vec<SyntaxErr
         depth: 0,
         view_depth: 0,
         last: 0,
+        free: Vec::new(),
+        methods: Vec::new(),
     };
     let parsed = p.file_all();
     if lexed.is_empty() {
@@ -109,6 +116,8 @@ pub(crate) fn parse_tokens(tokens: Vec<Token>) -> Result<(File, Vec<Token>), Syn
         depth: 0,
         view_depth: 0,
         last: 0,
+        free: Vec::new(),
+        methods: Vec::new(),
     };
     let file = p.file()?;
     Ok((file, p.tokens))
@@ -123,6 +132,15 @@ struct Parser {
     view_depth: usize,
     /// The tree depth of the expression last parsed.
     last: usize,
+    /// Free calls of a method's name (`trim(s)`), each with its refusal: refused
+    /// at the end of the file unless the file declares a `fn`, shape or action
+    /// of that name (LLP 1116.015 D2).
+    free: Vec<(String, SyntaxError)>,
+    /// Method calls (`s.trim()`, `xs.length`): refused at the end of the file
+    /// when it declares a `fn`, shape or action of that name, which the
+    /// rewritten call would reach where TypeScript's method never would
+    /// (LLP 1116.016 D2).
+    methods: Vec<(String, Span)>,
 }
 
 type R<T> = Result<T, SyntaxError>;
@@ -223,11 +241,18 @@ impl Parser {
             }
             TokenKind::Eof => Ok(()),
             other => {
-                // `when filter = "all"`: a comparison was meant.
-                let hint = if matches!(other, TokenKind::Punct("=")) {
-                    "; `==` compares, and only a statement assigns"
-                } else {
-                    ""
+                // `if filter = "all"`: a comparison was meant. `x = a if c else b`:
+                // Python's conditional. `save: action(string)`: a typed action prop.
+                let before = self.pos.checked_sub(1).map(|i| &self.tokens[i].kind);
+                let hint = match other {
+                    TokenKind::Punct("=") => "; `==` compares, and only a statement assigns",
+                    TokenKind::Ident(w) if w == "if" => {
+                        "; a value chosen by a condition is `cond ? a : b`"
+                    }
+                    TokenKind::Punct("(") if matches!(before, Some(TokenKind::Ident(w)) if w == "action") => {
+                        "; an action prop is declared `action`, and what it is called with is inferred"
+                    }
+                    _ => "",
                 };
                 self.err(
                     "syntax-expected-newline",
@@ -300,11 +325,40 @@ impl Parser {
             let start = self.pos;
             match self.declaration(&mut file) {
                 Ok(true) => {}
-                Ok(false) if errors.is_empty() => {
-                    file.names = std::mem::take(&mut self.names);
-                    return Ok(file);
+                Ok(false) => {
+                    let declared = |name: &str| {
+                        file.fns.iter().any(|f| f.name == name)
+                            || file.shapes.iter().any(|s| s.name == name)
+                            || file
+                                .components
+                                .iter()
+                                .any(|c| c.actions.iter().any(|a| a.name == name))
+                    };
+                    let free = std::mem::take(&mut self.free);
+                    errors.extend(
+                        free.into_iter()
+                            .filter(|(n, _)| !declared(n))
+                            .map(|(_, e)| e),
+                    );
+                    let methods = std::mem::take(&mut self.methods);
+                    errors.extend(methods.into_iter().filter(|(n, _)| declared(n)).map(|(n, span)| {
+                        let call = if n == "length" { ".length".to_string() } else { format!(".{n}(…)") };
+                        SyntaxError {
+                            id: "syntax-method-shadowed",
+                            message: format!(
+                                "rename this file's `{n}`: `{call}` is the built-in method, as in TypeScript, where a function named `{n}` never replaces it"
+                            ),
+                            span,
+                        }
+                    }));
+                    if errors.is_empty() {
+                        file.names = std::mem::take(&mut self.names);
+                        return Ok(file);
+                    }
+                    errors.sort_by_key(|e| (e.span.line, e.span.col));
+                    errors.truncate(MAX_REFUSALS);
+                    return Err(errors);
                 }
-                Ok(false) => return Err(errors),
                 Err(e) => {
                     errors.push(e);
                     if !recover || errors.len() >= MAX_REFUSALS {
@@ -378,6 +432,7 @@ impl Parser {
                     file.timelines.push(TimelineDecl { name, span });
                 }
                 TokenKind::Ident(w) if w == "color-profile" => self.color_profile(file)?,
+                TokenKind::Ident(w) if w == "theme" => self.theme(file)?,
                 TokenKind::Ident(w) if w == "fn" => file.fns.push(self.fn_decl()?),
                 TokenKind::Ident(w) if w == "test" => file.tests.push(self.test_decl()?),
                 TokenKind::Ident(w) if LAUNCH.contains(&w.as_str()) => {
@@ -411,7 +466,7 @@ impl Parser {
                     return self.err(
                         "syntax-expected-declaration",
                         format!(
-                        "expected `routes`, `font`, `sound`, `shape`, `style`, `keyframes`, `timeline`, `color-profile`, `fn`, `use`, or `component`, found {}",
+                        "expected `routes`, `font`, `sound`, `shape`, `style`, `keyframes`, `timeline`, `color-profile`, `theme`, `fn`, `use`, or `component`, found {}",
                         describe(other)
                     ),
                     );
@@ -505,9 +560,29 @@ impl Parser {
         self.expect_punct(":")?;
         let ret = self.type_expr()?;
         self.expect_punct("=")?;
-        self.on_its_line("fn")?;
-        let body = self.expr()?;
-        self.newline()?;
+        // LLP 1116.017 D2: the body may start on the next line, indented: one
+        // expression, as after `= (`.
+        let body = if matches!(self.peek_kind(), TokenKind::Newline)
+            && matches!(self.peek2(), TokenKind::Indent)
+        {
+            self.next();
+            self.next();
+            let body = self.expr()?;
+            self.newline()?;
+            if !matches!(self.peek_kind(), TokenKind::Dedent) {
+                return self.err(
+                    "syntax-expected-expression",
+                    "a `fn`'s body is one expression: wrap a long one in parentheses, `(…`, with the rest of it on the lines under it",
+                );
+            }
+            self.next();
+            body
+        } else {
+            self.on_its_line("fn")?;
+            let body = self.expr()?;
+            self.newline()?;
+            body
+        };
         Ok(FnDecl {
             name,
             params,
@@ -522,20 +597,23 @@ impl Parser {
         let span = self.expect_word("style")?;
         let name = self.named_ident(span)?;
         self.newline()?;
-        let attrs = self.literal_attrs(&format!("style {name}"))?;
+        // A part's block (`::placeholder`) beside the rows (parts.rs).
+        let owner = format!("style {name}");
+        let mut attrs = Vec::new();
+        self.block(|p| {
+            if p.at_part() {
+                p.part(&format!("`{owner}`"), true, &mut attrs)
+            } else {
+                attrs.extend(p.literal_line(&owner)?);
+                Ok(())
+            }
+        })?;
+        unique_attrs(&attrs, &owner)?;
         Ok(StyleDecl { name, attrs, span })
     }
 
-    /// An indented block of `attr=literal` lines, several to a line, each
-    /// name once: the body of a `style` or of a keyframe.
-    fn literal_attrs(&mut self, owner: &str) -> R<Vec<Attr>> {
-        let lines = self.block(|p| p.literal_line(owner))?;
-        let attrs: Vec<Attr> = lines.into_iter().flatten().collect();
-        unique_attrs(&attrs, owner)?;
-        Ok(attrs)
-    }
-
-    /// One line of `attr=literal` pairs, through its newline.
+    /// One line of `attr=literal` pairs, through its newline: a `style`'s
+    /// (several to a line, each name once) or a keyframe's.
     fn literal_line(&mut self, owner: &str) -> R<Vec<Attr>> {
         let mut attrs = Vec::new();
         while !matches!(self.peek_kind(), TokenKind::Newline | TokenKind::Eof) {
@@ -590,6 +668,7 @@ impl Parser {
                 name: aname,
                 value,
                 span: aspan,
+                written: true,
             });
         }
         self.newline()?;
@@ -602,6 +681,13 @@ impl Parser {
         self.newline()?;
         let fields = self.block(|p| {
             let (name, span) = p.field_name()?;
+            // @ref LLP 1116.015 D2 — `x.length` is the length of a list or text.
+            if name == "length" {
+                return p.err(
+                    "syntax-length-field",
+                    "a field cannot be named `length`: `.length` is a list's or text's length; choose another name (`count`, `size`)",
+                );
+            }
             p.expect_punct(":")?;
             let ty = p.type_expr()?;
             p.newline()?;
@@ -626,19 +712,51 @@ impl Parser {
             return Ok(TypeExpr::Named("action".into(), span));
         }
         let (name, span) = self.ident()?;
-        match name.as_str() {
-            "option" | "list" => {
+        let mut ty = match name.as_str() {
+            "enum" => {
+                self.expect_punct("<")?;
+                let mut values = Vec::new();
+                loop {
+                    let token = self.next();
+                    let TokenKind::Str(value) = token.kind else {
+                        return self.err("syntax-enum", "enum members are quoted strings");
+                    };
+                    if values.contains(&value) {
+                        return self.err("syntax-enum", "enum members must be distinct");
+                    }
+                    values.push(value);
+                    if self.at_punct(">") {
+                        break;
+                    }
+                    self.expect_punct(",")?;
+                }
+                self.expect_punct(">")?;
+                TypeExpr::Enum(values, span)
+            }
+            "option" => {
                 self.expect_punct("<")?;
                 let inner = self.type_expr()?;
                 self.expect_punct(">")?;
-                Ok(if name == "option" {
-                    TypeExpr::Option(Box::new(inner), span)
-                } else {
-                    TypeExpr::List(Box::new(inner), span)
-                })
+                TypeExpr::Option(Box::new(inner), span)
             }
-            _ => Ok(TypeExpr::Named(name, span)),
+            // @ref LLP 1116.015 D2 — a list type is `T[]`.
+            "list" if self.at_punct("<") => {
+                self.next();
+                let inner = self.type_expr()?;
+                return Err(SyntaxError {
+                    id: "syntax-list-type",
+                    message: format!("write `{inner}[]`: a list type is `T[]`, as in TypeScript"),
+                    span,
+                });
+            }
+            _ => TypeExpr::Named(name, span),
+        };
+        while self.at_punct("[") && matches!(self.peek2(), TokenKind::Punct("]")) {
+            self.next();
+            self.next();
+            ty = TypeExpr::List(Box::new(ty), span);
         }
+        Ok(ty)
     }
 
     fn component(&mut self) -> R<Component> {
@@ -652,11 +770,13 @@ impl Parser {
             provides: Vec::new(),
             slot: false,
             states: Vec::new(),
+            persist: Vec::new(),
             derives: Vec::new(),
             resources: Vec::new(),
             mutations: Vec::new(),
             actions: Vec::new(),
             tasks: Vec::new(),
+            sequences: Vec::new(),
             view: Vec::new(),
             span,
         };
@@ -735,13 +855,29 @@ impl Parser {
                         "state" | "derive" => {
                             let t = self.next();
                             let name = self.named_ident(t.span)?;
-                            self.type_annotation(&w, &name, ":")?;
+                            // @ref LLP 1116.015 D2 — `state x: T = …` declares the type.
+                            let declared = if w == "state" && self.eat_punct(":") {
+                                Some(self.type_expr()?)
+                            } else {
+                                self.type_annotation(&w, &name, ":")?;
+                                None
+                            };
                             self.expect_punct("=")?;
                             self.on_its_line(&w)?;
                             let expr = self.expr()?;
                             let none = matches!(expr, Expr::None(_));
                             self.type_annotation(&w, &name, if none { "as none" } else { "as" })?;
+                            if let Some(span) = self.persist_word(&w, &name)? {
+                                c.persist.push(Persist {
+                                    name: name.clone(),
+                                    span,
+                                });
+                            }
                             self.newline()?;
+                            let expr = match declared {
+                                Some(ty) => Expr::Typed(Box::new(expr), ty, t.span),
+                                None => expr,
+                            };
                             let b = Binding {
                                 name,
                                 expr,
@@ -757,6 +893,7 @@ impl Parser {
                         "mutation" => c.mutations.push(self.mutation()?),
                         "action" => c.actions.push(self.action()?),
                         "task" => c.tasks.push(self.task()?),
+                        "sequence" => c.sequences.push(self.sequence()?),
                         "view" => {
                             self.next();
                             self.newline()?;
@@ -771,6 +908,16 @@ impl Parser {
                                  write the assertions as `test` blocks in `app.test.contract` \
                                  (LLP 1017 P7)",
                             )
+                        }
+                        "timer" | "interval" => {
+                            let end = self.tokens[self.pos..]
+                                .iter()
+                                .position(|t| t.kind == TokenKind::Newline)
+                                .map_or(self.tokens.len(), |n| self.pos + n);
+                            return self.err(
+                                "syntax-unknown-section",
+                                names::timer_hint(&w, &self.tokens[self.pos + 1..end]),
+                            );
                         }
                         other => {
                             return self.err(
@@ -790,7 +937,7 @@ impl Parser {
                         unreachable!()
                     };
                     let example = if w == "else" {
-                        " (like `resource tasks = loadTasks() as shape list<Task> else empty()`)"
+                        " (like `resource tasks = loadTasks() as shape Task[] else empty()`)"
                     } else {
                         ""
                     };
@@ -934,10 +1081,7 @@ impl Parser {
                 if self.at_ident("if") {
                     otherwise = vec![self.stmt()?];
                 } else if self.at_ident("when") {
-                    return self.err(
-                        "syntax-else-keyword",
-                        "an action branches with `if`; `when` is a view's: write `else if`",
-                    );
+                    return self.err("syntax-else-keyword", "write `else if`");
                 } else {
                     self.after_else("if")?;
                     otherwise = self.required_block(span, "else", |p| p.stmt())?;
@@ -1055,7 +1199,7 @@ impl Parser {
     // ---- view -------------------------------------------------------------
 
     fn node(&mut self) -> R<Node> {
-        // The plan accepts at most 256 nested sites. Refuse before constructing
+        // The compiler accepts at most 256 nested sites. Refuse before constructing
         // a deeper AST: all later compiler passes recursively walk this tree.
         if self.view_depth >= 256 {
             return self.err("syntax-view-depth", "views nest more than 256 sites deep");
@@ -1107,178 +1251,34 @@ impl Parser {
                 self.newline()?;
                 Ok(Node::Children { span })
             }
-            // An action's `if` written in a view (authoring bench).
-            "if" => self.err(
-                "syntax-stray-keyword",
-                "`if` is an action's statement: a view chooses with `when <condition>`, \
-                 and an `else` after its block at the same indent",
-            ),
-            "when" => {
-                self.next();
-                let cond = self.expr()?;
-                self.newline()?;
-                let then = self.required_block(span, "when", |p| p.node())?;
-                let mut otherwise = Vec::new();
-                if self.at_ident("else") {
-                    self.next();
-                    // `else when` is an `else` whose one node is the next
-                    // `when`, as `else if` is in an action.
-                    if self.at_ident("when") {
-                        otherwise = vec![self.node()?];
-                    } else if self.at_ident("if") {
-                        return self.err(
-                            "syntax-else-keyword",
-                            "a view branches with `when`; `if` is an action's: write `else when`",
-                        );
-                    } else {
-                        self.after_else("when")?;
-                        otherwise = self.required_block(span, "else", |p| p.node())?;
-                    }
-                }
-                Ok(Node::When {
-                    tag: 0,
-                    cond,
-                    then,
-                    otherwise,
-                    span,
-                })
-            }
-            "each" => {
-                self.next();
-                let var = self.named_ident(span)?;
-                let index = if self.at_punct(",") {
-                    self.next();
-                    Some(self.named_ident(span)?)
-                } else {
-                    None
-                };
-                self.expect_word("in")?;
-                let list = self.expr()?;
-                self.expect_word("key")?;
-                self.expect_punct("=")?;
-                let key = self.expr()?;
-                self.newline()?;
-                let body = self.block(|p| p.node())?;
-                Ok(Node::Each {
-                    tag: 0,
-                    var,
-                    index,
-                    list,
-                    key,
-                    body,
-                    span,
-                })
-            }
-            "match" => {
-                self.next();
-                let subject = self.expr()?;
-                self.newline()?;
-                let mut some = None;
-                let mut none = None;
-                self.block(|p| {
-                    let case_span = p.expect_word("case")?;
-                    if p.at_ident("some") {
-                        if some.is_some() {
-                            return duplicate("match arm", "some", case_span, span);
-                        }
-                        p.next();
-                        p.expect_punct("(")?;
-                        let var = p.named_ident(span)?;
-                        p.expect_punct(")")?;
-                        p.newline()?;
-                        some = Some((var, p.block(|q| q.node())?));
-                    } else {
-                        p.expect_word("none")?;
-                        if none.is_some() {
-                            return duplicate("match arm", "none", case_span, span);
-                        }
-                        p.newline()?;
-                        none = Some(p.block(|q| q.node())?);
-                    }
-                    Ok(())
-                })?;
-                let some = some.ok_or(SyntaxError {
-                    id: "contract-match-arms",
-                    message: "`match` needs `case some(x)`".into(),
-                    span,
-                })?;
-                let none = none.ok_or(SyntaxError {
-                    id: "contract-match-arms",
-                    message: "`match` needs `case none`".into(),
-                    span,
-                })?;
-                Ok(Node::Match {
-                    tag: 0,
-                    subject,
-                    some,
-                    none,
-                    span,
-                })
-            }
+            "if" => self.node_if(span),
+            "for" => self.node_for(span),
+            // @ref LLP 1116.015 D1 — the view's former words, refused with the edit.
+            "when" => self.err("syntax-view-keyword", "a view chooses with `if`: write `if <condition>`, and `else if` for `else when`"),
+            "each" => self.err("syntax-view-keyword", "a view repeats with `for`: write `for x in xs key=x.id`"),
+            "match" => self.node_match(span),
             "else" | "case" => self.err(
                 "syntax-stray-keyword",
                 names::stray(&word),
             ),
             "map" | "filter" if matches!(self.peek2(), TokenKind::Punct("(")) => self.err(
                 "syntax-map-view",
-                format!("`{word}` makes a value, not view nodes: repeat children with `each x in xs key=x.id` (LLP 1017.003)"),
+                format!("`{word}` makes a value, not view nodes: repeat children with `for x in xs key=x.id` (LLP 1017.003)"),
             ),
-            _ if word.chars().next().is_some_and(char::is_uppercase) => {
-                self.next();
-                self.expect_punct("(")?;
-                let args = self.named_args()?;
-                self.newline()?;
-                let children = self.block(|p| p.node())?;
-                Ok(Node::Use {
-                    name: word,
-                    args,
-                    children,
-                    span,
-                })
+            // `xs.map(x => …)` as a view line: the JSX habit, as a method call.
+            _ if matches!(self.peek2(), TokenKind::Punct("."))
+                && matches!(
+                    self.tokens.get(self.pos + 2).map(|t| &t.kind),
+                    Some(TokenKind::Ident(m)) if matches!(m.as_str(), "map" | "filter" | "forEach")
+                ) =>
+            {
+                self.err(
+                    "syntax-map-view",
+                    format!("`{word}.map(…)` makes a value, not view nodes: repeat children with `for x in {word} key=x.id` (LLP 1017.003)"),
+                )
             }
-            _ => {
-                self.next();
-                let mut positional = Vec::new();
-                let mut attrs = Vec::new();
-                self.attr_line(&mut positional, &mut attrs, false)?;
-                self.newline()?;
-                let mut children = Vec::new();
-                if matches!(self.peek_kind(), TokenKind::Indent) {
-                    self.next();
-                    // The attribute list may continue on deeper lines that
-                    // begin with `name=`; a child never does (LLP 1035.005 D1).
-                    while self.at_continuation() {
-                        self.attr_line(&mut positional, &mut attrs, true)?;
-                        self.newline()?;
-                    }
-                    children = self.block_rest(|p| p.node())?;
-                }
-                // LLP 1017.001's primary button argument is its visible text
-                // child, not a prop on the pressable itself. Keeping it as a
-                // real text node gives every host the same visible and
-                // accessible subtree.
-                if word == "button" && positional.len() == 1 {
-                    children.insert(
-                        0,
-                        Node::Element {
-                            tag: "text".into(),
-                            positional: vec![positional.remove(0)],
-                            attrs: Vec::new(),
-                            children: Vec::new(),
-                            span,
-                            instance: 0,
-                        },
-                    );
-                }
-                Ok(Node::Element {
-                    tag: word,
-                    positional,
-                    attrs,
-                    children,
-                    span,
-                    instance: 0,
-                })
-            }
+            _ if word.chars().next().is_some_and(char::is_uppercase) => self.node_use(word, span),
+            _ => self.node_element(word, span),
         }
     }
 
@@ -1304,7 +1304,7 @@ impl Parser {
             {
                 let aspan = self.next().span;
                 self.next();
-                let value = self.expr()?;
+                let value = self.attr_value()?;
                 self.unquoted_unit(&name, &value)?;
                 if attrs.iter().any(|a: &Attr| a.name == name) {
                     return Err(SyntaxError {
@@ -1317,6 +1317,7 @@ impl Parser {
                     name,
                     value,
                     span: aspan,
+                    written: true,
                 });
             } else if matches!(self.peek_kind(), TokenKind::Ident(name) if name == "autofocus") {
                 let aspan = self.next().span;
@@ -1330,6 +1331,7 @@ impl Parser {
                     name: "autofocus".into(),
                     value: Expr::Bool(true, aspan),
                     span: aspan,
+                    written: true,
                 });
             } else if continuation {
                 return self.err(
@@ -1344,6 +1346,35 @@ impl Parser {
             }
         }
         Ok(())
+    }
+
+    /// An attribute's value. A negation of a lone number, as the whole value,
+    /// is the negative literal (`min=-40`, `margin-top=-8`, `step=-0.5`,
+    /// `min=-1e300`; the formatter's `- 1` is the same), the number it is, as
+    /// the positive one is: every place that reads a literal number reads it,
+    /// it is a constant in the plan, and `margin-top=-8px` is the unquoted
+    /// length it is. Anything else is the expression it was: `a - b`, `-x`,
+    /// `-(1 + 2)`, `-8 + a`. A `-exact-` name is no `-`: the lexer makes one
+    /// token of it where it is an attribute's name, and a string holds it
+    /// anywhere else.
+    fn attr_value(&mut self) -> R<Expr> {
+        Ok(match self.expr()? {
+            Expr::Unary(UnOp::Neg, inner, minus) => match *inner {
+                Expr::Number(n, at) => Expr::Number(
+                    -n,
+                    Span {
+                        end_col: if at.line == minus.line {
+                            at.end_col
+                        } else {
+                            minus.end_col
+                        },
+                        ..minus
+                    },
+                ),
+                inner => Expr::Unary(UnOp::Neg, Box::new(inner), minus),
+            },
+            other => other,
+        })
     }
 
     /// `width=10px` lexes as the number `10` and then a name `px` written
@@ -1371,7 +1402,12 @@ impl Parser {
             let (name, span) = self.field_name()?;
             self.expect_punct("=")?;
             let value = self.expr()?;
-            out.push(Attr { name, value, span });
+            out.push(Attr {
+                name,
+                value,
+                span,
+                written: true,
+            });
             if !self.eat_punct(",") {
                 break;
             }

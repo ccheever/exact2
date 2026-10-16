@@ -2,10 +2,10 @@
 // input: lengths, equality and how they are shown.
 component App
   state s = ""
-  derive n = length(s)
-  derive hasTab = includes(s, "\t")
-  derive hasQuote = includes(s, "\"")
-  derive hasNl = includes(s, "\n")
+  derive n = s.length
+  derive hasTab = s.includes("\t")
+  derive hasQuote = s.includes("\"")
+  derive hasNl = s.includes("\n")
   action set(v: string)
     s = v
   view

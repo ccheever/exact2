@@ -164,6 +164,18 @@ theorem exec_pendingMutation (k : Nat) : ExecOk (.pendingMutation k) := by
   simp only [hostInst, lookup, he, hv, bind_ok, valInst_boolean] at hx
   vm_push
 
+theorem exec_failedMutation (k : Nat) : ExecOk (.failedMutation k) := by
+  vm_intro
+  have hv := (operand_ok hx0).1
+  simp only [hostInst, lookup, he, hv, bind_ok, valInst_boolean] at hx
+  vm_push
+
+theorem exec_failureMutation (k : Nat) : ExecOk (.failureMutation k) := by
+  vm_intro
+  have hv := (operand_ok hx0).1
+  simp only [hostInst, lookup, he, hv, bind_ok, uncurry_apply_pair] at hx
+  vm_push
+
 theorem exec_pendingResource (k : Nat) : ExecOk (.pendingResource k) := by
   vm_intro
   have hv := (operand_ok hx0).1

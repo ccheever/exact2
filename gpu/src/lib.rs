@@ -26,6 +26,12 @@ use std::sync::{
     Arc,
 };
 
+// Web surfaces stay on the browser thread; native acquisition shares them with a worker.
+#[cfg(target_arch = "wasm32")]
+use std::rc::Rc as SurfaceRef;
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::Arc as SurfaceRef;
+
 pub use exact_plan::Value;
 pub use wgpu;
 
@@ -39,10 +45,14 @@ mod frame;
 #[cfg(all(test, target_os = "macos"))]
 mod hdr_tests;
 mod input;
+#[cfg(not(target_arch = "wasm32"))]
+mod readback;
 pub use input::{InputEvent, PointerKind, PointerPhase};
 pub mod json;
 pub mod shaders;
 mod uniform;
+#[cfg(windows)]
+mod window;
 pub use uniform::FrameUniform;
 
 /// One frame's context.
@@ -248,6 +258,11 @@ pub trait Surface {
     /// The commands the last `render` recorded were submitted: map what it
     /// copied for reading (a map cannot precede the submit of the copy).
     fn submitted(&mut self) {}
+    /// A display frame the module does not render, the GPU holding as many as
+    /// it may: bring the surface's state up to `frame`, so the next `render`
+    /// has less to do in its display frame. Writes through `queue` land before
+    /// the next rendered frame's commands.
+    fn advance(&mut self, _frame: &Frame, _device: &wgpu::Device, _queue: &wgpu::Queue) {}
     /// A presentation target acquired a device, before its first draw. Its
     /// granted features (e.g. block-compressed textures) choose what to fetch.
     fn device_ready(&mut self, _features: wgpu::Features) {}
@@ -355,6 +370,8 @@ pub struct Registry {
 
 /// The device and every canvas's surface.
 pub struct Module {
+    #[cfg(windows)]
+    window: Option<window::WindowFrame>,
     registry: &'static Registry,
     gpu: Option<Gpu>,
     instance: Option<wgpu::Instance>,
@@ -387,7 +404,7 @@ struct Instance {
     surface: Box<dyn Surface>,
     messages: Vec<String>,
     published: Option<String>,
-    presentation: Option<Arc<wgpu::Surface<'static>>>,
+    presentation: Option<SurfaceRef<wgpu::Surface<'static>>>,
     config: Option<wgpu::SurfaceConfiguration>,
     /// Buffers it renders into instead of a window ([`buffers`]).
     #[cfg(target_os = "android")]
@@ -395,6 +412,8 @@ struct Instance {
     /// The next texture, acquired off the presenter's thread (`acquire`).
     #[cfg(not(target_arch = "wasm32"))]
     acquire: acquire::Acquire,
+    #[cfg(not(target_arch = "wasm32"))]
+    readback: Option<readback::Readback>,
     #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
     layer: Option<usize>,
     outstanding: BTreeSet<String>,
@@ -454,6 +473,8 @@ impl Module {
     /// A module with no device yet.
     pub fn new(registry: &'static Registry) -> Module {
         Module {
+            #[cfg(windows)]
+            window: None,
             registry,
             gpu: None,
             instance: None,
@@ -469,7 +490,15 @@ impl Module {
 
     /// Adopt a device (the platform-specific loader made it).
     pub fn set_gpu(&mut self, gpu: Gpu) {
+        #[cfg(windows)]
+        {
+            self.window = None;
+        }
         self.check_device();
+        #[cfg(not(target_arch = "wasm32"))]
+        for inst in self.instances.values_mut() {
+            inst.readback = None;
+        }
         // A frame recorded on another device is never submitted on this one.
         self.open = None;
         self.instance = Some(gpu.instance.clone());
@@ -702,7 +731,7 @@ impl Module {
         {
             inst.acquire = Default::default();
         }
-        inst.presentation = Some(Arc::new(target));
+        inst.presentation = Some(SurfaceRef::new(target));
         inst.config = Some(config);
         inst.surface.device_ready(features);
         inst.dirty = true;
@@ -715,6 +744,7 @@ impl Module {
             #[cfg(not(target_arch = "wasm32"))]
             {
                 inst.acquire = Default::default();
+                inst.readback = None;
             }
             inst.presentation = None;
             inst.config = None;
@@ -764,7 +794,7 @@ impl Module {
         }
         let ring = self.instances.get_mut(&id)?.ring.as_mut()?;
         ring.settle();
-        ring.latest()
+        ring.take()
     }
 
     /// Create surface ownership without a device, target, or registered shaders.
@@ -788,7 +818,7 @@ impl Module {
             surface.device_ready(gpu.device.features());
         }
         let (presentation, config) = presentation.map_or((None, None), |(target, config)| {
-            (Some(Arc::new(target)), Some(config))
+            (Some(SurfaceRef::new(target)), Some(config))
         });
         self.instances.insert(
             id,
@@ -802,6 +832,8 @@ impl Module {
                 ring: None,
                 #[cfg(not(target_arch = "wasm32"))]
                 acquire: Default::default(),
+                #[cfg(not(target_arch = "wasm32"))]
+                readback: None,
                 #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
                 layer: None,
                 outstanding: BTreeSet::new(),
@@ -821,6 +853,10 @@ impl Module {
 
     /// Release presentation resources while preserving every surface's state.
     pub fn lose_device(&mut self) {
+        #[cfg(windows)]
+        {
+            self.window = None;
+        }
         // The recorded frame and its drawables go before their surfaces do.
         self.open = None;
         for inst in self.instances.values_mut() {
@@ -832,6 +868,7 @@ impl Module {
             #[cfg(not(target_arch = "wasm32"))]
             {
                 inst.acquire = Default::default();
+                inst.readback = None;
             }
             inst.surface.device_lost();
             inst.answered.clear();
@@ -1280,72 +1317,20 @@ impl Module {
     /// surface wants another frame. Nothing before the first bind.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn readback(&mut self, id: u32, frame: &Frame) -> Option<(fixture::Pixels, bool)> {
-        self.check_device();
-        if let Some(why) = shaders::missing(self.registry.shaders) {
-            self.error = why;
-            return None;
-        }
-        self.flush();
-        let gpu = self.gpu.as_ref()?;
-        let Some(inst) = self.instances.get_mut(&id) else {
-            self.error = "no such canvas".into();
-            return None;
-        };
-        if !inst.bound {
-            return None;
-        }
-        let format = inst
-            .config
-            .as_ref()
-            .map_or(wgpu::TextureFormat::Rgba8Unorm, |c| c.format);
-        inst.surface.prepare_assets(&gpu.device, &gpu.queue, format);
-        let frame = Frame {
-            seekable: self.seekable,
-            period_ms: self.period_ms,
-            children_generation: inst.children_generation,
-            shader_generation: shaders::shader_generation(),
-            headroom: 1.0,
-            ..*frame
-        };
         let (width, height) = frame.pixels();
-        let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("canvas readback"),
-            size: wgpu::Extent3d {
+        let len = (width as usize)
+            .checked_mul(height as usize)?
+            .checked_mul(4)?;
+        let mut data = vec![0; len];
+        let wants = self.readback_into(id, frame, &mut data)?;
+        Some((
+            fixture::Pixels {
                 width,
                 height,
-                depth_or_array_layers: 1,
+                data,
             },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-            view_formats: &[],
-        });
-        let view = texture.create_view(&Default::default());
-        let mut encoder = gpu.device.create_command_encoder(&Default::default());
-        let wants =
-            inst.surface
-                .render(&frame, &gpu.device, &gpu.queue, &mut encoder, &view, format);
-        gpu.queue.submit([encoder.finish()]);
-        inst.surface.submitted();
-        let result = fixture::read(gpu, &texture).map(|pixels| (pixels, wants));
-        inst.drain();
-        if let Some(SurfaceError(e)) = inst.surface.take_error() {
-            self.error = e;
-            return None;
-        }
-        match result {
-            Ok((pixels, wants)) => {
-                // The picture was taken: nothing is unshown any more.
-                inst.dirty = false;
-                Some((pixels, wants))
-            }
-            Err(e) => {
-                self.error = e;
-                None
-            }
-        }
+            wants,
+        ))
     }
 }
 

@@ -9,16 +9,26 @@
 //! completed the reader draws the buffer as a hardware bitmap in the pass it
 //! already runs, as it draws a decoded picture.
 //!
-//! The ring has four buffers: the one being rendered, the one waiting for
-//! the GPU, the one the reader shows and the one it showed a frame ago. A
-//! buffer is written again three frames after it was published.
+//! The ring has six buffers: up to [`IN_FLIGHT`] on the GPU, a finished one
+//! waiting to be shown, the one the reader shows and the one it showed a frame
+//! ago. Frames are published in the order they finish, one a call (`take`):
+//! when frames finish two in one display frame and none in the next, which a
+//! canvas rendered at the display's rate does, the newest alone would drop one
+//! and show another twice. No buffer in any of those states is rendered into
+//! again (`target`); past one waiting, the oldest is dropped. A canvas renders
+//! no new frame while [`IN_FLIGHT`] are on the GPU (`Module::render_to_buffer`):
+//! more only queue work the reader will drop. Fewer leave the GPU idle between
+//! frames, and Android's governor then lowers its clock (on a Pixel 5, 60 frames
+//! a second of 64,000 cubes at three, 52 at two and 20 at one).
 #![allow(unsafe_code)]
 use crate::Gpu;
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-const SLOTS: usize = 4;
+const SLOTS: usize = 6;
+/// Frames a canvas keeps on the GPU at once (see the module's text).
+pub(crate) const IN_FLIGHT: usize = 3;
 /// `AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM`.
 const R8G8B8A8_UNORM: u32 = 1;
 /// `AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE | GPU_FRAMEBUFFER`.
@@ -66,8 +76,11 @@ pub(crate) struct Ring {
     next: usize,
     /// Slots whose frames are submitted, with the GPU's word that each is done.
     pending: Vec<(usize, Arc<AtomicBool>)>,
-    /// The newest complete frame's slot.
+    /// Slots whose frames are done and not yet published, oldest first.
+    done: std::collections::VecDeque<usize>,
+    /// The published frame's slot, and the one published before it.
     latest: Option<usize>,
+    previous: Option<usize>,
     /// Counts the frames published, so a reader knows a new one.
     serial: u32,
     /// Distinguishes this ring's buffers from an earlier ring's.
@@ -159,15 +172,29 @@ impl Ring {
             slots,
             next: 0,
             pending: Vec::new(),
+            done: std::collections::VecDeque::new(),
             latest: None,
+            previous: None,
             serial: 0,
             generation: GENERATION.fetch_add(1, Ordering::Relaxed),
         })
     }
 
-    /// The slot this frame renders into and its view.
+    /// The slot this frame renders into and its view: the next one not on the
+    /// GPU, waiting, shown or shown a frame ago; failing that, the oldest
+    /// waiting frame's, which is dropped.
     pub(crate) fn target(&mut self) -> (usize, wgpu::TextureView) {
-        let slot = self.next;
+        let busy = |s: usize, r: &Ring| {
+            r.pending.iter().any(|&(p, _)| p == s)
+                || r.done.contains(&s)
+                || r.latest == Some(s)
+                || r.previous == Some(s)
+        };
+        let slot = (0..SLOTS)
+            .map(|k| (self.next + k) % SLOTS)
+            .find(|&s| !busy(s, self))
+            .or_else(|| self.done.pop_front())
+            .unwrap_or(self.next);
         self.next = (slot + 1) % SLOTS;
         (slot, self.slots[slot].view.clone())
     }
@@ -180,17 +207,34 @@ impl Ring {
         self.pending.push((slot, done));
     }
 
-    /// Take the frames the GPU has finished: the newest becomes the one a
-    /// reader draws.
+    /// Frames submitted that the GPU has not finished.
+    pub(crate) fn in_flight(&self) -> usize {
+        self.pending.len()
+    }
+
+    /// Take the frames the GPU has finished: they wait to be published.
     pub(crate) fn settle(&mut self) {
         while let Some((slot, done)) = self.pending.first() {
             if !done.load(Ordering::Acquire) {
                 break;
             }
-            self.latest = Some(*slot);
-            self.serial = self.serial.wrapping_add(1);
+            self.done.push_back(*slot);
             self.pending.remove(0);
         }
+    }
+
+    /// Publish the oldest finished frame, keeping at most one waiting behind
+    /// it, and return the published frame (as [`Ring::latest`]).
+    pub(crate) fn take(&mut self) -> Option<([u32; 3], *mut c_void)> {
+        while self.done.len() > 2 {
+            self.done.pop_front();
+        }
+        if let Some(slot) = self.done.pop_front() {
+            self.previous = self.latest;
+            self.latest = Some(slot);
+            self.serial = self.serial.wrapping_add(1);
+        }
+        self.latest()
     }
 
     /// The newest complete frame: `[generation, slot, serial]` and its

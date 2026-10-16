@@ -7,7 +7,7 @@ fn the_clipboard_events_reach_the_nearest_handler() {
     let plan = contract::compile("component App\n  state log = \"\"\n  action pasted(at: string, e: ClipboardEvent)\n    log = `${log}${at}:${e.text};`\n  action copied\n    log = `${log}copy;`\n  action seen\n    log = log\n  view\n    column width=300 paste=pasted(\"grid\") copy=copied testId=\"grid\"\n      box testId=\"cell\" width=50 height=20 focus=seen\n      text log testId=\"log\" height=20\n").unwrap();
     let (mut p, boot_error) = Presenter::boot_with(
         &plan.encode(),
-        NoData,
+        (),
         (300.0, 300.0),
         1.0,
         std::path::PathBuf::new(),
@@ -15,7 +15,7 @@ fn the_clipboard_events_reach_the_nearest_handler() {
     )
     .unwrap();
     assert!(boot_error.is_none(), "{boot_error:?}");
-    let id = |p: &Presenter<NoData>, test_id: &str| {
+    let id = |p: &Presenter<()>, test_id: &str| {
         let k = p.host().kernel();
         k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
     };
@@ -61,7 +61,7 @@ fn a_paste_is_ctrl_v_and_a_prevented_chord_skips_the_clipboard() {
       box key=keyed paste=pasted copy=copied testId="cell" width=80 height=24
       text log testId="log" height=20
 "#;
-    let text_of = |p: &Presenter<NoData>| {
+    let text_of = |p: &Presenter<()>| {
         let k = p.host().kernel();
         let log = k.node_by_key(k.find_by_test_id("log")[0]).unwrap().id;
         k.node(log)
@@ -80,7 +80,7 @@ fn a_paste_is_ctrl_v_and_a_prevented_chord_skips_the_clipboard() {
         let plan = contract::compile(&format!("{head}{guard}{tail}")).unwrap();
         let (mut p, boot_error) = Presenter::boot_with(
             &plan.encode(),
-            NoData,
+            (),
             (300.0, 300.0),
             1.0,
             std::path::PathBuf::new(),
@@ -135,7 +135,7 @@ fn a_tap_holds_its_modifiers_for_the_press() {
     let plan = contract::compile("component App\n  state log = \"\"\n  action pick(e: MouseEvent)\n    log = `${log}${e.shiftKey}${e.metaKey}${e.altKey};`\n  view\n    column width=300\n      button press=pick testId=\"b\" width=50 height=20\n      text log testId=\"log\" height=20\n").unwrap();
     let (mut p, boot_error) = Presenter::boot_with(
         &plan.encode(),
-        NoData,
+        (),
         (300.0, 300.0),
         1.0,
         std::path::PathBuf::new(),
@@ -143,7 +143,7 @@ fn a_tap_holds_its_modifiers_for_the_press() {
     )
     .unwrap();
     assert!(boot_error.is_none(), "{boot_error:?}");
-    let id = |p: &Presenter<NoData>, test_id: &str| {
+    let id = |p: &Presenter<()>, test_id: &str| {
         let k = p.host().kernel();
         k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
     };
@@ -232,7 +232,7 @@ fn a_mouse_contact_goes_down_holds_and_lifts() {
     let plan = contract::compile("component App\n  state log = \"\"\n  action at(kind: string, e: PointerEvent)\n    log = `${log}${kind}:${e.pointerType};`\n  view\n    column width=300\n      box testId=\"pad\" width=200 height=100 touch-action=\"none\" pointerdown=at(\"down\") pointerup=at(\"up\")\n      text log testId=\"log\" height=20\n").unwrap();
     let (mut p, boot_error) = Presenter::boot_with(
         &plan.encode(),
-        NoData,
+        (),
         (300.0, 300.0),
         1.0,
         std::path::PathBuf::new(),
@@ -240,7 +240,7 @@ fn a_mouse_contact_goes_down_holds_and_lifts() {
     )
     .unwrap();
     assert!(boot_error.is_none(), "{boot_error:?}");
-    let id = |p: &Presenter<NoData>, test_id: &str| {
+    let id = |p: &Presenter<()>, test_id: &str| {
         let k = p.host().kernel();
         k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
     };
@@ -250,6 +250,21 @@ fn a_mouse_contact_goes_down_holds_and_lifts() {
         &format!(r#"{{"op":"tap","phase":"down","id":{pad},"x":20,"y":20,"mouse":true}}"#),
     );
     assert!(!down.contains("\"error\""), "{down}");
+    for request in [
+        r#"{"op":"tap","phase":"hold","ms":-1}"#,
+        r#"{"op":"tap","phase":"move","dx":"banana","dy":0}"#,
+        r#"{"op":"tap","phase":"banana"}"#,
+    ] {
+        let reply: serde_json::Value = serde_json::from_str(&handle(&mut p, request)).unwrap();
+        assert_eq!(reply["malformed"], true, "{reply}");
+    }
+    let again: serde_json::Value = serde_json::from_str(&handle(
+        &mut p,
+        &format!(r#"{{"op":"tap","phase":"down","id":{pad}}}"#),
+    ))
+    .unwrap();
+    assert!(again["error"].as_str().unwrap().contains("already down"));
+    assert!(again["malformed"].is_null());
     // A hold seeks the presenter clock and reports it, so the driver does not seek again (platformer R7).
     let before = p.host().now();
     let held = handle(
@@ -266,6 +281,97 @@ fn a_mouse_contact_goes_down_holds_and_lifts() {
         k.node(log).unwrap().props.str(exact_kernel::PropId::Text),
         Some("down:mouse;up:mouse;")
     );
+}
+
+#[test]
+fn a_drag_keeps_runner_time_and_measures_pan_velocity_on_event_time() {
+    let json = |s: String| serde_json::from_str::<serde_json::Value>(&s).unwrap();
+    let plan = contract::compile(
+        r#"component App
+  state x = 0
+  state y = 0
+  state vx = 0
+  state vy = 0
+  state eventTime = -1
+  state stepped = 0
+  task ticks mount
+    every(16, step)
+  action step
+    stepped = performanceNow()
+  action moved(dx: number, dy: number)
+    x = x + dx
+    y = y + dy
+    eventTime = performanceNow()
+  action released(sx: number, sy: number)
+    vx = sx
+    vy = sy
+    eventTime = performanceNow()
+  view
+    box testId="pad" width=400 height=300 pan=moved panrelease=released touch-action="none"
+"#,
+    )
+    .unwrap();
+    for (ms, hold) in [(80., 0.), (160., 0.), (80., 100.)] {
+        let (mut p, error) = Presenter::boot_with(
+            &plan.encode(),
+            (),
+            (400., 300.),
+            1.,
+            std::path::PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert!(error.is_none(), "{error:?}");
+        assert!(p.clock(32.).1.is_none());
+        let k = p.host().kernel();
+        let pad = k.node_by_key(k.find_by_test_id("pad")[0]).unwrap().id;
+        let reply = json(handle(
+            &mut p,
+            &format!(r#"{{"op":"tap","phase":"down","id":{pad}}}"#),
+        ));
+        assert!(reply.get("error").is_none(), "{reply}");
+        // A second move continues the event timeline while the runner stays put.
+        for (dx, dy, duration) in [(80., -32., ms), (20., -8., ms / 4.)] {
+            let reply = json(handle(
+                &mut p,
+                &format!(r#"{{"op":"tap","phase":"move","dx":{dx},"dy":{dy},"ms":{duration}}}"#),
+            ));
+            assert!(reply.get("error").is_none(), "{reply}");
+            assert_eq!(reply["clock"], 32.);
+            assert_eq!(p.host().now(), 32.);
+            let slots = json(handle(&mut p, r#"{"op":"state"}"#))["slots"].clone();
+            assert_eq!(slots["eventTime"], 32.);
+            assert_eq!(slots["stepped"], 32.);
+        }
+        if hold > 0. {
+            let reply = json(handle(
+                &mut p,
+                &format!(r#"{{"op":"tap","phase":"hold","ms":{hold},"virtual":true}}"#),
+            ));
+            assert!(reply.get("error").is_none(), "{reply}");
+            assert_eq!(reply["clock"], 32. + hold);
+        }
+        let reply = json(handle(&mut p, r#"{"op":"tap","phase":"up"}"#));
+        assert!(reply.get("error").is_none(), "{reply}");
+        assert_eq!(reply["clock"], 32. + hold);
+        assert_eq!(reply["contact"], false);
+        let slots = json(handle(&mut p, r#"{"op":"state"}"#))["slots"].clone();
+        assert_eq!(slots["x"], 100.);
+        assert_eq!(slots["y"], -40.);
+        assert_eq!(slots["eventTime"], 32. + hold);
+        let vx = slots["vx"].as_f64().unwrap();
+        let vy = slots["vy"].as_f64().unwrap();
+        if hold == 0. {
+            // The stationary lift 8 ms later lowers the estimate below travel speed.
+            let speed = 80_000. / ms;
+            assert!(vx > speed * 0.85 && vx < speed * 0.99, "{slots}");
+            assert!((vy + vx * 0.4).abs() < 0.01, "{slots}");
+            assert_eq!(slots["stepped"], 32.);
+        } else {
+            assert_eq!((vx, vy), (0., 0.));
+            assert_eq!(slots["stepped"], 128.);
+        }
+    }
 }
 
 #[test]
@@ -322,14 +428,14 @@ fn aria_keyshortcuts_press_their_button_before_the_key_handlers() {
     column width=300
       box key=keyed paste=pasted tabindex=0 testId="pad" width=80 height=24
       input value=text input=edit testId="field" height=24
-      when armed
+      if armed
         button "Paste" aria-keyshortcuts="Meta+V Control+V" press=pressed("button-paste") testId="paste" height=24
       button "F13" aria-keyshortcuts="F13" press=pressed("f13") testId="f13" height=24
       button "F24" aria-keyshortcuts="Shift+F24" press=pressed("f24") testId="f24" height=24
       button "S" aria-keyshortcuts="s" press=pressed("s") testId="s" height=24
       button "arm" press=arm testId="arm" height=24
       button "open" press=open testId="open" height=24
-      when modal
+      if modal
         column aria-modal=true testId="dialog" height=40
           button "Close" aria-keyshortcuts="Escape" press=pressed("close") testId="close" height=24
       button "Away" aria-keyshortcuts="Escape" press=pressed("away") testId="away" height=24
@@ -339,7 +445,7 @@ fn aria_keyshortcuts_press_their_button_before_the_key_handlers() {
     .unwrap();
     let (mut p, boot_error) = Presenter::boot_with(
         &plan.encode(),
-        NoData,
+        (),
         (300.0, 600.0),
         1.0,
         std::path::PathBuf::new(),
@@ -347,18 +453,18 @@ fn aria_keyshortcuts_press_their_button_before_the_key_handlers() {
     )
     .unwrap();
     assert!(boot_error.is_none(), "{boot_error:?}");
-    let named = |p: &Presenter<NoData>, id: &str| {
+    let named = |p: &Presenter<()>, id: &str| {
         let k = p.host().kernel();
         k.node_by_key(k.find_by_test_id(id)[0]).unwrap().id
     };
-    let log = |p: &mut Presenter<NoData>| {
+    let log = |p: &mut Presenter<()>| {
         let k = p.host().kernel();
         let id = k.node_by_key(k.find_by_test_id("log")[0]).unwrap().id;
         let text = k.node(id).unwrap().props.str(exact_kernel::PropId::Text);
         text.unwrap_or("").to_string()
     };
     let (pad, field, root) = (named(&p, "pad"), named(&p, "field"), named(&p, "log"));
-    let key = |p: &mut Presenter<NoData>, id: u32, chord: &str| {
+    let key = |p: &mut Presenter<()>, id: u32, chord: &str| {
         handle(p, &format!(r#"{{"op":"type","id":{id},"key":"{chord}"}}"#))
     };
     for (chord, want) in [
@@ -382,7 +488,7 @@ fn aria_keyshortcuts_press_their_button_before_the_key_handlers() {
     key(&mut p, field, "s");
     assert_eq!(log(&mut p), before, "a field's plain key is its typing");
     // The paste chord: the key handler, then the paste, until a button declares it.
-    let paste = |p: &mut Presenter<NoData>| {
+    let paste = |p: &mut Presenter<()>| {
         handle(
             p,
             &format!(r#"{{"op":"type","id":{pad},"clipboard":"paste","text":"x"}}"#),
@@ -432,7 +538,7 @@ fn keyup_hears_a_release_and_both_carry_code_and_repeat() {
     .unwrap();
     let (mut p, boot_error) = Presenter::boot_with(
         &plan.encode(),
-        NoData,
+        (),
         (300.0, 300.0),
         1.0,
         std::path::PathBuf::new(),
@@ -442,7 +548,7 @@ fn keyup_hears_a_release_and_both_carry_code_and_repeat() {
     assert!(boot_error.is_none(), "{boot_error:?}");
     let k = p.host().kernel();
     let cell = k.node_by_key(k.find_by_test_id("cell")[0]).unwrap().id;
-    let log = |p: &mut Presenter<NoData>| {
+    let log = |p: &mut Presenter<()>| {
         let k = p.host().kernel();
         let id = k.node_by_key(k.find_by_test_id("log")[0]).unwrap().id;
         let text = k.node(id).unwrap().props.str(exact_kernel::PropId::Text);
@@ -478,4 +584,257 @@ fn keyup_hears_a_release_and_both_carry_code_and_repeat() {
         "d:Meta:MetaLeft:false:true;d:w:KeyW:false:true;d:w:KeyW:true:true;\
          u:w:KeyW:false:true;u:Meta:MetaLeft:false:false;"
     );
+}
+
+/// A tap addressed by id presses what it names (LLP 1012 §1): a row with a
+/// press of its own is pressed beside the card at its center, never the card;
+/// a box without one never presses the Like inside it; a row its child
+/// covers is refused; `at` keeps a point's semantics (the Bluesky clone's
+/// likes on real people's posts, 2026-10-09).
+#[test]
+fn a_named_tap_presses_what_it_names_never_a_control_inside_it() {
+    let plan = contract::compile(concat!(
+        "component App\n  state log = \"\"\n",
+        "  action hit(what: string)\n    log = `${log}${what};`\n",
+        "  view\n    column width=300\n",
+        "      column testId=\"post-0\" press=hit(\"post\") padding-left=70 padding-right=70 padding-top=30 padding-bottom=30\n",
+        "        column testId=\"card-0\" press=hit(\"card\") width=160 height=60\n",
+        "      column testId=\"wrap-0\" padding-left=100 padding-right=100 padding-top=20 padding-bottom=20\n",
+        "        column testId=\"like-0\" press=hit(\"like\") width=100 height=40\n",
+        "      column testId=\"post-1\" press=hit(\"post1\")\n",
+        "        column testId=\"cover-1\" press=hit(\"cover\") width=300 height=60\n",
+        "      text log testId=\"log\" height=20\n",
+    ))
+    .unwrap();
+    let (mut p, boot_error) = Presenter::boot_with(
+        &plan.encode(),
+        (),
+        (300.0, 400.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(boot_error.is_none(), "{boot_error:?}");
+    let id = |p: &Presenter<()>, test_id: &str| {
+        let k = p.host().kernel();
+        k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
+    };
+    let log = |p: &Presenter<()>| {
+        let k = p.host().kernel();
+        let log = k.find_by_test_id("log")[0];
+        k.node_by_key(log)
+            .unwrap()
+            .props
+            .str(exact_kernel::PropId::Text)
+            .unwrap_or("")
+            .to_string()
+    };
+    let (post, card, wrap, like, post1, cover) = (
+        id(&p, "post-0"),
+        id(&p, "card-0"),
+        id(&p, "wrap-0"),
+        id(&p, "like-0"),
+        id(&p, "post-1"),
+        id(&p, "cover-1"),
+    );
+    let reply = handle(&mut p, &format!(r#"{{"op":"tap","id":{post}}}"#));
+    assert!(
+        reply.contains(&format!("\"avoided\":{{\"pressing\":{card}")),
+        "{reply}"
+    );
+    assert_eq!(log(&p), "post;", "the row, beside the card: {reply}");
+    let reply = handle(&mut p, &format!(r#"{{"op":"tap","id":{wrap}}}"#));
+    assert!(
+        reply.contains(&format!("tap #{wrap} would press #{like} inside it")),
+        "{reply}"
+    );
+    let reply = handle(&mut p, &format!(r#"{{"op":"tap","id":{post1}}}"#));
+    assert!(
+        reply.contains(&format!(
+            "tap #{post1} would press #{cover} inside it, at its middle; no point of #{post1}"
+        )),
+        "{reply}"
+    );
+    assert_eq!(log(&p), "post;", "nothing more is pressed");
+    let reply = handle(
+        &mut p,
+        &format!(r#"{{"op":"tap","id":{post},"at":[150,60]}}"#),
+    );
+    assert!(!reply.contains("error"), "{reply}");
+    handle(
+        &mut p,
+        &format!(r#"{{"op":"tap","id":{wrap},"at":[150,40]}}"#),
+    );
+    handle(&mut p, &format!(r#"{{"op":"tap","id":{card}}}"#));
+    assert_eq!(
+        log(&p),
+        "post;card;like;card;",
+        "a point presses what is there; the card, named, is the card"
+    );
+    let reply = handle(
+        &mut p,
+        &format!(r#"{{"op":"tap","id":{post},"at":[400,60]}}"#),
+    );
+    assert!(reply.contains("outside its"), "{reply}");
+}
+
+/// What `press_at` delivers without a `press` handler is a control too (Astra
+/// and Grok, round 1): a checkbox toggles, a text field takes the focus, an
+/// inline run's `href` is followed. A named row with its own press is pressed
+/// beside them; a box without one refuses; a disabled row presses nothing;
+/// a point presses what is there.
+#[test]
+fn a_named_tap_never_toggles_focuses_or_follows_what_is_inside_it() {
+    let plan = contract::compile(concat!(
+        "component App\n  state log = \"\"\n  state on = false\n",
+        "  action hit(what: string)\n    log = `${log}${what};`\n",
+        "  action set(value: bool)\n    on = value\n",
+        "  view\n    column width=300\n",
+        "      row testId=\"opt-row\" press=hit(\"row\") padding-left=143 padding-right=144 padding-top=8 padding-bottom=8\n",
+        "        input type=\"checkbox\" checked=on change=set testId=\"opt\"\n",
+        "      row testId=\"opt-box\" padding-left=143 padding-right=144 padding-top=8 padding-bottom=8\n",
+        "        input type=\"checkbox\" checked=on change=set testId=\"opt2\"\n",
+        "      column testId=\"field-row\" press=hit(\"field-row\") padding-left=50 padding-right=50 padding-top=8 padding-bottom=8\n",
+        "        input value=\"\" testId=\"field\" height=24\n",
+        "      column testId=\"link-box\" padding=8\n",
+        "        text testId=\"para\" text-align=\"center\"\n",
+        "          text \"a long guidebook link here\" href=\"https://example.com/\" testId=\"guide\"\n",
+        "      column testId=\"off-row\" press=hit(\"off\") disabled=true padding-left=100 padding-right=100 padding-top=8 padding-bottom=8\n",
+        "        column testId=\"off-like\" press=hit(\"like\") height=24\n",
+        "      text log testId=\"log\" height=20\n",
+    ))
+    .unwrap();
+    let (mut p, boot_error) = Presenter::boot_with(
+        &plan.encode(),
+        (),
+        (300.0, 400.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(boot_error.is_none(), "{boot_error:?}");
+    let id = |p: &Presenter<()>, test_id: &str| {
+        let k = p.host().kernel();
+        k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
+    };
+    let text = |p: &Presenter<()>| {
+        let k = p.host().kernel();
+        let log = k.find_by_test_id("log")[0];
+        k.node_by_key(log)
+            .unwrap()
+            .props
+            .str(exact_kernel::PropId::Text)
+            .unwrap_or("")
+            .to_string()
+    };
+    let on = |p: &Presenter<()>| p.host().runner().slot("on") == Some(&Value::Bool(true));
+    let tap = |p: &mut Presenter<()>, t: &str| {
+        let i = id(p, t);
+        handle(p, &format!(r#"{{"op":"tap","id":{i}}}"#))
+    };
+    // A row with its own press, a checkbox at its middle: the row, the box unticked.
+    let reply = tap(&mut p, "opt-row");
+    assert!(reply.contains("\"avoided\""), "{reply}");
+    assert_eq!((text(&p), on(&p)), ("row;".to_string(), false), "{reply}");
+    // A box without one: refused, the checkbox unticked.
+    let reply = tap(&mut p, "opt-box");
+    assert!(
+        reply.contains(&format!("would press #{} inside it", id(&p, "opt2"))),
+        "{reply}"
+    );
+    assert!(!on(&p), "{reply}");
+    // A text field at the row's middle: the row, beside it.
+    let reply = tap(&mut p, "field-row");
+    assert!(reply.contains("\"avoided\""), "{reply}");
+    assert_eq!(text(&p), "row;field-row;");
+    // An inline run's link at the box's middle: refused, not followed.
+    let reply = tap(&mut p, "link-box");
+    assert!(reply.contains("would press a link in #"), "{reply}");
+    // A disabled row: nothing, not the Like at its middle.
+    let reply = tap(&mut p, "off-row");
+    assert!(!reply.contains("error"), "{reply}");
+    assert_eq!(text(&p), "row;field-row;", "{reply}");
+    // A point: the checkbox there toggles.
+    let row = id(&p, "opt-box");
+    let reply = handle(
+        &mut p,
+        &format!(r#"{{"op":"tap","id":{row},"at":[149,14]}}"#),
+    );
+    assert!(!reply.contains("error") && on(&p), "{reply}");
+}
+
+#[test]
+fn media_seek_time_is_malformed_before_ownership_is_checked() {
+    let plan = contract::compile("component App\n  view\n    text \"ready\"\n").unwrap();
+    let (mut p, boot_error) = Presenter::boot_with(
+        &plan.encode(),
+        (),
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(boot_error.is_none(), "{boot_error:?}");
+    for seconds in ["null", "-1", "\"Infinity\"", "\"NaN\""] {
+        let reply: serde_json::Value = serde_json::from_str(&handle(
+            &mut p,
+            &format!(r#"{{"op":"tap","id":999,"mediaSession":"seekto","seconds":{seconds}}}"#),
+        ))
+        .unwrap();
+        assert_eq!(reply["malformed"], true, "{reply}");
+    }
+    for request in [
+        r#"{"op":"tap","id":999,"mediaSession":"seekto","seconds":0}"#,
+        r#"{"op":"tap","id":999,"mediaSession":"play"}"#,
+    ] {
+        let reply: serde_json::Value = serde_json::from_str(&handle(&mut p, request)).unwrap();
+        assert!(reply["error"]
+            .as_str()
+            .unwrap()
+            .contains("no media session"));
+        assert!(reply.get("malformed").is_none(), "{reply}");
+    }
+}
+
+#[test]
+fn into_alignment_is_malformed_before_any_delivery() {
+    // A pressable button: a bad alignment on it is refused, never pressed.
+    let plan = contract::compile(
+        "component App\n  state n = 0\n  action go\n    n = n + 1\n  view\n    button press=go testId=\"go\"\n      text \"ready\"\n",
+    )
+    .unwrap();
+    let (mut p, boot_error) = Presenter::boot_with(
+        &plan.encode(),
+        (),
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(boot_error.is_none(), "{boot_error:?}");
+    for axis in ["block", "inline"] {
+        for alignment in ["banana", "Start", "toString", ""] {
+            for id in [1, 2, 3, 999] {
+                let mut request =
+                    serde_json::json!({"op": "tap", "id": id, "into": {"key": "row"}});
+                request["into"][axis] = alignment.into();
+                let reply: serde_json::Value =
+                    serde_json::from_str(&handle(&mut p, &request.to_string())).unwrap();
+                assert_eq!(
+                    reply,
+                    serde_json::json!({
+                        "error": format!("no alignment {alignment}: start, center, end or nearest"),
+                        "malformed": true
+                    })
+                );
+            }
+        }
+    }
+    let state: serde_json::Value =
+        serde_json::from_str(&handle(&mut p, r#"{"op":"state"}"#)).unwrap();
+    assert_eq!(state["slots"]["n"], 0, "{state}");
 }

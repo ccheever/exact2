@@ -3,18 +3,18 @@ shape Item
   on: bool
 
 component App
-  resource a = items(1) as shape list<Item>
-  resource b = items(2) as shape list<Item>
-  resource c = items(3) as shape list<Item>
-  derive ab = length(a) >= length(b) ? a : b
-  derive items = length(ab) >= length(c) ? ab : c
+  resource a = items(1) as shape Item[]
+  resource b = items(2) as shape Item[]
+  resource c = items(3) as shape Item[]
+  derive ab = a.length >= b.length ? a : b
+  derive items = ab.length >= c.length ? ab : c
   state flip = false
   action toggle
     flip = not flip
   view
     column
       button "toggle" press=toggle testId="toggle"
-      each it, i in items key=(it.on != flip)
+      for it, i in items key=(it.on != flip)
         Row(index=i)
 
 component Row

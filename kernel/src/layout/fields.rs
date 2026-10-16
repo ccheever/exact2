@@ -73,6 +73,9 @@ impl LayoutTree {
                         weight: text.font_weight,
                         style: text.font_style,
                     },
+                    cell: arena.is_cell_field(slot),
+                    labelled: (arena.props(slot).str(crate::PropId::Placeholder))
+                        .is_some_and(|p| !p.is_empty()),
                 };
                 let chrome = measurer.field_chrome(&request);
                 if !chrome.is_valid() {
@@ -133,6 +136,11 @@ impl LayoutTree {
         self.provisional_chrome
     }
 
+    /// A stand-in answer an earlier root's pass of this layout used stands.
+    pub(crate) fn keep_provisional_chrome(&mut self, earlier: bool) {
+        self.provisional_chrome |= earlier;
+    }
+
     pub(super) fn settle_field_minima(&mut self, minima: IdMap<NodeId, f32>) -> bool {
         let mut changed = false;
         for (node, minimum) in minima {
@@ -146,6 +154,29 @@ impl LayoutTree {
             }
         }
         changed
+    }
+}
+
+/// A leaf's text, measured. A text control's is its host's control's own
+/// where the host says so ([`TextMeasurer::field_text`], LLP 1115.001 D8);
+/// every other paragraph, and a control's on a host that paints it, is the
+/// paragraph engine's.
+pub(super) fn text(
+    arena: &NodeArena,
+    slot: u32,
+    measurer: &mut dyn TextMeasurer,
+    stamp: Option<&crate::text::ParagraphStamp>,
+    request: &TextMeasureRequest<'_>,
+) -> TextMetrics {
+    if arena.node_type(slot) == NodeType::TextInput {
+        let kind = FieldKind::from_props(arena.props(slot));
+        if let Some(metrics) = measurer.field_text(kind, request) {
+            return metrics;
+        }
+    }
+    match stamp {
+        Some(stamp) => measurer.measure_identified(stamp, request),
+        None => measurer.measure(request),
     }
 }
 

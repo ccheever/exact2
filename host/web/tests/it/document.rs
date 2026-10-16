@@ -29,6 +29,13 @@ fn document(src: &str) -> String {
 }
 
 #[test]
+fn app_file_frames_prerender_without_a_false_blank_source() {
+    let doc = document("component App\n  view\n    iframe src=\"app:/data/doc.pdf\"\n");
+    assert!(doc.contains("data-app-src=\"app:/data/doc.pdf\""), "{doc}");
+    assert!(!doc.contains("about:blank"), "{doc}");
+}
+
+#[test]
 fn raw_symbols_prerender_as_nonfetching_decorative_images() {
     let doc = document(
         r#"component App
@@ -184,6 +191,56 @@ component App
 }
 
 #[test]
+fn a_data_frame_shows_only_in_an_opaque_sandbox() {
+    // `frameURL`'s rule (LLP 1020 §10): a `data:` document's origin is
+    // opaque in a sandbox without `allow-same-origin`; nowhere else does
+    // the page show one. The browser folds the sandbox's case and the
+    // scheme's, and strips what surrounds the URL.
+    let src = r#"
+component App
+  resource said = say() as shape string
+  view
+    column
+      iframe src="data:text/html,hi" sandbox="allow-scripts" testId="shown"
+      iframe src="data:text/html,hi" sandbox="" testId="empty"
+      iframe src=said sandbox="Allow-Scripts" testId="bound"
+      iframe src="data:text/html,hi" testId="bare"
+      iframe src="data:text/html,hi" sandbox="allow-scripts ALLOW-SAME-ORIGIN" testId="same"
+      iframe src="javascript:alert(1)" sandbox="allow-scripts" testId="script"
+      link href="data:text/html,hi" testId="link" width=10 height=10
+"#;
+    let doc = host(src, Says(" DA\tTA:text/html,hi"), "/")
+        .document()
+        .unwrap()
+        .root;
+    let tag = |test_id: &str| {
+        let at = doc.find(&format!("data-testid=\"{test_id}\"")).unwrap();
+        let start = doc[..at].rfind('<').unwrap();
+        doc[start..at + doc[at..].find('>').unwrap()].to_owned()
+    };
+    for shown in ["shown", "empty"] {
+        assert!(
+            tag(shown).contains(" src=\"data:text/html,hi\""),
+            "{}",
+            tag(shown)
+        );
+    }
+    assert!(
+        tag("bound").contains(" src=\" DA\tTA:text/html,hi\""),
+        "{}",
+        tag("bound")
+    );
+    for refused in ["bare", "same", "script"] {
+        assert!(
+            tag(refused).contains(" src=\"about:blank\""),
+            "{}",
+            tag(refused)
+        );
+    }
+    assert!(!tag("link").contains("href"), "{}", tag("link"));
+}
+
+#[test]
 fn properties_become_the_attributes_and_text_the_glue_gives_them() {
     let src = r#"
 component App
@@ -322,11 +379,11 @@ component App
       button press=bump testId="card"
         column testId="stack"
           box width=10 height=10 testId="plain"
-          text "Title" aria-level=2 testId="title"
+          text "Title" role="heading" aria-level=2 testId="title"
           text "Body" testId="body"
         image "symbol:close" width=10 height=10 testId="icon"
       column testId="outside"
-        text "Title" aria-level=2 testId="heading"
+        text "Title" role="heading" aria-level=2 testId="heading"
 "#;
     let data = Says("");
     let plan = contract::bake(contract::compile(src).unwrap(), data.clone()).unwrap();
@@ -401,7 +458,7 @@ component App
     nav = back(nav)
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" width="100%" height="100%"
-      each e in stack(nav) key=e.id
+      for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` testId=`route-${e.name}`
           text e.name
 "#;
@@ -422,8 +479,8 @@ component App
 }
 
 // @ref LLP 1075.003 §3.3, §3.7 — with tabs, each tab's panel holds its own
-// stack: the unselected panel is hidden and inert, its stack keeps its top
-// route; an app's data-* words are attributes of their own. Both are linked
+// stack, built when the tab is first selected: the unselected panel is
+// hidden and inert; an app's data-* words are attributes of their own. Both are linked
 // by use, and a host without them refuses the plan by name.
 #[test]
 fn tabs_show_their_own_stacks_and_data_words_are_attributes() {
@@ -437,9 +494,9 @@ component App
     nav = back(nav)
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" width="100%" height="100%"
-      each t in nav.tabs key=t.name
+      for t in nav.tabs key=t.name
         column role="tabpanel" id=`panel-${t.name}` testId=`panel-${t.name}`
-          each e in t.stack key=e.id
+          for e in t.stack key=e.id
             column navigationKey=`${e.id}` data-screen=e.name testId=`route-${e.name}`
               text e.name
       row role="tablist"
@@ -465,9 +522,8 @@ component App
     let post = tag("route-post");
     assert!(shown(&post), "{post}");
     assert!(post.contains("data-screen=\"post\""), "{post}");
-    // The other tab's stack shows its top route inside its hidden panel.
-    let other = tag("route-second");
-    assert!(shown(&other), "{other}");
+    // The other tab, never selected, is not built yet: its panel is empty.
+    assert!(!doc.contains("data-testid=\"route-second\""), "{doc}");
 
     let plan = contract::bake(contract::compile(src).unwrap(), Says("")).unwrap();
     exact_web::link(exact_web::Linked::CORE);
@@ -491,7 +547,7 @@ component App
     column testId="page"
       head title=`Count ${n}` description="Counting"
       button press=bump testId="bump" width=10 height=10
-      when n > 0
+      if n > 0
         head title="Counted"
 "#;
     let plan = contract::bake(contract::compile(src).unwrap(), Says("")).unwrap();
@@ -586,4 +642,84 @@ fn an_auto_glass_group_is_written_as_auto() {
     assert!(doc.contains("glassGroup=\"auto\""), "{doc}");
     assert!(doc.contains("glassGroup=\"12\""), "{doc}");
     assert!(!doc.contains("glassGroup=\"-1\""), "{doc}");
+}
+
+#[test]
+fn split_facts_survive_live_updates_and_both_document_walks() {
+    let source = r#"routes nav
+  home "/"
+    item "/item/:id"
+
+component App
+  state wide = false
+  action toggle
+    wide = !wide
+  action open
+    nav = push(nav, path("item", "a"))
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back"
+      for e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` position="absolute" inset=0
+          list testId="strip" virtualized=true display="flex" height=120 overflow-x="scroll" overflow-y="hidden" estimated-item-width=180
+            for n in ["a", "b"] key=n
+              text n width=180
+          list testId="rows" role=(wide ? "presentation" : "list")
+            link href="/item/a" testId="href"
+              text "A"
+            link href="/item/a" press=toggle testId="local"
+              text "Pick"
+            button "Open" press=open testId="push"
+          button "Toggle" press=toggle testId="toggle"
+"#;
+    let mut host = host(source, Says(""), "/");
+    for role in ["list", "presentation", "list"] {
+        let doc = host.document().unwrap();
+        let tree = host.runner().document_tree().unwrap();
+        let (detached, _) =
+            exact_web::document::project_tree(&tree, host.runner(), Default::default()).unwrap();
+        assert_eq!(detached.root, doc.root);
+        let id = |name| {
+            let kernel = host.runner().kernel();
+            kernel
+                .node_by_key(kernel.find_by_test_id(name)[0])
+                .unwrap()
+                .id
+        };
+        let row = opening(&doc.root, id("rows").into());
+        assert!(row.contains("data-exact-list=\"\""), "{row}");
+        assert!(row.contains(&format!("role=\"{role}\"")), "{row}");
+        assert!(!row.contains("data-exact-estimated-item-width"), "{row}");
+        let strip = opening(&doc.root, id("strip").into());
+        assert!(strip.contains("data-exact-list=\"\""), "{strip}");
+        assert!(
+            strip.contains("data-exact-estimated-item-width=\"180\""),
+            "{strip}"
+        );
+        for (name, fact) in [
+            ("href", None),
+            ("local", Some("false")),
+            ("push", Some("true")),
+        ] {
+            let node = opening(&doc.root, id(name).into());
+            match fact {
+                Some(value) => assert!(
+                    node.contains(&format!("data-exact-router-press=\"{value}\"")),
+                    "{node}"
+                ),
+                None => assert!(!node.contains("data-exact-router-press"), "{node}"),
+            }
+        }
+        let batch = host.dispatch(id("toggle"), exact_runner::Event::Press);
+        let reply: serde_json::Value = serde_json::from_str(&batch).unwrap();
+        assert_eq!(
+            reply.get("error"),
+            Some(&serde_json::Value::Null),
+            "{batch}"
+        );
+        assert!(batch.contains("\"role\":"), "{batch}");
+        assert!(
+            !batch.contains("\"op\":\"create\""),
+            "retained nodes: {batch}"
+        );
+    }
 }

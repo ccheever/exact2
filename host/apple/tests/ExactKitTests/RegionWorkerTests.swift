@@ -208,7 +208,7 @@ import CoreText
         XCTAssertEqual(gate.count, 1, "old blocked allocation still owns the only worker turn")
         gate.release.signal()
         let deadline = Date().addingTimeInterval(3)
-        while received.ids.isEmpty && Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.005)) }
+        while received.ids.isEmpty && Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.005)) }
         XCTAssertEqual(received.ids, [40])
         XCTAssertEqual(gate.count, 2)
         lifetime.service.close()
@@ -523,6 +523,69 @@ import CoreText
                 XCTAssertTrue(box.preparationShared)
                 XCTAssertEqual(box.raster!.image()!.dataProvider!.data! as Data, expected)
             } }
+        }
+    }
+
+    /// LLP 1115.000 D7.9: a request whose selection colour carries a colour
+    /// for the selected glyphs paints them in it, over the fill, as the
+    /// ordinary paragraph does on the Mac; with the fill alone the glyphs
+    /// keep their ink over it. What is not selected keeps its ink either way.
+    /// With a ninth component that is 1 (the Mac's light appearance) a glyph
+    /// whose colour its author fixed keeps it, and no other does.
+    func testASelectionsOwnInkRepaintsItsGlyphs() throws {
+        let engine = TextEngine(resolve: { _ in nil })
+        let space = CGColorSpace(name: CGColorSpace.sRGB)!
+        let profile = NativeProfile.capture(original: space, data: space.copyICCData(), account: NativeProfileAccount()).owner!
+        // A full block's middle is ink and nothing else. White ink, the first word selected.
+        let run = Run(text: "████ ████", size: 16, weight: 400, family: 0, italic: false, lineHeight: 26, letterSpacing: 0)
+        let spec = Spec(runs: [run], align: 0, lineClamp: 0, color: [255, 255, 255, 255], overflowWrap: 0, strut: run)
+        // The same in a colour its author fixed.
+        var fixedRun = run
+        fixedRun.color = [255, 255, 255, 255]; fixedRun.fixedInk = true
+        let fixed = Spec(runs: [fixedRun], align: 0, lineClamp: 0, color: [255, 255, 255, 255], overflowWrap: 0, strut: run)
+        let ordinary = engine.paragraph(spec, width: 300), line = ordinary.lines[0]
+        func middle(_ index: Int) -> Int { Int((CTLineGetOffsetForStringIndex(line, index, nil) + CTLineGetOffsetForStringIndex(line, index + 1, nil)) / 2) }
+        let row = Int(ordinary.baselines[0].rounded()) - 5
+        let fill: [CGFloat] = [0.7, 0.84, 1, 1]
+        let cases: [(Spec, [CGFloat], [UInt8])] = [
+            (spec, fill, [255, 255, 255]), (spec, fill + [0, 0, 0, 1], [0, 0, 0]), (spec, fill + [0, 0, 0, 1, 1], [0, 0, 0]),
+            (fixed, fill + [0, 0, 0, 1], [0, 0, 0]), (fixed, fill + [0, 0, 0, 1, 0], [0, 0, 0]), (fixed, fill + [0, 0, 0, 1, 1], [255, 255, 255]),
+        ]
+        for (spec, colour, selected) in cases {
+            let source = RegionTextSource.capture(spec, engine: engine)
+            let request = RegionRasterRequest(serial: 1, publication: 1, generation: 1,
+                rows: [RegionPaintRow(artifact: 7, box: CGRect(x: 0, y: 0, width: 300, height: ordinary.height), selection: NSRange(location: 0, length: 4))],
+                scroll: .zero, size: CGSize(width: 320, height: 40), scale: 1,
+                profile: profile, format: CGImageAlphaInfo.premultipliedLast.rawValue,
+                background: [0, 0, 0, 1], selectionColor: colour)
+            let box = RegionTestBox(), done = DispatchSemaphore(value: 0)
+            DispatchQueue(label: "region-selected-ink").async {
+                do {
+                    let layout = RegionWorkerLayout.shape(source, width: 300)
+                    let index = try RegionPaintIndex(request: request, lookup: { $0 == 7 ? layout : nil }, account: InkAccount())
+                    box.raster = try index.render(request, account: RegionPixelAccount(), hits: RegionHitAccount())
+                } catch { box.error = String(describing: error) }
+                done.signal()
+            }
+            done.wait()
+            XCTAssertEqual(box.error, "")
+            let pixels = try XCTUnwrap(box.raster?.image()?.dataProvider?.data as Data?)
+            func pixel(_ column: Int) -> [UInt8] { let at = (row * 320 + column) * 4; return Array(pixels[at..<at + 3]) }
+            XCTAssertEqual(pixel(middle(1)), selected, "a selected glyph, with \(colour.count) components\(spec.runs[0].fixedInk ? ", its colour fixed" : "")")
+            XCTAssertEqual(pixel(middle(6)), [255, 255, 255], "a glyph outside the selection keeps its ink")
+            XCTAssertEqual(pixel(middle(4)), [0, 0, 0], "and the ground outside it its own")
+        }
+        // A content region's runs cross with their colours resolved, and say
+        // which kind each was (`fixed`), in either appearance.
+        let metric: [String: Any] = ["size": 16.0, "weight": 400, "family": 0, "spacing": 0.0]
+        func wire(_ fixed: Bool?) -> [String: Any] {
+            var row = metric.merging(["text": "a", "color": [255.0, 0.0, 0.0, 255.0], "darkColor": [255.0, 128.0, 128.0, 255.0]]) { $1 }
+            if let fixed { row["fixed"] = fixed }
+            return row
+        }
+        for dark in [false, true] {
+            let captured = try XCTUnwrap(RegionTextSource.capture(wire: ["runs": [wire(true), wire(false), wire(nil)], "strut": metric], engine: engine, dark: dark))
+            XCTAssertEqual(captured.runs.map(\.fixedInk), [true, false, false])
         }
     }
 }

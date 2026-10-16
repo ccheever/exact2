@@ -1,6 +1,6 @@
 //! Gated tasks (LLP 1092 D7–D10): a task declared `when cond [key=expr]`
-//! has a timer only while its gate holds, as a `when` arm has its nodes;
-//! a new key restarts it, as a new `each` key makes a new row. Nothing runs
+//! has a timer only while its gate holds, as an `if` arm has its nodes;
+//! a new key restarts it, as a new `for` key makes a new row. Nothing runs
 //! when the gate changes: the change arms or drops a deadline.
 //!
 //! The step runs inside each commit, right after its settlement succeeds
@@ -19,6 +19,8 @@ impl<D: DataSource> Runner<D> {
     /// now; a changed key re-arms it from now; anything else leaves it as
     /// it was (an `every` keeps its phase, a spent `after` stays spent).
     pub(super) fn gate_step(&mut self) -> Result<(), RunnerError> {
+        // A sequence's gate, key and arguments (LLP 1125 D2).
+        self.sequence_step()?;
         let mut seen = Vec::new();
         for (i, row) in self.plan.timers.iter().enumerate() {
             if !row.gated && !row.keyed {
@@ -70,6 +72,7 @@ impl<D: DataSource> Runner<D> {
     /// `then`, or a queue's `next` (LLP 1092 D3).
     pub fn has_timers(&self) -> bool {
         !self.plan.timers.is_empty()
+            || !self.plan.sequences.is_empty()
             || self
                 .plan
                 .mutations
@@ -96,12 +99,19 @@ impl<D: DataSource> Runner<D> {
         self.timers
             .iter()
             .zip(&self.plan.timers)
-            .filter(|(_, row)| !(row.frame && self.presenting))
+            .filter(|(_, row)| !(row.frame && self.clock.presenting))
             .map(|(timer, _)| timer.next_ms)
             .chain(self.then_due.iter().copied())
             // A drop's hold waits a second for its move (LLP 1094 D8).
             .chain(self.reorder_deadline())
             .chain(self.queues.next_due.iter().copied())
+            // A sequence's fill, count-in's end, end and answer (LLP 1125 D3).
+            .chain([
+                self.transport.wake_due(),
+                self.transport.ended_due(),
+                self.transport.answer_due,
+                self.midi.answer_due,
+            ])
             .filter(|ms| ms.is_finite())
             .reduce(f64::min)
     }

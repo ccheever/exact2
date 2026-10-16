@@ -10,6 +10,8 @@ build = "build.rs"
 [lib]
 name = "textflow_apple"
 crate-type = ["rlib"]
+test = false
+bench = false
 
 [dependencies]
 exact-logic = { path = "../../../logic" }

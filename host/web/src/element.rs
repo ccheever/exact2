@@ -334,7 +334,16 @@ fn canvas_css(node: &NodeFacts<'_>, css: &mut String) {
 /// Whether the node is an indeterminate `progress` (LLP 1069.001, amended
 /// 2026-10-07), which the page draws as a ring in a box.
 fn is_progress(node: &NodeFacts<'_>) -> bool {
-    node.node_type == NodeType::Control && node.props.str(PropId::Type) == Some("progress")
+    exact_kernel::ControlKind::of(node.node_type, node.props)
+        == Some(exact_kernel::ControlKind::Progress)
+}
+
+/// Whether the node is a determinate `progress` (LLP 1116 D8): HTML's own
+/// `<progress value max>`, which the browser draws and sizes (its UA
+/// sheet's `10em` by `1em`, as the kernel's `control::progress_box`).
+fn is_progress_bar(node: &NodeFacts<'_>) -> bool {
+    exact_kernel::ControlKind::of(node.node_type, node.props)
+        == Some(exact_kernel::ControlKind::ProgressBar)
 }
 
 /// A progress's box sized as the kernel's measured leaf: 20 × 20 content,
@@ -524,6 +533,7 @@ fn element(node: &NodeFacts<'_>) -> &'static str {
         // An indeterminate progress is a box the page draws a ring in
         // (LLP 1069.001, amended 2026-10-07): HTML's own draws a bar.
         NodeType::Control if is_progress(node) => "div",
+        NodeType::Control if is_progress_bar(node) => "progress",
         NodeType::Control => "input",
         NodeType::Canvas => "canvas",
         NodeType::WebView => "iframe",
@@ -535,27 +545,19 @@ fn element(node: &NodeFacts<'_>) -> &'static str {
     }
 }
 
-/// A text block's heading level, when it is a heading: `aria-level` with no
-/// other role. HTML's `h1`–`h6` carry levels 1–6 into the accessibility tree
-/// (an `aria-level` on a role-less `div` is ignored); a deeper level is a
-/// `div` with `role="heading"`. `index.html` resets the UA heading styles, so
-/// the box stays a bare div's. The tag is fixed at creation; a level bound
-/// to data that changes later still reaches `aria-level`.
+/// A text block's heading level, when it is a heading: `role="heading"`,
+/// by the kernel's `Props::heading` (LLP 1115.000 D12.5). An `aria-level`
+/// alone makes none, here as on every host: the block stays a `div`, where
+/// Chrome's accessibility tree ignores the level. HTML's `h1`–`h6` carry
+/// levels 1–6 into that tree; a deeper level is a `div` with its
+/// `role="heading"`. `index.html` resets the UA heading styles, so the box
+/// stays a bare div's. The tag is fixed at creation; a level bound to data
+/// that changes later still reaches `aria-level`.
 fn heading_level(node: &NodeFacts<'_>) -> Option<i64> {
     if node.node_type != NodeType::Text || node.is_inline_run() {
         return None;
     }
-    if node
-        .props
-        .str(PropId::AccessibilityRole)
-        .is_some_and(|role| role != "heading")
-    {
-        return None;
-    }
-    match node.props.get(PropId::AccessibilityHeadingLevel) {
-        Some(PropValue::Int(level)) if *level >= 1 => Some(*level),
-        _ => None,
-    }
+    node.props.heading()
 }
 
 /// The filter primitives' tags (LLP 1055.000 D14), as `fe` holds them.
@@ -696,7 +698,7 @@ fn dom_id(view: exact_kernel::ViewId) -> String {
 /// properties; a `mask`'s and a `pattern`'s region is attributes only, as
 /// is a radial gradient's `cx`, `cy` and `r` are attributes
 /// only (LLP 1055.000 D4, D7).
-fn attribute_rows(t: NodeType) -> &'static [(exact_kernel::StyleId, &'static str)] {
+pub fn attribute_rows(t: NodeType) -> &'static [(exact_kernel::StyleId, &'static str)] {
     use exact_kernel::StyleId::*;
     match t {
         NodeType::SvgViewport
@@ -749,6 +751,19 @@ pub fn svg_props_of(
             exact_kernel::RowValue::Dimension(exact_kernel::Dimension::Percent(p)) => {
                 format!("{}%", exact_num::Shortest(p as f64))
             }
+            exact_kernel::RowValue::Dimension(
+                d @ exact_kernel::Dimension::Viewport(
+                    exact_kernel::ViewportUnit::Vw
+                    | exact_kernel::ViewportUnit::Vh
+                    | exact_kernel::ViewportUnit::Vmin
+                    | exact_kernel::ViewportUnit::Vmax,
+                    _,
+                ),
+            ) => {
+                let mut text = String::new();
+                crate::css::dimension(&mut text, d);
+                text
+            }
             _ => continue,
         };
         out.insert((*name).into(), text);
@@ -759,15 +774,34 @@ pub(super) fn props_for(node: &NodeRef<'_>) -> SortedMap<String, String> {
     props_of(&node.facts())
 }
 
+pub(super) fn router_press(props: &mut SortedMap<String, String>, writes: Option<bool>) {
+    if let Some(writes) = writes {
+        props.insert("data-exact-router-press".into(), writes.to_string());
+    } else {
+        props.remove("data-exact-router-press");
+    }
+}
+
 /// [`props_for`], from a node's facts.
 pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
     let mut out = SortedMap::new();
+    if node.node_type == NodeType::List {
+        out.insert("data-exact-list".into(), String::new());
+    }
     // @ref LLP 1104 D8 — shared by live wasm batches, server documents and
     // the JS target's templates. Lowering keeps excluded editors bare.
     if node.node_type == NodeType::TextInput
-        && node.style.appearance == exact_kernel::Appearance::Auto
+        && node.style.appearance != exact_kernel::Appearance::None
     {
         out.insert("data-native".into(), String::new());
+    }
+    // @ref LLP 1116.007 D4 — `appearance: textfield` drops a number input's
+    // spin buttons: Firefox reads the CSS, Chrome and Safari need their
+    // pseudo-elements told (index.html).
+    if node.node_type == NodeType::TextInput
+        && node.style.appearance == exact_kernel::Appearance::Textfield
+    {
+        out.insert("data-exact-textfield".into(), String::new());
     }
     if node.style.wrap_flow == exact_kernel::WrapFlow::Both {
         out.insert("data-wrap-flow".into(), "both".into());
@@ -812,7 +846,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             continue;
         }
         let text = match value {
-            PropValue::Str(s) => s.clone(),
+            PropValue::Str(s) => s.to_string(),
             PropValue::Bool(b) => b.to_string(),
             PropValue::Int(i) => i.to_string(),
             // LLP 1053.000.000.000 D3: the reserved `-1` is written as `auto`.
@@ -820,6 +854,8 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropValue::Float(f) => crate::css::num(*f as f32),
         };
         let name = match id {
+            // macOS menu hints have no DOM representation.
+            PropId::MenuPlacement | PropId::MenuRemove => continue,
             PropId::Text => "text",
             PropId::Markup => "markup",
             PropId::TestId => "data-testid",
@@ -828,6 +864,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::AccessibilityLabel if node.node_type == NodeType::Image => "alt",
             PropId::AccessibilityLive => "aria-live",
             PropId::AccessibilityBusy => "aria-busy",
+            PropId::AccessibilityAtomic => "aria-atomic",
             PropId::Autofocus => "autofocus",
             PropId::AccessibilityLabel => "aria-label",
             PropId::AccessibilityKeyShortcuts => "aria-keyshortcuts",
@@ -838,6 +875,11 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::AccessibilityHeadingLevel => "aria-level",
             PropId::AccessibilityPosInSet => "aria-posinset",
             PropId::AccessibilitySetSize => "aria-setsize",
+            // @ref LLP 1116 D8 — a range role's value, ARIA's own attributes.
+            PropId::AccessibilityValueNow => "aria-valuenow",
+            PropId::AccessibilityValueMin => "aria-valuemin",
+            PropId::AccessibilityValueMax => "aria-valuemax",
+            PropId::AccessibilityValueText => "aria-valuetext",
             PropId::Placeholder => "placeholder",
             PropId::Type => "type",
             PropId::InputMode => "inputmode",
@@ -856,6 +898,8 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::NavigationBack => "navigationBack",
             PropId::NavigationPresentation => "navigationPresentation",
             PropId::NavigationSource => "navigationSource",
+            PropId::NavigationSplit => "navigationSplit",
+            PropId::EstimatedItemWidth => "data-exact-estimated-item-width",
             // LLP 1013.000 D7: the shared-element name the JS target's view
             // transitions pair by.
             PropId::SharedElement => "data-shared-element",
@@ -875,8 +919,12 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::FocusGuide => continue,
             // A page cannot style the phone's status bar (LLP 1105 D7).
             PropId::StatusBarStyle | PropId::StatusBarAnimation => continue,
+            // Read by wakelock-glue.js (LLP 1125 D11).
+            PropId::Wakelock => "data-exact-wakelock",
+            // Read by the JS target's midi.js (LLP 1125 D8): the inputs, newline-joined.
+            PropId::MidiInputs => "data-exact-midiinputs",
             PropId::SwipeIndicator => "swipeIndicator",
-            PropId::Href if text.is_empty() => continue,
+            PropId::Href if node.props.link().is_none() => continue,
             PropId::Href => "href",
             PropId::Target => "target",
             PropId::Disabled => "disabled",
@@ -955,6 +1003,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::AccessibilitySelected => "aria-selected",
             PropId::AccessibilityExpanded => "aria-expanded",
             PropId::AccessibilityPressed => "aria-pressed",
+            PropId::AccessibilityDisabled => "aria-disabled",
             PropId::AccessibilityModal => "aria-modal",
             PropId::AccessibilityElementsHidden => "aria-hidden",
             PropId::AccessibilityInvalid => "aria-invalid",
@@ -1026,25 +1075,122 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
         };
         out.insert(name.to_string(), text);
     }
-    if heading_level(node).is_some_and(|level| level > 6) {
-        out.get_or_insert_with("role".into(), || "heading".into());
-    }
     if node.node_type.scrolls_by_default() {
         out.insert("data-scroll".into(), "true".into());
     }
-    if element(node) == "select" {
-        // A `<select>` is its own kind; its `type` is not an attribute.
+    if matches!(element(node), "select" | "progress") {
+        // A `<select>` and a `<progress>` are their own kinds; `type` is not an attribute.
         out.remove("type");
     } else if is_progress(node) {
-        // The base sheet draws the ring from this mark.
-        out.remove("type");
+        out.remove("type"); // The base sheet draws the ring from this mark.
         out.insert("data-exact-progress".into(), String::new());
     } else if node.node_type == NodeType::Control {
         out.get_or_insert_with("type".into(), || "checkbox".into());
-        // @ref LLP 1069.001 D1 — WebKit's `switch`; a browser without it
-        // draws a checkbox that ARIA still hears as a switch.
+        // @ref LLP 1069.001 D1 — WebKit's `switch`, else drawn by index.html (LLP 1116 D1).
         if node.props.str(PropId::AccessibilityRole) == Some("switch") {
             out.insert("switch".into(), String::new());
+            if node.style.appearance == exact_kernel::Appearance::Auto {
+                out.insert("data-exact-switch".into(), String::new());
+            }
+        }
+        // LLP 1116.001 D1: a date, time or local date-time control takes the
+        // page's field look (index.html) while its appearance is the platform's.
+        if node.style.appearance == exact_kernel::Appearance::Auto
+            && matches!(
+                exact_kernel::ControlKind::of(node.node_type, node.props),
+                Some(
+                    exact_kernel::ControlKind::Date
+                        | exact_kernel::ControlKind::Time
+                        | exact_kernel::ControlKind::DateTimeLocal
+                )
+            )
+        {
+            out.insert("data-exact-field".into(), String::new());
+        }
+    }
+    // @ref LLP 1116.009 D4 — a sheet's bar centres its title (index.html) unless the
+    // author flows its items: a header whose author wrote `justify-content` is named,
+    // as D2's bit names a written row to the neutral look's sheet below.
+    if element(node) == "header"
+        && node
+            .style
+            .written
+            .has(exact_kernel::StyleId::JustifyContent)
+    {
+        out.insert("data-exact-said".into(), "justify-content".into());
+    }
+    // @ref LLP 1115.000 D4 part B — the neutral sheet draws these marks
+    // itself (neutral.css), and reads here what CSS cannot say. A checkbox,
+    // radio, range or file control whose appearance is the platform's is
+    // marked, as a switch and a date field are above: `appearance="none"`
+    // hands the box to the author. And a row the author wrote where the
+    // sheet would draw over an inherited or implied one (D2's bit) is named:
+    // a spinner's own `color`, a grouped list's own ground.
+    use exact_kernel::{ControlKind, StyleId};
+    let kind = ControlKind::of(node.node_type, node.props);
+    if node.style.appearance == exact_kernel::Appearance::Auto
+        && matches!(
+            kind,
+            Some(
+                ControlKind::Checkbox | ControlKind::Radio | ControlKind::Range | ControlKind::File
+            )
+        )
+    {
+        out.insert("data-exact-control".into(), String::new());
+    }
+    let said = match kind {
+        Some(ControlKind::Progress) => Some((StyleId::TextColor, "color")),
+        _ if node.props.get(PropId::ListStyle).is_some() => {
+            Some((StyleId::BackgroundColor, "background-color"))
+        }
+        _ => None,
+    };
+    if let Some((_, name)) = said.filter(|(id, _)| node.style.written.has(*id)) {
+        out.insert("data-exact-said".into(), name.into());
+    }
+    // @ref LLP 1115.000 D16 — a box whose author wrote its top or its
+    // bottom edge (a width or a style, `none` included) has drawn its
+    // own separator there, or said it has none: where it is a list's
+    // row the sheet draws no line of its own at that edge. It is told
+    // by its own rows, since a node here does not know what holds it.
+    if matches!(
+        node.node_type,
+        NodeType::View | NodeType::Pressable | NodeType::ScrollView | NodeType::Text
+    ) {
+        for (width, line, word) in [
+            (
+                StyleId::BorderWidthTop,
+                StyleId::BorderStyleTop,
+                "border-top",
+            ),
+            (
+                StyleId::BorderWidthBottom,
+                StyleId::BorderStyleBottom,
+                "border-bottom",
+            ),
+        ] {
+            if node.style.written.has(width) || node.style.written.has(line) {
+                let words = match out.get("data-exact-said") {
+                    Some(said) if !said.is_empty() => format!("{said} {word}"),
+                    _ => word.to_string(),
+                };
+                out.insert("data-exact-said".into(), words);
+            }
+        }
+    }
+    // A platform button's floor (neutral.css: 36 px each way, 44 under a
+    // coarse pointer) and its padding are the look's, and a size its
+    // author wrote is the author's. In CSS a minimum outranks a size, so
+    // the sheet is told which of the two were written and steps aside on
+    // that axis.
+    if node.node_type == NodeType::Control && node.props.str(PropId::Type) == Some("button") {
+        let sizes: Vec<&str> = [(StyleId::Width, "width"), (StyleId::Height, "height")]
+            .into_iter()
+            .filter(|(id, _)| node.style.written.has(*id))
+            .map(|(_, name)| name)
+            .collect();
+        if !sizes.is_empty() {
+            out.insert("data-exact-said".into(), sizes.join(" "));
         }
     }
     // A `<button>` submits a form unless it says otherwise; a `button` never does.
@@ -1101,6 +1247,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
         ("input", Some("checkbox")) => Some("checkbox"),
         ("input", Some("radio")) => Some("radio"),
         ("a", _) if out.contains_key("href") => Some("link"),
+        ("progress", _) => Some("progressbar"),
         _ => None,
     };
     if implicit.is_some() && out.get("role").map(String::as_str) == implicit {
@@ -1247,253 +1394,5 @@ impl<D: exact_runner::DataSource> super::Host<D> {
 }
 
 #[cfg(test)]
-mod dataset_tests {
-    use exact_kernel::{NodeFacts, NodeType, PropId, PropKind, PropList, PropValue, StyleProps};
-
-    fn written(
-        node_type: NodeType,
-        prop: PropId,
-        value: PropValue,
-    ) -> super::SortedMap<String, String> {
-        let style = StyleProps::default();
-        let mut props = PropList::new();
-        props.set(prop, value);
-        super::props_of(&NodeFacts {
-            id: 1,
-            node_type,
-            style: &style,
-            props: &props,
-            is_root: false,
-            inline_run: false,
-        })
-    }
-
-    /// An SVG filter primitive's own prop: the compiler sets it only on an
-    /// `fe*` or `filter` element, which writes it under its own name.
-    fn svg_only(prop: PropId) -> bool {
-        let name = prop.name();
-        name.starts_with("pointsAt")
-            || name.starts_with("specular")
-            || name.ends_with("ChannelSelector")
-            || matches!(
-                name,
-                "amplitude"
-                    | "azimuth"
-                    | "baseFrequency"
-                    | "bias"
-                    | "diffuseConstant"
-                    | "divisor"
-                    | "edgeMode"
-                    | "elevation"
-                    | "exponent"
-                    | "filterUnits"
-                    | "in"
-                    | "in2"
-                    | "intercept"
-                    | "k1"
-                    | "k2"
-                    | "k3"
-                    | "k4"
-                    | "kernelMatrix"
-                    | "limitingConeAngle"
-                    | "mode"
-                    | "numOctaves"
-                    | "operator"
-                    | "feOrder"
-                    | "preserveAlpha"
-                    | "primitiveUnits"
-                    | "result"
-                    | "seed"
-                    | "slope"
-                    | "stdDeviation"
-                    | "stitchTiles"
-                    | "surfaceScale"
-                    | "tableValues"
-                    | "targetX"
-                    | "targetY"
-                    | "values"
-            )
-    }
-
-    /// LLP 1069.001, amended 2026-10-07: an indeterminate progress is a box
-    /// the base sheet draws a ring in (HTML's own draws a bar), ARIA's role
-    /// and busy state its attributes, sized as the kernel's 20 × 20 leaf.
-    #[test]
-    fn a_progress_is_a_busy_progressbar_box_the_page_draws_a_ring_in() {
-        let style = StyleProps::default();
-        let mut props = PropList::default();
-        props.set(PropId::Type, PropValue::Str("progress".into()));
-        props.set(
-            PropId::AccessibilityRole,
-            PropValue::Str("progressbar".into()),
-        );
-        props.set(PropId::AccessibilityBusy, PropValue::Bool(true));
-        let facts = NodeFacts {
-            id: 1,
-            node_type: NodeType::Control,
-            style: &style,
-            props: &props,
-            is_root: false,
-            inline_run: false,
-        };
-        assert_eq!(super::tag_of(&facts, false), "div");
-        assert_eq!(super::tag_of(&facts, true), "span", "in a button");
-        let out = super::props_of(&facts);
-        let get = |k: &str| out.get(k).map(String::as_str);
-        assert_eq!(get("role"), Some("progressbar"));
-        assert_eq!(get("aria-busy"), Some("true"));
-        assert_eq!(get("data-exact-progress"), Some(""));
-        assert_eq!(get("type"), None, "{out:?}");
-        let css = super::host_css_of(&facts, None, String::new(), "div");
-        assert!(
-            css.contains("container-type:size;contain-intrinsic-size:20px 20px;display:grid;"),
-            "{css}"
-        );
-        assert!(css.contains("justify-self:start;"), "a block's: {css}");
-        // A hidden one stays hidden: its grid is not written over `none`.
-        let hidden_style = StyleProps {
-            display: exact_kernel::Display::None,
-            ..StyleProps::default()
-        };
-        let hidden = NodeFacts {
-            style: &hidden_style,
-            ..facts
-        };
-        let css = super::host_css_of(&hidden, None, String::new(), "div");
-        assert!(!css.contains("display:grid"), "{css}");
-        // In a grid or a flex container it stretches as the kernel's does.
-        for display in [exact_kernel::Display::Grid, exact_kernel::Display::Flex] {
-            let grid = StyleProps {
-                display,
-                ..StyleProps::default()
-            };
-            let parent = NodeFacts {
-                id: 2,
-                node_type: NodeType::View,
-                style: &grid,
-                props: &PropList::default(),
-                is_root: false,
-                inline_run: false,
-            };
-            let css = super::host_css_of(&facts, Some(&parent), String::new(), "div");
-            assert!(!css.contains("justify-self"), "{display:?}: {css}");
-        }
-        assert!(include_str!("../index.html").contains("[data-exact-progress]::before"));
-    }
-
-    /// A link to an absolute URL opens outside the app, as natively, unless
-    /// its `target` is authored; a path stays (chat F11, hn-reader F3).
-    #[test]
-    fn a_link_out_of_the_app_opens_a_new_browsing_context() {
-        let link = |href: &str, target: Option<&str>| {
-            let style = StyleProps::default();
-            let mut props = PropList::new();
-            props.set(PropId::Href, PropValue::Str(href.into()));
-            if let Some(t) = target {
-                props.set(PropId::Target, PropValue::Str(t.into()));
-            }
-            let out = super::props_of(&NodeFacts {
-                id: 1,
-                node_type: NodeType::Pressable,
-                style: &style,
-                props: &props,
-                is_root: false,
-                inline_run: false,
-            });
-            let get = |k: &str| out.get(k).cloned();
-            (get("target"), get("rel"))
-        };
-        let out = (Some("_blank".into()), Some("external noopener".into()));
-        assert_eq!(link("https://example.com/a", None), out);
-        assert_eq!(link("//example.com/a", None), out);
-        assert_eq!(link("/c/42", None), (None, None));
-        assert_eq!(
-            link("https://example.com/", Some("_self")),
-            (Some("_self".into()), None)
-        );
-        let blank = (Some("_blank".into()), Some("noopener".into()));
-        assert_eq!(link("/c/42", Some("_blank")), blank);
-        let app = |t: &str| {
-            format!("component A\n  view\n    link href=\"/x\" target=\"{t}\"\n      text \"x\"\n")
-        };
-        assert!(contract::compile(&app("_blank")).is_ok());
-        let e = contract::compile(&app("_top")).unwrap_err().to_string();
-        assert!(e.contains("`target` takes"), "{e}");
-    }
-
-    /// @ref LLP 1075.003 §3.3 — every `data-` name this host writes on an
-    /// HTML element for a prop of its own is a word Contract refuses, so an
-    /// app's `data-*` never lands on one.
-    #[test]
-    fn every_data_name_the_host_writes_is_a_reserved_word() {
-        let kinds = [
-            NodeType::View,
-            NodeType::Text,
-            NodeType::Pressable,
-            NodeType::TextInput,
-            NodeType::Image,
-            NodeType::NativeView,
-            NodeType::ScrollView,
-            NodeType::List,
-            NodeType::Video,
-            NodeType::WebView,
-            NodeType::Canvas,
-            NodeType::Svg,
-            NodeType::Control,
-        ];
-        let mut unreserved = std::collections::BTreeSet::new();
-        for prop in PropId::ALL {
-            if prop == PropId::Dataset || svg_only(prop) {
-                continue;
-            }
-            let value = match prop.kind() {
-                PropKind::Str => PropValue::Str("x".into()),
-                PropKind::Bool => PropValue::Bool(true),
-                PropKind::Int => PropValue::Int(1),
-                PropKind::Float => PropValue::Float(1.0),
-            };
-            for kind in kinds {
-                for name in written(kind, prop, value.clone()).keys() {
-                    if let Some(word) = name.strip_prefix("data-") {
-                        if !contract_lower::dataset::reserved(word) {
-                            unreserved.insert(format!("`{name}` (from {})", prop.name()));
-                        }
-                    }
-                }
-            }
-        }
-        assert!(
-            unreserved.is_empty(),
-            "not reserved in contract/lower/src/dataset.rs: {unreserved:?}"
-        );
-    }
-
-    #[test]
-    fn a_dataset_is_one_attribute_per_word() {
-        crate::link::link(crate::Linked {
-            dataset: Some(crate::document::dataset),
-            ..crate::link::linked()
-        });
-        let out = written(
-            NodeType::View,
-            PropId::Dataset,
-            PropValue::Str(r#"{"large-title":"Inbox","trailing":"compose"}"#.into()),
-        );
-        assert_eq!(
-            out.get("data-large-title").map(String::as_str),
-            Some("Inbox")
-        );
-        assert_eq!(
-            out.get("data-trailing").map(String::as_str),
-            Some("compose")
-        );
-        assert!(out.get("data-dataset").is_none());
-        assert_eq!(
-            crate::document::dataset(r#"{"a":"q\"\\\t\u0001","b":""}"#),
-            vec![
-                ("a".into(), "q\"\\\t\u{1}".into()),
-                ("b".into(), String::new())
-            ]
-        );
-    }
-}
+#[path = "element_tests.rs"]
+mod dataset_tests;

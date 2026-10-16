@@ -69,6 +69,7 @@ fn feed(r: &mut Runner<Counted>, top: f64) -> (f64, usize) {
             port_cross: 640.,
             port_main: 320.,
             cross: 640.,
+            padding: [0.0; 2],
             // This fixture uses 32px rows. Confirm the mounted band so a
             // corrected anchor away from an edge can rearm that edge.
             measurements: c

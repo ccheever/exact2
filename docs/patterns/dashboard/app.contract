@@ -1,0 +1,151 @@
+// Starter: a dashboard: the month's spending against a budget, bars, dated rows, a sheet to add.
+// Two columns on a wide window (the summary beside the rows), one on a phone; the one colour
+// written is the accent, on the root.
+use SummaryCard, StatBar, RowText, EmptyState from "exact:content"
+
+routes nav
+  home "/"
+    add "/add"
+
+shape Time
+  epochAtZero: number
+  utcOffset: number
+
+shape Category
+  id: string
+  name: string
+  spent: number
+  budget: number
+
+shape Expense
+  id: string
+  title: string
+  category: string
+  amount: number
+  day: string
+
+shape Summary
+  spent: number
+  budget: number
+  categories: Category[]
+  recent: Expense[]
+
+shape Reply
+  ok: bool
+  error: string
+
+fn money(cents: number): string = formatNumber(cents / 100, "currency", "USD")
+fn cents(s: string): number = match parseNumber(s) { case some(n) => round(n * 100), case none => 0 }
+
+component App
+  // Money is whole cents; the day is the person's own: `exactTime()` and a minute's tick.
+  resource time = exactTime() as shape Time
+  state now = 0
+  state title = ""
+  state amountText = ""
+  state category = "groceries"
+  state submitted = false
+  derive today = formatDate(time.epochAtZero + now, time.utcOffset, "iso")
+  resource summary = loadSummary(today.slice(0, 7)) as shape Summary else empty()
+  mutation added as shape Reply queue refreshes summary
+  derive left = summary.budget - summary.spent
+  derive detail = left < 0 ? `${money(-left)} over budget` : `${money(left)} left of ${money(summary.budget)}`
+  derive cost = cents(amountText)
+  // Said after the first Save, in red under the field.
+  derive titleError = submitted and title.trim() == "" ? "Enter a title." : ""
+  derive amountError = submitted and cost <= 0 ? "Enter an amount, like 12.50." : ""
+  task tick mount
+    every(60000, step)
+  action step
+    now = performanceNow()
+  action reload
+    refresh summary
+  action openAdd
+    title = ""
+    amountText = ""
+    category = "groceries"
+    submitted = false
+    nav = push(nav, "/add")
+  action back
+    nav = back(nav)
+  action follow(url: string)
+    nav = go(nav, url)
+  action editTitle(v: string)
+    title = v
+  action editAmount(v: string)
+    amountText = v
+  action setCategory(v: string)
+    category = v
+  // The day is read at the write, not from `today`, which can be a minute behind. A write that
+  // may be refused closes the sheet in a `then` instead (`after-a-write`).
+  action save
+    submitted = true
+    let at = time.epochAtZero + performanceNow()
+    now = performanceNow()
+    if title.trim() != "" and cost > 0
+      send added = addExpense(title.trim(), category, cost, formatDate(at, time.utcOffset, "iso"))
+      nav = back(nav)
+  view
+    main testId="root" navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow width="100%" height="100%"
+      for e in stack(nav) key=e.id
+        if e.name == "home"
+          column navigationKey=`${e.id}` navigationScroll="content" position="absolute" inset=0
+            // A title and one button: the title takes the row (`flex=1`) and the button sits at its end.
+            header display="flex" align-items="center" padding="8px 16px"
+              text "Starter" role="heading" aria-level=1 flex=1
+              button press=openAdd aria-label="Add Expense" testId="add-expense"
+                image "symbol:add"
+            scroll id="content" refresh=reload refreshing=pending(summary) flex=1 min-height=0
+              // Two columns on a wide window, one on a phone: each is `flex="1 1 320px"` in a
+              // wrapping row, so as many 320-point columns as fit share the width. The summary
+              // leads; the rows sit beside it, or under it on a phone.
+              row flex-wrap="wrap" align-items="flex-start" gap=20 padding=16 max-width=1040 margin-left="auto" margin-right="auto"
+                column flex="1 1 320px" min-width=0 gap=20 testId="summary"
+                  SummaryCard(label="Spent", value=money(summary.spent), detail=detail, progress=(summary.budget > 0 ? some(min(1, summary.spent / summary.budget)) : none), symbol=some("symbol:chart"))
+                  // On this plain page a card is `-exact-secondary-background`, as the summary's is.
+                  if summary.spent > 0
+                    column gap=14 padding=20 border-radius=16 background-color="-exact-secondary-background" testId="by-category"
+                      text "By Category" role="heading" aria-level=3
+                      for c in summary.categories key=c.id
+                        StatBar(label=c.name, value=`${money(c.spent)} of ${money(c.budget)}`, fraction=c.spent / c.budget, tint=(c.spent > c.budget ? some("-exact-system-red") : none))
+                column flex="1 1 320px" min-width=0
+                  if summary.recent.length == 0
+                    EmptyState(symbol="symbol:chart", title="Nothing spent this month", message="Spending shows here by category as it comes in.")
+                      button press=openAdd testId="empty-add"
+                        text "Add Expense"
+                  else
+                    column padding="20px 20px 10px" border-radius=16 background-color="-exact-secondary-background" testId="recent"
+                      text "Recent" role="heading" aria-level=3
+                      for x in summary.recent key=x.id
+                        RowText(title=x.title, detail=`${x.category} · ${x.day == today ? "Today" : x.day}`, value=some(money(x.amount)))
+        if e.name == "add"
+          column navigationKey=`${e.id}` navigationPresentation="modal" navigationScroll="add-form" position="absolute" inset=0
+            // Cancel, title and Save: three items, so `space-between` centres the title. With two (a Close
+            // and a title) it would push the title to the far edge: say nothing, and a sheet's title is centred.
+            header display="flex" align-items="center" justify-content="space-between" padding="8px 16px"
+              button id="back" press=back testId="add-cancel"
+                text "Cancel"
+              text "New Expense" role="heading"
+              button press=save buttonStyle="bordered-prominent" testId="save"
+                text "Save"
+            list id="add-form" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+              section
+                // A message sits in the field's row, under the field.
+                row
+                  column flex=1 min-width=0 gap=4
+                    input value=title input=editTitle placeholder="Title" aria-label="Title" autofocus=true
+                      enterkeyhint="next" aria-invalid=(titleError != "") testId="title"
+                    if titleError != ""
+                      text titleError font="-exact-footnote" color="-exact-system-red" testId="title-error"
+                row
+                  column flex=1 min-width=0 gap=4
+                    input value=amountText input=editAmount submit=save inputmode="decimal" placeholder="Amount, like 12.50"
+                      aria-label="Amount" aria-invalid=(amountError != "") testId="amount"
+                    if amountError != ""
+                      text amountError font="-exact-footnote" color="-exact-system-red" testId="amount-error"
+              section
+                row
+                  text "Category"
+                  select value=category change=setCategory aria-label="Category" testId="category"
+                    for c in summary.categories key=c.id
+                      option c.name value=c.id

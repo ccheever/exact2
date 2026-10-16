@@ -24,7 +24,13 @@ mod regions;
 mod rows;
 #[path = "timers.rs"]
 mod timers;
+#[path = "type_descriptors.rs"]
+mod type_descriptors;
 use regions::root_slot;
+use type_descriptors::type_code;
+pub(crate) use type_descriptors::{
+    surface_type_json, type_code_numeric, type_code_wire, type_json,
+};
 
 #[derive(Clone, Copy, Debug)]
 pub enum Site {
@@ -172,18 +178,38 @@ struct Em<'a> {
     site_attrs: bool,
     /// The JS dev loop's state checkpoint. Ordinary builds emit none of it.
     dev_reload: bool,
+    /// The tab panels whose contents wait for their first selection
+    /// (`exact_runner::instance::panel_sites`; tabs.js).
+    panels: Vec<exact_plan::NodesId>,
 }
 
 /// The runner's reserved sources the JS runtime answers itself: the page's
 /// facts, never the build's (`exactTime` in the entry, the rest in
 /// facts.js). `exactDelivery` answers what the build baked (facts.js).
-const HOST_FACTS: &[&str] = &["exactViewport", "exactTime", "exactPage", "exactSurface"];
+const HOST_FACTS: &[&str] = &[
+    "exactViewport",
+    "exactTime",
+    "exactPage",
+    "exactSurface",
+    "exactTransport",
+    "exactMIDI",
+];
 
 pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, String> {
+    // A development build makes every token a property (LLP 1121 stage 4).
+    let _every = crate::modes::every(dev_reload);
+    // And every overridden role its sheet's property (stage 5).
+    let _live = exact_kernel::style::roles::live_properties(dev_reload);
+    // @ref LLP 1095 D4 — the roles the theme replaces, as the runner sets them.
+    let _roles = exact_runner::bridge::set_role_overrides(plan);
     let fonts = crate::faces::fonts(plan)?;
     let sites = Sites::new(plan)?;
     let mut warnings = Vec::new();
-    let parts = style::project(plan, &sites, &mut warnings)?;
+    let mut modes = crate::modes::Modes::new(plan);
+    let parts = match modes.as_mut() {
+        Some(m) => m.project(plan, &sites, &mut warnings)?,
+        None => style::project(plan, &sites, &mut warnings)?,
+    };
     let paint = crate::paint::needed(plan, &parts);
     let mut parts = parts;
     if !paint {
@@ -220,6 +246,7 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         refs: rows::can_refer(plan),
         site_attrs,
         dev_reload,
+        panels: exact_runner::instance::tabs::panel_sites(plan),
     };
     em.heights = em.height_targets();
     em.transforms = em.transform_targets();
@@ -270,9 +297,8 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
             slot.0
         );
     }
-    // Localized strings (LLP 1060): the tables, and the locale slot (the
-    // base) before any initializer, which may call `t`; after boot the page's
-    // locale picks the table (rt.js `language`, the runner's `set_place`).
+    // Localized strings (LLP 1060): select the launch locale before any
+    // initializer, which may call `t`; `language` publishes it after mount.
     if let Some(slot) = plan.locale {
         let tables: Vec<String> = plan
             .locales
@@ -297,17 +323,17 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
                 )
             })
             .collect();
-        let init = code::expression(plan, plan.code(plan.slot(slot).init), &top, &mut em.uses)?;
+        let locale = em.uses.rt("locale");
         let strings = em.uses.rt("strings");
         let row = plan.slot(slot);
         let signal = if dev_reload {
             format!(
-                "$devSig({},{init},\"s\",{})",
+                "$devSig({},{locale}(),\"s\",{})",
                 serde_json::to_string(plan.str(row.name)).unwrap(),
                 type_json(plan, row.ty)
             )
         } else {
-            format!("{}({init},\"s\")", em.uses.rt("sig"))
+            format!("{}({locale}(),\"s\")", em.uses.rt("sig"))
         };
         let _ = write!(
             body,
@@ -402,6 +428,10 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
             args.join(","),
             serde_json::to_string(&type_code(plan, r.ty)).unwrap()
         );
+        // The runner's own resource shows its facts, never a write (overlay.js)
+        if exact_plan::RUNNER_OWNED_SOURCES.contains(&plan.str(r.source)) {
+            let _ = write!(body, "r_{i}.r.owned=true;");
+        }
     }
     for (i, m) in plan.mutations.iter().enumerate() {
         let refreshes: Vec<String> = m
@@ -456,12 +486,7 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
             .iter()
             .map(|p| {
                 let param = plan.param(p);
-                let code = type_code(plan, param.ty);
-                let code = if plan.str(param.name).starts_with('@') {
-                    code.replace('n', "N")
-                } else {
-                    code
-                };
+                let code = type_code_numeric(plan, param.ty, plan.str(param.name).starts_with('@'));
                 serde_json::to_string(&code).unwrap()
             })
             .collect();
@@ -497,6 +522,9 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
     em.out.clear();
     em.node(sites.root, "$R", &top)?;
     let view = std::mem::take(&mut em.out);
+    if let Some(m) = &modes {
+        body.push_str(&m.js(plan, &em.classes));
+    }
     // Symbols (symbols.js): a bound source picks its role from the plan's
     // strings that name one, `symbol:`-prefixed or not.
     if em.symbols.0 {
@@ -531,9 +559,14 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
     let _ = write!(body, "{mount}($R=>{{{view}}});");
     // A plan whose actions read geometry fetches the page's reader after
     // first paint, as the wasm host does for an artifact that imports it.
-    if ["x_frame", "x_measure", "x_elementFromPoint"]
-        .iter()
-        .any(|name| em.uses.names.contains(*name))
+    if [
+        "x_frame",
+        "x_measure",
+        "x_elementFromPoint",
+        "x_elementsFromPoint",
+    ]
+    .iter()
+    .any(|name| em.uses.names.contains(*name))
     {
         let geo = em.uses.rt("geo");
         let _ = write!(body, "{geo}();");
@@ -584,6 +617,8 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         let _ = write!(body, "{queues}($state);");
     }
     timers::timers(&mut em, &mut body)?;
+    let midi = timers::midi(&mut em, &mut body)?;
+    let transport = timers::sequences(&mut em, &mut body)?;
     let viewport = em.parts[sites.root as usize].as_ref().and_then(|p| {
         let fit = p.props.get("viewportFit");
         let widget = p.props.get("interactiveWidget");
@@ -598,19 +633,25 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
             m
         })
     });
-    // The sources' parameter types, for a data module that needs values
-    // encoded by type (records and lists are both arrays here).
+    // The sources' parameter types, then `|` and the answer's type, for a
+    // data module that needs values encoded by type (records and lists are
+    // both arrays here).
     let mut sources = Vec::new();
     for r in plan.sources.iter() {
         let params: Vec<String> = r
             .params
             .iter()
-            .map(|p| type_code(plan, plan.source_params[p.0 as usize].ty))
+            .map(|p| type_code_wire(plan, plan.source_params[p.0 as usize].ty))
             .collect();
         sources.push(format!(
             "{}:{}",
             serde_json::to_string(plan.str(r.name)).unwrap(),
-            serde_json::to_string(&params.concat()).unwrap()
+            serde_json::to_string(&format!(
+                "{}|{}",
+                params.concat(),
+                type_code_wire(plan, r.ty)
+            ))
+            .unwrap()
         ));
     }
     let names = |v: Vec<&str>| serde_json::to_string(&v).unwrap();
@@ -698,8 +739,12 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
             (paint, "import{paintUse as $paint}from\"./paint.js\";"),
             (em.list, "import{vl as $vl}from\"./list.js\";"),
             (em.media, "import{mediaUse as $media}from\"./media.js\";"),
+            (midi, "import{midi as $midi}from\"./midi.js\";"),
+            (transport, "import{sequence as $sequence,transport as $transport}from\"./transport.js\";"),
             (!facts.is_empty(), facts.as_str()),
             (em.symbols.0, "import{symbols as $symbols}from\"./symbols.js\";"),
+            (modes.is_some(), "import{modes as $modes,Sx}from\"./modes.js\";"),
+            (plan.slots.iter().any(|s| s.persist), "import{stored as $stored,keep as $keep}from\"./persist.js\";"),
         ]
         .iter()
         .filter(|(on, _)| *on)
@@ -719,11 +764,16 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         js
     };
     let mut css = fonts.css.clone();
+    // @ref LLP 1095 D4 — the theme's reach into the host's own sheet.
+    css.push_str(&exact_kernel::style::roles::theme_css());
     css.push_str("#exact-root#exact-root{");
     for (i, c) in em.classes.iter().enumerate() {
         let _ = write!(css, ".c{}{{{c}}}", i + 1);
     }
     css.push('}');
+    // The classes that set a scheme read the theme's text on it.
+    css.push_str(&exact_kernel::style::roles::scheme_classes(&em.classes));
+    css.push_str(&modes.as_ref().map_or(String::new(), |m| m.css(plan)));
     // The plan's `@keyframes` (LLP 1055 D5, D7), as the document's head
     // carries them: the browser runs `animation` rows.
     for row in &plan.keyframes {
@@ -799,7 +849,13 @@ fn zero(plan: &Plan, ty: exact_plan::TypesId) -> String {
     match t.kind {
         exact_plan::TypeKind::Number => "0".into(),
         exact_plan::TypeKind::Bool => "!1".into(),
-        exact_plan::TypeKind::String => "\"\"".into(),
+        exact_plan::TypeKind::String => serde_json::to_string(
+            t.fields
+                .iter()
+                .next()
+                .map_or("", |f| plan.str(plan.field(f).name)),
+        )
+        .unwrap(),
         exact_plan::TypeKind::Unit | exact_plan::TypeKind::Option => "null".into(),
         exact_plan::TypeKind::List => "[]".into(),
         exact_plan::TypeKind::Record => format!(
@@ -810,66 +866,6 @@ fn zero(plan: &Plan, ty: exact_plan::TypesId) -> String {
                 .collect::<Vec<_>>()
                 .join(",")
         ),
-    }
-}
-
-/// A type for the agent's typed JSON: `"n"`, `"b"`, `"s"`, `"u"`,
-/// `["?",T]`, `["[",T]`, `{"field":T,…}` in field order.
-pub(crate) fn type_json(plan: &Plan, ty: exact_plan::TypesId) -> String {
-    let t = &plan.types[ty.0 as usize];
-    match t.kind {
-        exact_plan::TypeKind::Number => "\"n\"".into(),
-        exact_plan::TypeKind::Bool => "\"b\"".into(),
-        exact_plan::TypeKind::String => "\"s\"".into(),
-        exact_plan::TypeKind::Unit => "\"u\"".into(),
-        exact_plan::TypeKind::Option => format!(
-            "[\"?\",{}]",
-            type_json(plan, t.elem.expect("option element"))
-        ),
-        exact_plan::TypeKind::List => {
-            format!("[\"[\",{}]", type_json(plan, t.elem.expect("list element")))
-        }
-        exact_plan::TypeKind::Record => format!(
-            "{{{}}}",
-            t.fields
-                .iter()
-                .map(|f| {
-                    let f = &plan.fields[f.0 as usize];
-                    format!(
-                        "{}:{}",
-                        serde_json::to_string(plan.str(f.name)).unwrap(),
-                        type_json(plan, f.ty)
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join(",")
-        ),
-    }
-}
-
-/// A type as the data module client reads it: `n` number, `b` bool, `s`
-/// string, `u` unit, `?T` option, `[T` list, `{T…}` record.
-fn type_code(plan: &Plan, ty: exact_plan::TypesId) -> String {
-    let t = &plan.types[ty.0 as usize];
-    match t.kind {
-        exact_plan::TypeKind::Number => "n".into(),
-        exact_plan::TypeKind::Bool => "b".into(),
-        exact_plan::TypeKind::String => "s".into(),
-        exact_plan::TypeKind::Unit => "u".into(),
-        exact_plan::TypeKind::Option => {
-            format!("?{}", type_code(plan, t.elem.expect("option element")))
-        }
-        exact_plan::TypeKind::List => {
-            format!("[{}", type_code(plan, t.elem.expect("list element")))
-        }
-        exact_plan::TypeKind::Record => {
-            let fields: String = t
-                .fields
-                .iter()
-                .map(|f| type_code(plan, plan.fields[f.0 as usize].ty))
-                .collect();
-            format!("{{{fields}}}")
-        }
     }
 }
 
@@ -957,15 +953,25 @@ impl Em<'_> {
         // own declaration: inline, as the live host writes every row, not
         // the class (a class's custom property would be inherited).
         let presence = rows::presence_decls(&mut css);
-        // Press feedback, a press haptic, or a native button's highlight: the input piece shows it.
+        // Press feedback, a press haptic, or a native button's highlight: the input piece shows it,
+        // and gives a radio group its arrow keys and one Tab stop (LLP 1116.004 D5.2), and a
+        // tablist and a menu theirs (LLP 1115.000 D4.5).
         if presence.contains("--exact-press:")
             || presence.contains("--exact-press-haptic:")
-            || attrs.iter().any(|a| a.0 == "data-button-style")
+            || attrs.iter().any(|a| {
+                a.0 == "data-button-style"
+                    || (a.0 == "role" && ["radiogroup", "tablist", "menu"].contains(&a.1.as_str()))
+            })
         {
             let press = self.uses.rt("pressFeedback");
             let _ = write!(self.out, "{press}();");
         }
         self.clocks_in(&presence);
+        // A fitted text (LLP 1116.001 D1.4): the runtime scales it after each tree update.
+        if presence.contains("--exact-fit:") {
+            let fit = self.uses.rt("fitTexts");
+            let _ = write!(self.out, "{fit}();");
+        }
         if element == "a" {
             attrs.push(("data-view".into(), String::new()));
         }
@@ -1193,6 +1199,10 @@ impl Em<'_> {
                         format!("()=>!({f})()")
                     } else if prop == PropId::GlassGroup {
                         format!("()=>{{const v=({f})();return v===-1?\"auto\":v}}")
+                    } else if prop == PropId::Wakelock {
+                        // The value as computed, which wakelock.js journals
+                        // as the runner does when it is neither word.
+                        format!("()=>{{const v=({f})();{e}.$wake=v;return v}}")
                     } else {
                         f.clone()
                     };
@@ -1245,7 +1255,10 @@ impl Em<'_> {
                 | EventKind::Hover
                 | EventKind::Focus
                 | EventKind::Blur
+                | EventKind::Focusin
+                | EventKind::Focusout
                 | EventKind::Key
+                | EventKind::Keycapture
                 | EventKind::Keyup
                 | EventKind::Submit
                 | EventKind::Load
@@ -1259,7 +1272,10 @@ impl Em<'_> {
                 | EventKind::Cut
                 | EventKind::Paste
                 | EventKind::Selectionchange
+                | EventKind::Beforeinput
                 | EventKind::Beforeunload
+                // @ref LLP 1125 D8 — midi.js's listeners, through `onMIDI`.
+                | EventKind::Midimessage
                 | EventKind::Wheel
                 | EventKind::Drop
                 | EventKind::Play
@@ -1288,8 +1304,12 @@ impl Em<'_> {
                 | EventKind::Scroll
                 | EventKind::Refresh
                 | EventKind::Pan
+                | EventKind::Toggle
                 | EventKind::Cancel
+                | EventKind::Close
+                | EventKind::Scrollend
                 | EventKind::Resize
+                | EventKind::Intersect
                 | EventKind::Select => {}
                 // The motion piece's: the swipe's holds, a pan's velocity.
                 EventKind::Swiperight
@@ -1298,6 +1318,9 @@ impl Em<'_> {
                 | EventKind::Transformgeometry
                 | EventKind::Transformrelease => self.motion = true,
                 EventKind::Reachstart | EventKind::Reachend if virtualized => {}
+                EventKind::Reachstart | EventKind::Reachend => {
+                    return Err(contract::collection_edge_refusal(h.event.name()))
+                }
                 EventKind::Reorderdrop if virtualized => self.motion = true,
                 k => {
                     return Err(format!(
@@ -1345,22 +1368,33 @@ impl Em<'_> {
             let (bind, name) = (bind.unwrap_or_default(), h.event.name());
             let _ = write!(self.out, "{on}({e},\"{name}\",{handler}{bind});");
         }
+        // @ref LLP 1075.003 §3.7 — a tab's contents are made when it is first
+        // selected: a virtualized list's rows as well.
+        let panel = self.panels.binary_search(&exact_plan::NodesId(i)).is_ok();
+        if panel {
+            let tp = self.uses.rt("tp");
+            let _ = write!(self.out, "{tp}({e},()=>{{");
+        }
         if virtualized {
             let opts = self.list_options(i, scope, &edges)?;
             let &[Site::Region(r)] = self.sites.of_node(i) else {
                 return Err(format!(
-                    "node {i}: a virtualized list needs one direct `each`"
+                    "node {i}: a virtualized list needs one direct `for`"
                 ));
             };
             if plan.regions[r as usize].kind != RegionKind::Each {
                 return Err(format!(
-                    "node {i}: a virtualized list needs one direct `each`"
+                    "node {i}: a virtualized list needs one direct `for`"
                 ));
             }
             self.list = true;
-            return self.each(r, &e, scope, Some(opts));
+            self.each(r, &e, scope, Some(opts))?;
+        } else {
+            self.children(self.sites.of_node(i), &e, scope)?;
         }
-        self.children(self.sites.of_node(i), &e, scope)?;
+        if panel {
+            self.out.push_str("});");
+        }
         Ok(())
     }
 
@@ -1446,52 +1480,4 @@ fn gpu_surfaces() -> Vec<String> {
         .filter(|s| !s.is_empty())
         .map(str::to_string)
         .collect()
-}
-
-#[cfg(test)]
-mod else_rows {
-    use exact_runner::{DataError, DataSource, Value};
-
-    struct Answers;
-    impl DataSource for Answers {
-        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
-            match source {
-                "preview" => Ok(Value::Number(1.0)),
-                "full" => Ok(Value::Number(2.0)),
-                _ => Err(DataError::UnknownSource(source.into())),
-            }
-        }
-    }
-
-    /// Review B4: an `else` row's build-time answer is the bake's for every
-    /// launch (the runner never asks it again), so the JS target receives it
-    /// settled (`res`'s last argument), while the resource it stands in for
-    /// keeps its build-time answer as a first frame to ask again at launch.
-    #[test]
-    fn an_else_row_is_settled_and_its_owner_is_a_bake() {
-        let plan = contract::compile(
-            "component App\n  resource full = full() as shape number else preview()\n  view\n    text `${full}`\n",
-        )
-        .unwrap();
-        let plan = contract::bake(plan, Answers).unwrap();
-        let js = super::emit(&plan, false, false).unwrap().js;
-        let rows: Vec<&str> = js
-            .split("const r_")
-            .skip(1)
-            .map(|s| s.split(';').next().unwrap())
-            .collect();
-        let owner = rows
-            .iter()
-            .find(|r| r.contains("\"full\""))
-            .expect("full's row");
-        let other = rows
-            .iter()
-            .find(|r| !r.contains("\"full\""))
-            .expect("the else row");
-        assert!(other.ends_with(",1)"), "the else row is settled: {other}");
-        assert!(
-            !owner.ends_with(",1)"),
-            "the owner is a bake to ask again: {owner}"
-        );
-    }
 }

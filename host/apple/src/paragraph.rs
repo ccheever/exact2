@@ -3,6 +3,23 @@
 use super::*;
 
 impl<D: DataSource> Host<D> {
+    /// Every node, parents before children: the order a whole tree's views
+    /// are made in.
+    pub(super) fn preorder(&self) -> Vec<ViewId> {
+        let kernel = self.runner.kernel();
+        let mut stack: Vec<ViewId> = self.runner.roots().into_iter().rev().collect();
+        let mut order = Vec::new();
+        while let Some(id) = stack.pop() {
+            order.push(id);
+            if let Some(node) = kernel.node(id) {
+                let mut children = node.children();
+                children.reverse();
+                stack.extend(children);
+            }
+        }
+        order
+    }
+
     /// An `option` or a run in one (LLP 1069.001 D2): a select's menu item,
     /// which the presenter reads from the kernel (`exact_select_options`),
     /// never a view. A native button's title and image, or a run in its
@@ -46,9 +63,11 @@ impl<D: DataSource> Host<D> {
         if node.node_type != NodeType::View || kernel.arena().children(node.key.index).is_empty() {
             return None;
         }
-        let (exact_kernel::Dimension::Points(w), exact_kernel::Dimension::Points(h)) =
-            (node.style.width, node.style.height)
-        else {
+        let env = kernel.arena().env();
+        let (exact_kernel::Dimension::Points(w), exact_kernel::Dimension::Points(h)) = (
+            node.style.width.resolve(env),
+            node.style.height.resolve(env),
+        ) else {
             return None;
         };
         // No `background-color` is `currentcolor`: the text colour fills it.
@@ -369,7 +388,7 @@ impl<D: DataSource> Host<D> {
             batch.controls = true;
             return;
         }
-        let children = self.runner.kernel().node(id).expect("live").children();
+        let mut children = self.runner.kernel().node(id).expect("live").children();
         if self.mirror.get(&id).is_none_or(|m| m.children != children) {
             // Retained children still inherit from the same parent. Only an
             // arriving subtree needs its descendants' spelling hints revisited;
@@ -396,7 +415,6 @@ impl<D: DataSource> Host<D> {
         if self.native_protected_id(id) || self.paragraph_owner(id).is_some() {
             return;
         }
-        let mut children = children;
         if self.native_mode() {
             children.retain(|child| {
                 !self.native_protected_id(*child) || self.native_selected_id(*child)
@@ -509,7 +527,7 @@ impl<D: DataSource> Host<D> {
     /// A node's props as Swift gets them: a hatch word the plan does not give
     /// this platform is sent as `hatchOff`, so the node is an ordinary one
     /// there and Swift lists the word as unhandled.
-    pub(crate) fn props_of(&self, node: &NodeRef<'_>) -> BTreeMap<String, String> {
+    pub(crate) fn props_of(&self, node: &NodeRef<'_>) -> exact_kernel::SortedMap<String, String> {
         let mut props = props_for(node);
         if !self.hatches.off.is_empty() {
             if let Some(word) = props.get(PropId::Hatch.name()) {

@@ -12,6 +12,6 @@ impl<D: DataSource> Runner<D> {
         self.tree
             .as_ref()
             .ok_or(DocTreeError::Unsupported("a runner with no tree"))?
-            .document(&self.plan, &self.sites)
+            .document(&self.plan, &self.sites, self.fonts.clone())
     }
 }

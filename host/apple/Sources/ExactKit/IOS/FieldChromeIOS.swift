@@ -39,6 +39,10 @@ final class FieldChromeCache: @unchecked Sendable {
     // separator stroke, checked beside a roundedRect field in the fixture.
     static let textareaRadius: CGFloat = 5
     static let textareaStroke: CGFloat = 0.5
+    /// The request's bit for a field in a grouped list's row (LLP 1116.005
+    /// D2): borderless in its cell, which is the field, as a hand-built
+    /// settings form's `UITextField` is; the kind is in the low two bits.
+    static let cell: UInt8 = 4
 
     @discardableResult
     func configure(_ next: UITraitCollection) -> Bool {
@@ -55,45 +59,36 @@ final class FieldChromeCache: @unchecked Sendable {
                    size: font.pointSize, weight: request.weight, italic: request.italic != 0,
                    traits: Traits(traits))
     }
-    func prefill(family: UInt16, font: UIFont, weight: UInt16, italic: Bool) {
-        precondition(Thread.isMainThread)
-        for kind in UInt8(0)...UInt8(3) {
-            let request = ExactFieldChromeRequest(kind: kind, family_id: family, size: Float(font.pointSize), weight: weight, italic: italic ? 1 : 0)
-            let k = key(request, font: font)
-            lock.lock(); let known = entries[k] != nil; lock.unlock()
-            if !known { store(measure(k, font: font), for: k) }
-        }
-    }
     private func store(_ chrome: ExactFieldChrome, for key: Key) {
         lock.lock(); entries[key] = chrome; lock.unlock()
     }
+    /// Nothing is measured before a field asks, so a launch whose first
+    /// screen has none measures none. A miss is measured on main before it
+    /// is answered: the first layout with a field of a new kind, font or
+    /// traits is already exact. Only when the traits change between the key
+    /// and the measurement is the answer provisional, and the host lays out
+    /// again under the new key.
     func answer(_ request: ExactFieldChromeRequest, font: UIFont) -> ExactFieldChrome {
         let k = key(request, font: font)
         lock.lock()
         if let exact = entries[k] { lock.unlock(); return exact }
-        // Kind and current traits take priority; font size then chooses the
-        // nearest entry. This answer is never emitted as a presented frame.
-        let nearest = entries.min { a, b in
-            func distance(_ other: Key) -> CGFloat {
-                (other.kind == k.kind ? 0 : 10000) + (other.traits == k.traits ? 0 : 1000)
-                    + (other.family == k.family ? 0 : 100) + abs(other.size - k.size)
-            }
-            return distance(a.key) < distance(b.key)
-        }?.value ?? ExactFieldChrome()
         misses += 1
         lock.unlock()
-        let measured = Owner.shared.callMain { self.measure(k, font: font) }
-        store(measured, for: k)
-        var provisional = nearest
-        provisional.provisional = 1
-        return provisional
+        return Owner.shared.callMain {
+            let now = key(request, font: font)
+            var chrome = measure(now, font: font)
+            store(chrome, for: now)
+            chrome.provisional = now == k ? 0 : 1
+            return chrome
+        }
     }
     func measure(_ key: Key, font: UIFont) -> ExactFieldChrome {
         precondition(Thread.isMainThread)
         lock.lock(); let current = traits; lock.unlock()
         var result = ExactFieldChrome()
+        let kind = key.kind & 3
         current.performAsCurrent {
-            if key.kind == 3 {
+            if kind == 3 {
                 #if os(tvOS)
                 // The read-only tvOS text view keeps today's zero-inset
                 // presentation, with no iOS textarea bezel or editor chrome.
@@ -101,19 +96,31 @@ final class FieldChromeCache: @unchecked Sendable {
                 #else
                 let view = TextArea(frame: CGRect(x: 0, y: 0, width: 320, height: 100))
                 view.font = font
-                view.configureNativeChrome(true)
+                view.configureNativeChrome(true, cell: key.kind & Self.cell != 0)
                 let inset = view.textContainerInset
                 result = ExactFieldChrome(top: Float(inset.top), right: Float(inset.right), bottom: Float(inset.bottom), left: Float(inset.left), minimum_height: 0, provisional: 0)
                 #endif
                 return
             }
+            #if os(tvOS)
             let field = UITextField(frame: .zero)
-            #if !os(tvOS)
-            field.borderStyle = .roundedRect
+            #else
+            // A search field is `UISearchTextField`'s shape (LLP 1115): its
+            // text clears the magnifier, and the clear button's room is kept
+            // whether or not it shows, so editing never moves the text.
+            let field: UITextField
+            if kind == 2 {
+                let search = UISearchTextField(frame: .zero)
+                search.clearButtonMode = .always
+                field = search
+            } else {
+                field = UITextField(frame: .zero)
+                field.borderStyle = key.kind & Self.cell != 0 ? .none : .roundedRect
+            }
             #endif
             field.font = font
-            field.isSecureTextEntry = key.kind == 1
-            if key.kind == 2 { field.keyboardType = .webSearch }
+            field.isSecureTextEntry = kind == 1
+            if kind == 2 { field.keyboardType = .webSearch }
             field.text = "Hg"
             let fitted = field.sizeThatFits(CGSize(width: 320, height: CGFloat.greatestFiniteMagnitude))
             let height = max(font.lineHeight, fitted.height)
@@ -170,10 +177,7 @@ extension TextEngine {
         }
         let id = kind == 0 ? engine.registerControlFont(font) : engine.platformControlID ?? engine.registerControlFont(font)
         let weight = UInt16(controlWeight(font)), italic = font.fontDescriptor.symbolicTraits.contains(.traitItalic)
-        if kind == 0 { Owner.shared.callMain {
-            if let painter = engine.painter { _ = painter.registerControlFont(font) }
-            cache.prefill(family: id, font: font, weight: weight, italic: italic)
-        } }
+        if kind == 0 { Owner.shared.callMain { if let painter = engine.painter { _ = painter.registerControlFont(font) } } }
         return ExactControlFont(family: engine.platformControlName.bytes.assumingMemoryBound(to: UInt8.self), family_len: engine.platformControlName.length,
                                 family_id: id, size: Float(font.pointSize), weight: weight, italic: italic ? 1 : 0)
     }

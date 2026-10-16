@@ -1,12 +1,12 @@
 //! Attribute values checked against what they set, at compile time: a
 //! literal style value by the kernel's own row parser, a computed one and a
 //! prop by type (LLP 1017 P1a).
-
-use crate::{err, media, tags, FontUse, LowerError};
+use crate::{edits, err, media, symbols, tags, vocab, FontUse, LowerError};
 use contract_syntax::{Attr, Expr, Span, UnOp};
-use contract_types::Ty;
+use contract_types::{Ref, Scope, Shapes, Ty};
+use exact_kernel::style::sides as box_sides;
 use exact_kernel::{PropId, StyleId, StyleProps, StyleValue, StyleValueError};
-
+use std::{cell::Cell, rc::Rc};
 /// A literal, as an author wrote it, for a message.
 fn literal_text(e: &Expr) -> String {
     match e {
@@ -16,7 +16,16 @@ fn literal_text(e: &Expr) -> String {
         _ => "…".into(),
     }
 }
-
+/// `navigationSplit`'s column width written as a number: its text, as the
+/// prop carries it (LLP 1116.004 D1.2).
+pub(crate) fn split_width(prop: PropId, e: &Expr) -> Option<Expr> {
+    match e {
+        Expr::Number(n, span) if prop == PropId::NavigationSplit => {
+            Some(Expr::Str(n.to_string(), *span))
+        }
+        _ => None,
+    }
+}
 /// `glassGroup`'s value to compile (LLP 1053.000.000 D1, 1053.000.000.000
 /// D1): each literal spacing, at the top and in every arm of a choice, is 0 to
 /// 10,000 points; `"auto"` is rewritten to the reserved `-1`; any other string
@@ -79,7 +88,6 @@ pub(crate) fn glass_group(e: &Expr) -> Result<Expr, LowerError> {
         }
     }
 }
-
 /// Whether a value is a spacing as written: `"auto"`, a number, or a choice
 /// of them.
 fn spacing_tree(e: &Expr) -> bool {
@@ -90,7 +98,6 @@ fn spacing_tree(e: &Expr) -> bool {
         _ => numeric_literal(e).is_some(),
     }
 }
-
 pub(crate) fn numeric_literal(e: &Expr) -> Option<f64> {
     match e {
         Expr::Number(n, _) => Some(*n),
@@ -98,11 +105,9 @@ pub(crate) fn numeric_literal(e: &Expr) -> Option<f64> {
         _ => None,
     }
 }
-
 fn whole_i64(n: f64) -> bool {
     n.is_finite() && n.fract() == 0.0 && n >= i64::MIN as f64 && n < -(i64::MIN as f64)
 }
-
 /// A CSS-text row's refusal with the kernel's own reason (LLP 1077).
 fn named(e: &StyleValueError, v: &exact_kernel::StyleValue) -> Option<&'static str> {
     let exact_kernel::StyleValue::Text(t) = v else {
@@ -119,7 +124,6 @@ fn named(e: &StyleValueError, v: &exact_kernel::StyleValue) -> Option<&'static s
         _ => None,
     }
 }
-
 /// The kernel's refusal of a style value, in an author's words.
 pub(crate) fn describe(e: &StyleValueError) -> String {
     match e {
@@ -143,6 +147,7 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
         StyleValueError::BadDragTimeline { .. } => "expected none, or a `--name` and an optional axis (`x` or `y`)".into(),
         StyleValueError::BadAnimationTimeline { .. } => "expected auto or a `--name`".into(),
         StyleValueError::BadAnimationRange { .. } => "expected normal, or two distinct lengths (`0px 300px`)".into(),
+        StyleValueError::BadPositionTryFallbacks { .. } => "expected none, or comma-separated flip-block/flip-inline combinations; flip-start and named rules are not implemented".into(),
         StyleValueError::BadTimelineScope { .. } => "expected none, all, or `--name`s separated by commas".into(),
         StyleValueError::BadTransition { .. } => "unsupported transition property or invalid timing components; exact2 supports transform components, opacity, paint and SVG properties, and admitted numeric height transitions; general layout interpolation is not implemented".into(),
         StyleValueError::BadPaint { .. } => "SVG paint is `none`, `currentcolor`, or a colour (hex, `rgb()`, `hsl()`, `hwb()`, a named colour, `light-dark()`); paint servers (`url(#…)`) are refused (LLP 1055 D12)".into(),
@@ -163,85 +168,74 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
         StyleValueError::BadBackdropFilter { reason, .. } => (*reason).into(),
     }
 }
-
-/// CSS's one-to-four-value box shorthands, rows in top, right, bottom, left
-/// order — `border-radius`'s corners in top-left, top-right, bottom-right,
-/// bottom-left order, which CSS fills from fewer values the same way
-/// (ledger2 Rough 5).
-const FOUR_SIDED: [[StyleId; 4]; 8] = [
-    [
-        StyleId::PaddingTop,
-        StyleId::PaddingRight,
-        StyleId::PaddingBottom,
-        StyleId::PaddingLeft,
-    ],
-    [
-        StyleId::MarginTop,
-        StyleId::MarginRight,
-        StyleId::MarginBottom,
-        StyleId::MarginLeft,
-    ],
-    [
-        StyleId::BorderWidthTop,
-        StyleId::BorderWidthRight,
-        StyleId::BorderWidthBottom,
-        StyleId::BorderWidthLeft,
-    ],
-    [
-        StyleId::BorderStyleTop,
-        StyleId::BorderStyleRight,
-        StyleId::BorderStyleBottom,
-        StyleId::BorderStyleLeft,
-    ],
-    [
-        StyleId::BorderColorTop,
-        StyleId::BorderColorRight,
-        StyleId::BorderColorBottom,
-        StyleId::BorderColorLeft,
-    ],
-    [StyleId::Top, StyleId::Right, StyleId::Bottom, StyleId::Left],
-    [
-        StyleId::ScrollPaddingTop,
-        StyleId::ScrollPaddingRight,
-        StyleId::ScrollPaddingBottom,
-        StyleId::ScrollPaddingLeft,
-    ],
-    [
-        StyleId::BorderRadiusTopLeft,
-        StyleId::BorderRadiusTopRight,
-        StyleId::BorderRadiusBottomRight,
-        StyleId::BorderRadiusBottomLeft,
-    ],
-];
-
 /// Whether these rows are one of CSS's `<value>{1,4}` box shorthands.
 pub(crate) fn four_sided(rows: &[StyleId]) -> bool {
-    FOUR_SIDED.iter().any(|sides| rows == sides)
+    box_sides::FAMILIES.iter().any(|f| rows == f)
 }
-
-/// A box shorthand's one to four values, split where CSS splits them: at
-/// white space outside parentheses, so `light-dark(#fff, #000)` and
-/// `calc(50% - 4px)` are one value.
-fn side_values(text: &str) -> Vec<&str> {
-    let (mut values, mut depth, mut start) = (Vec::new(), 0usize, None);
-    for (i, c) in text.char_indices() {
-        match c {
-            '(' => depth += 1,
-            ')' => depth = depth.saturating_sub(1),
-            c if c.is_whitespace() && depth == 0 => {
-                if let Some(s) = start.take() {
-                    values.push(&text[s..i]);
-                }
-                continue;
+/// A computed value that builds a list for a box shorthand (a template
+/// such as `` `${pad}px 0` ``, a concatenation, or a `fn` returning one): no
+/// host splits a list at run time, since an overriding longhand, an
+/// `env()` and the rows' own grammars would each split it differently
+/// (LLP 1001 §1). Refused, naming the longhands. A literal (or a literal
+/// arm) is split here; a computed single value (`padding=pad`) is every
+/// side's, and a computed list that reaches a row is refused there.
+pub(crate) fn computed_list<'e>(
+    name: &str,
+    value: &'e Expr,
+    body: &dyn Fn(&str) -> Option<&'e Expr>,
+) -> Result<(), LowerError> {
+    // The text a computed value spells, a computed part as one word.
+    fn shape<'e>(e: &'e Expr, body: &dyn Fn(&str) -> Option<&'e Expr>, depth: u8) -> String {
+        match e {
+            Expr::Str(s, _) => s.clone(),
+            Expr::Template(parts, _) => parts
+                .iter()
+                .map(|p| match p {
+                    contract_syntax::TemplatePart::Text(t) => t.clone(),
+                    contract_syntax::TemplatePart::Expr(e) => shape(e, body, depth),
+                })
+                .collect(),
+            Expr::Binary(contract_syntax::BinOp::Add, l, r, _) => {
+                shape(l, body, depth) + &shape(r, body, depth)
             }
-            _ => {}
+            Expr::Call(f, _, _) if depth < 8 => {
+                body(f).map_or_else(|| "x".into(), |b| shape(b, body, depth + 1))
+            }
+            _ => "x".into(),
         }
-        start.get_or_insert(i);
     }
-    if let Some(s) = start {
-        values.push(&text[s..]);
+    fn lists<'e>(e: &'e Expr, body: &dyn Fn(&str) -> Option<&'e Expr>) -> Option<Span> {
+        match e {
+            // A literal is split at compile time.
+            Expr::Str(..) => None,
+            Expr::Ternary(_, yes, no, _) => lists(yes, body).or_else(|| lists(no, body)),
+            Expr::Match { some, none, .. } => lists(some, body).or_else(|| lists(none, body)),
+            Expr::Let { body: b, .. } => lists(b, body),
+            e => (box_sides::values(&shape(e, body, 0)).len() > 1).then(|| e.span()),
+        }
     }
-    values
+    let Some(span) = lists(value, body) else {
+        return Ok(());
+    };
+    let sides = ["top", "right", "bottom", "left"];
+    let longhands: Vec<String> = match name {
+        "border-radius" => ["top-left", "top-right", "bottom-right", "bottom-left"]
+            .map(|c| format!("`border-{c}-radius`"))
+            .to_vec(),
+        "inset" => sides.map(|s| format!("`{s}`")).to_vec(),
+        n => match n.strip_prefix("border-") {
+            Some(part) => sides.map(|s| format!("`border-{s}-{part}`")).to_vec(),
+            None => sides.map(|s| format!("`{n}-{s}`")).to_vec(),
+        },
+    };
+    err(
+        "lower-css-shorthand",
+        format!(
+            "`{name}` is computed here as a list of values, which no host splits at run time; write {} (each may be computed), or a literal `{name}`",
+            longhands.join("/")
+        ),
+        span,
+    )
 }
 
 /// A box shorthand (`padding: <length>{1,4}`, `border-color: <color>{1,4}`,
@@ -254,7 +248,14 @@ pub(crate) fn sides(name: &str, value: &Expr) -> Result<Option<[Expr; 4]>, Lower
     fn widest(name: &str, e: &Expr) -> Result<usize, LowerError> {
         Ok(match e {
             Expr::Str(s, span) => {
-                let n = side_values(s).len();
+                let n = box_sides::values(s).len();
+                if name == "border-radius" && box_sides::elliptical(s) {
+                    return err(
+                        "lower-attr-value",
+                        format!("`border-radius` takes one to four corners, each one length (top-left, top-right, bottom-right, bottom-left); \"{s}\" is an elliptical radius (`/`), which no host draws"),
+                        *span,
+                    );
+                }
                 if n > 4 {
                     let order = if name == "border-radius" {
                         "top-left, top-right, bottom-right, bottom-left; no `/` elliptical radii"
@@ -278,15 +279,11 @@ pub(crate) fn sides(name: &str, value: &Expr) -> Result<Option<[Expr; 4]>, Lower
     fn side(e: &Expr, i: usize) -> Expr {
         match e {
             Expr::Str(s, span) => {
-                let v = side_values(s);
-                // CSS: top; right = top; bottom = top; left = right.
-                let pick = match (v.len(), i) {
-                    (0, _) => return e.clone(),
-                    (1, _) => 0,
-                    (2, _) => i % 2,
-                    (3, 3) => 1,
-                    (_, i) => i,
-                };
+                let v = box_sides::values(s);
+                if v.is_empty() {
+                    return e.clone();
+                }
+                let pick = box_sides::pick(v.len(), i);
                 // A length in pixels is the number it would be on its own
                 // (`border-width` takes only numbers).
                 let piece = v[pick];
@@ -333,7 +330,6 @@ pub(crate) fn sides(name: &str, value: &Expr) -> Result<Option<[Expr; 4]>, Lower
     }
     Ok(Some([0, 1, 2, 3].map(|i| side(value, i))))
 }
-
 /// A literal style value is checked now by the kernel's own parser
 /// (`StyleProps::set_dynamic`), so `width=true` and `align-items="middle"`
 /// are refused at compile time, not at the first frame; a computed value
@@ -397,7 +393,6 @@ fn scheme_colour(a: &Attr, rows: &[StyleId]) -> Result<(), LowerError> {
         *span,
     )
 }
-
 /// Whether `e` puts a `-exact-platform-color(` literal into a value it computes.
 fn builds_platform_color(e: &Expr) -> bool {
     let named = |t: &str| t.contains("-exact-platform-color(");
@@ -431,26 +426,14 @@ fn builds_platform_color(e: &Expr) -> bool {
         Expr::Number(..) | Expr::Bool(..) | Expr::None(_) | Expr::Ident(..) => false,
     }
 }
-
-/// The `position-area` values every host places (LLP 1021 §5), as CSS
-/// spells them; the row's enum, by name.
-const POSITION_AREAS: [&str; 9] = [
-    "none",
-    "bottom span-right",
-    "bottom",
-    "bottom span-all",
-    "top span-right",
-    "top",
-    "top span-all",
-    "center",
-    "right span-bottom",
-];
-
 /// `position-area` places a popover against the invoker that opens it (its
 /// implicit anchor, LLP 1021 §5): there is no `anchor-name`, so on any other
 /// node it would name nothing to place against.
 pub(crate) fn check_position_area(attrs: &[Attr]) -> Result<(), LowerError> {
-    let Some(a) = attrs.iter().find(|a| a.name == "position-area") else {
+    let Some(a) = attrs
+        .iter()
+        .find(|a| matches!(a.name.as_str(), "position-area" | "position-try-fallbacks"))
+    else {
         return Ok(());
     };
     if attrs.iter().any(|a| a.name == "popover") {
@@ -458,16 +441,46 @@ pub(crate) fn check_position_area(attrs: &[Attr]) -> Result<(), LowerError> {
     }
     err(
         "lower-css-position-area",
-        "`position-area` is admitted on a `popover` only: its anchor is the button whose `popovertarget` opens it. `anchor-name` and `position-anchor` are not implemented",
+        "`position-area` and `position-try-fallbacks` are admitted on a `popover` only: its anchor is the button whose `popovertarget` opens it. `anchor-name` and `position-anchor` are not implemented",
         a.span,
     )
 }
-
+impl crate::Lowerer<'_> {
+    /// `check_style_value` with this lowering's shapes.
+    pub(crate) fn check_style(
+        &self,
+        a: &Attr,
+        rows: &[StyleId],
+        ty: &Ty,
+        fonts: &[FontUse],
+        scope: &Scope,
+    ) -> Result<(), LowerError> {
+        check_style_value(a, rows, ty, fonts, scope, &self.types.shapes)
+    }
+}
 pub(crate) fn check_style_value(
     a: &Attr,
     rows: &[StyleId],
     ty: &Ty,
     fonts: &[FontUse],
+    scope: &Scope,
+    shapes: &Shapes,
+) -> Result<(), LowerError> {
+    // A pin names the design's axes, which the runner resolves (LLP 1121 D5).
+    if rows == [StyleId::Mode] {
+        return crate::theme::mode_pins(a);
+    }
+    // A name the design lacks, or a colour token in another row (LLP 1121 D3).
+    style_value(a, rows, ty, fonts, scope, shapes)
+        .map_err(|e| crate::theme::token_error(a, rows, e))
+}
+fn style_value(
+    a: &Attr,
+    rows: &[StyleId],
+    ty: &Ty,
+    fonts: &[FontUse],
+    scope: &Scope,
+    shapes: &Shapes,
 ) -> Result<(), LowerError> {
     if rows
         .iter()
@@ -479,7 +492,7 @@ pub(crate) fn check_style_value(
         if let Some(sides) = sides(&a.name, &a.value)? {
             for (row, value) in rows.iter().zip(sides) {
                 let side = Attr { value, ..a.clone() };
-                check_style_value(&side, std::slice::from_ref(row), ty, fonts)?;
+                check_style_value(&side, std::slice::from_ref(row), ty, fonts, scope, shapes)?;
             }
             return Ok(());
         }
@@ -503,8 +516,9 @@ pub(crate) fn check_style_value(
             }
             Expr::Let { body, .. } => pending.push((body, body.span())),
             // @ref LLP 1095 D3 — a plan's platform colours are its literals:
-            // never built from a template, a concatenation or a call.
-            Expr::Str(..) => {}
+            // never built from a template, a concatenation or a call. A
+            // metric's name is the compiler's alone (LLP 1115.002 D6).
+            Expr::Str(..) => crate::metrics::refuse_authored(a, value, span)?,
             other if builds_platform_color(other) => {
                 return err(
                     "lower-platform-color-literal",
@@ -565,13 +579,16 @@ pub(crate) fn check_style_value(
             {
                 return err("lower-css-resize", "CSS resize handles are not implemented by the native layout presenters; only `resize=\"none\"` is portable. Other values require user-controlled box geometry, not a different property name", span);
             }
-            if rows.contains(&StyleId::UserSelect)
-                && matches!(v.as_str(), "text" | "all" | "contain")
-            {
-                return err("lower-css-user-select", "CSS user-select text/all/contain require selectable text and selection ownership on iOS and Linux; those presenters do not implement it. Supported portable values are auto and none", span);
+            // @ref LLP 1115.000 D11.6 — `text` is honoured where a host has
+            // text selection (the web, macOS, iOS); the other two name a
+            // selection behaviour no native presenter has.
+            if rows.contains(&StyleId::UserSelect) && matches!(v.as_str(), "all" | "contain") {
+                return err("lower-css-user-select", format!("CSS `user-select=\"{v}\"` is not implemented by the native presenters: `all` selects an element whole on one press and `contain` keeps a selection from leaving its element, and their text selection ownership has neither. Supported values are auto, none and text"), span);
             }
-            if rows.contains(&StyleId::PositionArea) && !POSITION_AREAS.contains(&v.trim()) {
-                return err("lower-css-position-area", format!("`position-area=\"{v}\"`: exact2 places an invoker's popover in a subset of CSS `position-area`: {}. Other areas (left, another right, a corner, span-left, logical keywords) are not implemented by the native top layers; a flip is `position-try`, also not implemented", POSITION_AREAS.join(", ")), span);
+            if rows.contains(&StyleId::PositionArea)
+                && !StyleId::PositionArea.enum_names().contains(&v.trim())
+            {
+                return err("lower-css-position-area", format!("`position-area=\"{v}\"`: exact2 places an invoker's popover in a subset of CSS `position-area`: {}. Logical areas and other spellings are not implemented by the native top layers", StyleId::PositionArea.enum_names().join(", ")), span);
             }
             if rows.contains(&StyleId::WrapFlow) && !matches!(v.as_str(), "auto" | "both") {
                 return err("lower-attr-value", "unsupported `wrap-flow` value: CSS Exclusions defines it; exact2 v1 implements `both` (or `auto`)", span);
@@ -636,7 +653,9 @@ pub(crate) fn check_style_value(
                     format!(
                         "`{}=\"{v}\"`: {why}{}",
                         a.name,
-                        role_hint(v).unwrap_or_default()
+                        edits::role_hint(v, false)
+                            .map(|e| format!("; {}", e.clause()))
+                            .unwrap_or_default()
                     ),
                     span,
                 );
@@ -653,6 +672,10 @@ pub(crate) fn check_style_value(
                     format!("`{}=\"{v}\"`: {why}", a.name),
                     span,
                 );
+            }
+            // @ref LLP 1001 §6: CSS's `text-wrap-style` keywords the hosts lack.
+            if rows.contains(&StyleId::TextWrapStyle) && matches!(v.trim(), "pretty" | "stable") {
+                return err("lower-attr-value", format!("`{}=\"{v}\"`: exact2 implements `auto` and `balance`; Chrome's `pretty` and `stable` line breakers are not implemented on the native hosts. Use `auto` for ordinary wrapping", a.name), span);
             }
             // @ref LLP 1034 §8: `light` or `dark`. CSS's `normal` means the
             // page's schemes, not the parent's, and `light dark` and `only`
@@ -710,7 +733,9 @@ pub(crate) fn check_style_value(
             Expr::Str(s, _) => Some(
                 // Enum keywords stay text, including `auto` (as in the runner).
                 // Other codecs retain their existing dimension/keyword handling.
-                if s == "auto"
+                // A keyword is ASCII case-insensitive, as the runner reads it.
+                if s.trim_matches(['\t', '\n', '\u{c}', '\r', ' '])
+                    .eq_ignore_ascii_case("auto")
                     && !rows
                         .iter()
                         .all(|row| row.codec() == exact_kernel::StyleCodec::Enum)
@@ -719,7 +744,7 @@ pub(crate) fn check_style_value(
                 } else if let Some(pct) = s.strip_suffix('%').and_then(|p| p.parse::<f64>().ok()) {
                     StyleValue::Percent(pct)
                 } else {
-                    StyleValue::Text(s.clone())
+                    StyleValue::Text(s.as_str().into())
                 },
             ),
             Expr::Bool(b, _) => {
@@ -755,6 +780,10 @@ pub(crate) fn check_style_value(
                         );
                     }
                     if let Err(e) = probe.set_dynamic(*row, &v) {
+                        // @ref LLP 1116.014 D1 — the edit leads when the fix is one.
+                        if let Some(edit) = edits::value_edit(&a.name, value, rows, &e) {
+                            return err("lower-attr-value", edit, span);
+                        }
                         // A viewport-pinned box (authoring bench, t6-todo-more). A pixel row
                         // takes `14px` as CSS does (LLP 1102 §3.10), and a maximum takes
                         // `none` (§3.11), so neither needs a hint here.
@@ -767,7 +796,9 @@ pub(crate) fn check_style_value(
                                 .to_string()
                         })
                         .or_else(|| match value {
-                            Expr::Str(t, _) => role_hint(t),
+                            Expr::Str(t, _) => {
+                                edits::role_hint(t, false).map(|e| format!("; {}", e.clause()))
+                            }
                             _ => None,
                         });
                         return err(
@@ -785,24 +816,8 @@ pub(crate) fn check_style_value(
                     }
                 }
             }
-            // A number row with no text form refuses every string where it
-            // binds, as it refuses the literal; a browser would apply one
-            // (`opacity: 0.5`), so a host would disagree.
             None if std::ptr::eq(value, &a.value)
-                && matches!(ty, Ty::String)
-                && !rows.iter().any(|row| exact_kernel::style::takes_text(*row)) =>
-            {
-                return err(
-                    "lower-attr-type",
-                    format!(
-                        "`{}` takes a number where it is computed; this expression is `string`, which no native host reads on this row while a browser would apply it: bind the number itself (`{}=n` for a number `n`, not `` `${{n}}` ``)",
-                        a.name, a.name
-                    ),
-                    span,
-                );
-            }
-            None if std::ptr::eq(value, &a.value)
-                && !matches!(ty, Ty::Number | Ty::String | Ty::Unknown) =>
+                && !matches!(ty, Ty::Number | Ty::String | Ty::Enum(_) | Ty::Unknown) =>
             {
                 return err(
                     "lower-attr-type",
@@ -862,9 +877,131 @@ pub(crate) fn check_style_value(
         let Some(next) = pending.pop() else { break };
         current = next;
     }
+    // A metric in a sheet the compiler wrote is a string that every host
+    // reads as its platform's number (LLP 1115.002 D6).
+    let metric = !a.written && crate::metrics::names(&a.value);
+    if !metric && !rows.iter().any(|row| exact_kernel::style::takes_text(*row)) {
+        let offending = computed_string_arm(&a.value, scope, shapes, rows, &[]).or_else(|| {
+            (ty.is_string() && !css_wide_branches(&a.value, rows)).then_some(a.value.span())
+        });
+        if let Some(span) = offending {
+            return err(
+                "lower-attr-type",
+                format!(
+                    "`{}` takes a number in every branch; this arm is `string`, which a native host does not read on this row",
+                    a.name
+                ),
+                span,
+            );
+        }
+    }
     Ok(())
 }
-
+fn css_wide_branches(e: &Expr, rows: &[StyleId]) -> bool {
+    match e {
+        Expr::Str(s, _) => rows
+            .iter()
+            .all(|row| StyleValue::Text(s.as_str().into()).unsets(*row)),
+        Expr::Ternary(_, yes, no, _) => css_wide_branches(yes, rows) && css_wide_branches(no, rows),
+        Expr::Match { some, none, .. } => {
+            css_wide_branches(some, rows) && css_wide_branches(none, rows)
+        }
+        Expr::Let { body, .. } | Expr::Typed(body, _, _) => css_wide_branches(body, rows),
+        _ => false,
+    }
+}
+#[derive(Clone)]
+struct Bound<'a> {
+    name: &'a str,
+    value: Option<&'a Expr>,
+    scope: Scope,
+    checked: Rc<Cell<Option<Option<Span>>>>,
+}
+fn computed_string_arm<'a>(
+    e: &'a Expr,
+    scope: &Scope,
+    shapes: &Shapes,
+    rows: &[StyleId],
+    bound: &[Bound<'a>],
+) -> Option<Span> {
+    #[cfg(test)]
+    tests::record_string_arm_visit();
+    match e {
+        Expr::Ternary(_, yes, no, _) => computed_string_arm(yes, scope, shapes, rows, bound)
+            .or_else(|| computed_string_arm(no, scope, shapes, rows, bound)),
+        Expr::Match {
+            subject,
+            var,
+            some,
+            none,
+            ..
+        } => {
+            let ty = match contract_types::infer(subject, scope, shapes) {
+                Ok(Ty::Option(inner)) => *inner,
+                Err(e) if e.id == "type-branches" => return Some(e.span),
+                _ => Ty::Unknown,
+            };
+            let mut inner = scope.clone();
+            inner.push(vec![(var.clone(), Ref::Local(0), ty)]);
+            let mut bound_some = bound.to_vec();
+            bound_some.push(Bound {
+                name: var,
+                value: None,
+                scope: scope.clone(),
+                checked: Rc::new(Cell::new(None)),
+            });
+            computed_string_arm(some, &inner, shapes, rows, &bound_some)
+                .or_else(|| computed_string_arm(none, scope, shapes, rows, bound))
+        }
+        Expr::Let {
+            name, value, body, ..
+        } => {
+            let ty = contract_types::infer(value, scope, shapes).unwrap_or(Ty::Unknown);
+            let mut inner = scope.clone();
+            inner.push(vec![(name.clone(), Ref::Local(0), ty)]);
+            let mut bound_body = bound.to_vec();
+            bound_body.push(Bound {
+                name,
+                value: Some(value),
+                scope: scope.clone(),
+                checked: Rc::new(Cell::new(None)),
+            });
+            computed_string_arm(body, &inner, shapes, rows, &bound_body)
+        }
+        Expr::Ident(name, _) => {
+            if let Some(index) = bound.iter().rposition(|binding| binding.name == name) {
+                let binding = &bound[index];
+                if let Some(value) = binding.value {
+                    if let Some(result) = binding.checked.get() {
+                        return result;
+                    }
+                    let result =
+                        computed_string_arm(value, &binding.scope, shapes, rows, &bound[..index]);
+                    binding.checked.set(Some(result));
+                    return result;
+                }
+            }
+            matches!(
+                contract_types::infer(e, scope, shapes),
+                Ok(Ty::String | Ty::Enum(_))
+            )
+            .then_some(e.span())
+        }
+        Expr::Typed(inner, _, _) => computed_string_arm(inner, scope, shapes, rows, bound),
+        Expr::Str(s, _)
+            if rows
+                .iter()
+                .all(|row| StyleValue::Text(s.as_str().into()).unsets(*row)) =>
+        {
+            None
+        }
+        _ => match contract_types::infer(e, scope, shapes) {
+            Ok(Ty::String | Ty::Enum(_)) => Some(e.span()),
+            Err(error) if error.id == "type-branches" => Some(error.span),
+            _ => None,
+        },
+    }
+}
 /// HTML's enumerated attributes whose IDL attributes are bools, as the words
 /// a bool is written: `spellcheck`'s `true`/`false`, `autocorrect`'s
 /// `on`/`off`.
@@ -885,7 +1022,14 @@ pub(crate) fn aria_words(prop: PropId) -> Option<(&'static str, &'static [&'stat
         _ => return None,
     })
 }
-
+pub(crate) fn aria_disabled_literal(prop: PropId, value: &Expr) -> Option<Expr> {
+    match (prop, value) {
+        (PropId::AccessibilityDisabled, Expr::Str(s, span)) if s == "true" || s == "false" => {
+            Some(Expr::Bool(s == "true", *span))
+        }
+        _ => None,
+    }
+}
 pub(crate) fn bool_words(prop: PropId) -> Option<(&'static str, &'static str)> {
     match prop {
         PropId::Spellcheck => Some(("true", "false")),
@@ -893,7 +1037,6 @@ pub(crate) fn bool_words(prop: PropId) -> Option<(&'static str, &'static str)> {
         _ => None,
     }
 }
-
 /// A prop attribute's value by the prop's type: text for most, a bool for
 /// `disabled`, a whole number for `aria-level`, either for [`bool_words`].
 pub(crate) fn check_prop_value(
@@ -925,26 +1068,25 @@ pub(crate) fn check_prop_value(
             span,
         );
     }
-    if prop == PropId::StatusBarAnimation
-        && matches!(value, Expr::Str(s, _) if !matches!(s.as_str(), "none" | "fade"))
-    {
-        return err(
-            "lower-attr-value",
-            "`status-bar-animation` takes \"none\" or \"fade\"",
-            span,
-        );
-    }
     // @ref LLP 1075.003 §9.11 — a sheet's resting heights: UIKit's two named
-    // detents, CSS's `fit-content`, or a positive point height.
+    // detents, CSS's `fit-content`, a positive point height, or a percentage
+    // of the sheet's maximum (§9.13).
     if prop == PropId::NavigationDetent {
         if let Expr::Str(s, _) = value {
             if let Some(word) = s.split(' ').filter(|w| !w.is_empty()).find(|w| {
                 !matches!(*w, "large" | "medium" | "fit-content")
                     && !w.parse::<f64>().is_ok_and(|h| h.is_finite() && h > 0.0)
+                    && !w.strip_suffix('%').is_some_and(|p| {
+                        p.parse::<f64>()
+                            .is_ok_and(|p| p.is_finite() && p > 0.0 && p <= 100.0)
+                    })
             }) {
                 return err(
                     "lower-attr-value",
-                    format!("`navigationDetent` takes space-separated \"large\", \"medium\", \"fit-content\" or a positive point height; given \"{word}\""),
+                    format!(
+                        "`navigationDetent` accepts {}; given \"{word}\"",
+                        vocab::accepts(prop).unwrap()
+                    ),
                     span,
                 );
             }
@@ -956,23 +1098,46 @@ pub(crate) fn check_prop_value(
             {
                 return err(
                     "lower-attr-value",
-                    format!("`navigationDetent` takes \"fit-content\" alone or as \"fit-content large\": a content height can pass any other detent, and UIKit's go from shortest to tallest; given \"{s}\""),
+                    format!("`navigationDetent` accepts {}: a content height can pass any other detent, and UIKit's go from shortest to tallest; given \"{s}\"", vocab::accepts(prop).unwrap()),
+                    span,
+                );
+            }
+            if let Some(word) = vocab::detent_out_of_order(&words) {
+                return err(
+                    "lower-attr-value",
+                    format!("`navigationDetent`'s heights go from shortest to tallest on every screen, as UIKit takes them; a point height and a share of the screen (`medium`, half, or a percentage) cross on some screen, so use one kind, each taller than the one before, with `large` last; given \"{word}\" in \"{s}\""),
                     span,
                 );
             }
         }
     }
-    if prop == PropId::FocusGuide && matches!(value, Expr::Str(s, _) if s != "auto") {
-        return err("lower-attr-value", "`focusGuide` takes \"auto\"", span);
-    }
-    if prop == PropId::AccessibilityLive
-        && matches!(value, Expr::Str(s, _) if !matches!(s.as_str(), "off" | "polite" | "assertive"))
+    // @ref LLP 1116.004 D1.2, LLP 1116.006 D2 — a stack's split on a wide window: off, or the list column's
+    // width; or, on a box in the root route, the detail pane's placeholder.
+    if prop == PropId::NavigationSplit
+        && matches!(value, Expr::Str(s, _) if s != "none" && s != "placeholder" && !s.parse::<f64>().is_ok_and(|w| w.is_finite() && w > 0.0))
     {
         return err(
             "lower-attr-value",
-            "`aria-live` takes \"off\", \"polite\" or \"assertive\"",
+            "`navigationSplit` takes \"none\" (the stack pushes on a wide window too) or the list column's width, a positive number, on the root route; or \"placeholder\" on a box in it, which the detail pane shows while nothing is selected",
             span,
         );
+    }
+    // A prop that takes one of a few words, and what its refusal says.
+    let words: Option<(&[&str], &str)> = match prop {
+        PropId::StatusBarAnimation => Some((&["none", "fade"], "`status-bar-animation` takes \"none\" or \"fade\"")),
+        // @ref LLP 1115.000 D5.2 — no bar is something a route says, in one word.
+        PropId::NavigationBar => Some((&["none", "auto"], "`navigationBar` takes \"none\" (this route shows no navigation bar: a full-bleed screen that draws its own way back) or \"auto\" (the platform's bar, the default)")),
+        // A sheet's grabber, said or left to the platform (LLP 1115 §2).
+        PropId::NavigationGrabber => Some((&["visible", "hidden", "auto"], "`navigationGrabber` takes \"visible\", \"hidden\" or \"auto\" (the default: the platform's, a grabber on a sheet with several detents)")),
+        PropId::FocusGuide => Some((&["auto"], "`focusGuide` takes \"auto\"")),
+        PropId::Wakelock => Some((&["screen", "none"], "`wakelock` takes \"screen\" (the display stays awake while this element is displayed) or \"none\" (the default)")),
+        PropId::AccessibilityLive => Some((&["off", "polite", "assertive"], "`aria-live` takes \"off\", \"polite\" or \"assertive\"")),
+        _ => None,
+    };
+    if let (Some((allowed, why)), Expr::Str(s, _)) = (words, value) {
+        if !allowed.contains(&s.as_str()) {
+            return err("lower-attr-value", why, span);
+        }
     }
     // @ref LLP 1053.000 D4 — a material is a name in the schema's table.
     if prop == PropId::BackgroundMaterial {
@@ -990,20 +1155,7 @@ pub(crate) fn check_prop_value(
         }
     }
     if prop == PropId::ImageSource {
-        if let Expr::Str(source, _) = value {
-            if let Some(role) = source.strip_prefix("symbol:") {
-                if !role.starts_with("sf/") && exact_kernel::generated::symbol(role).is_none() {
-                    return err(
-                        "lower-attr-value",
-                        format!(
-                            "symbol `{role}` is not a role; roles: {}",
-                            exact_kernel::generated::SYMBOL_ROLES.join(", ")
-                        ),
-                        span,
-                    );
-                }
-            }
-        }
+        symbols::check(value, span)?;
     }
     if want == tags::PropTy::Int {
         if let Some(number) = numeric_literal(value) {
@@ -1039,7 +1191,7 @@ pub(crate) fn check_prop_value(
     let ok = matches!(
         (want, ty),
         (_, Ty::Unknown)
-            | (tags::PropTy::Str, Ty::String)
+            | (tags::PropTy::Str, Ty::String | Ty::Enum(_))
             | (tags::PropTy::Bool, Ty::Bool)
             | (tags::PropTy::Int | tags::PropTy::Float, Ty::Number)
     );
@@ -1058,7 +1210,7 @@ pub(crate) fn check_prop_value(
                 ty,
                 // A number or bool shown as text is interpolated.
                 if want == tags::PropTy::Str && matches!(ty, Ty::Number | Ty::Bool) {
-                    ": interpolate it in a template, `${…}`, or write `toString(…)`"
+                    ": interpolate it in a template, `${…}`, or write `x.toString()`"
                 } else {
                     ""
                 }
@@ -1068,7 +1220,6 @@ pub(crate) fn check_prop_value(
     }
     Ok(())
 }
-
 /// @ref LLP 1053.000.000 D6 — where a glass group cannot be: beside the
 /// element's own material (the group's glass would fuse with it), on a
 /// scroll (its content belongs to the scroll and its rows), on a canvas
@@ -1105,7 +1256,6 @@ pub(crate) fn check_glass_group(tag: &tags::Tag, attrs: &[Attr]) -> Result<(), L
     }
     Ok(())
 }
-
 /// CSS flex shorthand, projected into the three longhands before bytecode.
 pub(crate) fn flex_component(value: &Expr, index: usize) -> Result<Expr, LowerError> {
     let mut out = value.clone();
@@ -1191,7 +1341,6 @@ pub(crate) fn flex_component(value: &Expr, index: usize) -> Result<Expr, LowerEr
     }
     Ok(out)
 }
-
 /// A literal `flex` (a number or the CSS shorthand's text) as its three
 /// longhands; `None` for a computed one, which the bake's measured-layout
 /// lint judges.
@@ -1207,7 +1356,6 @@ pub(crate) fn flex_longhands(value: &Expr) -> Option<(f64, f64, String)> {
     };
     Some((grow, shrink, basis))
 }
-
 /// Whether a `flex` bounds its box on the main axis by itself: a positive
 /// grow (it takes the container's free space), or a definite length basis,
 /// zero included (`flex="0 0 0px"` is an empty scrollport, as `height=0`
@@ -1228,7 +1376,6 @@ pub(crate) fn flex_bounds(value: &Expr) -> bool {
         .is_some_and(|n| n.trim().parse::<f64>().is_ok_and(|n| n == 0.0));
     grow > 0.0 || !(intrinsic || zero_percent)
 }
-
 /// A shrinking flex item with a zero minimum fits a bounded flex column.
 /// Its shrink is the `flex-shrink` longhand's, or else the `flex`
 /// shorthand's (`flex="none"` does not shrink).
@@ -1248,7 +1395,6 @@ pub(crate) fn shrinking_scroll(attrs: &[Attr], bounded_column: bool) -> bool {
             .any(|a| a.name == "min-height" && numeric_literal(&a.value) == Some(0.0))
         && shrink.is_none_or(|n| n.is_none_or(|n| n > 0.0))
 }
-
 pub(crate) fn bounded_column(tag: &str, attrs: &[Attr], inherited: bool) -> bool {
     let word = |name: &str| {
         attrs
@@ -1270,7 +1416,6 @@ pub(crate) fn bounded_column(tag: &str, attrs: &[Attr], inherited: bool) -> bool
                 && !matches!(&a.value, Expr::Str(s, _) if s == "auto")
         }) || shrinking_scroll(attrs, inherited))
 }
-
 /// Why a multi-column or break value is refused (LLP 1093 §1), if it is.
 fn multicol_value(rows: &[StyleId], v: &str) -> Option<&'static str> {
     let has = |row| rows.contains(&row);
@@ -1280,7 +1425,7 @@ fn multicol_value(rows: &[StyleId], v: &str) -> Option<&'static str> {
             "dashed" | "dotted" | "double" | "groove" | "ridge" | "inset" | "outset"
         )
     {
-        return Some("the native hosts paint `none`, `hidden` and `solid` rules, as they paint borders; Chrome would paint this one and they would not");
+        return Some("the native hosts paint only `none`, `hidden` and `solid` column rules; Chrome would paint this one and they would not");
     }
     if (has(StyleId::BreakBefore) || has(StyleId::BreakAfter))
         && matches!(
@@ -1310,22 +1455,5 @@ fn multicol_value(rows: &[StyleId], v: &str) -> Option<&'static str> {
     }
     None
 }
-
-/// LLP 1081 D2: the hint for a refused colour written with an Exact role's
-/// bare name (`secondary-label`), which is spelled `-exact-secondary-label`.
-/// A word is split at whitespace, commas and parentheses, so a role inside a
-/// gradient, a shadow, a filter or `light-dark()` is found too.
-pub(crate) fn role_hint(text: &str) -> Option<String> {
-    text.split(|c: char| c.is_whitespace() || matches!(c, ',' | '(' | ')'))
-        .find_map(|w| {
-            exact_kernel::COLOR_ROLES.iter().find(|r| {
-                !exact_kernel::style::roles::is_css_system(r) && r.name.eq_ignore_ascii_case(w)
-            })
-        })
-        .map(|r| {
-            format!(
-                "; the role `{0}` is spelled `-exact-{0}` (LLP 1081)",
-                r.name
-            )
-        })
-}
+#[cfg(test)]
+mod tests;

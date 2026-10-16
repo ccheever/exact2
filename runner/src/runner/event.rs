@@ -6,6 +6,7 @@ use exact_plan::{ActionsId, Code, EventKind, HandlersId, NodesId, Opcode, TypeKi
 use std::fmt::Write as _;
 use std::rc::Rc;
 
+mod focus;
 mod keyboard;
 pub use keyboard::KeyboardEvent;
 
@@ -135,13 +136,20 @@ pub enum ControlValue {
     /// A text field's text with its selection as the edit left it, which
     /// its `InputEvent` reports (x2apps codeedit #2).
     Field(String, super::FieldSelection),
+    /// A scripted range replacement: one noncancelable insertReplacementText input.
+    Replacement(String, super::FieldSelection),
+    /// A native or browser edit with its InputEvent metadata.
+    Edit(String, super::FieldSelection, super::InputDetails),
 }
 
 impl ControlValue {
     /// The value as the action receives it.
     pub(super) fn value(&self) -> Value {
         match self {
-            Self::Text(text) | Self::Field(text, _) => Value::str(text),
+            Self::Text(text)
+            | Self::Field(text, _)
+            | Self::Replacement(text, _)
+            | Self::Edit(text, ..) => Value::str(text),
             Self::Checked(on) => Value::Bool(*on),
             Self::Files(files) => Value::list(files.iter().map(|f| f.value()).collect()),
         }
@@ -192,9 +200,25 @@ pub enum Event {
     /// `cancel`, LLP 1069.002 D2). A node without a `cancel` handler takes
     /// it as nothing.
     Cancel,
+    /// A dialog closed, after its focus was restored.
+    Close,
+    /// A popover changed visibility; HTML coalesces these on the host's event loop.
+    Toggle {
+        /// Whether it was open before the first change in this turn.
+        old_open: bool,
+        /// Whether it is open after the last change in this turn.
+        new_open: bool,
+    },
+    /// A scroll finished (DOM's `scrollend`): the person's, its momentum
+    /// included, or an animated one.
+    Scrollend,
     /// A text field's selection changed (HTML's `select`, x2apps codeedit
     /// #2): its text, and the selection its `InputEvent` reports.
     FieldSelect(String, super::FieldSelection),
+    /// The field's selection, including a collapsed caret.
+    FieldSelectionChange(String, super::FieldSelection),
+    /// The proposed edit, before the host changes its buffer.
+    BeforeInput(String, super::FieldSelection, super::InputDetails),
     /// Markdown toolbar facts. Selection offsets remain local to the editor.
     Select {
         /// Space-separated active format names.
@@ -213,11 +237,27 @@ pub enum Event {
     Focus,
     /// The view lost the focus.
     Blur,
+    /// A focus transition heard at the target or an ancestor.
+    Focusin {
+        /// The newly focused element's authored id, or empty.
+        target: String,
+        /// The previously focused element's id, if any.
+        related_target: Option<String>,
+    },
+    /// A focus transition heard at the target or an ancestor.
+    Focusout {
+        /// The previously focused element's authored id, or empty.
+        target: String,
+        /// The newly focused element's id, if any.
+        related_target: Option<String>,
+    },
     /// A key went down while the view had the focus (DOM's `keydown`): the
     /// key's name as the web spells it (`"Enter"`, `"ArrowDown"`, `"a"`),
     /// the modifiers held, the physical key and whether it is an auto-repeat.
     /// A host writes the chord, then the code and repeat ([`KeyboardEvent`]).
     Key(KeyboardEvent),
+    /// A keydown during DOM capture, before the focused target's `key`.
+    Keycapture(KeyboardEvent),
     /// A key came up while the view had the focus (DOM's `keyup`, #140): a
     /// modifier's release too, the way an app learns ⌘ is no longer held.
     Keyup(KeyboardEvent),
@@ -237,6 +277,9 @@ pub enum Event {
     /// `beforeunload`, studio diary R17): an action that calls
     /// `preventDefault()` keeps it open.
     Beforeunload,
+    /// A MIDI input's message (LLP 1125 D8): the runner dispatches it to
+    /// each element that hears its input; no host sends it as an event.
+    MidiMessage(super::midi::MidiMessage),
     /// A wheel's turn or a trackpad's scroll over the view (DOM's `wheel`);
     /// a pinch arrives as one with Control held, as on the web.
     Wheel(super::WheelEvent),
@@ -265,6 +308,13 @@ pub enum Event {
     /// The element's content box after layout, ResizeObserver's
     /// `contentRect` (`super::resize`).
     Resize(super::ResizeRect),
+    /// IntersectionObserver's threshold-zero entry (LLP 1005).
+    Intersect {
+        /// Whether the target intersects the root, including edge contact.
+        is_intersecting: bool,
+        /// Intersection area divided by target area, in the range 0 to 1.
+        intersection_ratio: f64,
+    },
     /// Incremental recognized pan displacement in viewport CSS pixels.
     /// @ref LLP 1043.000 §3 D8 — the action commits layout state, never a hold.
     Pan(f64, f64),
@@ -291,6 +341,8 @@ pub enum Event {
         start: f64,
         /// Where it ends.
         end: f64,
+        /// Selected fragments in viewport coordinates, sampled with the event.
+        rects: Vec<crate::geometry::GeometryAnswer>,
     },
     /// An incoming location at the navigation root. @ref LLP 1038 D8/D11
     Navigate(String),
@@ -352,6 +404,24 @@ pub struct ScrollEvent {
     pub client_width: f64,
     /// The scrollport's height (`clientHeight`).
     pub client_height: f64,
+}
+
+impl ScrollEvent {
+    fn value(&self, anchor: Option<(Value, f64)>) -> Value {
+        let (key, offset) = anchor.map_or((Value::NONE, 0.0), |(key, offset)| {
+            (Value::some(key), offset)
+        });
+        Value::record(vec![
+            Value::Number(self.left),
+            Value::Number(self.top),
+            Value::Number(self.width),
+            Value::Number(self.height),
+            Value::Number(self.client_width),
+            Value::Number(self.client_height),
+            key,
+            Value::Number(offset),
+        ])
+    }
 }
 
 /// The modifier keys held as a key went down: `KeyboardEvent`'s
@@ -421,6 +491,29 @@ impl KeyModifiers {
 }
 
 impl Event {
+    /// Decode a DOM focus event's target id and optional related id. The
+    /// byte length keeps arbitrary UTF-8 ids, including newlines, unambiguous.
+    pub fn focus_payload(entering: bool, payload: &str) -> Option<Self> {
+        let (len, rest) = payload.split_once(':')?;
+        let len = len.parse::<usize>().ok()?;
+        let target = rest.get(..len)?.to_owned();
+        let related_target = match rest.get(len..)? {
+            "0" => None,
+            rest => Some(rest.strip_prefix('1')?.to_owned()),
+        };
+        Some(if entering {
+            Self::Focusin {
+                target,
+                related_target,
+            }
+        } else {
+            Self::Focusout {
+                target,
+                related_target,
+            }
+        })
+    }
+
     /// A press with the modifiers a host held ([`KeyModifiers::held`]):
     /// `Press` when none is; `None` for a word DOM does not name.
     pub fn press(held: &str) -> Option<Self> {
@@ -446,7 +539,11 @@ impl Event {
     /// `DragEvent`.
     pub fn record(&self) -> Option<Value> {
         match self {
-            Event::Key(k) | Event::Keyup(k) => Some(k.value()),
+            Event::Toggle { old_open, new_open } => Some(Value::record(vec![
+                Value::str(if *old_open { "open" } else { "closed" }),
+                Value::str(if *new_open { "open" } else { "closed" }),
+            ])),
+            Event::Key(k) | Event::Keycapture(k) | Event::Keyup(k) => Some(k.value()),
             Event::Pointerdown(p)
             | Event::Pointerup(p)
             | Event::Pointermove(p)
@@ -468,29 +565,45 @@ impl Event {
                 .value(),
             ),
             Event::Wheel(w) => Some(w.value()),
+            Event::MidiMessage(m) => Some(m.value()),
             Event::Drop(d) => Some(d.value()),
             Event::Resize(r) => Some(r.value()),
-            Event::Scroll(s) => Some(Value::record(
-                [
-                    s.left,
-                    s.top,
-                    s.width,
-                    s.height,
-                    s.client_width,
-                    s.client_height,
-                ]
-                .map(Value::Number)
-                .to_vec(),
-            )),
+            Event::Intersect {
+                is_intersecting,
+                intersection_ratio,
+            } => Some(Value::record(vec![
+                Value::Bool(*is_intersecting),
+                Value::Number(*intersection_ratio),
+            ])),
+            Event::Scroll(s) => Some(s.value(None)),
             Event::Clipboard(_, text) => Some(Value::record(vec![Value::str(text)])),
-            Event::SelectionChange { text, start, end } => Some(Value::record(vec![
+            Event::SelectionChange {
+                text,
+                start,
+                end,
+                rects,
+            } => Some(Value::record(vec![
                 Value::str(text),
                 Value::Number(*start),
                 Value::Number(*end),
+                Value::list(rects.iter().map(|r| r.value()).collect()),
             ])),
             Event::Press => Some(KeyModifiers::default().mouse()),
             Event::PressWith(held) => Some(held.mouse()),
             Event::Media(kind, payload) => super::media_session::record(*kind, payload),
+            Event::Focusin {
+                target,
+                related_target,
+            }
+            | Event::Focusout {
+                target,
+                related_target,
+            } => Some(Value::record(vec![
+                Value::str(target),
+                related_target
+                    .as_ref()
+                    .map_or(Value::NONE, |id| Value::some(Value::str(id))),
+            ])),
             _ => None,
         }
     }
@@ -943,6 +1056,10 @@ impl<D: DataSource> Runner<D> {
     /// Deliver a host event to `view`: find its handler, evaluate the curried
     /// arguments in the instance's scope now, run the action, update.
     pub fn dispatch(&mut self, view: ViewId, event: Event) -> Result<CommitReceipt, RunnerError> {
+        self.arrived(|r| r.dispatch_event(view, event))
+    }
+
+    fn dispatch_event(&mut self, view: ViewId, event: Event) -> Result<CommitReceipt, RunnerError> {
         let mut what = super::lines::event(
             match &event {
                 Event::ReorderDrop { .. } => "reorderdrop",
@@ -950,18 +1067,25 @@ impl<D: DataSource> Runner<D> {
                 Event::Input(_) => "input",
                 Event::Change(_) => "change",
                 Event::Cancel => "cancel",
+                Event::Close => "close",
+                Event::Toggle { .. } => "toggle",
+                Event::Scrollend => "scrollend",
                 Event::Select { .. } | Event::FieldSelect(..) => "select",
                 Event::Hover(true) => "hover in",
                 Event::Hover(false) => "hover out",
                 Event::Focus => "focus",
                 Event::Blur => "blur",
+                Event::Focusin { .. } => "focusin",
+                Event::Focusout { .. } => "focusout",
                 Event::Key(..) => "key",
+                Event::Keycapture(..) => "keycapture",
                 Event::Keyup(..) => "keyup",
                 Event::Submit => "submit",
                 Event::Load => "load",
                 Event::Message(_) => "message",
                 Event::Contextmenu | Event::ContextmenuAt(_) => "contextmenu",
                 Event::Beforeunload => "beforeunload",
+                Event::MidiMessage(_) => "midimessage",
                 Event::Wheel(_) => "wheel",
                 Event::Drop(_) => "drop",
                 Event::Dblclick => "dblclick",
@@ -972,10 +1096,14 @@ impl<D: DataSource> Runner<D> {
                 Event::Refresh => "refresh",
                 Event::Scroll(_) => "scroll",
                 Event::Resize(_) => "resize",
+                Event::Intersect { .. } => "intersect",
                 Event::Pan(_, _) => "pan",
                 Event::PanRelease(_, _) => "panrelease",
                 Event::Media(kind, _) | Event::Clipboard(kind, _) => kind.name(),
-                Event::SelectionChange { .. } => "selectionchange",
+                Event::SelectionChange { .. } | Event::FieldSelectionChange(..) => {
+                    "selectionchange"
+                }
+                Event::BeforeInput(..) => "beforeinput",
                 Event::Navigate(_) => "navigate",
                 Event::HeightRelease { .. } => "heightrelease",
                 Event::TransformGeometry { .. } => "transformgeometry",
@@ -985,7 +1113,25 @@ impl<D: DataSource> Runner<D> {
         );
         let was_poisoned = self.poisoned;
         let outer = self.input_source.replace(view);
+        let blur = matches!(event, Event::Blur);
+        let path = blur.then(|| self.capture_blur_focus(view));
+        let outgoing = matches!(event, Event::Focusout { .. })
+            .then(|| self.detached_focus_target(view))
+            .flatten();
+        let commands = self.commands.len();
         let result = self.dispatch_inner(view, event, &mut what);
+        if let Some(path) = path {
+            self.finish_blur_focus(view, path);
+        }
+        if let Some(target) = outgoing {
+            if result.is_err()
+                || self.commands[commands..]
+                    .iter()
+                    .any(|c| c.name == "stopPropagation")
+            {
+                self.detached_focus.retain(|(id, _)| *id != target);
+            }
+        }
         self.input_source = outer;
         self.log_outcome(&what, &result, was_poisoned);
         result
@@ -1000,16 +1146,28 @@ impl<D: DataSource> Runner<D> {
         if let Some(event) = event.invalid_payload() {
             return Err(RunnerError::InvalidEvent { event });
         }
-        let (node, frames) = self.find(view).ok_or(RunnerError::UnknownView(view))?;
-        // HTML's `cancel`: a file input's dismissed picker, or the element
-        // a `saveFile` names when its panel is dismissed (LLP 1069.010 D3).
-        if matches!(event, Event::Cancel) {
+        let (node, frames) = self
+            .find(view)
+            .or_else(|| {
+                matches!(event, Event::Focusout { .. })
+                    .then(|| self.take_detached_focus(view))
+                    .flatten()
+            })
+            .ok_or(RunnerError::UnknownView(view))?;
+        // Events without a listener do nothing: a picker's `cancel` (LLP
+        // 1069.010 D3), a dialog's `close` (LLP 1021), a scroll's end.
+        if matches!(event, Event::Cancel | Event::Close | Event::Scrollend) {
+            let kind = match event {
+                Event::Close => EventKind::Close,
+                Event::Scrollend => EventKind::Scrollend,
+                _ => EventKind::Cancel,
+            };
             let has_handler = self
                 .plan
                 .node(node)
                 .handlers
                 .iter()
-                .any(|h| self.plan.handler(h).event == EventKind::Cancel);
+                .any(|h| self.plan.handler(h).event == kind);
             if !has_handler {
                 what.push_str(" (no handler)");
                 return Ok(CommitReceipt::default());
@@ -1027,25 +1185,47 @@ impl<D: DataSource> Runner<D> {
         let (control, record) = match (&event, control) {
             (Event::Input(v) | Event::Change(v), Some(p)) => {
                 let reported = match v {
-                    ControlValue::Field(_, s) => Some(*s),
+                    ControlValue::Field(_, s)
+                    | ControlValue::Replacement(_, s)
+                    | ControlValue::Edit(_, s, _) => Some(*s),
                     _ => None,
                 };
-                let record = self.input_record(view, &p, reported);
+                let record = self.input_record(
+                    view,
+                    &p,
+                    reported,
+                    match v {
+                        ControlValue::Edit(_, _, edit) => Some(edit),
+                        _ => None,
+                    },
+                    matches!(v, ControlValue::Replacement(..)),
+                );
                 (Some(p), Some(record))
             }
-            (Event::FieldSelect(text, s), _) => (
+            (Event::FieldSelect(text, s) | Event::FieldSelectionChange(text, s), _) => (
                 None,
-                Some(self.input_record(view, &Value::str(text), Some(*s))),
+                Some(self.input_record(view, &Value::str(text), Some(*s), None, false)),
+            ),
+            (Event::BeforeInput(text, s, edit), _) => (
+                None,
+                Some(self.input_record(view, &Value::str(text), Some(*s), Some(edit), false)),
             ),
             _ => (None, None),
         };
         let (kind, payload, name) = match &event {
             Event::ReorderDrop { .. } => (EventKind::Reorderdrop, None, "reorderdrop"),
             Event::FieldSelect(..) => (EventKind::Select, record.clone(), "select"),
+            Event::FieldSelectionChange(..) => {
+                (EventKind::Selectionchange, None, "selectionchange")
+            }
+            Event::BeforeInput(..) => (EventKind::Beforeinput, None, "beforeinput"),
             Event::Press | Event::PressWith(_) => (EventKind::Press, None, "press"),
             Event::Input(_) => (EventKind::Input, control, "input"),
             Event::Change(_) => (EventKind::Change, control, "change"),
             Event::Cancel => (EventKind::Cancel, None, "cancel"),
+            Event::Close => (EventKind::Close, None, "close"),
+            Event::Toggle { .. } => (EventKind::Toggle, None, "toggle"),
+            Event::Scrollend => (EventKind::Scrollend, None, "scrollend"),
             Event::Select {
                 formats,
                 mixed,
@@ -1064,7 +1244,14 @@ impl<D: DataSource> Runner<D> {
             Event::Hover(over) => (EventKind::Hover, Some(Value::Bool(*over)), "hover"),
             Event::Focus => (EventKind::Focus, None, "focus"),
             Event::Blur => (EventKind::Blur, None, "blur"),
+            Event::Focusin { .. } => (EventKind::Focusin, None, "focusin"),
+            Event::Focusout { .. } => (EventKind::Focusout, None, "focusout"),
             Event::Key(k) => (EventKind::Key, Some(Value::str(&k.key)), "key"),
+            Event::Keycapture(k) => (
+                EventKind::Keycapture,
+                Some(Value::str(&k.key)),
+                "keycapture",
+            ),
             Event::Keyup(k) => (EventKind::Keyup, Some(Value::str(&k.key)), "keyup"),
             Event::Submit => (EventKind::Submit, None, "submit"),
             Event::Load => (EventKind::Load, None, "load"),
@@ -1073,6 +1260,7 @@ impl<D: DataSource> Runner<D> {
                 (EventKind::Contextmenu, None, "contextmenu")
             }
             Event::Beforeunload => (EventKind::Beforeunload, None, "beforeunload"),
+            Event::MidiMessage(_) => (EventKind::Midimessage, None, "midimessage"),
             Event::Wheel(_) => (EventKind::Wheel, None, "wheel"),
             Event::Drop(_) => (EventKind::Drop, None, "drop"),
             Event::Dblclick => (EventKind::Dblclick, None, "dblclick"),
@@ -1083,6 +1271,7 @@ impl<D: DataSource> Runner<D> {
             Event::Refresh => (EventKind::Refresh, None, "refresh"),
             Event::Scroll(_) => (EventKind::Scroll, None, "scroll"),
             Event::Resize(_) => (EventKind::Resize, None, "resize"),
+            Event::Intersect { .. } => (EventKind::Intersect, None, "intersect"),
             Event::Media(kind, value) => (
                 *kind,
                 match kind {
@@ -1134,7 +1323,28 @@ impl<D: DataSource> Runner<D> {
         // A drop's `ReorderEvent` names its lists (LLP 1094 D2).
         let record = match &event {
             Event::ReorderDrop { .. } => Some(self.reorder_record(view)),
-            Event::Input(_) | Event::Change(_) => record,
+            Event::Input(_)
+            | Event::Change(_)
+            | Event::FieldSelectionChange(..)
+            | Event::BeforeInput(..) => record,
+            Event::Scroll(s)
+                if self.plan.action(handler.action).params.len as usize > args.len() + 2 =>
+            {
+                let anchor = self.links.lists.and_then(|lists| {
+                    self.tree.as_ref().and_then(|tree| {
+                        (lists.scroll_anchor)(
+                            tree,
+                            &self.kernel,
+                            view,
+                            s.left,
+                            s.top,
+                            s.client_width,
+                            s.client_height,
+                        )
+                    })
+                });
+                Some(s.value(anchor))
+            }
             _ => event.record(),
         };
         match event {
@@ -1186,255 +1396,4 @@ impl<D: DataSource> Runner<D> {
 }
 
 #[cfg(test)]
-mod retained_binding_tests {
-    use super::*;
-    use exact_kernel::{Kernel, NodeType};
-    use exact_plan::{asm::Asm, builder::PlanBuilder, SlotsId, Stdlib, TypesId};
-
-    struct NoData;
-    impl DataSource for NoData {
-        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, super::super::DataError> {
-            panic!("unexpected query {source}")
-        }
-    }
-
-    fn fixture(
-        build: impl FnOnce(&mut PlanBuilder, SlotsId) -> (Vec<(TypesId, Code)>, Asm),
-    ) -> Runner<NoData> {
-        let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
-        let string = b.primitive(TypeKind::String);
-        let empty = b.constant(&Value::str(""));
-        let output = b.slot("out", string, empty);
-        let (arguments, action) = build(&mut b, output);
-        let names: Vec<_> = (0..arguments.len()).map(|i| format!("arg{i}")).collect();
-        let params: Vec<_> = arguments
-            .iter()
-            .zip(&names)
-            .map(|((ty, _), name)| (name.as_str(), *ty))
-            .collect();
-        let code = b.code(action);
-        let action = b.action("set", &params, &[output], code);
-        let args: Vec<_> = arguments.iter().map(|(_, code)| *code).collect();
-        b.node(
-            NodeType::Pressable as u8,
-            None,
-            None,
-            0,
-            &[],
-            &[(EventKind::Press, action, &args)],
-            None,
-        );
-        Runner::boot(
-            b.finish().unwrap(),
-            NoData,
-            Kernel::with_monospace(),
-            Default::default(),
-            "/",
-        )
-        .unwrap()
-    }
-
-    fn capture(r: &Runner<NoData>) -> Result<ActionBinding, ActionBindingRefusal> {
-        let key = r.kernel.arena().key_of(r.kernel.roots()[0]).unwrap();
-        r.capture_action_binding(key, EventKind::Press)
-    }
-
-    fn literals(count: usize, len: usize) -> Runner<NoData> {
-        fixture(|b, out| {
-            let ty = b.primitive(TypeKind::String);
-            let args = (0..count)
-                .map(|_| (ty, b.constant(&Value::str(&"x".repeat(len)))))
-                .collect();
-            let mut action = Asm::new();
-            action.load_param(0).store_slot(out);
-            (args, action)
-        })
-    }
-
-    #[test]
-    fn argument_count_and_aggregate_string_boundaries() {
-        assert!(capture(&literals(8, 0)).is_ok());
-        assert!(matches!(
-            capture(&literals(9, 0)),
-            Err(ActionBindingRefusal::Limit)
-        ));
-        assert!(capture(&literals(4, 1024)).is_ok());
-        assert!(matches!(
-            capture(&literals(5, 1024)),
-            Err(ActionBindingRefusal::Limit)
-        ));
-        assert!(matches!(
-            capture(&literals(1, 1025)),
-            Err(ActionBindingRefusal::Limit)
-        ));
-    }
-
-    #[test]
-    fn direct_nested_fields_stop_at_eight_without_copying_parent_records() {
-        for depth in [8, 9] {
-            let mut r = fixture(|b, out| {
-                let string = b.primitive(TypeKind::String);
-                let mut ty = string;
-                let mut initial = Asm::new();
-                initial.str(b.str("projected"));
-                for i in 0..depth {
-                    ty = b.record(&format!("Depth{i}"), &[("value", ty)]);
-                    initial.record(ty);
-                }
-                let initial = b.code(initial);
-                let root = b.slot("nested", ty, initial);
-                let mut arg = Asm::new();
-                arg.load_slot(root);
-                for _ in 0..depth {
-                    arg.field(0);
-                }
-                let mut action = Asm::new();
-                action.load_param(0).store_slot(out);
-                (vec![(string, b.code(arg))], action)
-            });
-            if depth == 8 {
-                let binding = capture(&r).unwrap();
-                r.dispatch_bound(&binding, Event::Press).unwrap();
-                assert_eq!(r.slot("out"), Some(&Value::str("projected")));
-            } else {
-                assert!(matches!(capture(&r), Err(ActionBindingRefusal::Limit)));
-            }
-        }
-    }
-
-    #[test]
-    fn rich_projection_refuses_and_captured_scalar_does_not_pin_parent() {
-        let mut n = 0;
-        for rich in [Value::NONE, Value::list(vec![]), Value::record(vec![])] {
-            assert_eq!(
-                BindingScalar::capture(&rich, &mut n),
-                Err(ActionBindingRefusal::Unsupported)
-            );
-        }
-        // Longer than inline text, so the parent shares an allocation.
-        let text = exact_plan::Str::from("retained-id-of-a-parent-row");
-        let parent = Value::record(vec![
-            Value::from(text.clone()),
-            Value::list(vec![Value::Unit; 1024]),
-        ]);
-        let Value::Record(fields) = &parent else {
-            unreachable!()
-        };
-        let before = exact_plan::Str::strong_count(&text);
-        let scalar = BindingScalar::capture(&fields[0], &mut n).unwrap();
-        assert_eq!(exact_plan::Str::strong_count(&text), before);
-        drop(parent);
-        assert_eq!(exact_plan::Str::strong_count(&text), 1);
-        assert_eq!(
-            scalar,
-            BindingScalar::String("retained-id-of-a-parent-row".into())
-        );
-        assert_ne!(
-            BindingScalar::capture(&Value::Number(0.0), &mut n),
-            BindingScalar::capture(&Value::Number(-0.0), &mut n)
-        );
-        assert!(BindingScalar::capture(&Value::Number(f64::NAN), &mut n).is_err());
-    }
-
-    #[test]
-    fn projection_calls_and_rich_values_are_not_evaluated_by_capture() {
-        for call in [false, true] {
-            let r = fixture(|b, _| {
-                let ty = b.primitive(TypeKind::Number);
-                let ty = if call { ty } else { b.list(ty) };
-                let mut arg = Asm::new();
-                if call {
-                    arg.call(Stdlib::PerformanceNow);
-                } else {
-                    arg.number(1.0).list(1);
-                }
-                (vec![(ty, b.code(arg))], Asm::new())
-            });
-            let before = r.journal().count();
-            assert!(matches!(
-                capture(&r),
-                Err(ActionBindingRefusal::Unsupported)
-            ));
-            assert_eq!(r.journal().count(), before);
-            assert_eq!(r.now_ms(), 0.0);
-        }
-    }
-
-    #[test]
-    fn direct_root_projection_tracks_current_scalar_and_poison_refuses() {
-        let mut r = fixture(|b, out| {
-            let ty = b.primitive(TypeKind::String);
-            let mut arg = Asm::new();
-            arg.load_slot(out);
-            let mut action = Asm::new();
-            action.load_param(0).store_slot(out);
-            (vec![(ty, b.code(arg))], action)
-        });
-        let binding = capture(&r).unwrap();
-        r.act("set", vec![Value::str("changed")]).unwrap();
-        assert_eq!(
-            r.validate_action_binding(&binding, EventKind::Press),
-            Err(ActionBindingRefusal::Stale)
-        );
-        r.poisoned = true;
-        assert!(matches!(capture(&r), Err(ActionBindingRefusal::Poisoned)));
-    }
-
-    #[test]
-    fn action_ambient_reads_commands_and_control_flow_refuse() {
-        for mode in 0..4 {
-            let r = fixture(|b, out| {
-                let mut action = Asm::new();
-                match mode {
-                    0 => {
-                        action.load_slot(out).store_slot(out);
-                    }
-                    1 => {
-                        action.call(Stdlib::PerformanceNow).simple(Opcode::Pop);
-                    }
-                    2 => {
-                        let end = action.label();
-                        action.jump(end).place(end);
-                    }
-                    _ => {
-                        let name = b.str("effect");
-                        action.command(name, 0);
-                    }
-                }
-                (vec![], action)
-            });
-            assert!(matches!(
-                capture(&r),
-                Err(ActionBindingRefusal::Unsupported)
-            ));
-            assert_eq!(r.slot("out"), Some(&Value::str("")));
-        }
-    }
-
-    #[test]
-    fn action_actual_store_and_stack_limits_are_finite() {
-        for stores in [8, 9] {
-            let r = fixture(|b, out| {
-                let mut action = Asm::new();
-                let s = b.str("x");
-                for _ in 0..stores {
-                    action.str(s).store_slot(out);
-                }
-                (vec![], action)
-            });
-            if stores == 8 {
-                assert!(capture(&r).is_ok());
-            } else {
-                assert!(matches!(capture(&r), Err(ActionBindingRefusal::Limit)));
-            }
-        }
-        let r = fixture(|_, _| {
-            let mut action = Asm::new();
-            for _ in 0..9 {
-                action.simple(Opcode::Unit);
-            }
-            (vec![], action)
-        });
-        assert!(matches!(capture(&r), Err(ActionBindingRefusal::Limit)));
-    }
-}
+mod retained_binding_tests;

@@ -15,7 +15,7 @@ use contract_syntax::{Attr, File, Node, Span};
 use contract_types::{Scope, Ty};
 use exact_kernel::{NodeType, PropId, StyleId};
 use exact_plan::asm::Asm;
-use exact_plan::{BindingKind, BindingsRow};
+use exact_plan::BindingsRow;
 
 /// HTML's reserved hyphenated names (SVG and MathML elements).
 const RESERVED: [&str; 8] = [
@@ -118,6 +118,25 @@ pub(crate) fn refused(tag: &str, a: &Attr) -> Option<LowerError> {
     })
 }
 
+/// A module tag's attribute refused for what the name means elsewhere (a
+/// renamed spelling such as `size`, another element's `rows` or `name`)
+/// says what to do about it, as `refused` does: a module prop with a name
+/// Contract knows never reaches the module.
+pub(crate) fn name_the_fix(n: &Node, mut e: LowerError) -> LowerError {
+    let Node::Element { tag, attrs, .. } = n else {
+        return e;
+    };
+    if is_module_tag(tag)
+        && matches!(e.id, "lower-unknown-attr" | "lower-attr-tag")
+        && attrs.iter().any(|a| a.span == e.span)
+    {
+        e.message.push_str(&format!(
+            "; on `{tag}` a name Contract knows binds to the box, not the module (LLP 1024 D1), so give the module prop another name"
+        ));
+    }
+    e
+}
+
 /// The props besides ARIA's that any leaf box takes, so a module's too.
 const BOX_PROPS: [&str; 6] = ["testId", "id", "role", "disabled", "inert", "tabindex"];
 
@@ -200,11 +219,12 @@ impl Lowerer<'_> {
         locals: u16,
         bindings: &mut Vec<BindingsRow>,
     ) -> Result<(), LowerError> {
-        bindings.push(BindingsRow {
-            kind: BindingKind::Prop,
-            id: PropId::NativeViewModuleName as u16,
-            expr: self.b.constant(&exact_plan::Value::str(tag)),
-        });
+        let module = self.b.constant(&exact_plan::Value::str(tag));
+        bindings.push(crate::prop_row(
+            PropId::NativeViewModuleName,
+            module,
+            crate::IMPLIED,
+        ));
         let mut keyed: std::collections::BTreeMap<&str, &Attr> = Default::default();
         for a in leftovers {
             keyed.insert(a.name.as_str(), a);
@@ -214,7 +234,12 @@ impl Lowerer<'_> {
         for (key, a) in &keyed {
             asm.str(self.b.str(key));
             let ty = crate::expr::compile(self, &mut asm, &a.value, scope, &mut depth)?;
-            let scalar = |t: &Ty| matches!(t, Ty::String | Ty::Number | Ty::Bool | Ty::Unknown);
+            let scalar = |t: &Ty| {
+                matches!(
+                    t,
+                    Ty::String | Ty::Enum(_) | Ty::Number | Ty::Bool | Ty::Unknown
+                )
+            };
             let admitted = match &ty {
                 Ty::Option(inner) => scalar(inner),
                 t => scalar(t),
@@ -230,11 +255,12 @@ impl Lowerer<'_> {
             }
         }
         asm.native_props(keyed.len() as u32);
-        bindings.push(BindingsRow {
-            kind: BindingKind::Prop,
-            id: PropId::NativeViewProps as u16,
-            expr: self.b.code(asm),
-        });
+        let written = leftovers.iter().any(|a| a.written);
+        bindings.push(crate::prop_row(
+            PropId::NativeViewProps,
+            self.b.code(asm),
+            written,
+        ));
         Ok(())
     }
 }
@@ -251,6 +277,7 @@ mod tests {
             name: name.into(),
             value: contract_syntax::Expr::Ident("v".into(), Default::default()),
             span: Default::default(),
+            written: true,
         };
         for name in [
             "mode", "seed", "values", "in", "viewBox", "offset", "orient",
@@ -270,6 +297,7 @@ mod tests {
             name: name.into(),
             value: contract_syntax::Expr::Ident("v".into(), Default::default()),
             span: Default::default(),
+            written: true,
         };
         for name in [
             "appearance",

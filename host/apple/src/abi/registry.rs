@@ -51,7 +51,11 @@ impl<D: DataSource> Registry<D> {
         self.entries.insert(
             rt,
             Rc::new(RefCell::new(Entry {
-                bridge: Bridge::with_links(links),
+                bridge: {
+                    let mut bridge = Bridge::with_links(links);
+                    bridge.document_owner = u64::from(rt);
+                    bridge
+                },
                 hooks: Hooks::none(),
             })),
         );
@@ -89,11 +93,11 @@ thread_local! {
 /// Record a refusal for a call that reached no runtime — a handle nobody
 /// holds, or one busy with another call — and return its length; the bytes
 /// are at [`refusal_ptr`].
-pub fn refuse(rt: u32, why: &str) -> u32 {
+pub fn refuse(rt: u32, why: &str, busy: bool) -> u32 {
     REFUSAL.with(|r| {
         let mut r = r.borrow_mut();
         *r = format!(
-            "{{\"ops\":[],\"timers\":false,\"motion\":false,\"error\":\"runtime {rt}: {}\"}}",
+            "{{\"ops\":[],\"busy\":{busy},\"timers\":false,\"motion\":false,\"error\":\"runtime {rt}: {}\"}}",
             escape(why)
         )
         .into_bytes();
@@ -127,26 +131,33 @@ pub fn with_runtime<D: DataSource, T>(
     f: impl FnOnce(&mut Bridge<D>, Hooks) -> T,
     refused: impl FnOnce(u32) -> T,
 ) -> T {
-    let refusal = |why: &str| {
+    let refusal = |why: &str, busy: bool| {
         if agent {
             refuse_agent(rt, why)
         } else {
-            refuse(rt, why)
+            refuse(rt, why, busy)
         }
     };
     let entry = registry.with(|r| r.borrow().get(rt));
     let Some(entry) = entry else {
-        return refused(refusal("no such runtime (destroyed, or never created)"));
+        return refused(refusal(
+            "no such runtime (destroyed, or never created)",
+            false,
+        ));
     };
     let mut guard = match entry.try_borrow_mut() {
         Ok(guard) => guard,
         Err(_) => {
             return refused(refusal(
                 "busy: a call is already in progress on this runtime",
+                true,
             ))
         }
     };
     let hooks = guard.hooks;
+    // Its session's role overrides, as `with_entry`'s (LLP 1121 stage 5).
+    let roles = guard.bridge.roles();
+    let _roles = roles.as_ref().map(exact_kernel::style::roles::bind);
     let out = f(&mut guard.bridge, hooks);
     drop(guard);
     out
@@ -162,6 +173,10 @@ pub fn with_entry<D: DataSource>(
     let entry = registry.with(|r| r.borrow().get(rt));
     if let Some(entry) = entry {
         if let Ok(mut e) = entry.try_borrow_mut() {
+            // Its session's role overrides, not another's on this thread
+            // (LLP 1121 stage 5): an embedded session's resolve as its own.
+            let roles = e.bridge.roles();
+            let _roles = roles.as_ref().map(exact_kernel::style::roles::bind);
             f(&mut e);
         }
     }

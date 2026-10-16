@@ -89,32 +89,130 @@ pub struct Generation {
 
 type FetchOutcome = Result<Option<Generation>, String>;
 
+/// The design the dev server's builds run (LLP 1121 stage 4):
+/// `Some(Some(snapshot))` on a 200; `Some(None)` on a 204, the published
+/// plan's own design; `None` when there is no answer to act on (no server
+/// that keeps one, or a failed request).
+pub fn fetch_design(page: &str) -> Option<Option<String>> {
+    let url = join(page, "/__dev/design").ok()?;
+    let mut req = ibex2::stdlib::fetch::Request::get(&url);
+    req.headers.set("accept", "application/json");
+    req.headers.set("cache-control", "no-cache");
+    req.max_body = Some(MAX_PLAN_BYTES);
+    let r = ibex2::transport::default_transport().send(&req).ok()?;
+    match r.status {
+        200 => String::from_utf8(r.body).ok().map(Some),
+        204 => Some(None),
+        _ => None,
+    }
+}
+
 /// One in-flight URL poll owned by the presenter, shared by display and agent loops.
 pub(crate) struct Poller {
     url: String,
     compat: String,
     pub identity: Option<String>,
     due: std::time::Instant,
-    worker: Option<std::sync::mpsc::Receiver<FetchOutcome>>,
+    worker: Option<std::sync::mpsc::Receiver<Tick>>,
+    /// The in-flight tick asked for `/__dev/design`.
+    asked_design: bool,
+    /// The dev server's design snapshot, as last polled, for the presenter
+    /// to apply (a build on it already applies nothing).
+    pub design: Option<String>,
+    /// The build channel (LLP 1122 D4), polled on its own worker: a slow
+    /// plan download must not leave the stream unpolled past the server's
+    /// 5 s, which drops it and the pins sent meanwhile.
+    pub link: Option<crate::build_channel::Link>,
+    channel: Option<std::sync::mpsc::Receiver<crate::build_channel::Answer>>,
+    channel_due: std::time::Instant,
+    /// Since when the generation it fetched has waited on requests in flight.
+    pub held_since: Option<std::time::Instant>,
 }
+
+type Tick = (FetchOutcome, Option<Option<String>>);
+
+/// The pause after a tick before the next: well under the 5 s a polled
+/// build stream lives unpolled.
+const TICK: std::time::Duration = std::time::Duration::from_millis(500);
 
 impl Poller {
     pub fn new(url: String, compat: String, identity: Option<String>) -> Self {
+        // No channel in a production build (LLP 1122 D4), dev plan or not.
+        let link = (is_url(&url) && !exact_runner::delivery::production(&compat))
+            .then(|| crate::build_channel::Link::new(identity.clone()));
+        let now = std::time::Instant::now();
         Self {
             url,
             compat,
             identity,
-            due: std::time::Instant::now(),
+            due: now,
             worker: None,
+            asked_design: false,
+            design: None,
+            held_since: None,
+            link,
+            channel: None,
+            channel_due: now,
+        }
+    }
+
+    /// A `/__dev/design` answer: a snapshot is kept for the presenter; a
+    /// 204 clears any kept, so one held while a generation waits is not set
+    /// over a newer plan of the same shape; no answer changes nothing.
+    fn keep_design(&mut self, answer: Option<Option<String>>) {
+        if let Some(design) = answer {
+            self.design = design;
+        }
+    }
+
+    /// Take a finished channel tick back and start the next when due,
+    /// whatever the plan worker is doing.
+    fn poll_channel(&mut self) {
+        let Some(link) = self.link.as_mut() else {
+            return;
+        };
+        if let Some(worker) = &self.channel {
+            match worker.try_recv() {
+                Ok(answer) => {
+                    self.channel = None;
+                    link.settle(answer);
+                    self.channel_due = std::time::Instant::now() + TICK;
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => self.channel = None,
+                Err(std::sync::mpsc::TryRecvError::Empty) => return,
+            }
+        }
+        if std::time::Instant::now() < self.channel_due {
+            return;
+        }
+        self.channel_due = std::time::Instant::now() + TICK;
+        if let Some(exchange) = link.exchange() {
+            let url = self.url.clone();
+            let (send, receive) = std::sync::mpsc::channel();
+            self.channel = Some(receive);
+            std::thread::spawn(move || {
+                let _ = send.send(exchange.run(&url));
+            });
         }
     }
 
     pub fn poll(&mut self) -> FetchOutcome {
+        // The channel first: the presenter dispatches a tick's frames
+        // before the generation this hands back (`poll_development`).
+        self.poll_channel();
         if let Some(worker) = &self.worker {
             match worker.try_recv() {
-                Ok(outcome) => {
+                Ok((outcome, design)) => {
                     self.worker = None;
-                    self.due = std::time::Instant::now() + std::time::Duration::from_millis(500);
+                    // A snapshot asked for and not answered (a failed
+                    // request, a 5xx) is asked for again next tick.
+                    if self.asked_design && design.is_none() {
+                        if let Some(link) = self.link.as_mut() {
+                            link.missed_design();
+                        }
+                    }
+                    self.keep_design(design);
+                    self.due = std::time::Instant::now() + TICK;
                     return outcome;
                 }
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
@@ -127,10 +225,16 @@ impl Poller {
             let url = self.url.clone();
             let compat = self.compat.clone();
             let previous = self.identity.clone();
+            // Once the channel is on, live frames come down its poll and
+            // the snapshot is fetched only when asked (LLP 1122 D4).
+            let design = self.link.as_mut().is_none_or(|link| link.take_design());
+            self.asked_design = design;
             let (send, receive) = std::sync::mpsc::channel();
             self.worker = Some(receive);
             std::thread::spawn(move || {
-                let _ = send.send(fetch_changed(&url, &compat, previous.as_deref()));
+                let changed = fetch_changed(&url, &compat, previous.as_deref());
+                let design = design.then(|| fetch_design(&url)).flatten();
+                let _ = send.send((changed, design));
             });
         }
         Ok(None)
@@ -291,7 +395,7 @@ fn envelope_link(html: &[u8]) -> Option<String> {
 /// `href` against `base` — absolute kept, `/path` from the origin,
 /// `./name` and `name` beside the base's last segment. Enough for the
 /// envelope the build emits; not a general resolver.
-fn join(base: &str, href: &str) -> Result<String, String> {
+pub(crate) fn join(base: &str, href: &str) -> Result<String, String> {
     if is_url(href) {
         return Ok(href.to_string());
     }
@@ -449,6 +553,36 @@ mod tests {
     fn a_plan_larger_than_its_envelope_is_refused_as_it_arrives() {
         let error = fetch_app(&serve_endlessly("/app.plan")).unwrap_err();
         assert!(error.contains("16-byte limit"), "unexpected: {error}");
+    }
+
+    /// A 204 from `/__dev/design` is the published plan's own design: a
+    /// snapshot the poller still holds is dropped, not applied later.
+    #[test]
+    fn a_design_204_clears_a_held_snapshot() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let page = format!("http://{}/", listener.local_addr().unwrap());
+        std::thread::spawn(move || {
+            for (reply, connection) in [
+                "HTTP/1.1 200 OK\r\nContent-Length: 7\r\nConnection: close\r\n\r\n{\"s\":1}",
+                "HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n",
+                "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            ]
+            .into_iter()
+            .zip(listener.incoming())
+            {
+                let mut stream = connection.unwrap();
+                assert_eq!(read_request_path(&mut stream), "/__dev/design");
+                let _ = stream.write_all(reply.as_bytes());
+            }
+        });
+        let mut poller = super::Poller::new(page.clone(), "{}".into(), None);
+        poller.keep_design(super::fetch_design(&page));
+        assert_eq!(poller.design.as_deref(), Some("{\"s\":1}"));
+        poller.keep_design(super::fetch_design(&page));
+        assert_eq!(poller.design, None, "a 204 clears it");
+        poller.design = Some("held".into());
+        poller.keep_design(super::fetch_design(&page));
+        assert_eq!(poller.design.as_deref(), Some("held"), "no answer keeps it");
     }
 
     #[test]

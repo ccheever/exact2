@@ -1,4 +1,5 @@
 // Input-only glue: loaded after the baked first pixel, independently of data readiness.
+import "./prompt-glue.js"; // a prompt's Return
 /** An element whose `press` the keyboard reaches only through its tabindex:
  * not one the browser activates itself (the wasm host's handler list, or the
  * JS target's `data-exact-on`). */
@@ -26,10 +27,78 @@ function pointerLine(el, e, lifted = false) {
   const type = e.pointerType === "pen" || e.pointerType === "touch" ? e.pointerType : "mouse";
   return `${(e.clientX - r.left) / (sx || 1) - left},${(e.clientY - r.top) / (sy || 1) - top},${lifted ? 0 : e.buttons},${lifted ? 0 : Math.min(1, Math.max(0, e.pressure || 0))},${type},${e.pointerId ?? 1},${e.clientX},${e.clientY},${modifiers(e)}`;
 }
-export function createInputHandlers({ root, views, retiredViews, ready, inertAncestor, dispatch, release: dispatchRelease = () => {}, velocity = {}, agentMode = false, log = () => {}, documents = null }) {
+/** @ref LLP 1116.004 D5.2 — a `radiogroup` of `radio`s, a value chosen from a few (the segmented
+ * control the shell draws), keyed as WAI-ARIA's radio group and a native one: one Tab stop, its
+ * checked radio or else its first, set as the Tab key goes down, before the browser moves the
+ * focus; and the arrows move the choice, to the next or previous radio, wrapping and past
+ * disabled ones (Left and Right mirrored right to left), focused and pressed. */
+const radiosOf = group => Array.from(group.children ?? []).filter(el => el.getAttribute?.("role") === "radio");
+const radioUsable = el => !el.disabled && el.getAttribute("aria-disabled") !== "true" && el.getClientRects().length > 0;
+const rove = (all, stop) => { for (const r of all) r.tabIndex = r === stop ? 0 : -1; };
+function radioStops(root) {
+  for (const group of root.querySelectorAll('[role="radiogroup"]')) {
+    const all = radiosOf(group);
+    rove(all, all.find(r => r.getAttribute("aria-checked") === "true" && radioUsable(r)) ?? all.find(radioUsable));
+  }
+}
+/** An arrow on a radio group's radio moves its choice; whether it did. */
+function radioArrow(root, event) {
+  const el = event.target, group = el?.parentElement;
+  if (el?.getAttribute?.("role") !== "radio" || group?.getAttribute?.("role") !== "radiogroup" || !root.contains(group)) return false;
+  const rtl = getComputedStyle(group).direction === "rtl";
+  const step = { ArrowDown: 1, ArrowUp: -1, ArrowRight: rtl ? -1 : 1, ArrowLeft: rtl ? 1 : -1 }[event.key];
+  if (!step) return false;
+  event.preventDefault();
+  const all = radiosOf(group), live = all.filter(r => r === el || radioUsable(r));
+  const next = live[(live.indexOf(el) + step + live.length) % live.length];
+  if (next !== el) { rove(all, next); next.focus(); next.click(); }
+  return true;
+}
+/** @ref LLP 1115.000 D4.5 — a `tablist`'s tabs and a `menu`'s items move by the arrow keys, as WAI-ARIA's patterns give
+ * the roles and a web developer expects of them: Left and Right along a tablist (Up and Down when it is vertical: its
+ * `aria-orientation`, or a root tab bar the shell draws as a sidebar), Up and Down in a menu (and into an open one from
+ * outside it), Home and End to the ends, wrapping, past disabled ones. The focus moves and nothing is pressed: a tab's
+ * press is the app's action (a fetch, in Shelf's Discover), so Enter or Space chooses, as a `<button>` takes them. A
+ * tablist is one Tab stop: its selected tab, or the tab the arrows left the focus on. */
+const ROVES = '[role="tablist"], [role="menu"]';
+const roversOf = group => [...group.querySelectorAll(group.getAttribute("role") === "menu" ? 'button, a[href], [role^="menuitem"]' : '[role="tab"]')].filter(el => el.closest(ROVES) === group);
+function tabStops(root) {
+  for (const list of root.querySelectorAll('[role="tablist"]')) {
+    const all = roversOf(list), at = document.activeElement;
+    rove(all, all.includes(at) ? at : all.find(t => t.getAttribute("aria-selected") === "true" && radioUsable(t)) ?? all.find(radioUsable));
+  }
+}
+/** An arrow, Home or End among a tablist's tabs or a menu's items moves the focus; whether it did. */
+function roveArrow(root, event) {
+  const el = event.target, key = event.key, within = el?.closest?.(ROVES);
+  if (!el || !(root.contains(el) || el === document.body)) return false;
+  const open = !within && /^Arrow(Up|Down)$/.test(key) && !el?.matches?.("input, textarea, select, [contenteditable]") ? root.querySelector('[role="menu"]:popover-open') : null;
+  const group = open ?? within;
+  if (!group || !root.contains(group)) return false;
+  const menu = group.getAttribute("role") === "menu", all = roversOf(group), live = all.filter(item => item === el || radioUsable(item));
+  if (!open && !all.includes(el)) return false;
+  const vertical = menu || group.getAttribute("aria-orientation") === "vertical" || group.parentElement?.hasAttribute("data-exact-sidebar"), rtl = getComputedStyle(group).direction === "rtl";
+  const step = (vertical ? { ArrowDown: 1, ArrowUp: -1 } : { ArrowRight: rtl ? -1 : 1, ArrowLeft: rtl ? 1 : -1 })[key];
+  const next = open ? live.at(key === "ArrowDown" ? 0 : -1) : step ? live[(live.indexOf(el) + step + live.length) % live.length] : key === "Home" ? live[0] : key === "End" ? live.at(-1) : null;
+  if (!next) return false;
+  event.preventDefault();
+  if (next !== el) { if (!menu) rove(all, next); next.focus(); }
+  return true;
+}
+export function createInputHandlers({ root, views, retiredViews, ready, inertAncestor, editMenu, dispatch, release: dispatchRelease = () => {}, velocity = {}, agentMode = false, log = () => {}, documents = null }) {
+  // @ref LLP 1005 §Events — a pointer's down goes along the event's own path,
+  // innermost first, to each node's `exactPointerDown` (`pointer` below), from
+  // this one listener at the root's capture, before any element's: a
+  // recognizer that stops the event (a pan taking its contact) takes nothing
+  // from the pointer events, as on the native hosts.
+  // Every holder is fixed before any down runs, as the native hosts fix the
+  // path: a node a handler further in disables or removes still hears the up.
+  root.addEventListener("pointerdown", e => { const path = e.composedPath(); for (const n of path) n.exactPointerDown?.(e, true); for (const n of path) n.exactPointerDown?.(e, false); }, true);
   // @ref LLP 1038 §7 — a plain click on a same-origin link to a declared
   // route stays in this document: a link with its own `press` navigates by
   // it; any other goes to the root's `navigate` handler, as popstate does.
+  // With no `navigate` handler it is the runner's own `go` (LLP 1115.000
+  // D4.3), as Back is its own `back`: a link to a route never reloads the page.
   // A modified or other-button click, a `target` or `download`, is the
   // browser's alone — a pressing link's press does not also run — and so are
   // other origins, fragments of this page and undeclared paths (a file).
@@ -41,16 +110,17 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey
       || (a.target && a.target !== "_self") || a.hasAttribute("download")) { if (press) event.stopPropagation(); return; }
     const url = new URL(a.href), to = url.pathname + url.search, here = to === location.pathname + location.search || to === globalThis.history?.state?.url;
-    const { wasm, writeIn, navigate } = globalThis.exact;
+    const { wasm, writeIn, navigate, go } = globalThis.exact;
     if (url.origin !== location.origin || (here && url.hash) || wasm.exact_route_match(writeIn(to)) !== 1) return;
-    const nav = root.firstElementChild;
-    if (!press && !(nav?.hasAttribute("navigationBack") && nav.exactHandlers?.includes("navigate"))) return;
+    const nav = root.firstElementChild, heard = nav?.hasAttribute("navigationBack") && nav.exactHandlers?.includes("navigate");
     event.preventDefault();
     if (press || here) return;
-    if (!navigate(to)?.ops?.some(op => op.op === "router")) wasm.exact_log(writeIn(`history: link ${JSON.stringify(to)} refused`));
+    if (!(heard ? navigate(to) : go(to))?.ops?.some(op => op.op === "router")) wasm.exact_log(writeIn(`history: link ${JSON.stringify(to)} refused`));
   }, true);
   document.addEventListener("keydown", (event) => {
+    if (event.key === "Tab") { radioStops(root); tabStops(root); } // a radio group's one stop, and a tablist's, before the focus moves
     if (event.isComposing || !ready() || event.defaultPrevented) return;
+    if (event.key === "Enter" || event.key === " ") note(event, true); // a key's press begins (`arrive`, below)
     const editing = event.composedPath().some(el => el?.isContentEditable || el?.matches?.("input, textarea, [role=textbox], [role=searchbox], [role=combobox]"));
     const physical = physicalKey(event);
     const matches = (chord) => {
@@ -89,14 +159,47 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // where its handlers are) activates as one, as it does natively: Enter, or
   // Space unless it is a link, after the key's handlers, unless one
   // prevented it — the bubble phase at the document is after them all (chat F14).
+  // A radio group's arrows move its choice, held or not, after the key's own handlers too; a tablist's and a menu's
+  // move the focus.
   document.addEventListener("keydown", (event) => {
     const el = event.target;
-    if (event.defaultPrevented || event.isComposing || event.repeat || event.metaKey || event.ctrlKey || event.altKey || !ready()) return;
+    if (event.defaultPrevented || event.isComposing || event.metaKey || event.ctrlKey || event.altKey || !ready()) return;
+    if (radioArrow(root, event) || roveArrow(root, event) || event.repeat) return;
+    // @ref LLP 1115.000 D4.14 — Space holds a `<button>` down until its keyup,
+    // when the browser clicks it. A press it declares shows meanwhile, as under
+    // a pointer: a native button's highlight, a `-exact-press-scale`. (The
+    // unsaid dim needs nothing here: it is the browser's own `:active`.)
+    if (event.key === " " && el?.matches?.("button:enabled") && root.contains(el) && (el.hasAttribute("data-button-style") || el.style.getPropertyValue("--exact-press"))) return keyed(el);
     if (typeof el?.matches !== "function" || !root.contains(el) || !pressesByKey(el)) return;
     if (event.key !== "Enter" && !(event.key === " " && el.getAttribute("role") !== "link")) return;
     event.preventDefault();
     el.click();
+    if (event.key === " " && !surface(el)) keyed(el);
   });
+  // @ref LLP 1115.000 D6 — a pressable covering the window is a surface (a
+  // scrim that closes a sheet, a viewer that toggles its bars) and shows no
+  // press, as on iOS (PressFeedback.swift `platformPressDims`). CSS cannot
+  // measure a box against the window, so each press measures the innermost
+  // pressable under it and marks it for the shell's rule, before a frame.
+  const surface = at => {
+    const el = at.closest?.('button, a[href], [data-exact-on~="press"]');
+    if (!el || !root.contains(el)) return false;
+    const r = el.getBoundingClientRect(), page = document.documentElement;
+    return el.toggleAttribute("data-exact-surface", r.width >= page.clientWidth && r.height >= page.clientHeight * .9);
+  };
+  // Space held on a pressable this piece presses by key shows its press (its
+  // `-exact-press-scale`, else the shell's dim) until the key comes up or the
+  // focus leaves, as the browser holds a `<button>` `:active` under Space; so
+  // does a `<button>` whose press is declared.
+  const keyed = el => {
+    const up = e => {
+      if (e.type === "keyup" && e.key !== " ") return;
+      showPress(el, false);
+      removeEventListener("keyup", up, true); el.removeEventListener("blur", up);
+    };
+    showPress(el, true);
+    addEventListener("keyup", up, true); el.addEventListener("blur", up);
+  };
   // @ref LLP 1061 D3 — press feedback by UIKit's rule, not `:active`'s: the
   // innermost node with a `press` handler takes the press (its pressable
   // ancestors, which `:active` would also match, do not), and shows it only
@@ -142,6 +245,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   root.addEventListener("pointerdown", e => {
     if (e.button !== 0 || !e.isPrimary) return;
     release(); // a press whose release never reached the page
+    surface(e.target);
     const el = e.target.closest?.("[data-exact-on~=press],button[data-button-style]");
     if (!el || !root.contains(el) || el.closest(":disabled,[disabled='true']")) return;
     // @ref LLP 1077 D14 — `-exact-press-haptic` plays at the press, as Apple's does:
@@ -160,10 +264,62 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     showPress(press.el, e.clientX >= l && e.clientX <= r && e.clientY >= t && e.clientY <= b);
   }, true);
   for (const type of ["pointerup", "pointercancel"]) document.addEventListener(type, e => { if (e.pointerId === press?.id) release(); }, true);
+  // @ref LLP 1115.000 D4.2 — a route is a page, so the focus follows it, as a careful web app moves it when it
+  // navigates. On a push (or a replace) it goes to the new route's header's heading, else to the route itself; on
+  // Back, to the control whose press pushed the route that left (the row, the link, the button that opened a sheet),
+  // else as on a push. A focus the commit set is left alone: an `autofocus` field, a `focus()` command, anything
+  // now inside the route, or anywhere that is neither the pressed control nor where the focus was as the press began
+  // (so a route that arrives with no press never takes the focus from where a person put it). Another
+  // tab's stack is no arrival (the focus stays on its tab), nor is the first sight of a page. Nothing scrolls, and the
+  // ring is the browser's own `:focus-visible`: none after a pointer's press, one after a key's (`focusVisible` says
+  // which, where the engine takes it). The stack is read from the attributes navigation.js projects from.
+  let shown = null, pressed = null;
+  const origins = new WeakMap();
+  // The press is noted as it begins (the pointer going down; Enter or Space, in the keys' listener above), before the
+  // click any listener navigates by: a link to a route is followed from the document's capture phase (above, and the
+  // JS target's router.js), so its commit arrives before a listener here would hear that click. A click with neither
+  // before it (a script's, the agent's) is noted as it is heard.
+  const note = (e, key) => { if (root.contains(e.target)) pressed = { el: e.target?.closest?.("button, a[href], [tabindex]") ?? null, focus: document.activeElement, key, at: performance.now() }; };
+  document.addEventListener("pointerdown", e => note(e, false), true);
+  document.addEventListener("click", e => { if (!pressed?.el?.contains?.(e.target) || performance.now() - pressed.at > 2000) note(e, e.detail === 0); }, true);
+  const lands = el => !!el?.isConnected && !el.closest("[inert]") && el.getClientRects().length > 0 && !el.matches(":disabled");
+  const titleOf = route => [...route.children].find(c => c.localName === "header")?.querySelector("h1, h2, h3, h4, h5, h6, [role=heading]");
+  // @ref LLP 1115.000 D4.5 — a modal route (a sheet) is a dialog to assistive technology: `role="dialog"` and
+  // `aria-modal`, named by its header's heading, and the focus moves into it and returns on close as it does for any
+  // route (`arrive`). The host's marks (`data-exact-dialog`: "named" when the name is its own too) are not the app's:
+  // a role or a label the author wrote is left as written, and the agent's tree leaves the marks out (agent.js).
+  const dialog = route => {
+    const mark = route.getAttribute("data-exact-dialog"), modal = /^(modal|fullscreen)$/.test(route.getAttribute("navigationPresentation") ?? "") && (mark != null || !route.hasAttribute("role"));
+    if (!modal) { if (mark != null) for (const name of ["data-exact-dialog", "role", "aria-modal", ...(mark ? ["aria-labelledby"] : [])]) route.removeAttribute(name); return; }
+    const title = titleOf(route), names = !!title && !route.hasAttribute("aria-label") && (!!mark || !route.hasAttribute("aria-labelledby"));
+    if (names) { title.id ||= `exact-title-${route.getAttribute("navigationKey")}`; if (route.getAttribute("aria-labelledby") !== title.id) route.setAttribute("aria-labelledby", title.id); }
+    else if (mark) route.removeAttribute("aria-labelledby");
+    if (mark !== (names ? "named" : "")) { route.setAttribute("data-exact-dialog", names ? "named" : ""); route.setAttribute("role", "dialog"); route.setAttribute("aria-modal", "true"); }
+  };
+  const arrive = () => {
+    const nav = root.querySelector("[navigationBack]"), key = nav?.getAttribute("navigationKey");
+    for (const route of nav?.querySelectorAll("[navigationPresentation], [data-exact-dialog]") ?? []) dialog(route);
+    const top = key == null ? null : [...nav.querySelectorAll("[navigationKey]")].find(r => r.getAttribute("navigationKey") === key && r.parentElement.closest("[navigationKey]") === nav);
+    if (!top) return;
+    const routes = [...top.parentElement.children].filter(r => r.hasAttribute("navigationKey")), stack = routes.slice(0, routes.indexOf(top) + 1);
+    const was = shown, active = document.activeElement, by = pressed && performance.now() - pressed.at < 2000 ? pressed : null;
+    shown = stack;
+    if (!was || was[0] !== stack[0] || was.at(-1) === top) return;
+    const back = was.includes(top);
+    if (!back) origins.set(top, was.length === stack.length ? origins.get(was.at(-1)) : by?.el); // a replace keeps where its route came from
+    pressed = null;
+    if (active && active !== document.body && (top.contains(active) || ![by?.el, by?.focus].includes(active))) return;
+    const origin = back ? origins.get(was[was.indexOf(top) + 1]) : null;
+    const to = lands(origin) ? origin : titleOf(top) ?? top;
+    if (!to.hasAttribute("tabindex") && to.tabIndex < 0) { to.tabIndex = -1; to.addEventListener("blur", () => to.removeAttribute("tabindex"), { once: true }); }
+    to.focus({ preventScroll: true, ...(by ? { focusVisible: by.key } : {}) });
+  };
   return {
+    arrive, // once the piece is made (the stack as it stands), then after each commit's tree, its focus commands and its `autofocus`
     // @ref LLP 1005 §3 — `pointerdown`/`pointerup`, DOM's own: the primary
     // button or a touch going down on the node, then up or cancelled (a
-    // cancel is an up). The up is heard on the document, so it arrives
+    // cancel is an up), bubbling to every enabled ancestor that hears either
+    // (Charlie, 2026-10-15). The up is heard on the document, so it arrives
     // wherever the pointer lifts; a pointer capture would also retarget the
     // click there, a press the platforms do not make. LLP 1056 §3 stage 3 —
     // `pointermove`: a free pointer over the node (no button down), or the
@@ -172,7 +328,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     // pointerId,` the modifiers held, from the content box): `fire(29, r)` is down, 30 up, 31 a
     // move. The JS target's pointer.js is the same rule.
     pointer(el, on, fire) {
-      let held = null, last = null, move = null, frame = 0;
+      let held = null, owner = false, last = null, move = null, frame = 0, downOf = null;
       const wants = kind => el.exactHandlers?.includes(kind);
       const record = (e, lifted = false) => pointerLine(el, e, lifted);
       const flush = () => {
@@ -181,18 +337,22 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
         if (m && wants("pointermove") && ready()) fire(31, record(m));
       };
       const moved = e => { last = e; move = e; if (!frame) frame = requestAnimationFrame(flush); };
-      const heldMove = e => { if (e.pointerId === held) moved(e); };
+      // While held: the owner's moves, and every holder's latest point,
+      // which a blur's up reports.
+      const heldMove = e => { if (e.pointerId !== held) return; last = e; if (owner) moved(e); };
       // The end: an up or cancel anywhere in the document, or the pointer
       // leaving it (out of the window, into a frame) or the window losing
       // focus, which this document never hears the up from.
       const ends = [["pointerup", document], ["pointercancel", document], ["pointerout", document], ["blur", window]];
       const up = e => {
         if (e.type === "blur" ? e.target !== window : e.pointerId !== held || (e.type === "pointerout" && e.relatedTarget && e.relatedTarget.localName !== "iframe")) return;
-        held = null;
+        held = null; downOf = null;
         for (const [type, target] of ends) target.removeEventListener(type, up, target === document);
         document.removeEventListener("pointermove", heldMove, true);
         flush();
-        if (wants("pointerup") && ready()) fire(30, record(e.type === "blur" ? last : e, true));
+        // Never for a removed node, nor past a handler further in that
+        // stopped this up (`exactStopped`, glue.js).
+        if (wants("pointerup") && ready() && el.isConnected && !e.exactStopped) fire(30, record(e.type === "blur" ? last : e, true), e);
       };
       const disabled = () => el.matches(":disabled") || el.hasAttribute("disabled") || inertAncestor(el);
       // A free pointer over it: the innermost node hearing moves takes them;
@@ -203,17 +363,22 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
         e.exactPointerMover = el;
         if (held === null && e.buttons === 0 && !disabled()) moved(e);
       });
-      return e => {
-        // The innermost enabled pointer node takes it (the event bubbles
-        // here first from inner ones, which mark it).
+      // `hold`: the walk's first pass, which fixes the holders; then the down.
+      return (e, hold) => {
+        // Its down, unless a handler further in removed or disabled it, or
+        // stopped this down (`exactStopped`, glue.js): it still holds the up and the moves.
+        if (!hold) { if (downOf === e && el.isConnected && !disabled() && wants("pointerdown") && ready() && !e.exactStopped) fire(29, record(e), e); return; }
         // Any button, as the DOM's (studio diary R22); `buttons` says which.
-        if (e.exactPointerOwner || !e.isPrimary || held !== null || disabled()) return;
+        if (!e.isPrimary || held !== null || !el.isConnected || disabled()) return;
+        // The innermost enabled pointer node holds its moves (the walk
+        // reaches it first and marks the event); an ancestor holds only its up.
+        owner = !e.exactPointerOwner;
+        if (!owner && !wants("pointerdown") && !wants("pointerup")) return;
         e.exactPointerOwner = el;
-        held = e.pointerId; last = e;
+        held = e.pointerId; last = e; downOf = e;
         for (const [type, target] of ends) target.addEventListener(type, up, target === document);
         document.addEventListener("pointermove", heldMove, true);
         flush();
-        if (wants("pointerdown") && ready()) fire(29, record(e));
       };
     },
     // Studio diary R22, R3, R19, R17: a `contextmenu` with its point (10),
@@ -225,7 +390,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
       if (!ready()) return;
       if (kind === "beforeunload") return el.isConnected && fire(36, "");
       if (el.matches(":disabled") || inertAncestor(el)) return;
-      if (kind === "wheel") return fire(37, `${pointerLine(el, e).split(",").slice(0, 2)},${e.deltaX},${e.deltaY},${e.deltaMode},${modifiers(e)}`);
+      if (kind === "wheel") return e.exactStopped || fire(37, `${pointerLine(el, e).split(",").slice(0, 2)},${e.deltaX},${e.deltaY},${e.deltaMode},${modifiers(e)}`);
       if (kind === "dragover") { if (e.dataTransfer?.types?.includes("Files")) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; } return; }
       if (kind === "drop") {
         const dt = e.dataTransfer;
@@ -238,7 +403,8 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
           if (found.length) fire(38, `${at}\n${found.join("\n")}`); else log("drop: refused: no file of a type this app declares");
         });
       }
-      if (e.target.closest("input,textarea,[contenteditable]")) return;
+      // A field keeps the browser's own double-click, and a text field its edit menu (navigation.js `editMenu`); a control's input has no edit menu, so its node's `contextmenu` runs (#487).
+      if (kind === "contextmenu" ? editMenu(e.target) : e.target.closest("input,textarea,[contenteditable]")) return;
       e.preventDefault(); e.stopPropagation();
       fire(kind === "contextmenu" ? 10 : 11, kind === "contextmenu" ? pointerLine(el, e) : "");
     },
@@ -330,4 +496,178 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   };
 }
 
-if (globalThis.exact) globalThis.exact.createInputHandlers = createInputHandlers;
+// A same-origin guest joins `tree` as a compact, bounded outline. Access to
+// a sandboxed or cross-origin document is simply absent (@ref LLP 1020 D4).
+export function guestOutline(frame) {
+  let doc;
+  try { doc = frame.contentDocument; } catch { return null; }
+  if (!doc) return null;
+  const outline = [];
+  const visit = (el, depth) => {
+    if (depth > 4 || outline.length >= 32) return;
+    const id = el.id || undefined;
+    const testId = el.getAttribute("data-testid") ?? el.getAttribute("testId") ?? undefined;
+    const text = [...el.childNodes]
+      .filter((n) => n.nodeType === Node.TEXT_NODE)
+      .map((n) => n.textContent.trim())
+      .filter(Boolean)
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .slice(0, 160) || undefined;
+    if (id || testId || text) {
+      outline.push({ guest: true, depth, tag: el.localName, ...(id ? { id } : {}), ...(testId ? { testId } : {}), ...(text ? { text } : {}) });
+    }
+    for (const child of el.children) visit(child, depth + 1);
+  };
+  for (const child of doc.body?.children ?? []) visit(child, 0);
+  return outline;
+}
+function guestDocument(frame) {
+  try {
+    const document = frame.contentDocument;
+    return document ? { document } : { error: "guest is cross-origin" };
+  } catch {
+    return { error: "guest is cross-origin" };
+  }
+}
+export function guestTap(frame, request) {
+  const access = guestDocument(frame);
+  if (access.error) return { guest: true, error: access.error };
+  const { document } = access;
+  const guest = document.defaultView;
+  const x = Number.isFinite(request.x) ? request.x : guest.innerWidth / 2;
+  const y = Number.isFinite(request.y) ? request.y : guest.innerHeight / 2;
+  let target;
+  try { target = request.selector ? document.querySelector(request.selector) : null; }
+  catch { return { guest: true, malformed: true, error: "guest tap has an invalid selector" }; }
+  target ||= document.elementFromPoint(x, y) || document.body;
+  if (!target) return { guest: true, error: "guest tap found no target" };
+  // Script input is intentionally untrusted (@ref LLP 1020 D4;
+  // exact1 20260806-webview-frame-guest-click-delivery).
+  target.dispatchEvent(new guest.PointerEvent("pointerdown", { bubbles: true, composed: true, clientX: x, clientY: y, button: 0, buttons: 1 }));
+  target.dispatchEvent(new guest.PointerEvent("pointerup", { bubbles: true, composed: true, clientX: x, clientY: y, button: 0, buttons: 0 }));
+  target.dispatchEvent(new guest.MouseEvent("click", { bubbles: true, composed: true, clientX: x, clientY: y, button: 0 }));
+  return { tapped: request.id, guest: true };
+}
+export function guestType(frame, request) {
+  const access = guestDocument(frame);
+  if (access.error) return { guest: true, error: access.error };
+  const { document } = access;
+  const guest = document.defaultView;
+  const active = document.activeElement;
+  const editable = active?.matches?.("input,textarea,[contenteditable]") ? active : null;
+  let target;
+  try { target = request.selector ? document.querySelector(request.selector) : null; }
+  catch { return { guest: true, malformed: true, error: "guest type has an invalid selector" }; }
+  target ||= editable || document.querySelector("input,textarea,[contenteditable]");
+  if (!target) return { guest: true, error: "guest type found no target" };
+  // These are the Apple guest script's event shapes, including focus and
+  // isTrusted:false (@ref LLP 1020 D4).
+  target.focus();
+  if (request.key != null) {
+    const key = String(request.key);
+    target.dispatchEvent(new guest.KeyboardEvent("keydown", { key, bubbles: true, composed: true }));
+    target.dispatchEvent(new guest.KeyboardEvent("keyup", { key, bubbles: true, composed: true }));
+    return { typed: request.id, guest: true, key, value: guestValue(target) };
+  }
+  const text = String(request.text ?? "");
+  if ("value" in target) target.value = text; else target.textContent = text;
+  target.dispatchEvent(new guest.InputEvent("input", { data: text, inputType: "insertText", bubbles: true, composed: true }));
+  target.dispatchEvent(new guest.Event("change", { bubbles: true, composed: true }));
+  return { typed: request.id, guest: true, value: guestValue(target) };
+}
+// What a guest field holds, as the reply shows it: a password's is a fixed mark, whatever its length (#134).
+const guestValue = (target) => "value" in target ? (target.type === "password" && target.value ? "•••" : target.value) : target.textContent;
+
+// The agent's `reveal` (ledger F7, shop F11): before a tap or a type, a
+// target whose middle is out of view is scrolled to the middle of its
+// nearest scroll containers, then of the page (across, only as far as it
+// takes) — Playwright's actionability scroll, the web's own `scrollIntoView`. A scroll event reaches the app as a
+// person's scroll would. `scrolled` is where the middle moved from and to;
+// a middle already in view moves nothing.
+export function reveal(el, id) {
+  if (!el?.isConnected) return { error: `no view ${id}` };
+  const middle = () => { const b = viewBox(el); return [b.left + b.width / 2, b.top + b.height / 2]; };
+  const [x, y] = middle();
+  let seen = x >= 0 && y >= 0 && x < innerWidth && y < innerHeight;
+  for (let a = el.parentElement; seen && a && a.id !== "exact-root"; a = a.parentElement) {
+    const cs = getComputedStyle(a), b = a.getBoundingClientRect();
+    if ((cs.overflowX !== "visible" || cs.overflowY !== "visible") && !(x >= b.left && x < b.right && y >= b.top && y < b.bottom)) seen = false;
+  }
+  if (seen || el.closest("[inert]") || ["hidden", "collapse"].includes(getComputedStyle(el).visibility)) return { revealed: id, scrolled: false }; // nor what its tap refuses (hidden or inert): a refusal leaves the page as it was
+  (folded(el) ? el.parentElement : el).scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
+  return { revealed: id, scrolled: true, from: [x, y], to: middle() };
+}
+
+// A text folded into its box's content (LLP 1007.001): `display: contents`, or an inline box under a box that restricts
+// touch. A paragraph's inline runs are not `data-exact-text`; only the paragraph is.
+const folded = el => { const d = getComputedStyle(el).display; return d === "contents" || d === "inline" && el.hasAttribute("data-exact-text"); };
+
+// A view's box as the agent reports it. A folded text has no block box of its own: its box is the anonymous block its
+// text is, as a style-less block child's was — its line boxes along the main axis, and its box's content box across
+// when the box stretches its items (a block, or a flex or grid box that stretches).
+export function viewBox(el) {
+  if (!folded(el)) return el.getBoundingClientRect();
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  const t = range.getBoundingClientRect(), p = el.parentElement;
+  if (!p) return t;
+  const cs = getComputedStyle(p), b = p.getBoundingClientRect(), n = s => parseFloat(cs[s]) || 0;
+  const left = b.left + n("borderLeftWidth") + n("paddingLeft"), right = b.right - n("borderRightWidth") - n("paddingRight");
+  const top = b.top + n("borderTopWidth") + n("paddingTop"), bottom = b.bottom - n("borderBottomWidth") - n("paddingBottom");
+  const flex = /flex|grid/.test(cs.display), row = flex && cs.display.includes("flex") && !cs.flexDirection.startsWith("column");
+  const stretch = !flex || /normal|stretch/.test(cs.alignItems);
+  if (row) return stretch ? new DOMRect(t.x, top, t.width, bottom - top) : t;
+  return stretch ? new DOMRect(left, t.y, right - left, t.height) : t;
+}
+
+// The agent reports attached views in viewport coordinates, including folded text.
+export function layoutBoxes(views, gpu) {
+  const r2 = (x) => Math.round(x * 100) / 100;
+  const nodes = [];
+  for (const [id, el] of [...views].sort((a, b) => a[0] - b[0])) {
+    if (!el.isConnected) continue;
+    const r = gpu?.placementHidden(el) ? new DOMRect() : viewBox(el);
+    const n = { id, x: r2(r.x), y: r2(r.y), w: r2(r.width), h: r2(r.height) };
+    if (el instanceof HTMLIFrameElement) {
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      n.hit = hit === el;
+    }
+    if (el.dataset.scroll === "true") { n.sx = r2(el.scrollLeft); n.sy = r2(el.scrollTop); }
+    nodes.push(n);
+  }
+  return nodes;
+}
+// The agent's select-all before it types, as a person's ⌘A. HTML's "set the selection range" queues `select` only
+// when the selection changes (and Firefox fires none at a disabled control); the promise is that event's, so the
+// driver's next input cannot overtake it and leave its handler reading the selection after the input. Its 2 s bound
+// only stops a hang where no `select` comes (a control disabled before it is dispatched).
+export function selectAll(el) {
+  // Email and number fields keep a selection that `select()` sets and their getters do not show (HTML: `select()`
+  // applies to them, `selectionStart` does not); Chrome's document selection shows a focused field's. Elsewhere
+  // (Firefox's document selection does not) the two reads agree and nothing is awaited.
+  const at = () => {
+    try { if (el.selectionStart != null) return `${el.selectionStart},${el.selectionEnd},${el.selectionDirection}`; } catch {}
+    if (document.activeElement !== el) return null;
+    const s = getSelection();
+    return `${s.type}:${s.direction}:${s}`;
+  }, was = at();
+  let heard, timer;
+  const event = new Promise(resolve => {
+    heard = () => { clearTimeout(timer); el.removeEventListener("select", heard); resolve(); };
+    el.addEventListener("select", heard);
+  });
+  el.select?.();
+  const now = at();
+  if (el.matches(":disabled") || (was !== null && now === was)) {
+    el.removeEventListener("select", heard);
+    return null;
+  }
+  timer = setTimeout(heard, 2000);
+  // An email or number field not focused before or after says nothing either way: a changed selection's `select`
+  // is dispatched by the next frame (Chromium queues it for one), so it is awaited for two.
+  if (was === null || now === null) requestAnimationFrame(() => requestAnimationFrame(heard));
+  return event;
+}
+export const agentInput = { guestOutline, guestTap, guestType, reveal, viewBox, layoutBoxes, selectAll };
+if (globalThis.exact) Object.assign(globalThis.exact, { createInputHandlers, agentInput });

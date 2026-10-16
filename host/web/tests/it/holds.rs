@@ -24,7 +24,7 @@ const SOURCE: &str = r##"component App
       button press=retarget testId="retarget"
         text "retarget"
       text `${count}` testId="count"
-      when shown
+      if shown
         column testId="row" scale=target background-color=color transition="translate -exact-spring(180, 12, 1), scale -exact-spring(180, 12, 1)" swiperight=swipe
           text "row"
 "##;
@@ -254,7 +254,7 @@ fn real_wasm_swipe_takeover_style_commits_and_deletion() {
         text "Enable and return"
       column navigationBack="back" navigationKey=(blocked ? "other" : "held")
         column navigationKey="held" testId="held-route"
-          when shown
+          if shown
             column testId="row" disabled=disabled swiperight=swipe touch-action="pan-y" width=300 height=90 background-color=tint transition=returning
               text "Swipe" height=30
               text "Reply" testId="indicator" swipeIndicator=true opacity=0 scale=0.5 transition="opacity -exact-spring(180, 12, 1), scale -exact-spring(180, 12, 1)"
@@ -267,12 +267,13 @@ fn real_wasm_swipe_takeover_style_commits_and_deletion() {
     std::fs::create_dir_all(&dir).unwrap();
     let plan = contract::bake(contract::compile(source).unwrap(), NoData).unwrap();
     std::fs::write(dir.join("app.plan"), plan.encode()).unwrap();
-    let output = std::process::Command::new("bun")
-        .arg("host/web/tests/holds.mjs")
-        .env("EXACT_MOTION_TEST", &dir)
-        .current_dir(root)
-        .output()
-        .unwrap();
+    let output =
+        std::process::Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
+            .arg("host/web/tests/holds.mjs")
+            .env("EXACT_MOTION_TEST", &dir)
+            .current_dir(root)
+            .output()
+            .unwrap();
     eprintln!("{}", String::from_utf8_lossy(&output.stdout));
     std::fs::remove_dir_all(dir).unwrap();
     assert!(

@@ -1,4 +1,4 @@
-import type { Answer, Sources, Result } from './app.contract.d.ts';
+import type { Answer, Overlay, Sources, Result } from './app.contract.d.ts';
 
 // RealWorld's hosted API (docs.realworld.show). The token is a store secret
 // (LLP 1018): localStorage on the web, the Keychain on Apple.
@@ -19,33 +19,58 @@ type Author = Profile;
 // A mutation's answer runs its `then` (app.contract); what it changes is
 // refetched by its `refreshes` declaration.
 
-// Favorites and follows: `favs` and `follows` are the one store of what the
-// reader pressed, by article and by author, and every view reads its state
-// through them (the `favs` and `follows` resources). A press writes its entry
-// before the request goes (the optimistic flip, read by the declared refresh
-// at the send), the answer replaces it, a failure puts back what was there.
-// The newest press per key wins; a change of reader forgets them all.
+// Favorites and follows: `favs` and `follows` hold what the server last said
+// the reader has favorited and followed, by article and by author. `favs` is
+// joined into every article the list and the article page are answered with
+// (`joined`), so a row reads its own `favorited`; every view reads `follows`
+// through the `follows` resource. A press shows at once through the overlay
+// below, its reply replaces the entry, and a failure leaves it as it was. The
+// newest press per key wins; a change of reader forgets them all.
 type Fav = { slug: string; favorited: boolean; favoritesCount: number };
 type Follow = { username: string; following: boolean };
 const favs = new Map<string, Fav>(), follows = new Map<string, Follow>();
 const presses = new Map<string, number>();
 let press = 0;
-function flip<T>(store: Map<string, T>, key: string, now: T, work: () => Promise<T>, kind: string): Promise<Change> {
-  const before = store.get(key), n = ++press, id = `${kind}:${key}`;
+function flip<T>(store: Map<string, T>, key: string, work: () => Promise<T>, kind: string): Promise<Change> {
+  const n = ++press, id = `${kind}:${key}`;
   presses.set(id, n);
-  store.set(key, now);
   return change(kind, async () => {
-    try {
-      const after = await work();
-      if (presses.get(id) === n) store.set(key, after);
-    } catch (e) {
-      if (presses.get(id) === n) { if (before === undefined) store.delete(key); else store.set(key, before); }
-      throw e;
-    }
+    const after = await work();
+    if (presses.get(id) === n) store.set(key, after);
     return key;
   });
 }
+// A press shows over the answer until the first answer asked after it landed.
+const pressed = (w: { answered: boolean; source: string }, source: string) => w.source === source && !w.answered;
+function favored<T extends Fav>(a: T, writes: readonly { answered: boolean; source: string; args: unknown }[]): T {
+  let shown = a;
+  for (const w of writes) if (pressed(w, 'favorite')) {
+    const [slug, on, count] = w.args as [string, boolean, number];
+    if (slug === a.slug) shown = { ...a, favorited: on, favoritesCount: Math.max(0, count + (on ? 1 : -1)) };
+  }
+  return shown;
+}
+export const overlay: Overlay = (source, _args, answer, writes) => {
+  if (source === 'articles') {
+    const feed = answer as Feed;
+    return { ...feed, articles: feed.articles.map(a => favored(a, writes)) } as never;
+  }
+  if (source === 'article') return favored(answer as Article, writes) as never;
+  if (source === 'followings') {
+    const by = new Map((answer as Follow[]).map(f => [f.username, f]));
+    for (const w of writes) if (pressed(w, 'follow')) {
+      const [username, following] = w.args as [string, boolean];
+      by.set(username, { username, following });
+    }
+    return [...by.values()] as never;
+  }
+  return undefined;
+};
 const forget = () => { favs.clear(); follows.clear(); wrote(); };
+function joined<T extends Fav>(a: T): T {
+  const f = favs.get(a.slug);
+  return f ? { ...a, favorited: f.favorited, favoritesCount: f.favoritesCount } : a;
+}
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 function date(iso: unknown): string {
   const d = new Date(String(iso));
@@ -66,7 +91,7 @@ function errorList(body: Json | null, status: number): string[] {
   }
   return [status === 401 ? 'You need to sign in first.' : `The server answered ${status || 'nothing'}.`];
 }
-async function api(store: Store, path: string, method = 'GET', body?: unknown): Promise<Json> {
+async function api(store: Store, path: string, method = 'GET', body?: unknown, favorite = false): Promise<Json> {
   const headers: Record<string, string> = {};
   const token = store.get('realworld.jwt');
   if (token) headers.Authorization = `Token ${token}`;
@@ -75,14 +100,14 @@ async function api(store: Store, path: string, method = 'GET', body?: unknown): 
   // Linux) a page's sources fetch together, as a browser's do (LLP 1041
   // §8.4). A mutation stays on the ordered lane.
   const read = method === 'GET' ? { exactIndependentHttp: { maxResponseBytes: 4 << 20 } } : {};
-  if (method !== 'GET') wrote();
+  if (method !== 'GET') wrote(favorite);
   let response: Response;
   try {
     response = await fetch(API + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), ...read });
   } catch {
     throw new Failure(0, ['The server could not be reached.']);
   }
-  if (method !== 'GET') wrote();
+  if (method !== 'GET') wrote(favorite);
   const json = response.status === 204 ? {} : await response.json().catch(() => null);
   if (!response.ok) throw new Failure(response.status, errorList(json, response.status));
   return json ?? {};
@@ -97,7 +122,13 @@ const failed = (e: unknown) => (e instanceof Failure ? e.errors : [String(e)]);
 const CACHED = new Set(['popularTags', 'articles', 'article', 'comments', 'profile']);
 const answers = new Map<string, unknown>();
 let writes = 0, asking = ''; // a read that a write began or ended during is not kept
-const wrote = () => { writes++; answers.clear(); };
+// The list and the article as last asked, by source: a favourite's refresh
+// asks them again with the same arguments, and they are answered from here,
+// joined with its reply, rather than from the server. Any other write
+// forgets them.
+const JOINED = new Set(['articles', 'article']);
+const shown = new Map<string, { key: string; value?: unknown }>();
+const wrote = (favorite = false) => { writes++; answers.clear(); if (!favorite) shown.clear(); };
 const keep = (key: string, v: unknown) => {
   if (answers.size >= 64) answers.delete(answers.keys().next().value!);
   answers.set(key, v);
@@ -208,13 +239,12 @@ const sources: Sources = {
   saveSettings: ([image, username, bio, email, password], store) =>
     signIn(store, '/user', { image, username, bio, email, ...(password ? { password } : {}) }, 'PUT'),
   logout: (_, store) => { store.forget('realworld.jwt'); forget(); return { ok: true, errors: [] }; },
-  favorites: () => [...favs.values()],
   followings: () => [...follows.values()],
-  favorite: ([slug, on, count], store) => flip(favs, slug, { slug, favorited: on, favoritesCount: Math.max(0, count + (on ? 1 : -1)) }, async () => {
-    const a = (await api(store, `${slugPath(slug)}/favorite`, on ? 'POST' : 'DELETE')).article;
+  favorite: ([slug, on], store) => flip(favs, slug, async () => {
+    const a = (await api(store, `${slugPath(slug)}/favorite`, on ? 'POST' : 'DELETE', undefined, true)).article;
     return { slug, favorited: !!a?.favorited, favoritesCount: Number(a?.favoritesCount) || 0 };
   }, 'favorite'),
-  follow: ([name, on], store) => flip(follows, name, { username: name, following: on }, async () => {
+  follow: ([name, on], store) => flip(follows, name, async () => {
     const p = (await api(store, `/profiles/${encodeURIComponent(name)}/follow`, on ? 'POST' : 'DELETE')).profile;
     return { username: name, following: !!p?.following };
   }, 'follow'),
@@ -233,12 +263,27 @@ const sources: Sources = {
   addTag: ([session, tags, tag]) => { const t = tag.trim(); return { session, items: t && !tags.includes(t) ? [...tags, t] : tags }; },
   removeTag: ([session, tags, tag]) => ({ session, items: tags.filter(t => t !== tag) }),
 };
+const join = (source: string, v: unknown) =>
+  source === 'articles' ? { ...(v as Feed), articles: (v as Feed).articles.map(joined) } : joined(v as Article);
 export const answer: Answer = (source, args, store, storage) => {
   if (!CACHED.has(source)) return sources[source](args, store, storage);
   const key = answerKey(store.get('realworld.jwt') ?? '', source, args);
-  if (answers.has(key)) return answers.get(key) as ReturnType<Answer>;
-  asking = key;
-  try { return sources[source](args, store, storage); } finally { asking = ''; }
+  const last = shown.get(source);
+  if (last?.key === key && last.value !== undefined) return join(source, last.value) as never;
+  let v: unknown;
+  if (answers.has(key)) v = answers.get(key);
+  else {
+    asking = key;
+    try { v = sources[source](args, store, storage); } finally { asking = ''; }
+  }
+  if (!JOINED.has(source)) return v as never;
+  const entry: { key: string; value?: unknown } = { key };
+  shown.set(source, entry);
+  if (!(v instanceof Promise)) { entry.value = v; return join(source, v) as never; }
+  return v.then(x => {
+    if (shown.get(source) === entry) entry.value = x;
+    return join(source, x);
+  }) as never;
 };
 // The answers this page was rendered with (by the render host, signed out),
 // given once at boot on the web (host/web-js/ts-data.js): this module's own from then on.

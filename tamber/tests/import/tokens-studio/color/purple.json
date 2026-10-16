@@ -1,0 +1,12 @@
+{
+  "colors": {
+    "bg": {
+      "default": {
+        "color": {
+          "value": "{colors.purple.600}",
+          "type": "color"
+        }
+      }
+    }
+  }
+}

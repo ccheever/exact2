@@ -11,7 +11,7 @@ use exact_runner::{
 
 fn app(trigger: &str) -> String {
     format!(
-        "keyframes appear\n  from opacity=0\n  to opacity=1\n\nshape Coin\n  id: number\ncomponent App\n  resource coins = coins() as shape list<Coin>\n  view\n    list virtualized=true height=300 width=400 estimated-item-height=100 testId=\"feed\"\n      each c in coins key=c.id\n        column width=\"100%\" height=100\n          text `${{c.id}}` testId=`coin-${{c.id}}` animation=\"appear 600ms\"{trigger}\n"
+        "keyframes appear\n  from opacity=0\n  to opacity=1\n\nshape Coin\n  id: number\ncomponent App\n  resource coins = coins() as shape Coin[]\n  view\n    list virtualized=true height=300 width=400 estimated-item-height=100 testId=\"feed\"\n      for c in coins key=c.id\n        column width=\"100%\" height=100\n          text `${{c.id}}` testId=`coin-${{c.id}}` animation=\"appear 600ms\"{trigger}\n"
     )
 }
 
@@ -70,6 +70,7 @@ fn report(r: &mut Runner<Data>, offset: f64) -> Advanced {
             port_main: 300.0,
             port_cross: 400.0,
             cross: 400.0,
+            padding: [0.0; 2],
             measurements: c
                 .rows
                 .iter()
@@ -153,4 +154,38 @@ fn with_none_a_row_mounted_ahead_plays_from_its_insertion() {
         let shown = report(&mut r, 250.0);
         assert!(shown.receipts.iter().all(|t| t.receipt.revealed.is_empty()));
     }
+}
+
+/// A host that waits for more travel before its next report still says
+/// where the view is (`collection_shown`): the row that came into the port
+/// starts, and nothing else of the list moves.
+#[test]
+fn a_row_shown_without_a_report_starts_too() {
+    let mut r = boot("");
+    report(&mut r, 0.0);
+    report(&mut r, 0.0);
+    assert!(held(&r, "coin-4"), "a row below the port waits");
+    let feed = (r.kernel())
+        .node_by_key(key(&r, "feed").unwrap())
+        .unwrap()
+        .id;
+    let before = r.collections();
+    // Where the last report left it: nothing new shows.
+    let none = r.collection_shown(feed, 0.0).unwrap();
+    assert!(none.receipts.is_empty());
+    assert!(held(&r, "coin-4"));
+    // The port at 250..550.
+    let shown = r.collection_shown(feed, 250.0).unwrap();
+    assert_eq!(shown.receipts.len(), 1);
+    assert!(!shown.receipts[0].receipt.revealed.is_empty());
+    assert!(!held(&r, "coin-4"));
+    assert_eq!(
+        r.collections(),
+        before,
+        "the window and rows are the last report's"
+    );
+    // Again, and the report that follows: nothing is revealed twice.
+    assert!(r.collection_shown(feed, 250.0).unwrap().receipts.is_empty());
+    let after = report(&mut r, 250.0);
+    assert!(after.receipts.iter().all(|t| t.receipt.revealed.is_empty()));
 }

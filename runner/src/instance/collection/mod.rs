@@ -3,7 +3,6 @@
 mod api;
 mod index;
 mod inset;
-pub(crate) use inset::Insets;
 mod into_view;
 mod nest;
 mod rekey;
@@ -47,16 +46,27 @@ const LEAD_SECONDS: f64 = 0.25;
 /// with any report, whatever its limit.
 const FAR_VIEWPORTS: f64 = 2.0;
 
+/// What a window that leans ([`CollectionFill::lean`]) keeps behind its
+/// travel, in viewports.
+const LEAN_BEHIND: f64 = 0.5;
+
 /// How far the window reaches past the viewport, before and after it: one
 /// viewport each side, and toward the side the list travels, a quarter
-/// second of that travel more, up to two viewports.
-fn lead(viewport: f64, velocity: f64) -> [f64; 2] {
+/// second of that travel more, up to two viewports. A fill that leans keeps
+/// [`LEAN_BEHIND`] of a viewport on the side it travels from.
+fn lead(viewport: f64, fill: CollectionFill) -> [f64; 2] {
+    let velocity = fill.velocity;
     let extra = (velocity.abs() * LEAD_SECONDS).min(viewport * 2.0);
     let k = f64::from_bits(LEAD_SCALE.load(std::sync::atomic::Ordering::Relaxed));
-    if velocity > 0.0 {
-        [viewport * k, (viewport + extra) * k]
+    let behind = if fill.lean && velocity != 0.0 {
+        viewport * LEAN_BEHIND
     } else {
-        [(viewport + extra) * k, viewport * k]
+        viewport
+    };
+    if velocity > 0.0 {
+        [behind * k, (viewport + extra) * k]
+    } else {
+        [(viewport + extra) * k, behind * k]
     }
 }
 
@@ -119,6 +129,9 @@ struct Mounted {
 }
 #[derive(Debug)]
 pub(crate) struct Collection {
+    /// The app modes around the list (LLP 1121 D5): what a row it mounts
+    /// later, on a report, is in.
+    pub(crate) around: super::theme::Around,
     preview: Option<reorder::Preview>,
     /// The gap a grouped session opens here as its target (LLP 1094 D4).
     incoming: Option<reorder_group::Incoming>,
@@ -195,11 +208,6 @@ pub(crate) struct Collection {
     /// What a retiring row may be rebound to another item under (LLP 1078):
     /// `None` when no row of this list can be.
     reuse: Option<Rc<reuse::Reuse>>,
-    /// The padding before the first row and after the last that the next
-    /// report brings ([`Collection::set_insets`]).
-    padding_next: Option<[f64; 2]>,
-    /// The scroll padding at each end, along the axis (@ref LLP 1010 §6.9).
-    scroll_padding: [f64; 2],
 }
 fn index_error(e: index::IndexError) -> InstanceError {
     InstanceError::Collection(e.to_string())
@@ -372,12 +380,12 @@ impl Collection {
         }
         let child_sites = u.sites.children(Some(node), descriptor.arm);
         let [(_, Site::Region(region))] = child_sites else {
-            return Err(invalid("collection needs one direct each"));
+            return Err(invalid("collection needs one direct `for`"));
         };
         let region = *region;
         let row = plan.region(region);
         if row.kind != RegionKind::Each || row.arms.len != 1 {
-            return Err(invalid("collection needs one each arm"));
+            return Err(invalid("collection needs one `for` arm"));
         }
         if !matches!(
             u.sites.children(None, row.arms.iter().next()),
@@ -400,6 +408,11 @@ impl Collection {
             }
         }
         let mut this = Box::new(Self {
+            // What a later row is in, not the visit's re-theme of the rest.
+            around: super::theme::Around {
+                retheme: false,
+                ..u.theme.clone()
+            },
             preview: None,
             incoming: None,
             hidden: None,
@@ -466,8 +479,6 @@ impl Collection {
             end_travel: 0,
             end_sent: f64::NAN,
             reuse,
-            padding_next: None,
-            scroll_padding: [0.0; 2],
         });
         this.update_data(u, frames, true)?;
         Ok(Some(this))
@@ -684,7 +695,7 @@ impl Collection {
                 });
             }
             // A repeated key is the data's error: the repeat takes the
-            // next identity in order (as an `each` does).
+            // next identity in order (as a `for` does).
             let mut dup = 0;
             let ident: Rc<str> = if unique.contains_key(text.as_str()) {
                 let mut ident = text.clone();
@@ -825,10 +836,22 @@ impl Collection {
         update: bool,
         fill: CollectionFill,
     ) -> Result<(), InstanceError> {
+        self.realize_window_with_row(u, frames, update, fill, None)
+    }
+
+    /// A requested row is owed even when its measured height or port is zero.
+    fn realize_window_with_row(
+        &mut self,
+        u: &mut Update<'_>,
+        frames: &[Frame],
+        update: bool,
+        fill: CollectionFill,
+        required: Option<usize>,
+    ) -> Result<(), InstanceError> {
         let limit = fill.limit.filter(|_| !update);
         let mut owed: Vec<std::ops::Range<usize>> = Vec::new();
         let mut port = None;
-        let ranges = if let Some(g) = &self.geometry {
+        let mut ranges = if let Some(g) = &self.geometry {
             let pins = self.pins();
             let focus = self.pin(pins[0]);
             let interaction = self
@@ -842,7 +865,7 @@ impl Collection {
                 .window_led(
                     g.offset,
                     g.port_main,
-                    lead(g.port_main, fill.velocity),
+                    lead(g.port_main, fill),
                     [focus.as_deref(), interaction.as_deref()],
                 )
                 .map_err(index_error)?;
@@ -858,6 +881,13 @@ impl Collection {
             let first = self.bootstrap_first()?;
             std::iter::once(first..self.index.len().min(first + self.bootstrap_rows)).collect()
         };
+        if let Some(position) = required {
+            owed.push(position..position + 1);
+            if !ranges.iter().any(|range| range.contains(&position)) {
+                ranges.push(position..position + 1);
+                ranges.sort_unstable_by_key(|range| range.start);
+            }
+        }
         let mut old: BTreeMap<String, Mounted> = std::mem::take(&mut self.mounted)
             .into_iter()
             .map(|row| {
@@ -871,6 +901,8 @@ impl Collection {
         let is_owed = |p: usize| owed.iter().any(|r| r.contains(&p));
         let toward_start = fill.velocity < 0.0;
         let mut pending = false;
+        // Window rows a slice leaves for the next: retiring rows wait for them.
+        let mut more = 0;
         let mut admitted = std::collections::BTreeSet::new();
         // A retire-only report builds what it owes and nothing optional.
         let building = if fill.no_build {
@@ -888,6 +920,9 @@ impl Collection {
             }
             optional.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)).then(a.2.cmp(&b.2)));
             pending = optional.len() > limit as usize;
+            if !fill.no_build {
+                more = optional.len().saturating_sub(limit as usize);
+            }
             admitted.extend(optional.into_iter().take(limit as usize).map(|(_, _, p)| p));
         }
         // With reuse, the rows nothing mounts are built once the retiring
@@ -924,7 +959,7 @@ impl Collection {
         // A build-only report retires nothing (LLP 1072 §5): rows past the
         // window stay, and the report is pending until an immediate one.
         if fill.create_only && !update {
-            self.build_needed(u, needed, Vec::new(), Vec::new(), None, frames)?;
+            self.build_needed(u, needed, Vec::new(), Vec::new(), None, 0, frames)?;
             let mut kept = false;
             for (text, mut mounted) in old {
                 match self.index.position(&text) {
@@ -1002,7 +1037,7 @@ impl Collection {
         // Rows still needed after the retiring ones may take the kept rows
         // past the window, farthest first.
         let hold = port.filter(|_| reusing && !update);
-        let kept = self.build_needed(u, needed, retiring, kept, hold, frames)?;
+        let kept = self.build_needed(u, needed, retiring, kept, hold, more, frames)?;
         pending |= !kept.is_empty();
         for (_, text, mut mounted) in kept {
             let position = self.index.position(&text).unwrap();
@@ -1124,7 +1159,10 @@ impl Collection {
                 slots.borrow_mut().insert(i as u32, value);
             }
         }
-        let roots = realize(u, None, plan.region(self.region).arms.iter().next(), &inner)?;
+        let around = std::mem::replace(&mut u.theme, self.around.clone());
+        let roots = realize(u, None, plan.region(self.region).arms.iter().next(), &inner);
+        u.theme = around;
+        let roots = roots?;
         let dup = self.dups.get(&position).copied().unwrap_or(0);
         if dup > 0 {
             let ident = self.index.key(position).unwrap_or_default();
@@ -1136,13 +1174,14 @@ impl Collection {
             key: self.keys[position].clone(),
             frame,
             roots,
-            slots,
+            slots: Some(slots),
         })
     }
     /// Preflight the entire report before releasing any other collection's pins.
     fn prepare_feedback(
         &self,
         feedback: &CollectionFeedback,
+        fill: CollectionFill,
     ) -> Result<Option<BTreeMap<ViewId, usize>>, InstanceError> {
         feedback
             .validate()
@@ -1163,52 +1202,6 @@ impl Collection {
         {
             return Ok(None);
         }
-        // Reject batches mentioning retired/unpublished wrappers or epochs atomically.
-        let by_view: BTreeMap<_, _> = self
-            .mounted
-            .iter()
-            .enumerate()
-            .map(|(i, r)| (r.wrapper, i))
-            .collect();
-        if feedback.measurements.iter().any(|m| {
-            by_view
-                .get(&m.view)
-                .is_none_or(|i| self.mounted[*i].epoch != m.epoch)
-        }) {
-            return Ok(None);
-        }
-        let changed_width = self
-            .geometry
-            .as_ref()
-            .is_none_or(|g| g.cross != feedback.cross);
-        if !changed_width {
-            // Each height can fit the kernel's f32 geometry while their sum
-            // does not. Validate the complete replacement against retained
-            // heights before changing epochs, geometry, the index or view IDs.
-            // Only mounted rows are visited; no clone/scan of the N-row index.
-            let mut removed = 0.0;
-            let mut added = 0.0;
-            for measurement in &feedback.measurements {
-                let position = self.mounted[by_view[&measurement.view]].position;
-                removed += self.index.height(position).unwrap();
-                added += measurement.size;
-            }
-            let extent = (self.index.total_height() - removed).max(0.0) + added;
-            if !extent.is_finite() || extent > f32::MAX as f64 {
-                return Err(InstanceError::InvalidCollectionFeedback);
-            }
-        }
-        Ok(Some(by_view))
-    }
-    /// Called only after preflight and release of the transferred pin categories.
-    fn feedback(
-        &mut self,
-        u: &mut Update<'_>,
-        frames: &[Frame],
-        mut feedback: CollectionFeedback,
-        by_view: &BTreeMap<ViewId, usize>,
-        mut fill: CollectionFill,
-    ) -> Result<(bool, Option<CollectionEdges>), InstanceError> {
         // @ref LLP 1072 §5 — a build-only report keeps the port, width and
         // pins: a report that changes them may retire, so it is immediate.
         if fill.create_only
@@ -1230,11 +1223,81 @@ impl Collection {
         {
             return Err(InstanceError::InvalidCollectionFeedback);
         }
-        // @ref LLP 1010 §6.9 — a new padding (a rotation's safe area) is no
-        // travel: the anchor is taken on the old range and restored on the
-        // new, so a followed end follows it.
-        let padding = self.padding_next.take().unwrap_or(self.padding());
-        if padding == self.padding() {
+        // Reject batches mentioning retired/unpublished wrappers or epochs atomically.
+        let by_view: BTreeMap<_, _> = self
+            .mounted
+            .iter()
+            .enumerate()
+            .map(|(i, r)| (r.wrapper, i))
+            .collect();
+        let mut max_value = self
+            .index
+            .total_height()
+            .max(feedback.padding[0])
+            .max(feedback.padding[1]);
+        for m in &feedback.measurements {
+            if by_view
+                .get(&m.view)
+                .is_none_or(|i| self.mounted[*i].epoch != m.epoch)
+            {
+                return Ok(None);
+            }
+            max_value = max_value.max(m.size);
+        }
+        let changed_width = self
+            .geometry
+            .as_ref()
+            .is_none_or(|g| g.cross != feedback.cross);
+        if changed_width && !self.zero_heights.is_empty() {
+            max_value = max_value.max(self.estimated_height);
+        }
+        if self.index.padded_extent_definitely_fits(max_value) {
+            return Ok(Some(by_view));
+        }
+        let mut preview = self.index.preview_heights();
+        if changed_width {
+            // Width invalidation revives confirmed zero rows at the estimate;
+            // measurements from the old width will be discarded.
+            for key in &self.zero_heights {
+                if let Some(position) = self.index.position(key) {
+                    preview.set_height(position, self.estimated_height);
+                }
+            }
+        } else {
+            // Linear subtraction/addition can round below the committed binary
+            // sum. Preview only changed leaves and their ancestors, without
+            // cloning/scanning the N-row index or allocating for equal samples.
+            for measurement in &feedback.measurements {
+                let position = self.mounted[by_view[&measurement.view]].position;
+                preview.set_height(position, self.index.denoised(position, measurement.size));
+            }
+        }
+        let extent = preview.total_height();
+        // Physical content size and relative end correction add padding in
+        // different orders; both must fit native geometry before any mutation.
+        let [leading, trailing] = feedback.padding;
+        let padded_extent = (extent + leading + trailing).max(extent + trailing + leading);
+        if !padded_extent.is_finite() || padded_extent > f32::MAX as f64 {
+            return Err(InstanceError::InvalidCollectionFeedback);
+        }
+        Ok(Some(by_view))
+    }
+    /// Called only after preflight and release of the transferred pin categories.
+    fn feedback(
+        &mut self,
+        u: &mut Update<'_>,
+        frames: &[Frame],
+        mut feedback: CollectionFeedback,
+        by_view: &BTreeMap<ViewId, usize>,
+        mut fill: CollectionFill,
+    ) -> Result<(bool, Option<CollectionEdges>), InstanceError> {
+        // @ref LLP 1010 §6.9 — the padding the host laid out, taken in now
+        // that the report is accepted. A new padding (a rotation's safe area)
+        // is no travel: the anchor is taken on the old range and restored on
+        // the new, so a followed end follows it.
+        let padding = feedback.padding;
+        let padding_changed = padding != self.padding();
+        if !padding_changed {
             if let Some(edge) = self.travel_within(u, &feedback, by_view, fill)? {
                 self.reveal_shown(u);
                 return Ok((false, edge));
@@ -1325,7 +1388,7 @@ impl Collection {
         }
         self.check_preview_height(u)?;
         self.restore(anchor)?;
-        self.settle_into_view(u.env.plan, feedback.offset);
+        self.settle_into_view(u, feedback.offset);
         self.realize_window(u, frames, false, fill)?;
         self.reveal_shown(u);
         self.settle_start(extent);
@@ -1333,7 +1396,7 @@ impl Collection {
         // Receiving a newer sequence without changing rows/extent/correction is
         // a fact update, not a new frame (avoids post-layout feedback loops).
         now.scroll_sequence = previous.scroll_sequence;
-        let changed = previous != now;
+        let changed = padding_changed || previous != now;
         if changed {
             advance(&mut self.revision)?;
         }

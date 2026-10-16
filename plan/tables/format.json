@@ -124,12 +124,17 @@
         {
           "name": "owner",
           "codec": "opt:arms",
-          "_comment": "@ref LLP 1017.000 (child state): the arm whose instance owns this slot — an `each` row, a `when` or `match` arm. The slot is created, its init evaluated in that arm's frames, when the arm instance is created, and dropped with it. None: a root slot."
+          "_comment": "@ref LLP 1017.000 (child state): the arm whose instance owns this slot — a `for` row, an `if` or `match` arm. The slot is created, its init evaluated in that arm's frames, when the arm instance is created, and dropped with it. None: a root slot."
         },
         {
           "name": "late",
           "codec": "bool",
           "_comment": "@ref LLP 1017.000 (child state): a root slot holding the state of a child used outside every region; its init runs once at the boot render, after boot settlement (so it may read derives and resources), not with the other root slots before it. Always false when owner is set."
+        },
+        {
+          "name": "persist",
+          "codec": "bool",
+          "_comment": "@ref LLP 1116 D5 (`state ... persist`): a root slot the host keeps across launches. Boot takes the store's value under `exact.state.<name>` where it decodes to the slot's type (else the initializer's value stands, and the mismatch is journaled); after every commit that stands the store holds the slot's value. Only a root slot (no owner, not late) of a number, string or bool, or an option or list of those."
         }
       ]
     },
@@ -354,12 +359,66 @@
         {
           "name": "keyed",
           "codec": "bool",
-          "_comment": "@ref LLP 1092 D7, D8: `key=expr`: a changed key (compared as an `each` key is) re-arms the timer from the commit's time."
+          "_comment": "@ref LLP 1092 D7, D8: `key=expr`: a changed key (compared as a `for` key is) re-arms the timer from the commit's time."
         },
         {
           "name": "key",
           "codec": "code",
           "_comment": "@ref LLP 1092 D9: the key, a string, number or bool; the constant `true` when not keyed."
+        }
+      ]
+    },
+    {
+      "name": "sequences",
+      "_comment": "@ref LLP 1125 D2, D3: each `sequence NAME when gate key=key` and its `play(tracks, bpm=, from=, countIn=, clock=, clockOut=, ended=)`. The gate and key are a task's (LLP 1092 D9); the arguments are plan code the runner evaluates after each commit's settlement and compares by value. An omitted argument is a constant: `from` 0, `countIn` [], `clock` and `clockOut` \"\".",
+      "fields": [
+        {
+          "name": "name",
+          "codec": "str"
+        },
+        {
+          "name": "gated",
+          "codec": "bool"
+        },
+        {
+          "name": "gate",
+          "codec": "code"
+        },
+        {
+          "name": "keyed",
+          "codec": "bool"
+        },
+        {
+          "name": "key",
+          "codec": "code"
+        },
+        {
+          "name": "tracks",
+          "codec": "code"
+        },
+        {
+          "name": "bpm",
+          "codec": "code"
+        },
+        {
+          "name": "from",
+          "codec": "code"
+        },
+        {
+          "name": "count_in",
+          "codec": "code"
+        },
+        {
+          "name": "clock",
+          "codec": "code"
+        },
+        {
+          "name": "clock_out",
+          "codec": "code"
+        },
+        {
+          "name": "ended",
+          "codec": "opt:actions"
         }
       ]
     },
@@ -421,7 +480,10 @@
     {
       "name": "surfaces",
       "fields": [
-        { "name": "mode", "codec": "enum:SurfaceArgsMode" },
+        {
+          "name": "mode",
+          "codec": "enum:SurfaceArgsMode"
+        },
         {
           "name": "name",
           "codec": "str"
@@ -479,6 +541,11 @@
         {
           "name": "expr",
           "codec": "code"
+        },
+        {
+          "name": "written",
+          "codec": "bool",
+          "_comment": "@ref LLP 1115.000 D2: whether the author wrote this row on this node: an attribute of the node, or a row of a `style` its `class` names. False for a row the compiler implies (a tag's fixed row, a heading's size and weight, a link run's colour, a sheet's rows, a row derived from another). Set where lowering emits the row; where two rows set one property, the winner's. The runner hands a style row's to the kernel, which keeps it beside the row (`StyleProps::written`); a prop row's is carried and read by nothing yet."
         }
       ]
     },
@@ -608,28 +675,96 @@
       ]
     },
     {
+      "name": "theme",
+      "_comment": "@ref LLP 1095 D4: the app's `theme`, one row an entry: its name, the role it overrides as a row writes it (`-exact-secondary-label`, `Canvas`; empty for none), and the colour text it stands for, which names no entry. A colour string naming an entry or an overridden role reads that text, in the compiler and when the runner sets a row.",
+      "fields": [
+        {
+          "name": "name",
+          "codec": "str"
+        },
+        {
+          "name": "role",
+          "codec": "str"
+        },
+        {
+          "name": "value",
+          "codec": "str"
+        },
+        {
+          "name": "slices",
+          "codec": "range:theme_slices",
+          "_comment": "@ref LLP 1121 D5, D7: a token that varies by an app axis has one slice per full app tuple, in tuple order (mixed radix over `axes`, the first axis most significant); `value` is the default tuple's. Empty for a token that does not vary."
+        }
+      ]
+    },
+    {
+      "name": "theme_slices",
+      "_comment": "@ref LLP 1121 D5: one token's colour text for one full app tuple; a `theme` row's `slices` range names its own.",
+      "fields": [
+        {
+          "name": "value",
+          "codec": "str"
+        }
+      ]
+    },
+    {
+      "name": "axes",
+      "_comment": "@ref LLP 1121 D5: the app's axes in declaration order, each with its values joined by `|`, the first the default. `-exact-mode` pins a node's value per axis; the window's are `setMode`'s.",
+      "fields": [
+        {
+          "name": "name",
+          "codec": "str"
+        },
+        {
+          "name": "values",
+          "codec": "str"
+        }
+      ]
+    },
+    {
       "name": "hatches",
       "_comment": "@ref LLP 1075.003.000.001 §4.3: each hatch word app.json declares, with the platforms whose module handles it as a mask (bit 0 ios, 1 tvos, 2 macos, 3 web, 4 linux, 5 windows, 6 android; a plain list is every bit). A host calls a word only where its bit is set, so a platform taken off a word stops being called with the next bundle.",
       "fields": [
-        { "name": "word", "codec": "str" },
-        { "name": "platforms", "codec": "u16" }
+        {
+          "name": "word",
+          "codec": "str"
+        },
+        {
+          "name": "platforms",
+          "codec": "u16"
+        }
       ]
     },
     {
       "name": "texts",
       "_comment": "@ref LLP 1060 D3: one localized text, `{name}` placeholders unfilled. Within a locale, sorted by key.",
       "fields": [
-        { "name": "key", "codec": "str" },
-        { "name": "text", "codec": "str" }
+        {
+          "name": "key",
+          "codec": "str"
+        },
+        {
+          "name": "text",
+          "codec": "str"
+        }
       ]
     },
     {
       "name": "locales",
       "_comment": "@ref LLP 1060 D3: one strings table per locale (BCP 47 name). Row 0 is the base; the rest are in name order. rtl is the CLDR script direction, compiled once. Table names remain for data-only strings. Only the keys the app's `t` calls name.",
       "fields": [
-        { "name": "name", "codec": "str" },
-        { "name": "rtl", "codec": "bool" },
-        { "name": "texts", "codec": "range:texts" }
+        {
+          "name": "name",
+          "codec": "str"
+        },
+        {
+          "name": "rtl",
+          "codec": "bool"
+        },
+        {
+          "name": "texts",
+          "codec": "range:texts"
+        }
       ]
     }
   ],
@@ -740,7 +875,16 @@
       "nexttrack",
       "stop",
       "fullscreenchange",
-      "keyup"
+      "keyup",
+      "keycapture",
+      "intersect",
+      "focusin",
+      "focusout",
+      "close",
+      "toggle",
+      "scrollend",
+      "beforeinput",
+      "midimessage"
     ]
   },
   "_opcodes": "The expression VM: a stack machine over values with a small locals stack (`BindLocal` pops into it, `LoadLocal` copies from it, `DropLocal` pops it) for names an inline `match` binds and the item and index a `Map`/`Filter` callback binds. Each opcode names its operand layout; the decoder validates framing and every index operand. `depth` operands count enclosing instance scopes (0 = innermost). Type inference guarantees stack discipline; the VM still traps, never UB.",
@@ -991,7 +1135,7 @@
       "operands": [
         "u16"
       ],
-      "_comment": "LLP 1062 D8: the position (a number from 0) of the `each` row `depth` scopes out, as `each item, i in list` names it."
+      "_comment": "LLP 1062 D8: the position (a number from 0) of the `for` row `depth` scopes out, as `for item, i in list` names it."
     },
     {
       "name": "Map",
@@ -1013,7 +1157,9 @@
         "idx:resources"
       ],
       "_comment": "@ref LLP 1109 D3: `failure(x)`: once the resource settled, `none` while its latest request for its current arguments has not failed, else `some` of the compiler's `Failure` record, `{ code, message }` by position."
-    }
+    },
+    { "name": "FailedMutation", "operands": ["idx:mutations"] },
+    { "name": "FailureMutation", "operands": ["idx:mutations"] }
   ],
   "_stdlib": "The enumerated roster (LLP 1004 D2/D4): every callable an expression may name, with its parameter types and return type (`any` = one of number, string, bool, list). The compiler checks calls against this table; the runner's VM implements each entry once; entries are added by fixture, never by speculation. LLP 1038 D3: Router and Entry name reserved record shapes; list<Router>, list<Entry>, and list<string> are typed lists.",
   "stdlib": [
@@ -1221,9 +1367,10 @@
     },
     {
       "name": "formatNumber",
-      "params": ["number", "\"compact\""],
+      "params": ["number", "\"compact\" | \"decimal\" | \"currency\" | \"percent\"", "\"USD\" | \"EUR\" | \"GBP\" | \"JPY\" | \"CNY\" | \"INR\" | \"CAD\" | \"AUD\" | \"NZD\" | \"HKD\" | \"SGD\" | \"CHF\" | \"SEK\" | \"NOK\" | \"DKK\" | \"PLN\" | \"MXN\" | \"BRL\" | \"KRW\" | \"ZAR\" | \"TWD\" | \"ILS\" | \"PHP\" | \"VND\""],
+      "optional": ["\"\""],
       "returns": "string",
-      "_comment": "@ref LLP 1054.000.003 D3/D7/D8: Intl.NumberFormat(\"en-US\", { notation: \"compact\", roundingMode: \"trunc\", signDisplay: \"negative\" }). The linked capability `format`."
+      "_comment": "@ref LLP 1054.000.003 D3/D7/D8: `compact` is Intl.NumberFormat(\"en-US\", { notation: \"compact\", roundingMode: \"trunc\", signDisplay: \"negative\" }). @ref LLP 1116 D8: `decimal` is Intl.NumberFormat(\"en-US\") (grouped, at most three fraction digits), `currency` with an ISO 4217 code { style: \"currency\", currency } (`$1,481.47`, `-$5.00`, the code's own fraction digits), `percent` { style: \"percent\" } (`26%`): each rounds the value's shortest decimal digits half away from zero, as ICU does, and signs a negative zero. The code is written only with `currency`, and the compiler fills `\"\"` for a call that omits it. Every style prints `\"\"` for a non-finite value (D7). The linked capability `format`."
     },
     {
       "name": "frame",
@@ -1296,7 +1443,19 @@
       "name": "elementFromPoint",
       "params": ["number", "number"],
       "returns": "option<string>",
-      "_comment": "@ref LLP 1094 D10: DOM's `document.elementFromPoint(x, y)?.closest(\"[id]\")?.id` over `frame`'s boxes: the `id` of the front-most laid-out box at the viewport point (every scroll applied, no transforms; ancestors' overflow clips; `pointer-events: none`, `display: none` and `visibility: hidden` skipped; LLP 1083.000's paint order), or of its nearest ancestor with one; `none` where no box or ancestor has one. Actions only."
+      "_comment": "@ref LLP 1094 D10: DOM's `document.elementFromPoint(x, y)?.closest(\"[id]\")?.id` over `frame`'s boxes: the `id` of the front-most laid-out box at the viewport point (every scroll and transform applied; ancestors' overflow clips; `pointer-events: none`, `display: none` and `visibility: hidden` skipped; LLP 1083.000's paint order), or of its nearest ancestor with one; `none` where no box or ancestor has one. Actions only."
+    },
+    {
+      "name": "elementsFromPoint",
+      "params": ["number", "number"],
+      "returns": "list<string>",
+      "_comment": "@ref LLP 1094 D10 (2026-10-11): action-only point read; own nonempty ids of every hit node, including hit ancestors, front to back, with elementFromPoint's skips and transforms."
+    },
+    {
+      "name": "querySelectorAll",
+      "params": ["string"],
+      "returns": "list<string>",
+      "_comment": "@ref LLP 1075.003 §9.1 (2026-10-11): action-only structural read. Only [data-<declared word>~=\"value\"] is accepted; own ids of mounted, displayed, non-inert matches in tree order."
     },
     {
       "name": "parseNumber",

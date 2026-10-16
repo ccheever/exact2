@@ -34,6 +34,9 @@ pub struct Fetch {
     pub method: &'static str,
     pub path: String,
     pub body: Option<Json>,
+    /// Immutable device-owned upload bytes; never interpreted as JSON.
+    pub bytes: Option<Vec<u8>>,
+    pub headers: std::collections::BTreeMap<String, String>,
     /// Names this exchange: its reply is delivered with it, and a reply
     /// naming another (an earlier round's, a closed client's) is refused.
     pub exchange: String,
@@ -45,6 +48,8 @@ impl Fetch {
             method: "GET",
             path,
             body: None,
+            bytes: None,
+            headers: snapback4_device::engine::headers(),
             exchange: String::new(),
         }
     }
@@ -53,14 +58,19 @@ impl Fetch {
             method: "POST",
             path,
             body: Some(body),
+            bytes: None,
+            headers: snapback4_device::engine::headers(),
             exchange: String::new(),
         }
     }
     pub fn to_json(&self) -> Json {
-        let mut value =
-            json!({"method": self.method, "path": self.path, "exchange": self.exchange});
+        let mut value = json!({"method": self.method, "path": self.path, "headers": self.headers, "exchange": self.exchange});
         if let Some(body) = &self.body {
             value["body"] = body.clone();
+        }
+        if let Some(bytes) = &self.bytes {
+            value["bodyBytes"] =
+                json!(bytes.iter().map(|b| format!("{b:02x}")).collect::<String>());
         }
         value
     }
@@ -493,6 +503,37 @@ impl Client {
         Ok(reply)
     }
 
+    /// Copy an upload dependency into the device's single outbox before any network I/O.
+    pub fn upload_and_place(
+        &mut self,
+        core: &mut dyn Core,
+        op: &str,
+        args: Json,
+        now: i64,
+        key: &str,
+        mut upload: Json,
+    ) -> Result<Json, String> {
+        self.require_open(core)?;
+        let id = self.write_id(core, key)?;
+        let seq = ok(core.call(json!({"op":"next_submission"})))?;
+        let state = ok(core.call(json!({"op":"sync_state", "capture":false})))?;
+        upload["store_id"] = state["store_id"].clone();
+        let device = self.device(core)?;
+        let new_ids: Vec<_> = (0..8).map(|i| keyed_id(&device, key, Some(i))).collect();
+        let entry = json!({"id":id, "seq":seq, "op":op, "args":args, "viewer":self.config.viewer,
+            "now":now, "new_ids":new_ids, "predicted":[], "predictable":false, "upload":upload});
+        let raw = core.call(json!({"op":"admit_upload", "entry":entry}))?;
+        if let Some(write) = raw.get("write") {
+            return Ok(write.clone());
+        }
+        let admitted = ok(Ok(raw))?;
+        lock(&self.shared).revision += 1;
+        if let Some(write) = admitted.get("write") {
+            return Ok(write.clone());
+        }
+        Ok(json!({"id":id, "state":"pending", "newIds":new_ids}))
+    }
+
     /// A write the device refused at admission (its prediction refused it,
     /// as the server would on the same rows, or the device could not admit
     /// it) is terminal, as in Snapback's own client (`mutate`'s local
@@ -858,6 +899,8 @@ impl Client {
             method: "POST",
             path: "/auth/refresh".into(),
             body: None,
+            bytes: None,
+            headers: snapback4_device::engine::headers(),
             exchange: String::new(),
         };
         self.exchanges += 1;

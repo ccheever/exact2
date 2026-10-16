@@ -1,9 +1,11 @@
 //! The root font size (LLP 1069.000 D3): the host reads it from the
 //! platform — Dynamic Type on iOS, the browser's root size on the web, 16
-//! elsewhere — and the app may set its own over it, as `:root { font-size }`
-//! sets one over the browser's setting. It is layout, not a fact: no
-//! resource is asked again, and the commit only re-resolves `rem`/`em` and
-//! what inherits the root's size.
+//! times the font scale on Android, 16 elsewhere — and the app may set its
+//! own over it, as `:root { font-size }` sets one over the browser's
+//! setting. It is layout, not a fact: no resource is asked again, and the
+//! commit only re-resolves `rem`/`em` and what inherits the root's size.
+//! The display's scale is the other layout input a host reads from the
+//! platform (LLP 1115.000 D10.3): a hairline is one device pixel of it.
 use super::{DataSource, Runner, RunnerError};
 use exact_kernel::{CommitReceipt, LayoutError};
 use exact_plan::Value;
@@ -12,8 +14,25 @@ use exact_plan::Value;
 /// host keeps setting while the app's stands and which `"medium"` restores.
 #[derive(Clone, Copy, Default)]
 pub(crate) struct RootFont {
-    app: Option<f64>,
+    app: Option<AppSize>,
     host: f64,
+}
+
+/// The app's size: px, which stands over the host's, or a percentage of
+/// the host's (`"125%"`, CSS's percentage of `medium`), which follows it.
+#[derive(Clone, Copy)]
+enum AppSize {
+    Px(f64),
+    Of(f64),
+}
+
+impl AppSize {
+    fn px(self, host: f64) -> f64 {
+        match self {
+            AppSize::Px(px) => px,
+            AppSize::Of(ratio) => host * ratio,
+        }
+    }
 }
 
 /// What the kernel takes: finite and above 0 as the f32 it stores.
@@ -39,21 +58,30 @@ impl<D: DataSource> Runner<D> {
 
     /// Set the host's root font size and commit what it moves, in one
     /// commit; the same size again commits nothing, and so does any size
-    /// while the app's `setRootFontSize` stands (it is kept for when the
-    /// app hands the size back). A size that is not finite and positive is
-    /// journaled and refused, changing nothing.
+    /// while the app's `setRootFontSize(px)` stands (it is kept for when the
+    /// app hands the size back). Under the app's percentage the root is
+    /// that share of the new size. A size that is not finite and positive,
+    /// or whose share is not, is journaled and refused, changing nothing.
     pub fn set_root_font_size(&mut self, px: f64) -> Result<Option<CommitReceipt>, RunnerError> {
-        if !fits(px) {
+        let root = match self.root_font.app {
+            Some(app) => app.px(px),
+            None => px,
+        };
+        if !fits(px) || !fits(root) {
             self.log(format!(
                 "root font size {} refused",
                 exact_num::Shortest(px)
             ));
             return Err(RunnerError::Kernel(LayoutError::InvalidRootFontSize.into()));
         }
+        let host = self.root_font.host;
         if self.root_font.app.is_some() {
             self.root_font.host = px;
+        }
+        if let Some(AppSize::Px(_)) = self.root_font.app {
             return Ok(None);
         }
+        let px = root;
         let previous = self.kernel.root_font_size();
         if !self
             .kernel
@@ -67,18 +95,67 @@ impl<D: DataSource> Runner<D> {
             // The kernel applies the size with the next commit; put back
             // the one the tree was laid out at.
             let _ = self.kernel.set_root_font_size(previous);
+            self.root_font.host = host;
         }
         result.map(Some)
     }
 
-    /// The app's `setRootFontSize(px)`, or `("medium")` for the host's
-    /// size again, inside the commit of the action that called it: the
-    /// kernel lays out at the size in that same commit. `false`, and a
-    /// journal line, for anything else, which changes nothing.
+    /// The display's scale, device pixels a px, as last set; 1 until a host
+    /// says (LLP 1115.000 D10.3).
+    pub fn display_scale(&self) -> f64 {
+        self.kernel.display_scale() as f64
+    }
+
+    /// Set the display's scale, which a hairline (`-exact-hairline`) is one
+    /// device pixel of: the host's fact, told as the root font size is and
+    /// again when the window moves to another display. Where a row is a
+    /// hairline it commits what that moves, in one commit; where none is,
+    /// or it is the scale already set, it commits nothing and the next
+    /// hairline written resolves against it. A scale that is not finite and
+    /// positive is journaled and refused, changing nothing.
+    pub fn set_display_scale(&mut self, scale: f64) -> Result<Option<CommitReceipt>, RunnerError> {
+        if !fits(scale) {
+            self.log(format!(
+                "display scale {} refused",
+                exact_num::Shortest(scale)
+            ));
+            return Err(RunnerError::Kernel(LayoutError::InvalidDisplayScale.into()));
+        }
+        let previous = self.kernel.display_scale();
+        let changed = self
+            .kernel
+            .set_display_scale(scale as f32)
+            .map_err(RunnerError::Kernel)?;
+        if !changed || !self.kernel.has_hairlines() {
+            return Ok(None);
+        }
+        let result = self.commit_again(Vec::new(), "display scale");
+        if result.is_err() {
+            let _ = self.kernel.set_display_scale(previous);
+        }
+        result.map(Some)
+    }
+
+    /// The app's `setRootFontSize(px)`, `("125%")` for a share of the
+    /// host's size that follows it, or `("medium")` for the host's size
+    /// again, inside the commit of the action that called it: the kernel
+    /// lays out at the size in that same commit. `false`, and a journal
+    /// line, for anything else, which changes nothing.
     pub(super) fn app_root_font_size(&mut self, args: &[Value]) -> bool {
+        let host = match self.root_font.app {
+            Some(_) => self.root_font.host,
+            None => self.root_font_size(),
+        };
         let app = match args {
             [v] if v.as_str() == Some("medium") => None,
-            [Value::Number(px)] if fits(*px) => Some(*px),
+            [Value::Number(px)] if fits(*px) => Some(AppSize::Px(*px)),
+            [v] if v
+                .as_str()
+                .and_then(exact_num::css_percent)
+                .is_some_and(|r| fits(host * r)) =>
+            {
+                v.as_str().and_then(exact_num::css_percent).map(AppSize::Of)
+            }
             _ => {
                 let mut said = String::new();
                 for (i, a) in args.iter().enumerate() {
@@ -87,15 +164,13 @@ impl<D: DataSource> Runner<D> {
                     }
                     crate::agent::untyped_json(a, &mut said);
                 }
-                self.log(format!("setRootFontSize({said}) refused: the root font size is a number of px above 0, or \"medium\""));
+                self.log(format!("setRootFontSize({said}) refused: the root font size is a number of px above 0, a percentage of the host's above 0 (\"125%\"), or \"medium\""));
                 return false;
             }
         };
-        if self.root_font.app.is_none() {
-            self.root_font.host = self.root_font_size();
-        }
+        self.root_font.host = host;
         self.root_font.app = app;
-        let px = app.unwrap_or(self.root_font.host);
+        let px = app.map_or(host, |a| a.px(host));
         // Checked by `fits`, or the host's, which the kernel took before.
         let _ = self.kernel.set_root_font_size(px as f32);
         true

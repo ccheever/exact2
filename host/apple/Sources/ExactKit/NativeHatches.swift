@@ -46,6 +46,10 @@ enum HostCover: Equatable {
     struct Edges: Equatable { var top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat }
     case edges(Edges)
     case whole
+    /// A scroller UIKit insets (a route's collapsing or bottom-edge
+    /// scroller): the kernel lays its content out between these insets
+    /// (LLP 1116.000 D1.2).
+    case inset(top: CGFloat, bottom: CGFloat)
 }
 
 /// The module's hatch entries (NativeModule.swift reads them from its table).
@@ -164,7 +168,7 @@ private let hatchHostTable: UnsafeRawPointer = {
     t.storeBytes(of: unsafeBitCast(hatchLog, to: UnsafeRawPointer.self), toByteOffset: 24, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(hatchDelegate, to: UnsafeRawPointer.self), toByteOffset: 32, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(hatchToolbarItem, to: UnsafeRawPointer.self), toByteOffset: 40, as: UnsafeRawPointer.self)
-    if HatchDiagnostics.measuring { t.storeBytes(of: hatchDiagnosticsTable, toByteOffset: 48, as: UnsafeRawPointer.self) }
+    if HatchDiagnostics.available { t.storeBytes(of: hatchDiagnosticsTable, toByteOffset: 48, as: UnsafeRawPointer.self) }
     t.storeBytes(of: unsafeBitCast(hatchInputText, to: UnsafeRawPointer.self), toByteOffset: 56, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(hatchFrames, to: UnsafeRawPointer.self), toByteOffset: 64, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(hatchAfter, to: UnsafeRawPointer.self), toByteOffset: 72, as: UnsafeRawPointer.self)
@@ -280,13 +284,17 @@ extension NativeViews {
     /// After the session's module is made: hand it the host's callbacks
     /// when its table has hatches, then let the presenter replay the objects
     /// it built before (a cold launch's, LLP 1075.003 Q3 (c)).
-    func connectHatches(_ connect: HatchConnectFn, _ navigation: HatchNavigationFn, _ route: HatchRouteFn,
-                      _ tabs: (HatchTabsFn, HatchTabContainerFn)?, _ element: HatchElementFn?, _ toolbar: HatchToolbarFn?,
-                      _ module: UnsafeMutableRawPointer) {
+    /// The module's side of the hatch table, given before any hatch is
+    /// called: its frame clock and diagnostics work from here.
+    func openHatches(_ connect: HatchConnectFn, _ module: UnsafeMutableRawPointer) {
         // A new module is a new incarnation: its counts start at nothing.
         session?.hatchDiagnostics.reset()
         takeBreadcrumb()
         connect(module, hatchHostTable)
+    }
+
+    func connectHatches(_ navigation: HatchNavigationFn, _ route: HatchRouteFn, _ tabs: (HatchTabsFn, HatchTabContainerFn)?,
+                        _ element: HatchElementFn?, _ toolbar: HatchToolbarFn?) {
         hatchCalls = (navigation, route)
         tabCalls = tabs
         elementCall = element

@@ -44,6 +44,11 @@ final class TextRasterizer {
     static let concurrency = max(2, min(4, ProcessInfo.processInfo.activeProcessorCount / 2))
     private static let maxInFlight = concurrency * 2
     private static let maximumBytes: CGFloat = 16 * 1024 * 1024
+    /// The most text (UTF-16 units) a changed paragraph paints on the main
+    /// thread to replace its old words at once: a paragraph's worth. A
+    /// longer one, which a short box may clip to a few of its lines, keeps
+    /// the worker path, as every line of it is laid out to paint.
+    private static let urgentWords = 1_000
     var inFlight: Int { working.count }
     var hasRoom: Bool { working.count < Self.maxInFlight }
 
@@ -112,7 +117,14 @@ final class TextRasterizer {
         guard node.canRasterText else { return true }
         let key = key(node)
         let visible = node.presenter?.textUrgentRect(node) ?? .zero
-        let missingPixels = node.textRaster == nil || !node.textRasterFrame.contains(visible) || now
+        // A whole paragraph's pixels of other words are none of this text's:
+        // an urgent paint replaces them now, rather than a worker a frame
+        // later. A tall paragraph's bands, a long text and a shadowed one
+        // (each line a blurred layer) keep the worker path.
+        let otherWords = key.clip == nil && node.textRasterSpec != key.spec
+            && key.spec.shadow == nil && !key.spec.runs.contains { $0.shadow != nil }
+            && key.spec.runs.reduce(0) { $0 + $1.text.utf16.count } <= Self.urgentWords
+        let missingPixels = node.textRaster == nil || !node.textRasterFrame.contains(visible) || now || otherWords
         if node.textRasterKey == key && (node.textRasterReady || !urgent || !missingPixels) { return true }
         let firstPixels = urgent && missingPixels
         let pending = working.last { $0.node === node }
@@ -123,7 +135,12 @@ final class TextRasterizer {
             node.showTextRaster(image, for: key)
             return true
         }
-        if firstPixels, let pending, pending.key == key, take(pending) { return true }
+        // A finished worker for this key shows only if the node still asks
+        // for it: the key a batch's change cleared is asked for again first
+        if firstPixels, let pending, pending.key == key {
+            node.textRasterKey = key; node.textRasterReady = false
+            if take(pending), node.textRasterReady { return true }
+        }
         guard firstPixels || hasRoom else { return false }
         let measured = engine.measuredBreaks(key.spec, width: key.box.width)
         let paragraph = measured == nil ? node.paragraphLayout() : nil
@@ -227,13 +244,29 @@ extension NodeView {
         // is made again from the range it broke at (`LineGeometry.clamped`).
         guard isParagraph && flowShapes.isEmpty && columnRecord == nil && !Capture.capturing && window != nil && backgroundClip != "text"
             && bounds.width > 0 && bounds.height > 0 else { return false }
-        return canvasAbove == nil && !paintsVisibleInlineRun
+        return canvasAbove == nil && !paintsVisibleInlineRun && !rollsNumerals
+    }
+    /// LLP 1077 D15: the paragraph's numerals roll per glyph, drawn by the
+    /// Numerals capability rather than as a raster (`NumeralLink`). Not in a
+    /// capture, which draws the paragraph as a picture.
+    var rollsNumerals: Bool {
+        NumeralLink.installed != nil && !Capture.capturing
+            && (style["content_transition"]?.string ?? "none") != "none"
     }
     /// The whole paragraph's pixels are up for its current text and box: a
     /// refresh has nothing to do for it until a change clears its key
     /// (`invalidateText`, `textRasterGeometryChanged`, `dropTextRaster`).
     var textRasterSettled: Bool { textRasterReady && textRasterWhole }
     func textRasterGeometryChanged() {
+        // Laid out to nothing (a text that became a collapsed space, as
+        // stopwatch's status line did on Reset, LLP 1116.005 D4), it paints
+        // nothing. Neither the pump nor UIKit's `draw(_:)`, which lets go of
+        // a raster that no longer applies, visits an empty box: the old ink
+        // goes here, or it stays on screen beside the text that replaced it.
+        if bounds.isEmpty {
+            if textRaster != nil || textRasterLayer != nil { dropTextRaster() }
+            return
+        }
         if let key = textRasterKey, key.size == bounds.size, key.box == contentBox() { return }
         textRasterKey = nil
         presenter?.requestTextPublication()
@@ -247,7 +280,7 @@ extension NodeView {
             setNeedsDisplay()
             return
         }
-        textRaster = result.image; textRasterFrame = result.covered; textRasterScale = key.scale
+        textRaster = result.image; textRasterFrame = result.covered; textRasterScale = key.scale; textRasterSpec = key.spec
         textRasterReady = true; textRasterFailed = false
         // The ink layer never animates (`InkLayer`), so no transaction of
         // its own: a worker's result published between frames commits with
@@ -268,7 +301,7 @@ extension NodeView {
     }
     func dropTextRaster() {
         textRasterLayer?.dropTextCast(); textRasterLayer?.removeFromSuperlayer(); textRasterLayer = nil
-        textRaster = nil; textRasterKey = nil; textRasterReady = false; textRasterFailed = false
+        textRaster = nil; textRasterKey = nil; textRasterReady = false; textRasterFailed = false; textRasterSpec = nil
     }
 }
 
@@ -378,6 +411,8 @@ extension Presenter {
         guard !applying else { return true }
         let port = viewport.bounds
         let culls = viewport.clipsToBounds
+        // The viewport clips the document's text, not a presentation's (LLP 1123 D2)
+        let presented = !modals.mountRoots.isEmpty
         var clips: TextClips?
         defer { textClips = nil }
         var owed = false
@@ -387,7 +422,7 @@ extension Presenter {
             owed = true
             let c = clips ?? TextClips(viewport, soon: 0, reach: 0)
             clips = c; textClips = c
-            if culls && !c.frame(node).intersects(port) { continue }
+            if culls && !(presented && !node.isDescendant(of: viewport)) && !c.frame(node).intersects(port) { continue }
             let visible = textScrollportRect(node)
             guard !visible.isEmpty, node.textRaster == nil || !node.textRasterFrame.contains(visible) else { continue }
             textRasters.ensure(node, urgent: true)
@@ -398,6 +433,20 @@ extension Presenter {
     /// Paint motion's colour reaches the screen with its value (LLP 1062
     /// D6): a paragraph whose presented colour a batch changed is painted
     /// as the batch ends, where it shows, not on a worker a frame later.
+    /// The paragraphs a batch gave new words (`changedText`) show them in
+    /// the batch's frame, where they show (LLP 1116.005 D4), as UIKit draws a
+    /// label's new text in the commit that sets it, never the old words a
+    /// frame longer while a worker paints.
+    func paintChangedText() {
+        guard !changedText.isEmpty else { return }
+        let ids = changedText
+        changedText = []
+        for id in ids {
+            guard let node = views[id], node.canRasterText, !node.bounds.isEmpty, textIsVisible(node) else { continue }
+            textRasters.ensure(node, urgent: true)
+        }
+    }
+
     func paintPresentedText() {
         guard !presentedText.isEmpty else { return }
         let ids = presentedText
@@ -433,10 +482,12 @@ extension Presenter {
         // The viewport clips its content: a paragraph farther than the reach
         // from it has no band, so its distance alone rules it out.
         let culls = viewport.clipsToBounds
+        // The viewport clips the document's text, not a presentation's (LLP 1123 D2)
+        let presented = !modals.mountRoots.isEmpty
         var ranked: [(distance: CGFloat, node: NodeView)] = []
         for node in textViews.values where !node.textRasterSettled && !node.bounds.isEmpty && node.canRasterText {
             let r = clips.frame(node)
-            let distance = max(0, port.minY - r.maxY, r.minY - port.maxY)
+            let distance = presented && !node.isDescendant(of: viewport) ? 0 : max(0, port.minY - r.maxY, r.minY - port.maxY)
             guard !(culls && distance > reach), !passed(r), !textBand(node, reach: reach).isEmpty else { continue }
             ranked.append((distance, node))
         }

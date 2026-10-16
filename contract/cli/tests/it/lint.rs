@@ -144,21 +144,20 @@ fn an_inset_sized_button_has_area() {
 
 /// The web's JS target bakes nothing; `contract::check` refuses there what
 /// every native bake would, before the page's module answers (files diary
-/// F13: a hidden shortcut button passed the web build and 21 web tests).
+/// F13). Hidden controls and descendants have no pressable layout until shown.
 #[test]
 fn check_refuses_without_data_what_no_answer_could_change() {
     let hidden = "component A\n  state n = 0\n  action go\n    n = 1\n  view\n    column\n      button \"Down\" press=go display=\"none\" aria-keyshortcuts=\"Shift+ArrowDown\" testId=\"down\"\n";
-    match contract::check(&contract::compile(hidden).unwrap()).unwrap_err() {
-        BakeError::Lint { id, message, .. } => {
-            assert_eq!(id, "bake-zero-size");
-            assert!(message.contains("testId=\"down\""), "{message}");
-        }
-        other => panic!("{other:?}"),
-    }
+    contract::check(&contract::compile(hidden).unwrap()).unwrap();
+    let nested = hidden
+        .replace("    column\n", "    column display=\"none\"\n")
+        .replace(" display=\"none\" aria-keyshortcuts", " aria-keyshortcuts");
+    contract::check(&contract::compile(&nested).unwrap()).unwrap();
+    contract::bake(contract::compile(&nested).unwrap(), NoData).unwrap();
     // A label the module answers is empty until it does: not this check's
     // to judge, nor a `scroll` that only its answered rows reach the bound
     // of (unanswered, it is exactly as tall as its header).
-    let answered = "component A\n  resource title = title() as shape string\n  resource rows = rows() as shape list<string>\n  state n = 0\n  action go\n    n = 1\n  view\n    column\n      button press=go padding=0 border-width=0 testId=\"title\"\n        text title\n      row max-height=300\n        scroll\n          column\n            text \"Header\"\n            each r in rows key=r\n              text r\n";
+    let answered = "component A\n  resource title = title() as shape string\n  resource rows = rows() as shape string[]\n  state n = 0\n  action go\n    n = 1\n  view\n    column\n      button press=go padding=0 border-width=0 testId=\"title\"\n        text title\n      row max-height=300\n        scroll\n          column\n            text \"Header\"\n            for r in rows key=r\n              text r\n";
     contract::check(&contract::compile(answered).unwrap()).unwrap();
 }
 
@@ -387,6 +386,62 @@ fn a_bound_string_on_a_number_row_is_refused_as_its_literal_is() {
 }
 
 #[test]
+fn number_only_style_choices_reject_computed_string_arms() {
+    let app = |node: &str| {
+        format!(
+            "component A\n  state on = true\n  state label = \"bad\"\n  state maybe = some(0.5)\n  view\n    {node}\n"
+        )
+    };
+    for node in [
+        "view opacity=(on ? 0.5 : label)",
+        "view opacity=(on ? 0.5 : (on ? label : 1))",
+        "view opacity=(match maybe { case some(x) => x, case none => (on ? label : 1) })",
+        "view opacity=(match maybe { case some(x) => x, case none => label })",
+        "view flex-grow=(on ? 1 : label)",
+        "view opacity=`${label}`",
+        "view opacity=label.toString()",
+    ] {
+        let e = contract::compile(&app(node)).unwrap_err();
+        assert_eq!(e.id, "lower-attr-type", "{node}: {e}");
+        assert!(e.message.contains("string"), "{node}: {e}");
+    }
+    contract::compile(&app("view opacity=(on ? 0.5 : 0.75)")).unwrap();
+    contract::compile(&app("view font-size=(on ? 12 : \"14px\")")).unwrap();
+}
+
+// The type checker refuses these forms itself (`type-branches`), before
+// lowering; this pins that refusal. The lowerer's own walk is tested by
+// `mixed_types_inside_computed_arms_and_match_subjects_are_found`.
+#[test]
+fn number_only_style_choices_reject_mixed_nested_expressions() {
+    let app = |node: &str| {
+        format!("component A\n  state on = true\n  state label = \"0.75\"\n  view\n    {node}\n")
+    };
+    for node in [
+        "view opacity=`${on ? label : 1}`",
+        "view opacity=(on ? label : 1).toString()",
+        "view opacity=(on ? 0.5 : `${on ? label : 1}`)",
+        "view opacity=(match (on ? some(label) : some(1)) { case some(x) => x, case none => 0 })",
+    ] {
+        let e = contract::compile(&app(node)).unwrap_err();
+        assert_eq!(e.id, "type-branches", "{node}: {e}");
+    }
+}
+
+#[test]
+fn number_only_style_choices_accept_valid_css_wide_keywords() {
+    let app = |node: &str| format!("component A\n  state on = true\n  view\n    {node}\n");
+    for node in [
+        "view opacity=(on ? 0.5 : \"unset\")",
+        "text \"w\" font-weight=(on ? 700 : \"inherit\")",
+        "view opacity=(on ? 0.5 : (on ? \"unset\" : 1))",
+        "view opacity=(on ? \"unset\" : \"unset\")",
+    ] {
+        contract::compile(&app(node)).unwrap_or_else(|e| panic!("{node}: {e}"));
+    }
+}
+
+#[test]
 fn refusals_name_what_the_author_wrote_and_suggest_one_repair() {
     let app = |state: &str, node: &str| {
         format!("shape Todo\n  title: string\ncomponent A\n  state draft = \"\"\n{state}  view\n    column\n      {node}\n")
@@ -415,10 +470,10 @@ fn refusals_name_what_the_author_wrote_and_suggest_one_repair() {
         (
             app("  state n = 0\n", "text n"),
             "lower-attr-type",
-            "`text` takes a string; this expression is `number`: interpolate it in a template, `${…}`, or write `toString(…)`",
+            "`text` takes a string; this expression is `number`: interpolate it in a template, `${…}`, or write `x.toString()`",
         ),
         (
-            app("", "when draft = \"x\"\n        text \"a\""),
+            app("", "if draft = \"x\"\n        text \"a\""),
             "syntax-expected-newline",
             "expected end of line, found `=`; `==` compares, and only a statement assigns",
         ),
@@ -428,12 +483,12 @@ fn refusals_name_what_the_author_wrote_and_suggest_one_repair() {
             "expected an expression, found `{`; Contract has no `{…}`: a handler names an action (`press=add`, `press=add(item)`) and a value is written directly (`width=10`)",
         ),
         // The app farm's guesses (round 1): a tag, a count, a placeholder.
-        (app("", "heading \"T\""), "lower-unknown-tag", "unknown tag `heading`; a heading is `text role=\"heading\" aria-level=1` (2 and on for the level)"),
+        (app("", "heading \"T\""), "lower-unknown-tag", "unknown tag `heading`; a heading is `h1` (to `h6` for the level)"),
         (app("", "table"), "lower-unknown-tag", "unknown tag `table`; a table or grid is `view display=\"grid\"` with `grid-template-columns`, or a `column` of `row`s"),
-        (app("  state xs = [1]\n", "text toString(count(xs))"), "type-refused-idiom", "write `length(x)`: Contract spells the web's `.length`, of text or of a list, as a roster function"),
-        (app("  state xs = [1]\n", "text toString(xs.size)"), "type-not-a-record", "`list<number>` has no fields: write `length(x)`: Contract spells the web's `.length`, of text or of a list, as a roster function"),
+        (app("  state xs = [1]\n", "text count(xs).toString()"), "type-refused-idiom", "write `x.length`, of text or of a list"),
+        (app("  state xs = [1]\n", "text xs.size.toString()"), "type-not-a-record", "`number[]` has no fields: write `x.length`, of text or of a list"),
         (
-            app("  resource todos = todosOf() as shape list<Todo> else []\n", "text \"a\""),
+            app("  resource todos = todosOf() as shape Todo[] else []\n", "text \"a\""),
             "syntax-placeholder-call",
             "a resource's `else` is a call: `else empty()` is its shape's zero (`[]` for a list, `\"\"` for text), with `field=constant` overrides for a record, or `else source(values…)`",
         ),
@@ -457,7 +512,18 @@ fn the_element_lint_finds_nothing_in_any_app() {
         let Ok(src) = std::fs::read_to_string(&path) else {
             continue;
         };
-        let file = contract_syntax::parse(&src).unwrap();
+        let mut file = contract_syntax::parse(&src).unwrap();
+        // The app's design is the driver's to read (LLP 1121 D2), as `contract build` does.
+        let design = path.with_file_name("app.tamber");
+        file.design =
+            std::fs::read_to_string(&design)
+                .ok()
+                .map(|text| contract_syntax::DesignSource {
+                    path: design.display().to_string(),
+                    text,
+                    source_id: 1,
+                    bindable: false,
+                });
         let found = contract_lower::lint(&file);
         assert!(found.is_empty(), "{}: {found:?}", path.display());
         checked += 1;
@@ -487,7 +553,7 @@ const TODOS: &str = r#"shape Todo
 component App
   state draft = ""
   state count = 0
-  resource todos = items(3) as shape list<Todo>
+  resource todos = items(3) as shape Todo[]
   action add
     count = count + 1
   view
@@ -495,7 +561,7 @@ component App
       input value=drat
       buton press=add
         text "Add" color="bleu"
-      each t in todos key=t.id
+      for t in todos key=t.id
         Row(todo=t, onPik=add)
 component Row
   props

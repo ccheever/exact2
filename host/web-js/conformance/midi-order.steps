@@ -1,0 +1,6 @@
+# One action asks for MIDI and starts a sequence (LLP 1125 D3, D6): the
+# transport's answer, then MIDI's, then the notes the sequence can now send.
+prefer midi.outputs synth
+tap go
+tap note
+clock +600

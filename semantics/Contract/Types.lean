@@ -81,7 +81,8 @@ placeholder's name and its value as `toString` prints it. -/
 def unsupportedTy (name : String) (ts : List Ty) : Option Ty :=
   if name = "formatTime" ∨ name = "formatDate" then
     match ts with | [.number, .number, .string] => .some .string | _ => .none
-  else if name = "formatNumber" then match ts with | [.number, .string] => .some .string | _ => .none
+  else if name = "formatNumber" then
+    match ts with | [.number, .string, .string] => .some .string | _ => .none
   else if name = "toFixed" ∨ name = "formatDecimal" then
     match ts with | [.number, .number] => .some .string | _ => .none
   else if name = "t" then
@@ -290,11 +291,11 @@ inductive HasTy (p : Program) (G : Scope) : Scope → Expr → Ty → Prop
       lookupTy x Γ = .none → (lookupTy x G).isSome = true →
       HasTy p G Γ (.call "pending" [.var x]) .bool
   /-- `failed(x)` names a resource in scope. -/
-  | failed : p.fns.find? (·.name == "failed") = .none → isResource p x = true →
+  | failed : p.fns.find? (·.name == "failed") = .none → (isResource p x || isMutation p x) = true →
       lookupTy x Γ = .none → (lookupTy x G).isSome = true →
       HasTy p G Γ (.call "failed" [.var x]) .bool
   /-- `failure(x)` names a resource in scope (LLP 1109 D3). -/
-  | failure : p.fns.find? (·.name == "failure") = .none → isResource p x = true →
+  | failure : p.fns.find? (·.name == "failure") = .none → (isResource p x || isMutation p x) = true →
       lookupTy x Γ = .none → (lookupTy x G).isSome = true →
       HasTy p G Γ (.call "failure" [.var x]) (.option (.record "Failure"))
   | roster : p.fns.find? (·.name == name) = .none → ListTy p G Γ args ts → rosterTy name ts = .some t →

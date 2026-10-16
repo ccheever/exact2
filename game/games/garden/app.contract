@@ -37,8 +37,8 @@ shape Hud
   garden_time: string
   events: number
   queued: number
-  shop: list<ShopRow>
-  bag: list<BagRow>
+  shop: ShopRow[]
+  bag: BagRow[]
   bag_count: number
   bag_value: string
   bag_page: number
@@ -78,7 +78,7 @@ component Garden
 
   view
     main width="100%" height="100%" background-color="#1b2a1f" color="#fdfbf3" font-family="system-ui"
-      when playing
+      if playing
         canvas surface=world(seed=7, paused=paused, restart=again, epoch=time.epochAtZero, smooth=smooth) testId="world" width="100%" height="100%" position="relative"
           column testId="hud" position="absolute" top=12 left=12 right=12 gap=8
             row testId="topbar" gap=8 align-items="center" flex-wrap="wrap"
@@ -96,23 +96,23 @@ component Garden
                   text "Garden"
                 button press=togglePause testId="pause" aria-label=(paused ? "Resume" : "Pause") padding=10 border-radius=10 background-color="#1e293bcc"
                   text (paused ? "Resume" : "Pause")
-            when panel == "shop"
+            if panel == "shop"
               column testId="shop" width=340 max-height=440 padding=10 gap=6 border-radius=12 background-color="#0f172ae6"
                 row justify-content="space-between" align-items="center"
                   text "Seed shop" font-size=18 font-weight=700
                   text `Restock in ${hud.restock_in}` font-size=13 color="#cbd5e1"
                 list testId="shop-list" max-height=380 overflow-x="hidden" overflow-y="scroll"
-                  each s in hud.shop key=s.id
+                  for s in hud.shop key=s.id
                     ShopItem(s=s, buy=run(`buy ${s.id}`), equip=run(`equip ${s.id}`))
-            when panel == "bag"
+            if panel == "bag"
               column testId="bag" width=340 max-height=440 padding=10 gap=6 border-radius=12 background-color="#0f172ae6"
                 row justify-content="space-between" align-items="center"
                   text `Backpack · ${hud.bag_count}` font-size=18 font-weight=700
                   button press=run("sell all") testId="sell-all" aria-label=`Sell all for ${hud.bag_value} sheckles` padding=8 border-radius=8 background-color="#ca8a04"
                     text `Sell all ${hud.bag_value}¢` font-weight=700
-                when hud.bag_count == 0
+                if hud.bag_count == 0
                   text "Harvest ripe fruit with E" color="#94a3b8" testId="bag-empty"
-                when hud.bag_pages > 1
+                if hud.bag_pages > 1
                   row align-items="center" justify-content="space-between" gap=8
                     button press=run("page prev") testId="bag-newer" aria-label="Newer fruit" disabled=(hud.bag_page == 1) padding=6 border-radius=6 background-color="#334155"
                       text "Newer"
@@ -120,9 +120,9 @@ component Garden
                     button press=run("page next") testId="bag-older" aria-label="Older fruit" disabled=(hud.bag_page == hud.bag_pages) padding=6 border-radius=6 background-color="#334155"
                       text "Older"
                 list virtualized=true testId="bag-list" height=340 overflow-x="hidden" estimated-item-height=44
-                  each b in hud.bag key=b.id
+                  for b in hud.bag key=b.id
                     BagItem(b=b, sell=run(`sell ${b.id}`))
-            when panel == "tools"
+            if panel == "tools"
               column testId="tools" width=340 padding=12 gap=8 border-radius=12 background-color="#0f172ae6"
                 text `Garden ${hud.size}×${hud.size}` font-size=18 font-weight=700
                 row gap=8 flex-wrap="wrap"
@@ -145,17 +145,17 @@ component Garden
                   button press=toggleSmooth testId="smooth" aria-label=(smooth ? "Stepped growth" : "Smooth growth") padding=8 border-radius=8 background-color=(smooth ? "#7c3aed" : "#334155")
                     text (smooth ? "Smooth" : "Stepped")
                 text `${hud.events} events run · ${hud.queued} queued` font-size=12 color="#94a3b8" testId="events"
-          when paused
+          if paused
             column testId="paused" position="absolute" top=72 right=12 padding=12 gap=8 border-radius=12 background-color="#0f172ae6"
               text "Paused" font-size=20 font-weight=700
               button press=restart testId="restart" aria-label="Restart" padding=10 border-radius=8 background-color="#334155"
                 text "Restart"
-          when hud.away != ""
+          if hud.away != ""
             text hud.away testId="away" position="absolute" top=72 right=12 max-width=320 padding=10 border-radius=10 background-color="#7c2d12e6" font-size=13
           column position="absolute" left=150 right=150 bottom=24 align-items="center" gap=6
-            when hud.prompt != ""
+            if hud.prompt != ""
               text hud.prompt testId="prompt" aria-live="polite" padding=10 border-radius=10 background-color="#0f172ad9" font-size=16
-            when hud.last != ""
+            if hud.last != ""
               text hud.last testId="last" padding=6 border-radius=8 background-color="#0f172a99" font-size=13 color="#e2e8f0"
             text (hud.held == "" ? "No seeds in hand" : `Holding ${hud.held}`) testId="held" font-size=13 color="#bef264"
           button action="move" role="slider" aria-label="Move" testId="move" position="absolute" left=24 bottom=24 width=96 height=96 border-radius=48 background-color="#ffffff33"
@@ -183,7 +183,7 @@ component ShopItem
       column flex=1 gap=2
         text s.name font-weight=700
         text `${s.rarity} · ${s.price}¢ · stock ${s.stock}` font-size=12 color=s.color
-      when s.owned > 0
+      if s.owned > 0
         button press=equip testId=`equip-${s.id}` aria-label=`Hold ${s.name}, ${s.owned} owned` padding=6 border-radius=6 background-color="#334155"
           text `×${s.owned}` font-size=13
       button press=buy testId=`buy-${s.id}` aria-label=`Buy ${s.name} for ${s.price}` disabled=(s.stock == 0 or not s.affordable) padding=8 border-radius=6 background-color=(s.stock > 0 and s.affordable ? "#65a30d" : "#475569")

@@ -2,12 +2,12 @@
 // code points, never splitting a pair.
 component App
   state hay = "café 😀😁"
-  derive hasE = includes(hay, "e")
-  derive hasAccent = includes(hay, "́")
-  derive endsFace = endsWith(hay, "😁")
-  derive startsCaf = startsWith(hay, "caf")
-  derive len = length(hay)
-  derive trimmed = length(trim(hay))
+  derive hasE = hay.includes("e")
+  derive hasAccent = hay.includes("́")
+  derive endsFace = hay.endsWith("😁")
+  derive startsCaf = hay.startsWith("caf")
+  derive len = hay.length
+  derive trimmed = hay.trim().length
   view
     text hay testId="hay"
 

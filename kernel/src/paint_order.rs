@@ -289,8 +289,9 @@ fn beside_exclusion(arena: &NodeArena, parent: u32) -> bool {
 }
 
 fn own_beside(arena: &NodeArena, slot: u32, beside_exclusion: bool) -> Own {
+    let style = arena.effective_style(slot);
     own_from(Facts {
-        style: arena.style(slot),
+        style: &style,
         props: arena.props(slot),
         kind: arena.node_type(slot),
         root: arena.is_root(slot),
@@ -458,7 +459,9 @@ mod tests {
         ] {
             ops.push(Op::SetChildren { id, children });
         }
-        let text = |s: &str| StyleValue::Text(s.into());
+        fn text(s: &str) -> StyleValue<'_> {
+            StyleValue::Text(s.into())
+        }
         ops.push(style(
             4,
             &[

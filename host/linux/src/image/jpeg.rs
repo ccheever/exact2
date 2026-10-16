@@ -127,6 +127,10 @@ pub(super) fn inspect(
 #[allow(unsafe_code)]
 mod platform {
     use std::ffi::c_void;
+    /// `ARect` (`<android/rect.h>`): left, top, right, bottom.
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct ARect(pub i32, pub i32, pub i32, pub i32);
     #[link(name = "jnigraphics")]
     extern "C" {
         pub fn AImageDecoder_createFromBuffer(
@@ -136,6 +140,7 @@ mod platform {
         ) -> i32;
         pub fn AImageDecoder_setAndroidBitmapFormat(decoder: *mut c_void, format: i32) -> i32;
         pub fn AImageDecoder_setTargetSize(decoder: *mut c_void, width: i32, height: i32) -> i32;
+        pub fn AImageDecoder_setCrop(decoder: *mut c_void, crop: ARect) -> i32;
         pub fn AImageDecoder_decodeImage(
             decoder: *mut c_void,
             pixels: *mut c_void,
@@ -168,8 +173,10 @@ fn read_all<R: Read + Seek>(
     Ok(bytes)
 }
 
-/// Decode `bytes` at `w`×`h` into `pixels` (`len` bytes, rows `stride`
-/// apart); whether every row was written.
+/// Decode `bytes` at the plan's size into `pixels` (`len` bytes, rows
+/// `stride` apart): the whole picture, or the part of it the plan is
+/// (`DecodePlan::part`; the decoder scales to the whole's size, then crops,
+/// so the part's pixels are the whole's). Whether every row was written.
 ///
 /// The platform decoder samples by a power of two in the DCT and scales the
 /// rest of the way itself (bilinear, Skia's vector code), as an image loader
@@ -182,7 +189,7 @@ fn read_all<R: Read + Seek>(
 #[allow(unsafe_code)]
 unsafe fn decode_into(
     bytes: &[u8],
-    (w, h): (u32, u32),
+    plan: &DecodePlan,
     pixels: *mut std::ffi::c_void,
     stride: usize,
     len: usize,
@@ -201,8 +208,16 @@ unsafe fn decode_into(
     if AImageDecoder_createFromBuffer(bytes.as_ptr().cast(), bytes.len(), &mut decoder) != 0 {
         return false;
     }
+    let (full, part, out) = (plan.full(), plan.crop, plan.pixels);
+    let cut = ARect(
+        part.x as i32,
+        part.y as i32,
+        (part.x + out.width) as i32,
+        (part.y + out.height) as i32,
+    );
     let ok = AImageDecoder_setAndroidBitmapFormat(decoder, 1) == 0
-        && AImageDecoder_setTargetSize(decoder, w as i32, h as i32) == 0
+        && AImageDecoder_setTargetSize(decoder, full.width as i32, full.height as i32) == 0
+        && (part.whole() || AImageDecoder_setCrop(decoder, cut) == 0)
         && AImageDecoder_decodeImage(decoder, pixels, stride, len) == 0;
     AImageDecoder_delete(decoder);
     ok
@@ -226,7 +241,7 @@ pub(super) fn decode<R: Read + Seek>(
     // SAFETY: the output's capacity is `stride × h` bytes, as the decoder is
     // told, and its length is set only after it has written all of them.
     unsafe {
-        if !decode_into(&bytes, (w, h), out.as_mut_ptr().cast(), stride, len) {
+        if !decode_into(&bytes, plan, out.as_mut_ptr().cast(), stride, len) {
             return Err(Refusal::DecodeFailed);
         }
         out.set_len(len);
@@ -251,7 +266,7 @@ pub(super) fn decode_pixels<R: Read + Seek>(
         let size = (plan.pixels.width, plan.pixels.height);
         // SAFETY: `filled` hands a buffer of `len` bytes, rows `stride` apart.
         return super::hardware::Hardware::filled(size.0, size.1, |pixels, stride, len| unsafe {
-            decode_into(&bytes, size, pixels, stride, len)
+            decode_into(&bytes, plan, pixels, stride, len)
         })
         .map(super::bitmap::Pixels::Hardware)
         .ok_or(Refusal::DecodeFailed);

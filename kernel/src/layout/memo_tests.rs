@@ -28,13 +28,13 @@ fn style(id: ViewId, rows: &[(StyleId, StyleValue)]) -> Op {
         patch: Box::new(patch),
     }
 }
-fn t(s: &str) -> StyleValue {
+fn t(s: &str) -> StyleValue<'_> {
     StyleValue::Text(s.into())
 }
-fn n(x: f64) -> StyleValue {
+fn n(x: f64) -> StyleValue<'static> {
     StyleValue::Number(x)
 }
-fn flex(direction: &str) -> [(StyleId, StyleValue); 2] {
+fn flex(direction: &str) -> [(StyleId, StyleValue<'_>); 2] {
     [
         (StyleId::Display, t("flex")),
         (StyleId::FlexDirection, t(direction)),
@@ -403,14 +403,22 @@ impl Row {
 
 #[test]
 fn rebound_rows_replayed_equal_rows_laid_out_fresh() {
-    let (mut hits, mut records) = (0, 0);
-    for case in 0..4u64 {
-        let mut list = List::new(0x1078_0029_5eed ^ (case * 0x9E37_79B9));
-        list.run(6 + case as usize * 2, 300);
-        let (h, r) = list.k.row_layout_memo_counts();
-        hits += h;
-        records += r;
-    }
+    // One thread per case: each builds its own kernel.
+    let (hits, records) = std::thread::scope(|scope| {
+        let cases: Vec<_> = (0..4u64)
+            .map(|case| {
+                scope.spawn(move || {
+                    let mut list = List::new(0x1078_0029_5eed ^ (case * 0x9E37_79B9));
+                    list.run(6 + case as usize * 2, 300);
+                    list.k.row_layout_memo_counts()
+                })
+            })
+            .collect();
+        cases
+            .into_iter()
+            .map(|case| case.join().unwrap())
+            .fold((0, 0), |(h, r), (ch, cr)| (h + ch, r + cr))
+    });
     // Rows of two kinds, three titles and unseen ones, four bodies, a chip,
     // a hidden badge and two margins: most rebinds still find a row like
     // theirs laid out before; every row with an unseen title does not.
@@ -438,4 +446,165 @@ fn rows_lay_out_the_same_with_the_memo_off() {
     list.k.set_row_layout_memo(false);
     list.run(8, 40);
     assert_eq!(list.k.row_layout_memo_counts(), (0, 0));
+}
+
+#[test]
+fn a_replayed_row_s_columns_are_cut_by_its_recorded_height_bounds() {
+    // Rows alike but for their ids: the first is recorded, the rest replayed
+    let mut k = Kernel::with_monospace();
+    let mut ops = vec![
+        Op::CreateView {
+            id: 1,
+            node_type: NodeType::List,
+        },
+        style(1, &[(StyleId::Width, n(400.0))]),
+    ];
+    let mut rows = Vec::new();
+    for row in 0..3 {
+        let [wrapper, columns] = [100 + row * 10, 101 + row * 10];
+        let blocks: Vec<ViewId> = (102 + row * 10..106 + row * 10).collect();
+        for &id in [wrapper, columns].iter().chain(&blocks) {
+            ops.push(Op::CreateView {
+                id,
+                node_type: NodeType::View,
+            });
+        }
+        ops.extend([
+            style(wrapper, &flex("column")),
+            style(wrapper, &[(StyleId::Height, n(80.0))]),
+            style(
+                columns,
+                &[
+                    (StyleId::ColumnCount, n(2.0)),
+                    (StyleId::ColumnGap, n(0.0)),
+                    (StyleId::ColumnFill, t("auto")),
+                    (StyleId::MaxHeight, StyleValue::Percent(50.0)),
+                ],
+            ),
+            Op::SetChildren {
+                id: wrapper,
+                children: vec![columns],
+            },
+            Op::SetChildren {
+                id: columns,
+                children: blocks.clone(),
+            },
+        ]);
+        ops.extend(
+            blocks
+                .iter()
+                .map(|&id| style(id, &[(StyleId::Height, n(20.0))])),
+        );
+        rows.push(wrapper);
+    }
+    ops.extend([
+        Op::SetChildren {
+            id: 1,
+            children: rows,
+        },
+        Op::AttachRoot { id: 1 },
+    ]);
+    k.apply(0, 1, &ops).unwrap();
+    k.compute_layout(1, OFFER).unwrap();
+    let (hits, _) = k.row_layout_memo_counts();
+    assert!(hits > 0, "no row was replayed");
+    // 50% of the row's 80 points caps the columns at two 20-point blocks
+    for row in 0..3 {
+        let third = k.node(104 + row * 10).unwrap().frame;
+        assert_eq!((third.x, third.y), (200.0, row as f32 * 80.0), "row {row}");
+    }
+}
+
+/// A row replayed after the environment changes lays out under the new one:
+/// a percentage tree's handle names the tree, so its style is unchanged, and
+/// the replay would otherwise keep what it resolved to before.
+#[test]
+fn rows_follow_an_environment_their_calculations_read() {
+    crate::style::link_segments();
+    let mut k = Kernel::with_monospace();
+    let mut ops = vec![
+        Op::CreateView {
+            id: 1,
+            node_type: NodeType::View,
+        },
+        Op::CreateView {
+            id: LIST,
+            node_type: NodeType::List,
+        },
+        style(
+            1,
+            &[(StyleId::Width, n(400.0)), (StyleId::Height, n(600.0))],
+        ),
+        style(
+            LIST,
+            &[(StyleId::Width, n(400.0)), (StyleId::Height, n(600.0))],
+        ),
+    ];
+    let mut rows = Vec::new();
+    for i in 0..3 {
+        let (row, inner) = (10 + 2 * i, 11 + 2 * i);
+        ops.push(Op::CreateView {
+            id: row,
+            node_type: NodeType::View,
+        });
+        ops.push(Op::CreateView {
+            id: inner,
+            node_type: NodeType::View,
+        });
+        ops.push(style(
+            row,
+            &[
+                (StyleId::Display, t("flex")),
+                (StyleId::FlexDirection, t("column")),
+                (
+                    StyleId::PaddingTop,
+                    t("min(10%, calc(0.1 * env(viewport-segment-width 1 0)))"),
+                ),
+            ],
+        ));
+        ops.push(style(inner, &[(StyleId::Height, n(20.0))]));
+        ops.push(Op::SetChildren {
+            id: row,
+            children: vec![inner],
+        });
+        rows.push(row);
+    }
+    ops.push(Op::SetChildren {
+        id: LIST,
+        children: rows.clone(),
+    });
+    ops.push(Op::SetChildren {
+        id: 1,
+        children: vec![LIST],
+    });
+    ops.push(Op::AttachRoot { id: 1 });
+    k.apply(0, 1, &ops).unwrap();
+    let gap = |k: &mut Kernel, gap: f32| {
+        let half = (420.0 - gap) / 2.0;
+        k.set_segments(
+            2,
+            1,
+            vec![
+                crate::style::Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: half,
+                    height: 800.0,
+                },
+                crate::style::Rect {
+                    x: half + gap,
+                    y: 0.0,
+                    width: half,
+                    height: 800.0,
+                },
+            ],
+        )
+        .unwrap();
+        k.compute_layout(1, OFFER).unwrap();
+        rows.iter()
+            .map(|&row| k.node(row + 1).unwrap().frame.y - k.node(row).unwrap().frame.y)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(gap(&mut k, 20.0), [20.0; 3], "min(40, 20)");
+    assert_eq!(gap(&mut k, 100.0), [16.0; 3], "min(40, 16)");
 }

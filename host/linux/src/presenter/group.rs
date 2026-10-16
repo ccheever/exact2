@@ -13,8 +13,7 @@ use exact_kernel::NodeKey;
 use exact_motion::spring::SpringConfig;
 use exact_runner::{ReorderBinding, ReorderEnding, ReorderPhase, ReorderStep, ReorderToken};
 
-/// The edge band an autoscroll starts in, and its top speed (points, per
-/// second): the in-list Arrange's.
+/// The grouped drag's edge band (points) and top speed (points per second).
 const BAND: f32 = 24.;
 const SPEED: f32 = 300.;
 /// The lifted look, the same on every host (D6).
@@ -240,13 +239,22 @@ impl<D: DataSource> Presenter<D> {
         let mut accepted = false;
         let mut error = None;
         if drop && (self.group_live() || !ghost) {
-            let target = self
+            // Apply due effects and scroll requests before checking drop geometry.
+            let (effect_error, changed) = self.host.advance_effects(now);
+            let synchronized = if changed { self.after_commit() } else { None };
+            if let Some(e) = effect_error.or(synchronized) {
+                self.host.log(e);
+            }
+            // Pointer drops require current geometry; keyboard steps use logical gaps.
+            let geometry = self
                 .host
                 .runner()
                 .reorder_frame(token)
-                .and_then(|f| f.target);
-            if let Some(g) = target.and_then(|t| self.host.runner().reorder_geometry(t)) {
-                match self.host.group_drop(token, g) {
+                .and_then(|f| f.target)
+                .and_then(|t| self.host.runner().reorder_geometry(t))
+                .filter(|g| !ghost || self.reorder_facts_current(g));
+            if let Some(geometry) = geometry {
+                match self.host.group_drop(token, geometry) {
                     Ok(v) => accepted = v,
                     Err(e) => error = Some(e),
                 }
@@ -454,7 +462,7 @@ impl<D: DataSource> Presenter<D> {
     /// the scroller before the contact reaches the band; a centre past an
     /// edge is in that edge's band); the innermost one that can still move
     /// toward an edge band, on its own axis, scrolls.
-    fn group_edge(&self) -> Option<(ViewId, bool, f32)> {
+    pub(super) fn group_edge(&self) -> Option<(ViewId, bool, f32)> {
         let s = self
             .group
             .as_ref()
@@ -536,6 +544,7 @@ impl<D: DataSource> Presenter<D> {
         };
         let s = self.group.as_mut().unwrap();
         let dt = ((now - s.edge_clock) / 1000.).clamp(0., 0.05) as f32;
+        let owner = s.token;
         s.edge_clock = now;
         let Some(node) = self.host.kernel().node(id) else {
             return;
@@ -557,6 +566,7 @@ impl<D: DataSource> Presenter<D> {
             return;
         }
         self.scroll.insert(id, next);
+        self.scroll_end_moved(id, Completion::Edge(owner));
         self.publish_scroll();
         self.dirty = true;
         if list {

@@ -1,9 +1,12 @@
 //! What the host tells the app about the device and its user, after boot:
 //! the date (LLP 1027.000.000), the display preferences (LLP 1061 D5; LLP
-//! 1069.000 D1) and the page's facts (LLP 1069.000 D2). This host reads no
-//! system setting: it reports no preference, a light system, a visible page,
+//! 1069.000 D1) and the page's facts (LLP 1069.000 D2). The presenter reads
+//! no system setting itself. On Android the reader reads the device's and
+//! tells them whole ([`Presenter::set_device`], LLP 1115.001 D3); an agent
+//! sets them one at a time (`prefer`). Until either speaks, as on desktop
+//! Linux, the app is told no preference, a light system, a visible page,
 //! online, with focus (the app is the whole display: no other window can take
-//! it), and no share sheet; an agent sets them (`prefer`).
+//! it), and no share sheet.
 use super::*;
 
 impl<D: DataSource> Presenter<D> {
@@ -28,6 +31,9 @@ impl<D: DataSource> Presenter<D> {
             return Err(HostError::Layout(error));
         }
         if let Some(error) = host.set_root_font_size(runner.host_root_font_size()) {
+            return Err(HostError::Layout(error));
+        }
+        if let Some(error) = host.set_display_scale(runner.display_scale()) {
             return Err(HostError::Layout(error));
         }
         let time = self.host.runner().wall_time();
@@ -85,8 +91,40 @@ impl<D: DataSource> Presenter<D> {
         self.after_commit()
     }
 
-    /// The root font size `rem` lengths follow (LLP 1069.000 D3): 16 here,
-    /// as a browser's `medium`, unless an agent says otherwise.
+    /// A live design batch or snapshot frame (LLP 1121 stage 4), in place;
+    /// a colour the full wide table refused is reported on the build
+    /// channel (LLP 1122 D4), or to stderr with none.
+    pub fn apply_live(&mut self, frame: &str) -> Option<String> {
+        let (error, full, roles) = self.host.apply_live(frame);
+        // Nothing kept from a paint under the old overrides stands (LLP 1121 stage 5).
+        if roles {
+            self.brush.colors_changed();
+            self.dirty = true;
+        }
+        if full {
+            self.report_unsupported(
+                "batch",
+                Some("a colour was refused (the wide colour table is full)"),
+            );
+        }
+        if error.is_some() {
+            return error;
+        }
+        self.after_commit()
+    }
+
+    /// App modes (LLP 1121 D5): `setMode` from the agent's `prefer mode`.
+    pub fn set_modes(&mut self, pins: &[(&str, &str)]) -> Option<String> {
+        let error = self.host.set_modes(pins);
+        if error.is_some() {
+            return error;
+        }
+        self.after_commit()
+    }
+
+    /// The root font size `rem` lengths follow (LLP 1069.000 D3): 16, a
+    /// browser's `medium`, until the device's shell says its font scale
+    /// ([`Presenter::set_device`]: 16 times it) or an agent a size.
     pub fn set_root_font_size(&mut self, px: f64) -> Option<String> {
         let error = self.host.set_root_font_size(px);
         if error.is_some() {
@@ -155,5 +193,30 @@ impl<D: DataSource> Presenter<D> {
     /// The scheme a `light-dark()` colour resolves to now.
     pub fn dark(&self) -> bool {
         self.brush.dark
+    }
+
+    /// A request for MIDI on the display's clock: this host has none (LLP
+    /// 1125 D6). Under the agent's clock the runner answered it already.
+    pub(super) fn midi_unavailable(&mut self) {
+        if self.live_clock.is_none() {
+            return;
+        }
+        let error = self
+            .host
+            .midi_host(r#"{"ports":{"state":"unavailable"}}"#)
+            .or_else(|| self.after_commit());
+        if let Some(e) = error {
+            self.host.log(format!("midi: {e}"));
+        }
+    }
+
+    /// The agent's `prefer midi.*` and `tap midi` (LLP 1125 §4): `None` for
+    /// another request, else the reply or the refusal.
+    pub fn midi_agent(&mut self, request: &str) -> Option<Result<String, String>> {
+        let reply = self.host.midi_agent(request)?;
+        Some(match self.after_commit() {
+            Some(e) => Err(e),
+            None => reply,
+        })
     }
 }

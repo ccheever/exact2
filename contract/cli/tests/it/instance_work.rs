@@ -30,7 +30,7 @@ component App
   state draft = ""
   state revision = 0
   state suffix = "a"
-  resource rows = rows(revision) as shape list<Row>
+  resource rows = rows(revision) as shape Row[]
   action edit(value)
     draft = value
   action revise
@@ -40,7 +40,7 @@ component App
   view
     column
       input value=draft change=edit testId="input"
-      each r in rows key=r.id
+      for r in rows key=r.id
         text `${r.label} ${suffix}` testId=`row-${r.id}`
 "#;
 fn boot(source: &str) -> Runner<Rows> {
@@ -60,7 +60,7 @@ fn text(r: &Runner<Rows>, id: &str) -> String {
         .props
         .iter()
         .find_map(|(p, v)| match v {
-            PropValue::Str(s) if p.name() == "text" => Some(s.clone()),
+            PropValue::Str(s) if p.name() == "text" => Some(s.to_string()),
             _ => None,
         })
         .unwrap()
@@ -117,7 +117,7 @@ component Counter
 fn clock_and_inactive_branch_dependencies_are_not_lost() {
     let source=APP.replace("  action rename", "  task producer mount\n    every(10, revise)\n  action rename")
         .replace("        text `${r.label} ${suffix}` testId=`row-${r.id}`",
-        "        when revision == 0\n          text `${performanceNow()}` testId=`row-${r.id}`\n        else\n          text suffix testId=`row-${r.id}`");
+        "        if revision == 0\n          text `${performanceNow()}` testId=`row-${r.id}`\n        else\n          text suffix testId=`row-${r.id}`");
     let mut r = boot(&source);
     assert_eq!(text(&r, "row-0"), "0");
     r.advance(10.0).unwrap();
@@ -201,7 +201,7 @@ fn pending_mutation_flags_invalidate_rows_without_changing_their_data() {
             .props
             .iter()
             .find_map(|(p, v)| match v {
-                PropValue::Str(s) if p.name() == "text" => Some(s.clone()),
+                PropValue::Str(s) if p.name() == "text" => Some(s.to_string()),
                 _ => None,
             })
             .unwrap()
@@ -255,7 +255,7 @@ fn signed_zero_changes_are_observable_inside_an_unchanged_row_key() {
             .props
             .iter()
             .find_map(|(p, v)| match v {
-                PropValue::Str(s) if p.name() == "text" => Some(s.clone()),
+                PropValue::Str(s) if p.name() == "text" => Some(s.to_string()),
                 _ => None,
             })
             .unwrap()
@@ -280,7 +280,7 @@ fn perf_counts_each_sites_work_across_its_instances_lifetimes() {
     }
     const PERF: &str = r##"
 component App
-  resource ids = three() as shape list<number>
+  resource ids = three() as shape number[]
   state hot = -1
   state tick = 0
   state tint = "#000000"
@@ -292,9 +292,9 @@ component App
     tint = "#ff0000"
   view
     column testId="list" color=tint
-      each r in ids key=r
+      for r in ids key=r
         row testId=`row-${r}`
-          when hot == r
+          if hot == r
             text `hot ${r}` testId=`hot-${r}`
           else
             text `cold ${r}` testId=`cold-${r}`
@@ -399,4 +399,53 @@ component App
     );
     assert_eq!(tinted["walked"], 10);
     assert_eq!(tinted["truncated"], false);
+}
+
+/// LLP 1079 D3: measuring begun after boot, at a release build's first ask,
+/// reports in a batch trailer only the transactions after it, and a second
+/// ask moves nothing.
+#[test]
+fn work_measured_from_the_first_ask_reports_only_the_transactions_after_it() {
+    let mut r = boot(
+        r#"
+component App
+  state tick = 0
+  action step
+    tick = tick + 1
+  view
+    text `${tick}` testId="tick"
+"#,
+    );
+    for _ in 0..5 {
+        r.act("step", vec![]).unwrap();
+    }
+    assert_eq!(r.seq_range(), None, "nothing is reported while unmeasured");
+    let perf = |r: &Runner<Rows>| exact_runner::agent::handle(r, r#"{"op":"perf"}"#);
+    r.measure_later(None);
+    assert!(
+        perf(&r).contains("not measured until first asked"),
+        "{}",
+        perf(&r)
+    );
+    r.measure_later(Some(r#"{"inputs":{"trust":"production"}}"#));
+    assert!(perf(&r).contains("production trust"), "{}", perf(&r));
+    r.measure_later(None);
+    let asked = r.seq();
+    r.measure_from_now(None, false);
+    assert_eq!(
+        r.seq_range(),
+        None,
+        "the unmeasured transactions are not reported"
+    );
+    r.act("step", vec![]).unwrap();
+    assert_eq!(r.seq_range(), Some((asked + 1, r.seq())));
+    assert!(perf(&r).contains("\"sites\""), "{}", perf(&r));
+    r.act("step", vec![]).unwrap();
+    let reported = r.seq() - 1;
+    r.measure_from_now(None, false);
+    assert_eq!(
+        r.seq_range(),
+        Some((reported + 1, r.seq())),
+        "a second ask keeps the cursor"
+    );
 }

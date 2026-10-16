@@ -3,6 +3,58 @@
 // `type` and `tap` forms. Split from agent.mjs, which re-exports each.
 import { randomBytes } from 'node:crypto';
 import { resolve } from 'node:path';
+import { dragArguments } from './agent-drag.mjs';
+
+/** Independent of the app and its state. A host sets `malformed: true` on its JSON reply; `reply()` raises this error from that flag. */
+export class MalformedOperation extends Error {
+  malformed = true;
+  static reply(reply) {
+    if (reply?.malformed === true && reply.error != null) throw Object.assign(new MalformedOperation(reply.error), { reply });
+    return reply;
+  }
+}
+
+export async function operationReply(carrier, req) {
+  let reply;
+  try { reply = MalformedOperation.reply(await carrier.ask(req)); }
+  catch (error) {
+    if (error instanceof MalformedOperation) error.message = `${req.op}: ${error.message}`;
+    throw error;
+  }
+  if (reply.error) throw Object.assign(new Error(`${req.op}: ${reply.error}`), { reply });
+  return reply;
+}
+
+export function pinchArguments(scale) {
+  if (!(scale > 0 && Number.isFinite(scale))) throw new MalformedOperation('pinch: expected a positive finite scale');
+}
+
+export function intoArguments({ block = 'start', inline = 'nearest' }) {
+  for (const alignment of [block, inline]) {
+    if (!['start', 'center', 'end', 'nearest'].includes(alignment)) throw new MalformedOperation(`no alignment ${typeof alignment === "string" ? alignment : JSON.stringify(alignment)}: start, center, end or nearest`);
+  }
+}
+
+export function inputJSON(text) {
+  try { return JSON.parse(text); } catch (e) { throw new MalformedOperation(e.message); }
+}
+
+export function keyArguments(opts) {
+  if (opts.phase != null && !['down', 'up'].includes(opts.phase)) throw new MalformedOperation(`key: not a phase: ${opts.phase}`);
+  if (opts.for !== undefined && (opts.key == null || opts.phase != null || !Number.isFinite(opts.for) || opts.for < 0)) throw new MalformedOperation('type for: expected a key and a nonnegative finite duration, without phase');
+}
+
+export function pointerArguments(phase, opts) {
+  if (!['move', 'hold', 'up', 'cancel'].includes(phase)) throw new MalformedOperation(`pointer: not a phase: ${phase} (move, hold, up, cancel)`);
+  if (['x', 'y', 'dx', 'dy'].some(k => opts[k] !== undefined && !Number.isFinite(opts[k]))) throw new MalformedOperation('pointer: expected finite coordinates');
+  if (opts.ms !== undefined && (!Number.isFinite(opts.ms) || opts.ms < 0)) throw new MalformedOperation('pointer: expected a nonnegative finite duration');
+}
+
+export function resizeArguments(size) {
+  const m = /^(\d+)x(\d+)$/.exec(size);
+  if (!m) throw new MalformedOperation('resize <w>x<h>, as resize 800x600');
+  return [Number(m[1]), Number(m[2])];
+}
 
 const modifierBits = { Alt: 1, Control: 2, Meta: 4, Shift: 8 };
 const modifierOf = code => /^(Alt|Control|Meta|Shift)(Left|Right)$/.exec(code)?.[1];
@@ -44,6 +96,7 @@ const PUNCTUATION = { '-': 'Minus', '_': 'Minus', '=': 'Equal', '+': 'Equal', '[
   ',': 'Comma', '<': 'Comma', '.': 'Period', '>': 'Period', '/': 'Slash', '?': 'Slash',
   '!': 'Digit1', '@': 'Digit2', '#': 'Digit3', '$': 'Digit4', '%': 'Digit5', '^': 'Digit6', '&': 'Digit7', '*': 'Digit8', '(': 'Digit9', ')': 'Digit0' };
 export function cdpKey(chord) {
+  if (typeof chord !== 'string') throw new MalformedOperation(`key: expected a key name, not ${chord}`);
   const held = new Set();
   let code = chord, key, vk, location = 0;
   for (let m; (m = /^(Shift|Control|Alt|Meta)\+(.+)$/.exec(code)); code = m[2]) held.add(m[1]);
@@ -64,7 +117,7 @@ export function cdpKey(chord) {
   else if (code.length === 1 && code !== ' ') { key = code; vk = 0; code = PUNCTUATION[code] ?? ''; }
   else {
     const special = { ArrowUp: ['ArrowUp', 38], ArrowDown: ['ArrowDown', 40], ArrowLeft: ['ArrowLeft', 37], ArrowRight: ['ArrowRight', 39], Space: [' ', 32], ' ': [' ', 32], Enter: ['Enter', 13], Escape: ['Escape', 27], ContextMenu: ['ContextMenu', 93], Tab: ['Tab', 9], Backspace: ['Backspace', 8], Delete: ['Delete', 46], Home: ['Home', 36], End: ['End', 35], PageUp: ['PageUp', 33], PageDown: ['PageDown', 34] }[code];
-    if (!special) throw new Error(`key: unsupported key ${code}`);
+    if (!Array.isArray(special)) throw new MalformedOperation(`key: unsupported key ${code}`);
     [key, vk] = special;
     if (code === ' ') code = 'Space';
   }
@@ -72,6 +125,19 @@ export function cdpKey(chord) {
   const modifiers = (held.has('Alt') ? 1 : 0) | (held.has('Control') ? 2 : 0) | (held.has('Meta') ? 4 : 0) | (held.has('Shift') ? 8 : 0);
   const text = held.has('Control') || held.has('Meta') ? undefined : key === 'Enter' ? '\r' : key.length === 1 ? key : undefined;
   return { code, key, vk, modifiers, text, location };
+}
+
+/** Validate before resolving a target, using the selected carrier's key vocabulary. */
+export async function validateKey(key, { host, browser }) {
+  const chord = String(key);
+  // A native host parses the name itself and labels an unknown one in its reply; its vocabulary is its own.
+  if (host !== 'web') return;
+  if (!browser || browser === 'chrome') cdpKey(chord);
+  else {
+    const { chordKeys } = await import('./agent-playwright.mjs');
+    try { chordKeys(chord); }
+    catch (error) { if (error.malformed === true) throw error; } // Known keys unavailable to this carrier are refused later, when the key is sent.
+  }
 }
 
 /** A chord's modifiers in the order it names them (`Shift+Control+x` is
@@ -171,7 +237,7 @@ export async function deliverClipboard({ id, opts, evaluate, ask, call, keyDown,
 
 /** Browser-owned key release carries device identity, never a canvas lookup. */
 export async function browserKey({id, opts, evaluate, ask, call, frame}) {
-  if (opts.phase != null && !['down', 'up'].includes(opts.phase)) throw new Error(`key: not a phase: ${opts.phase}`);
+  keyArguments(opts);
   const { code, key, vk, modifiers, text, location } = cdpKey(opts.key), mods = chordModifiers(opts.key);
   const isWorld = await evaluate(`exact.gpu?.wantsInput(${id}) ?? false`);
   const f = isWorld ? await ask({ op: 'focus', id, world: true }) : await evaluate(`(() => { const el = exact.views.get(${id}); el?.focus(); return {ok:document.activeElement === el}; })()`);
@@ -207,6 +273,7 @@ export async function browserKey({id, opts, evaluate, ask, call, frame}) {
 
 /** Native key carrier shared by stdio, phone and simulator. */
 export async function nativeKey({id, opts, ask}) {
+  keyArguments(opts);
   const releaseKey = opts.phase === 'down' && opts.ownedRelease ? randomBytes(16).toString('hex') : undefined;
   const {ownedRelease, ...input} = opts;
   const release = async () => {
@@ -230,6 +297,7 @@ const repeats = key => !/^(Shift|Control|Alt|Meta)(Left|Right)?$/.test(String(ke
 /** Held-key form: one resolved carrier, including release after a failed clock. While held, the key
  * repeats on the virtual clock ([`KEY_REPEAT`]): each repeat a keydown whose `repeat` is true. */
 export async function typeFor({node, target, options, carrier, clock, tagged, delivery, host, timing}) {
+  keyArguments(options);
   const {for: duration, ...held} = options, key = String(held.key), steps = [];
   let release;
   const send = async (phase, repeat = false) => {
@@ -305,7 +373,8 @@ export function mouseContact() {
  * `tap probe auxclick` was sent as a left click). `drag` and a held request's `tap @N` are the caller's. */
 export function tapWords(args, held = false) {
   const [first, form, ...rest] = args;
-  const refuse = (why) => { throw new Error(`tap ${args.join(' ')}: ${why}`); };
+  const refuse = (why) => { throw new MalformedOperation(`tap${args.length ? ' ' + args.join(' ') : ''}: ${why}`); };
+  if (first == null) refuse('needs a target');
   const number = (word, what) => {
     const n = Number(word);
     if (word === undefined || word === '' || !Number.isFinite(n)) refuse(`${what} takes a number, not ${word === undefined ? 'nothing' : JSON.stringify(word)}`);
@@ -328,6 +397,8 @@ export function tapWords(args, held = false) {
     }
     return opts;
   };
+  // A MIDI input's message (LLP 1125 §4): `tap midi "<input>" 90 3c 64`, each byte two hex digits.
+  if (first === 'midi' && form !== undefined && rest.length && rest.every((w) => /^[0-9a-f]{2}$/i.test(w))) return [null, { midi: { input: form, data: rest.map((w) => parseInt(w, 16)) } }];
   if (held && first === 'move') {
     const by = form === 'by', [a, b, ...more] = by ? rest : [form, ...rest];
     const point = by ? { dx: number(a, 'move by'), dy: number(b, 'move by') } : { x: number(a, 'move'), y: number(b, 'move') };
@@ -340,10 +411,12 @@ export function tapWords(args, held = false) {
   if (held && first === 'up') return [null, { phase: 'up', ...options(args.slice(1), ['modifiers']) }];
   if (held && first === 'cancel') return [null, { phase: 'cancel', ...options(args.slice(1), []) }];
   if (form === undefined) return [first, {}];
-  if (form.startsWith('{')) return [first, JSON.parse(args.slice(1).join(' '))];
+  if (form.startsWith('{')) { try { return [first, JSON.parse(args.slice(1).join(' '))]; } catch (e) { refuse(e.message); } }
   switch (form) {
     // A click with modifiers held (gallery F20): `tap <target> modifiers Shift+Meta`.
     case 'modifiers': return [first, options(args.slice(1), ['modifiers'])];
+    // A press at a point in the target, from its top left: whatever a finger there reaches (LLP 1012 §1), never aimed.
+    case 'at': return [first, options(args.slice(1), ['at', 'modifiers'])];
     case 'down': return [first, { down: true, ...options(rest, ['at', 'modifiers']) }];
     case 'hover': return [first, { hover: true, ...options(rest, []) }];
     case 'history': if (rest.length !== 1) refuse('history takes one step, as history -1'); return [first, { history: number(rest[0], 'history') }];
@@ -361,6 +434,7 @@ export function tapWords(args, held = false) {
         if (!['block', 'inline'].includes(rest[i]) || rest[i + 1] === undefined || rest[i] in into) refuse(`into: unknown option ${rest[i]}; block <start|center|end|nearest> and inline <…>, each once`);
         into[rest[i]] = rest[i + 1];
       }
+      try { intoArguments(into); } catch (e) { refuse(e.message); }
       return [first, { into }];
     }
     // A wheel at the target's middle or `at` in it, the modifiers held (a pinch is a Control-held wheel; studio diary R3).
@@ -368,8 +442,30 @@ export function tapWords(args, held = false) {
     // The mouse's buttons (#107): the left, a double click, the right (`contextmenu`), the middle (`auxclick`), n clicks.
     case 'mouse': case 'dblclick': case 'contextmenu': case 'auxclick': return [first, { [form]: true, ...options(rest, ['at', 'modifiers']) }];
     case 'clicks': return [first, { clicks: number(rest[0], 'clicks'), ...options(rest.slice(1), ['at', 'modifiers']) }];
-    default: refuse(`unknown word ${JSON.stringify(form)}; tap <target> [modifiers <M> | down [at <x> <y>] [modifiers <M>] | wheel <dx> <dy> [gesture] [at <x> <y>] [modifiers <M>] | mouse | dblclick | contextmenu | auxclick | clicks <1-3> (each [at <x> <y>] [modifiers <M>]) | hover | drop <path…> | into <key> … | pinch <scale> [at <x> <y>] | history <n> | mediasession <action> [seconds] | drag …]`);
+    // Most often a target of several words left unquoted (sb4 farm wave 4, 053: `tap Why are my…`).
+    default: refuse(`unknown word ${JSON.stringify(form)}; a target of several words is quoted inside the op (\`tap "${args.join(' ').replace(/["\\]/g, '\\$&')}"\`), and after a target come only: tap <target> [at <x> <y> [modifiers <M>] | modifiers <M> | down [at <x> <y>] [modifiers <M>] | wheel <dx> <dy> [gesture] [at <x> <y>] [modifiers <M>] | mouse | dblclick | contextmenu | auxclick | clicks <1-3> (each [at <x> <y>] [modifiers <M>]) | hover | drop <path…> | into <key> … | pinch <scale> [at <x> <y>] | history <n> | mediasession <action> [seconds] | drag …]`);
   }
+}
+
+/** A `tap`'s options checked before any host is asked: malformed ones are refused by name. Returns the mouse's button forms given. */
+export function tapArguments(opts) {
+  if (opts.wheel !== undefined && ![opts.wheel?.[0], opts.wheel?.[1]].every(Number.isFinite)) throw new MalformedOperation('wheel: expected two finite deltas');
+  if (opts.drag) dragArguments(opts.drag);
+  if (opts.mouse && ['contextmenu','dblclick','auxclick','clicks','down','drag','wheel','hover','pinch','history','into','gesture'].some(key => opts[key] !== undefined)) throw new MalformedOperation('mouse cannot be combined with another input mode');
+  if (opts.pinch !== undefined) pinchArguments(opts.pinch);
+  if (opts.into) intoArguments(opts.into);
+  if (opts.seconds != null && !Number.isFinite(opts.seconds)) throw new MalformedOperation('mediasession: expected finite seconds');
+  if (opts.mediaSession === 'seekto' && !(Number.isFinite(opts.seconds) && opts.seconds >= 0)) throw new MalformedOperation('mediasession: seekto needs finite nonnegative seconds');
+  // The mouse's forms (#107): one button form at a time, each at its middle or `at`, the modifiers held through it.
+  const button = ['mouse', 'contextmenu', 'auxclick', 'dblclick', 'clicks'].filter((k) => opts[k] !== undefined && opts[k] !== false);
+  if (button.length > 1) throw new MalformedOperation(`tap: one of mouse, dblclick, contextmenu, auxclick and clicks at a time, not ${button.join(' and ')}`);
+  if (opts.clicks !== undefined && ![1, 2, 3].includes(opts.clicks)) throw new MalformedOperation('tap … clicks: 1, 2 or 3');
+  if (opts.at !== undefined && (opts.hover || opts.history !== undefined || opts.drop || opts.into)) throw new MalformedOperation('at is a point on a press, a click (mouse, dblclick, contextmenu, auxclick, clicks), a wheel, a contact, a pinch or a drag');
+  if (opts.at !== undefined && (!Array.isArray(opts.at) || opts.at.length !== 2 || !opts.at.every(Number.isFinite))) throw new MalformedOperation('tap at needs two finite numbers');
+  const modifiers = opts.modifiers ?? opts.drag?.modifiers;
+  if (modifiers !== undefined && !String(modifiers).split('+').filter(Boolean).every(k => ['Shift', 'Control', 'Alt', 'Meta'].includes(k))) throw new MalformedOperation(`tap … modifiers: ${modifiers} is not Shift, Control, Alt and Meta joined by +`);
+  if (modifiers !== undefined && (opts.hover || opts.history !== undefined || opts.into || opts.drop || opts.pinch !== undefined)) throw new MalformedOperation('modifiers are held through a press, a click, a wheel, a contact or a drag');
+  return button;
 }
 
 /** What of a `tap` this carrier cannot deliver as a hand's (#107), or null. AppKit and Chrome carry every form;
@@ -382,7 +478,7 @@ export function pointerGap(host, browser, opts) {
     opts.auxclick && 'a middle-button click (auxclick)',
     opts.clicks !== undefined && `clicks ${opts.clicks}`,
     opts.wheel && opts.at !== undefined && 'a wheel at a point',
-    opts.dblclick && opts.at !== undefined && 'a double click at a point',
+    opts.dblclick && opts.at !== undefined && !['ios', 'host-ios'].includes(host) && 'a double click at a point', // iOS: the double tap that selects a word there
     host === 'web' && opts.mouse && 'a mouse click', // the Playwright carrier has none
     held && (opts.contextmenu || opts.dblclick || opts.mouse || opts.down || opts.drag || opts.phase) && 'modifiers held through a context menu, a double click, a mouse click, a contact or a drag',
   ].filter(Boolean);
@@ -391,13 +487,13 @@ export function pointerGap(host, browser, opts) {
 
 /** The CLI `type` line. Key, copy and cut stay whitespace-split.
  * Typed text and a paste's text keep their tail: real newlines stay, and `\\n` `\\t` `\\r`
- * `\\\\` decode, as does a JSON string around the tail. `hello for 100`
+ * `\\\\` decode, as does a JSON string around the tail; single quotes around it are taken off. `hello for 100`
  * stays text (notes: a newline was flattened to a space). */
 export function typeCommand(line) {
   const body = String(line).trim().replace(/^type(?:\s+|$)/, '');
   const matched = /^(?:"((?:[^"\\]|\\.)*)"|(\S+))(?:\s+([\s\S]*))?$/.exec(body);
-  if (!matched) throw new Error('type needs a target');
-  const target = matched[1] != null ? JSON.parse(`"${matched[1]}"`) : matched[2];
+  if (!matched) throw new MalformedOperation('type needs a target');
+  const target = matched[1] != null ? inputJSON(`"${matched[1]}"`) : matched[2];
   const rest = matched[3] ?? '';
   const head = /^\S+/.exec(rest)?.[0];
   // A paste's text is a tail as typed text is: its newlines are the clipboard's.
@@ -410,6 +506,9 @@ function decodeTypeText(text) {
   if (text.length >= 2 && text.startsWith('"') && text.endsWith('"')) {
     try { return JSON.parse(text); } catch { /* a quote in the text, not a JSON string */ }
   }
+  // Single quotes around the whole text are a shell's, and are taken off as a shell would (app farm wave 2:
+  // `"type room-draft 'Test Den'"` typed the quotes). Text that means them is written as JSON: `"'Den'"`.
+  if (text.length >= 2 && text.startsWith("'") && text.endsWith("'")) return text.slice(1, -1);
   return text.replace(/\\([ntr\\])/g, (_, c) => ({ n: '\n', t: '\t', r: '\r', '\\': '\\' }[c]));
 }
 
@@ -419,7 +518,7 @@ export function typeArguments(args) {
   if (args[1] === 'paste' && args.length > 2) return [args[0], {clipboard:'paste', text:args.slice(2).join(' ')}];
   if (args[1] !== 'key' || !args[2]) return [args[0], args.slice(1).join(' ')];
   if (args[3] === 'for') {
-    if (args.length !== 5) throw new Error('type key for: expected one duration');
+    if (args.length !== 5) throw new MalformedOperation('type key for: expected one duration');
     return [args[0], {key:args[2], for:Number(args[4])}];
   }
   return [args[0], {key:args[2], ...(args[3] != null ? {phase:args[3]} : {})}];

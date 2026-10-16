@@ -1,0 +1,115 @@
+test "add validates, saves, refuses a repeat in place, opens and deletes after asking"
+  expect text "items-empty" == "Nothing yet. Tap + to add the first item."
+  tap "add-item"
+  clock settle
+  tap "add-save"
+  expect text "add-error" == "Enter a title."
+  type "add-title" "Milk"
+  type "add-notes" "Two litres"
+  tap "add-save"
+  clock data
+  clock settle
+  expect state lib.0 .title == "Milk"
+  tap "add-item"
+  clock settle
+  expect tree missing "add-error"
+  type "add-title" "milk"
+  tap "add-save"
+  clock data
+  expect text "add-error" == "There’s already an item called Milk. Choose another title."
+  expect text "add-title" == "milk"
+  tap "add-cancel"
+  clock settle
+  tap "item-1"
+  clock settle
+  expect text "detail-notes" == "Two litres"
+  tap "delete-item"
+  clock settle
+  tap "remove-confirm"
+  clock settle
+  clock data
+  expect state lib == []
+
+test "the items survive a relaunch, newest first"
+  tap "add-item"
+  clock settle
+  type "add-title" "Bread"
+  tap "add-save"
+  clock data
+  clock settle
+  tap "add-item"
+  clock settle
+  type "add-title" "Cherries"
+  tap "add-save"
+  clock data
+  clock settle
+  reload
+  expect state lib.0 .title == "Cherries"
+  expect state lib.1 .title == "Bread"
+
+test "a wide window opens an item, beside the list on the web"
+  size 1000x700
+  tap "add-item"
+  clock settle
+  type "add-title" "Eggs"
+  type "add-notes" "A dozen"
+  tap "add-save"
+  clock data
+  clock settle
+  tap "item-1"
+  clock settle
+  expect text "detail-title" == "Eggs"
+  expect text "detail-notes" == "A dozen"
+  expect state selected == "1"
+
+test "a locked item shows its badge, and Delete is disabled, saying why"
+  tap "add-item"
+  clock settle
+  type "add-title" "Eggs"
+  tap "add-save"
+  clock data
+  clock settle
+  tap "item-1"
+  clock settle
+  expect text "delete-reason" == ""
+  type "lock-item" "true"
+  clock data
+  expect state lib.0 .locked == true
+  expect text "delete-reason" == "Unlock this item to delete it."
+  type "lock-item" "false"
+  clock data
+  expect state lib.0 .locked == false
+
+test "an id that names nothing says so, and Back returns to the list"
+  clock data
+  type "app" "/item/999"
+  clock settle
+  expect text "detail-title" == "Not Found"
+  expect tree has "missing-back"
+  tap "missing-back"
+  clock settle
+  expect tree has "add-item"
+  expect tree missing "missing-back"
+
+test "a row deletes by swipe after asking, and its long-press menu locks it"
+  tap "add-item"
+  clock settle
+  type "add-title" "Eggs"
+  tap "add-save"
+  clock data
+  clock settle
+  tap "item-1" contextmenu
+  tap "menu-lock"
+  clock data
+  expect state lib.0 .locked == true
+  tap "item-1" contextmenu
+  tap "menu-lock"
+  clock data
+  expect state lib.0 .locked == false
+  tap "swipe-1"
+  clock settle
+  tap "remove-confirm"
+  clock settle
+  clock data
+  expect state lib == []
+  expect tree has "add-item"

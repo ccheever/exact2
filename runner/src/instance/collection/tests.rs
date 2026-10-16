@@ -4,12 +4,16 @@ use exact_plan::{asm::Asm, builder::PlanBuilder, BindingsRow, Opcode, TypeKind};
 
 #[path = "fill_tests.rs"]
 mod fill;
+#[path = "key_reads_tests.rs"]
+mod key_reads;
 #[path = "ownership_tests.rs"]
 mod ownership;
 #[path = "rekey_tests.rs"]
 mod rekey;
 #[path = "smooth_tests.rs"]
 mod smooth;
+#[path = "text_tests.rs"]
+mod text;
 
 fn code(b: &mut PlanBuilder, emit: impl FnOnce(&mut Asm)) -> exact_plan::Code {
     let mut a = Asm::new();
@@ -17,7 +21,12 @@ fn code(b: &mut PlanBuilder, emit: impl FnOnce(&mut Asm)) -> exact_plan::Code {
     b.code(a)
 }
 fn binding(kind: BindingKind, id: u16, expr: exact_plan::Code) -> BindingsRow {
-    BindingsRow { kind, id, expr }
+    BindingsRow {
+        kind,
+        id,
+        expr,
+        written: true,
+    }
 }
 fn plan(n: usize, row_state: bool, follow: bool) -> Plan {
     plan_with(n, row_state, follow, false)
@@ -119,16 +128,26 @@ fn plan_opening(
 struct Harness {
     plan: Plan,
     slots: Vec<Value>,
+    /// The plan's interned strings and site index, built once as a runner builds them
+    strings: &'static [Value],
+    sites: crate::instance::SiteIndex,
     tree: Tree,
     ids: Ids,
     kernel: Kernel,
     batch: u64,
 }
 fn env<'a>(plan: &'a Plan, slots: &'a [Value]) -> Env<'a> {
+    // Test harnesses outlive every Env they build; leak one table per call.
+    env_with(
+        plan,
+        slots,
+        Box::leak(crate::vm::intern(plan).into_boxed_slice()),
+    )
+}
+fn env_with<'a>(plan: &'a Plan, slots: &'a [Value], strings: &'a [Value]) -> Env<'a> {
     Env {
         plan,
-        // Test harnesses outlive every Env they build; leak one table per call.
-        strings: Box::leak(crate::vm::intern(plan).into_boxed_slice()),
+        strings,
         slots,
         router: None,
         lists: Some(&crate::instance::LISTS),
@@ -143,6 +162,7 @@ fn env<'a>(plan: &'a Plan, slots: &'a [Value]) -> Env<'a> {
         failed_resources: &[],
         failed_why: &[],
         pending_mutations: &[],
+        failed_mutations: &[],
         store_dependent_derives: &[],
         store_dependent_resources: &[],
     }
@@ -163,20 +183,26 @@ impl Harness {
         Self::from_parts(plan, slots)
     }
     fn from_parts(plan: Plan, slots: Vec<Value>) -> Self {
+        Self::try_from_parts(plan, slots).unwrap()
+    }
+    fn try_from_parts(plan: Plan, slots: Vec<Value>) -> Result<Self, InstanceError> {
         let mut ids = Ids::default();
         let mut kernel = Kernel::with_monospace();
+        let strings: &'static [Value] = Box::leak(crate::vm::intern(&plan).into_boxed_slice());
         let sites = crate::instance::SiteIndex::new(&plan);
-        let mut u = Update::new(env(&plan, &slots), &sites, &mut ids);
-        let tree = Tree::create(&mut u).unwrap();
+        let mut u = Update::new(env_with(&plan, &slots, strings), &sites, &mut ids);
+        let tree = Tree::create(&mut u)?;
         kernel.apply(0, 1, &u.ops).unwrap();
-        Self {
+        Ok(Self {
             plan,
             slots,
+            strings,
+            sites,
             ids,
             tree,
             kernel,
             batch: 1,
-        }
+        })
     }
     fn snapshot(&self) -> CollectionSnapshot {
         self.tree.collections().pop().unwrap()
@@ -191,6 +217,7 @@ impl Harness {
             port_cross: 640.0,
             port_main: 320.0,
             cross: 640.0,
+            padding: [0.0; 2],
             measurements: vec![],
             focus_view: None,
             interaction_view: None,
@@ -204,36 +231,55 @@ impl Harness {
         feedback: CollectionFeedback,
         fill: CollectionFill,
     ) -> Result<bool, InstanceError> {
-        let sites = crate::instance::SiteIndex::new(&self.plan);
-        let mut u = Update::new(env(&self.plan, &self.slots), &sites, &mut self.ids);
-        let changed = self.tree.update_collection(&mut u, feedback, fill)?.0;
-        self.batch += 1;
-        self.kernel.apply(0, self.batch, &u.ops).unwrap();
-        Ok(changed)
+        self.feed(feedback, fill).map(|(changed, _)| changed)
     }
     fn send_filled(&mut self, feedback: CollectionFeedback, fill: CollectionFill) -> bool {
-        let sites = crate::instance::SiteIndex::new(&self.plan);
-        let mut u = Update::new(env(&self.plan, &self.slots), &sites, &mut self.ids);
-        let changed = self
-            .tree
-            .update_collection(&mut u, feedback, fill)
-            .unwrap()
-            .0;
-        self.batch += 1;
-        self.kernel.apply(0, self.batch, &u.ops).unwrap();
-        assert_eq!(u.work.rows_keyed, 0, "geometry never keys records");
+        let (changed, rows_keyed) = self.feed(feedback, fill).unwrap();
+        assert_eq!(rows_keyed, 0, "geometry never keys records");
         changed
+    }
+    /// Feedback applied and its ops applied to the kernel: whether it changed the collection,
+    /// and how many records it keyed.
+    fn feed(
+        &mut self,
+        feedback: CollectionFeedback,
+        fill: CollectionFill,
+    ) -> Result<(bool, usize), InstanceError> {
+        let Self {
+            plan,
+            slots,
+            strings,
+            sites,
+            ids,
+            tree,
+            kernel,
+            batch,
+        } = self;
+        let mut u = Update::new(env_with(plan, slots, strings), sites, ids);
+        let changed = tree.update_collection(&mut u, feedback, fill)?.0;
+        *batch += 1;
+        kernel.apply(0, *batch, &u.ops).unwrap();
+        Ok((changed, u.work.rows_keyed))
     }
     fn update(&mut self) -> Result<(), InstanceError> {
         self.update_with(Default::default())
     }
     fn update_with(&mut self, rows: crate::instance::RowWrites) -> Result<(), InstanceError> {
-        let sites = crate::instance::SiteIndex::new(&self.plan);
-        let mut u = Update::new(env(&self.plan, &self.slots), &sites, &mut self.ids);
+        let Self {
+            plan,
+            slots,
+            strings,
+            sites,
+            ids,
+            tree,
+            kernel,
+            batch,
+        } = self;
+        let mut u = Update::new(env_with(plan, slots, strings), sites, ids);
         u.rows = rows;
-        self.tree.update(&mut u)?;
-        self.batch += 1;
-        self.kernel.apply(0, self.batch, &u.ops).unwrap();
+        tree.update(&mut u)?;
+        *batch += 1;
+        kernel.apply(0, *batch, &u.ops).unwrap();
         Ok(())
     }
     fn collection(&self) -> &Collection {
@@ -249,7 +295,7 @@ fn bounded_bootstrap_twenty_traversals_release_row_slots_and_kernel_views() {
         let mut h = Harness::new(n, true, false);
         assert_eq!(h.snapshot().rows.len(), BOOTSTRAP_ROWS);
         assert_eq!(h.tree.last_work.rows_keyed, n);
-        let weak = Rc::downgrade(&h.collection().mounted[0].row.slots);
+        let weak = Rc::downgrade(h.collection().mounted[0].row.slots.as_ref().unwrap());
         let original = h.snapshot().rows[0].root;
         for traversal in 0..20 {
             for step in 0..20 {
@@ -474,6 +520,7 @@ fn focus_and_interaction_pins_are_disjoint_and_wrappers_have_no_sites() {
 fn binary_feedback_roundtrips_and_rejects_malformed_reports() {
     let h = Harness::new(10, false, false);
     let mut f = h.feedback(12.0);
+    f.padding = [92.0, 83.5];
     let row = &h.snapshot().rows[0];
     f.measurements.push(RowMeasurement {
         view: row.view,
@@ -481,7 +528,7 @@ fn binary_feedback_roundtrips_and_rejects_malformed_reports() {
         size: 20.5,
     });
     let bytes = f.encode().unwrap();
-    assert_eq!(bytes.len(), 104);
+    assert_eq!(bytes.len(), 120);
     assert_eq!(CollectionFeedback::decode(&bytes).unwrap(), f);
     let fill = CollectionFill {
         velocity: -1200.5,
@@ -494,15 +541,35 @@ fn binary_feedback_roundtrips_and_rejects_malformed_reports() {
         CollectionFeedback::decode_with_fill(&filled).unwrap(),
         (f.clone(), fill)
     );
+    let lean = CollectionFill { lean: true, ..fill };
+    assert_eq!(
+        CollectionFeedback::decode_with_fill(&f.encode_with(lean).unwrap()).unwrap(),
+        (f.clone(), lean)
+    );
     assert_eq!(
         CollectionFeedback::decode_with_fill(&bytes).unwrap().1,
         CollectionFill::default()
     );
-    let mut version1 = bytes.clone();
-    version1[..4].copy_from_slice(&1u32.to_le_bytes());
-    assert!(CollectionFeedback::decode(&version1).is_err());
+    for version in [1u32, 3] {
+        let mut old = bytes.clone();
+        old[..4].copy_from_slice(&version.to_le_bytes());
+        assert!(CollectionFeedback::decode(&old).is_err());
+    }
+    // The padding the host laid out (LLP 1010 §6.9) is a length: a negative
+    // or nonfinite one is refused at either end
+    for (end, bad) in [0, 1]
+        .into_iter()
+        .flat_map(|end| [(end, -1.0), (end, f64::NAN)])
+    {
+        let mut sent = bytes.clone();
+        sent[56 + end * 8..64 + end * 8].copy_from_slice(&bad.to_le_bytes());
+        assert!(CollectionFeedback::decode(&sent).is_err());
+        let mut wrong = f.clone();
+        wrong.padding[end] = bad;
+        assert!(wrong.encode().is_err());
+    }
     let mut fast = filled.clone();
-    fast[64..72].copy_from_slice(&f64::INFINITY.to_le_bytes());
+    fast[80..88].copy_from_slice(&f64::INFINITY.to_le_bytes());
     assert!(CollectionFeedback::decode(&fast).is_err());
     for length in 0..bytes.len() {
         assert!(CollectionFeedback::decode(&bytes[..length]).is_err());
@@ -511,7 +578,7 @@ fn binary_feedback_roundtrips_and_rejects_malformed_reports() {
     trailing.push(0);
     assert!(CollectionFeedback::decode(&trailing).is_err());
     let mut bad = bytes.clone();
-    bad[76..80].copy_from_slice(&u32::MAX.to_le_bytes());
+    bad[92..96].copy_from_slice(&u32::MAX.to_le_bytes());
     assert!(CollectionFeedback::decode(&bad).is_err());
     f.measurements.push(f.measurements[0]);
     assert!(f.encode().is_err());
@@ -711,6 +778,7 @@ fn runner_feedback(r: &crate::Runner<NoData>) -> CollectionFeedback {
         port_cross: 640.0,
         port_main: 320.0,
         cross: 640.0,
+        padding: [0.0; 2],
         measurements: vec![],
         focus_view: None,
         interaction_view: None,
@@ -851,8 +919,8 @@ fn measured_interior_zero_run_bounds_25k_realized_views_and_row_slots() {
     let focus = bootstrap.rows[1].root;
     let interaction = bootstrap.rows[2].root;
     let retired_root = bootstrap.rows[3].root;
-    let retired_slots = Rc::downgrade(&h.collection().mounted[3].row.slots);
-    let pinned_slots = Rc::downgrade(&h.collection().mounted[1].row.slots);
+    let retired_slots = Rc::downgrade(h.collection().mounted[3].row.slots.as_ref().unwrap());
+    let pinned_slots = Rc::downgrade(h.collection().mounted[1].row.slots.as_ref().unwrap());
     let mut first = h.feedback(0.0);
     first.focus_view = Some(focus);
     first.interaction_view = Some(interaction);
@@ -1284,84 +1352,6 @@ fn key_reuse_repeated_answers_do_not_retain_historical_records() {
     }
 }
 
-fn key_reuse_dependency_plan(which: u8) -> Plan {
-    let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
-    let number = b.primitive(TypeKind::Number);
-    let zero = b.constant(&Value::Number(0.));
-    b.slot("dep", number, zero);
-    let derive = b.derive("derived", number, zero);
-    let resource = b.resource("answer", "answer", &[], number, Some(&Value::Number(0.)));
-    let optional = b.option(number);
-    let none = b.constant(&Value::NONE);
-    let reply = b.slot("reply", optional, none);
-    let mutation = b.mutation("write", reply, number);
-    let subject = b.constant(&values(1));
-    let key = code(&mut b, |a| match which {
-        0 => {
-            a.load_derive(derive);
-        }
-        1 => {
-            a.load_resource(resource);
-        }
-        2 => {
-            a.pending_resource(resource);
-        }
-        3 => {
-            a.pending_mutation(mutation);
-        }
-        4 => {
-            a.simple(Opcode::Unit).call(exact_plan::Stdlib::Depth);
-        }
-        5 => {
-            a.load_param(0);
-        }
-        _ => unreachable!(),
-    });
-    b.region(RegionKind::Each, None, None, 0, subject, key, 1);
-    b.finish().unwrap()
-}
-
-#[test]
-fn key_reads_track_derive_resource_and_pending_variants() {
-    for kind in 0..4 {
-        let p = key_reuse_dependency_plan(kind);
-        let sites = crate::instance::SiteIndex::new(&p);
-        let slots = [Value::Number(0.)];
-        let before = [Some(Value::Number(1.))];
-        let after = [Some(Value::Number(2.))];
-        let held_before = [Some(crate::held::Held::new(Value::Number(1.)))];
-        let held_after = [Some(crate::held::Held::new(Value::Number(2.)))];
-        let pending = [false];
-        let changed_pending = [true];
-        let mut input = env(&p, &slots);
-        input.derives = &before;
-        input.resources = &held_before;
-        input.pending_resources = &pending;
-        input.pending_mutations = &pending;
-        let seen = crate::instance::deps::Seen::of(&input);
-        let key = &sites.deps.keys[0];
-        assert!(!sites.deps.changed(&seen, &input).intersects(&key.bits));
-        match kind {
-            0 => input.derives = &after,
-            1 => input.resources = &held_after,
-            2 => input.pending_resources = &changed_pending,
-            3 => input.pending_mutations = &changed_pending,
-            _ => unreachable!(),
-        }
-        assert!(
-            sites.deps.changed(&seen, &input).intersects(&key.bits),
-            "dependency {kind}"
-        );
-    }
-}
-
-#[test]
-fn a_router_read_is_pure_and_an_action_parameter_is_opaque() {
-    let sites = |kind| crate::instance::SiteIndex::new(&key_reuse_dependency_plan(kind));
-    assert!(sites(4).deps.keys[0].constant());
-    assert!(sites(5).deps.keys[0].opaque);
-}
-
 #[test]
 fn bounded_snapshots_equal_ordinary_and_refuse_before_owned_rows() {
     let mut h = Harness::new(10_000, false, false);
@@ -1390,55 +1380,4 @@ fn bounded_snapshots_equal_ordinary_and_refuse_before_owned_rows() {
         current
     );
     assert_ne!(current, ordinary);
-}
-
-#[test]
-fn logical_text_reads_unmounted_rows_and_wrappers_publish_their_place() {
-    let mut h = key_reuse_harness(false);
-    let mut items = key_reuse_items(&h);
-    for (i, item) in items.iter_mut().enumerate() {
-        *item = key_reuse_row(i as f64, &format!("row {i}"));
-    }
-    h.slots[0] = Value::list(items);
-    h.update().unwrap();
-    let view = h.snapshot().view;
-    let mounted = h.snapshot().rows.len();
-    assert!(mounted < 128, "most rows are not mounted");
-    let first = h.snapshot().rows[0].clone();
-    let wrapper = h.kernel.node(first.view).unwrap();
-    assert_eq!(wrapper.props.str(PropId::ListItemKey), Some("n:0"));
-    assert_eq!(
-        wrapper.props.get(PropId::AccessibilityPosInSet),
-        Some(&exact_kernel::PropValue::Int(1))
-    );
-    assert_eq!(
-        wrapper.props.get(PropId::AccessibilitySetSize),
-        Some(&exact_kernel::PropValue::Int(128))
-    );
-    assert_eq!(h.tree.list_index(view, "n:127"), Some(127));
-    assert_eq!(h.tree.list_index(view, "n:128"), None);
-    let sites = crate::instance::SiteIndex::new(&h.plan);
-    let mut ids = Ids::default();
-    let mut u = Update::new(env(&h.plan, &h.slots), &sites, &mut ids);
-    let all = h.tree.list_text(&mut u, view, None).unwrap();
-    assert!(all.starts_with("row 0\n\nrow 1\n\n"), "{}", &all[..40]);
-    assert!(all.ends_with("row 127"));
-    let position = |key, offset| crate::ListTextPosition {
-        key,
-        paragraph: 0,
-        offset,
-    };
-    let range = h
-        .tree
-        .list_text(
-            &mut u,
-            view,
-            Some((position("n:126", 2), position("n:1", 3))),
-        )
-        .unwrap();
-    // UTF-16 offsets within the first and last paragraphs, in either order.
-    assert!(range.starts_with(" 1\n\nrow 2"), "{range}");
-    assert!(range.ends_with("row 125\n\nro"), "{range}");
-    assert!(u.ops.is_empty(), "reading commits nothing");
-    assert_eq!(h.snapshot().rows.len(), mounted);
 }

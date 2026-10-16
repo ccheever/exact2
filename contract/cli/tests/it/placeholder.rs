@@ -302,8 +302,8 @@ fn a_send_before_the_module_loads_waits_for_it() {
             "  mutation saved as shape Post refreshes comments then afterSave\n  state note = \"\"\n  action save\n    send saved = savePost(\"7\")\n  action afterSave\n    note = \"then ran\"\n  resource comments",
         )
         .replace(
-            "      text `${length(comments)}",
-            "      text (pending(saved) ? \"sending\" : note) testId=\"sent\"\n      text `${length(comments)}",
+            "      text `${comments.length}",
+            "      text (pending(saved) ? \"sending\" : note) testId=\"sent\"\n      text `${comments.length}",
         );
     let built = Blog {
         later_at_build: true,
@@ -510,7 +510,7 @@ fn a_placeholder_shown_before_the_source_is_ready_is_never_compiled_as_its_answe
 
 #[test]
 fn empty_nests_and_every_other_field_is_its_zero() {
-    let src = "shape Author\n  name: string\n  found: bool\n  image: option<string>\nshape Article\n  title: string\n  author: Author\n  count: number\n  tags: list<string>\ncomponent App\n  resource post = article() as shape Article else empty(title=\"…\", count=-1, author=empty(found=true, image=some(\"/a.svg\")))\n  view\n    column\n      text post.author.name\n";
+    let src = "shape Author\n  name: string\n  found: bool\n  image: option<string>\nshape Article\n  title: string\n  author: Author\n  count: number\n  tags: string[]\ncomponent App\n  resource post = article() as shape Article else empty(title=\"…\", count=-1, author=empty(found=true, image=some(\"/a.svg\")))\n  view\n    column\n      text post.author.name\n";
     let plan = contract::compile(src).unwrap();
     let row = plan
         .resources
@@ -729,7 +729,7 @@ fn failed_search_is_readable_and_clears_on_changed_arguments_refresh_and_success
   resource results = search(query) as shape string
   derive unavailable = failed(results)
   resource status = report(failed(results)) as shape bool
-  resource rows = rows() as shape list<number>
+  resource rows = rows() as shape number[]
   mutation changed as shape bool
   action search(q: string)
     query = q
@@ -741,9 +741,9 @@ fn failed_search_is_readable_and_clears_on_changed_arguments_refresh_and_success
     column
       text `${results}/${pending(results)}/${failed(results)}` testId="state"
       text `${unavailable}/${status}` testId="derived"
-      each n in rows key=n
+      for n in rows key=n
         text `${failed(results)}` testId=`row-${n}`
-      when failed(results)
+      if failed(results)
         text "Couldn't load" testId="failure"
 "#;
     for full in [false, true] {
@@ -825,7 +825,6 @@ fn failed_names_one_resource() {
         "failed()",
         "failed(results, results)",
         "failed(query)",
-        "failed(changed)",
         "failed(1)",
         "failed(missing)",
     ] {

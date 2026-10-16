@@ -13,7 +13,7 @@ use crate::error::{KernelError, LayoutError};
 use crate::export::{self, NodeRow};
 use crate::generated::{BoxSizing, Display, NodeType, PropId, StyleId, StyleMask, StyleProps};
 use crate::id::{Frame, NodeFlags, NodeKey, Offer, ViewId};
-use crate::layout::{self, LayoutMirror, LayoutReceipt, LayoutTree, Unmirrored};
+use crate::layout::{LayoutMirror, LayoutReceipt, LayoutTree, Unmirrored};
 use crate::props::PropList;
 use crate::selector::SelectorIndex;
 use crate::style::{uses_env, ColorValue, Dimension, Env, Rect, RowValue};
@@ -21,17 +21,27 @@ use crate::text::{MonospaceMeasurer, TextMeasurer, TextRun, TextStyle};
 
 use crate::txn::{self, CommitReceipt, Target};
 use crate::wire::{self, Op};
+mod alert;
+mod block;
 mod cover;
 mod document;
 mod environment;
 mod geometry;
+mod history;
+use history::RetainedReceipt;
 mod intrinsic;
 mod row_memo;
 mod sticky;
 mod trim;
+mod wide;
 
+pub(crate) use block::{apply as apply_block, publication_start, Blocks};
+pub use block::{BlockAxis, HostBlock};
 pub use cover::HostCover;
-pub(crate) use cover::{children_changed as cover_children_changed, header_inset};
+pub(crate) use cover::{
+    added_padding as cover_padding, apply as apply_cover,
+    children_changed as cover_children_changed, published_extent,
+};
 pub use sticky::StickyConstraint;
 
 /// How many receipts the kernel retains for late readers.
@@ -80,6 +90,22 @@ pub struct NodeRef<'a> {
 }
 
 impl<'a> NodeRef<'a> {
+    fn at(arena: &'a NodeArena, slot: u32) -> Self {
+        Self {
+            id: arena.local_id(slot),
+            key: arena.key(slot),
+            node_type: arena.node_type(slot),
+            parent: arena.parent(slot).map(|p| arena.local_id(p)),
+            style: arena.style(slot),
+            props: arena.props(slot),
+            frame: arena.frame(slot),
+            content: arena.content(slot),
+            is_root: arena.is_root(slot),
+            arena,
+            slot,
+        }
+    }
+
     /// The editor content box in this native field's local frame (LLP 1104 D5).
     pub fn field_content_rect(&self) -> Option<Frame> {
         self.arena.field_content_rect(self.slot)
@@ -106,12 +132,38 @@ impl<'a> NodeRef<'a> {
     /// The node whose own row supplies `id` here: this node when it sets the
     /// row; for a row the schema marks inherited, the nearest logical ancestor
     /// that does; `None` when the initial value applies (LLP 1035.000 D1).
-    /// Authored presence stays in `style.mask`; this is where a computed
-    /// value came from.
+    /// Which rows have own values stays in `style.mask`, and which declarations the
+    /// author wrote in `style.written`; this is where a computed value came
+    /// from.
     pub fn source_of(&self, id: StyleId) -> Option<ViewId> {
         self.arena
             .inherited_source(self.slot, id)
             .map(|s| self.arena.local_id(s))
+    }
+
+    /// Whether an author declaration chooses this row, including an explicit
+    /// CSS clear that inherits or uses the initial value (LLP 1115.000 D2).
+    /// `style.written` is this node's declarations alone; an inherited row
+    /// can also be chosen by an ancestor. A platform start stops that walk.
+    pub fn says(&self, id: StyleId) -> bool {
+        let mut current = Some(self.slot);
+        while let Some(slot) = current {
+            let own = self.arena.style(slot);
+            if own.written.has(id) {
+                return true;
+            }
+            if own.mask.has(id)
+                || !id.inherited()
+                || self
+                    .arena
+                    .style_starts(slot)
+                    .any(|start| start.mask.has(id))
+            {
+                return false;
+            }
+            current = self.arena.parent(slot);
+        }
+        false
     }
 
     /// CSS's computed value of a row: the own row; else, for an inherited
@@ -137,6 +189,12 @@ impl<'a> NodeRef<'a> {
     /// rows, else its paragraph's, else the initial values.
     pub fn text_style(&self) -> TextStyle {
         self.arena.text_style(self.slot)
+    }
+
+    /// The resolved paragraph inputs used by the layout measurer, without
+    /// copying unrelated style rows.
+    pub fn paragraph(&self) -> crate::text::Paragraph {
+        self.arena.paragraph(self.slot)
     }
 
     /// The nearest explicit HTML spelling-check hint in the logical tree.
@@ -192,6 +250,14 @@ impl<'a> NodeRef<'a> {
         runs
     }
 
+    /// The scale this paragraph is drawn at, as its last layout chose it
+    /// (`-exact-fit: shrink`, LLP 1116.001 D1.4): 1 unless it was shrunk to
+    /// fit its box. [`Self::text_runs`] are at it already; a host that draws
+    /// from the style rows multiplies their sizes by it.
+    pub fn fit_scale(&self) -> f32 {
+        self.arena.fit_scale(self.slot)
+    }
+
     /// Child wire ids, in order.
     pub fn children(&self) -> Vec<ViewId> {
         self.arena
@@ -199,6 +265,16 @@ impl<'a> NodeRef<'a> {
             .iter()
             .map(|c| self.arena.local_id(*c))
             .collect()
+    }
+
+    /// Borrow the children in tree order, without allocating an id snapshot
+    /// or resolving those ids again. The arena stays borrowed for the walk.
+    pub fn child_nodes(&self) -> impl ExactSizeIterator<Item = Self> + DoubleEndedIterator + 'a {
+        let arena = self.arena;
+        arena
+            .children(self.slot)
+            .iter()
+            .map(move |&slot| Self::at(arena, slot))
     }
 }
 
@@ -213,7 +289,8 @@ pub struct Kernel {
     epoch: u64,
     incarnation: u64,
     provisional_layouts: u64,
-    receipts: VecDeque<CommitReceipt>,
+    receipts: VecDeque<RetainedReceipt>,
+    document_commit: Option<Box<txn::DocumentCommit>>,
     region: Option<crate::region::RegionState>,
     region_leases: crate::region::RegionLeases,
     /// A kernel with layout on demand builds the engine only when a layout
@@ -224,6 +301,12 @@ pub struct Kernel {
     /// List rows mounted out of their port that hold an animation waiting
     /// for the row to show (`-exact-animation-trigger: view`, LLP 1055 D13).
     pub(crate) awaiting: crate::id::IdSet<ViewId>,
+    /// The measurer's revision its symbols were last measured under, `None`
+    /// before this kernel's measurer measured any: a new one asks about
+    /// every symbol again (`measure_symbols`).
+    symbol_revision: Option<u64>,
+    /// This kernel as a holder of wide colours, for the table's sweep.
+    wide: crate::style::wide::Holder,
 }
 
 /// The engine tree, which a layout path has made sure of with `mirror`.
@@ -283,11 +366,14 @@ impl Kernel {
             incarnation: 1,
             provisional_layouts: 0,
             receipts: VecDeque::new(),
+            document_commit: None,
             region: None,
             region_leases: Default::default(),
             on_demand: true,
             detached: false,
             awaiting: Default::default(),
+            symbol_revision: None,
+            wide: Default::default(),
         }
     }
 
@@ -302,10 +388,14 @@ impl Kernel {
     }
 
     /// Build the engine's tree when it doesn't yet mirror the arena.
+    /// Ready for any layout, the main one, a content region's or a height
+    /// probe's: the engine tree, and the natural sizes the kernel measures
+    /// itself (`measure_symbols`).
     fn mirror(&mut self) {
         if self.layout.is_none() {
             self.layout = Some(Box::new(LayoutTree::rebuild(&mut self.arena)));
         }
+        self.measure_symbols();
     }
 
     /// The published epoch: bumps on every commit that changed something.
@@ -364,6 +454,9 @@ impl Kernel {
         profile: crate::region::RegionProfile,
     ) -> Result<bool, KernelError> {
         self.mirror();
+        if binding.is_some() && self.arena.blocks.any() {
+            return Err(LayoutError::HostBlock("no content region beside a block").into());
+        }
         if binding.is_some() && engine(&mut self.layout).has_presented_height() {
             return Err(LayoutError::ContentRegion(
                 "clear the presented height before region registration",
@@ -510,25 +603,14 @@ impl Kernel {
         }
         self.replace_env(self.arena.env().with_viewport(offer))?;
         engine(&mut self.layout).present_heights(&self.arena, presented);
-        let result = match layout::compute(
-            &mut self.arena,
-            engine(&mut self.layout),
-            self.measurer.as_mut(),
-            slot,
-            offer,
-        ) {
+        // The root, then each subtree a host gave a block (LLP 1115.002 D8.2).
+        let result = match self.lay_out_roots(slot, offer) {
             ok @ Ok(_) => ok,
             Err(LayoutError::Engine(_)) => {
                 // The engine tree is derived state: rebuild it from the columns and retry once.
                 self.layout = Some(Box::new(LayoutTree::rebuild(&mut self.arena)));
                 engine(&mut self.layout).present_heights(&self.arena, presented);
-                layout::compute(
-                    &mut self.arena,
-                    engine(&mut self.layout),
-                    self.measurer.as_mut(),
-                    slot,
-                    offer,
-                )
+                self.lay_out_roots(slot, offer)
             }
             Err(e) => Err(e),
         };
@@ -598,6 +680,7 @@ impl Kernel {
                 &kernel.arena,
                 kernel.measurer.as_mut(),
             )?;
+            kernel.lay_out_blocks_unpublished(slot)?;
             owners
                 .iter()
                 .map(|node| {
@@ -730,6 +813,45 @@ impl Kernel {
         self.arena.root_font_size()
     }
 
+    /// Set the display's scale, device pixels a px (1 by default): what a
+    /// hairline (`-exact-hairline`) resolves against. The host's fact, as the
+    /// root font size is: UIKit's `displayScale`, AppKit's
+    /// `backingScaleFactor`, the browser's `devicePixelRatio`, the pixels a
+    /// point a shell draws at. The next commit applies it, re-resolving
+    /// every hairline row, so an empty batch is enough. `false` when it is
+    /// the scale already set.
+    /// @ref LLP 1115.000 D10.3
+    pub fn set_display_scale(&mut self, scale: f32) -> Result<bool, KernelError> {
+        if !scale.is_finite() || scale <= 0.0 {
+            return Err(LayoutError::InvalidDisplayScale.into());
+        }
+        if self.display_scale() == scale {
+            return Ok(false);
+        }
+        self.arena.display_scale_next = Some(scale);
+        Ok(true)
+    }
+
+    /// Whether any live node has a hairline row: a new display scale moves
+    /// nothing otherwise.
+    pub fn has_hairlines(&self) -> bool {
+        use crate::style::relative::Unit;
+        let arena = &self.arena;
+        (arena.relative_slots.iter()).any(|slot| {
+            let rows = &arena.style(slot).relative;
+            rows.iter().any(|(_, unit, _)| unit == Unit::Hairline)
+        })
+    }
+
+    /// The display's scale, as last set (LLP 1115.000 D10.3).
+    pub fn display_scale(&self) -> f32 {
+        let arena = &self.arena;
+        arena
+            .display_scale_next
+            .or(arena.display_scale)
+            .unwrap_or(1.0)
+    }
+
     /// The EXNODE envelope for `root`, or for every root when `None`.
     pub fn export(&self, root: Option<ViewId>) -> Result<Vec<u8>, KernelError> {
         let slot = match root {
@@ -805,19 +927,7 @@ impl Kernel {
     }
 
     fn node_at(&self, slot: u32) -> NodeRef<'_> {
-        NodeRef {
-            id: self.arena.local_id(slot),
-            key: self.arena.key(slot),
-            node_type: self.arena.node_type(slot),
-            parent: self.arena.parent(slot).map(|p| self.arena.local_id(p)),
-            style: self.arena.style(slot),
-            props: self.arena.props(slot),
-            frame: self.arena.frame(slot),
-            content: self.arena.content(slot),
-            is_root: self.arena.is_root(slot),
-            arena: &self.arena,
-            slot,
-        }
+        NodeRef::at(&self.arena, slot)
     }
 
     /// Every node whose `id` prop is `id`, oldest first: what a command
@@ -878,13 +988,15 @@ impl Kernel {
         indexed.iter().min().map(|slot| self.arena.key(*slot))
     }
 
-    /// Retained commit receipts, oldest first.
-    pub fn receipts(&self) -> impl Iterator<Item = &CommitReceipt> {
-        self.receipts.iter()
+    /// Retained commit receipts, oldest first, decoded when requested.
+    /// Commits return their receipt directly; history reads own their copies.
+    pub fn receipts(&self) -> impl Iterator<Item = CommitReceipt> + '_ {
+        self.receipts.iter().map(RetainedReceipt::receipt)
     }
 
     /// Destroy every node and bump the incarnation. Keys minted before never resolve again.
     pub fn reset(&mut self) {
+        self.document_commit = None;
         self.region = None;
         self.arena.reset();
         self.layout =
@@ -893,6 +1005,7 @@ impl Kernel {
         self.receipts.clear();
         self.incarnation += 1;
         self.epoch += 1;
+        self.wide_changed();
     }
 
     /// A second kernel built from this one's columns alone — the layout engine
@@ -916,12 +1029,16 @@ impl Kernel {
             incarnation: self.incarnation,
             provisional_layouts: self.provisional_layouts,
             receipts: VecDeque::new(),
+            document_commit: None,
             region: None,
             region_leases: Default::default(),
             on_demand: self.on_demand,
             detached: self.detached,
             awaiting: Default::default(),
+            symbol_revision: None,
+            wide: Default::default(),
         }
+        .published()
     }
 }
 
@@ -936,6 +1053,8 @@ impl std::fmt::Debug for Kernel {
     }
 }
 
+#[cfg(test)]
+mod block_tests;
 #[cfg(test)]
 mod presented_height_tests;
 

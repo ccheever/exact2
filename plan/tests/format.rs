@@ -11,7 +11,7 @@ use exact_plan::{
 
 /// A small but complete plan: a counter slot, a derive, a resource, an
 /// action with a write, a timer, a root node with a text binding, and a
-/// `when` region with two arms.
+/// `if` region with two arms.
 fn sample() -> Plan {
     let mut b = PlanBuilder::new(0xdead_beef, 0x1234);
     let number = b.primitive(TypeKind::Number);
@@ -52,6 +52,7 @@ fn sample() -> Plan {
             kind: BindingKind::Prop,
             id: 0,
             expr: text,
+            written: true,
         }],
         &[(EventKind::Press, tick, &[])],
         None,
@@ -207,6 +208,30 @@ fn font_sources_are_portable_local_relative_paths() {
             "accepted {source:?}"
         );
     }
+}
+
+/// A bool is 0 or 1. Any other byte is refused, not read as `true`: a
+/// binding's `written` is a claim about its author (LLP 1115.000 D2).
+#[test]
+fn a_bool_is_zero_or_one_and_nothing_else() {
+    let written = sample();
+    let mut implied = sample();
+    implied.bindings[0].written = false;
+    let (a, b) = (written.encode(), implied.encode());
+    let differing: Vec<usize> = (0..a.len()).filter(|&i| a[i] != b[i]).collect();
+    assert_eq!(differing.len(), 1, "the bit is one byte of the plan");
+    let at = differing[0];
+    assert_eq!((a[at], b[at]), (1, 0));
+    let mut corrupt = a.clone();
+    corrupt[at] = 2;
+    assert_eq!(
+        Plan::decode(&corrupt),
+        Err(PlanError::UnknownEnum {
+            table: "bindings",
+            field: "written",
+            value: 2
+        })
+    );
 }
 
 #[test]

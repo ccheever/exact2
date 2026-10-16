@@ -143,7 +143,7 @@ pub fn rescope(file: &mut File, scope: &Scope) -> Result<(), SyntaxError> {
 }
 
 /// Every name `file` binds locally: component members, parameters, and
-/// `each`, `match`, arrow and `let` binders. The loader renames another
+/// `for`, `match`, arrow and `let` binders. The loader renames another
 /// file's `fn` or shape of one of these names, so the type checker, which
 /// calls a `fn` before a binding, never reaches past the binding to it.
 pub fn bindings(file: &mut File) -> std::collections::HashSet<String> {
@@ -185,6 +185,9 @@ fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), S
         timelines,
         // A `@color-profile`'s dashed name is global, as in CSS.
         color_profiles: _,
+        // The theme's names are the app's, as roles are (LLP 1095 D4).
+        theme: _,
+        design: _,
         fns,
         tests,
         launch: _,
@@ -245,7 +248,7 @@ fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), S
 struct Rewriter<'a> {
     scope: &'a Scope,
     /// The bindings in scope where the rewrite stands — a component's
-    /// members, an action's or `fn`'s parameters, `each`, `match`, arrow and
+    /// members, an action's or `fn`'s parameters, `for`, `match`, arrow and
     /// `let` binders. A call of one is the binding's, never a top-level name.
     locals: Vec<String>,
     /// For each of `locals`, whether it is an action, prop or inject: the
@@ -270,11 +273,13 @@ impl Rewriter<'_> {
             provides,
             slot: _,
             states,
+            persist: _,
             derives,
             resources,
             mutations,
             actions,
             tasks,
+            sequences,
             view,
             span,
         } = c;
@@ -318,6 +323,18 @@ impl Rewriter<'_> {
         for t in tasks {
             self.expr(&mut t.timer.0)?;
             for e in t.gate.iter_mut().chain(t.key.iter_mut()) {
+                self.expr(e)?;
+            }
+        }
+        for q in sequences {
+            let options = q.options.iter_mut().map(|o| &mut o.1);
+            for e in q
+                .gate
+                .iter_mut()
+                .chain(q.key.iter_mut())
+                .chain([&mut q.tracks])
+                .chain(options)
+            {
                 self.expr(e)?;
             }
         }
@@ -401,6 +418,7 @@ impl Rewriter<'_> {
                     Ok(())
                 }
             },
+            TypeExpr::Enum(..) => Ok(()),
             TypeExpr::Option(inner, _) | TypeExpr::List(inner, _) => self.ty(inner),
         }
     }

@@ -1,15 +1,18 @@
 // The page's facts (LLP 1069.000 D2, D3): whether any of the app can be
 // seen (`visibilityState`), whether the device is online (`onLine`), whether
-// a share sheet exists (`canShare`, LLP 1069.003 D5), whether the document
-// pickers do (`canOpenFiles`), whether the session's window has the focus
-// (`hasFocus`, `document.hasFocus()`: #114), and the root font size `rem`
-// lengths follow (Dynamic Type on iOS; 16 on the Mac, as a browser's
-// `medium`). The runner answers the first five through `exactPage()`; the
-// kernel lays out `rem` against the last. Under the agent the machine is
-// never read: the drive's values stand in (`prefer`'s `page` group), visible,
-// online, a share sheet, the pickers, focus, 16 until it says otherwise (LLP
-// 1069.000 D6), unless `EXACT_DEVICE=real` asks for the machine's (LLP
-// 1069.007 D8: a person looking at the real thing).
+// a share sheet exists (`canShare`, LLP 1069.003 D5) and takes files and
+// pictures (`canShareFiles`, `canSharePictures`, LLP 1125 D12), whether
+// the document pickers do (`canOpenFiles`), whether the session's window has
+// the focus (`hasFocus`, `document.hasFocus()`: #114), and the root font
+// size `rem` lengths follow (the platform's body size, LLP 1115 D3: Dynamic
+// Type's body on iOS, 17 at the default; `NSFont.systemFontSize`, 13, on the
+// Mac). The runner answers all but the last through `exactPage()`; the
+// kernel lays out `rem` against the last. Under the agent the machine is never read: the
+// drive's values stand in (`prefer`'s `page` group), visible, online, a share
+// sheet, the pickers, focus, the platform's default body size (17 on iOS, 13
+// on the Mac) until it says otherwise (LLP 1069.000 D6), unless
+// `EXACT_DEVICE=real` asks for the machine's (LLP 1069.007 D8: a person
+// looking at the real thing).
 #if os(macOS)
 import AppKit
 typealias FocusWindow = NSWindow
@@ -19,18 +22,23 @@ typealias FocusWindow = UIWindow
 #endif
 import Network
 
-enum PageFacts {
+package enum PageFacts {
     /// What an agent's `prefer` set, in place of the platform's readings.
-    nonisolated(unsafe) static var agent = (hidden: false, onLine: true, canShare: true, canOpenFiles: true, hasFocus: true, rootFontSize: 16.0) {
+    nonisolated(unsafe) static var agent = (hidden: false, onLine: true, canShare: true, canShareFiles: true, canSharePictures: true, canOpenFiles: true, hasFocus: true, rootFontSize: Double(defaultRootFontSize)) {
         didSet { changed() }
     }
+    /// What the build channel's `pin` set (LLP 1122 D4), over the platform's
+    /// and the agent's; nil hands it back.
+    nonisolated(unsafe) static var pinnedRootFontSize: Double?
     /// The drive's values stand in for the machine's (LLP 1069.007 D2, D8).
     static let substituted = ExactEnv.agentMode && ExactEnv.environment["EXACT_DEVICE"] != "real"
     private static let agentChanged = Notification.Name("ExactPageFactsChanged")
     private static func changed() { NotificationCenter.default.post(name: agentChanged, object: nil) }
 
-    /// One path monitor for the process, started on first use. Until its
-    /// first update the device is taken to be online, as a browser starts.
+    /// One path monitor for the process, started when a session's plan
+    /// reads `onLine`: it loads Network and keeps a queue, which an app that
+    /// never asks should not pay. Until its first update the device is taken
+    /// to be online, as a browser starts.
     nonisolated(unsafe) private static var monitor: NWPathMonitor?
     nonisolated(unsafe) private static var satisfied = true
     private static func startMonitor() {
@@ -49,13 +57,15 @@ enum PageFacts {
     }
 
     /// Nothing of the app can be seen: iOS in the background; macOS hidden,
-    /// or every window fully occluded. A window behind another is visible.
+    /// or every window on screen or in the Dock minimized or fully occluded
+    /// (Chrome reads a window minimized with ⌘M as hidden; AppKit's
+    /// `isVisible` is false for it). A window behind another is visible.
     static var hidden: Bool {
         if substituted { return agent.hidden }
         #if os(macOS)
         if NSApp.isHidden { return true }
-        let windows = NSApp.windows.filter { $0.isVisible }
-        return !windows.isEmpty && windows.allSatisfy { !$0.occlusionState.contains(.visible) }
+        let windows = NSApp.windows.filter { $0.isVisible || $0.isMiniaturized }
+        return !windows.isEmpty && windows.allSatisfy { $0.isMiniaturized || !$0.occlusionState.contains(.visible) }
         #else
         return AppBackground.now
         #endif
@@ -67,6 +77,17 @@ enum PageFacts {
     }
     /// Both Apple platforms have a share sheet.
     static var canShare: Bool { substituted ? agent.canShare : true }
+    /// iOS's and the Mac's sheets take file URLs and a node's picture
+    /// (LLP 1125 D12); tvOS has no sheet to take them.
+    static var canShareFiles: Bool {
+        if substituted { return agent.canShareFiles }
+        #if os(tvOS)
+        return false
+        #else
+        return true
+        #endif
+    }
+    static var canSharePictures: Bool { substituted ? agent.canSharePictures : canShareFiles }
     /// The document pickers (LLP 1069.010 D2): the Mac's panels, iOS's
     /// document picker; tvOS has none (studio diary R31).
     static var canOpenFiles: Bool {
@@ -95,33 +116,89 @@ enum PageFacts {
         #endif
     }
 
-    /// The root font size in points: iOS scales CSS's 16 by the preferred
-    /// content size category, as `UIFontMetrics` scales body text.
+    /// The root font size in points: the platform's body size (LLP 1115
+    /// D3). iOS: Dynamic Type's body, 17 at the default size and scaled by
+    /// the preferred content size category. macOS: `NSFont.systemFontSize`,
+    /// 13. tvOS keeps CSS's 16 scaled by the category until its own pass
+    /// (its body style is 29 points, read at ten feet).
     static var rootFontSize: Double {
+        if let pinnedRootFontSize { return pinnedRootFontSize }
         if substituted { return agent.rootFontSize }
         #if os(macOS)
+        return Double(NSFont.systemFontSize)
+        #elseif os(tvOS)
+        return Double(UIFontMetrics.default.scaledValue(for: 16))
+        #else
+        return Double(UIFont.preferredFont(forTextStyle: .body).pointSize)
+        #endif
+    }
+
+    /// The body size at the platform's default settings: what the agent
+    /// pins until its drive says otherwise (`prefer`'s `root-font-size`).
+    package static let defaultRootFontSize: CGFloat = {
+        #if os(macOS)
+        return 13
+        #elseif os(tvOS)
         return 16
         #else
-        return Double(UIFontMetrics.default.scaledValue(for: 16))
+        return 17
+        #endif
+    }()
+
+    /// What an agent's `prefer display-scale` set in place of the display's
+    /// own; nil reads the display.
+    nonisolated(unsafe) static var agentDisplayScale: Double? {
+        didSet { changed() }
+    }
+
+    /// The scale of the display `view` is drawn on, device pixels a point
+    /// (LLP 1115.000 D10.3): UIKit's `displayScale` (3 or 2 on a phone), the
+    /// window's `backingScaleFactor` on the Mac (2 on a Retina display, 1
+    /// where there is none or no window yet). A hairline (`-exact-hairline`)
+    /// is one device pixel of it, so it is told to the kernel as the root
+    /// font size is. Under the agent it is still the display's, which is the
+    /// simulator's or the Mac's own, unless the drive names one.
+    static func displayScale(_ view: PlatformView?) -> Double {
+        if let agentDisplayScale { return agentDisplayScale }
+        #if os(macOS)
+        return Double(max(1, view?.window?.backingScaleFactor ?? 1))
+        #else
+        return Double(max(1, view?.traitCollection.displayScale ?? 1))
+        #endif
+    }
+
+    /// The system is about to suspend the app (LLP 1125 D4): iOS and tvOS
+    /// in the background, unless a `playback` session keeps it running. A
+    /// Mac app is never suspended for being hidden.
+    static var suspended: Bool {
+        #if os(macOS)
+        return false
+        #else
+        return hidden && !AudioSession.playsInBackground
         #endif
     }
 
     /// The ABI's form (`exact_set_page`) for a session in `window`: bit 0
     /// hidden, bit 1 offline, bit 2 a share sheet, bit 3 the document
-    /// pickers, bit 4 without focus.
-    static func bits(_ window: FocusWindow?) -> UInt32 {
-        (hidden ? 1 : 0) | (onLine ? 0 : 2) | (canShare ? 4 : 0) | (canOpenFiles ? 8 : 0) | (hasFocus(window) ? 0 : 16)
+    /// pickers, bit 4 without focus, bit 7 about to be suspended, bits 8 and
+    /// 9 a share takes files and pictures. A session whose plan does not read
+    /// `onLine` starts no monitor for it.
+    static func bits(_ window: FocusWindow?, readsOnLine: Bool = true) -> UInt32 {
+        let online = readsOnLine ? onLine : substituted ? agent.onLine : satisfied
+        return (hidden ? 1 : 0) | (online ? 0 : 2) | (canShare ? 4 : 0) | (canOpenFiles ? 8 : 0) | (hasFocus(window) ? 0 : 16) | (suspended ? 128 : 0) | (canShareFiles ? 256 : 0) | (canSharePictures ? 512 : 0)
     }
 
     /// Calls `changed` on the main queue when any reading may have changed;
     /// the caller holds the tokens and removes them.
     static func observe(_ changed: @escaping () -> Void) -> [NSObjectProtocol] {
-        if !substituted { startMonitor() }
         #if os(macOS)
-        // Focus (#114): any window's key change or the app's activation; each
-        // session reads its own window, and the same facts again commit nothing.
+        // Visibility: hiding, occlusion, and a minimize or restore, which
+        // need not change the occlusion. Focus (#114): any window's key change
+        // or the app's activation; each session reads its own window, and the
+        // same facts again commit nothing.
         let workspace = [NSApplication.didHideNotification, NSApplication.didUnhideNotification,
-                         NSWindow.didChangeOcclusionStateNotification, NSWindow.didBecomeKeyNotification,
+                         NSWindow.didChangeOcclusionStateNotification, NSWindow.didMiniaturizeNotification,
+                         NSWindow.didDeminiaturizeNotification, NSWindow.didBecomeKeyNotification,
                          NSWindow.didResignKeyNotification, NSApplication.didBecomeActiveNotification,
                          NSApplication.didResignActiveNotification, agentChanged]
         #else
@@ -147,6 +224,39 @@ enum PageFacts {
     }
     static func forget(_ tokens: [NSObjectProtocol]) {
         tokens.forEach(NotificationCenter.default.removeObserver)
+    }
+}
+
+extension ExactSession {
+    /// @ref LLP 1069.000 D2 — told after every boot and on each change; a
+    /// change while iOS suspends the process lands with the foreground
+    /// notification, in the same turn.
+    func tellPage() {
+        guard booted, state != .destroyed else { return }
+        apply(runtime.setPage(PageFacts.bits(pageWindow, readsOnLine: runtime.readsOnLine())))
+        apply(runtime.setRootFontSize(PageFacts.rootFontSize))
+        tellDisplayScale()
+    }
+    /// LLP 1115.000 D10.3: the display's scale, told with the page's facts
+    /// after every boot and again when the view's display changes
+    /// (`ExactViewIOS`, `ExactViewMac`); the same scale again commits
+    /// nothing, and a new one only where a row is a hairline.
+    func tellDisplayScale() {
+        guard booted, state != .destroyed else { return }
+        apply(runtime.setDisplayScale(PageFacts.displayScale(presenter.viewport)))
+    }
+}
+
+extension ExactSession {
+    /// The window `document.hasFocus()` is read of: the session's view's. On
+    /// macOS, the one of the session's windows that is key when one is: a
+    /// `dialog`'s sheet holds the keyboard for its page (LLP 1115.002 D7.2),
+    /// which another app's sheet (an open panel) does not.
+    var pageWindow: FocusWindow? {
+        #if os(macOS)
+        if let key = NSApp.keyWindow, presenter.hosts(key) { return key }
+        #endif
+        return view?.window
     }
 }
 

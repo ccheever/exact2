@@ -120,9 +120,11 @@ fn call_value(
         // @ref LLP 1051.000 D1/D2 — an action's reads, through the linked
         // geometry. The compiler admits them nowhere else, and a host refuses
         // a plan that reads geometry it doesn't link (LLP 1047 D6).
-        Stdlib::Frame | Stdlib::Measure | Stdlib::ElementFromPoint => {
-            return geometry?.read(plan, f, args)
-        }
+        Stdlib::Frame
+        | Stdlib::Measure
+        | Stdlib::ElementFromPoint
+        | Stdlib::ElementsFromPoint
+        | Stdlib::QuerySelectorAll => return geometry?.read(plan, f, args),
         // @ref LLP 1038 D3/D9 — pure verbs and typed reads over the plan shapes.
         Stdlib::Open
         | Stdlib::Push
@@ -244,8 +246,8 @@ fn call_value(
                     Value::some(Value::Number(n as f64))
                 })
         }
-        Stdlib::Max => Value::Number(num(0)?.max(num(1)?)),
-        Stdlib::Min => Value::Number(num(0)?.min(num(1)?)),
+        Stdlib::Max => Value::Number(js_max(num(0)?, num(1)?)),
+        Stdlib::Min => Value::Number(js_min(num(0)?, num(1)?)),
         Stdlib::T => unreachable!("interpolation is bounded by call"),
         Stdlib::Slice | Stdlib::ReplaceAll | Stdlib::ToLowerCase => {
             unreachable!("strings are bounded by call")
@@ -399,6 +401,31 @@ pub fn js_round(x: f64) -> f64 {
         -0.0
     } else {
         r
+    }
+}
+
+/// `Math.max` of two numbers (ECMA-262 §21.3.2.24): NaN when either is NaN,
+/// and +0 above -0. Not `f64::max`, which returns the other operand of a NaN.
+pub fn js_max(a: f64, b: f64) -> f64 {
+    if a.is_nan() || b.is_nan() {
+        f64::NAN
+    } else if a > b || a == b && a.is_sign_positive() {
+        // Equal and nonzero, they are the same double; of two zeros, +0.
+        a
+    } else {
+        b
+    }
+}
+
+/// `Math.min` of two numbers (ECMA-262 §21.3.2.25): NaN when either is NaN,
+/// and -0 below +0. Not `f64::min`, which returns the other operand of a NaN.
+pub fn js_min(a: f64, b: f64) -> f64 {
+    if a.is_nan() || b.is_nan() {
+        f64::NAN
+    } else if a < b || a == b && a.is_sign_negative() {
+        a
+    } else {
+        b
     }
 }
 
@@ -1019,6 +1046,21 @@ mod tests {
             assert_eq!(js_round(x).to_bits(), f64::to_bits(want), "round({x})");
         }
         assert!(js_round(f64::NAN).is_nan());
+        let (nan, inf) = (f64::NAN, f64::INFINITY);
+        for (a, b, max, min) in [
+            (3.0, 7.0, 7.0, 3.0),
+            (0.0, -0.0, 0.0, -0.0),
+            (-0.0, 0.0, 0.0, -0.0),
+            (-0.0, -0.0, -0.0, -0.0),
+            (inf, 5.0, inf, 5.0),
+            (-inf, 5.0, 5.0, -inf),
+            (nan, 1.0, nan, nan),
+            (1.0, nan, nan, nan),
+            (nan, inf, nan, nan),
+        ] {
+            assert_eq!(bits(Some(js_max(a, b))), bits(Some(max)), "max({a}, {b})");
+            assert_eq!(bits(Some(js_min(a, b))), bits(Some(min)), "min({a}, {b})");
+        }
         for (from, to, years, months) in [
             ("1990-06-15", "2026-06-14", Some(35), Some(431)),
             ("1990-06-15", "2026-06-15", Some(36), Some(432)),

@@ -19,6 +19,19 @@ private typealias WebReplyFn = @convention(c) (
     UnsafeMutableRawPointer?, UInt32, UInt32, UInt32, UnsafePointer<UInt8>?, UInt32
 ) -> Void
 
+private typealias WebAssetSinkFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> Void
+private typealias WebAssetReadFn = @convention(c) (UnsafePointer<UInt8>?, UInt32, UnsafeMutableRawPointer?, WebAssetSinkFn?) -> Void
+
+/// An app asset for the arm's `exact-app` origin, through the resolver every
+/// session reads: a delivered generation's or the dev URL's files reach a
+/// bundled page's sub-resources as they reach its document (@ref LLP 1020.001 D3).
+private let exactWebAssetRead: WebAssetReadFn = { name, length, context, sink in
+    guard let sink else { return }
+    let name = String(decoding: UnsafeBufferPointer(start: name, count: Int(length)), as: UTF8.self)
+    guard let bytes = ExactApp.shared.resolver.bytes(name) else { return }
+    bytes.withUnsafeBytes { sink(context, $0.bindMemory(to: UInt8.self).baseAddress, UInt32(bytes.count)) }
+}
+
 private struct WebLoadError: Error { let message: String }
 private struct WebRequestError: Error { let message: String }
 
@@ -29,6 +42,7 @@ private final class WebModule {
     typealias SnapshotFn = @convention(c) (UnsafeMutableRawPointer?, UInt32) -> Void
     typealias EvalFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafePointer<UInt8>?, UInt32) -> Void
     typealias DestroyFn = @convention(c) (UnsafeMutableRawPointer?) -> Void
+    typealias SetReaderFn = @convention(c) (WebAssetReadFn?) -> Void
 
     let library: UnsafeMutableRawPointer
     let create: CreateFn
@@ -54,11 +68,13 @@ private final class WebModule {
               let setSandbox = symbol("exact_web_set_sandbox", SetFn.self),
               let snapshot = symbol("exact_web_snapshot", SnapshotFn.self),
               let evaluate = symbol("exact_web_agent_eval", EvalFn.self),
-              let destroy = symbol("exact_web_destroy", DestroyFn.self)
+              let destroy = symbol("exact_web_destroy", DestroyFn.self),
+              let setReader = symbol("exact_web_set_reader", SetReaderFn.self)
         else {
             dlclose(library)
             return .failure(WebLoadError(message: "\(path) is not an exact web arm (missing exports)"))
         }
+        setReader(exactWebAssetRead)
         return .success(WebModule(
             library: library, create: create, platformView: platformView,
             setSrc: setSrc, setDocument: setDocument, setSandbox: setSandbox, snapshot: snapshot,
@@ -99,6 +115,8 @@ private final class WebEntry {
     var initialized = false
     var loading = true
     var unavailable = false
+    var fileFailed = false
+    var sourceRevision: UInt64 = 0
 
     init(owner: NodeView, callback: WebCallbackBox) {
         self.owner = owner
@@ -140,6 +158,7 @@ final class WebViews {
     private var waits: [UInt32: WebWait] = [:]
     private var nextToken: UInt32 = 1
     private(set) var failure: String?
+    var moduleLocation: () -> String = WebViews.modulePath
 
     var status: String {
         if module != nil { return "module loaded; \(entries.count) iframes" }
@@ -158,7 +177,7 @@ final class WebViews {
         if let module { return module }
         guard !WebViews.attempted else { return nil }
         WebViews.attempted = true
-        switch WebModule.load(path: WebViews.modulePath()) {
+        switch WebModule.load(path: moduleLocation()) {
         case .success(let loaded):
             WebViews.sharedModule = loaded
             return loaded
@@ -212,9 +231,17 @@ final class WebViews {
         entry.sandbox = sandbox
         entry.initialized = true
         guard let module, let handle = entry.handle, changedSrc || changedSandbox else { return }
+        guard changedSrc else {
+            if !entry.fileFailed { entry.loading = true }
+            send(sandbox, to: handle, using: module.setSandbox)
+            return
+        }
         entry.loading = true
-        guard changedSrc else { send(sandbox, to: handle, using: module.setSandbox); return }
-        guard let src, URL(string: src)?.scheme == nil, !src.hasPrefix("//"), let resolver = session?.app.resolver else {
+        entry.fileFailed = false
+        entry.sourceRevision &+= 1
+        let revision = entry.sourceRevision
+        let resolver = session?.app.resolver
+        guard let src, src.hasPrefix("app:/") || (URL(string: src)?.scheme == nil && !src.hasPrefix("//") && resolver != nil) else {
             send(nil as Data?, to: handle, using: module.setDocument)
             if changedSandbox { send(sandbox, to: handle, using: module.setSandbox) }
             send(src, to: handle, using: module.setSrc)
@@ -228,11 +255,25 @@ final class WebViews {
         let path = src.components(separatedBy: "?")[0].components(separatedBy: "#")[0]
         let name = path.hasPrefix("/") ? String(path.dropFirst()) : path
         let id = owner.id
+        let appFile = src.hasPrefix("app:/") ? AppFiles.url(path) : nil
         WebViews.reads.async { [weak self] in
-            let document = resolver.bytes(name) ?? Data()
+            let document = src.hasPrefix("app:/")
+                ? appFile.flatMap { try? Data(contentsOf: $0) }
+                : resolver?.bytes(name)
             DispatchQueue.main.async {
-                guard let self, let entry = self.entries[id], entry.src == src, let handle = entry.handle, let module = self.module else { return }
-                self.send(document, to: handle, using: module.setDocument)
+                guard let self, self.entries[id] === entry, entry.sourceRevision == revision, let handle = entry.handle, let module = self.module else { return }
+                if src.hasPrefix("app:/"), document == nil {
+                    entry.fileFailed = true
+                    entry.loading = false
+                    self.send(nil as Data?, to: handle, using: module.setDocument)
+                    self.send(entry.sandbox, to: handle, using: module.setSandbox)
+                    self.send(nil as String?, to: handle, using: module.setSrc)
+                    if let session = self.session, entry.owner?.handlers.contains("error") == true {
+                        session.apply(session.runtime.media(id, event: "error", payload: "iframe: \(src): file unavailable", now: session.now()))
+                    }
+                    return
+                }
+                self.send(document ?? Data(), to: handle, using: module.setDocument)
                 self.send(entry.sandbox, to: handle, using: module.setSandbox)
                 self.send(src, to: handle, using: module.setSrc)
             }
@@ -269,7 +310,7 @@ final class WebViews {
     }
 
     fileprivate func receivedEvent(id: UInt32, kind: UInt32, data: Data) {
-        guard let entry = entries[id], let owner = entry.owner else { return }
+        guard let entry = entries[id], !entry.fileFailed, let owner = entry.owner else { return }
         switch kind {
         case 0:
             if owner.handlers.contains("load") { DispatchQueue.main.async { [weak owner] in owner?.presenter?.load(id) } }

@@ -49,11 +49,14 @@ final class FlatLeavesIOSTests: XCTestCase {
         p.apply(wireBatch(ops))
         return p
     }
+    /// A bar as the host sends one: its rows, and which of them its author
+    /// wrote (LLP 1115.000 D2), which a leaf does not paint.
     private func bar(_ id: Int, x: Double, color: [Int] = [0, 122, 255, 255]) -> [[String: Any]] {
         [["op": "create", "id": id, "kind": "view",
           "style": ["width": 3.0, "height": 20.0, "background_color": color,
                     "border_radius_top_left": 1.5, "border_radius_top_right": 1.5,
-                    "border_radius_bottom_right": 1.5, "border_radius_bottom_left": 1.5, "text_color": [0, 0, 0, 255]]],
+                    "border_radius_bottom_right": 1.5, "border_radius_bottom_left": 1.5, "text_color": [0, 0, 0, 255],
+                    "written": ["background_color", "border_radius_top_left"]]],
          ["op": "frame", "id": id, "x": x, "y": 0.0, "w": 3.0, "h": 20.0]]
     }
     /// A pressable row (1) holding bars 2 and 4 around a labelled view 3.
@@ -104,6 +107,28 @@ final class FlatLeavesIOSTests: XCTestCase {
         let layers = q.views[1]?.layer.sublayers?.count ?? 0
         q.apply(wireBatch([["op": "destroy", "id": 4], ["op": "children", "id": 1, "ids": [2, 3]]]))
         XCTAssertEqual(q.views[1]?.layer.sublayers?.count, layers - 1)
+    }
+
+    func testALeafKeepsTheContentBoxLayoutSentForTheViewItBecomes() throws {
+        // A bar padded by a percentage, created flat with its content box
+        var padded = bar(2, x: 0)
+        padded[0]["style"] = (padded[0]["style"] as? [String: Any] ?? [:]).merging(["padding_left": ["pct": 10]]) { _, new in new }
+        let p = presenter([["op": "create", "id": 1, "kind": "view", "handlers": ["press"]]] + padded
+            + [contentOp(2, 3, 20, padding: [0, 0, 0, 1]), ["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]]])
+        XCTAssertNil(p.views[2], "flat")
+        p.apply(wireBatch([["op": "rank", "id": 2, "rank": 1]]))
+        XCTAssertEqual(try XCTUnwrap(p.views[2]).contentBox(), CGRect(x: 1, y: 0, width: 2, height: 20), "promoted with it")
+        XCTAssertEqual(p.views[2]?.padding("left"), 1)
+        // Demoted and promoted again, the box goes with it, a box cleared while flat too
+        p.apply(wireBatch([["op": "rank", "id": 2, "rank": 0]]))
+        XCTAssertNil(p.views[2], "flat again")
+        p.apply(wireBatch([["op": "rank", "id": 2, "rank": 1]]))
+        XCTAssertEqual(try XCTUnwrap(p.views[2]).contentBox(), CGRect(x: 1, y: 0, width: 2, height: 20))
+        p.apply(wireBatch([["op": "rank", "id": 2, "rank": 0]]))
+        p.apply(wireBatch([["op": "fieldContent", "id": 2, "rect": NSNull()]]))
+        XCTAssertNil(p.views[2], "a content box alone keeps it flat")
+        p.apply(wireBatch([["op": "rank", "id": 2, "rank": 1]]))
+        XCTAssertEqual(try XCTUnwrap(p.views[2]).contentBox(), CGRect(x: 0, y: 0, width: 3, height: 20))
     }
 
     func testATouchOnALeafIsItsParents() throws {

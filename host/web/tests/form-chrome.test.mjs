@@ -1,0 +1,290 @@
+// LLP 1116.005 D8 in a real browser: the form chrome a well-made web form has, as a default build's stylesheet
+// (index.html and the neutral look's sheet after it, look.mjs; both web targets) and the JS target's runtime
+// (rt.js) draw it. focus-timer lost partly on its
+// form: a disabled Save that still drew the accent's fill under grey ink, no outline on the invalid field,
+// Enter that did not save. A disabled button looks disabled in each style and scheme whatever its accent,
+// and shows no hover or press; an authored colour on it still wins. A field marked `aria-invalid` is
+// outlined in the system red, its focus ring red, unless its border is authored. Enter in a single-line
+// field with a `submit` submits once. The nodes are as the hosts write them.
+import { test, expect } from 'bun:test';
+import { spawn } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { createServer } from 'node:http';
+import { tmpdir } from 'node:os';
+import { resolve } from 'node:path';
+import { Cdp } from '../../../scripts/agent.mjs';
+import { chromium } from '../../../scripts/agent-launch.mjs';
+import { withLook } from '../look.mjs';
+import { need } from '../../../scripts/coverage.mjs';
+import { readyPage } from './page.mjs';
+import { standIns } from './stand-ins.mjs';
+
+const WEB = resolve(new URL('..', import.meta.url).pathname);
+const WEB_JS = resolve(WEB, '../web-js');
+const { executable: chrome, unavailable } = chromium();
+const check = need('chrome', unavailable);
+
+// focus-timer's accent, as the JS target writes `accent-color` (style.rs): the property and `--exact-accent`.
+const ACCENT = 'accent-color:light-dark(#116f64, #62d5bd);--exact-accent:light-dark(#116f64, #62d5bd)';
+const STYLES = ['filled', 'bordered-prominent', 'tinted', 'bordered-tinted', 'plain', 'borderless', 'bordered', 'gray', 'glass', 'prominent-glass'];
+const DESTRUCTIVE = ['gray', 'bordered', 'tinted', 'bordered-tinted', 'plain', 'borderless', 'filled', 'bordered-prominent'];
+const button = (id, look, extra = '', style = '') => `<button type="button" data-native data-button-style="${look}" id="${id}" style="display:grid;${style}"${extra}><span data-exact-text>Save settings</span></button>`;
+const scheme = s => `<div style="color-scheme:${s};${ACCENT}" id="${s}">
+  ${STYLES.map(look => button(`${s}-${look}-on`, look) + button(`${s}-${look}-off`, look, ' disabled')).join('')}
+  ${button(`${s}-authored`, 'bordered-prominent', ' disabled', 'color:rgb(255, 0, 0);background-color:rgb(0, 0, 255)')}
+  ${DESTRUCTIVE.map(look => button(`${s}-destructive-${look}`, look, ' data-destructive="true"')).join('')}
+  <span id="${s}-gray" style="color:var(--exact-gray-text);background-color:var(--exact-tertiary-fill)"></span>
+  <span id="${s}-red" style="color:var(--exact-system-red);background-color:var(--exact-secondary-background)"></span>
+  <input data-native id="${s}-valid" value="25">
+  <input data-native id="${s}-invalid" value="0" aria-invalid="true" aria-describedby="${s}-error"><span id="${s}-error">Enter a whole number from 1 to 60.</span>
+  <input data-native id="${s}-false" value="25" aria-invalid="false">
+  <textarea data-native id="${s}-area" aria-invalid="true"></textarea>
+  <select id="${s}-select" aria-invalid="true"><option>One</option></select>
+  <input type="date" data-exact-field id="${s}-date" aria-invalid="true">
+  <input data-native id="${s}-bordered" value="0" aria-invalid="true" style="border-color:rgb(0, 0, 255)">
+</div>`;
+const page = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8')).match(/<style>[\s\S]*?<\/style>/)[0] + `
+<div id="exact-root">${scheme('light')}${scheme('dark')}
+  <input data-native id="draft" value="25"><input data-native id="kept" value="5">
+</div>
+<script type="module">
+  import { createInputHandlers } from './input-glue.js';
+  import { on, onSubmit } from './rt.js';
+  const root = document.getElementById('exact-root');
+  createInputHandlers({ root, views: new Map(), retiredViews: new Set(), ready: () => true, inertAncestor: el => el.closest('[inert]'), dispatch() {} });
+  // The generated module's binding of \`submit=save\` (emit.rs): the action reads the field's text at the submit.
+  window.saved = [];
+  on(document.getElementById('draft'), 'submit', () => saved.push(document.getElementById('draft').value), onSubmit);
+  // A key handler that prevents Enter keeps it from submitting, as HTML's implicit submission is Enter's default.
+  const kept = document.getElementById('kept');
+  on(kept, 'submit', () => saved.push('kept ' + kept.value), onSubmit);
+  kept.addEventListener('keydown', e => { if (e.key === 'Enter') e.preventDefault(); });
+  window.ready = true;
+</script>`;
+
+// rt.js beside the modules it imports: the real ones it binds with, stand-ins for the rest (as js-link-press.test.mjs).
+const REAL = ['rt.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js'];
+const STUBS = standIns(REAL);
+const module = name => ['input-glue.js', 'prompt-glue.js'].includes(name) ? readFileSync(resolve(WEB, name))
+  : REAL.includes(name) ? readFileSync(resolve(WEB_JS, name))
+  : STUBS.get(name) ?? null;
+
+/** The page in headless Chrome: `test(evaluate, call)` with its `Runtime.evaluate` and its CDP session. */
+async function inChrome(test) {
+  const server = createServer((req, res) => {
+    if (req.url === '/') { res.writeHead(200, { 'content-type': 'text/html' }); res.end(page); return; }
+    const body = module(req.url.slice(1));
+    if (body === null) { res.writeHead(404); res.end(); return; }
+    res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(body);
+  });
+  await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
+  const profile = mkdtempSync(resolve(tmpdir(), 'exact-form-chrome-'));
+  const child = spawn(chrome, ['--headless=new', '--remote-debugging-pipe', '--window-size=900,1400', `--user-data-dir=${profile}`,
+    '--no-sandbox', '--no-first-run', '--disable-background-networking', 'about:blank'], { stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
+  try {
+    const cdp = new Cdp(child.stdio[3], child.stdio[4]);
+    const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' });
+    const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
+    const call = (method, params) => cdp.send(method, params, sessionId);
+    const evaluate = async (expression) => {
+      const reply = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
+      if (reply.exceptionDetails) throw new Error(reply.exceptionDetails.exception?.description ?? reply.exceptionDetails.text);
+      return reply.result.value;
+    };
+    await readyPage(cdp, sessionId, `http://127.0.0.1:${server.address().port}/`);
+    await test(evaluate, call);
+  } finally {
+    child.kill();
+    server.close();
+    rmSync(profile, { recursive: true, force: true });
+  }
+}
+
+const look = (evaluate, id) => evaluate(`(s => ({ background: s.backgroundColor, color: s.color, wash: s.backgroundImage }))(getComputedStyle(document.getElementById('${id}')))`);
+const centre = (evaluate, id) => evaluate(`(r => [r.x + r.width / 2, r.y + r.height / 2])(document.getElementById('${id}').getBoundingClientRect())`);
+// The look's own colours, read off the page where its sheet carries them as the role table's (neutral-look.test.mjs
+// holds the sheet to the table): the disabled ink (`GrayText`) on the disabled fill (`-exact-tertiary-fill`), and the
+// red (`-exact-system-red`) on the ground a card is (`-exact-secondary-background`).
+const roles = async (evaluate, s) => { const [gray, red] = [await look(evaluate, `${s}-gray`), await look(evaluate, `${s}-red`)]; return { gray: gray.color, fill: gray.background, red: red.color, card: red.background }; };
+
+check('a disabled button looks disabled in every style and scheme, whatever its accent; an authored colour wins', () => inChrome(async (evaluate, call) => {
+  for (const s of ['light', 'dark']) {
+    const { gray, fill } = await roles(evaluate, s);
+    expect([s, gray, fill].includes('rgba(0, 0, 0, 0)')).toBe(false); // the sheet carries both
+    for (const style of STYLES) {
+      const [on, off] = [await look(evaluate, `${s}-${style}-on`), await look(evaluate, `${s}-${style}-off`)];
+      expect([s, style, off.color]).toEqual([s, style, gray]); // the look's disabled ink, never the accent's
+      expect(off.color).not.toBe(on.color);
+      // LLP 1116.007 D3.10: the unsaid button's ink is the label's (`ButtonText`, as iOS 27 draws `.gray()` and
+      // `.bordered()`), never the accent's: a light system accent was 1.3:1 to 2.5:1 on its grey fill.
+      if (style === 'gray' || style === 'bordered') expect([s, style, on.color]).toEqual([s, style, s === 'light' ? 'rgb(0, 0, 0)' : 'rgb(255, 255, 255)']);
+      // Where the style fills with the accent, the neutral fill instead; a neutral or glass style keeps its own.
+      if (['filled', 'bordered-prominent', 'tinted', 'bordered-tinted'].includes(style)) {
+        expect([s, style, off.background]).toEqual([s, style, fill]);
+        expect(off.background).not.toBe(on.background);
+      } else if (style === 'prominent-glass') expect(off.background).toBe((await look(evaluate, `${s}-glass-off`)).background);
+      else expect([s, style, off.background]).toEqual([s, style, on.background]);
+    }
+    // focus-timer's Save: a teal fill under white ink enabled; disabled, neither the accent nor white.
+    const save = await look(evaluate, `${s}-bordered-prominent-on`);
+    expect(save.background).toBe(s === 'light' ? 'rgb(17, 111, 100)' : 'rgb(98, 213, 189)');
+    // The author's own colour and fill on the disabled button still win.
+    expect(await look(evaluate, `${s}-authored`)).toMatchObject({ background: 'rgb(0, 0, 255)', color: 'rgb(255, 0, 0)' });
+  }
+  // No hover: the pointer over the disabled prominent button leaves its face; over the enabled one it darkens
+  // (a wash of the button's ink over its fill, in this look).
+  for (const [id, changes] of [['light-bordered-prominent-off', false], ['light-bordered-prominent-on', true]]) {
+    const before = await look(evaluate, id);
+    const [x, y] = await centre(evaluate, id);
+    await call('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
+    const over = await look(evaluate, id);
+    expect([id, over.background !== before.background || over.wash !== before.wash]).toEqual([id, changes]);
+    await call('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 1, y: 1 });
+  }
+  // No press: a pointer down on the disabled button marks nothing pressed (input-glue.js dims a pressed face).
+  const [x, y] = await centre(evaluate, 'light-bordered-prominent-off');
+  await call('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
+  expect(await evaluate(`document.querySelectorAll('[data-pressed]').length`)).toBe(0);
+  await call('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
+}), 60000);
+
+// LLP 1116.008 D7: a destructive button passes `check` as the platform draws it (a control's label at 3:1 on its
+// own fill, over the card a row of buttons sits on), in every style and both schemes: team-kanban's Delete was
+// #ff383c at 2.7:1 on the grey fill over -exact-secondary-background, so its builder removed `destructive=true`.
+// The card is the look's own -exact-secondary-background.
+check('a destructive button reads at 3:1 on its own fill over a card, in every style and scheme', () => inChrome(async (evaluate) => {
+  const contrast = (id, card) => evaluate(`(() => {
+    const x = document.createElement('canvas').getContext('2d', { willReadFrequently: true }), e = document.getElementById('${id}'), s = getComputedStyle(e);
+    const read = () => [...x.getImageData(0, 0, 1, 1).data].slice(0, 3);
+    x.fillStyle = '${card}'; x.fillRect(0, 0, 1, 1); x.fillStyle = s.backgroundColor; x.fillRect(0, 0, 1, 1);
+    const bg = read(); x.clearRect(0, 0, 1, 1); x.fillStyle = s.color; x.fillRect(0, 0, 1, 1);
+    const ink = read(), lum = c => { const [r, g, b] = c.map(v => { v /= 255; return v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4; }); return .2126 * r + .7152 * g + .0722 * b; };
+    const [hi, lo] = [lum(ink), lum(bg)].sort((a, b) => b - a); return (hi + .05) / (lo + .05); })()`);
+  for (const s of ['light', 'dark']) {
+    const { card } = await roles(evaluate, s);
+    expect([s, /^rgb\(/.test(card)]).toEqual([s, true]); // an opaque ground, which the sheet carries
+    for (const look of DESTRUCTIVE) expect([s, look, (await contrast(`${s}-destructive-${look}`, card)) >= 3]).toEqual([s, look, true]);
+    // The red is still red: not the label's ink on a neutral fill.
+    expect((await look(evaluate, `${s}-destructive-gray`)).color).not.toBe((await look(evaluate, `${s}-gray-on`)).color);
+  }
+}), 60000);
+
+check('a field marked aria-invalid is outlined in the system red, its focus ring red, in both schemes', () => inChrome(async (evaluate) => {
+  const field = id => evaluate(`(e => { const s = getComputedStyle(e); return { border: s.borderTopColor, width: s.borderTopWidth, outline: s.outlineColor, style: s.outlineStyle, ring: s.outlineWidth }; })(document.getElementById('${id}'))`);
+  for (const s of ['light', 'dark']) {
+    const valid = await field(`${s}-valid`), { red } = await roles(evaluate, s);
+    for (const id of ['invalid', 'area', 'select', 'date']) expect([s, id, (await field(`${s}-${id}`)).border]).toEqual([s, id, red]);
+    expect((await field(`${s}-invalid`)).width).toBe(valid.width); // the same line, only its colour
+    expect((await field(`${s}-false`)).border).toBe(valid.border);
+    expect(valid.border).not.toBe(red);
+    expect((await field(`${s}-bordered`)).border).toBe('rgb(0, 0, 255)'); // an authored border wins
+    // Focused, the ring is a 2 px red line where the valid field's is the browser's own (`auto`, which Firefox
+    // and WebKit draw in their focus colour whatever `outline-color` says).
+    await evaluate(`document.getElementById('${s}-valid').focus()`);
+    const ring = await field(`${s}-valid`);
+    await evaluate(`document.getElementById('${s}-invalid').focus()`);
+    const invalid = await field(`${s}-invalid`);
+    expect([s, invalid.outline, invalid.style, invalid.ring]).toEqual([s, red, 'solid', '2px']);
+    expect([ring.outline, ring.style]).not.toEqual([red, 'solid']);
+    // Its error text stays its description.
+    expect(await evaluate(`document.getElementById('${s}-invalid').getAttribute('aria-describedby')`)).toBe(`${s}-error`);
+  }
+}), 60000);
+
+check('Enter in a single-line field with a submit submits once; a key handler that prevents it keeps it', () => inChrome(async (evaluate, call) => {
+  const key = async (name, text) => { for (const type of ['keyDown', 'keyUp']) await call('Input.dispatchKeyEvent', { type, key: name, code: name, windowsVirtualKeyCode: 13, ...(type === 'keyDown' && text ? { text } : {}) }); };
+  // What was saved, read on a zero-delay timer: the Enter queued `onSubmit`'s zero-delay timer before it, and HTML runs
+  // timers of one delay in the order they were set, so the submit has run
+  const saved = () => evaluate('new Promise(ok => setTimeout(() => ok(saved)))');
+  await evaluate(`document.getElementById('draft').focus()`);
+  await key('Enter', '\r');
+  expect(await saved()).toEqual(['25']); // once
+  await evaluate(`document.getElementById('kept').focus()`);
+  await key('Enter', '\r');
+  expect(await saved()).toEqual(['25']);
+}), 60000);
+
+check('a prompt commits Return without blur and keeps focus chosen by change', () => inChrome(async (evaluate, call) => {
+  await evaluate(`(() => {
+    const dialog = document.createElement('dialog');
+    dialog.setAttribute('role', 'alertdialog');
+    dialog.innerHTML = '<input id="name" value="Kick"><button id="cancel">Cancel</button><button id="save" data-exact-on="press" disabled>Save</button>';
+    document.getElementById('exact-root').append(dialog);
+    window.events = [];
+    window.block = true;
+    const field = dialog.querySelector('input'), save = dialog.querySelector('#save');
+    field.addEventListener('keydown', e => { events.push('key ' + e.key); if (block) e.preventDefault(); });
+    field.addEventListener('blur', () => events.push('blur'));
+    field.addEventListener('change', () => {
+      events.push('change ' + field.value);
+      if (window.moveFocus) dialog.querySelector('#cancel').focus();
+      if (window.enableSave) save.disabled = false;
+    });
+    save.addEventListener('click', () => events.push('press ' + field.value));
+    dialog.showModal(); field.focus(); field.setSelectionRange(4, 4);
+  })()`);
+  const key = async (name, code, number, text) => {
+    for (const type of ['keyDown', 'keyUp']) await call('Input.dispatchKeyEvent', {
+      type, key: name, code, windowsVirtualKeyCode: number, ...(type === 'keyDown' && text ? { text } : {}),
+    });
+  };
+  const heard = () => evaluate('new Promise(ok => setTimeout(() => ok(events)))');
+  await key('7', 'Digit7', 55, '7');
+  await key('Backspace', 'Backspace', 8);
+  await key('Enter', 'Enter', 13, '\r');
+  expect(await heard()).toEqual(['key 7', 'key Backspace', 'key Enter']);
+  expect(await evaluate('document.querySelector("#name").value')).toBe('Kick');
+  await evaluate('block = false; events = []');
+  await key('7', 'Digit7', 55, '7');
+  await key('Enter', 'Enter', 13, '\r');
+  expect(await heard()).toEqual(['key 7', 'key Enter', 'change Kick7']);
+  expect(await evaluate('document.activeElement.id')).toBe('name');
+  await evaluate('events = []');
+  await key('Enter', 'Enter', 13, '\r');
+  expect(await heard()).toEqual(['key Enter']);
+  await evaluate('events = []; moveFocus = true');
+  await key('8', 'Digit8', 56, '8');
+  await key('Enter', 'Enter', 13, '\r');
+  expect(await heard()).toEqual(['key 8', 'key Enter', 'change Kick78', 'blur']);
+  expect(await evaluate('document.activeElement.id')).toBe('cancel');
+  await evaluate('moveFocus = false; enableSave = true; document.querySelector("#name").focus(); events = []');
+  await key('9', 'Digit9', 57, '9');
+  await key('Enter', 'Enter', 13, '\r');
+  expect(await heard()).toEqual(['key 9', 'key Enter', 'change Kick789', 'press Kick789']);
+  expect(await evaluate('document.activeElement.id')).toBe('name');
+}), 60000);
+
+for (const [eventName, target, capture] of [['beforeinput', 'field', true], ['beforeinput', 'window', false], ['keydown', 'window', false]])
+check(`cancelling a prompt Return at ${target} ${eventName} cancels its action`, () => inChrome(async (evaluate, call) => {
+  await evaluate(`(() => {
+    const dialog = document.createElement('dialog');
+    dialog.setAttribute('role', 'alertdialog');
+    dialog.innerHTML = '<input id="name" value="Kick"><button data-exact-on="press">Save</button>';
+    document.getElementById('exact-root').append(dialog);
+    window.events = []; window.committed = 'Kick'; window.blockCommit = true;
+    const field = dialog.querySelector('input');
+    field.addEventListener('change', () => { committed = field.value; events.push('change ' + committed); });
+    field.addEventListener('blur', () => events.push('blur'));
+    dialog.querySelector('button').addEventListener('click', () => events.push('press ' + committed));
+    ${target}.addEventListener('${eventName}', e => {
+      if (e.target === field && (e.inputType === 'insertLineBreak' || e.key === 'Enter') && blockCommit) {
+        events.push('prevent commit'); e.preventDefault();
+      }
+    }, ${capture});
+    dialog.showModal(); field.focus(); field.setSelectionRange(4, 4);
+  })()`);
+  const key = async (key, text) => {
+    for (const type of ['keyDown', 'keyUp']) await call('Input.dispatchKeyEvent', {
+      type, key, windowsVirtualKeyCode: key === 'Enter' ? 13 : 55, ...(type === 'keyDown' ? { text } : {}),
+    });
+  };
+  const heard = () => evaluate('new Promise(ok => setTimeout(() => ok(events)))');
+  await key('7', '7');
+  await key('Enter', '\r');
+  expect(await heard()).toEqual(['prevent commit']);
+  expect(await evaluate('committed')).toBe('Kick');
+  expect(await evaluate('document.activeElement.id')).toBe('name');
+  await evaluate('blockCommit = false; events = []');
+  await key('Enter', '\r');
+  expect(await heard()).toEqual(['change Kick7', 'press Kick7']);
+}), 60000);

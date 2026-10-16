@@ -14,8 +14,8 @@ const APP: &str = r#"component App
   state grips = true
   state width = 300
   state count = 0
-  resource initial = rows() as shape list<string>
-  mutation changed as shape list<string>
+  resource initial = rows() as shape string[]
+  mutation changed as shape string[]
   derive rows = match changed { case some(v) => v, case none => initial }
   action drop(item: string, before: option<string>)
     grips = false
@@ -31,9 +31,9 @@ const APP: &str = r#"component App
   view
     column width="100%" height="100%"
       list testId="list" id="items" width=width height=180 virtualized=true reorderdrop=drop
-        each item in rows key=item
+        for item in rows key=item
           box height=40 testId=`row-${item}`
-            when grips
+            if grips
               box height=40 width="100%" reorderFor="items" testId=`grip-${item}`
             else
               text item
@@ -47,8 +47,11 @@ const APP: &str = r#"component App
         text "remove"
 "#;
 fn boot() -> Presenter<Rows> {
+    boot_source(APP)
+}
+fn boot_source(source: &str) -> Presenter<Rows> {
     let (mut p, e) = Presenter::boot_with(
-        &contract::compile(APP).unwrap().encode(),
+        &crate::test_plan(source),
         Rows((0..100).map(|i| AppValue::str(&i.to_string())).collect()),
         (400., 500.),
         1.,
@@ -62,7 +65,7 @@ fn boot() -> Presenter<Rows> {
     }
     p
 }
-fn id(p: &Presenter<Rows>, name: &str) -> ViewId {
+fn id<D: DataSource>(p: &Presenter<D>, name: &str) -> ViewId {
     let k = p.host.kernel().find_by_test_id(name)[0];
     p.host.kernel().node_by_key(k).unwrap().id
 }
@@ -72,6 +75,184 @@ fn start(p: &mut Presenter<Rows>) -> (NodeKey, ReorderToken, HoldToken) {
     let s = p.arrange.as_ref().unwrap();
     (s.binding.wrapper, s.token, s.hold)
 }
+#[test]
+fn padded_reorder_uses_row_coordinates_before_and_after_native_scrolling() {
+    for (top, bottom, scroll) in [(0, 0, 0.), (48, 80, 0.), (48, 80, 64.), (0, 80, 64.)] {
+        let source = APP
+            .replace("  state grips = true", "  state dropped = \"\"\n  state grips = true")
+            .replace("    count = count + 1", "    count = count + 1\n    dropped = match before { case some(k) => k, case none => \"end\" }")
+            .replace("width=width height=180", &format!("width=width height=300 box-sizing=\"border-box\" border-top-width=3 border-left-width=2 padding-top={top} padding-bottom={bottom}"));
+        let mut p = boot_source(&source);
+        let list = id(&p, "list");
+        p.scroll.insert(list, (0., scroll));
+        p.collection_scrolled(list);
+        p.queue_collections();
+        assert!(p.refine_collections().is_none());
+        let key = p.host.kernel().node(list).unwrap().key;
+        let facts = p.host.runner().reorder_geometry(key).unwrap();
+        assert_eq!(facts.scroll_top, scroll as f64 - top as f64);
+        assert!(
+            p.reorder_facts_current(&facts),
+            "padding {top}/{bottom}, scroll {scroll}"
+        );
+        let (x, y) = centre(&mut p, "grip-2");
+        p.pointer_down(x, y, 0.).unwrap();
+        assert!(p.pointer_move(x, y + 10., 10.).unwrap());
+        assert!(p.arrange.is_some(), "padded row lifts");
+        assert!(p.pointer_move(x, y + 55., 20.).unwrap());
+        assert!(p.pointer_up(x, y + 55., 30.).unwrap());
+        assert_eq!(
+            slot(&p, "dropped"),
+            "4",
+            "padding {top}/{bottom}, scroll {scroll}"
+        );
+        assert_eq!(p.host.runner().slot("count"), Some(&AppValue::Number(1.)));
+        p.clock(5000.);
+        p.frame();
+        assert!(p.arrange.is_none());
+        assert!(p.collection_interaction().is_none());
+    }
+}
+
+#[test]
+fn pointer_above_or_beside_port_selects_its_gap_instead_of_the_row_centre() {
+    let source = APP
+        .replace("  state count = 0", "  state dropped = \"\"\n  state count = 0")
+        .replace("    count = count + 1", "    count = count + 1\n    dropped = `${item}>${match before { case some(k) => k, case none => \"end\" }}`")
+        .replace("width=width height=180", "width=width height=300 margin-top=60");
+    for (x, offset, before) in [(10., -48., "0"), (-100., 65., "2"), (500., 65., "2")] {
+        let mut p = boot_source(&source);
+        let list = id(&p, "list");
+        let port = p.rect_of(list).unwrap();
+        let grip = p.rect_of(id(&p, "grip-4")).unwrap();
+        let y = grip.1 + grip.3 - 1.;
+        p.pointer_down(10., y, 0.).unwrap();
+        assert!(p.pointer_move(10., y + 10., 10.).unwrap());
+        assert!(p.pointer_move(x, port.1 + offset, 20.).unwrap());
+        assert!(p.pointer_up(x, port.1 + offset, 28.).unwrap());
+        assert_eq!(slot(&p, "dropped"), format!("4>{before}"));
+        assert_eq!(p.scroll_of(list).1, 0.);
+        assert_eq!(p.host.runner().slot("count"), Some(&AppValue::Number(1.)));
+    }
+}
+
+#[test]
+fn edge_scroll_follows_agent_event_time_and_ignores_older_frames() {
+    for (x, y) in [(10., 31.), (-100., 31.), (500., -100.)] {
+        let mut p = boot();
+        let list = id(&p, "list");
+        p.scroll.insert(list, (0., 320.));
+        p.publish_scroll();
+        p.collection_scrolled(list);
+        let point = centre(&mut p, "grip-10");
+        p.pointer_down(point.0, point.1, 0.).unwrap();
+        assert!(p.pointer_move_at(point.0, point.1 + 10., 0., 16.).unwrap());
+        p.pointer_move_at(x, y, 0., 32.).unwrap();
+        assert_eq!(p.scroll_of(list).1, 320., "first edge step is zero");
+        assert!(p.arrange_edge().is_some());
+        for at in [48., 64., 80., 96.] {
+            p.pointer_move_at(x, y, 0., at).unwrap();
+            let expected = 320. - 720. * (at - 32.) / 1000.;
+            assert!((p.scroll_of(list).1 as f64 - expected).abs() < 0.001);
+            assert_eq!(p.host.now(), 0., "moves leave the runner clock frozen");
+        }
+        let before = p.scroll_of(list).1;
+        p.tick(0.);
+        p.tick(80.);
+        assert_eq!(p.scroll_of(list).1, before);
+        assert_eq!(p.contact_event_ms(), Some(96.));
+        p.pointer_move_at(x, y, 80., 112.).unwrap();
+        assert!((p.scroll_of(list).1 - before + 720. * 0.016).abs() < 0.001);
+        let before = p.scroll_of(list).1;
+        p.tick(112.);
+        assert_eq!(p.scroll_of(list).1, before, "same interval counts once");
+        p.tick(128.);
+        assert!((p.scroll_of(list).1 - before + 720. * 0.016).abs() < 0.001);
+        p.tick(1000.);
+        assert!((p.scroll_of(list).1 - before + 720. * 0.048).abs() < 0.001);
+
+        p.pointer_move_at(x, 90., 1000., 1016.).unwrap();
+        assert!(p.arrange_edge().is_none());
+        let before = p.scroll_of(list).1;
+        p.pointer_move_at(x, y, 1000., 2000.).unwrap();
+        assert_eq!(
+            p.scroll_of(list).1,
+            before,
+            "restart establishes a new origin"
+        );
+        p.pointer_move_at(x, y, 1000., 2016.).unwrap();
+        assert!((p.scroll_of(list).1 - before + 720. * 0.016).abs() < 0.001);
+        p.pointer_cancel(1000.).unwrap();
+        let before = p.scroll_of(list).1;
+        p.tick(5000.);
+        assert_eq!(
+            p.scroll_of(list).1,
+            before,
+            "contact end stops edge scrolling"
+        );
+    }
+}
+
+#[test]
+fn a_frame_after_an_agent_hold_steps_the_edge_once_and_frames_go_on() {
+    let mut p = boot();
+    let list = id(&p, "list");
+    p.scroll.insert(list, (0., 320.));
+    p.publish_scroll();
+    p.collection_scrolled(list);
+    let point = centre(&mut p, "grip-10");
+    p.pointer_down(point.0, point.1, 0.).unwrap();
+    assert!(p.pointer_move_at(point.0, point.1 + 10., 0., 16.).unwrap());
+    for at in [32., 48.] {
+        p.pointer_move_at(10., 31., 0., at).unwrap();
+    }
+    // The agent's `hold 250` seeks the runner's clock and moves the contact's
+    // event clock on by as much, ahead of the edge's last step at 48.
+    p.delay_contact_event(250.);
+    let before = p.scroll_of(list).1;
+    p.tick(250.);
+    assert!((before - p.scroll_of(list).1 - 720. * 0.032).abs() < 0.001);
+    p.tick(266.);
+    assert!((before - p.scroll_of(list).1 - 720. * 0.048).abs() < 0.001);
+    assert_eq!(
+        p.contact_event_ms(),
+        Some(298.),
+        "a frame's sample keeps it"
+    );
+    p.pointer_cancel(266.).unwrap();
+}
+
+#[test]
+fn a_live_return_to_the_band_starts_the_edge_clock_again() {
+    let mut p = boot();
+    let list = id(&p, "list");
+    p.scroll.insert(list, (0., 320.));
+    p.publish_scroll();
+    p.collection_scrolled(list);
+    let point = centre(&mut p, "grip-10");
+    p.pointer_down(point.0, point.1, 0.).unwrap();
+    assert!(p.pointer_move(point.0, point.1 + 10., 10.).unwrap());
+    p.pointer_move(10., 31., 20.).unwrap();
+    assert_eq!(p.scroll_of(list).1, 320., "a live move does not scroll");
+    p.tick(20.);
+    assert_eq!(
+        p.scroll_of(list).1,
+        320.,
+        "the first frame starts the clock"
+    );
+    p.tick(36.);
+    let before = p.scroll_of(list).1;
+    assert!((320. - before - 720. * 0.016).abs() < 0.001);
+    // Out of the band and back with no frame between them.
+    p.pointer_move(10., 90., 40.).unwrap();
+    p.pointer_move(10., 31., 500.).unwrap();
+    p.tick(500.);
+    assert_eq!(p.scroll_of(list).1, before);
+    p.tick(516.);
+    assert!((before - p.scroll_of(list).1 - 720. * 0.016).abs() < 0.001);
+    p.pointer_cancel(516.).unwrap();
+}
+
 #[test]
 fn terminal_retains_offscreen_source_after_grip_death_and_second_feedback_then_finishes() {
     let mut p = boot();
@@ -185,7 +366,7 @@ fn an_arrange_sample_publishes_concurrent_height_layout_then_cancels_changed_por
         .replace("    column width=\"100%\" height=\"100%\"", "    column testId=\"panel\" width=400 height=panelHeight box-sizing=\"border-box\" transition=\"height -exact-spring(300,30,1)\" press=grow")
         .replace("width=width height=180", "width=width height=\"100%\" flex-shrink=0");
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(&source).unwrap().encode(),
+        &crate::test_plan(&source),
         Rows((0..100).map(|i| AppValue::str(&i.to_string())).collect()),
         (400., 500.),
         1.,
@@ -210,6 +391,52 @@ fn an_arrange_sample_publishes_concurrent_height_layout_then_cancels_changed_por
     assert!(!p.host.runner().has_reorder(token));
     assert!(!p.host.has_hold(hold));
     assert_eq!(p.host.runner().slot("count"), Some(&AppValue::Number(0.)));
+}
+
+#[test]
+fn padded_reorder_rejects_unreported_scroll_and_padding() {
+    for side in [
+        exact_kernel::StyleId::PaddingTop,
+        exact_kernel::StyleId::PaddingBottom,
+    ] {
+        let source = APP.replace(
+            "width=width height=180",
+            "width=width height=300 box-sizing=\"border-box\" padding-top=48 padding-bottom=80",
+        );
+        let mut p = boot_source(&source);
+        let list = id(&p, "list");
+        let key = p.host.kernel().node(list).unwrap().key;
+        let facts = p.host.runner().reorder_geometry(key).unwrap();
+        assert!(p.reorder_facts_current(&facts));
+        p.scroll.insert(list, (0., 1.));
+        assert!(
+            !p.reorder_facts_current(&facts),
+            "native scroll must be reported first"
+        );
+        p.scroll.insert(list, (0., 0.));
+        let mut style = exact_kernel::StyleProps {
+            padding_top: exact_kernel::Dimension::Points(64.),
+            padding_bottom: exact_kernel::Dimension::Points(100.),
+            ..Default::default()
+        };
+        style.mask.set(side);
+        p.host.apply_test_ops(&[exact_kernel::Op::SetStyle {
+            id: list,
+            patch: Box::new(style),
+        }]);
+        assert!(
+            !p.reorder_facts_current(&facts),
+            "padding must be reported, including trailing-only changes"
+        );
+        p.queue_collections();
+        assert!(p.refine_collections().is_none());
+        let fresh = p.host.runner().reorder_geometry(key).unwrap();
+        assert!(p.reorder_facts_current(&fresh));
+        assert!(
+            !p.reorder_facts_current(&facts),
+            "old witness stays stale after feedback"
+        );
+    }
 }
 
 #[test]
@@ -280,9 +507,9 @@ component App
   state queued = ""
   state queuedCol = ""
   state queuedAt = ""
-  resource columns = columns() as shape list<string>
-  resource initial = cards() as shape list<Card>
-  mutation changed as shape list<Card>
+  resource columns = columns() as shape string[]
+  resource initial = cards() as shape Card[]
+  mutation changed as shape Card[]
   derive cards = match changed { case some(v) => v, case none => initial }
   action dropCard(col: string, item: string, before: option<string>, e: ReorderEvent)
     let at = match before { case some(k) => k, case none => "" }
@@ -306,9 +533,9 @@ component App
     column width="100%" height="100%"
       scroll testId="board" overflow-x="auto" overflow-y="hidden" width=300 height=200
         row
-          each col in columns key=col
+          for col in columns key=col
             list id=`col-${col}` testId=`list-${col}` virtualized=true reorderGroup="cards" reorderdrop=dropCard(col) width=120 height=180 flex-shrink=0
-              each card in filter(cards, k => k.col == col) key=card.id
+              for card in cards.filter(k => k.col == col) key=card.id
                 box height=40 width=120 reorderFor=`col-${col}` testId=`grip-${card.id}`
                   text card.id testId=`label-${card.id}`
                   text "!" visibility="hidden" testId=`badge-${card.id}`
@@ -316,6 +543,9 @@ component App
         text "stall"
 "#;
 fn board() -> Presenter<Board> {
+    board_source(BOARD)
+}
+fn board_source(source: &str) -> Presenter<Board> {
     let cards = [
         ("a1", "a"),
         ("a2", "a"),
@@ -324,7 +554,7 @@ fn board() -> Presenter<Board> {
         ("b2", "b"),
     ];
     let (mut p, e) = Presenter::boot_with(
-        &contract::compile(BOARD).unwrap().encode(),
+        &crate::test_plan(source),
         Board(
             cards
                 .iter()
@@ -372,6 +602,81 @@ fn carry(p: &mut Presenter<Board>, card: &str, to: (f32, f32), now: f64) {
 fn phase(p: &Presenter<Board>) -> Option<exact_runner::ReorderPhase> {
     let s = p.group.as_ref()?;
     p.host.runner().reorder_frame(s.token).map(|f| f.phase)
+}
+
+#[test]
+fn padded_group_reorder_maps_between_different_origins_and_an_empty_target() {
+    for (target, expected) in [("b", "a1>b@b2"), ("c", "a1>c@")] {
+        let source = BOARD.replace("width=120 height=180 flex-shrink=0", "width=120 height=180 flex-shrink=0 border-top-width=3 padding-top=(col == \"a\" ? 48 : 80) padding-bottom=36");
+        let mut p = board_source(&source);
+        let point = if target == "b" {
+            let b2 = centre(&mut p, "grip-b2");
+            (b2.0, b2.1 - 10.)
+        } else {
+            (270., 100.) // The visible part of empty c, whose row origin is 83.
+        };
+        carry(&mut p, "a1", point, 0.);
+        assert!(p.pointer_up(point.0, point.1, 30.).unwrap());
+        assert_eq!(slot(&p, "log"), expected);
+        assert_eq!(slot(&p, "from"), "col-a");
+        p.clock(200.);
+        p.clock(3000.);
+        p.frame();
+        assert!(p.group.is_none() && p.brush.lift.ghost.is_none());
+        assert!(p.collection_interaction().is_none());
+    }
+}
+
+#[test]
+fn padded_group_drop_refuses_a_target_scrolled_ahead_of_feedback() {
+    let source = BOARD.replace(
+        "width=120 height=180 flex-shrink=0",
+        "width=120 height=180 flex-shrink=0 box-sizing=\"border-box\" padding-top=48 padding-bottom=80",
+    );
+    let mut p = board_source(&source);
+    let b2 = centre(&mut p, "grip-b2");
+    carry(&mut p, "a1", (b2.0, b2.1 - 10.), 0.);
+    let list = id(&p, "list-b");
+    p.scroll.insert(list, (0., 1.));
+    assert!(
+        !p.end_group(true, 30.).unwrap(),
+        "an old target cannot certify a pointer drop"
+    );
+    assert_eq!(slot(&p, "log"), "");
+    p.clock(2000.);
+    p.frame();
+    assert!(p.group.is_none() && p.brush.lift.ghost.is_none());
+    assert!(p.collection_interaction().is_none());
+}
+
+#[test]
+fn padded_group_drop_refuses_geometry_changed_by_a_due_timer() {
+    let source = BOARD
+        .replace(
+            "  state log = \"\"",
+            "  state padding = 48\n  state log = \"\"",
+        )
+        .replace("  action flush\n", "  action flush\n    padding = 96\n")
+        .replace(
+            "width=120 height=180 flex-shrink=0",
+            "width=120 height=180 flex-shrink=0 padding-top=padding padding-bottom=80",
+        );
+    let mut p = board_source(&source);
+    let b2 = centre(&mut p, "grip-b2");
+    carry(&mut p, "a1", (b2.0, b2.1 - 10.), 0.);
+    assert!(
+        !p.end_group(true, 200.).unwrap(),
+        "due padding changes must precede drop certification"
+    );
+    assert_eq!(
+        p.host.runner().slot("padding"),
+        Some(&AppValue::Number(96.))
+    );
+    assert_eq!(slot(&p, "log"), "");
+    p.clock(2000.);
+    p.frame();
+    assert!(p.group.is_none() && p.brush.lift.ghost.is_none());
+    assert!(p.collection_interaction().is_none());
 }
 
 #[test]
@@ -635,34 +940,103 @@ fn a_hold_that_never_answers_times_out_and_the_ghost_returns_home() {
 
 #[test]
 fn keys_lift_step_across_lists_and_drop_with_focus_following_the_row() {
-    let mut p = board();
-    let grip = p
-        .host
-        .kernel()
-        .node_by_key(p.host.kernel().find_by_test_id("grip-a2")[0])
-        .unwrap()
-        .id;
-    assert!(p.focusable(grip), "a grouped grip takes the focus");
-    p.type_key(grip, "Space", " ", true, false).unwrap();
-    assert!(
-        p.group.is_some() && p.brush.lift.ghost.is_none(),
-        "keys draw no ghost"
-    );
-    p.key_down("ArrowRight", p.host.now());
-    assert!(p
-        .host
-        .runner()
-        .reorder_json()
-        .contains("\"to\":\"col-b\",\"before\":\"b2\""));
-    p.key_down("ArrowDown", p.host.now());
-    p.key_down("Enter", p.host.now());
-    assert_eq!(slot(&p, "log"), "a2>b@");
-    assert!(p.group.is_none());
-    let moved = p
-        .host
-        .kernel()
-        .node_by_key(p.host.kernel().find_by_test_id("grip-a2")[0])
-        .unwrap()
-        .id;
-    assert_eq!(p.focus, Some(moved), "focus follows the row that landed");
+    for padding in ["", " padding-top=48 padding-bottom=80"] {
+        let source = BOARD.replace(
+            "width=120 height=180 flex-shrink=0",
+            &format!("width=120 height=180 flex-shrink=0{padding}"),
+        );
+        let mut p = board_source(&source);
+        let grip = id(&p, "grip-a2");
+        assert!(p.focusable(grip), "a grouped grip takes the focus");
+        p.type_key(grip, "Space", " ", true, false).unwrap();
+        assert!(
+            p.group.is_some() && p.brush.lift.ghost.is_none(),
+            "keys draw no ghost"
+        );
+        p.key_down("ArrowRight", p.host.now());
+        assert!(p
+            .host
+            .runner()
+            .reorder_json()
+            .contains("\"to\":\"col-b\",\"before\":\"b2\""));
+        p.key_down("ArrowDown", p.host.now());
+        p.key_down("Enter", p.host.now());
+        assert_eq!(slot(&p, "log"), "a2>b@");
+        assert!(p.group.is_none());
+        let moved = id(&p, "grip-a2");
+        assert_eq!(p.focus, Some(moved), "focus follows the row that landed");
+    }
+}
+
+#[test]
+#[cfg(not(windows))]
+fn scroll_end_waits_for_owned_edge_scrolling_to_stop() {
+    let source = APP
+        .replace(
+            "  state grips = true",
+            "  state ends = 0\n  action ended\n    ends = ends + 1\n  state grips = true",
+        )
+        .replace("reorderdrop=drop", "reorderdrop=drop scrollend=ended");
+    let mut p = boot_source(&source);
+    start(&mut p);
+    p.pointer_move(10., 175., 20.).unwrap();
+    // The first frame in the band starts the edge's clock; the next scrolls.
+    p.tick(84.);
+    p.tick(100.);
+    assert!(p.scroll_of(id(&p, "list")).1 > 0.);
+    assert_eq!(p.host.runner().slot("ends"), Some(&AppValue::Number(0.)));
+    p.pointer_move(10., 90., 110.).unwrap();
+    p.tick(110.);
+    assert_eq!(p.host.runner().slot("ends"), Some(&AppValue::Number(1.)));
+    p.tick(210.);
+    assert_eq!(p.host.runner().slot("ends"), Some(&AppValue::Number(1.)));
+}
+
+#[test]
+#[cfg(not(windows))]
+fn scroll_end_at_the_arrange_boundary_completes_once() {
+    let source = APP
+        .replace(
+            "  state grips = true",
+            "  state ends = 0\n  action ended\n    ends = ends + 1\n  state grips = true",
+        )
+        .replace("reorderdrop=drop", "reorderdrop=drop scrollend=ended");
+    let mut p = boot_source(&source);
+    start(&mut p);
+    p.pointer_move(10., 175., 20.).unwrap();
+    let list = id(&p, "list");
+    for tick in 1..=400 {
+        p.tick(tick as f64 * 50.);
+        if p.arrange_edge().is_none() {
+            break;
+        }
+    }
+    assert_eq!(p.scroll_of(list).1, p.collection_scroll_limits()[&list]);
+    assert_eq!(p.host.runner().slot("ends"), Some(&AppValue::Number(1.)));
+}
+
+#[test]
+#[cfg(not(windows))]
+fn scroll_end_at_the_group_boundary_completes_once() {
+    let source = BOARD
+        .replace(
+            "  state log = \"\"",
+            "  state ends = 0\n  action ended\n    ends = ends + 1\n  state log = \"\"",
+        )
+        .replace(
+            "scroll testId=\"board\"",
+            "scroll scrollend=ended testId=\"board\"",
+        )
+        .replace("every(200, flush)", "after(100000, flush)");
+    let mut p = board_source(&source);
+    let board = id(&p, "board");
+    let r = p.rect_of(board).unwrap();
+    carry(&mut p, "a2", (r.0 + r.2 - 70., r.1 + 30.), 0.);
+    p.pointer_move(r.0 + r.2 - 8., r.1 + 30., 30.).unwrap();
+    for tick in 1..=20 {
+        p.tick(tick as f64 * 50.);
+    }
+    assert_eq!(p.scroll_of(board).0, 60.);
+    assert_eq!(p.group_edge(), None);
+    assert_eq!(p.host.runner().slot("ends"), Some(&AppValue::Number(1.)));
 }

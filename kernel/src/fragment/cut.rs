@@ -11,7 +11,7 @@
 use super::build::{self, Flow, Para};
 use super::{Column, Columns, Fragment, FragmentRefusal, Placement};
 use crate::arena::NodeArena;
-use crate::generated::{BoxSizing, ColumnFill, Direction, NodeType, StyleMask};
+use crate::generated::{ColumnFill, Direction, NodeType, StyleMask};
 use crate::id::AxisOffer;
 use crate::layout::LayoutTree;
 use crate::text::{TextMeasureRequest, TextMeasurer, TextRun};
@@ -394,7 +394,6 @@ pub(crate) fn container(
         return Cut::default();
     };
     let s = arena.style(slot);
-    let env = arena.env();
     let l = tree.layout(node);
     let (p, b) = (l.padding, l.border);
     let (x0, y0) = (p.left + b.left, p.top + b.top);
@@ -420,17 +419,11 @@ pub(crate) fn container(
         build::flow(arena, tree, slot)
     };
     let mut cutter = Cutter::new(flow, arena, measurer, y0);
-    let points = |d: Dimension| match d.resolve(env) {
-        Dimension::Points(v) => Some(v),
-        _ => None,
-    };
-    let adjust = if s.box_sizing == BoxSizing::ContentBox {
-        0.0
-    } else {
-        inset_v
-    };
+    // Read the height bounds as layout resolved them, border box (Taffy
+    // patch 30): only layout knows whether a percentage had a definite basis
+    let (min_outer, max_outer) = tree.multicol_bounds(node);
     let definite = s.height != Dimension::Auto;
-    let max = points(s.max_height).map(|v| (v - adjust).max(0.0));
+    let max = max_outer.map(|v| (v - inset_v).max(0.0));
     let content = (l.size.height - inset_v - l.scrollbar_size.height).max(0.0);
     let (h, walk, used) = match (definite, max, s.column_fill) {
         (true, _, ColumnFill::Auto) => {
@@ -498,11 +491,11 @@ pub(crate) fn container(
             height: match used {
                 Some(columns) => {
                     let mut outer = columns + inset_v;
-                    if let Some(v) = points(s.max_height) {
-                        outer = outer.min(v + inset_v - adjust);
+                    if let Some(v) = max_outer {
+                        outer = outer.min(v);
                     }
-                    if let Some(v) = points(s.min_height) {
-                        outer = outer.max(v + inset_v - adjust);
+                    if let Some(v) = min_outer {
+                        outer = outer.max(v);
                     }
                     outer
                 }

@@ -380,13 +380,14 @@ writeFileSync(dist + '/index.html', 'current');
 if (text(readStaticFile(dist, '/')) !== 'current') throw new Error('current build did not win');
 if (readStaticFile(dist, '/gpu.js') !== null) throw new Error('current build borrowed stale GPU');
 "#;
-    let output = std::process::Command::new("bun")
-        .args(["--input-type=module", "--eval", js])
-        .arg("serve-fallback-test")
-        .arg(module)
-        .arg(&dist)
-        .output()
-        .unwrap();
+    let output =
+        std::process::Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
+            .args(["--input-type=module", "--eval", js])
+            .arg("serve-fallback-test")
+            .arg(module)
+            .arg(&dist)
+            .output()
+            .unwrap();
     assert!(
         output.status.success(),
         "bun: {}{}",
@@ -458,4 +459,312 @@ fn a_refused_bridge_reload_keeps_the_running_host() {
         Some(contract::plan_digest(&replacement)),
         "a replacement may reuse the same node id but must expose its own plan"
     );
+}
+
+#[test]
+fn display_mode_bits_preserve_fold_and_preferences_at_boot_and_without_a_resize() {
+    let source = "shape Viewport\n  displayMode: string\n  horizontalViewportSegments: number\n  verticalViewportSegments: number\n  devicePosture: string\n  colorGamut: string\n  dynamicRange: string\ncomponent App\n  resource viewport = exactViewport() as shape Viewport\n  view\n    text viewport.displayMode\n";
+    let plan = contract::bake(contract::compile(source).unwrap(), NoData)
+        .unwrap()
+        .encode();
+    let mut bridge = exact_web::abi::Bridge::new();
+    bridge.set_links(exact_web::HostLinks::ALL);
+    for (i, (code, expected, cols, rows, folded, gamut, hdr)) in [
+        (1, "browser", 1, 1, false, 0, false),
+        (2, "fullscreen", 4, 1, true, 3, true),
+        (0, "standalone", 4, 2, false, 1, false),
+        (3, "minimal-ui", 2, 4, true, 2, true),
+        (4, "window-controls-overlay", 255, 255, false, 0, true),
+        (5, "picture-in-picture", 1, 1, true, 1, false),
+        (6, "tabbed", 1, 1, false, 3, true),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let bits = 0xff
+            | ((folded as u32) << 8)
+            | (cols << 9)
+            | (rows << 17)
+            | (gamut << 26)
+            | ((hdr as u32) << 28)
+            | (code << 29);
+        if i == 0 {
+            bridge.set_preferences(bits);
+            let len = bridge.boot(&plan, NoData, 600.0, 400.0, "/");
+            let first = std::str::from_utf8(bridge.output_bytes(len as usize)).unwrap();
+            assert!(first.contains("\"text\":\"browser\""), "{first}");
+        } else {
+            bridge.resize(600.0, 400.0, bits, 0.0);
+        }
+        let n = bridge.input_write(br#"{"op":"state"}"#);
+        let len = bridge.agent(n);
+        let state: serde_json::Value =
+            serde_json::from_slice(bridge.output_bytes(len as usize)).unwrap();
+        for facts in [&state["resources"]["viewport"], &state["device"]] {
+            assert_eq!(facts["displayMode"], expected);
+            assert_eq!(facts["horizontalViewportSegments"], cols);
+            assert_eq!(facts["verticalViewportSegments"], rows);
+            assert_eq!(
+                facts["devicePosture"],
+                if folded { "folded" } else { "continuous" }
+            );
+            assert_eq!(
+                facts["colorGamut"],
+                ["srgb", "p3", "rec2020", "rec2020"][gamut as usize]
+            );
+            assert_eq!(facts["dynamicRange"], if hdr { "high" } else { "standard" });
+        }
+        assert_eq!(state["device"]["prefersReducedMotion"], true);
+        assert_eq!(state["device"]["prefersReducedTransparency"], true);
+        assert_eq!(state["device"]["prefersContrast"], "custom");
+        assert_eq!(state["device"]["prefersColorScheme"], "dark");
+    }
+}
+
+/// LLP 1121 stage 4, commit 3: a value-only edit of the app's design
+/// publishes no plan (its file is written, for a host that watches it); its
+/// batch says what changed. An edit that changes the plan's
+/// structure, or the Contract, still writes one. A write by rename, as the
+/// Tamber server makes it, is the same case as one in place, as an editor
+/// saves.
+#[test]
+fn a_value_only_design_edit_writes_no_plan_and_sends_a_batch() {
+    let dir = scratch("design");
+    let src = dir.join("app.contract");
+    let out = dir.join("app.plan");
+    let design = dir.join("app.tamber");
+    let tamber = "tamber t\n\ntheme\n  ink = #111111\n  page = #ffffff\n";
+    std::fs::write(&design, tamber).unwrap();
+    let view = "component App\n  view\n    column background-color=\"page\"\n      text \"one\" color=\"ink\"\n";
+    std::fs::write(&src, view).unwrap();
+    let mut s = Session::new(&src, &out);
+    let first = s.poll::<NoData>().expect("first look builds").unwrap();
+    assert!(first.live.is_none());
+    let on_disk = std::fs::read(&out).unwrap();
+    // A value, saved in place.
+    save(&design, &tamber.replace("#111111", "#222222"), 1);
+    let edit = s.poll::<NoData>().expect("a design edit").unwrap();
+    let live = edit.live.expect("value-only");
+    assert_eq!(std::fs::read(&out).unwrap(), edit.bytes, "the file follows");
+    assert_ne!(edit.bytes, on_disk);
+    let names: Vec<&str> = live.batch.tokens.iter().map(|t| t.name.as_str()).collect();
+    assert_eq!(names, ["ink"]);
+    assert_eq!(live.batch.tokens[0].value, "#222222ff");
+    assert_eq!(live.snapshot.tokens.len(), 2);
+    assert_eq!(live.batch.design, live.snapshot.design);
+    // Another, written by rename: its base is the last batch's design.
+    let tmp = dir.join(".app.tamber.tmp");
+    std::fs::write(&tmp, tamber.replace("#111111", "#333333")).unwrap();
+    std::fs::rename(&tmp, &design).unwrap();
+    let edit = s.poll::<NoData>().expect("a renamed design").unwrap();
+    let next = edit.live.expect("value-only");
+    assert_eq!(next.batch.base.as_deref(), Some(live.batch.design.as_str()));
+    // A token no view reads is in no plan: an empty batch, which the loop
+    // does not send. Naming it in the view is structure.
+    save(
+        &design,
+        &format!("{}  edge = #000000\n", tamber.replace("#111111", "#333333")),
+        3,
+    );
+    let quiet = s.poll::<NoData>().expect("rebuilt").unwrap();
+    assert!(quiet
+        .live
+        .as_ref()
+        .is_some_and(|l| l.batch.tokens.is_empty()));
+    save(
+        &src,
+        &view.replace("column ", "column border-color=\"edge\" "),
+        4,
+    );
+    let structural = s.poll::<NoData>().expect("a structure edit").unwrap();
+    assert!(structural.live.is_none());
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// LLP 1121 stage 4, commit 6: a scrub's preview compiles the design text
+/// in place of the file's and writes nothing; each value's batch is based
+/// on the last; restore goes back to the committed design; a structure
+/// change is refused; and a save while one previews batches from it.
+#[test]
+fn a_scrub_previews_without_writing_and_restores_the_committed_design() {
+    let dir = scratch("scrub");
+    let src = dir.join("app.contract");
+    let out = dir.join("app.plan");
+    let design = dir.join("app.tamber");
+    let tamber = "tamber t\n\ntheme\n  ink = #111111\n  page = #ffffff\n";
+    std::fs::write(&design, tamber).unwrap();
+    std::fs::write(
+        &src,
+        "component App\n  view\n    column background-color=\"page\"\n      text \"one\" color=\"ink\"\n",
+    )
+    .unwrap();
+    let mut s = Session::new(&src, &out);
+    s.poll::<NoData>().expect("first look builds").unwrap();
+    let plan = std::fs::read(&out).unwrap();
+    let (batch, snapshot) = s
+        .scrub::<NoData>(tamber.replace("#111111", "#222222"))
+        .unwrap();
+    let batch = batch.expect("ink moved");
+    assert_eq!(batch.tokens.len(), 1);
+    assert_eq!(batch.tokens[0].value, "#222222ff");
+    assert_eq!(snapshot.design, batch.design);
+    assert_eq!(std::fs::read(&out).unwrap(), plan, "no plan written");
+    assert_eq!(
+        std::fs::read_to_string(&design).unwrap(),
+        tamber,
+        "no design written"
+    );
+    let (next, _) = s
+        .scrub::<NoData>(tamber.replace("#111111", "#333333"))
+        .unwrap();
+    assert_eq!(next.unwrap().base.as_deref(), Some(batch.design.as_str()));
+    // An axis added is structure: refused, the preview kept.
+    assert!(s
+        .scrub::<NoData>(tamber.replace("theme\n", "axes\n  mode = a | b\n\ntheme\n"))
+        .is_err());
+    let (back, committed) = s.restore().expect("a scrub previewed");
+    let back = back.expect("back to #111111");
+    assert_eq!(back.tokens[0].value, "#111111ff");
+    assert_eq!(back.design, committed.design);
+    assert!(s.restore().is_none(), "restored once");
+    // A save while a scrub previews: the builds stay on the preview (an
+    // empty batch), and its end restores the saved design.
+    let (shown, _) = s
+        .scrub::<NoData>(tamber.replace("#111111", "#444444"))
+        .unwrap();
+    save(&design, &tamber.replace("#111111", "#555555"), 1);
+    let saved = s.poll::<NoData>().expect("a design edit").unwrap();
+    let live = saved.live.expect("value-only");
+    assert!(live.batch.tokens.is_empty());
+    let (back, _) = s.restore().expect("still previewing");
+    let back = back.expect("to the saved design");
+    assert_eq!(back.base.as_deref(), Some(shown.unwrap().design.as_str()));
+    assert_eq!(back.tokens[0].value, "#555555ff");
+    // A released scrub: the build of what it wrote goes from it, and ends it.
+    let (shown, _) = s
+        .scrub::<NoData>(tamber.replace("#111111", "#666666"))
+        .unwrap();
+    s.release();
+    save(&design, &tamber.replace("#111111", "#666666"), 2);
+    let written = s.poll::<NoData>().expect("the release's write").unwrap();
+    let live = written.live.expect("value-only");
+    assert_eq!(
+        live.batch.base.as_deref(),
+        Some(shown.unwrap().design.as_str())
+    );
+    assert!(live.batch.tokens.is_empty(), "the builds already show it");
+    assert!(s.restore().is_none(), "ended");
+    // A scrub that previews before a released one's write builds keeps its
+    // preview: that build changes only what its end restores.
+    s.scrub::<NoData>(tamber.replace("#111111", "#777777"))
+        .unwrap();
+    s.release();
+    let (next, _) = s
+        .scrub::<NoData>(tamber.replace("#111111", "#888888"))
+        .unwrap();
+    save(&design, &tamber.replace("#111111", "#777777"), 3);
+    let written = s.poll::<NoData>().expect("the first's write").unwrap();
+    assert!(written.live.expect("value-only").batch.tokens.is_empty());
+    let (back, _) = s.restore().expect("the second still previews");
+    let back = back.expect("to the written design");
+    assert_eq!(
+        back.base.as_deref(),
+        next.as_ref().map(|b| b.design.as_str())
+    );
+    assert_eq!(back.tokens[0].value, "#777777ff");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// LLP 1121 stage 4, commit 4: a running web build applies a batch in
+/// place (no reload: its state stays), and answers stale for one whose base
+/// it has passed.
+#[test]
+fn a_running_web_build_applies_a_batch_in_place() {
+    use exact_runner::design;
+    let dir = scratch("live-host");
+    let view = "component App\n  state n = 0\n  action bump\n    n = n + 1\n  view\n    column background-color=\"page\"\n      button press=bump testId=\"bump\"\n        text `${n}` color=\"ink\" testId=\"count\"\n";
+    let plan = |tamber: &str| {
+        std::fs::write(dir.join("app.tamber"), tamber).unwrap();
+        std::fs::write(dir.join("app.contract"), view).unwrap();
+        contract::compile_path(&dir.join("app.contract")).unwrap()
+    };
+    let a = plan("tamber t\n\ntheme\n  ink = #111111\n  page = #ffffff\n");
+    let b = plan("tamber t\n\ntheme\n  ink = #ff0000\n  page = #ffffff\n");
+    let structure = design::shape(&a);
+    let batch = design::batch(&structure, &design::tokens(&a), &design::tokens(&b)).unwrap();
+    let (mut host, _) = Host::boot(&a.encode(), NoData, Default::default(), "/").unwrap();
+    let bump = {
+        let k = host.runner().kernel();
+        k.node_by_key(k.find_by_test_id("bump")[0]).unwrap().id
+    };
+    host.dispatch(bump, exact_runner::Event::Press);
+    let out = host.apply_live(&batch.json());
+    assert!(out.starts_with("{\"live\":\"applied\""), "{out}");
+    assert!(
+        out.contains("rgba(255,0,0,1)"),
+        "the new colour reaches the page: {out}"
+    );
+    let count = {
+        let k = host.runner().kernel();
+        let n = k.node_by_key(k.find_by_test_id("count")[0]).unwrap();
+        n.props.str(exact_kernel::PropId::Text).map(str::to_string)
+    };
+    assert_eq!(count.as_deref(), Some("1"), "no reload: the state stays");
+    assert!(host
+        .apply_live(&batch.json())
+        .starts_with("{\"live\":\"stale\""));
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// LLP 1121 stage 5, commit 2: a role override's value edit reaches a
+/// running web build as a batch: its role sheet is written again in the
+/// batch (`theme`), which unsaid text and the accent read.
+#[test]
+fn a_running_web_build_takes_a_role_override_edit_in_place() {
+    use exact_runner::design;
+    let dir = scratch("live-role");
+    let view = "component App\n  view\n    column\n      text \"a\" testId=\"text\"\n";
+    let plan = |tamber: &str| {
+        std::fs::write(dir.join("app.tamber"), tamber).unwrap();
+        std::fs::write(dir.join("app.contract"), view).unwrap();
+        contract::compile_path(&dir.join("app.contract")).unwrap()
+    };
+    let a = plan("tamber t\n\ntheme\n  AccentColor = #0a7aff\n  CanvasText = #111111\n");
+    let b = plan("tamber t\n\ntheme\n  AccentColor = #ff0000\n  CanvasText = #222222\n");
+    let batch =
+        design::batch(&design::shape(&a), &design::tokens(&a), &design::tokens(&b)).unwrap();
+    let (mut host, boot) = Host::boot(&a.encode(), NoData, Default::default(), "/").unwrap();
+    assert!(boot.contains("--exact-accent:#0a7aff"), "{boot}");
+    let out = host.apply_live(&batch.json());
+    assert!(out.starts_with("{\"live\":\"applied\""), "{out}");
+    assert!(out.contains(r#"{"op":"theme","css":"#), "{out}");
+    assert!(out.contains("--exact-accent:#ff0000"), "{out}");
+    // Unsaid text reads the sheet's `color`, so the sheet is the edit.
+    assert!(out.contains("--exact-canvas-text:#222222ff"), "{out}");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// Two web sessions on one thread, each with its own role overrides (LLP
+/// 1121 stage 5): an event on one sends its rows under its own roles, with
+/// no role resolved unbound beside the other (a debug build would assert).
+#[test]
+fn an_event_beside_another_session_crosses_under_its_own_roles() {
+    let dir = scratch("two-sessions");
+    let view = "component App\n  state n = 0\n  action bump\n    n = n + 1\n  view\n    column\n      button press=bump testId=\"bump\"\n        text `${n}` color=\"#ff0000\" testId=\"count\"\n";
+    let plan = |tamber: &str| {
+        std::fs::write(dir.join("app.tamber"), tamber).unwrap();
+        std::fs::write(dir.join("app.contract"), view).unwrap();
+        contract::compile_path(&dir.join("app.contract")).unwrap()
+    };
+    let a = plan("tamber t\n\ntheme\n  CanvasText = #111111\n");
+    let b = plan("tamber t\n\ntheme\n  CanvasText = #222222\n");
+    let (mut first, _) = Host::boot(&a.encode(), NoData, Default::default(), "/").unwrap();
+    let (_second, _) = Host::boot(&b.encode(), NoData, Default::default(), "/").unwrap();
+    let bump = {
+        let k = first.runner().kernel();
+        k.node_by_key(k.find_by_test_id("bump")[0]).unwrap().id
+    };
+    let out = first.dispatch(bump, exact_runner::Event::Press);
+    assert!(out.contains("\"1\""), "{out}");
+    let _ = std::fs::remove_dir_all(dir);
 }

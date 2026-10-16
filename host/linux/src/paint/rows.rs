@@ -7,8 +7,10 @@
 //!
 //! A row is invalid once anything in it changes: a commit touching,
 //! creating or destroying a node in it, a presentation value, a press, a
-//! picture arriving. A layout change that moves a node only makes the row
-//! suspect: kept while every node sits where it sat relative to the row.
+//! picture arriving, a layout publishing something new beside a frame that
+//! stayed (a resolved padding, a scroll extent). A layout change that moves
+//! a node only makes the row suspect: kept while every node sits where it
+//! sat relative to the row.
 use super::*;
 use exact_kernel::id::{IdMap, IdSet};
 use exact_kernel::NodeKey;
@@ -18,26 +20,42 @@ use exact_kernel::NodeKey;
 pub struct Dirty {
     hard: Vec<NodeKey>,
     moved: Vec<NodeKey>,
+    /// Nodes a commit bound to another item (LLP 1078).
+    renewed: Vec<NodeKey>,
+    /// When the latest commit landed, ms (where a numeric roll starts).
+    committed: Option<f64>,
 }
 
 impl Dirty {
-    /// A commit's nodes.
-    pub fn commit(&mut self, r: &exact_kernel::CommitReceipt) {
+    /// A commit's nodes, and when it landed (ms).
+    pub fn commit(&mut self, r: &exact_kernel::CommitReceipt, at: f64) {
+        self.committed = Some(at);
         self.hard.extend(&r.touched);
         self.hard.extend(&r.created);
         self.hard.extend(&r.destroyed);
+        self.renewed.extend(&r.renewed);
     }
 
-    /// A layout's moved frames, and paragraphs whose exclusions changed.
+    /// A layout's moved frames; paragraphs whose exclusions changed, and
+    /// nodes it published anew beside a frame that stayed, as changed.
     pub fn layout(&mut self, r: &exact_kernel::LayoutReceipt) {
+        let moved: IdSet<NodeKey> = r.changed.iter().copied().collect();
         self.moved.extend(&r.changed);
         self.hard.extend(&r.flow_changed);
+        self.hard
+            .extend(r.updated.iter().filter(|key| !moved.contains(*key)));
     }
 
     /// A node whose presentation changed.
     pub fn node(&mut self, key: NodeKey) {
         self.hard.push(key);
     }
+}
+
+struct RowFrame {
+    node: NodeKey,
+    frame: exact_kernel::Frame,
+    padding: (f32, f32, f32, f32),
 }
 
 /// One kept row.
@@ -52,8 +70,8 @@ struct Row {
     images: Vec<(ViewId, Option<std::sync::Weak<Bitmap>>)>,
     /// Where each picture kept apart from the row is drawn.
     slots: Vec<Slot>,
-    /// Each node's frame relative to the row's (x, y) and its size.
-    frames: Vec<(NodeKey, [f32; 4])>,
+    /// Each node's frame relative to the row and its resolved padding.
+    frames: Vec<RowFrame>,
     /// The scrollers inside it and their offsets when recorded: one moved
     /// (a swipe) records the row again.
     scrolls: Vec<(ViewId, (f32, f32))>,
@@ -81,7 +99,7 @@ struct Capture {
     images: Vec<(ViewId, Option<std::sync::Weak<Bitmap>>)>,
     slots: Vec<Slot>,
     text: Vec<(NodeKey, Rc<Paragraph>)>,
-    frames: Vec<(NodeKey, [f32; 4])>,
+    frames: Vec<RowFrame>,
     scrolls: Vec<(ViewId, (f32, f32))>,
 }
 
@@ -146,6 +164,7 @@ fn within(a: Option<Rect4>, outer: Option<Rect4>) -> Option<Rect4> {
 impl Painter {
     /// Before a frame: drop the rows the host's changes reach.
     pub(crate) fn rows_dirty(&mut self, kernel: &Kernel, dirty: Dirty) {
+        self.numerals.committed = dirty.committed;
         if self.rows.kept.is_empty() {
             return;
         }
@@ -179,6 +198,18 @@ impl Painter {
                 self.rows.kept.get_mut(&row).expect("found").stale = true;
             }
         }
+        // A row bound to another item is a new row (LLP 1078): its kept
+        // recording is the other item's, and a backend told the row was that
+        // one draws it in the row's place until the new one is made. The
+        // Canvas reader did, for as long as no stream followed: a rebound
+        // row coming into view showed the item it had been, in a slot that
+        // item's height left short (easy at 3,000 dp/s toward the start: up
+        // to five frames, three times in two seconds).
+        for key in dirty.renewed {
+            if let Some(row) = self.rows.kept.remove(&key) {
+                self.rows.freed.push(row.id);
+            }
+        }
         let mut seen = IdSet::default();
         for key in dirty.moved {
             if !seen.insert(key) {
@@ -188,6 +219,22 @@ impl Painter {
                 self.rows.suspect.insert(row);
             }
         }
+    }
+
+    /// The backend has none of the kept rows any more (it is another one, or
+    /// its reader was made again): none is drawn from a recording and none
+    /// is freed, each is recorded again as a new row.
+    pub(crate) fn forget_rows(&mut self) {
+        self.rows = Rows::default();
+    }
+
+    /// The platform's colours resolve differently (LLP 1115.001 D4):
+    /// nothing kept from a paint under the old ones stands. Every kept row
+    /// is freed and recorded again, and the next paint is whole.
+    pub(crate) fn colors_changed(&mut self) {
+        self.rows.world = None;
+        self.damage.pixels = None;
+        self.region_picture = None;
     }
 
     /// At a walk's start: whether rows are kept this walk.
@@ -314,9 +361,19 @@ impl Painter {
     }
 
     /// Note a node walked while a row records.
-    pub(super) fn row_node(&mut self, key: NodeKey, f: exact_kernel::Frame, shown: &Presented) {
+    pub(super) fn row_node(
+        &mut self,
+        kernel: &Kernel,
+        key: NodeKey,
+        f: exact_kernel::Frame,
+        shown: &Presented,
+    ) {
         if let Some(c) = &mut self.rows.recording {
-            c.frames.push((key, [f.x, f.y, f.width, f.height]));
+            c.frames.push(RowFrame {
+                node: key,
+                frame: f,
+                padding: kernel.resolved_padding(key).unwrap_or_default(),
+            });
             c.refused |= shown.press != 1.0;
         }
     }
@@ -349,11 +406,18 @@ impl Painter {
         let Some(img) = walk.scene.images.get(&node.id) else {
             return;
         };
+        // A kept row's slot is painted again outside the node's walk.
+        let _accent = super::accent_scope(node);
         if let Some(dst) = object_fit(img.natural(), node.style.object_fit, content) {
             let shown = (walk.scene.presented)(node.id);
             let tint = image_tint(node, &shown, self.dark);
-            self.backend
-                .image(img, dst, &[Shape::rect(content), outer], ts, tint);
+            self.backend.image(
+                img,
+                img.placed(dst),
+                &[Shape::rect(content), outer],
+                ts,
+                tint,
+            );
         }
     }
 
@@ -431,13 +495,15 @@ impl Painter {
                     .iter()
                     .all(|(id, kept)| same_picture(walk.scene.images.get(id), kept)))
             && (!self.rows.suspect.contains(&node.key)
-                || row.frames.iter().all(|(k, f)| {
-                    kernel.node_by_key(*k).is_some_and(|n| {
-                        let g = n.frame;
-                        (g.x - node.frame.x - f[0]).abs() < 0.5
-                            && (g.y - node.frame.y - f[1]).abs() < 0.5
-                            && g.width == f[2]
-                            && g.height == f[3]
+                || row.frames.iter().all(|saved| {
+                    kernel.node_by_key(saved.node).is_some_and(|n| {
+                        let (g, f) = (n.frame, saved.frame);
+                        (g.x - node.frame.x - f.x).abs() < 0.5
+                            && (g.y - node.frame.y - f.y).abs() < 0.5
+                            && g.width == f.width
+                            && g.height == f.height
+                            && kernel.resolved_padding(saved.node).unwrap_or_default()
+                                == saved.padding
                     })
                 }))
     }
@@ -580,7 +646,11 @@ impl Painter {
                 frames: capture
                     .frames
                     .into_iter()
-                    .map(|(k, f)| (k, [f[0] - x0, f[1] - y0, f[2], f[3]]))
+                    .map(|mut saved| {
+                        saved.frame.x -= x0;
+                        saved.frame.y -= y0;
+                        saved
+                    })
                     .collect(),
                 scrolls: capture.scrolls,
                 unsupported: row_unsupported,

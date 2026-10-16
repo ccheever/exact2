@@ -114,25 +114,25 @@ component Gallery
         button press=ten testId="page-10" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color=(page == 10 ? "#e2e8f0" : "#f8fafc")
           text "10" font-size=13
       row flex-wrap="wrap" gap=8 padding-left=12 padding-right=12
-        when page == 1
+        if page == 1
           StageOne()
-        when page == 2
+        if page == 2
           StageTwo()
-        when page == 3
+        if page == 3
           StageThree()
-        when page == 4
+        if page == 4
           StageFour()
-        when page == 5
+        if page == 5
           StageFive()
-        when page == 6
+        if page == 6
           StageSix()
-        when page == 7
+        if page == 7
           StageSeven()
-        when page == 8
+        if page == 8
           StageEight()
-        when page == 9
+        if page == 9
           StageNine()
-        when page == 10
+        if page == 10
           StageTen()
 
 // Stage 1: geometry, units, transforms, nested viewports, classes.
@@ -354,7 +354,8 @@ component StageFive
       text "SVG" x=60 y=66 text-anchor="middle" font-size=28 font-weight=800 fill="#fef3c7" stroke="#b45309" stroke-width=1.5
 
 // Stage 6: presses on SVG elements (LLP 1055.000 D17). A tap on a tile's
-// centre lands on the element there; the agent's `tap fx-hit` is that tap.
+// centre lands on the element there; the agent's `tap fx-hit at 60 40` is
+// that tap (a plain `tap fx-hit` names the svg, and is refused).
 component StageSix
   state picked = "none"
   action pick(which: string)

@@ -9,7 +9,7 @@
 //! Each quality trial encodes that bitmap. No source property is copied
 //! into the JPEG: no EXIF, GPS, TIFF, IPTC, XMP or orientation tag; the
 //! encoder writes its own JFIF, sRGB profile and colour-space EXIF.
-use super::{failure, search, Compressed, Deadline, MAX_SOURCE_PIXELS};
+use super::{failure, search, Compressed, Deadline};
 use std::ffi::c_void;
 use std::ptr::{self, NonNull};
 
@@ -46,8 +46,11 @@ extern "C" {
     static kCFBooleanFalse: CFTypeRef;
     fn CFRelease(value: CFTypeRef);
     fn CFDataCreate(allocator: CFTypeRef, bytes: *const u8, length: CFIndex) -> CFTypeRef;
+    #[cfg(test)]
     fn CFDataCreateMutable(allocator: CFTypeRef, capacity: CFIndex) -> CFTypeRef;
+    #[cfg(test)]
     fn CFDataGetLength(data: CFTypeRef) -> CFIndex;
+    #[cfg(test)]
     fn CFDataGetBytePtr(data: CFTypeRef) -> *const u8;
     fn CFDictionaryCreate(
         allocator: CFTypeRef,
@@ -84,6 +87,7 @@ extern "C" {
     static kCGImagePropertyPixelWidth: CFTypeRef;
     static kCGImagePropertyPixelHeight: CFTypeRef;
     static kCGImagePropertyOrientation: CFTypeRef;
+    static kCGImagePropertyDepth: CFTypeRef;
     fn CGImageSourceCreateWithData(data: CFTypeRef, options: CFTypeRef) -> CFTypeRef;
     fn CGImageSourceGetType(source: CFTypeRef) -> CFTypeRef;
     fn CGImageSourceGetCount(source: CFTypeRef) -> usize;
@@ -97,8 +101,15 @@ extern "C" {
         index: usize,
         options: CFTypeRef,
     ) -> CFTypeRef;
+    #[cfg(test)]
     fn CGImageDestinationCreateWithData(
         data: CFTypeRef,
+        kind: CFTypeRef,
+        count: usize,
+        options: CFTypeRef,
+    ) -> CFTypeRef;
+    fn CGImageDestinationCreateWithDataConsumer(
+        consumer: CFTypeRef,
         kind: CFTypeRef,
         count: usize,
         options: CFTypeRef,
@@ -110,6 +121,7 @@ extern "C" {
 #[link(name = "CoreGraphics", kind = "framework")]
 extern "C" {
     static kCGColorSpaceSRGB: CFTypeRef;
+    fn CGDataConsumerCreate(info: *mut c_void, callbacks: *const ConsumerCallbacks) -> CFTypeRef;
     fn CGColorSpaceCreateWithName(name: CFTypeRef) -> CFTypeRef;
     fn CGBitmapContextCreate(
         data: *mut c_void,
@@ -201,25 +213,70 @@ fn integer(properties: CFTypeRef, key: CFTypeRef) -> Option<i64> {
     }
 }
 
+struct Pool(*mut c_void);
+impl Pool {
+    fn new() -> Self {
+        // SAFETY: each token is popped once on the thread that pushed it.
+        Self(unsafe { objc_autoreleasePoolPush() })
+    }
+}
+impl Drop for Pool {
+    fn drop(&mut self) {
+        // SAFETY: this pool is scoped to the creating thread.
+        unsafe { objc_autoreleasePoolPop(self.0) }
+    }
+}
+
+/// Charge explicitly sized surfaces, including 16/32-bit components and row
+/// alignment. ImageIO's private allocations remain outside an allocator proof.
+pub(super) fn scratch_bytes(
+    source_bytes: usize,
+    source: (u32, u32),
+    depth: u32,
+    target: (u32, u32),
+    max_bytes: u64,
+) -> Option<u64> {
+    let source_bpp = match depth {
+        1..=8 => 4,
+        9..=16 => 8,
+        17..=32 => 16,
+        _ => return None,
+    };
+    let surface = |(w, h): (u32, u32), bpp: u64| {
+        u64::from(w)
+            .checked_mul(bpp)?
+            .checked_add(63)
+            .map(|row| row & !63)?
+            .checked_mul(u64::from(h))
+    };
+    // The thumbnail can round up one pixel while contain() floors the target.
+    let thumbnail = (target.0.checked_add(1)?, target.1.checked_add(1)?);
+    // Reserve a second source-sized surface for decoder workspace. The
+    // measured PNG/TIFF paths can retain it alongside the returned thumbnail.
+    (source_bytes as u64)
+        .checked_add(surface(source, source_bpp)?.checked_mul(2)?)?
+        .checked_add(surface(thumbnail, source_bpp)?)?
+        .checked_add(surface(target, 4)?)?
+        .checked_add(max_bytes.checked_add(1)?.checked_mul(2)?)
+}
+
 pub(super) fn compress(
     source: &[u8],
     max_dimension: u32,
     max_bytes: u64,
-    deadline: Deadline,
+    deadline: Deadline<'_>,
 ) -> Result<Compressed, String> {
     // ImageIO autoreleases internally; a storage worker lives long, so each
     // call drains its own pool.
-    struct Pool(*mut c_void);
-    impl Drop for Pool {
-        fn drop(&mut self) {
-            // SAFETY: the token the matching push returned, popped once on
-            // the thread that pushed it.
-            unsafe { objc_autoreleasePoolPop(self.0) }
-        }
-    }
-    // SAFETY: pushes a pool on this thread; `Pool` pops it.
-    let _pool = Pool(unsafe { objc_autoreleasePoolPush() });
+    let _pool = Pool::new();
     deadline.check()?;
+    let surface_budget = deadline.max_scratch_bytes - deadline.max_scratch_bytes / 4;
+    if source.len() as u64 > surface_budget {
+        return Err(failure(
+            "too-large",
+            "image exceeds its codec memory reservation",
+        ));
+    }
     let undecodable = || failure("undecodable", "not an image this host decodes");
     // SAFETY: CFDataCreate copies the bytes.
     let data =
@@ -246,11 +303,12 @@ pub(super) fn compress(
     })
     .ok_or_else(undecodable)?;
     // SAFETY: the keys are immutable statics.
-    let (width, height, orientation) = unsafe {
+    let (width, height, orientation, depth) = unsafe {
         (
             integer(properties.get(), kCGImagePropertyPixelWidth),
             integer(properties.get(), kCGImagePropertyPixelHeight),
             integer(properties.get(), kCGImagePropertyOrientation).unwrap_or(1),
+            integer(properties.get(), kCGImagePropertyDepth).unwrap_or(32),
         )
     };
     let (Some(width), Some(height)) = (width, height) else {
@@ -259,20 +317,39 @@ pub(super) fn compress(
     if width <= 0 || height <= 0 || width > u32::MAX as i64 || height > u32::MAX as i64 {
         return Err(undecodable());
     }
-    if (width as u64) * (height as u64) > MAX_SOURCE_PIXELS {
+    let source_pixels = (width as u64) * (height as u64);
+    if source_pixels > deadline.max_pixels {
         return Err(failure(
             "too-large",
-            format!("{width}×{height} pixels is over {MAX_SOURCE_PIXELS}"),
+            format!("{width}×{height} pixels is over {}", deadline.max_pixels),
         ));
     }
+    let source_size = (width as u32, height as u32);
     // EXIF 5–8 turn the picture a quarter: the oriented size is transposed.
     let (width, height) = if (5..=8).contains(&orientation) {
         (height as u32, width as u32)
     } else {
         (width as u32, height as u32)
     };
+    // Refuse before the first decode, using component depth rather than
+    // assuming every accepted PNG/TIFF/HEIC source has 8-bit channels.
+    let target = super::contain(width, height, max_dimension);
+    let scratch = u32::try_from(depth)
+        .ok()
+        .and_then(|depth| scratch_bytes(source.len(), source_size, depth, target, max_bytes));
+    // Keep one quarter for opaque native workspace beyond the surfaces above.
+    // This is conservative admission headroom, not an ImageIO allocator limit.
+    if scratch.is_none_or(|n| n > surface_budget) {
+        return Err(failure(
+            "too-large",
+            "image exceeds its codec memory reservation",
+        ));
+    }
     let mut drawn: Option<(u32, u32, Owned)> = None;
     let found = search(width, height, max_dimension, max_bytes, |w, h, quality| {
+        // Native temporaries from a failed trial must not accumulate across
+        // the quality search or survive until the outer worker pool drains.
+        let _trial_pool = Pool::new();
         deadline.check()?;
         if drawn.as_ref().is_none_or(|d| (d.0, d.1) != (w, h)) {
             drawn = None; // release the last size's bitmap before decoding the next
@@ -283,7 +360,8 @@ pub(super) fn compress(
             ));
         }
         let image = drawn.as_ref().expect("drawn above").2.get();
-        encode(image, quality)
+        deadline.check()?;
+        encode(image, quality, max_bytes as usize)
             .ok_or_else(|| failure("unsupported", "ImageIO did not encode a JPEG"))
     })?;
     found.ok_or_else(|| {
@@ -353,39 +431,73 @@ fn bitmap(w: u32, h: u32, space: CFTypeRef) -> Option<Owned> {
     })
 }
 
-/// `image` as a JPEG at `quality` percent, with no properties but that one.
-fn encode(image: CFTypeRef, quality: u32) -> Option<Vec<u8>> {
-    // SAFETY: the buffer is +1 and grows as ImageIO writes.
-    let out = Owned::new(unsafe { CFDataCreateMutable(ptr::null(), 0) })?;
+#[repr(C)]
+struct ConsumerCallbacks {
+    put_bytes: unsafe extern "C" fn(*mut c_void, *const c_void, usize) -> usize,
+    release: Option<unsafe extern "C" fn(*mut c_void)>,
+}
+struct Encoded {
+    bytes: Vec<u8>,
+    limit: usize,
+    exceeded: bool,
+}
+unsafe extern "C" fn put_bytes(info: *mut c_void, bytes: *const c_void, len: usize) -> usize {
+    // SAFETY: the synchronous destination holds `out` live until finalization.
+    let out = unsafe { &mut *info.cast::<Encoded>() };
+    let keep = len.min(out.limit - out.bytes.len());
+    if keep > 0 {
+        // SAFETY: ImageIO supplies `len` readable bytes for this callback.
+        out.bytes
+            .extend_from_slice(unsafe { std::slice::from_raw_parts(bytes.cast(), keep) });
+    }
+    if keep < len {
+        out.exceeded = true;
+        0
+    } else {
+        len
+    }
+}
+
+/// Keep at most `cap + 1` bytes. The extra byte tells the quality search to
+/// lower its next trial without retaining the remainder of an oversized JPEG.
+fn encode(image: CFTypeRef, quality: u32, cap: usize) -> Option<Vec<u8>> {
+    let limit = cap.checked_add(1)?;
+    let mut out = Encoded {
+        bytes: Vec::with_capacity(limit),
+        limit,
+        exceeded: false,
+    };
+    let callbacks = ConsumerCallbacks {
+        put_bytes,
+        release: None,
+    };
+    // SAFETY: `out` and callbacks outlive destination and consumer; ImageIO
+    // writes synchronously during add/finalize and never retains this stack.
+    let consumer =
+        Owned::new(unsafe { CGDataConsumerCreate((&mut out as *mut Encoded).cast(), &callbacks) })?;
     let jpeg = b"public.jpeg";
     // SAFETY: the bytes are UTF-8 and copied.
     let kind = Owned::new(unsafe {
         CFStringCreateWithBytes(ptr::null(), jpeg.as_ptr(), jpeg.len() as CFIndex, UTF8, 0)
     })?;
-    // SAFETY: `out` and `kind` are live; the destination is +1.
+    // SAFETY: the consumer and kind remain live through finalization.
     let destination = Owned::new(unsafe {
-        CGImageDestinationCreateWithData(out.get(), kind.get(), 1, ptr::null())
+        CGImageDestinationCreateWithDataConsumer(consumer.get(), kind.get(), 1, ptr::null())
     })?;
     let quality = number_f64(f64::from(quality) / 100.0)?;
-    // SAFETY: the key is an immutable static.
     let props = dictionary(&[(
+        // SAFETY: the key is an immutable static.
         unsafe { kCGImageDestinationLossyCompressionQuality },
         quality.get(),
     )])?;
-    // SAFETY: every reference is live; finalizing writes into `out`.
-    unsafe {
+    // SAFETY: all references remain live until the encoder returns.
+    let finished = unsafe {
         CGImageDestinationAddImage(destination.get(), image, props.get());
-        if !CGImageDestinationFinalize(destination.get()) {
-            return None;
-        }
-    }
-    drop(destination);
-    // SAFETY: `out` is live; its bytes are copied out before it is released.
-    let bytes = unsafe {
-        let length = CFDataGetLength(out.get());
-        std::slice::from_raw_parts(CFDataGetBytePtr(out.get()), length as usize).to_vec()
+        CGImageDestinationFinalize(destination.get())
     };
-    Some(bytes)
+    drop(destination);
+    drop(consumer);
+    (finished || out.exceeded).then_some(out.bytes)
 }
 
 /// For tests: an image's pixel size, orientation, and whether it has GPS or
@@ -584,4 +696,37 @@ pub(super) fn first_pixel(bytes: &[u8]) -> [u8; 3] {
         );
         [pixel[0], pixel[1], pixel[2]]
     }
+}
+
+#[test]
+fn encoded_output_stops_at_the_retained_byte_ceiling() {
+    let mut out = Encoded {
+        bytes: Vec::with_capacity(5),
+        limit: 5,
+        exceeded: false,
+    };
+    let first = b"abc";
+    let second = b"defgh";
+    // SAFETY: the callback receives the same valid data/context the native encoder supplies.
+    unsafe {
+        assert_eq!(
+            put_bytes(
+                (&mut out as *mut Encoded).cast(),
+                first.as_ptr().cast(),
+                first.len()
+            ),
+            3
+        );
+        assert_eq!(
+            put_bytes(
+                (&mut out as *mut Encoded).cast(),
+                second.as_ptr().cast(),
+                second.len()
+            ),
+            0
+        );
+    }
+    assert_eq!(out.bytes, b"abcde");
+    assert!(out.exceeded);
+    assert_eq!(out.bytes.capacity(), 5);
 }

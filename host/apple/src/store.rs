@@ -22,6 +22,74 @@ use ibex2::host::{Bindings, Host, Kv, Secrets};
 /// key, read in one listing at launch.
 const KEPT: &str = "exact.kept";
 
+/// The kv scope persisted states live in where they are not the app's
+/// `UserDefaults` (LLP 1116 D5, [`Prefs`]).
+const STATE: &str = "exact.state";
+
+/// Where persisted states live (LLP 1116 D5): the app's `UserDefaults`
+/// domain, or — in agent mode (a nameless drive's memory, a named drive's
+/// scratch tree), a test, an app with no id — the kv store beside the kept
+/// answers, under [`STATE`].
+#[derive(Clone, Debug, PartialEq)]
+pub enum Prefs {
+    /// The app's `UserDefaults` domain, by its id.
+    Defaults(String),
+    /// The kv store, under [`STATE`].
+    Kv,
+}
+
+impl Prefs {
+    /// Where `app_id`'s persisted states live, as [`endow_for`] decides
+    /// its other stores.
+    pub fn of(app_id: &str) -> Prefs {
+        let agent = std::env::var_os("EXACT_AGENT").is_some();
+        let store = std::env::var("EXACT_STORE").unwrap_or_default();
+        let memory = (agent && store != "real") || store == "memory";
+        if cfg!(test) || cfg!(not(target_vendor = "apple")) || app_id.is_empty() || memory {
+            Prefs::Kv
+        } else {
+            Prefs::Defaults(app_id.to_string())
+        }
+    }
+
+    fn read(&self, kv: &Kv) -> Vec<(String, Vec<u8>)> {
+        match self {
+            #[cfg(target_vendor = "apple")]
+            Prefs::Defaults(app) => crate::defaults::read(app, Store::STATE)
+                .into_iter()
+                .map(|(name, value)| (name, value.into_bytes()))
+                .collect(),
+            #[cfg(not(target_vendor = "apple"))]
+            Prefs::Defaults(_) => Vec::new(),
+            Prefs::Kv => kv
+                .keys(STATE)
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|key| {
+                    let value = kv.get(STATE, &key).ok().flatten()?;
+                    Some((format!("{}{key}", Store::STATE), value))
+                })
+                .collect(),
+        }
+    }
+
+    fn write(&self, kv: &Kv, key: &str, value: Option<&str>) -> Result<(), HostError> {
+        match self {
+            #[cfg(target_vendor = "apple")]
+            Prefs::Defaults(app) => {
+                crate::defaults::write(app, &format!("{}{key}", Store::STATE), value)
+                    .map_err(HostError::Failed)
+            }
+            #[cfg(not(target_vendor = "apple"))]
+            Prefs::Defaults(_) => Ok(()),
+            Prefs::Kv => match value {
+                Some(v) => kv.set_text(STATE, key, v),
+                None => kv.delete(STATE, key),
+            },
+        }
+    }
+}
+
 /// The app's bindings from its grants (LLP 1016 D6), and the scope the
 /// runner keeps answers in. Grants that do not parse are the error, which
 /// the host journals; every request is then refused, naming it. An empty
@@ -101,7 +169,10 @@ impl ibex2::secrets::SecretStore for Shared {
 
 fn endow_in(host: Host, grants: &str) -> Result<Bindings, String> {
     // Appended, so an error's line number is the app's own.
-    let spec = format!("{}\nstorage.kv {KEPT}", exact_runner::io_grants(grants));
+    let spec = format!(
+        "{}\nstorage.kv {KEPT}\nstorage.kv {STATE}",
+        exact_runner::io_grants(grants)
+    );
     let set = ibex2::grant::GrantSet::parse(&spec)
         .map_err(|e| format!("the app's grants did not parse: {e}"))?;
     Ok(host.endow(set))
@@ -133,7 +204,7 @@ pub struct Endowed {
     /// The bindings the executor takes.
     pub bindings: Option<Bindings>,
     /// What the platform's stores held, read before the runner boots.
-    pub snapshot: Vec<(String, String)>,
+    pub snapshot: Vec<(String, Vec<u8>)>,
     /// Where a commit's writes go.
     pub secrets: Option<Box<dyn KeptStore>>,
     /// Why the grants bound nothing.
@@ -156,15 +227,16 @@ impl Endowed {
 /// carries the running store): [`crate::link::IoLinks`]'s endowment.
 pub fn endowed(grants: &str, app_id: &str, fresh: bool) -> Endowed {
     let (bindings, unbound) = endow_bound(grants, app_id, fresh);
+    let prefs = Prefs::of(app_id);
     Endowed {
         snapshot: if fresh {
-            snapshot_of(bindings.as_ref())
+            snapshot_in(bindings.as_ref(), &prefs)
         } else {
             Vec::new()
         },
         secrets: bindings
             .as_ref()
-            .map(|b| Box::new(Platform::of(b)) as Box<dyn KeptStore>),
+            .map(|b| Box::new(Platform::of(b).with_prefs(prefs.clone())) as Box<dyn KeptStore>),
         bindings,
         unbound,
     }
@@ -176,6 +248,8 @@ pub fn endowed(grants: &str, app_id: &str, fresh: bool) -> Endowed {
 pub struct Platform {
     secrets: Secrets,
     kv: Kv,
+    /// Where persisted states go (LLP 1116 D5).
+    prefs: Prefs,
     /// Kept answers the writer failed to write, for the journal.
     failed: std::sync::Arc<Failures>,
 }
@@ -186,13 +260,26 @@ impl Platform {
         Platform {
             secrets: bindings.secrets.clone(),
             kv: bindings.kv.clone(),
+            prefs: Prefs::Kv,
             failed: Default::default(),
         }
+    }
+
+    /// This platform, keeping persisted states in `prefs`.
+    pub fn with_prefs(mut self, prefs: Prefs) -> Platform {
+        self.prefs = prefs;
+        self
     }
 
     /// Keep or forget one write. A kept answer is handed to the writer and
     /// its failure, if any, is told later (`kept_failures`).
     pub fn write(&self, w: &StoreWrite) -> Result<(), HostError> {
+        // A persisted state: a preference, written now (a setting changes
+        // when a person changes it, not every frame).
+        if let Some(key) = w.name.strip_prefix(Store::STATE) {
+            let text = w.value.as_deref().map(String::from_utf8_lossy);
+            return self.prefs.write(&self.kv, key, text.as_deref());
+        }
         match (w.name.strip_prefix(Store::KEPT), &w.value) {
             (Some(key), value) => {
                 let write = Kept {
@@ -209,7 +296,7 @@ impl Platform {
                 );
                 Ok(())
             }
-            (None, Some(v)) => self.secrets.set(&w.name, v),
+            (None, Some(v)) => self.secrets.set(&w.name, &String::from_utf8_lossy(v)),
             (None, None) => self.secrets.forget(&w.name),
         }
     }
@@ -250,7 +337,7 @@ impl Drop for Failures {
 /// writer (`flush_kept`). An answer a crash loses is fetched again.
 struct Kept {
     kv: Kv,
-    value: Option<String>,
+    value: Option<Vec<u8>>,
     failed: std::sync::Arc<Failures>,
 }
 
@@ -321,7 +408,7 @@ fn write_kept() {
 
 fn write_one(key: &str, write: Kept) {
     let done = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match &write.value {
-        Some(v) => write.kv.set_text(KEPT, key, v),
+        Some(v) => write.kv.set(KEPT, key, v),
         None => write.kv.delete(KEPT, key),
     }));
     let why = match done {
@@ -352,31 +439,77 @@ fn wait_until_written(
 
 /// What the store holds under the granted names — the runner's snapshot.
 /// A name the store cannot read is absent, as an ungranted one is.
-pub fn snapshot_of(bindings: Option<&Bindings>) -> Vec<(String, String)> {
+pub fn snapshot_of(bindings: Option<&Bindings>) -> Vec<(String, Vec<u8>)> {
+    snapshot_in(bindings, &Prefs::Kv)
+}
+
+/// [`snapshot_of`], with the persisted states `prefs` holds (LLP 1116 D5).
+pub fn snapshot_in(bindings: Option<&Bindings>, prefs: &Prefs) -> Vec<(String, Vec<u8>)> {
     let Some(b) = bindings else {
         return Vec::new();
     };
-    // What a runner before this one kept is on disk first.
+    // What a runner before this one kept is on disk first. No more than the
+    // runner keeps together is read, on the thread that boots it.
     flush_kept();
+    let mut left = Store::KEPT_TOTAL_BYTES;
     let kept =
         b.kv.keys(KEPT)
             .unwrap_or_default()
             .into_iter()
             .filter_map(|key| {
-                let value = b.kv.get_text(KEPT, &key).ok().flatten()?;
+                let value = b.kv.get(KEPT, &key).ok().flatten()?;
+                left = left.checked_sub(value.len())?;
                 Some((format!("{}{key}", Store::KEPT), value))
-            });
+            })
+            .collect::<Vec<_>>();
     b.secrets
         .names()
         .iter()
-        .filter_map(|n| b.secrets.get(n).ok().flatten().map(|v| (n.to_string(), v)))
+        .filter_map(|n| {
+            b.secrets
+                .get(n)
+                .ok()
+                .flatten()
+                .map(|v| (n.to_string(), v.into_bytes()))
+        })
         .chain(kept)
+        .chain(prefs.read(&b.kv))
         .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_launch_reads_no_more_kept_answers_than_the_runner_keeps_together() {
+        let dir = std::env::temp_dir().join(format!("exact-kept-total-{}", std::process::id()));
+        let kv = ibex2::kv::FileStore::new(&dir);
+        let third = Store::KEPT_TOTAL_BYTES / 3 + 1;
+        for key in ["a", "b", "c"] {
+            ibex2::kv::KvStore::set(&kv, KEPT, key, &vec![0; third]).unwrap();
+        }
+        ibex2::kv::KvStore::set(&kv, KEPT, "d", &[1]).unwrap();
+        let host = Host::new()
+            .with_secret_store(Box::new(ibex2::secrets::MemoryStore::new()))
+            .with_kv_store(Box::new(ibex2::kv::FileStore::new(&dir)));
+        let snapshot = snapshot_of(Some(&endow_in(host, "").unwrap()));
+        let kept: usize = snapshot
+            .iter()
+            .filter(|(n, _)| n.starts_with(Store::KEPT))
+            .map(|(_, v)| v.len())
+            .sum();
+        assert!(kept <= Store::KEPT_TOTAL_BYTES, "{kept}");
+        assert_eq!(
+            snapshot
+                .iter()
+                .filter(|(n, _)| n.starts_with(Store::KEPT))
+                .count(),
+            3,
+            "two of the three that fit, and the small one after"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn kept_answers_outlive_the_launch_beside_the_apps_secrets() {
@@ -389,20 +522,48 @@ mod tests {
         };
         let write = |name: &str, value: Option<&str>| StoreWrite {
             name: name.into(),
-            value: value.map(str::to_string),
+            value: value.map(|v| v.as_bytes().to_vec()),
         };
         let first = Platform::of(&launch());
-        // A resource's own name is the key, whatever its case.
+        // A resource's own name is the key, whatever its case, and its
+        // bytes are kept as they are, text or not
+        let bytes = vec![5, 0, 0, 0, 0, 0xff, 0x80];
         first
-            .write(&write("exact.kept.crewState", Some("args|value")))
+            .write(&StoreWrite {
+                name: "exact.kept.crewState".into(),
+                value: Some(bytes.clone()),
+            })
             .unwrap();
         first.write(&write("app.token", Some("t"))).unwrap();
-        assert!(snapshot_of(Some(&launch()))
-            .contains(&("exact.kept.crewState".into(), "args|value".into())));
+        assert!(snapshot_of(Some(&launch())).contains(&("exact.kept.crewState".into(), bytes)));
         first.write(&write("exact.kept.crewState", None)).unwrap();
         assert!(!snapshot_of(Some(&launch()))
             .iter()
             .any(|(n, _)| n.starts_with(Store::KEPT)));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_persisted_state_is_a_preference_never_a_secret() {
+        let dir = std::env::temp_dir().join(format!("exact-prefs-{}", std::process::id()));
+        let launch = || {
+            let host = Host::new()
+                .with_secret_store(Box::new(ibex2::secrets::MemoryStore::new()))
+                .with_kv_store(Box::new(ibex2::kv::FileStore::new(&dir)));
+            endow_in(host, "secret.keep app.token").unwrap()
+        };
+        // In a test, as in agent mode, persisted states are the kv store's.
+        assert_eq!(Prefs::of("com.example.tip"), Prefs::Kv);
+        let platform = Platform::of(&launch()).with_prefs(Prefs::Kv);
+        let tip = StoreWrite {
+            name: "exact.state.tipPercent".into(),
+            value: Some("22".into()),
+        };
+        // A secret's name could not hold `tipPercent`: the write stands only
+        // because it is no secret.
+        platform.write(&tip).unwrap();
+        assert!(snapshot_in(Some(&launch()), &Prefs::Kv)
+            .contains(&("exact.state.tipPercent".into(), "22".into())));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -489,7 +650,7 @@ mod tests {
         let opens = Opens(gated.clone());
         let keep = |value: Option<&str>| StoreWrite {
             name: "exact.kept.feed".into(),
-            value: value.map(str::to_string),
+            value: value.map(|v| v.as_bytes().to_vec()),
         };
         // The disk is shut: every write still returns.
         for value in [Some("1"), Some("2"), None, Some("3"), Some("4")] {
@@ -582,7 +743,7 @@ mod tests {
         let launch = || endow_for(grants, app).unwrap();
         let write = |name: &str, value: Option<&str>| StoreWrite {
             name: name.into(),
-            value: value.map(str::to_string),
+            value: value.map(|v| v.as_bytes().to_vec()),
         };
         let first = Platform::of(&launch());
         first

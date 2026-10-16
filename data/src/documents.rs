@@ -135,56 +135,195 @@ pub enum Resolved {
     Root(String),
     /// An owned directory and a relative name beneath it (empty for the
     /// selected folder itself). A selected file exposes only its own leaf.
-    Real { directory: Arc<File>, path: String },
+    Real {
+        directory: Arc<File>,
+        path: String,
+        /// A selected file is one leaf in its retained parent, not a subtree.
+        selected_file: bool,
+    },
 }
 
 /// Resolve a `doc:` path to its retained directory and relative name, refusing a handle
-/// never minted (or forgotten), a name that is not the handle's, and any
+/// not owned by `owner` (or forgotten), a name that is not the handle's, and any
 /// `.`, `..` or empty segment.
-pub fn resolve(path: &str) -> Result<Resolved, String> {
+pub fn resolve(path: &str, owner: u64) -> std::io::Result<Resolved> {
+    use std::io::{Error, ErrorKind};
     let rest = path
         .strip_prefix(PREFIX)
-        .ok_or_else(|| format!("{path} is not a document path"))?;
+        .ok_or_else(|| Error::new(ErrorKind::InvalidInput, "not a document path"))?;
     let rest = rest.strip_suffix('/').unwrap_or(rest);
     let mut parts = rest.split('/');
     let n: usize = parts
         .next()
         .and_then(|n| n.parse().ok())
         .filter(|n| *n > 0)
-        .ok_or_else(|| format!("{path} names no document"))?;
+        .ok_or_else(|| Error::new(ErrorKind::NotFound, "no such document"))?;
     let segments: Vec<&str> = parts.collect();
     if segments
         .iter()
         .any(|s| s.is_empty() || *s == "." || *s == ".." || s.contains(['\\', '\0']))
     {
-        return Err(format!(
-            "{path}: a document path has no `.`, `..`, backslash, NUL or empty segment"
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            "a document path has no `.`, `..`, backslash, NUL or empty segment",
         ));
     }
     let t = table();
-    let entry = t.get(n - 1).and_then(Option::as_ref).ok_or_else(|| {
-        format!("{path}: no such document (it was never opened, or its window closed)")
-    })?;
+    let entry = t
+        .get(n - 1)
+        .and_then(Option::as_ref)
+        .filter(|entry| entry.owner == owner)
+        .ok_or_else(|| {
+            Error::new(
+                ErrorKind::NotFound,
+                "no such document (it was never opened, or its window closed)",
+            )
+        })?;
     let Some((first, beneath)) = segments.split_first() else {
         return Ok(Resolved::Root(entry.name.clone()));
     };
     if *first != entry.name {
-        return Err(format!("{path}: no such document"));
+        return Err(Error::new(ErrorKind::NotFound, "no such document"));
     }
     if entry.leaf.is_some() && !beneath.is_empty() {
-        return Err(format!(
-            "{path}: a document file is not a directory (filesystem code ENOTDIR)"
+        return Err(Error::new(
+            ErrorKind::NotADirectory,
+            "a document file is not a directory",
         ));
     }
     Ok(Resolved::Real {
         directory: entry.directory.clone(),
         path: entry.leaf.clone().unwrap_or_else(|| beneath.join("/")),
+        selected_file: entry.leaf.is_some(),
     })
+}
+
+/// The topic an answer watches for a document (LLP 1069.010.000 D1): the
+/// runner asks it again when the host announces this topic.
+pub fn watch_topic(path: &str, recursive: bool) -> String {
+    format!("{}{path}", if recursive { WATCH_RECURSIVE } else { WATCH })
+}
+
+const WATCH: &str = "doc-watch:";
+const WATCH_RECURSIVE: &str = "doc-watch-recursive:";
+
+/// A document watch, as a host listens for it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Watched {
+    /// The topic to announce.
+    pub topic: String,
+    /// The watched `doc:` path, as the answer named it.
+    pub path: String,
+    /// The watched file or folder on disk, as minted.
+    pub real: PathBuf,
+    /// The folder a host's watcher listens to: the folder itself, or a
+    /// file's folder.
+    pub folder: PathBuf,
+    /// The whole subtree, not only a folder's own entries.
+    pub recursive: bool,
+}
+
+/// The real location of a watch topic `owner` may read, or `None` for
+/// another topic, a forgotten handle or a `doc:/<n>` root.
+pub fn watched(topic: &str, owner: u64) -> Option<Watched> {
+    let (path, recursive) = match topic.strip_prefix(WATCH_RECURSIVE) {
+        Some(path) => (path, true),
+        None => (topic.strip_prefix(WATCH)?, false),
+    };
+    let Resolved::Real {
+        path: relative,
+        selected_file,
+        ..
+    } = resolve(path, owner).ok()?
+    else {
+        return None;
+    };
+    let n: usize = path[PREFIX.len()..].split('/').next()?.parse().ok()?;
+    let base = table().get(n - 1)?.as_ref()?.real.clone();
+    let real = if selected_file || relative.is_empty() {
+        base
+    } else {
+        base.join(&relative)
+    };
+    let folder = if real.is_dir() {
+        real.clone()
+    } else {
+        real.parent()?.to_path_buf()
+    };
+    Some(Watched {
+        topic: topic.to_owned(),
+        path: path.to_owned(),
+        real,
+        folder,
+        recursive,
+    })
+}
+
+/// Whether a change at `changed` on disk is in a watch's scope: the file
+/// itself; a folder's own entries; or, recursive, anything beneath it.
+pub fn covers(watch: &Watched, changed: &Path) -> bool {
+    changed == watch.real
+        || if watch.recursive {
+            changed.starts_with(&watch.real)
+        } else {
+            watch.real.is_dir() && changed.parent() == Some(watch.real.as_path())
+        }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_watch_covers_its_file_its_folders_entries_or_its_subtree() {
+        let root = std::env::temp_dir().join(format!("exact-docs-watch-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("notes/deep")).unwrap();
+        std::fs::write(root.join("notes/a.md"), "a").unwrap();
+        let folder = mint(&root.join("notes"), 7201).unwrap();
+        let file = open_route(root.join("notes/a.md").to_str().unwrap(), 7201).unwrap();
+        let real = std::fs::canonicalize(root.join("notes")).unwrap();
+        let w = watched(&watch_topic(&folder, false), 7201).unwrap();
+        assert_eq!(
+            (w.real.clone(), w.folder.clone()),
+            (real.clone(), real.clone())
+        );
+        assert!(covers(&w, &real.join("b.md")));
+        assert!(
+            !covers(&w, &real.join("deep/c.md")),
+            "a folder's watch is its own entries"
+        );
+        let r = watched(&watch_topic(&folder, true), 7201).unwrap();
+        assert!(covers(&r, &real.join("deep/c.md")));
+        let f = watched(&watch_topic(&file, false), 7201).unwrap();
+        assert_eq!(f.folder, real);
+        assert!(covers(&f, &real.join("a.md")) && !covers(&f, &real.join("b.md")));
+        assert!(
+            watched(&watch_topic(&folder, false), 7202).is_none(),
+            "another session's"
+        );
+        assert!(watched("meter", 7201).is_none());
+        forget(7201);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_document_handle_belongs_to_its_minting_session() {
+        let folder = std::env::temp_dir().join(format!("exact-docs-owner-{}", std::process::id()));
+        std::fs::create_dir_all(&folder).unwrap();
+        let doc = mint(&folder, 7101).unwrap();
+        assert!(matches!(resolve(&doc, 7101), Ok(Resolved::Real { .. })));
+        assert!(resolve(&doc, 7102)
+            .unwrap_err()
+            .to_string()
+            .contains("no such document"));
+        let root = format!("doc:/{}", doc[PREFIX.len()..].split('/').next().unwrap());
+        assert!(matches!(resolve(&root, 7101), Ok(Resolved::Root(_))));
+        assert!(resolve(&root, 7102).is_err());
+        forget(7102);
+        assert!(resolve(&doc, 7101).is_ok());
+        forget(7101);
+        std::fs::remove_dir_all(folder).unwrap();
+    }
 
     #[test]
     fn a_minted_path_resolves_beneath_its_handle_and_nowhere_else() {
@@ -194,21 +333,27 @@ mod tests {
         let doc = mint(&folder, 7001).unwrap();
         assert!(doc.starts_with("doc:/") && doc.ends_with("/notes"), "{doc}");
         assert_eq!(mint(&folder, 7001).unwrap(), doc, "minting again reuses it");
-        let Resolved::Real { directory, path } = resolve(&format!("{doc}/a/b.md")).unwrap() else {
+        let Resolved::Real {
+            directory, path, ..
+        } = resolve(&format!("{doc}/a/b.md"), 7001).unwrap()
+        else {
             panic!()
         };
         assert!(directory.metadata().unwrap().is_dir());
         assert_eq!(path, "a/b.md");
         let n = doc.trim_start_matches(PREFIX).split('/').next().unwrap();
         assert!(
-            matches!(resolve(&format!("doc:/{n}")).unwrap(), Resolved::Root(name) if name == "notes")
+            matches!(resolve(&format!("doc:/{n}"), 7001).unwrap(), Resolved::Root(name) if name == "notes")
         );
-        assert!(resolve(&format!("{doc}/../x")).is_err());
-        assert!(resolve(&format!("doc:/{n}/other/x")).is_err());
-        assert!(resolve("doc:/0/x").is_err());
-        assert!(resolve("app:/data/x").is_err());
+        assert!(resolve(&format!("{doc}/../x"), 7001).is_err());
+        assert!(resolve(&format!("doc:/{n}/other/x"), 7001).is_err());
+        assert!(resolve("doc:/0/x", 7001).is_err());
+        assert!(resolve("app:/data/x", 7001).is_err());
         forget(7001);
-        assert!(resolve(&doc).is_err(), "a forgotten handle reads nothing");
+        assert!(
+            resolve(&doc, 7001).is_err(),
+            "a forgotten handle reads nothing"
+        );
         assert!(mint(Path::new("/"), 7001).is_none());
         std::fs::remove_dir_all(folder.parent().unwrap()).unwrap();
     }
@@ -226,7 +371,10 @@ mod tests {
         symlink(&target, &link).unwrap();
         let doc = open_route(link.to_str().unwrap(), 7002).unwrap();
         assert!(doc.ends_with("/outside/note.md"), "{doc}");
-        let Resolved::Real { directory, path } = resolve(&doc).unwrap() else {
+        let Resolved::Real {
+            directory, path, ..
+        } = resolve(&doc, 7002).unwrap()
+        else {
             panic!()
         };
         assert_eq!(path, "note.md");
@@ -250,13 +398,13 @@ mod tests {
         assert_eq!(mint(&chosen, 7003).unwrap(), new);
         let Resolved::Real {
             directory: old_dir, ..
-        } = resolve(&old).unwrap()
+        } = resolve(&old, 7003).unwrap()
         else {
             panic!()
         };
         let Resolved::Real {
             directory: new_dir, ..
-        } = resolve(&new).unwrap()
+        } = resolve(&new, 7003).unwrap()
         else {
             panic!()
         };

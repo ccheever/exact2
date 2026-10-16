@@ -21,9 +21,8 @@ fn assets() -> PathBuf {
 
 fn boot() -> Presenter<caltrain_data::Caltrain> {
     pin_font();
-    let plan = caltrain::build().unwrap();
     let (mut p, error) = Presenter::boot(
-        &plan.encode(),
+        crate::caltrain_plan(),
         caltrain_data::Caltrain,
         (390.0, 844.0),
         1.0,
@@ -33,14 +32,6 @@ fn boot() -> Presenter<caltrain_data::Caltrain> {
     assert!(error.is_none(), "{error:?}");
     p.wait_images(Duration::from_secs(2));
     p
-}
-
-#[derive(Default)]
-struct NoData;
-impl DataSource for NoData {
-    fn query(&mut self, s: &str, _: &[Value]) -> Result<Value, DataError> {
-        Err(DataError::UnknownSource(s.into()))
-    }
 }
 
 #[test]
@@ -60,7 +51,7 @@ fn an_analysis_core_entry_refuses_before_constructing_app_data() {
     assert_eq!(exact_linux::run::<MustNotBoot>(b"EXPL", compat), 1);
 }
 
-fn fixture(name: &str) -> Presenter<NoData> {
+fn fixture(name: &str) -> Presenter<()> {
     pin_font();
     let src = std::fs::read_to_string(format!(
         "{}/../../contract/corpus/{name}.contract",
@@ -68,8 +59,7 @@ fn fixture(name: &str) -> Presenter<NoData> {
     ))
     .unwrap();
     let plan = contract::compile(&src).unwrap();
-    let (p, error) =
-        Presenter::boot(&plan.encode(), NoData, (390.0, 844.0), 1.0, assets()).unwrap();
+    let (p, error) = Presenter::boot(&plan.encode(), (), (390.0, 844.0), 1.0, assets()).unwrap();
     assert!(error.is_none(), "{error:?}");
     p
 }
@@ -195,6 +185,7 @@ fn typing_replaces_the_value_and_the_runner_hears_one_change() {
 
 #[test]
 fn disabled_controls_refuse_pointer_and_text_input() {
+    pin_font();
     let source = r#"component Disabled
   state count = 0
   state value = "kept"
@@ -210,7 +201,7 @@ fn disabled_controls_refuse_pointer_and_text_input() {
 "#;
     let plan = contract::compile(source).unwrap();
     let (mut presenter, error) =
-        Presenter::boot(&plan.encode(), NoData, (390.0, 844.0), 1.0, assets()).unwrap();
+        Presenter::boot(&plan.encode(), (), (390.0, 844.0), 1.0, assets()).unwrap();
     assert!(error.is_none());
     presenter.tap(view(&presenter, "disabled-button")).unwrap();
     assert_eq!(
@@ -232,6 +223,7 @@ fn disabled_controls_refuse_pointer_and_text_input() {
 /// (docs/contract-grammar.md#keys; calc F3, minesweeper F7).
 #[test]
 fn a_key_bubbles_and_prevent_default_keeps_its_character_out() {
+    pin_font();
     let source = r#"component Keys
   state text = ""
   state heard = ""
@@ -249,13 +241,13 @@ fn a_key_bubbles_and_prevent_default_keeps_its_character_out() {
 "#;
     let plan = contract::compile(source).unwrap();
     let (mut p, error) =
-        Presenter::boot(&plan.encode(), NoData, (390.0, 844.0), 1.0, assets()).unwrap();
+        Presenter::boot(&plan.encode(), (), (390.0, 844.0), 1.0, assets()).unwrap();
     assert!(error.is_none());
     let field = view(&p, "field");
     for key in ["7", "x"] {
         p.type_key(field, key, key, true, false).unwrap();
     }
-    let slot = |p: &Presenter<NoData>, name: &str| p.host().runner().slot(name).cloned();
+    let slot = |p: &Presenter<()>, name: &str| p.host().runner().slot(name).cloned();
     assert_eq!(slot(&p, "text"), Some(Value::str("7")), "x was prevented");
     assert_eq!(slot(&p, "heard"), Some(Value::str("f7o7fxox")));
 }
@@ -266,6 +258,7 @@ fn a_key_bubbles_and_prevent_default_keeps_its_character_out() {
 /// kanban F27: Ctrl+S).
 #[test]
 fn a_key_carries_its_modifiers_from_a_chord_and_the_keyboard() {
+    pin_font();
     let source = r#"component Keys
   state draft = ""
   state sent = ""
@@ -285,7 +278,7 @@ fn a_key_carries_its_modifiers_from_a_chord_and_the_keyboard() {
 "#;
     let plan = contract::compile(source).unwrap();
     let (mut p, error) =
-        Presenter::boot(&plan.encode(), NoData, (390.0, 844.0), 1.0, assets()).unwrap();
+        Presenter::boot(&plan.encode(), (), (390.0, 844.0), 1.0, assets()).unwrap();
     assert!(error.is_none());
     let area = view(&p, "area");
     for key in ["a", "Shift+Enter", "b"] {
@@ -295,7 +288,7 @@ fn a_key_carries_its_modifiers_from_a_chord_and_the_keyboard() {
         );
         assert!(!r.contains("error"), "{key}: {r}");
     }
-    let slot = |p: &Presenter<NoData>, name: &str| p.host().runner().slot(name).cloned();
+    let slot = |p: &Presenter<()>, name: &str| p.host().runner().slot(name).cloned();
     assert_eq!(slot(&p, "draft"), Some(Value::str("a\nb")));
     p.hardware_key("ControlLeft", "Control", true, false);
     p.hardware_key("KeyS", "s", true, false);
@@ -317,6 +310,7 @@ fn a_key_carries_its_modifiers_from_a_chord_and_the_keyboard() {
 
 #[test]
 fn unsupported_emoji_picker_does_not_dispatch_a_fake_selection() {
+    pin_font();
     let plan = contract::compile(
         r#"component Picker
   state value = "kept"
@@ -333,7 +327,7 @@ fn unsupported_emoji_picker_does_not_dispatch_a_fake_selection() {
     )
     .unwrap();
     let (mut p, error) =
-        Presenter::boot(&plan.encode(), NoData, (390.0, 844.0), 1.0, assets()).unwrap();
+        Presenter::boot(&plan.encode(), (), (390.0, 844.0), 1.0, assets()).unwrap();
     assert!(error.is_none());
     let picker = view(&p, "picker");
     assert!(p
@@ -484,6 +478,8 @@ fn an_image_lays_out_from_its_decoded_size() {
     );
 }
 
+/// Unix only: its fixture is a FIFO, which `mkfifo` makes.
+#[cfg(unix)]
 #[test]
 fn a_nonregular_image_is_refused_off_the_boot_thread_without_blocking_a_worker() {
     let dir = std::env::temp_dir().join(format!("exact-linux-image-worker-{}", std::process::id()));
@@ -603,8 +599,9 @@ fn a_reload_carries_state_and_starts_the_pictures_over() {
     assert!(p.set_time(1_790_000_000_000.0, -240.0).is_none());
     let _ = p.tap(view(&p, "change-station"));
     let _ = p.wheel(view(&p, "station-search"), 0.0, 50.0);
-    let plan = caltrain::build().unwrap().encode();
-    let error = p.reload(&plan, caltrain_data::Caltrain).unwrap();
+    let error = p
+        .reload(crate::caltrain_plan(), caltrain_data::Caltrain)
+        .unwrap();
     assert!(error.is_none(), "{error:?}");
     assert!(has(&p, "stations-screen"), "the screen slot carried");
     assert_eq!(p.page(), (0.0, 0.0), "scroll does not survive a restart");
@@ -626,6 +623,7 @@ fn a_reload_carries_state_and_starts_the_pictures_over() {
 /// shows it — against a loopback server, the real transport underneath.
 #[test]
 fn a_request_runs_on_the_executor_and_its_reply_commits() {
+    pin_font();
     use exact_runner::{Answer, Outcome, Request};
     use std::io::{Read as _, Write as _};
 
@@ -634,8 +632,28 @@ fn a_request_runs_on_the_executor_and_its_reply_commits() {
     std::thread::spawn(move || {
         for stream in listener.incoming().take(2) {
             let Ok(mut s) = stream else { break };
+            // The whole request, head and body, before replying: a socket
+            // closed with bytes unread resets the connection (RFC 9293
+            // §3.6.1), and the client may lose the reply to the reset.
+            let mut request = Vec::new();
             let mut buf = [0u8; 8192];
-            let _ = s.read(&mut buf);
+            while let Ok(n @ 1..) = s.read(&mut buf) {
+                request.extend_from_slice(&buf[..n]);
+                let Some(head) = request.windows(4).position(|w| w == b"\r\n\r\n") else {
+                    continue;
+                };
+                let length = String::from_utf8_lossy(&request[..head])
+                    .lines()
+                    .find_map(|l| {
+                        let (name, value) = l.split_once(':')?;
+                        name.eq_ignore_ascii_case("content-length")
+                            .then(|| value.trim().parse::<usize>().ok())?
+                    })
+                    .unwrap_or(0);
+                if request.len() >= head + 4 + length {
+                    break;
+                }
+            }
             let body = b"{\"data\":{\"login\":{\"username\":\"ada\"}}}";
             let _ = write!(
                 s,
@@ -678,7 +696,9 @@ fn a_request_runs_on_the_executor_and_its_reply_commits() {
                 Outcome::Failed { message, .. } => message.clone(),
                 Outcome::Storage(_) => panic!("HTTP request received a storage result"),
                 Outcome::Surface(_) => panic!("HTTP request received a surface result"),
-                Outcome::Message(_) => panic!("HTTP request received a stream message"),
+                Outcome::Message(_) | Outcome::Closed { .. } => {
+                    panic!("HTTP request received a stream message")
+                }
             };
             let name = if text.contains("ada") {
                 "ada".to_string()
@@ -709,7 +729,7 @@ component App
     column testId="app"
       button press=submit aria-label="Log in" testId="login"
         text "Log in"
-      when busy
+      if busy
         text "Logging in…" testId="busy"
       match session
         case some(s)
@@ -750,12 +770,13 @@ component App
 
 #[test]
 fn a_launch_location_precedes_initializers_and_root_type_navigates_once() {
+    pin_font();
     // @ref LLP 1038 D5/D8/D11 — first pixel and the Linux agent input path.
-    let source = "routes nav\n  home \"/\"\n    post \"/post/:post\"\ncomponent App\n  state first = top(nav).url\n  action follow(location: string)\n    nav = open(nav, location)\n  view\n    main navigate=follow navigationKey=`${top(nav).id}` navigationBack=\"back\" width=390 height=844\n      each e in stack(nav) key=e.id\n        column navigationKey=`${e.id}`\n          text e.url\n";
+    let source = "routes nav\n  home \"/\"\n    post \"/post/:post\"\ncomponent App\n  state first = top(nav).url\n  action follow(location: string)\n    nav = open(nav, location)\n  view\n    main navigate=follow navigationKey=`${top(nav).id}` navigationBack=\"back\" width=390 height=844\n      for e in stack(nav) key=e.id\n        column navigationKey=`${e.id}`\n          text e.url\n";
     let plan = contract::compile(source).unwrap().encode();
     let (host, error) = exact_linux::Host::boot_at(
         &plan,
-        NoData,
+        (),
         Box::new(exact_kernel::MonospaceMeasurer::default()),
         390.0,
         844.0,
@@ -766,8 +787,7 @@ fn a_launch_location_precedes_initializers_and_root_type_navigates_once() {
     .unwrap();
     assert!(error.is_none());
     assert!(exact_runner::agent::state(host.runner()).contains("\"first\":\"/post/42\""));
-    let (mut presenter, error) =
-        Presenter::boot(&plan, NoData, (390.0, 844.0), 1.0, assets()).unwrap();
+    let (mut presenter, error) = Presenter::boot(&plan, (), (390.0, 844.0), 1.0, assets()).unwrap();
     assert!(error.is_none());
     let root = presenter.host().kernel().roots()[0];
     presenter.type_text(root, "/post/42").unwrap();
@@ -791,7 +811,7 @@ fn new_trunk_apps_compile_and_present_on_the_linux_cpu_host() {
         let plan = contract::compile_path(&assets.join("app.contract")).unwrap();
         let (mut presenter, error) = Presenter::boot_with(
             &plan.encode(),
-            NoData,
+            (),
             (390., 844.),
             1.,
             assets,
@@ -832,8 +852,7 @@ fn closed_popovers_keep_their_tree_but_never_paint_or_intercept_input() {
 "#,
     )
     .unwrap();
-    let (mut p, error) =
-        Presenter::boot(&plan.encode(), NoData, (390., 844.), 1., assets()).unwrap();
+    let (mut p, error) = Presenter::boot(&plan.encode(), (), (390., 844.), 1., assets()).unwrap();
     assert!(error.is_none());
     let ordinary = view(&p, "ordinary");
     let danger = view(&p, "danger");
@@ -883,8 +902,7 @@ fn popover_invocation_reports_unsupported_without_dispatching_a_partial_action()
       column id="menu" popover="auto" position="absolute"
         button "Item" press=recount
 "#).unwrap();
-    let (mut p, error) =
-        Presenter::boot(&plan.encode(), NoData, (390., 844.), 1., assets()).unwrap();
+    let (mut p, error) = Presenter::boot(&plan.encode(), (), (390., 844.), 1., assets()).unwrap();
     assert!(error.is_none());
     for name in ["invoke", "label", "no-handler"] {
         let id = view(&p, name);
@@ -896,7 +914,7 @@ fn popover_invocation_reports_unsupported_without_dispatching_a_partial_action()
     }
     let (mut host, error) = exact_linux::host::Host::boot(
         &plan.encode(),
-        NoData,
+        (),
         Box::new(exact_kernel::MonospaceMeasurer::default()),
         390.,
         844.,
@@ -940,8 +958,7 @@ fn a_context_menu_and_its_submenu_row_are_refused_as_popovers() {
       column id="copy-menu" popover="auto" role="menu" position="absolute"
         button "Copy path" press=did("copy-path") popovertarget="row-menu" popovertargetaction="hide" testId="m-copy-path" width=200 height=40
 "#).unwrap();
-    let (mut p, error) =
-        Presenter::boot(&plan.encode(), NoData, (390., 844.), 1., assets()).unwrap();
+    let (mut p, error) = Presenter::boot(&plan.encode(), (), (390., 844.), 1., assets()).unwrap();
     assert!(error.is_none());
     let row = view(&p, "row");
     let answer = handle(
@@ -970,8 +987,19 @@ fn a_context_menu_and_its_submenu_row_are_refused_as_popovers() {
 fn ordinary_node_state_is_not_routed_to_a_surface() {
     let mut p = fixture("scroll");
     let id = 1;
-    let plain = handle(&mut p, r#"{"op":"state"}"#);
-    let targeted = handle(&mut p, &format!(r#"{{"op":"state","id":{id}}}"#));
+    // `raster.processRunning` counts the process's decodes, which the
+    // binary's other tests start and finish between the two reads.
+    let state = |p: &mut Presenter<()>, request: &str| {
+        let mut state: serde_json::Value = serde_json::from_str(&handle(p, request)).unwrap();
+        state["raster"]
+            .as_object_mut()
+            .unwrap()
+            .remove("processRunning")
+            .unwrap();
+        state
+    };
+    let plain = state(&mut p, r#"{"op":"state"}"#);
+    let targeted = state(&mut p, &format!(r#"{{"op":"state","id":{id}}}"#));
     assert_eq!(targeted, plain);
 }
 
@@ -985,25 +1013,26 @@ fn a_reload_keeps_focus_at_its_place_and_autofocuses_nothing() {
         .unwrap()
         .encode()
     };
-    let (mut p, error) = Presenter::boot(&plan("one"), NoData, (390., 844.), 1., assets()).unwrap();
+    let (mut p, error) = Presenter::boot(&plan("one"), (), (390., 844.), 1., assets()).unwrap();
     assert!(error.is_none());
     assert_eq!(p.focus(), Some(view(&p, "play")));
     // Autofocus's own target keeps the focus through a reload.
-    p.reload(&plan("two"), NoData).unwrap();
+    p.reload(&plan("two"), ()).unwrap();
     assert_eq!(p.focus(), Some(view(&p, "play")));
     // Focus the user moved stays where it went; autofocus takes nothing back.
     p.type_text(view(&p, "name"), "Ada").unwrap();
     assert_eq!(p.focus(), Some(view(&p, "name")));
-    p.reload(&plan("three"), NoData).unwrap();
+    p.reload(&plan("three"), ()).unwrap();
     assert_eq!(p.focus(), Some(view(&p, "name")));
     // Nothing focused before a reload: nothing after it.
     p.blur();
-    p.reload(&plan("four"), NoData).unwrap();
+    p.reload(&plan("four"), ()).unwrap();
     assert_eq!(p.focus(), None);
 }
 
 #[test]
 fn covered_id_tap_refuses_without_dispatching_the_cover() {
+    pin_font();
     let source = r#"component Cover
   state count = 0
   action press
@@ -1016,8 +1045,7 @@ fn covered_id_tap_refuses_without_dispatching_the_cover() {
         text "Cover"
 "#;
     let plan = contract::compile(source).unwrap();
-    let (mut p, error) =
-        Presenter::boot(&plan.encode(), NoData, (100., 100.), 1., assets()).unwrap();
+    let (mut p, error) = Presenter::boot(&plan.encode(), (), (100., 100.), 1., assets()).unwrap();
     assert!(error.is_none());
     let id = view(&p, "under");
     assert!(p.tap(id).unwrap_err().contains("covered or not hit"));
@@ -1028,6 +1056,7 @@ fn covered_id_tap_refuses_without_dispatching_the_cover() {
 
 #[test]
 fn tap_passive_descendant_activates_parent_but_actionable_descendant_refuses() {
+    pin_font();
     for actionable in [false, true] {
         let handler = if actionable { " press=child" } else { "" };
         let source = format!(
@@ -1044,11 +1073,12 @@ fn tap_passive_descendant_activates_parent_but_actionable_descendant_refuses() {
         );
         let plan = contract::compile(&source).unwrap();
         let (mut p, error) =
-            Presenter::boot(&plan.encode(), NoData, (100., 100.), 1., assets()).unwrap();
+            Presenter::boot(&plan.encode(), (), (100., 100.), 1., assets()).unwrap();
         assert!(error.is_none());
         let result = p.tap(view(&p, "parent"));
         if actionable {
-            assert!(result.unwrap_err().contains("activates"));
+            // Covered by the child's own press: refused, naming it (LLP 1012 §1).
+            assert!(result.unwrap_err().contains("would press"));
             assert_eq!(p.host().runner().slot("count"), Some(&Value::Number(0.)));
         } else {
             result.unwrap();

@@ -99,7 +99,7 @@ pub enum PlanError {
     UnknownValueTag(u8),
     NonFiniteValue,
     ValueTooDeep,
-    /// A region's arm count does not match its kind (`when`/`match` 2, `each` 1).
+    /// A region's arm count does not match its kind (`if`/`match` 2, `for` 1).
     RegionArms {
         region: u32,
         kind: RegionKind,
@@ -257,13 +257,29 @@ impl Plan {
                 });
             }
         }
-        // A late slot is a root slot: an owned one is its instance's.
+        // A late slot is a root slot: an owned one is its instance's. A
+        // persisted one is an authored root slot of a small setting (LLP
+        // 1116 D5).
         for (i, slot) in self.slots.iter().enumerate() {
-            if slot.late && (slot.owner.is_some() || self.locale == Some(SlotsId(i as u32))) {
+            let here = Some(SlotsId(i as u32));
+            if slot.late && (slot.owner.is_some() || self.locale == here) {
                 return Err(PlanError::BadReference {
                     table: "slots",
                     row: i as u32,
                     field: "late",
+                });
+            }
+            if slot.persist
+                && (slot.owner.is_some()
+                    || slot.late
+                    || self.locale == here
+                    || self.router == here
+                    || !self.persistable(slot.ty))
+            {
+                return Err(PlanError::BadReference {
+                    table: "slots",
+                    row: i as u32,
+                    field: "persist",
                 });
             }
         }
@@ -535,6 +551,20 @@ impl Plan {
         Ok(())
     }
 
+    /// Whether a slot of type `ty` may be persisted (LLP 1116 D5): a number,
+    /// string or bool, or an option or list of one.
+    pub fn persistable(&self, ty: TypesId) -> bool {
+        let scalar = |t: TypesId| {
+            matches!(
+                self.type_(t).kind,
+                TypeKind::Number | TypeKind::String | TypeKind::Bool
+            )
+        };
+        let t = self.type_(ty);
+        scalar(ty)
+            || (matches!(t.kind, TypeKind::Option | TypeKind::List) && t.elem.is_some_and(scalar))
+    }
+
     /// The region whose instance frame holds an owned slot's value: its
     /// owning arm's region. `None` for a root slot.
     pub fn owner_region(&self, slot: &SlotsRow) -> Option<RegionsId> {
@@ -609,6 +639,90 @@ pub fn is_portable_asset_path(source: &str) -> bool {
         .all(|segment| !segment.is_empty() && segment != "." && segment != "..")
 }
 
+/// Whether `member`, one unquoted member of a `font-family` list, is a
+/// family name as CSS parses it (CSS Fonts 4 §2.1 `<custom-ident>+`): CSS
+/// identifiers separated by whitespace. A lone identifier may not be a
+/// CSS-wide keyword or `default`, and a complete generic family may not
+/// begin a longer name. Chrome, Firefox and WebKit agree on each case
+/// (`CSS.supports("font-family", …)`, 2026-10-12); compiled literals and
+/// run-time strings are checked by this one rule.
+pub fn is_css_family_name(member: &str) -> bool {
+    const SPACE: [char; 5] = [' ', '\t', '\n', '\r', '\x0c'];
+    let start = |c: char| c.is_ascii_alphabetic() || c == '_' || !c.is_ascii();
+    let escape =
+        |rest: &str| rest.starts_with('\\') && !rest[1..].starts_with(['\n', '\r', '\x0c']);
+    let mut idents = Vec::new();
+    let mut rest = member.trim_matches(SPACE);
+    while !rest.is_empty() {
+        let mut chars = rest.chars();
+        let first = chars.next().unwrap();
+        let second = chars.as_str();
+        let begins = if first == '-' {
+            second.starts_with('-') || second.starts_with(start) || escape(second)
+        } else {
+            start(first) || escape(rest)
+        };
+        if !begins {
+            return false;
+        }
+        let mut i = 0;
+        while i < rest.len() {
+            let tail = &rest[i..];
+            if escape(tail) {
+                // `\` then up to six hex digits and one whitespace, or any
+                // one other character; at the end, U+FFFD.
+                let hex = tail[1..]
+                    .bytes()
+                    .take(6)
+                    .take_while(u8::is_ascii_hexdigit)
+                    .count();
+                i += 1 + match hex {
+                    0 => tail[1..].chars().next().map_or(0, char::len_utf8),
+                    n => n + usize::from(tail[1 + n..].starts_with(SPACE)),
+                };
+                continue;
+            }
+            let c = tail.chars().next().unwrap();
+            if start(c) || c.is_ascii_digit() || c == '-' {
+                i += c.len_utf8();
+            } else if SPACE.contains(&c) {
+                break;
+            } else {
+                return false;
+            }
+        }
+        idents.push(&rest[..i]);
+        rest = rest[i..].trim_start_matches(SPACE);
+    }
+    let is = |ident: &str, words: &[&str]| words.iter().any(|w| ident.eq_ignore_ascii_case(w));
+    match idents.as_slice() {
+        [] => false,
+        [one] => !is(
+            one,
+            &[
+                "inherit",
+                "initial",
+                "unset",
+                "revert",
+                "revert-layer",
+                "default",
+            ],
+        ),
+        [first, ..] => !is(
+            first,
+            &[
+                "serif",
+                "sans-serif",
+                "cursive",
+                "fantasy",
+                "monospace",
+                "system-ui",
+                "math",
+            ],
+        ),
+    }
+}
+
 impl std::fmt::Display for PlanError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{self:?}")
@@ -618,11 +732,19 @@ impl std::fmt::Display for PlanError {
 impl std::error::Error for PlanError {}
 
 /// Sources answered by the runner, with a result shape selected by each reader.
+pub const RUNNER_OWNED_SOURCES: &[&str] = &[
+    "exactDelivery",
+    "exactViewport",
+    "exactPage",
+    "exactSurface",
+    "exactTime",
+    "exactTransport",
+    "exactMIDI",
+];
+
+/// Whether the runner answers `name` ([`RUNNER_OWNED_SOURCES`]).
 pub fn runner_owned_source(name: &str) -> bool {
-    matches!(
-        name,
-        "exactDelivery" | "exactViewport" | "exactPage" | "exactSurface" | "exactTime"
-    )
+    RUNNER_OWNED_SOURCES.contains(&name)
 }
 
 impl Plan {

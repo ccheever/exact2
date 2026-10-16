@@ -122,12 +122,49 @@ final class NavigationRulesTests: XCTestCase {
     }
 
     /// D1: the stack is the prefix through the selected route; a key that
-    /// matches no route leaves the stack alone.
+    /// matches no route leaves the stack alone (less what left the tree, below).
     func testTheStackIsThePrefixThroughTheSelectedRoute() {
         let keys = ["", "thread", "details:thread", "compose"]
         XCTAssertEqual(NavigationRules.stack(routeKeys: keys, selected: ""), 0..<1)
         XCTAssertEqual(NavigationRules.stack(routeKeys: keys, selected: "details:thread"), 0..<3)
         XCTAssertNil(NavigationRules.stack(routeKeys: keys, selected: "elsewhere"))
+    }
+
+    /// D1: a key that matches no route leaves the stack alone, less the
+    /// routes that left the tree; and macOS's hide-and-inert projection
+    /// follows it. Chat-rooms (bake-off round 6) keyed its list "rooms" while
+    /// its root named the visit, "0" at the stack's root: Cancel on its sheet
+    /// (the route gone, the key "0" again) left the list inert.
+    func testAKeyThatMatchesNoRouteKeepsWhatIsLeftOfTheStackShown() throws {
+        XCTAssertEqual(NavigationRules.survivor(of: ["rooms", "1"], declared: [["rooms"]]), "rooms")
+        XCTAssertEqual(NavigationRules.survivor(of: ["rooms", "1"], declared: [["rooms", "1"]]), "1")
+        XCTAssertEqual(NavigationRules.survivor(of: ["a", "b"], declared: [["c"], ["a"]]), "a", "in any tab's stack")
+        XCTAssertNil(NavigationRules.survivor(of: [], declared: [["rooms"]]), "nothing shown yet: nothing changes")
+        XCTAssertNil(NavigationRules.survivor(of: ["gone"], declared: [["rooms"]]))
+
+        _ = NSApplication.shared
+        let p = Presenter()
+        defer { p.reset() }
+        func apply(_ ops: [[String: Any]]) { p.apply(batchFixture(ops: ops, timers: false, motion: false, clock: nil, error: nil)) }
+        func route(_ id: Int, _ key: String, modal: Bool = false) -> [String: Any] {
+            ["op": "create", "id": id, "kind": "view", "props": ["navigationKey": key].merging(modal ? ["navigationPresentation": "modal"] : [:]) { $1 }]
+        }
+        apply([
+            ["op": "create", "id": 1, "kind": "view", "props": ["navigationBack": "back", "navigationKey": "0"]],
+            route(2, "rooms"),
+            ["op": "children", "id": 1, "ids": [2]],
+            ["op": "roots", "ids": [1]],
+        ])
+        let rooms = try XCTUnwrap(p.views[2])
+        XCTAssertEqual([rooms.isHidden, rooms.routeInert], [false, false], "nothing projected at first")
+        apply([route(3, "1", modal: true), ["op": "children", "id": 1, "ids": [2, 3]], ["op": "props", "id": 1, "set": ["navigationKey": "1"]]])
+        XCTAssertEqual([rooms.isHidden, rooms.routeInert], [false, true], "shown and inert beneath the sheet")
+        apply([["op": "children", "id": 1, "ids": [2]], ["op": "destroy", "id": 3], ["op": "props", "id": 1, "set": ["navigationKey": "0"]]])
+        XCTAssertEqual([rooms.isHidden, rooms.routeInert], [false, false], "the sheet closed, the list is live")
+        apply([route(4, "2"), ["op": "children", "id": 1, "ids": [2, 4]], ["op": "props", "id": 1, "set": ["navigationKey": "2"]]])
+        XCTAssertEqual([rooms.isHidden, rooms.routeInert], [true, true], "hidden under a pushed screen")
+        apply([["op": "children", "id": 1, "ids": [2]], ["op": "destroy", "id": 4], ["op": "props", "id": 1, "set": ["navigationKey": "0"]]])
+        XCTAssertEqual([rooms.isHidden, rooms.routeInert], [false, false], "popped, the list shows again")
     }
 
     func testPresentationBoundariesRetainTheirOwnerThroughLaterRoutes() {
@@ -190,6 +227,43 @@ final class NavigationRulesTests: XCTestCase {
         XCTAssertNil(NavigationRules.backControl(named: "back", among: inactive, id: \.id, htmlID: \.html, pressable: \.press, disabled: \.disabled, inActiveRoute: \.active))
     }
 
+    /// LLP 1115 D5: the authored control when it resolves; refused while a
+    /// declared one does not; else, given a visit beneath, the root's
+    /// `navigate` with its location, or the runner's own back.
+    func testBackIsAlwaysThereUnlessTheAuthorSaysOtherwise() {
+        typealias B = NavigationRules.Back
+        var asked = 0
+        let beneath = { () -> String? in asked += 1; return "/" }
+        XCTAssertEqual(NavigationRules.back(control: 7, declared: true, hearsNavigate: true, beneath: beneath), B.press(7))
+        XCTAssertNil(NavigationRules.back(control: nil, declared: true, hearsNavigate: true, beneath: beneath), "a disabled control refuses")
+        XCTAssertEqual(asked, 0, "the runner is asked only when there is no control")
+        XCTAssertEqual(NavigationRules.back(control: nil, declared: false, hearsNavigate: true, beneath: beneath), B.navigate("/"))
+        XCTAssertEqual(NavigationRules.back(control: nil, declared: false, hearsNavigate: false, beneath: beneath), B.pop, "no navigate handler: the runner's own back")
+        XCTAssertNil(NavigationRules.back(control: nil, declared: true, hearsNavigate: false, beneath: beneath), "a disabled control still refuses")
+        XCTAssertNil(NavigationRules.back(control: nil, declared: false, hearsNavigate: true, beneath: { nil }), "a stack's root")
+    }
+
+    /// LLP 1115.000 D5.2, D5.3: a route's bar is its own. Its header when
+    /// that is the bar's; the system Back alone on any other pushed route;
+    /// none on a stack's first route with no such header, and none wherever
+    /// the route says so, which is the only way a pushed route has none.
+    func testARoutesBarIsItsHeaderElseTheSystemBackAloneUnlessItSaysNone() {
+        typealias Bar = NavigationRules.Bar
+        for pushed in [false, true] {
+            XCTAssertEqual(NavigationRules.bar(asked: nil, header: true, pushed: pushed), Bar.header, "a header that is the bar's, whatever is beneath")
+            XCTAssertEqual(NavigationRules.bar(asked: "auto", header: true, pushed: pushed), Bar.header)
+            for header in [false, true] {
+                XCTAssertEqual(NavigationRules.bar(asked: "none", header: header, pushed: pushed), Bar.hidden, "no bar is what the route says")
+            }
+        }
+        XCTAssertEqual(NavigationRules.bar(asked: nil, header: false, pushed: true), Bar.back, "pushed, with no bar of its own: Back alone")
+        XCTAssertEqual(NavigationRules.bar(asked: "", header: false, pushed: true), Bar.back, "an unset word is no request")
+        XCTAssertEqual(NavigationRules.bar(asked: nil, header: false, pushed: false), Bar.hidden, "a stack's first route has nothing to go back to")
+        // tvOS's bar has no Back button to show alone; a header is still its bar.
+        XCTAssertEqual(NavigationRules.bar(asked: nil, header: false, pushed: true, backButton: false), Bar.hidden)
+        XCTAssertEqual(NavigationRules.bar(asked: nil, header: true, pushed: true, backButton: false), Bar.header)
+    }
+
     /// D1: an interactive pop needs a stack to pop, no transition, no sheet,
     /// a Back control, and no context preview.
     func testWhenAPopMayBegin() {
@@ -225,12 +299,6 @@ final class NavigationRulesTests: XCTestCase {
         XCTAssertTrue(NavigationRules.modalRefusesDismissal(closedby: "none"))
         XCTAssertFalse(NavigationRules.modalRefusesDismissal(closedby: "closerequest"))
         XCTAssertFalse(NavigationRules.modalRefusesDismissal(closedby: nil))
-    }
-
-    /// D4: deferred geometry replays frames before contents, ids ascending.
-    func testDeferredGeometryReplaysFramesBeforeContentsInIdOrder() {
-        let order = NavigationRules.replayOrder(deferred: [7: ["content", "frame"], 3: ["frame"], 12: ["content"]])
-        XCTAssertEqual(order.map { "\($0.id):\($0.kind)" }, ["3:frame", "7:frame", "7:content", "12:content"])
     }
 
     /// D5: a session answers a keyboard only for its own editor, or while it
@@ -284,6 +352,66 @@ final class MacShortcutTests: XCTestCase {
         return node
     }
 
+    func testStandardMenuRemovalTracksRootsAndAppKitUpdates() throws {
+        let p = Presenter(), w = window(p)
+        let previous = (NSApp.mainMenu, NSApp.windowsMenu, NSApp.helpMenu, NSApp.servicesMenu)
+        defer {
+            NSApp.mainMenu = previous.0; NSApp.windowsMenu = previous.1
+            NSApp.helpMenu = previous.2; NSApp.servicesMenu = previous.3; w.close()
+        }
+        let root = NodeView(id: 900, kind: "view", presenter: p)
+        root.props = ["menuRemove": "close-all autofill show-tab-bar show-all-tabs enter-full-screen minimize zoom bring-all-to-front show-previous-tab show-next-tab move-tab-to-new-window merge-all-windows"]
+        p.views[root.id] = root; p.root.addSubview(root)
+        let bar = DevMenu.makeMenu(shortcuts: p.shortcuts, documents: false, develop: true)
+        NSApp.mainMenu = bar
+        NSApp.finishLaunching()
+        let file = try XCTUnwrap(bar.items.compactMap(\.submenu).first { $0.title == "File" })
+        let edit = try XCTUnwrap(bar.items.compactMap(\.submenu).first { $0.title == "Edit" })
+        let view = try XCTUnwrap(bar.items.compactMap(\.submenu).first { $0.title == "View" })
+        let windows = try XCTUnwrap(bar.items.compactMap(\.submenu).first { $0.title == "Window" })
+        // AppKit's own inserted items, not facsimiles, retain their identifiers.
+        file.update(); edit.update()
+        let closeAll = try XCTUnwrap(file.items.first { $0.action == Selector(("closeAll:")) })
+        let autofill = try XCTUnwrap(edit.items.first { $0.identifier?.rawValue == "_NSMenuItemAutoFillIdentifier" })
+        XCTAssertTrue(closeAll.isHidden); XCTAssertTrue(autofill.isHidden)
+        XCTAssertFalse(closeAll.allowsKeyEquivalentWhenHidden)
+        // A later AppKit insertion is filtered too, without an app batch or English title.
+        view.title = "Présentation"; windows.title = "Fenêtre"
+        let tab = view.addItem(withTitle: "Afficher la barre d’onglets", action: #selector(NSWindow.toggleTabBar(_:)), keyEquivalent: "")
+        let next = windows.addItem(withTitle: "Onglet suivant", action: #selector(NSWindow.selectNextTab(_:)), keyEquivalent: "")
+        view.update(); windows.update()
+        XCTAssertTrue(tab.isHidden); XCTAssertTrue(next.isHidden)
+        XCTAssertTrue(view.items.first { $0.action == #selector(NSWindow.toggleFullScreen(_:)) }!.isHidden)
+        XCTAssertTrue(windows.items.first { $0.action == #selector(NSWindow.performMiniaturize(_:)) }!.isHidden)
+        XCTAssertTrue(windows.items.first { $0.action == #selector(NSWindow.performZoom(_:)) }!.isHidden)
+        XCTAssertTrue(windows.items.first { $0.action == #selector(NSApplication.arrangeInFront(_:)) }!.isHidden)
+        for (menu, action) in [(view, #selector(NSWindow.toggleTabOverview(_:))),
+                               (windows, #selector(NSWindow.selectPreviousTab(_:))),
+                               (windows, #selector(NSWindow.moveTabToNewWindow(_:))),
+                               (windows, #selector(NSWindow.mergeAllWindows(_:)))] {
+            let item = menu.addItem(withTitle: "Commande traduite", action: action, keyEquivalent: "")
+            menu.update()
+            XCTAssertTrue(item.isHidden, NSStringFromSelector(action))
+        }
+        XCTAssertNotNil(bar.items.first { $0.submenu?.title == "Develop" })
+        // Releasing an app's claim on a removed standard chord must not unhide it.
+        let fullScreen = try XCTUnwrap(view.items.first { $0.action == #selector(NSWindow.toggleFullScreen(_:)) })
+        let command = button(901, "Presentation", "Control+Meta+f", in: p, parent: root)
+        p.shortcuts.sync()
+        XCTAssertEqual(view.items.filter { $0.target is ShortcutHost }.map(\.keyEquivalent), ["f"])
+        command.removeFromSuperview(); p.views.removeValue(forKey: command.id)
+        p.shortcuts.sync()
+        XCTAssertEqual(fullScreen.keyEquivalent, "f")
+        XCTAssertTrue(fullScreen.isHidden)
+        // Root replacement restores the same objects; no commands accumulate.
+        root.removeFromSuperview(); p.shortcuts.sync()
+        file.update(); edit.update(); view.update(); windows.update()
+        XCTAssertFalse(closeAll.isHidden); XCTAssertFalse(autofill.isHidden)
+        XCTAssertFalse(tab.isHidden); XCTAssertFalse(next.isHidden)
+        p.root.addSubview(root); p.shortcuts.sync(); view.update()
+        XCTAssertTrue(tab.isHidden)
+    }
+
     private func event(_ key: String, window: NSWindow, modifiers: NSEvent.ModifierFlags = .command,
                        code: UInt16 = 0, ignoring: String? = nil, repeat repeating: Bool = false) -> NSEvent {
         NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers,
@@ -331,6 +459,67 @@ final class MacShortcutTests: XCTestCase {
             node.props["accessibilityKeyShortcuts"] = invalid
             XCTAssertFalse(presenter.shortcuts.perform(event("c", window: window)), invalid)
         }
+    }
+
+    // LLP 1021 §5.3: ids place items even when the displayed menu is localized.
+    func testExplicitMenuPlacementWithoutChordsAndLocalizedTitles() {
+        let presenter = Presenter(), window = window(presenter)
+        let oldMain = NSApp.mainMenu, oldHelp = NSApp.helpMenu
+        let oldServices = NSApp.servicesMenu, oldWindows = NSApp.windowsMenu
+        defer {
+            NSApp.mainMenu = oldMain; NSApp.helpMenu = oldHelp
+            NSApp.servicesMenu = oldServices; NSApp.windowsMenu = oldWindows
+            window.close()
+        }
+        let destinations = ["app", "file", "edit", "view", "go", "window", "help"]
+        let titles = ["Updates…", "Export", "Paste as Text", "Appearance", "Destination", "Workspace", "Documentation"]
+        for (index, destination) in destinations.enumerated() {
+            let node = button(UInt32(index + 1), titles[index], index == 2 ? "Shift+Meta+v" : "", in: presenter)
+            node.props.removeValue(forKey: "accessibilityKeyShortcuts")
+            if index == 2 { node.props["accessibilityKeyShortcuts"] = "Shift+Meta+v" }
+            node.props["menuPlacement"] = destination
+        }
+        // Explicit placement wins over the Settings chord, including its label.
+        let custom = button(8, "Préférences", "Meta+,", in: presenter)
+        custom.props["menuPlacement"] = "help"
+        let bar = DevMenu.makeMenu(shortcuts: presenter.shortcuts, documents: false, develop: true)
+        let menus = bar.items.prefix(6).compactMap(\.submenu)
+        guard menus.count == 6, let help = NSApp.helpMenu else {
+            XCTFail("the standard menus and Help must exist"); return
+        }
+        // Develop is between Window and Help.
+        let placed = menus + [help]
+        NSApp.mainMenu = bar
+        for (index, menu) in placed.enumerated() { menu.title = "Traduit \(index)" }
+        for _ in 0..<3 { presenter.shortcuts.sync() }
+        for (index, menu) in placed.enumerated() {
+            let items = menu.items.filter { ($0.representedObject as? NSNumber)?.intValue == index + 1 }
+            XCTAssertEqual(items.count, 1)
+            XCTAssertEqual(items.first?.title, titles[index])
+            XCTAssertEqual(items.first?.keyEquivalent, index == 2 ? "v" : "")
+        }
+        XCTAssertTrue(help === NSApp.helpMenu)
+        XCTAssertTrue(bar.items.contains { $0.submenu?.title == "Develop" })
+        XCTAssertEqual(help.items.first { ($0.representedObject as? NSNumber)?.intValue == 8 }?.title, "Préférences")
+        guard let updates = placed[0].items.first(where: { ($0.representedObject as? NSNumber)?.intValue == 1 }) else {
+            XCTFail("missing chordless application item"); return
+        }
+        // XCTest has no key application window; the app drive checks dispatch.
+        XCTAssertTrue(updates.target === presenter.shortcuts)
+        XCTAssertEqual(updates.action, NSSelectorFromString("activate:"))
+        XCTAssertTrue(updates.isEnabled)
+        presenter.views[1]?.props["disabled"] = "true"
+        presenter.shortcuts.sync()
+        XCTAssertFalse(updates.isEnabled)
+        XCTAssertFalse(presenter.shortcuts.validateMenuItem(updates))
+        presenter.views[1]?.props["disabled"] = "false"
+        presenter.views[1]?.props["inert"] = "true"
+        presenter.shortcuts.sync()
+        XCTAssertFalse(updates.isEnabled)
+        presenter.views[1]?.removeFromSuperview()
+        presenter.views.removeValue(forKey: 1)
+        presenter.shortcuts.sync()
+        XCTAssertFalse(placed[0].items.contains { $0 === updates })
     }
 
     func testNamedMenuEquivalentsAreAppKitCharacters() {
@@ -571,8 +760,13 @@ final class MacShortcutTests: XCTestCase {
         let new = file.items.first { $0.keyEquivalent == "n" }!
         XCTAssertEqual(app.items[2].title, "Settings…")
         XCTAssertEqual(app.items[2].keyEquivalent, ",")
-        XCTAssertEqual(go.items.map(\.title), ["Back", "Home"])
-        XCTAssertEqual(go.items[1].state, .on)
+        // The app's own ⌘[ Back stands in for the host's (LLP 1115.000 D5.1),
+        // which keeps its place, hidden and without the chord.
+        let shown = { go.items.filter { !$0.isHidden } }
+        XCTAssertEqual(shown().map(\.title), ["Back", "Home"])
+        XCTAssertTrue(shown()[0].target is ShortcutHost)
+        XCTAssertEqual(go.items.filter { $0.target is GoMenuTarget }.map(\.keyEquivalent), [""])
+        XCTAssertEqual(shown()[1].state, .on)
         XCTAssertFalse(file.items.contains { $0.keyEquivalent == "," || $0.keyEquivalent == "[" })
         XCTAssertNotNil(app.items.first { $0.action == #selector(NSApplication.hideOtherApplications(_:)) })
         XCTAssertNotNil(bar.items.first { $0.submenu?.title == "Window" })
@@ -585,7 +779,7 @@ final class MacShortcutTests: XCTestCase {
         home.props["inert"] = "true"
         presenter.shortcuts.sync()
         XCTAssertFalse(new.isEnabled)
-        XCTAssertFalse(go.items[1].isEnabled)
+        XCTAssertFalse(shown()[1].isEnabled)
         compose.removeFromSuperview()
         presenter.views.removeValue(forKey: compose.id)
         presenter.shortcuts.sync()
@@ -615,7 +809,8 @@ final class MacShortcutTests: XCTestCase {
         XCTAssertEqual(shown("Edit").first?.title, "Undo Move")
         XCTAssertEqual(shown("Edit").first?.keyEquivalent, "z")
         XCTAssertEqual(menu("Edit").items.filter { $0.title == "Undo" }.map(\.isHidden), [true])
-        XCTAssertEqual(shown("Edit").map(\.title), ["Undo Move", "Redo", "Cut", "Copy", "Paste", "Delete", "Select All", "Duplicate", "Speech"])
+        XCTAssertEqual(shown("Edit").map(\.title), ["Undo Move", "Redo", "Cut", "Copy", "Paste", "Paste and Match Style", "Delete", "Select All", "Duplicate",
+                                                "Find", "Spelling and Grammar", "Substitutions", "Transformations", "Speech"])
         XCTAssertEqual(shown("View").first?.title, "Zoom In")
         XCTAssertEqual(shown("File").map(\.title).prefix(2), ["Close Board", "Export"])
         let close = menu("File").items.first { $0.title == "Close Window" }!
@@ -629,7 +824,8 @@ final class MacShortcutTests: XCTestCase {
         presenter.shortcuts.sync()
         XCTAssertEqual(shown("Edit").first?.title, "Undo")
         XCTAssertEqual(shown("Edit").first?.keyEquivalent, "z")
-        XCTAssertEqual(shown("Edit").map(\.title), ["Undo", "Redo", "Cut", "Copy", "Paste", "Delete", "Select All", "Duplicate", "Speech"])
+        XCTAssertEqual(shown("Edit").map(\.title), ["Undo", "Redo", "Cut", "Copy", "Paste", "Paste and Match Style", "Delete", "Select All", "Duplicate",
+                                                "Find", "Spelling and Grammar", "Substitutions", "Transformations", "Speech"])
         XCTAssertEqual(shown("Edit").first { $0.title == "Duplicate" }?.keyEquivalent, "d")
     }
 
@@ -652,7 +848,13 @@ final class MacShortcutTests: XCTestCase {
         let listed = { (title: String) in menu(title).items.filter { !$0.isHidden }.map { $0.isSeparatorItem ? "—" : $0.title } }
         for _ in 0..<3 { presenter.shortcuts.sync() }
         XCTAssertEqual(listed("Edit"), ["Undo", "Redo", "—", "Cut", "Copy", "Paste", "Paste as Text", "Paste and Match Style",
-                                        "Delete", "Select All", "—", "Find", "—", "Speech"])
+                                        "Delete", "Select All", "—", "Find", "Spelling and Grammar", "Substitutions", "Transformations", "Speech"])
+        // The app's ⌘F stands in for Find… in Edit ▸ Find (LLP 1115 D8).
+        let findMenu = menu("Edit").items.first { $0.title == "Find" }!.submenu!
+        XCTAssertEqual(findMenu.items.filter { !$0.isHidden }.map(\.title),
+                       ["Find", "Find and Replace…", "Find Next", "Find Previous", "Use Selection for Find", "Jump to Selection"])
+        XCTAssertTrue(findMenu.items.first?.target is ShortcutHost)
+        XCTAssertEqual(findMenu.items.filter { $0.keyEquivalent == "f" && $0.keyEquivalentModifierMask == .command }.count, 1)
         XCTAssertFalse(listed("File").contains { $0.hasPrefix("Paste") })
         let asText = menu("Edit").items.first { $0.title == "Paste as Text" }!
         XCTAssertEqual(asText.keyEquivalent, "v")
@@ -667,7 +869,81 @@ final class MacShortcutTests: XCTestCase {
         presenter.views.removeValue(forKey: find.id)
         presenter.shortcuts.sync()
         XCTAssertEqual(listed("Edit"), ["Undo", "Redo", "—", "Cut", "Copy", "Paste Rows", "Paste as Text", "Paste and Match Style",
-                                        "Delete", "Select All", "—", "Speech"])
+                                        "Delete", "Select All", "—", "Find", "Spelling and Grammar", "Substitutions", "Transformations", "Speech"])
+        XCTAssertEqual(findMenu.items.filter { !$0.isHidden }.map(\.title).first, "Find…")
+        XCTAssertEqual(findMenu.items.first { $0.title == "Find…" }?.keyEquivalent, "f")
+    }
+
+    /// LLP 1115 D8: the bar ends with Help, which AppKit is told is Help
+    /// (its search field), and Edit has the template's text submenus, each
+    /// a responder-chain action with nothing targeted.
+    func testHelpMenuIsLastAndEditHasTheTemplatesTextMenus() {
+        let presenter = Presenter()
+        let window = window(presenter)
+        defer { window.close() }
+        let previous = (NSApp.servicesMenu, NSApp.windowsMenu, NSApp.helpMenu)
+        defer { NSApp.servicesMenu = previous.0; NSApp.windowsMenu = previous.1; NSApp.helpMenu = previous.2 }
+        let bar = DevMenu.makeMenu(shortcuts: presenter.shortcuts, documents: false)
+        let help = bar.items.last!.submenu!
+        XCTAssertEqual(help.title, "Help")
+        XCTAssertTrue(NSApp.helpMenu === help)
+        XCTAssertEqual(help.items.first?.action, #selector(NSApplication.showHelp(_:)))
+        XCTAssertEqual(help.items.first?.keyEquivalent, "?")
+        let edit = bar.items.first { $0.submenu?.title == "Edit" }!.submenu!
+        let match = edit.items.first { $0.title == "Paste and Match Style" }!
+        XCTAssertEqual(match.action, #selector(NSTextView.pasteAsPlainText(_:)))
+        XCTAssertEqual(match.keyEquivalentModifierMask, [.command, .option, .shift])
+        let find = edit.items.first { $0.title == "Find" }!.submenu!
+        XCTAssertEqual(find.items.prefix(5).map(\.tag), [NSTextFinder.Action.showFindInterface, .showReplaceInterface, .nextMatch, .previousMatch, .setSearchString].map(\.rawValue))
+        XCTAssertTrue(find.items.prefix(5).allSatisfy { $0.action == #selector(NSResponder.performTextFinderAction(_:)) })
+        for title in ["Find", "Spelling and Grammar", "Substitutions", "Transformations"] {
+            let items = edit.items.first { $0.title == title }!.submenu!.items.filter { !$0.isSeparatorItem }
+            XCTAssertFalse(items.isEmpty, title)
+            XCTAssertTrue(items.allSatisfy { $0.target == nil && $0.action != nil }, title)
+        }
+        // A field editor answers them: Make Upper Case validates there.
+        let field = NSTextView()
+        XCTAssertTrue(field.responds(to: #selector(NSResponder.uppercaseWord(_:))))
+        XCTAssertTrue(field.responds(to: #selector(NSTextView.toggleAutomaticQuoteSubstitution(_:))))
+    }
+
+    /// LLP 1115.000 D7.8: a release build has no Develop menu, and so takes
+    /// none of its chords (Reload ⌘R, Open Project… ⌘O, App Info… ⌘D, Save
+    /// Trace ⌥⌘T); a development build's bar is as it was.
+    func testOnlyADevelopmentBuildsBarHasDevelopAndItsChords() {
+        let presenter = Presenter()
+        let window = window(presenter)
+        defer { window.close() }
+        let previous = (NSApp.servicesMenu, NSApp.windowsMenu, NSApp.helpMenu)
+        defer { NSApp.servicesMenu = previous.0; NSApp.windowsMenu = previous.1; NSApp.helpMenu = previous.2 }
+        let titles = { (bar: NSMenu) in Array(bar.items.compactMap { $0.submenu?.title }.dropFirst()) }
+        func items(_ menu: NSMenu) -> [NSMenuItem] { menu.items.flatMap { [$0] + ($0.submenu.map(items) ?? []) } }
+        let shipped = DevMenu.makeMenu(shortcuts: presenter.shortcuts, documents: false, develop: false)
+        XCTAssertEqual(titles(shipped), ["File", "Edit", "View", "Go", "Window", "Help"])
+        XCTAssertFalse(items(shipped).contains { $0.target === DevMenu.target }, "no development command is in a shipped bar")
+        for key in ["r", "o", "d", "t"] {
+            XCTAssertFalse(items(shipped).contains { $0.keyEquivalent == key && $0.keyEquivalentModifierMask.contains(.command) }, "⌘\(key) is not taken")
+        }
+        let development = DevMenu.makeMenu(shortcuts: presenter.shortcuts, documents: false, develop: true)
+        XCTAssertEqual(titles(development), ["File", "Edit", "View", "Go", "Window", "Develop", "Help"])
+        let develop = development.items.first { $0.submenu?.title == "Develop" }!.submenu!
+        XCTAssertEqual(develop.items.map(\.title), ["Reload", "Open Project…", "App Info…", "Save Trace"])
+        XCTAssertEqual(develop.items.map(\.keyEquivalent), ["r", "o", "d", "t"])
+        XCTAssertEqual(develop.items.map(\.keyEquivalentModifierMask), [.command, .command, .command, [.command, .option]])
+        // Which build is which: production trust, or `build.mjs`'s stamp of a
+        // production or distributed build (`exact release`); an unstamped
+        // host, as this test's, is a development one. The environment
+        // overrides either.
+        XCTAssertTrue(DevMenu.develops(kind: "debug", production: false, override: nil))
+        XCTAssertTrue(DevMenu.develops(kind: nil, production: false, override: nil))
+        for kind in ["release", "archive"] {
+            XCTAssertFalse(DevMenu.develops(kind: kind, production: false, override: nil), "\(kind): a shipped app has no Develop menu")
+        }
+        XCTAssertFalse(DevMenu.develops(kind: "debug", production: true, override: nil))
+        XCTAssertFalse(DevMenu.develops(kind: nil, production: true, override: nil))
+        XCTAssertTrue(DevMenu.develops(kind: "release", production: true, override: true))
+        XCTAssertFalse(DevMenu.develops(kind: "debug", production: false, override: false))
+        XCTAssertEqual(DevMenu.enabled, ExactEnv.devMenu ?? true, "the tests' host is a development build")
     }
 
     func testShortcutsRespectDisabledInertHiddenRepeatedAndWindowOwnership() {

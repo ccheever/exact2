@@ -190,7 +190,8 @@ symlink-resolved containment check and inlines it as the inner frame's
 This is not the Contract-facing `srcdoc` §5 cuts — no author writes it —
 and it carries a declared limit: a multi-file local bundle's subresources
 do not resolve; multi-file local decks wait for scheme-handler serving
-(the shipped Castle mechanism, §8 Q1).
+(the shipped Castle mechanism, §8 Q1), which LLP 1020.001 builds: `assets/`
+and `deck/` served at `exact-app://app`.
 
 Guest→app: the guest calls `window.parent.postMessage(data, …)` exactly
 as it would on castle.xyz; the wrapper (native) or the host page (web)
@@ -492,6 +493,26 @@ inner frame remain only where one document cannot keep that parity:
 | Remote http(s), no `sandbox` | direct | the wrapper |
 | Remote with `sandbox`, and `data:`/`about:`/`blob:` | the wrapper | the wrapper |
 
+LLP 1020.001 D4 amends this table for a bundled HTML page under `assets/` or `deck/`.
+
+- **`data:` on the web (2026-10-08).** The web host's `iframe` is the guest
+  itself, and its `src` takes the page's scheme allowlist (http, https, mailto,
+  tel), which exists so a `javascript:` URL never runs in the app's origin. A
+  `data:` document is admitted too when the frame's `sandbox` withholds
+  `allow-same-origin`: its origin is then opaque, so its script cannot reach
+  the app's page, and its posts arrive from `"null"`. Without a `sandbox`, or
+  with `allow-same-origin`, a `data:` source is refused and the frame shows
+  `about:blank`. A `blob:` source is refused, because an app cannot name one
+  the page made. The rule is `frameURL` (`host/web/navigation.js`), `navigable`
+  (`host/web-js/rt.js`) and `frame_navigable` (`host/web/src/document.rs`,
+  which the render host and the JS target's literal attributes share). A changed
+  `sandbox` navigates a `data:` or HTTP(S) frame again, even when it admits the same
+  URL, so the loaded document takes the new permissions. Both web targets retain
+  the authored source and reconsider a refused `data:` URL when its sandbox changes.
+  Apple serves a `data:` source through the wrapper whatever its `sandbox` (the row above),
+  so an app that wants one `src` string for every host gives that frame an
+  opaque `sandbox`.
+
 - **HTTP guests (#106).** The synthetic wrapper uses `http://exact.invalid`
   for a remote `http:` source. An HTTPS wrapper would block that guest as
   mixed content even when `app.json` explicitly permits it through ATS.
@@ -508,6 +529,22 @@ inner frame remain only where one document cannot keep that parity:
   allow (`appTransportSecurity`), as for a remote guest. The page sees only
   an `error` event when a sub-resource fails; the host logs it to stderr
   (`exact: iframe <src>: <url> did not load (<likely reason>)`).
+- **App files (Charlie, 2026-10-08; implemented 2026-10-13).** An
+  `app:/data`, `app:/cache` or `app:/tmp` source uses the app's file roots,
+  refusing traversal and other roots (LLP 1069.002 D7). Apple reads it off
+  the main thread and serves the bytes through the same typed-document
+  path as a bundled file; the web creates a typed object URL owned by the
+  iframe and revokes it on source change or removal; rebinding the same
+  source preserves the document. Plain text keeps its MIME type and is never
+  interpreted as HTML. The authored `sandbox` and message-origin checks
+  still apply. Chrome loads blob HTML/text with an opaque sandbox origin,
+  but blocks PDF viewers under any sandbox. The web host reports that
+  blocked app PDF through `error`, as it does an unavailable app file,
+  with a message and no `load` for the empty frame. Load/error events that
+  precede data activation are delivered once the executor is ready.
+  This is the scoped local-file failure rule, not a change to network
+  iframe failures. A fitted PDF element and Chrome's PDF viewer fragments
+  remain outside this scope.
 - **Direct** is the web view's own document. A local one is served at the
   synthetic origin above, with `sandbox` sent as a `Content-Security-Policy: sandbox …`
   header, which WebKit enforces on a top-level document, opaque origin

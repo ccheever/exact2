@@ -91,7 +91,16 @@ fn operators(tokens: &[Token]) -> (BTreeSet<Span>, BTreeSet<Span>) {
                     TokenKind::Punct(p) => matches!(*p, ")" | "]" | "}"),
                     TokenKind::Ident(w) => !matches!(
                         w.as_str(),
-                        "and" | "or" | "not" | "in" | "when" | "if" | "match" | "with" | "return"
+                        "and"
+                            | "or"
+                            | "not"
+                            | "in"
+                            | "when"
+                            | "if"
+                            | "for"
+                            | "match"
+                            | "with"
+                            | "return"
                     ),
                     _ => false,
                 });
@@ -245,6 +254,9 @@ impl<'a> Layout<'a> {
         for style in &file.styles {
             self.attributes.extend(style.attrs.iter().map(|a| a.span));
         }
+        if let Some(theme) = &file.theme {
+            self.attributes.extend(theme.entries.iter().map(|a| a.span));
+        }
         for rule in &file.keyframes {
             for frame in &rule.frames {
                 self.attributes.extend(frame.attrs.iter().map(|a| a.span));
@@ -311,6 +323,14 @@ impl<'a> Layout<'a> {
         let start = self.position(ty.span()).unwrap();
         match ty {
             TypeExpr::Named(..) => start + 1,
+            TypeExpr::Enum(..) => {
+                self.type_angles.insert(self.tokens[start + 1].span);
+                let end = (start + 2..self.tokens.len())
+                    .find(|&i| self.tokens[i].kind == TokenKind::Punct(">"))
+                    .unwrap();
+                self.type_angles.insert(self.tokens[end].span);
+                end + 1
+            }
             TypeExpr::List(inner, _) | TypeExpr::Option(inner, _) => {
                 let end = self.ty(inner);
                 self.type_angles.insert(self.tokens[start + 1].span);
@@ -351,7 +371,14 @@ impl<'a> Layout<'a> {
                                 }
                             }
                         }
-                        self.header(*span, attrs, false, last_positional);
+                        // A part's declarations (`::placeholder` and its
+                        // block) are not on the element's head.
+                        let (parts, head): (Vec<Attr>, Vec<Attr>) = attrs
+                            .iter()
+                            .cloned()
+                            .partition(|a| a.name.starts_with("::"));
+                        self.attributes.extend(parts.iter().map(|a| a.span));
+                        self.header(*span, &head, false, last_positional);
                     }
                     self.nodes(children);
                 }
@@ -488,9 +515,15 @@ impl<'a> Layout<'a> {
                     && !self.tags.contains(&previous.span)
                     && !matches!(
                         a,
-                        "when" | "if" | "match" | "not" | "and" | "or" | "in" | "with"
+                        "when" | "if" | "for" | "match" | "not" | "and" | "or" | "in" | "with"
                     ))
-                || (b == ":" && !self.ternary_colons.contains(&token.span));
+                || (b == ":" && !self.ternary_colons.contains(&token.span))
+                // A part's name against its `::` (`::placeholder`, parts.rs).
+                || (a == ":"
+                    && self
+                        .position(previous.span)
+                        .and_then(|i| i.checked_sub(1))
+                        .is_some_and(|i| self.tokens[i].kind == TokenKind::Punct(":")));
             if !tight {
                 out.push(' ');
             }

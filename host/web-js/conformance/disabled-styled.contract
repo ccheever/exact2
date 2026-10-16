@@ -1,0 +1,22 @@
+// Synthetic conformance plan: LLP 1115.000 D6 as Charlie ruled it
+// (2026-10-13). A disabled custom button dims, unless its author styles its
+// own disabled state: an `opacity` written, or a colour or background that
+// reads what its `disabled` reads (Contract's `disabledStyled` mark). Both
+// web targets read the mark; the agent's tree reports each button's opacity.
+component DisabledStyled
+  state busy = true
+  state dirty = false
+  action toggle
+    busy = not busy
+  view
+    column gap=8
+      button press=toggle testId="toggle"
+        text "Toggle"
+      button disabled=busy testId="plain"
+        text "Plain"
+      button disabled=busy background-color=(busy ? "#dddddd" : "#0066ff") color=(busy ? "#888888" : "#ffffff") testId="own-colours"
+        text "Own colours"
+      button disabled=busy opacity=(busy ? 0.6 : 1) testId="own-opacity"
+        text "Own opacity"
+      button disabled=busy background-color=(dirty ? "#0066ff" : "#dddddd") testId="other-state"
+        text "Other state"

@@ -1,8 +1,9 @@
+import { homedir as browserHome } from 'node:os';
 import { chromium } from "@playwright/test";
 import { writeFile } from "node:fs/promises";
 
 const url = process.env.BASE_URL || "http://127.0.0.1:39977/";
-const executablePath = process.env.CHROMIUM_PATH || "/home/ccheever/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome";
+const executablePath = process.env.CHROMIUM_PATH || (process.env.CHROME || browserHome() + "/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome");
 const browser = await chromium.launch({
   headless: true,
   executablePath,

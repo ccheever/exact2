@@ -177,15 +177,16 @@ fn dimension(v: f64, which: &str) -> Result<u32, DomException> {
     if !v.is_finite() {
         return throw("TypeError", "The provided double value is non-finite.");
     }
-    let n = v.trunc().abs();
+    let whole = v.trunc();
+    if whole < i32::MIN as f64 || whole > i32::MAX as f64 {
+        return throw("TypeError", "Value is outside the 'long' value range.");
+    }
+    let n = whole.abs();
     if n == 0.0 {
         return throw(
             "IndexSizeError",
             format!("The source {which} is zero or not a number."),
         );
-    }
-    if n > u32::MAX as f64 / 4.0 {
-        return throw("RangeError", "Out of memory at ImageData creation.");
     }
     Ok(n as u32)
 }
@@ -196,10 +197,24 @@ impl ImageData {
         if sw == 0 || sh == 0 {
             return throw("IndexSizeError", "The source width or height is zero.");
         }
+        let len = (sw as usize)
+            .checked_mul(sh as usize)
+            .and_then(|pixels| pixels.checked_mul(4))
+            .filter(|len| *len <= (isize::MAX as usize).min(u32::MAX as usize))
+            .ok_or_else(|| DomException {
+                name: "IndexSizeError",
+                message: "The requested image size exceeds the supported range.".into(),
+            })?;
+        let mut data = Vec::new();
+        data.try_reserve_exact(len).map_err(|_| DomException {
+            name: "RangeError",
+            message: "Out of memory at ImageData creation.".into(),
+        })?;
+        data.resize(len, 0);
         Ok(ImageData {
             width: sw,
             height: sh,
-            data: vec![0; sw as usize * sh as usize * 4],
+            data,
             color_space: ColorSpace::Srgb,
         })
     }
@@ -224,7 +239,10 @@ impl ImageData {
                 "The input data length is not a multiple of (4 * width).",
             );
         }
-        let rows = (pixels / sw as usize) as u32;
+        let rows = u32::try_from(pixels / sw as usize).map_err(|_| DomException {
+            name: "RangeError",
+            message: "Out of memory at ImageData creation.".into(),
+        })?;
         if sh.is_some_and(|h| h != rows) {
             return throw(
                 "IndexSizeError",
@@ -243,6 +261,45 @@ impl ImageData {
     pub fn with_color_space(mut self, space: ColorSpace) -> ImageData {
         self.color_space = space;
         self
+    }
+}
+
+#[cfg(test)]
+mod size_tests {
+    use super::*;
+
+    #[test]
+    fn oversized_dimensions_return_an_exception() {
+        assert_eq!(
+            ImageData::new_with_sw(0, 1).unwrap_err().name,
+            "IndexSizeError"
+        );
+        for (width, height) in [(u32::MAX, u32::MAX), (65_536, 65_536)] {
+            let error = ImageData::new_with_sw(width, height).unwrap_err();
+            assert_eq!(error.name, "IndexSizeError");
+        }
+        let ctx = Context2d::new();
+        assert_eq!(
+            ctx.create_image_data_with_sw_and_sh(65_536.0, 65_536.0)
+                .unwrap_err()
+                .name,
+            "RangeError"
+        );
+        assert_eq!(
+            ctx.create_image_data_with_sw_and_sh(u32::MAX as f64, 1.0)
+                .unwrap_err()
+                .name,
+            "TypeError"
+        );
+        let ordinary = ImageData::new_with_sw(7, 9).unwrap();
+        assert_eq!(ordinary.data.len(), 7 * 9 * 4);
+        assert_eq!(
+            ctx.create_image_data_with_imagedata(&ordinary)
+                .unwrap()
+                .data
+                .len(),
+            7 * 9 * 4
+        );
     }
 }
 
@@ -464,10 +521,15 @@ impl Context2d {
         sw: f64,
         sh: f64,
     ) -> Result<ImageData, DomException> {
-        Ok(
-            ImageData::new_with_sw(dimension(sw, "width")?, dimension(sh, "height")?)?
-                .with_color_space(self.color_space()),
-        )
+        let image = ImageData::new_with_sw(dimension(sw, "width")?, dimension(sh, "height")?)
+            .map_err(|mut error| {
+                if error.name == "IndexSizeError" {
+                    error.name = "RangeError";
+                    error.message = "Out of memory at ImageData creation.".into();
+                }
+                error
+            })?;
+        Ok(image.with_color_space(self.color_space()))
     }
 
     /// `createImageData(imagedata)`: the same size, transparent black.

@@ -17,7 +17,6 @@
   // 12 the carrier's auth callback ("callback") or a web worker realm's placement.
   var host = global.__exact_host;
   delete global.__exact_host;
-
   // LLP 1027.000: time and seeds are source arguments, so bake and cache
   // see them. This VM belongs to one module; no page/guest globals change.
   // Install before the app can capture an alias, including Date's prototype
@@ -28,7 +27,10 @@
   function fixed(object, name, value) {
     Object.defineProperty(object, name, { value: value, writable: false, configurable: false });
   }
-  var NativeDate = global.Date;
+  // The engine's own Date, through its prototype: a browser realm under a
+  // page's fake clock (Playwright's `clock.install`) has a fake `Date` that
+  // keeps the real prototype.
+  var NativeDate = global.Date.prototype.constructor;
   var construct = Reflect.construct;
   var InputDate = new Proxy(NativeDate, {
     apply: function () { return refuseAmbient("Date()"); },
@@ -42,9 +44,8 @@
   fixed(global, "Date", InputDate);
   // Not a second door to randomness: `crypto` below is the secure one.
   fixed(global.Math, "random", function () {
-    throw new Error("Math.random() is unavailable in data sources; pass time or a random seed as an argument, or use crypto.getRandomValues");
+    throw new Error("Math.random() is unavailable in data sources; seed from crypto.getRandomValues in a source (docs/recipes/random-and-shuffle.md), or pass a seed as an argument");
   });
-
   // No timers and no clock to read (LLP 1027.000): refused by name, as the
   // web's module bindings refuse them (host/web-js/ts-fetch.js), rather than
   // a bare "doesn't exist". Clearing what was never set is harmless.
@@ -110,7 +111,15 @@
   // format getter or formatToParts method; explicit timestamps still use
   // the engine's locale/timezone implementation unchanged.
   if (global.Intl && global.Intl.DateTimeFormat) {
-    var dateFormat = global.Intl.DateTimeFormat.prototype;
+    // The engine's prototype, the one with the `format` accessor: a fake
+    // clock's DateTimeFormat only inherits it, and answers an omitted date
+    // from its clock, so the engine's constructor takes its place.
+    var dateFormat = global.Intl.DateTimeFormat.prototype, engineFormat = dateFormat;
+    while (engineFormat && !(Object.getOwnPropertyDescriptor(engineFormat, "format") || {}).get) engineFormat = Object.getPrototypeOf(engineFormat);
+    if (engineFormat && engineFormat !== dateFormat) {
+      dateFormat = engineFormat;
+      global.Intl.DateTimeFormat = engineFormat.constructor;
+    }
     var getFormat = Object.getOwnPropertyDescriptor(dateFormat, "format").get;
     var formats = new WeakMap();
     var apply = Reflect.apply;
@@ -134,195 +143,6 @@
       fixed(dateFormat, "formatToParts", explicitFormat(dateFormat.formatToParts, "formatToParts"));
     }
   }
-
-  // Intl.NumberFormat's `notation: "compact"` where the engine ignores it:
-  // Hermes's Apple Intl printed `9,274,743` where a browser prints `9.3M`
-  // (x2apps stocks #3). The short forms are ICU's, as Chrome 154 formats
-  // `10^e` (formatToParts) for e = 3…14: per locale, each magnitude's power
-  // of ten and suffix (`~` a no-break space), "" where it is not
-  // abbreviated. ICU's steps follow (CompactHandler): the unrounded
-  // magnitude picks the power, the scaled value rounds (half-expand, from
-  // its shortest digits) to an integer but two significant digits, or to
-  // the app's own digit options, and a carry into the next magnitude picks
-  // again. Digits, signs and separators are the engine's own. A locale or
-  // `compactDisplay: "long"` not here is formatted in full, and said once.
-  (function () {
-    var Native = global.Intl && global.Intl.NumberFormat;
-    try { if (!Native || new Native("en-US", { notation: "compact" }).format(1000) === "1K") return; } catch (e) { return; }
-    var SHORT = {
-      "en": "3K|3K|3K|6M|6M|6M|9B|9B|9B|12T|12T|12T",
-      "en-GB": "3k|3k|3k|6m|6m|6m|9bn|9bn|9bn|12tn|12tn|12tn",
-      "en-IN": "3K|3K|5L|5L|7Cr|7Cr|7Cr|10KCr|10KCr|12LCr|12LCr|12LCr",
-      "de": "|||6~Mio.|6~Mio.|6~Mio.|9~Mrd.|9~Mrd.|9~Mrd.|12~Bio.|12~Bio.|12~Bio.",
-      "fr": "3~k|3~k|3~k|6~M|6~M|6~M|9~Md|9~Md|9~Md|12~Bn|12~Bn|12~Bn",
-      "fr-CA": "3~k|3~k|3~k|6~M|6~M|6~M|9~G|9~G|9~G|12~T|12~T|12~T",
-      "es": "3~mil|3~mil|3~mil|6~M|6~M|6~M|6~M|9~mil~M|9~mil~M|12~B|12~B|12~B",
-      "es-MX": "3~k|3~k|3~k|6~M|6~M|6~M|6~M|9~mil~M|9~mil~M|12~B|12~B|12~B",
-      "it": "3K|3K|3K|6~Mln|6~Mln|6~Mln|9~Mld|9~Mld|9~Mld|12~Bln|12~Bln|12~Bln",
-      "pt": "3~mil|3~mil|3~mil|6~mi|6~mi|6~mi|9~bi|9~bi|9~bi|12~tri|12~tri|12~tri",
-      "pt-PT": "3~mil|3~mil|3~mil|6~M|6~M|6~M|9~mM|9~mM|9~mM|12~Bi|12~Bi|12~Bi",
-      "nl": "3K|3K|3K|6~mln.|6~mln.|6~mln.|9~mld.|9~mld.|9~mld.|12~bln.|12~bln.|12~bln.",
-      "sv": "3~tn|3~tn|3~tn|6~mn|6~mn|6~mn|9~md|9~md|9~md|12~bn|12~bn|12~bn",
-      "da": "3~t|3~t|3~t|6~mio.|6~mio.|6~mio.|9~mia.|9~mia.|9~mia.|12~bio.|12~bio.|12~bio.",
-      "nb": "3k|3k|3k|6~mill.|6~mill.|6~mill.|9~mrd.|9~mrd.|9~mrd.|12~bill.|12~bill.|12~bill.",
-      "fi": "3~t.|3~t.|3~t.|6~milj.|6~milj.|6~milj.|9~mrd.|9~mrd.|9~mrd.|12~bilj.|12~bilj.|12~bilj.",
-      "pl": "3~tys.|3~tys.|3~tys.|6~mln|6~mln|6~mln|9~mld|9~mld|9~mld|12~bln|12~bln|12~bln",
-      "ru": "3~тыс.|3~тыс.|3~тыс.|6~млн|6~млн|6~млн|9~млрд|9~млрд|9~млрд|12~трлн|12~трлн|12~трлн",
-      "uk": "3~тис.|3~тис.|3~тис.|6~млн|6~млн|6~млн|9~млрд|9~млрд|9~млрд|12~трлн|12~трлн|12~трлн",
-      "cs": "3~tis.|3~tis.|3~tis.|6~mil.|6~mil.|6~mil.|9~mld.|9~mld.|9~mld.|12~bil.|12~bil.|12~bil.",
-      "tr": "3~B|3~B|3~B|6~Mn|6~Mn|6~Mn|9~Mr|9~Mr|9~Mr|12~Tn|12~Tn|12~Tn",
-      "ja": "|4万|4万|4万|4万|8億|8億|8億|8億|12兆|12兆|12兆",
-      "zh": "|4万|4万|4万|4万|8亿|8亿|8亿|8亿|12万亿|12万亿|12万亿",
-      "zh-TW": "|4萬|4萬|4萬|4萬|8億|8億|8億|8億|12兆|12兆|12兆",
-      "ko": "3천|4만|4만|4만|4만|8억|8억|8억|8억|12조|12조|12조",
-      "hi": "3~हज़ार|3~हज़ार|5~लाख|5~लाख|7~क॰|7~क॰|9~अ॰|9~अ॰|11~ख॰|11~ख॰|13~नील|13~नील",
-      "he": "3K‏|3K‏|3K‏|6M‏|6M‏|6M‏|9B‏|9B‏|9B‏|12T‏|12T‏|12T‏",
-      "id": "3~rb|3~rb|3~rb|6~jt|6~jt|6~jt|9~M|9~M|9~M|12~T|12~T|12~T",
-      "th": "3K|3K|3K|6M|6M|6M|9B|9B|9B|12T|12T|12T",
-      "vi": "3~N|3~N|3~N|6~Tr|6~Tr|6~Tr|9~T|9~T|9~T|12~NT|12~NT|12~NT",
-    };
-    var said = {};
-    function table(locale) {
-      var parts = String(locale).split("-u-")[0].split("-"), lang = parts[0], region = "", script = "";
-      for (var i = 1; i < parts.length; i++) {
-        if (parts[i].length === 4) script = parts[i];
-        else if (parts[i].length === 2 && !region) region = parts[i].toUpperCase();
-      }
-      var names = [lang + (region ? "-" + region : ""), lang === "zh" && (script === "Hant" || region === "HK" || region === "MO") ? "zh-TW" : "", lang];
-      for (var j = 0; j < names.length; j++) {
-        var row = names[j] && SHORT[names[j]];
-        if (row) return row.split("|").map(function (cell) {
-          var m = /^(\d+)(.*)$/.exec(cell);
-          return m ? { power: Number(m[1]), suffix: m[2].replace(/~/g, " ") } : null;
-        });
-      }
-      return null;
-    }
-    // A non-negative number's shortest digits, never exponential.
-    function plain(x) {
-      var s = String(x), e = s.indexOf("e");
-      if (e < 0) return s;
-      var mantissa = s.slice(0, e).split("."), digits = mantissa[0] + (mantissa[1] || ""), point = mantissa[0].length + Number(s.slice(e + 1));
-      if (point <= 0) return "0." + new Array(1 - point).join("0") + digits;
-      return point >= digits.length ? digits + new Array(point - digits.length + 1).join("0") : digits.slice(0, point) + "." + digits.slice(point);
-    }
-    // `x` (≥ 0) moved `shift` places left, rounded half-expand to `fraction`
-    // digits after the point (a negative one rounds to tens, hundreds…),
-    // as a decimal string.
-    function roundAt(x, shift, fraction) {
-      var s = plain(x).split("."), int = s[0], frac = s[1] || "";
-      while (int.length <= shift - fraction) int = "0" + int;
-      frac = int.slice(int.length - shift) + frac; int = int.slice(0, int.length - shift);
-      var digits = (int + frac + new Array(Math.max(fraction, 0) + 2).join("0")).split("").map(Number), keep = int.length + fraction;
-      var up = digits[keep] >= 5;
-      digits.length = keep;
-      for (var i = keep - 1; up && i >= 0; i--) { digits[i]++; up = digits[i] === 10; if (up) digits[i] = 0; }
-      var text = (up ? "1" : "") + digits.join("") + new Array(Math.max(-fraction, 0) + 1).join("0");
-      var cut = text.length - Math.max(fraction, 0), head = text.slice(0, cut).replace(/^0+(?=\d)/, "") || "0";
-      return fraction > 0 ? head + "." + text.slice(cut) : head;
-    }
-    // Apple's engine has no `formatToParts`: the whole string is one part.
-    function partsOf(format, n) {
-      return typeof format.formatToParts === "function" ? format.formatToParts(n) : [{ type: "literal", value: format.format(n) }];
-    }
-    function Compact(locales, options) {
-      this.native = new Native(locales, options);
-      this.options = options;
-      var resolved = this.native.resolvedOptions();
-      this.cells = options.compactDisplay === "long" || resolved.style !== "decimal" ? null : table(resolved.locale);
-      if (!this.cells && !said[resolved.locale] && global.console) {
-        said[resolved.locale] = true;
-        global.console.error("Intl.NumberFormat: notation \"compact\" (" + (options.compactDisplay || "short") + ", " + resolved.style + ") in " +
-          resolved.locale + " is not available on this host; numbers are formatted in full");
-      }
-    }
-    Compact.prototype = Object.create(Native.prototype);
-    Compact.prototype.constructor = Compact;
-    // The rounded scaled value as a decimal string, and its cell.
-    Compact.prototype.scale = function (x) {
-      var cells = this.cells, o = this.options;
-      var cell = function (magnitude) { return magnitude < 3 ? null : cells[Math.min(magnitude, 14) - 3]; };
-      var digits = function (shifted) {
-        var int = shifted.split(".")[0].length;
-        if (o.maximumSignificantDigits !== undefined || o.minimumSignificantDigits !== undefined) {
-          var sd = o.maximumSignificantDigits !== undefined ? o.maximumSignificantDigits : 21;
-          var zeros = /^0\.(0*)/.exec(shifted);
-          return zeros ? zeros[1].length + sd : sd - int;
-        }
-        if (o.maximumFractionDigits !== undefined || o.minimumFractionDigits !== undefined)
-          return o.maximumFractionDigits !== undefined ? o.maximumFractionDigits : Math.max(o.minimumFractionDigits, 3);
-        // Compact rounding: an integer, but two significant digits.
-        if (int >= 2 && shifted[0] !== "0") return 0;
-        var lead = /^0\.0*/.exec(shifted);
-        return lead ? lead[0].length - 1 + 1 : 1;
-      };
-      var magnitude = x === 0 ? 0 : plain(x).split(".")[0].replace(/^0+$/, "").length - 1;
-      if (magnitude < 0) magnitude = 0;
-      var c = cell(magnitude), shift = c ? c.power : 0;
-      var unrounded = roundAt(x, shift, 30).replace(/\.?0+$/, "");
-      var rounded = roundAt(x, shift, digits(unrounded));
-      // A carry into the next magnitude picks its cell again.
-      if (rounded.split(".")[0].length + shift - 1 > magnitude) {
-        var next = cell(magnitude + 1);
-        if ((next ? next.power : 0) !== shift) {
-          c = next; shift = next ? next.power : 0;
-          rounded = roundAt(x, shift, digits(roundAt(x, shift, 30).replace(/\.?0+$/, "")));
-        }
-      }
-      return { text: rounded, cell: c };
-    };
-    Compact.prototype.parts = function (n) {
-      n = Number(n);
-      if (!this.cells || !isFinite(n)) return partsOf(this.native, n);
-      var s = this.scale(Math.abs(n)), o = this.options, text = s.text;
-      // Trailing zeros go, down to the app's minimum.
-      var least = o.minimumFractionDigits !== undefined ? o.minimumFractionDigits : 0;
-      if (o.minimumSignificantDigits === undefined)
-        while (text.indexOf(".") >= 0 && text.split(".")[1].length > least && /0$/.test(text)) text = text.slice(0, -1);
-      text = text.replace(/\.$/, "");
-      var fraction = (text.split(".")[1] || "").length, value = Number(text);
-      // Grouping as compact's (`min2`): only from five integer digits.
-      var digits = partsOf(new Native(this.native.resolvedOptions().locale, {
-        minimumFractionDigits: fraction, maximumFractionDigits: fraction,
-        useGrouping: value >= 10000, signDisplay: o.signDisplay,
-      }), n < 0 || (n === 0 && 1 / n < 0) ? -value : value);
-      if (!s.cell) return digits;
-      var suffix = s.cell.suffix, space = /^[\s  ]*/.exec(suffix)[0], tail = /[‎‏]*$/.exec(suffix)[0];
-      var word = suffix.slice(space.length, suffix.length - tail.length);
-      if (space) digits.push({ type: "literal", value: space });
-      digits.push({ type: "compact", value: word });
-      if (tail) digits.push({ type: "literal", value: tail });
-      return digits;
-    };
-    Compact.prototype.formatToParts = function (n) { return this.parts(n); };
-    Compact.prototype.resolvedOptions = function () {
-      var r = this.native.resolvedOptions();
-      if (this.cells) { r.notation = "compact"; r.compactDisplay = "short"; }
-      return r;
-    };
-    Object.defineProperty(Compact.prototype, "format", {
-      configurable: true,
-      get: function () {
-        var self = this;
-        return function (n) { return self.parts(n).map(function (p) { return p.value; }).join(""); };
-      },
-    });
-    function NumberFormat(locales, options) {
-      if (options && options.notation === "compact") return new Compact(locales, options);
-      return new.target ? construct(Native, [locales, options], new.target) : Native(locales, options);
-    }
-    NumberFormat.prototype = Native.prototype;
-    NumberFormat.supportedLocalesOf = Native.supportedLocalesOf;
-    Object.defineProperty(global.Intl, "NumberFormat", { value: NumberFormat, writable: true, configurable: true });
-    var toLocale = Number.prototype.toLocaleString;
-    Object.defineProperty(Number.prototype, "toLocaleString", {
-      writable: true, configurable: true,
-      value: function toLocaleString(locales, options) {
-        if (options && options.notation === "compact") return new Compact(locales, options).format(Number(this));
-        return toLocale.call(this, locales, options);
-      },
-    });
-  })();
 
   // --- crypto (LLP 1069.005): digests are pure; entropy is a device read ---
   // Each draw inside an answer counts as an external read (op 8), as a secret
@@ -359,6 +179,7 @@
   var cryptoObject = Object.create(Crypto.prototype);
   function draw(receiver, api, take) {
     if (receiver !== cryptoObject) throw new TypeError("Illegal invocation");
+    if (overlaying) throw inOverlay(api);
     if (!currentCall || currentCall.status !== "pending") {
       throw new Error(api + " is unavailable " + (initializing ? "during module initialization" : "outside an answer") + "; call it inside an answer");
     }
@@ -426,9 +247,10 @@
   var DIGESTS = { "SHA-256": 1, "SHA-384": 1, "SHA-512": 1 };
   function SubtleCrypto() { throw new TypeError("Illegal constructor"); }
   var subtleObject = Object.create(SubtleCrypto.prototype);
-  function subtleCall(receiver, run) {
+  function subtleCall(receiver, member, run) {
     try {
       if (receiver !== subtleObject) throw new TypeError("Illegal invocation");
+      if (overlaying) throw inOverlay("crypto.subtle." + member + "()");
       return Promise.resolve(run());
     } catch (e) {
       return Promise.reject(e);
@@ -438,13 +260,13 @@
   ["encrypt", "decrypt", "sign", "verify", "digest", "generateKey", "deriveKey", "deriveBits",
     "importKey", "exportKey", "wrapKey", "unwrapKey"].forEach(function (member) {
     SubtleCrypto.prototype[member] = function () {
-      return subtleCall(this, function () {
+      return subtleCall(this, member, function () {
         throw new DOMException("crypto.subtle." + member + "() is unavailable in data sources", "NotSupportedError");
       });
     };
   });
   SubtleCrypto.prototype.digest = function digest(algorithm, data) {
-    return subtleCall(this, function () {
+    return subtleCall(this, "digest", function () {
       var given = algorithmName(algorithm), name = given.toUpperCase();
       if (!DIGESTS[name]) throw new DOMException("crypto.subtle.digest(): " + given + " is unavailable in data sources; use SHA-256, SHA-384 or SHA-512", "NotSupportedError");
       var bytes = copyBytes(data, "crypto.subtle.digest()");
@@ -523,7 +345,7 @@
     return platformSubtle;
   }
   SubtleCrypto.prototype.generateKey = function generateKey(algorithm, extractable, usages) {
-    return subtleCall(this, function () {
+    return subtleCall(this, "generateKey", function () {
       var api = "crypto.subtle.generateKey()";
       ecdsa(algorithm, api, true);
       var list = usageList(usages, ["sign", "verify"], api);
@@ -535,7 +357,7 @@
     });
   };
   SubtleCrypto.prototype.sign = function sign(algorithm, key, data) {
-    return subtleCall(this, function () {
+    return subtleCall(this, "sign", function () {
       var api = "crypto.subtle.sign()";
       ecdsa(algorithm, api, false);
       var hash = algorithm && algorithm.hash;
@@ -550,7 +372,7 @@
     });
   };
   SubtleCrypto.prototype.importKey = function importKey(format, keyData, algorithm, extractable, usages) {
-    return subtleCall(this, function () {
+    return subtleCall(this, "importKey", function () {
       var api = "crypto.subtle.importKey()";
       if (format !== "jwk") throw new DOMException(api + ": the format " + format + " is unavailable in data sources; use jwk", "NotSupportedError");
       ecdsa(algorithm, api, true);
@@ -567,7 +389,7 @@
     });
   };
   SubtleCrypto.prototype.exportKey = function exportKey(format, key) {
-    return subtleCall(this, function () {
+    return subtleCall(this, "exportKey", function () {
       var api = "crypto.subtle.exportKey()";
       if (format !== "jwk") throw new DOMException(api + ": the format " + format + " is unavailable in data sources; use jwk", "NotSupportedError");
       checkKey(key, api);
@@ -588,6 +410,7 @@
   // the secret holds only its handle.
   function keepKey(name, pair) {
     var api = "store.keepKey()";
+    if (overlaying) return Promise.reject(inOverlay(api));
     if (!currentCall || currentCall.status !== "pending") return Promise.reject(new Error(api + " called outside an answer"));
     try {
       if (!pair || !isKey(pair.privateKey) || !isKey(pair.publicKey) || pair.privateKey.type !== "private") throw new TypeError(api + ": a CryptoKeyPair from generateKey or store.key");
@@ -603,6 +426,7 @@
   }
   function keptKey(name) {
     var api = "store.key()";
+    if (overlaying) return Promise.reject(inOverlay(api));
     if (!currentCall || currentCall.status !== "pending") return Promise.reject(new Error(api + " called outside an answer"));
     try {
       if (bytesDoor) {
@@ -763,8 +587,85 @@
   }
   FetchError.prototype = Object.create(Error.prototype);
 
+  // A resource's two-way socket (LLP 1016.000 D7): the handle its mapper
+  // receives. Its state is what the mapper has seen: CONNECTING until
+  // `open`, OPEN until the end, CLOSED once the stream ends or its answer
+  // is let go. Only a mutation's synchronous source may send or close; each
+  // operation is copied now, kept with that call, and handed to the host
+  // only when its answer is given now (`settle`). The runner publishes it
+  // once the mutation's commit stands; the host checks the transport then.
+  var SOCKET_OPS = 256, SOCKET_BYTES = 1048576;
+  // A mutation does one kind of effect: socket operations or a fetch, never
+  // both. Whichever comes second refuses, and so does the mutation, before
+  // either leaves: no frame is handed over and no fetch is.
+  var SOCKET_AND_FETCH = "a mutation cannot both send on a socket and fetch";
+  function socketOwner(ticket) {
+    var owner = { ticket: ticket, state: 0 };
+    // The transport's bytes as this turn began (the runner's snapshot,
+    // door op 15), as WHATWG's `bufferedAmount` counts them at a task's
+    // start; the bytes this turn stages on the socket add to them.
+    // (The web's wasm realm has no such door; its handle never opens.)
+    function buffered() { try { return Number(host(15, String(ticket), "")) || 0; } catch (e) { return 0; } }
+    function stage(op) {
+      var call = currentCall;
+      if (!call || !call.mutation || !call.sync) throw new Error("socket." + (op.op === "close" ? "close" : "send") + " is only available in a mutation's synchronous source");
+      if (owner.state !== 1) throw new DOMException("the socket is not open", "InvalidStateError");
+      if (call.tickets.length) { call.socketConflict = true; throw new Error(SOCKET_AND_FETCH); }
+      var ops = call.socketOps || (call.socketOps = []), bytes = op.size, mine = op.size;
+      if (ops.length >= SOCKET_OPS) throw new DOMException("socket mutation exceeds 256 operations", "QuotaExceededError");
+      for (var i = 0; i < ops.length; i++) {
+        if (ops[i].owner === owner && ops[i].op === "close") throw new DOMException("the socket is not open", "InvalidStateError");
+        bytes += ops[i].size;
+        if (ops[i].owner === owner) mine += ops[i].size;
+      }
+      // The mutation's payload as a whole; this socket's buffer with what it stages on it.
+      if (bytes > SOCKET_BYTES) throw new DOMException("socket mutation exceeds 1 MiB", "QuotaExceededError");
+      if (buffered() + mine > SOCKET_BYTES) throw new DOMException("socket buffer exceeds 1 MiB", "QuotaExceededError");
+      op.owner = owner;
+      ops.push(op);
+    }
+    owner.handle = Object.freeze({
+      get readyState() { return owner.state; },
+      get bufferedAmount() {
+        var n = buffered(), ops = currentCall && currentCall.socketOps;
+        for (var i = 0; ops && i < ops.length; i++) if (ops[i].owner === owner) n += ops[i].size;
+        return n;
+      },
+      send: function (data) {
+        if (typeof data === "string") return stage({ op: "text", data: data, size: utf8Length(data) });
+        if (!(data instanceof ArrayBuffer) && !ArrayBuffer.isView(data)) throw new TypeError("socket.send expects a string, ArrayBuffer or ArrayBufferView");
+        var bytes = new Uint8Array(copyBytes(data, "socket.send"));
+        stage({ op: "binary", data: toBase64(bytes), size: bytes.length });
+      },
+      close: function (code, reason) {
+        if (code === undefined) code = 1000;
+        if (reason === undefined) reason = "";
+        if (code !== 1000 && (!Number.isInteger(code) || code < 3000 || code > 4999)) throw new DOMException("invalid socket close code", "InvalidAccessError");
+        if (typeof reason !== "string" || utf8Length(reason) > 123) throw new SyntaxError("socket close reason exceeds 123 UTF-8 bytes");
+        stage({ op: "close", code: code, reason: reason, size: 0 });
+      },
+    });
+    return owner;
+  }
+  // A refused mutation's fetches, withdrawn before any was handed out.
+  function withdrawFetches(call) {
+    for (var i = 0; i < call.tickets.length; i++) { settled(call.tickets[i]); host(16, String(call.tickets[i]), ""); }
+    call.tickets = [];
+    call.socketOps = null;
+  }
+  // A mutation's staged operations to the host, as its answer is given.
+  function handSocketOps(call) {
+    var ops = call.socketOps;
+    call.socketOps = null;
+    for (var i = 0; ops && i < ops.length; i++) {
+      var op = ops[i];
+      host(14, String(op.owner.ticket), JSON.stringify({ op: op.op, data: op.data, code: op.code, reason: op.reason }));
+    }
+  }
+
   global.Response = Response;
   global.fetch = function (url, init) {
+    if (overlaying) return Promise.reject(inOverlay("fetch()"));
     var call = currentCall;
     // A continuation running as an answer already given still fetches: the
     // next answer to settle claims the request (see `settle`).
@@ -781,6 +682,7 @@
       return Promise.reject(orphan);
     }
     if (call.letGo) return Promise.reject(new FetchError({ kind: "Aborted", message: "the answer was let go before this fetch" }));
+    if (call.socketConflict || (call.socketOps && call.socketOps.length)) { call.socketConflict = true; return Promise.reject(new Error(SOCKET_AND_FETCH)); }
     var method = init && init.method ? String(init.method).toUpperCase() : "GET";
     var headers = Array.from(new global.Headers(init && init.headers).entries());
     // A BufferSource body goes as its bytes, in base64 beside the text body
@@ -846,6 +748,14 @@
         return Promise.reject(new TypeError("exactTimeout must be an integer number of milliseconds from 1 to 3600000"));
       if (stream) return Promise.reject(new TypeError("exactTimeout: a stream has no timeout"));
     }
+    // `redirect` (Fetch §5.4, the Request constructor): read and checked once,
+    // before the signal, and a throw rejects. Rust follows redirects, checking
+    // each hop's grant, so "manual" answers with the 3xx and its Location.
+    var redirect;
+    try { var asked = init ? init.redirect : undefined; redirect = asked !== undefined ? String(asked) : undefined; }
+    catch (e) { return Promise.reject(e); }
+    if (redirect !== undefined && redirect !== "follow" && redirect !== "manual" && redirect !== "error")
+      return Promise.reject(new TypeError("redirect must be follow, manual or error"));
     // The web's `signal`: an aborted fetch rejects with its reason at once.
     // The host's request still runs; its reply is dropped (`__exact_fulfill`).
     var signal = init ? init.signal : undefined;
@@ -855,16 +765,21 @@
     }
     if (signal && signal.aborted) return Promise.reject(signal.reason);
     var ticket = nextTicket++;
-    var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, body_base64: bytes ? toBase64(bytes) : undefined, max_response_bytes: ceiling, stream: stream ? true : undefined, timeout_ms: timeout, body_from: bodyFrom }));
+    // A WebSocket stream owns a two-way socket (LLP 1016.000 D7).
+    var socket = stream && /^wss?:/i.test(String(url));
+    var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, body_base64: bytes ? toBase64(bytes) : undefined, max_response_bytes: ceiling, stream: stream ? true : undefined, socket: socket ? true : undefined, timeout_ms: timeout, body_from: bodyFrom, redirect: redirect }));
     if (error !== undefined) return Promise.reject(new Error(error));
     call.tickets.push(ticket);
     if (stream) call.stream = stream;
+    var owner = socket ? (call.socket = socketOwner(ticket)) : null;
     return new Promise(function (resolve, reject) {
       // `early`: made while its answer was still in flight (its body, or its
       // own continuation), so that answer's own, whoever else is pending.
       var p = { resolve: resolve, reject: reject, call: call, claimed: false, stream: !!stream, signal: signal, release: function () {}, early: call.status === "pending" };
       pending.set(ticket, p);
-      if (signal) p.release = watchAbort(signal, function () { if (settled(ticket)) reject(signal.reason); });
+      // The caller's abort also makes its socket handle stale (D7); the
+      // stream itself runs until the runner lets its ticket go.
+      if (signal) p.release = watchAbort(signal, function () { if (owner) owner.state = 3; if (settled(ticket)) reject(signal.reason); });
     });
   };
 
@@ -904,9 +819,9 @@
 
   // --- the store (LLP 1018): reads counted, writes grant-checked, in Rust -
   var store = {
-    get: function (name) { var v = host(2, String(name), ""); return v === undefined ? null : v; },
-    set: function (name, value) { var e = host(3, String(name), String(value)); if (e !== undefined) throw new Error(e); },
-    forget: function (name) { var e = host(4, String(name), ""); if (e !== undefined) throw new Error(e); },
+    get: function (name) { if (overlaying) throw inOverlay("store.get()"); var v = host(2, String(name), ""); return v === undefined ? null : v; },
+    set: function (name, value) { if (overlaying) throw inOverlay("store.set()"); var e = host(3, String(name), String(value)); if (e !== undefined) throw new Error(e); },
+    forget: function (name) { if (overlaying) throw inOverlay("store.forget()"); var e = host(4, String(name), ""); if (e !== undefined) throw new Error(e); },
     keepKey: function (name, pair) { return keepKey(name, pair); },
     key: function (name) { return keptKey(name); },
   };
@@ -946,6 +861,10 @@
     if (/^denied: /.test(message)) return "denied";
     var image = IMAGE_CODE.exec(message);
     if (image) return image[1];
+    // Ibex's retained-document boundary supplies typed codes and only the
+    // logical path. Do not infer a code from provider diagnostic prose.
+    var document = /^document (ENOENT|EEXIST|ENOTDIR|EISDIR|ENOTEMPTY|EBUSY): doc:\//.exec(message);
+    if (document) return document[1];
     // The Windows document adapter emits this only after same-handle type
     // inspection; incidental text and numeric access denial are insufficient.
     if (windowsStorage && /\(filesystem code EISDIR\)$/.test(message)) return "EISDIR";
@@ -967,6 +886,7 @@
     return error;
   }
   function storageCall(receiver, method, args, convert) {
+    if (overlaying) return Promise.reject(inOverlay("storage." + method + "()"));
     var call = currentCall;
     // Storage issued after its answer replied (a `.then` chained on a save,
     // a write begun when a background one lands) is background work (D2).
@@ -1078,6 +998,23 @@
   ["readFile", "writeFile", "atomicWriteFile", "appendFile", "readdir", "mkdir", "rm", "stat", "rename", "copyFile", "realpath"].forEach(function (method) {
     files[method] = function () { return storageCall(nativeStorage && nativeStorage.fs, method, arguments); };
   });
+  // LLP 1069.010.000 D2a: `{expect: stat}` refuses a doc:/ write `ECHANGED` if the file changed since; the stat runs just before it.
+  ["writeFile", "atomicWriteFile", "appendFile"].forEach(function (method) {
+    var write = files[method], api = "storage.fs." + method + "()";
+    files[method] = function (path, data, options) {
+      var expect = options && options.expect;
+      if (!expect) return write.apply(null, arguments);
+      if (typeof path !== "string" || path.indexOf("doc:/") !== 0 || typeof expect.modifiedMs !== "number" || typeof expect.size !== "number") return Promise.reject(new TypeError(api + ": expect is a stat (modifiedMs and size) of a doc:/ path"));
+      return files.stat(path).then(function (now) { if (now.modifiedMs !== expect.modifiedMs || now.size !== expect.size) throw storageError("document ECHANGED: " + path + " changed on disk since it was read", "ECHANGED"); return write(path, data); });
+    };
+  });
+  // LLP 1069.010.000 D1: the answer is asked again when the doc:/ path (a folder's own entries, or `recursive` its subtree) changes on disk.
+  files.watch = function (path, options) {
+    if (overlaying) throw inOverlay("storage.fs.watch()");
+    if (!currentCall || currentCall.status !== "pending") throw new Error("storage.fs.watch() outside an answer");
+    if (typeof path !== "string" || path.indexOf("doc:/") !== 0) throw new TypeError("storage.fs.watch(): path must be a doc:/ path");
+    host(6, "watch", (options && options.recursive ? "doc-watch-recursive:" : "doc-watch:") + path);
+  };
   // `fs.compressImage(from, to, {maxDimension, maxBytes})` (LLP 1069.002
   // A1): its options are checked here, before anything is queued, and travel
   // to the host as two numbers; natively the reply is `width\theight\tsize`,
@@ -1163,7 +1100,9 @@
     var kind = e && typeof e === "object" ? e.kind : undefined;
     if (kind !== "UnknownSource" && kind !== "BadArguments" && kind !== "Unavailable") kind = "Unavailable";
     var message = e && typeof e === "object" && e.message !== undefined ? e.message : e;
-    return JSON.stringify({ tag: 2, kind: kind, code: e && e.code, failure: failureCode(e), message: String(message) });
+    // `reason`: what `failure(x).reason` reads, a string the error carries (the snapback4 driver's refusal code).
+    var reason = e && typeof e === "object" && typeof e.reason === "string" ? e.reason : "";
+    return JSON.stringify({ tag: 2, kind: kind, code: e && e.code, failure: failureCode(e), reason: reason, message: String(message) });
   }
   // Natively, liveness is the module's, as a browser's event loop has it
   // (LLP 1027.003.000 §13; hn-reader F7): an answer awaiting a promise
@@ -1205,15 +1144,20 @@
     return text;
   }
   function settle(call, final) {
+    // A fetch its continuation tried after it staged socket operations
+    // (refused at the fetch) refuses the mutation too, before any frame.
+    if (call.socketConflict && call.status === "done") {
+      withdrawFetches(call);
+      call.status = "failed"; call.error = new Error(SOCKET_AND_FETCH);
+    }
     // Its own work first: a fetch it made that no settle has handed out,
     // then its storage steps, which move to the background once its value
     // is ready. A fetch made while it was in
     // flight is its own (an unawaited POST), and it claims it whoever else
     // is pending. One made only after it finished ran in a continuation it
     // settled for another answer: with another answer in flight, which may
-    // be that one, it is left to it (review r4a, finding 1); with none, it
-    // waits for the fetch itself. Either way nothing is left behind (Grok's
-    // batch 2 review).
+    // be that one, it is left to it; with none, it waits for the fetch
+    // itself. Either way nothing is left behind.
     var finished = call.status === "done" || call.status === "failed", others = false;
     if (finished && moduleWide) calls.forEach(function (c) { if (c !== call && !c.letGo && c.status === "pending") others = true; });
     for (var i = 0; i < call.tickets.length; i++) {
@@ -1242,6 +1186,7 @@
       var inFlight = false;
       pending.forEach(function (p) { if (p.call === call && p.claimed) inFlight = true; });
       if (moduleWide && inFlight) return JSON.stringify({ tag: 1, call: call.id, ticket: 0, waiting: true });
+      if (call.status === "done") handSocketOps(call);
       return reply(call, call.status === "done" ? ok(call.value) : fail(call.error));
     }
     if (moduleWide) {
@@ -1277,19 +1222,21 @@
   // answer's work). `__exact_fulfill(ticket, outcomeJson)` resolves that
   // fetch; drain and settle again. `__exact_settle(id, "final")` refuses an
   // answer still waiting on nothing of its own.
-  global.__exact_call = function (source, argsJson) {
+  global.__exact_call = function (source, argsJson, mutation) {
     initializing = false;
-    var call = { id: nextCall++, status: "pending", value: undefined, error: undefined, tickets: [], storage: 0, replied: false };
+    var call = { id: nextCall++, status: "pending", value: undefined, error: undefined, tickets: [], storage: 0, replied: false, mutation: mutation === "mutation", sync: false, socketOps: null };
     var result;
     currentCall = call;
     try {
       var nativeCall = function (request) {
+        if (overlaying) throw inOverlay("native.call()");
         if (currentCall === background) {
           journal("data: native.call() called from background work: it was never run");
           throw new Error("native.call() called from background work: it was never run. Call it inside an answer");
         }
         if (!currentCall || currentCall.status !== "pending") throw new Error("native call outside an answer");
-        return JSON.parse(host(6, "call", JSON.stringify(request)));
+        try { return JSON.parse(host(6, "call", JSON.stringify(request))); } // at bake, no module: storage's refusal (LLP 1067 D4)
+        catch (e) { throw e && e.message === "bake" ? storageError("native.call() is unavailable during bake: the build links no native module", "bake") : e; }
       };
       // Null only where no module can be (a page with no page module). Else an
       // object; whether a module is linked is the device's fact, not the
@@ -1302,6 +1249,7 @@
         // changes (a level, a step, new words): the host asks it again then,
         // instead of the app polling (LLP 1016.002).
         watch: function (topic) {
+          if (overlaying) throw inOverlay("native.watch()");
           if (!currentCall || currentCall.status !== "pending") throw new Error("native.watch outside an answer");
           host(6, "watch", String(topic));
         },
@@ -1311,6 +1259,7 @@
         // the answer waits for it as for a fetch. A module that takes no
         // long calls answers through `call`, now.
         later: function (request) {
+          if (overlaying) return Promise.reject(inOverlay("native.later()"));
           if (host(6, "later", "") !== "later") {
             try { return Promise.resolve(nativeCall(request)); } catch (e) { return Promise.reject(e); }
           }
@@ -1318,10 +1267,24 @@
             .then(function (r) { return r.text().then(function (t) { if (r.status === 200) return JSON.parse(t); throw new Error(t || "native call failed"); }); });
         },
       });
-      result = global.exact.answer(source, JSON.parse(argsJson), store, storage, native);
+      call.sync = true;
+      try { result = global.exact.answer(source, JSON.parse(argsJson), store, storage, native); }
+      finally { call.sync = false; }
+      // Staged socket operations go out only with a value given now (D7):
+      // not with a promise, a stream answer or any other fetch.
+      if (call.socketOps && call.tickets.length) call.socketConflict = true;
+      if (call.socketConflict || (call.socketOps && result && typeof result.then === "function")) {
+        if (result && typeof result.then === "function") result.then(undefined, function () {});
+        throw new Error(call.socketConflict ? SOCKET_AND_FETCH : "a socket mutation must answer synchronously");
+      }
     }
     catch (e) {
       calls.set(call.id, call);
+      if (call.socketConflict) { withdrawFetches(call); e = new Error(SOCKET_AND_FETCH); }
+      // A refused socket mutation makes no fetch later either: its
+      // continuation's are refused as the second effect.
+      if (call.socketOps) call.socketConflict = true;
+      call.socketOps = null;
       call.status = "failed"; call.error = e;
       return JSON.stringify({ tag: 3, call: call.id });
     }
@@ -1365,6 +1328,8 @@
     if (global.exact.retireCanvases) global.exact.retireCanvases(retired);
     return "";
   };
+  // Calls still tracked: a diagnostic for tests (LLP 1041 §8.4 Q5).
+  global.__exact_calls_open = function () { return String(calls.size); };
   global.__exact_settle = function (id, final) {
     checkpoint();
     currentCall = null;
@@ -1383,6 +1348,8 @@
   global.__exact_forget = function (id) {
     var call = calls.get(Number(id));
     if (!call) return "";
+    // A released resource's socket handle is stale from now on (D7).
+    if (call.socket) call.socket.state = 3;
     // Not a fetch another answer has since claimed: that one waits on it.
     var dropped = [];
     for (var i = 0; i < call.tickets.length; i++) {
@@ -1426,13 +1393,16 @@
   global.__exact_message = function (id, outcomeJson) {
     var call = calls.get(Number(id));
     if (!call || !call.stream) return fail(new Error("no stream answer " + id));
-    var o = JSON.parse(outcomeJson), event;
-    if (o.message) event = { type: o.message.event || "message", data: o.message.data, lastEventId: o.message.id, coalesced: o.message.coalesced };
+    var o = JSON.parse(outcomeJson), event, socket = call.socket;
+    if (o.message) event = { type: o.message.event || "message", data: o.message.binary !== undefined ? fromBase64(o.message.binary).buffer : o.message.data, lastEventId: o.message.id, coalesced: o.message.coalesced };
+    else if (o.closed) event = { type: "close", data: "", lastEventId: "", coalesced: 0, code: o.closed.code, reason: o.closed.reason, wasClean: o.closed.wasClean };
     else if (o.failed) event = { type: "error", data: "", lastEventId: "", coalesced: 0, kind: o.failed.kind, message: o.failed.message, status: 0 };
     else event = { type: "error", data: o.response.body, lastEventId: "", coalesced: 0, kind: "Response", message: "HTTP " + o.response.status, status: o.response.status };
+    // The socket's state as of this event (D7): `open` opens it, an end closes it.
+    if (socket) socket.state = !o.message ? 3 : event.type === "open" && socket.state === 0 ? 1 : socket.state;
     currentCall = call;
     try {
-      var value = call.stream(event);
+      var value = socket ? call.stream(event, socket.handle) : call.stream(event);
       if (value && typeof value.then === "function") throw new Error("exactStream answers each event now; it cannot await");
       return ok(value);
     } catch (e) { return fail(e); }
@@ -1447,6 +1417,38 @@
     currentCall = null;
     return JSON.stringify({ head: headOwner() === background, queued: queue.length, inFlight: head ? 1 : 0,
       done: storageCounts.done, failed: storageCounts.failed, last: storageCounts.last });
+  };
+  // An overlay (`overlay(source, args, answer, writes)`): what a resource
+  // shows while writes affect it, called synchronously with no answer current. It has
+  // no effects: `fetch`, storage, the store, `native` and `crypto` refuse.
+  var overlaying = false;
+  function inOverlay(api) {
+    var e = new Error(api + " is unavailable in an overlay, which runs synchronously and has no effects; do the work in the source's answer or the mutation, and pass the overlay what it needs in the mutation's arguments");
+    journal("overlay refused: " + e.message);
+    return e;
+  }
+  global.__exact_overlay = function (source, argsJson, payloadJson) {
+    initializing = false;
+    if (typeof global.exact.overlay !== "function") return JSON.stringify({ tag: 4 });
+    var payload = JSON.parse(payloadJson);
+    // A realm whose answer spans tasks (the web's) has one current between
+    // them: put it back after.
+    var saved = currentCall;
+    currentCall = null;
+    overlaying = true;
+    try {
+      // An answered write the answer does not include yet goes on showing
+      // when the overlay calls its `keep()`.
+      var keep = [];
+      var writes = payload.writes.map(function (w) {
+        return Object.freeze(Object.assign({}, w, { keep: function () { if (keep.indexOf(w.id) < 0) keep.push(w.id); } }));
+      });
+      var value = global.exact.overlay(source, JSON.parse(argsJson), payload.answer, writes);
+      if (value && typeof value.then === "function") throw new Error("an overlay returned a promise: it runs synchronously inside a commit and cannot await; compute its value from `answer` and `writes` and return it");
+      return JSON.stringify(value === undefined ? { tag: 4 } : { tag: 0, value: value, keep: keep });
+    } catch (e) {
+      return JSON.stringify({ tag: 2, message: e && e.message ? String(e.message) : String(e) });
+    } finally { overlaying = false; currentCall = saved; }
   };
   // A background round delivers with the background current: what its
   // completion's reaction issues is the background's too.

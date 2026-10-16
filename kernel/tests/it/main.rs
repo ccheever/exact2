@@ -2,10 +2,12 @@
 
 mod animation;
 mod apply;
+mod bars;
 mod browser_cases;
 mod browser_columns;
 mod browser_controls;
 mod browser_flex;
+mod browser_host_block;
 mod browser_paint_order;
 mod browser_position;
 mod browser_ratio;
@@ -18,15 +20,19 @@ mod content_region;
 mod cover;
 mod env;
 mod export;
+mod field_text;
 mod fit_content_native;
+mod fit_text;
 mod flow;
 mod flow_auto;
 mod flow_rows;
 mod geometry;
+mod hairline;
 mod handoff;
 mod head;
 mod height_binding;
 mod image;
+mod invocation;
 mod layout_equality;
 mod motion;
 mod native_buttons;
@@ -37,7 +43,9 @@ mod paragraph_stamp;
 mod presence;
 mod presented_height;
 mod reader;
+mod regions;
 mod rem;
+mod symbol;
 mod support {
     pub mod reader;
 }

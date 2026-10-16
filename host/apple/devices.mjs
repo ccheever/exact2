@@ -6,7 +6,8 @@ import { randomBytes } from 'node:crypto';
 import { homedir, networkInterfaces, tmpdir } from 'node:os';
 import { createServer as createTCPServer } from 'node:net';
 import { resolve } from 'node:path';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { decodePng, encodePng } from '../../scripts/png.mjs';
 
 const root = resolve(new URL('../..', import.meta.url).pathname);
 /** Use Xcode when `xcode-select` names the Command Line Tools, which carry
@@ -27,6 +28,31 @@ export function useXcode() {
 }
 const read = (cmd, args, opts = {}) => { useXcode(); return spawnSync(cmd, args, { cwd: root, encoding: 'utf8', ...opts }); };
 
+/** A window capture the app drew (`path`, in `r`'s scale) with the software keyboard put in from the simulator's own
+ *  screenshot: UIKit draws the keyboard in a process of its own, so no capture of the app's window has it (round 9:
+ *  "blank keyboard region"). Only the rows from the keyboard's top (`r.keyboard.windowTop`) are taken, so the picture
+ *  stays the app's; what could not be done is said in `note`, and the picture is left as it was. Returns `r`. */
+export function withKeyboard(r, path, udid) {
+  const top = r.keyboard?.windowTop, scale = r.scale;
+  const fail = (why) => { r.note = `the software keyboard is up: it is not in the capture (${why}), and the app above it may be shortened (state shows keyboard.top)`; return r; };
+  if (!(top >= 0) || !(scale > 0)) return fail('no keyboard top');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-kb-'));
+  try {
+    const shot = resolve(dir, 'display.png');
+    const taken = read('xcrun', ['simctl', 'io', udid, 'screenshot', '--type=png', shot], { timeout: 20000 });
+    if (taken.status !== 0 || !existsSync(shot)) return fail(`simctl io screenshot: ${(taken.stderr || '').trim().split('\n').pop() || 'failed'}`);
+    const app = decodePng(readFileSync(path)), display = decodePng(readFileSync(shot));
+    if (app.width !== display.width || app.height !== display.height) return fail(`the display is ${display.width}x${display.height}, the capture ${app.width}x${app.height}`);
+    const y = Math.max(0, Math.min(app.height, Math.round(top * scale)));
+    app.data.set(display.data.subarray(y * app.width * 4), y * app.width * 4);
+    writeFileSync(path, encodePng(app));
+    r.keyboard.captured = true;
+    r.note = 'the software keyboard is up and in the capture from keyboard.top down, as the simulator draws it; the app above it is shortened';
+    return r;
+  } catch (e) { return fail(String(e.message ?? e).split('\n')[0]); }
+  finally { rmSync(dir, { recursive: true, force: true }); }
+}
+
 /** Every available simulator: { udid, name, runtime, state, type } — `type`
  *  the device type's last component (`iPhone-18-Pro`, `Apple-TV-4K-…`), which a
  *  renamed simulator keeps. */
@@ -36,15 +62,31 @@ export function simulators() {
   return Object.entries(JSON.parse(r.stdout).devices).flatMap(([runtime, list]) => list.map((d) => ({ udid: d.udid, name: d.name, runtime, state: d.state, type: d.deviceTypeIdentifier?.split('.').pop() ?? '' })));
 }
 
-/** The simulator to use — `pick` (a udid or a name; EXACT_SIM by default), else a booted iPhone, else the iPhone Pro on the newest iOS — booted and waited for. With `tv`, the same choice among Apple TVs on tvOS. An iPhone is one by its device type, not its name: a simulator renamed `work-phone` is still one. */
-export function simulator(pick = process.env.EXACT_SIM, { tv = false } = {}) {
+/** The simulator to use — `pick` (a udid or a name; EXACT_SIM by default), else the one booted iPhone, else the iPhone Pro on the newest iOS — booted and waited for. When several are booted, the one `app` (a bundle id) is installed on, said on stderr; refused when that is none or several, naming how to choose: `hint`, the caller's own way. With `tv`, the same choice among Apple TVs on tvOS. An iPhone is one by its device type, not its name: a simulator renamed `work-phone` is still one. */
+const saidSimulator = new Set(); // a verify opens a dozen sessions: the choice is said once
+export function simulator(pick = process.env.EXACT_SIM, { tv = false, hint = 'EXACT_SIM=<udid|name>', app } = {}) {
   const all = simulators();
   const version = (d) => Number(/(?:iOS|tvOS)-(\d+)-(\d+)/.exec(d.runtime)?.slice(1).join('.') ?? 0);
   const kind = (d) => d.type || d.name.replaceAll(' ', '-');
   const iphones = all.filter((d) => (tv ? /SimRuntime\.tvOS/.test(d.runtime) && /^Apple-TV/.test(kind(d)) : /SimRuntime\.iOS/.test(d.runtime) && /^iPhone/.test(kind(d)))).sort((a, b) => version(b) - version(a) || a.name.localeCompare(b.name));
   let dev = pick ? all.find((d) => d.udid === pick || d.name === pick) : null;
   if (pick && !dev) throw new Error(`no simulator ${pick} (xcrun simctl list devices available)`);
-  dev ??= iphones.find((d) => d.state === 'Booted') ?? iphones.find((d) => /^iPhone-\d+-Pro$/.test(kind(d))) ?? iphones[0];
+  // Several booted: whose is which is not this process's to guess (an install onto another drive's simulator,
+  // 2026-10-09: build.mjs --ios takes --sim, not --phone, for a simulator). One booted, or none, is still chosen.
+  const booted = iphones.filter((d) => d.state === 'Booted');
+  if (!pick && booted.length > 1) {
+    // An app's bundle id is its own (`exact new` suffixes it), so the simulator it is installed on is the one
+    // its last build or drive used; another session's app is not there.
+    const has = app ? booted.filter((d) => read('xcrun', ['simctl', 'get_app_container', d.udid, app]).status === 0) : [];
+    if (has.length === 1) {
+      dev = has[0];
+      if (!saidSimulator.has(dev.udid)) { saidSimulator.add(dev.udid); console.error(`${booted.length} ${tv ? 'Apple TV' : 'iPhone'} simulators are booted; using ${dev.name} ${dev.udid}, the one with ${app} installed; name another with ${hint}`); }
+    } else {
+      const named = (d) => `${d.name} ${d.udid}${has.includes(d) ? ` (has ${app})` : ''}`;
+      throw new Error(`${booted.length} ${tv ? 'Apple TV' : 'iPhone'} simulators are booted (${booted.map(named).join(', ')})${app ? `, ${has.length ? 'several' : 'none'} with ${app} installed` : ''}: name one with ${hint}`);
+    }
+  }
+  dev ??= booted[0] ?? iphones.find((d) => /^iPhone-\d+-Pro$/.test(kind(d))) ?? iphones[0];
   if (!dev) throw new Error(`no ${tv ? 'Apple TV' : 'iPhone'} simulator on ${tv ? 'tvOS' : 'iOS'}; add one in Xcode, or name any simulator by udid or name with EXACT_SIM (or --sim)`);
   if (dev.state !== 'Booted') {
     const b = read('xcrun', ['simctl', 'boot', dev.udid]);
@@ -68,13 +110,93 @@ export function showSimulator(dev, background = false) {
 }
 
 /** Crash reports macOS wrote since `since` (ms) for an executable named
- *  `name` — a simulator app crashes as a Mac process, reported here. */
-export function crashReports(name, since) {
-  const dir = resolve(homedir(), 'Library/Logs/DiagnosticReports');
+ *  `name`, newest first — a simulator app crashes as a Mac process, reported
+ *  here. The name is all the file names carry, and every simulator's copy of
+ *  an app shares it: `bundleId` keeps the reports whose header names that
+ *  bundle, and `udid` those whose process ran in that simulator (its path is
+ *  under `CoreSimulator/Devices/<udid>/`). */
+export function crashReports(name, since, { bundleId, udid, dir = resolve(homedir(), 'Library/Logs/DiagnosticReports') } = {}) {
   let names = [];
   try { names = readdirSync(dir); } catch { return []; }
+  const at = (f) => { try { return statSync(f).mtimeMs; } catch { return -1; } };
+  const ours = (f) => {
+    if (!bundleId && !udid) return true;
+    const report = parseReport(f);
+    return !!report && (!bundleId || report.bundleID === bundleId) && (!udid || report.paths.some((p) => String(p ?? '').includes(udid)));
+  };
   return names.filter((f) => f.startsWith(name + '-') && /\.(ips|crash)$/.test(f))
-    .map((f) => resolve(dir, f)).filter((f) => { try { return statSync(f).mtimeMs >= since; } catch { return false; } });
+    .map((f) => resolve(dir, f)).filter((f) => at(f) >= since && ours(f)).sort((a, b) => at(b) - at(a));
+}
+/** A crash report as one shape, whichever form it is in: its bundle id, time,
+ *  the paths that place it on a simulator, how the process ended and why (the
+ *  exception, the termination, the app-specific message, such as a Swift
+ *  `fatalError`'s), and the crashing thread's top `frames` frames. An `.ips`
+ *  is a JSON header line, then the JSON body; a `.crash` is the older text,
+ *  `Field: value` lines and a `Thread N Crashed:` list. Null for neither. */
+function parseReport(file, frames = 8) {
+  let text;
+  try { text = readFileSync(file, 'utf8'); } catch { return null; }
+  try {
+    const cut = text.indexOf('\n'), head = JSON.parse(text.slice(0, cut)), body = JSON.parse(text.slice(cut + 1));
+    const e = body.exception ?? {}, images = body.usedImages ?? [];
+    const thread = body.threads?.[body.faultingThread] ?? body.threads?.find((t) => t.triggered);
+    return {
+      bundleID: head.bundleID, timestamp: head.timestamp, paths: [body.procPath, body.coalitionName],
+      ended: [[e.type, e.signal && `(${e.signal})`].filter(Boolean).join(' '), body.termination?.indicator].filter(Boolean).join(', '),
+      thread: thread ? `thread ${body.faultingThread ?? thread.id}${thread.queue ? ` (${thread.queue})` : ''}` : null,
+      why: Object.values(body.asi ?? {}).flat().map((line) => String(line).trim()).slice(0, 3),
+      frames: (thread?.frames ?? []).slice(0, frames).map((f) => `${f.symbol ? `${f.symbol} + ${f.symbolLocation ?? 0}` : `0x${(f.imageOffset ?? 0).toString(16)}`} (${images[f.imageIndex]?.name ?? '?'})`),
+    };
+  } catch {}
+  const field = (name) => text.match(new RegExp(`^${name}:[ \\t]*(.+)$`, 'm'))?.[1].trim();
+  if (!field('Identifier') && !field('Path')) return null;
+  const lines = text.split('\n'), at = lines.findIndex((l) => /^Thread \d+ Crashed/.test(l));
+  const listed = at < 0 ? [] : lines.slice(at + 1);
+  const end = listed.findIndex((l) => !/^\d+\s/.test(l));
+  return {
+    bundleID: field('Identifier'), timestamp: field('Date/Time'), paths: [field('Path'), field('Coalition')],
+    ended: [field('Exception Type'), field('Termination Reason')].filter(Boolean).join(', '),
+    thread: at < 0 ? null : lines[at].replace(/^Thread (\d+) Crashed:*\s*(?:Dispatch queue:\s*)?/, (_, n) => `thread ${n} `).trim().replace(/^(thread \d+) (.+)$/, '$1 ($2)'),
+    // Its own lines, below the heading, up to a blank line.
+    why: (() => { const h = lines.findIndex((l) => /^Application Specific Information:/.test(l)); if (h < 0) return []; const after = lines.slice(h + 1), stop = after.findIndex((l) => !l.trim()); return after.slice(0, stop < 0 ? 3 : stop).map((l) => l.trim()).slice(0, 3); })(),
+    // `0   libsystem_kernel.dylib   0x1b2c…   __pthread_kill + 8`: the symbol, then its image.
+    frames: listed.slice(0, end < 0 ? listed.length : end).slice(0, frames)
+      .map((l) => { const m = l.match(/^\d+\s+(\S+)\s+0x[0-9a-f]+\s+(.*)$/); return m ? `${m[2].trim()} (${m[1]})` : l.trim(); }),
+  };
+}
+/** A crash report as a few lines: its path and time, how the process ended
+ *  and why, and the crashing thread's top `frames` frames. */
+export function crashSummary(file, frames = 8) {
+  const r = parseReport(file, frames);
+  if (!r) return [`crash report: ${file}`];
+  return [
+    `crash report: ${file} (${r.timestamp ?? 'no time'})`,
+    `  ${[r.ended, r.thread && `${r.thread} crashed:`].filter(Boolean).join('; ')}`,
+    ...r.why.map((line) => `  ${line}`),
+    ...r.frames.map((f, i) => `  ${String(i).padStart(2)} ${f}`),
+  ];
+}
+/** The newest crash report the scope admits since `bundle` was built (its
+ *  `receipt.json`), summarized once: each call answers only a report newer
+ *  than the last it answered (`agent ios logs`, and a launch that failed).
+ *  Reports written before this launch count. `wait` ms: macOS writes a report
+ *  a moment after the process dies, so a launch that just failed polls that
+ *  long for one written since the watch began. */
+export function crashWatch(name, bundle, scope) {
+  const began = Date.now();
+  let after = began;
+  try { after = statSync(resolve(bundle, 'receipt.json')).mtimeMs; } catch {}
+  return (wait = 0) => {
+    const until = Date.now() + wait, mtime = (f) => statSync(f).mtimeMs;
+    let [latest] = crashReports(name, after, scope);
+    while ((!latest || mtime(latest) < began) && Date.now() < until) {
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
+      [latest] = crashReports(name, after, scope);
+    }
+    if (!latest) return [];
+    after = statSync(latest).mtimeMs + 1;
+    return crashSummary(latest);
+  };
 }
 
 
@@ -242,4 +364,26 @@ export function macIdentity() {
   if (process.env.EXACT_IDENTITY) return process.env.EXACT_IDENTITY;
   const m = /\d+\) ([0-9A-F]{40}) "Apple Development: /.exec(read('security', ['find-identity', '-v', '-p', 'codesigning']).stdout ?? '');
   return m ? m[1] : null;
+}
+
+/** Every orientation: an iPad app supports them all, as its multitasking requires. Without this key iPad reads
+ * the iPhone's. */
+export const IPAD_ORIENTATIONS = ['UIInterfaceOrientationPortrait', 'UIInterfaceOrientationPortraitUpsideDown', 'UIInterfaceOrientationLandscapeLeft', 'UIInterfaceOrientationLandscapeRight'];
+
+/** The iPhone orientations the manifest's `orientation` allows, or null for `any` or none, which leaves iOS's own
+ * (portrait and both landscapes). A `-primary` is the device's own way up, as the Screen Orientation API has it:
+ * `landscape-primary` is turned left, the home indicator on the right, which UIKit calls LandscapeRight. Every
+ * portrait is upright, the only portrait an iPhone with Face ID offers. */
+export function phoneOrientations(orientation) {
+  const up = 'UIInterfaceOrientationPortrait';
+  const right = 'UIInterfaceOrientationLandscapeRight', left = 'UIInterfaceOrientationLandscapeLeft';
+  return { natural: [up], portrait: [up], 'portrait-primary': [up], 'portrait-secondary': [up], landscape: [left, right],
+    'landscape-primary': [right], 'landscape-secondary': [left] }[orientation] ?? null;
+}
+
+/** The Info.plist keys that lock the iPhone to the manifest's `orientation` and leave iPad all four, over a
+ * distribution's default orientations; none for `any` or no `orientation`. */
+export function orientationKeys(orientation) {
+  const phone = phoneOrientations(orientation);
+  return phone ? { UISupportedInterfaceOrientations: phone, 'UISupportedInterfaceOrientations~ipad': IPAD_ORIENTATIONS } : {};
 }

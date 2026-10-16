@@ -11,7 +11,7 @@ use super::{Paint, TransformList};
 use crate::generated::{NodeType, PropId, StyleId, StyleMask, StyleProps};
 use crate::id::ViewId;
 use crate::kernel::{Kernel, NodeRef};
-use crate::style::{ColorValue, Dimension};
+use crate::style::ColorValue;
 
 /// A resolved gradient.
 #[derive(Debug, Clone, PartialEq)]
@@ -159,11 +159,7 @@ pub fn resolve(
             None => default * basis,
         }
     };
-    let dim = |d: Option<Dimension>, default: f32, basis: f32| match d {
-        Some(Dimension::Points(v)) => v,
-        Some(Dimension::Percent(p)) => p / 100.0 * basis,
-        _ => default * basis,
-    };
+    let dim = |d, default, basis| vp.coord(d, default, basis);
     let diag = if obb {
         1.0
     } else {

@@ -14,9 +14,10 @@ impl Parser {
     }
 
     /// After `expect sound`: `has` or `missing`, the source, then any of
-    /// `at N`, `gain N`, `ends N` and `by word`, each at most once.
+    /// `at N`, `gain N`, `ends N`, `playbackRate N`, `pan N` and `by word`,
+    /// each at most once.
     pub(super) fn expect_sound(&mut self, span: Span) -> R<Step> {
-        const USAGE: &str = "`expect sound has \"assets/x.wav\"` or `missing`, then any of `at 0`, `gain 0.8`, `ends 125` and `by cancelled`";
+        const USAGE: &str = "`expect sound has \"assets/x.wav\"` or `missing`, then any of `at 0`, `gain 0.8`, `ends 125`, `playbackRate 2`, `pan -0.5` and `by cancelled`";
         let present = if self.at_ident("has") {
             self.next();
             true
@@ -28,11 +29,18 @@ impl Parser {
         };
         let src = self.str_lit("a declared sound's path")?;
         let (mut at, mut gain, mut ends, mut by) = (None, None, None, None);
+        let (mut playback_rate, mut pan) = (None, None);
         while let TokenKind::Ident(word) = self.peek_kind().clone() {
             let clause = self.peek().span;
             self.next();
             let given = match word.as_str() {
-                "at" | "gain" | "ends" => {
+                "at" | "gain" | "ends" | "playbackRate" | "pan" => {
+                    // A pan to the left is a minus and a number.
+                    let negative =
+                        word == "pan" && matches!(self.peek_kind(), TokenKind::Punct("-"));
+                    if negative {
+                        self.next();
+                    }
                     let token = self.next();
                     let TokenKind::Number(n) = token.kind else {
                         return Err(SyntaxError {
@@ -47,17 +55,20 @@ impl Parser {
                     let slot = match word.as_str() {
                         "at" => &mut at,
                         "gain" => &mut gain,
+                        "playbackRate" => &mut playback_rate,
+                        "pan" => &mut pan,
                         _ => &mut ends,
                     };
-                    slot.replace(n).is_some()
+                    slot.replace(if negative { -n } else { n }).is_some()
                 }
                 "by" => {
                     let (how, how_span) = self.ident()?;
-                    if !["end", "group", "cut", "stop", "cancelled"].contains(&how.as_str()) {
+                    if !["end", "group", "cut", "stop", "cancelled", "edit"].contains(&how.as_str())
+                    {
                         return Err(SyntaxError {
                             id: "syntax-expected-step",
                             message: format!(
-                                "a voice ends by `end`, `group`, `cut`, `stop` or `cancelled`, not `{how}`"
+                                "a voice ends by `end`, `group`, `cut`, `stop`, `cancelled` or `edit`, not `{how}`"
                             ),
                             span: how_span,
                         });
@@ -86,6 +97,8 @@ impl Parser {
             at,
             gain,
             ends,
+            playback_rate,
+            pan,
             by,
             span,
         })

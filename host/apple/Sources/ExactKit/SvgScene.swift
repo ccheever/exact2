@@ -26,7 +26,7 @@ private func nums(_ v: Any?) -> [Double] { (v as? [Any])?.map(num) ?? [] }
 
 /// A colour the host sent: `[r,g,b,a]` (0–255), a `light-dark()` pair, or a
 /// colour in its own space, `{"cs": [{"s", "v"}…]}` (LLP 1100 D2).
-private func color(_ v: Any?, dark: Bool) -> CGColor? {
+private func color(_ v: Any?, dark: Bool, tint: PlatformColor? = nil) -> CGColor? {
     // Restore the typed color, including the ICC handle kept by the payload
     // adapter, and use the same conversion/intent as every other paint path.
     func value(_ v: Any?) -> BatchValue {
@@ -39,7 +39,7 @@ private func color(_ v: Any?, dark: Bool) -> CGColor? {
         default: return .null
         }
     }
-    return value(v).cgColor(dark: dark)
+    return value(v).cgColor(dark: dark, tint: tint)
 }
 
 /// `[0,x,y, 1,x,y, 2,x1,y1,x2,y2,x,y, 3]`: move, line, cubic, close.
@@ -141,8 +141,10 @@ enum CssAnimations {
         let key = spec["k"] as? String ?? ""
         let colors = key == "fillColor" || key == "strokeColor" || key == "backgroundColor"
         // A colour track's values are [r,g,b,a] bytes (LLP 1055.000 D6).
+        // A `path` track's values are paths, as a scene's `p` (LLP 1115.003 D4).
         let values: [Any] = colors
             ? (spec["v"] as? [Any] ?? []).compactMap { color($0, dark: false) }
+            : key == "path" ? (spec["v"] as? [Any] ?? []).map { path($0) as Any }
             : nums(spec["v"]).map { key == "r" ? circle(max(0, $0)) as Any : NSNumber(value: $0) }
         // No curves: every interval is linear, Core Animation's default.
         var timing: [CAMediaTimingFunction]?
@@ -229,6 +231,9 @@ final class SvgScene {
     var scale: CGFloat = 2
     /// The presenter's fonts, for SVG text (LLP 1055.000 D11).
     var fonts: SvgText.Fonts?
+    /// The view's tint, which a paint naming it resolves by (`AccentColor`
+    /// under an authored `accent-color`, LLP 1116.001 D2); nil on macOS.
+    var tint: PlatformColor?
     /// For hit testing (LLP 1055.000 D17): each element layer's node and
     /// parent element, whether it takes presses, whether hits pass it by.
     private var node: [ObjectIdentifier: (uid: Int, node: UInt32)] = [:]
@@ -319,7 +324,7 @@ final class SvgScene {
     private func drew(_ id: Int, _ e: [String: Any], dark: Bool) -> Bool {
         var h = Hasher()
         for k in e.keys.sorted() where k != "a" { h.combine(k); CssAnimations.digest(e[k], into: &h) }
-        h.combine(dark); h.combine(scale)
+        h.combine(dark); h.combine(scale); h.combine(tint.map { "\($0)" })
         let d = h.finalize()
         if drawn[id] == d { return false }
         drawn[id] = d
@@ -334,12 +339,12 @@ final class SvgScene {
         return clipped.applying(CGAffineTransform(a: m[0], b: m[1], c: m[2], d: m[3], tx: m[4], ty: m[5]).inverted())
     }
 
-    /// Build or update the layers from a scene; unchanged animations keep running.
+    /// Build or update the layers from a scene; unchanged animations keep
+    /// running. The root stays where `SvgHost.place` put it.
     func apply(_ scene: [String: Any], dark: Bool, clock: Double?) {
         CATransaction.begin(); CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
         let box = nums(scene["box"])
-        if box.count == 4 { root.bounds = CGRect(x: 0, y: 0, width: box[2], height: box[3]); root.position = CGPoint(x: box[0], y: box[1]) }
         clipped = scene["clip"] != nil && box.count == 4 ? CGRect(x: 0, y: 0, width: box[2], height: box[3]) : nil
         let t = nums(scene["t"])
         root.isHidden = t.count != 6
@@ -485,7 +490,7 @@ final class SvgScene {
             layer.opacity = Float(num(e["o"]))
             if let text {
                 // @ref LLP 1055.000 D11 — text: a layer of glyph outlines per run.
-                SvgText.build(layer, chunks: text, dark: dark, fonts: fonts ?? SvgScene.systemFonts) { color($0, dark: $1) }
+                SvgText.build(layer, chunks: text, dark: dark, fonts: fonts ?? SvgScene.systemFonts) { [tint] in color($0, dark: $1, tint: tint) }
             } else if group {
                 let vp = nums(e["vp"])
                 if vp.count == 4 {
@@ -536,8 +541,8 @@ final class SvgScene {
                 shape.path = path(e["p"])
                 let pos = nums(e["pos"])
                 shape.position = pos.count == 2 ? CGPoint(x: pos[0], y: pos[1]) : .zero
-                shape.fillColor = color(e["f"], dark: dark)
-                shape.strokeColor = color(e["s"], dark: dark)
+                shape.fillColor = color(e["f"], dark: dark, tint: tint)
+                shape.strokeColor = color(e["s"], dark: dark, tint: tint)
                 shape.lineWidth = CGFloat(num(e["w"]))
                 shape.lineCap = [CAShapeLayerLineCap.butt, .round, .square][min(Int(num(e["cap"])), 2)]
                 shape.lineJoin = [CAShapeLayerLineJoin.miter, .round, .bevel][min(Int(num(e["join"])), 2)]
@@ -549,7 +554,7 @@ final class SvgScene {
                 if SvgPaint.needsParts(e) {
                     // Gradients or a paint order: part layers paint it.
                     shape.fillColor = nil; shape.strokeColor = nil
-                    SvgPaint.parts(shape, e, scale: scale, dark: dark, fonts: fonts ?? SvgScene.systemFonts) { color($0, dark: $1) }
+                    SvgPaint.parts(shape, e, scale: scale, dark: dark, fonts: fonts ?? SvgScene.systemFonts) { [tint] in color($0, dark: $1, tint: tint) }
                 } else if shape.sublayers?.isEmpty == false {
                     shape.sublayers?.forEach { $0.removeFromSuperlayer() }
                 }
@@ -612,24 +617,37 @@ final class SvgHost {
     /// A scene's root layer's name, by which its node re-asks its range (LLP 1100 D8).
     static let rootName = "exact-svg"
 
-    func scene(_ id: UInt32, _ payload: [String: Any], layer: CALayer?, dark: Bool, clock: Double?, limit: String? = nil) {
+    func scene(_ id: UInt32, _ payload: [String: Any], layer: CALayer?, dark: Bool, clock: Double?, limit: String? = nil, tint: PlatformColor? = nil) {
         guard let layer else { return }
         let scene = scenes[id] ?? { let s = SvgScene(); scenes[id] = s; return s }()
         scene.root.name = Self.rootName
         if scene.root.superlayer !== layer { layer.addSublayer(scene.root) }
         scene.scale = max(1, layer.contentsScale)
         scene.fonts = fonts
+        scene.tint = tint
         let spec = payload["scene"] as? [String: Any] ?? [:]
         payloads[id] = spec
         scene.apply(spec, dark: dark, clock: clock)
+        if let view = layer.delegate as? NodeView { place(id, in: view.contentBox()) }
         scene.root.applyColorRange(limit: limit, deep: true)
+    }
+
+    /// Places `id`'s scene at its view's content box, which a sheet may hold:
+    /// the one place a scene's root moves.
+    func place(_ id: UInt32, in box: CGRect) {
+        guard let root = scenes[id]?.root, root.frame != box else { return }
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        root.bounds = CGRect(origin: .zero, size: box.size)
+        root.position = box.origin
+        CATransaction.commit()
     }
 
     /// `id`'s view changed appearance: its scene is applied again in the
     /// new one. Only what the appearance reaches redraws (`drew`, and the
     /// islands' and pictures' keys, hash it); animations keep running.
-    func reappear(_ id: UInt32, dark: Bool, clock: Double?) {
+    func reappear(_ id: UInt32, dark: Bool, clock: Double?, tint: PlatformColor? = nil) {
         guard let scene = scenes[id], let spec = payloads[id] else { return }
+        scene.tint = tint
         scene.apply(spec, dark: dark, clock: clock)
     }
 

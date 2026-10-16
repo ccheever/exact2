@@ -150,6 +150,10 @@ fn a_cover_on_a_percent_padding_keeps_the_percent() {
         .unwrap();
     // Padding percentages resolve against the containing block's width.
     assert_eq!(frame(&mut kernel, 3), (0.0, 83.0, 390.0, 52.0));
+    // The bar is the host's sizing, not the route's CSS padding
+    let route = kernel.node(2).unwrap().key;
+    assert_eq!(kernel.resolved_padding(route), Some((0.0, 39.0, 0.0, 0.0)));
+    assert_eq!(kernel.layout_padding(route), Some((0.0, 83.0, 0.0, 0.0)));
 }
 
 #[test]
@@ -232,6 +236,9 @@ fn a_replaced_header_that_cleared_the_status_bar_hands_that_inset_to_the_bar() {
 
 /// LLP 1001 §2 (2026-10-07): a header padded by a comparison that reads
 /// the top inset cleared it too; one that reads only another inset did not.
+/// The corner-adapted safe area's top is never less than the inset (LLP 1123
+/// D10), so it clears it; the margins' top can lie above the safe area where
+/// an app turns `insetsLayoutMarginsFromSafeArea` off, so it does not.
 #[test]
 fn a_replaced_header_padded_by_a_comparison_of_the_top_inset_hands_it_over() {
     let mut kernel = header_padded();
@@ -242,6 +249,9 @@ fn a_replaced_header_padded_by_a_comparison_of_the_top_inset_hands_it_over() {
     for (padding, y) in [
         ("clamp(0px, env(safe-area-inset-top), 200px)", 106.0),
         ("max(12px, env(safe-area-inset-bottom))", 44.0),
+        ("env(-exact-safe-area-corners-inset-top)", 106.0),
+        ("max(12px, env(-exact-safe-area-corners-inset-top))", 106.0),
+        ("env(-exact-layout-margins-inset-top)", 44.0),
     ] {
         let op = Op::SetStyle {
             id: 3,
@@ -279,7 +289,7 @@ fn a_route_whose_replaced_header_leaves_takes_back_its_inset() {
         .unwrap();
     kernel.set_host_cover(3, Some(HostCover::Whole)).unwrap();
     assert_eq!(frame(&mut kernel, 4).1, 106.0);
-    // The header goes (a `when`), the bar's cover stays.
+    // The header goes (an `if`), the bar's cover stays.
     let op = Op::SetChildren {
         id: 2,
         children: vec![4],
@@ -308,4 +318,104 @@ fn a_replaced_header_destroyed_outright_leaves_no_inset() {
     assert_eq!(frame(&mut kernel, 4).1, 106.0);
     kernel.apply(2, 3, &[Op::DestroyView { id: 3 }]).unwrap();
     assert_eq!(frame(&mut kernel, 4).1, 44.0);
+}
+
+/// The route's list (4) as a scroller padded by 16 holding a column (5)
+/// that fills its height (`flex: 1` in its flex column) and, when `long`,
+/// a 2000-point box after it: trivia-quiz's results and a filled-height
+/// screen (LLP 1116.000 D1.2).
+fn scroller(long: bool) -> Kernel {
+    let mut kernel = route();
+    let flex_column = [
+        (StyleId::Display, StyleValue::Text("flex".into())),
+        (StyleId::FlexDirection, StyleValue::Text("column".into())),
+        (StyleId::OverflowY, StyleValue::Text("scroll".into())),
+        (StyleId::MinHeight, StyleValue::Number(0.0)),
+        (StyleId::PaddingTop, StyleValue::Number(16.0)),
+        (StyleId::PaddingBottom, StyleValue::Number(16.0)),
+    ];
+    let mut ops = vec![
+        Op::SetStyle {
+            id: 4,
+            patch: Box::new(style(&flex_column)),
+        },
+        Op::CreateView {
+            id: 5,
+            node_type: NodeType::View,
+        },
+        Op::SetStyle {
+            id: 5,
+            patch: Box::new(style(&[(StyleId::FlexGrow, StyleValue::Number(1.0))])),
+        },
+        Op::CreateView {
+            id: 6,
+            node_type: NodeType::View,
+        },
+        Op::SetStyle {
+            id: 6,
+            patch: Box::new(style(&[
+                (StyleId::Height, StyleValue::Number(2000.0)),
+                (StyleId::FlexShrink, StyleValue::Number(0.0)),
+            ])),
+        },
+    ];
+    ops.push(Op::SetChildren {
+        id: 4,
+        children: if long { vec![5, 6] } else { vec![5] },
+    });
+    kernel.apply(1, 2, &ops).unwrap();
+    // The bar replaces the header and the list runs under it, as a route's
+    // collapsing scroller does on iOS.
+    kernel.set_host_cover(3, Some(HostCover::Whole)).unwrap();
+    kernel
+}
+
+#[test]
+fn a_scroller_the_platform_insets_lays_out_its_content_between_the_insets() {
+    let mut kernel = scroller(false);
+    assert_eq!(frame(&mut kernel, 4), (0.0, 0.0, 390.0, 844.0));
+    assert_eq!(
+        frame(&mut kernel, 5),
+        (0.0, 16.0, 390.0, 812.0),
+        "as authored"
+    );
+    // UIKit insets the scroller by the large title's 140 and the home
+    // indicator's 34: the filled column ends where the indicator begins
+    // once the title's inset moves it down, and keeps its start.
+    kernel
+        .set_host_cover(4, Some(HostCover::Inset([140.0, 34.0])))
+        .unwrap();
+    assert_eq!(
+        frame(&mut kernel, 4),
+        (0.0, 0.0, 390.0, 844.0),
+        "the scroller keeps its box"
+    );
+    assert_eq!(frame(&mut kernel, 5), (0.0, 16.0, 390.0, 638.0));
+    let list = kernel.node(4).unwrap().key;
+    assert_eq!(
+        kernel.resolved_padding(list),
+        Some((0.0, 16.0, 0.0, 16.0)),
+        "CSS's"
+    );
+    assert_eq!(kernel.layout_padding(list), Some((0.0, 16.0, 0.0, 190.0)));
+    assert_eq!(
+        kernel.node(4).unwrap().content.1,
+        670.0,
+        "the extent the platform adds its insets to: 16 + 638 + 16"
+    );
+    kernel.set_host_cover(4, None).unwrap();
+    assert_eq!(frame(&mut kernel, 5).3, 812.0, "cleared, as authored");
+}
+
+#[test]
+fn scrolling_content_keeps_its_extent_under_an_inset() {
+    let mut kernel = scroller(true);
+    kernel
+        .set_host_cover(4, Some(HostCover::Inset([140.0, 34.0])))
+        .unwrap();
+    assert_eq!(frame(&mut kernel, 6), (0.0, 16.0, 390.0, 2000.0));
+    assert_eq!(kernel.node(4).unwrap().content.1, 2032.0, "16 + 2000 + 16");
+    assert!(kernel
+        .set_host_cover(4, Some(HostCover::Inset([f32::NAN, 0.0])))
+        .is_err());
 }

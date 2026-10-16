@@ -163,14 +163,24 @@ pub fn mime_for(name: &str) -> &'static str {
         "webm" => "video/webm",
         "json" => "application/json",
         "md" | "markdown" => "text/markdown",
-        "txt" => "text/plain",
+        "txt" | "log" => "text/plain",
+        "csv" => "text/csv",
+        "tsv" => "text/tab-separated-values",
+        "html" | "htm" => "text/html",
+        "css" => "text/css",
+        "xml" => "application/xml",
+        "yaml" | "yml" => "application/yaml",
         _ => "application/octet-stream",
     }
 }
 
 /// Whether `accept` takes a file named `name` of type `mime`, as HTML
-/// matches it: an extension, `kind/*`, or the exact type.
+/// matches it: absent or `*/*` accepts all; otherwise an extension,
+/// `kind/*`, or the exact type.
 pub fn accepts(accept: &[String], name: &str, mime: &str) -> bool {
+    if accept.is_empty() || accept.iter().any(|t| t == "*/*") {
+        return true;
+    }
     let ext = format!(".{}", extension(name));
     accept.iter().any(|t| {
         t == &ext
@@ -188,7 +198,7 @@ pub fn delivered_type<'a>(mime: &'a str, accept: &[String]) -> &'a str {
     let keeps = accept.iter().any(|t| {
         matches!(
             t.as_str(),
-            "image/*" | "image/heic" | "image/heif" | ".heic" | ".heif"
+            "*/*" | "image/*" | "image/heic" | "image/heif" | ".heic" | ".heif"
         )
     });
     let images = accept.iter().any(|t| t.starts_with("image/"));
@@ -207,8 +217,8 @@ pub fn answer_paths(value: &str) -> Vec<String> {
         .map(str::trim)
         .filter(|l| !l.is_empty())
         .collect();
-    if lines.len() == 1 {
-        return lines[0].split_whitespace().map(str::to_owned).collect();
+    if !value.contains('\n') {
+        return value.split_whitespace().map(str::to_owned).collect();
     }
     lines.into_iter().map(str::to_owned).collect()
 }
@@ -339,5 +349,55 @@ mod tests {
         assert_eq!(Picked::payload("").unwrap(), vec![]);
         assert_eq!(extension("IMG_0412.HEIC"), "heic");
         assert_eq!(extension("noext"), "bin");
+    }
+
+    #[test]
+    fn a_wildcard_keeps_a_heic_when_an_image_type_is_also_named() {
+        let accept = ["image/jpeg".into(), "*/*".into()];
+        assert!(accepts(&accept, "photo.heic", "image/heic"));
+        assert_eq!(delivered_type("image/heic", &accept), "image/heic");
+        assert_eq!(delivered_type("image/heif", &accept), "image/heif");
+        assert_eq!(
+            delivered_type("image/heic", &["image/jpeg".into()]),
+            "image/jpeg"
+        );
+    }
+}
+
+#[cfg(test)]
+mod text_types {
+    #[test]
+    fn text_files_have_their_mime_type_and_unknown_files_stay_binary() {
+        for (name, mime) in [
+            ("diary.CSV", "text/csv"),
+            ("data.tsv", "text/tab-separated-values"),
+            ("notes.txt", "text/plain"),
+            ("notes.md", "text/markdown"),
+            ("index.html", "text/html"),
+            ("data.xml", "application/xml"),
+            ("config.yml", "application/yaml"),
+            ("opaque.bin", "application/octet-stream"),
+        ] {
+            assert_eq!(super::mime_for(name), mime, "{name}");
+            assert!(super::accepts(&[mime.into()], name, mime));
+        }
+    }
+}
+
+#[cfg(test)]
+mod path_tests {
+    #[test]
+    fn a_newline_keeps_a_single_path_with_spaces() {
+        for (input, expected) in [
+            ("/tmp/my photo.png\n", vec!["/tmp/my photo.png"]),
+            (
+                "/tmp/a b.png\n/tmp/c.png\n",
+                vec!["/tmp/a b.png", "/tmp/c.png"],
+            ),
+            ("a.png b.png", vec!["a.png", "b.png"]),
+            ("", vec![]),
+        ] {
+            assert_eq!(super::answer_paths(input), expected);
+        }
     }
 }

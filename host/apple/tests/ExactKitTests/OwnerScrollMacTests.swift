@@ -28,11 +28,11 @@ final class OwnerScrollMacTests: XCTestCase {
           distance: number
         component App
           resource location = defaultLocation() as shape Location
-          resource allStations = stations(location) as shape list<Station>
+          resource allStations = stations(location) as shape Station[]
           view
             column width="100%" height="100%"
               list virtualized=true estimated-item-height=60 flex=1 min-height=0 width="100%" testId="feed"
-                each s in allStations key=s.id
+                for s in allStations key=s.id
                   column width="100%" padding=8
                     text `${s.name}: a paragraph long enough to wrap across the row several times, so measuring and painting both shape lines, zone ${s.zone}`
                     text `${s.name} again: a second paragraph, measured on the owner and painted on main at the same moment`
@@ -58,7 +58,7 @@ final class OwnerScrollMacTests: XCTestCase {
         XCTAssertNil(session.boot(plan: bytes, size: CGSize(width: 320, height: 240)).error)
         func spin(_ seconds: Double) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
         let deadline = Date().addingTimeInterval(5)
-        while session.presenter.views.values.first(where: { $0.kind == "list" }).map({ $0.subviewsDeep.count < 3 }) ?? true, Date() < deadline { spin(0.02) }
+        while session.presenter.views.values.first(where: { $0.kind == "list" }).map({ $0.subviewsDeep.count < 3 }) ?? true, Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02)) }
         let list = try XCTUnwrap(session.presenter.views.values.first { $0.kind == "list" })
         let clip = try XCTUnwrap(list.scroll?.contentView)
         let extent = (list.scroll?.documentView?.frame.height ?? 0) - clip.bounds.height

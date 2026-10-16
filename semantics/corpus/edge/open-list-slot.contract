@@ -3,11 +3,11 @@ shape Item
   id: string
 
 component App
-  resource items = items() as shape list<Item>
+  resource items = items() as shape Item[]
   state picked = []
-  derive count = length(picked)
+  derive count = picked.length
   action take
-    picked = map(items, i => i.id)
+    picked = items.map(i => i.id)
   action drop
     picked = []
   view

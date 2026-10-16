@@ -4,7 +4,7 @@ pub struct Kind {
     pub regular: bool,
 }
 use std::fs::{File, OpenOptions};
-use std::io::{self, Read, Write};
+use std::io::{self, Write};
 use std::mem::{offset_of, size_of};
 use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
 use std::os::windows::io::{AsRawHandle, FromRawHandle};
@@ -158,17 +158,15 @@ impl Directory {
         Ok(Self(file.try_clone()?, true))
     }
     pub(crate) fn document_read(&self, leaf: &str) -> io::Result<Vec<u8>> {
-        let mut file = open(self, leaf, FILE_READ_DATA, FILE_OPEN, false)?;
+        let file = open(self, leaf, FILE_READ_DATA, FILE_OPEN, false)?;
         let meta = file.metadata()?;
         if meta.is_dir() {
-            return Err(refuse("cannot read a directory (filesystem code EISDIR)"));
+            return Err(io::Error::new(io::ErrorKind::IsADirectory, "EISDIR"));
         }
         if !meta.is_file() {
             return Err(refuse("document must be a regular file"));
         }
-        let mut bytes = Vec::new();
-        file.read_to_end(&mut bytes)?;
-        Ok(bytes)
+        super::fs::read_result(file)
     }
     pub fn try_clone(&self) -> io::Result<Self> {
         Ok(Self(self.0.try_clone()?, self.1))
@@ -290,9 +288,7 @@ impl Directory {
         Ok(file)
     }
     pub fn read(&self, leaf: &str) -> io::Result<Vec<u8>> {
-        let mut bytes = Vec::new();
-        self.file(leaf, libc::O_RDONLY)?.read_to_end(&mut bytes)?;
-        Ok(bytes)
+        super::fs::read_result(self.file(leaf, libc::O_RDONLY)?)
     }
     pub fn entry(&self, leaf: &str) -> io::Result<File> {
         open(self, leaf, FILE_READ_ATTRIBUTES, FILE_OPEN, false)
@@ -309,6 +305,12 @@ impl Directory {
         })
     }
     pub fn names(&self) -> io::Result<Vec<String>> {
+        self.names_limited(false)
+    }
+    pub fn names_batch(&self) -> io::Result<Vec<String>> {
+        self.names_limited(true)
+    }
+    fn names_limited(&self, batch: bool) -> io::Result<Vec<String>> {
         // An empty NT relative name reopens the owned object, creating an
         // independent enumeration cursor without looking up its old pathname.
         let cursor = open_encoded(
@@ -321,6 +323,7 @@ impl Directory {
         )?;
         let mut storage = vec![0u64; 8192];
         let mut names = Vec::new();
+        let mut used = 0;
         let mut class = FileIdBothDirectoryRestartInfo;
         loop {
             // SAFETY: storage is aligned and holds 65536 writable bytes.
@@ -364,7 +367,15 @@ impl Directory {
                 let leaf = String::from_utf16(units).map_err(|_| refuse("non-Unicode filename"))?;
                 if leaf != "." && leaf != ".." {
                     name(&leaf)?;
-                    names.push(leaf);
+                    if batch {
+                        names.push(leaf);
+                        if names.len() == 256 {
+                            names.sort();
+                            return Ok(names);
+                        }
+                    } else {
+                        super::fs::push_name(&mut names, &mut used, leaf)?;
+                    }
                 }
                 if entry.NextEntryOffset == 0 {
                     break;

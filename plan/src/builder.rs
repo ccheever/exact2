@@ -21,6 +21,18 @@ pub struct PlanBuilder {
     /// shared. Each reference is validated on its own (`check_code`), so a
     /// shared body is indistinguishable from a copy to every reader.
     bodies: HashMap<Vec<u8>, Code, BuildHasherDefault<BodyHasher>>,
+    /// The design's values (`theme` rows' and slices'), interned at
+    /// [`finish`](Self::finish) after every other string: a value-only edit
+    /// then moves no other string's id, so the plan's structure
+    /// ([`Plan::structure`]) stays (LLP 1121 stage 4).
+    values: Vec<(ValueAt, String)>,
+}
+
+/// Where a design value interned at finish goes.
+#[derive(Debug)]
+enum ValueAt {
+    Theme(usize),
+    Slice(usize),
 }
 
 /// A multiply-rotate hash for the pools' dedup tables: code bodies this
@@ -62,6 +74,7 @@ impl PlanBuilder {
             },
             interned: HashMap::default(),
             bodies: HashMap::with_capacity_and_hasher(256, Default::default()),
+            values: Vec::new(),
         };
         // These eight distinct stack ids are part of the plan vocabulary.
         // A host may resolve several of them to one installed face; their
@@ -93,6 +106,7 @@ impl PlanBuilder {
             plan,
             interned,
             bodies: HashMap::default(),
+            values: Vec::new(),
         }
     }
 
@@ -196,6 +210,16 @@ impl PlanBuilder {
         })
     }
 
+    /// A string restricted to these finite members. String rows with fields
+    /// carry the members as field names (each field has the primitive string type).
+    pub fn string_enum(&mut self, values: &[String]) -> TypesId {
+        let string = self.primitive(TypeKind::String);
+        let fields: Vec<_> = values.iter().map(|v| (v.as_str(), string)).collect();
+        let id = self.record("enum", &fields);
+        self.plan.types[id.0 as usize].kind = TypeKind::String;
+        id
+    }
+
     /// `Option<elem>`.
     pub fn option(&mut self, elem: TypesId) -> TypesId {
         let name = self.str("option");
@@ -297,6 +321,50 @@ impl PlanBuilder {
         ProfilesId(self.plan.profiles.len() as u32 - 1)
     }
 
+    /// One `theme` entry (LLP 1095 D4): its name, the role it overrides
+    /// (`""` for none) and the colour text it stands for.
+    pub fn theme_entry(&mut self, name: &str, role: &str, value: &str) -> ThemeId {
+        self.theme_token(name, role, value, &[])
+    }
+
+    /// A `theme` entry that varies by the app's axes (LLP 1121 D5): its
+    /// value for every full tuple, in tuple order; `value` is the default's.
+    pub fn theme_token(&mut self, name: &str, role: &str, value: &str, slices: &[&str]) -> ThemeId {
+        let (name, role) = (self.str(name), self.str(role));
+        // The values wait for `finish`; the empty string stands until then.
+        let pending = self.str("");
+        let start = self.plan.theme_slices.len() as u32;
+        for s in slices {
+            self.values.push((
+                ValueAt::Slice(self.plan.theme_slices.len()),
+                (*s).to_string(),
+            ));
+            self.plan
+                .theme_slices
+                .push(ThemeSlicesRow { value: pending });
+        }
+        self.values
+            .push((ValueAt::Theme(self.plan.theme.len()), value.to_string()));
+        let value = pending;
+        let slices = ThemeSlicesRange {
+            start,
+            len: slices.len() as u32,
+        };
+        self.plan.theme.push(ThemeRow {
+            name,
+            role,
+            value,
+            slices,
+        });
+        ThemeId(self.plan.theme.len() as u32 - 1)
+    }
+
+    /// One app axis (LLP 1121 D5): its name and values, the first the default.
+    pub fn axis(&mut self, name: &str, values: &[&str]) {
+        let (name, values) = (self.str(name), self.str(&values.join("|")));
+        self.plan.axes.push(AxesRow { name, values });
+    }
+
     /// An ordered CSS font fallback list (one to 64 members).
     pub fn font_stack(&mut self, members: &[(StackMemberKind, Option<FamiliesId>)]) -> StacksId {
         let start = self.plan.stack_members.len() as u32;
@@ -324,6 +392,7 @@ impl PlanBuilder {
             init,
             owner: None,
             late: false,
+            persist: false,
         });
         SlotsId(self.plan.slots.len() as u32 - 1)
     }
@@ -617,6 +686,13 @@ impl PlanBuilder {
         }
     }
 
+    /// A `sequence` (LLP 1125 D2): its gate, key and `play` arguments as
+    /// plan code, and its `ended=` action.
+    pub fn sequence(&mut self, row: SequencesRow) -> SequencesId {
+        self.plan.sequences.push(row);
+        SequencesId(self.plan.sequences.len() as u32 - 1)
+    }
+
     /// A region under `parent` (or an arm root when `parent` is `None`),
     /// with `arm_count` arms allocated. Returns the region and its arms.
     #[allow(clippy::too_many_arguments)] // mirrors the row: kind, site (parent, arm, order), two codes, arms
@@ -727,7 +803,7 @@ impl PlanBuilder {
         self.plan.slots[id.0 as usize].init = init;
     }
 
-    /// Make a slot owned by an arm's instance — an `each` row, a `when` or
+    /// Make a slot owned by an arm's instance — a `for` row, an `if` or
     /// `match` arm: one value per instance, created with it, read and
     /// written through its frame (LLP 1017 P4c).
     pub fn set_slot_owner(&mut self, id: SlotsId, arm: ArmsId) {
@@ -738,6 +814,11 @@ impl PlanBuilder {
     /// settlement: a child's state used outside every region.
     pub fn set_slot_late(&mut self, id: SlotsId) {
         self.plan.slots[id.0 as usize].late = true;
+    }
+
+    /// Mark a root slot persisted (LLP 1116 D5), or not.
+    pub fn set_slot_persist(&mut self, id: SlotsId, persist: bool) {
+        self.plan.slots[id.0 as usize].persist = persist;
     }
 
     /// Replace a derive's body.
@@ -793,7 +874,14 @@ impl PlanBuilder {
     }
 
     /// The plan, validated.
-    pub fn finish(self) -> Result<Plan, PlanError> {
+    pub fn finish(mut self) -> Result<Plan, PlanError> {
+        for (at, text) in std::mem::take(&mut self.values) {
+            let id = self.str(&text);
+            match at {
+                ValueAt::Theme(i) => self.plan.theme[i].value = id,
+                ValueAt::Slice(i) => self.plan.theme_slices[i].value = id,
+            }
+        }
         self.plan.validate()?;
         Ok(self.plan)
     }

@@ -41,7 +41,7 @@ extension NodeView {
         if let effect {
             if let gradient = Gradient(image) {
                 let view: UIView
-                if gradient.isConic {
+                if gradient.needsDrawing {
                     let pixels = UIImageView(frame: effect.bounds)
                     pixels.image = gradient.image(size: effect.bounds.size, scale: traitCollection.displayScale, dark: drawsDark).map { UIImage(cgImage: $0) }
                     view = pixels
@@ -73,9 +73,9 @@ extension NodeView {
     func composedMask(shaped: CALayer?) -> CALayer? {
         let clip = clipMask(shaped: shaped)
         guard let gradient = Gradient(style["mask_image"]) else { return clip }
-        if gradient.isConic {
-            // A conic mask is pixels (LLP 1077 D5).
-            let m = ConicMaskLayer()
+        if gradient.needsDrawing {
+            // Conic and repeating masks use the drawn pixels (LLP 1077 D5, LLP 1066).
+            let m = GradientImageMaskLayer()
             m.frame = layer.bounds
             m.contents = gradient.image(size: layer.bounds.size, scale: traitCollection.displayScale, dark: drawsDark)
             m.mask = clip

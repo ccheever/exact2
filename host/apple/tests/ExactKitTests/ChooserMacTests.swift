@@ -65,6 +65,22 @@ final class ChooserMacTests: XCTestCase {
         wait(for: [turned], timeout: 5)
     }
 
+    func testExplicitSourceWithoutInvokerTargetKeepsTheChooserValid() throws {
+        let p = chooser(["One", "Two"], cancels: 0)
+        defer { p.menus.reset() }
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["id": "trigger"], "clear": ["popovertarget"]]]))
+        p.menus.action("showPopover", ["c", "trigger"])
+        let owner = try XCTUnwrap(p.menus.presentedConfirmation)
+        XCTAssertTrue(p.menus.valid(owner), "an explicit source need not name the popover")
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        let menu = p.menus.menu(of: owner)
+        try send(menu.items[2])
+        p.menus.close(try XCTUnwrap(p.views[2]), cancelling: false)
+        turn()
+        XCTAssertEqual(pressed, [4])
+    }
+
     func testAChooserIsAMenuWithAnItemPerChoice() throws {
         let p = chooser(props: [4: ["accessibilityChecked": "true"], 5: ["disabled": "true"], 3: ["destructive": "true"]])
         defer { p.menus.reset() }
@@ -82,6 +98,20 @@ final class ChooserMacTests: XCTestCase {
             XCTAssertEqual(p.menus.observation?["kind"] as? String, "confirmation")
             XCTAssertEqual(p.menus.observation?["actions"] as? Int, 3)
         }
+    }
+
+    func testARIAUnavailableChoiceIsAXDisabledButStillChosen() throws {
+        let p = chooser(props: [3: ["accessibilityDisabled": "true"]])
+        defer { p.menus.reset() }
+        let (_, menu) = try owner(p)
+        let item = menu.items[1]
+        XCTAssertTrue(item.isEnabled)
+        XCTAssertEqual(item.accessibilityAttributeValue(.enabled) as? Bool, false)
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        try send(item)
+        turn()
+        XCTAssertEqual(pressed, [3])
     }
 
     func testEachItemPressesItsOwnRowOnce() throws {
@@ -201,14 +231,34 @@ final class ChooserMacTests: XCTestCase {
         XCTAssertEqual(pressed, [])
     }
 
-    func testAConfirmationShowsItsTextAndNoTitle() throws {
-        let p = chooser(["Block"], label: "Block Contact", message: ["Blocked people can't call you."])
+    /// Text with no cancel to keep is not the alert's shape (LLP 1115 D6):
+    /// it stays the menu, its text the menu's only heading.
+    func testTextWithNoCancelStaysAMenuThatShowsItsTextAndNoTitle() throws {
+        let p = chooser(["Block"], label: "Block Contact", message: ["Blocked people can't call you."], cancels: 0)
+        defer { p.menus.reset() }
+        XCTAssertNil(p.alerts.plan(of: try XCTUnwrap(p.views[2]), popover: true))
         let (owner, menu) = try owner(p)
         XCTAssertNil(owner.heading, "a confirmation keeps its text as its only heading")
         XCTAssertEqual(menu.items.map(\.title), ["Blocked people can't call you.", "", "Block"])
         XCTAssertFalse(menu.items[0].isEnabled)
         XCTAssertNotNil(menu.items[0].view, "wrapped to a menu's width")
         XCTAssertTrue(menu.items[1].isSeparatorItem)
+    }
+
+    /// The same confirmation with its cancel is the alert's shape, and no
+    /// longer a menu: `NSAlert`, a sheet on the window (LLP 1115.000 D7.6;
+    /// AlertMacTests holds the alert).
+    func testAConfirmationWithACancelIsTheAlertNotAMenu() throws {
+        let p = chooser(["Block"], label: "Block Contact", message: ["Blocked people can't call you."])
+        defer { p.alerts.reset() }
+        p.press(1)
+        let pop = try XCTUnwrap(p.views[2])
+        XCTAssertFalse(p.menus.isOpen(pop), "no menu, and nothing painted")
+        let alert = try XCTUnwrap(p.alerts.presented).alert
+        XCTAssertTrue(windows.last?.attachedSheet === alert.window)
+        XCTAssertEqual(alert.messageText, "Block Contact")
+        XCTAssertEqual(alert.informativeText, "Blocked people can't call you.")
+        XCTAssertEqual(alert.buttons.map(\.title), ["Block", "Cancel"])
     }
 
     func testAShapeTheMenuCannotPresentIsRefusedAndStaysPainted() throws {
@@ -262,7 +312,7 @@ final class ChooserMacTests: XCTestCase {
         defer { center.removeObserver(begin); center.removeObserver(end) }
         p.press(1)
         let done = Date(timeIntervalSinceNow: 5)
-        while pressed.isEmpty && Date() < done { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02)) }
+        while pressed.isEmpty && Date() < done { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
         turn()
         XCTAssertNotNil(seen, "the menu tracked")
         XCTAssertEqual(seen?.items.first?.title, "Open location in")
@@ -299,7 +349,7 @@ final class ChooserMacTests: XCTestCase {
         defer { center.removeObserver(begin); center.removeObserver(end) }
         p.press(1)
         let done = Date(timeIntervalSinceNow: 5)
-        while !ended && Date() < done { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02)) }
+        while !ended && Date() < done { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
         turn()
         XCTAssertNotNil(seen, "the menu tracked")
         XCTAssertEqual(pressed, [], "a hidden row is not chosen")
@@ -349,7 +399,7 @@ final class ChooserMacTests: XCTestCase {
         defer { NotificationCenter.default.removeObserver(token) }
         p.press(1)
         let done = Date(timeIntervalSinceNow: 5)
-        while (!seen || p.menus.isOpen(p.views[2]!)) && Date() < done { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02)) }
+        while (!seen || p.menus.isOpen(p.views[2]!)) && Date() < done { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
         let menu = try XCTUnwrap(frame, "the menu's window")
         XCTAssertGreaterThanOrEqual(menu.minY, invoker.maxY - 8, "above the invoker (screen y grows up): \(menu) vs \(invoker)")
         XCTAssertEqual(menu.midX, invoker.midX, accuracy: 12, "centred on it")

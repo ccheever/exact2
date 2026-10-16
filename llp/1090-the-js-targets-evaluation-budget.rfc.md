@@ -207,15 +207,19 @@ and a `map` body belongs to its Code: both share their caller's budget.
   parts inline, since the part count is in the opcode, and the loop adds the
   sum. Elsewhere it calls `K(arr, pc)` in `budget.js` (stage 2: `K`
   everywhere; stage 3 inlines the loop bodies, D5).
-- **Concatenation.** `Concat` becomes `cc(a, b, pc)`: it builds the
-  string, then checks the length when `length > ⌊MAX/3⌋`. `Add` stays `+`.
+- **Concatenation.** `Concat` becomes `cc(a, b, pc)`: it builds directly
+  when the UTF-16 upper bound fits, and otherwise checks exact UTF-8 bytes
+  before building. `Add` stays `+`.
 - **`join`.** The steps are the caller's `$s` (D1), taken before joining,
   as `vm.rs:768` does. `x_join` then returns a one-element list's string
-  unchecked (`stdlib.rs:191–195`) and otherwise checks the result's
-  bytes.
-- **`NP`, `x_t` and the two encoders** check their result's bytes. The
+  unchecked (`stdlib.rs:191–195`) and otherwise counts the result's
+  UTF-8 bytes before joining.
+- **`NP`, `x_t` and the two encoders** check their result's bytes before
+  building it. The
   encoders check after `encode_route_segment`'s empty and dot refusal, at
   the `Call`'s pc.
+- **`toLowerCase`** counts large results in bounded chunks before applying
+  the browser's whole-string mapping, including its context rules.
 - **Exact UTF-8 bytes, cheap until near the bound.**
   - A string of `u` UTF-16 units encodes to between `u` and `3u` bytes: a
     unit counts 1, 2 or 3, a surrogate pair 4, and a lone surrogate 3 (as

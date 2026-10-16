@@ -1,5 +1,5 @@
 //! Bounded native I/O (LLP 1016 / 1041). Unannotated requests and native
-//! continuations share one FIFO. Explicit independent HTTP uses two workers
+//! continuations share one FIFO. Explicit independent HTTP uses six workers
 //! with separate transports; their held sockets cannot occupy the ordered lane.
 use exact_runner::{Outcome, RequestOut, Work};
 use std::ffi::c_void;
@@ -17,7 +17,7 @@ pub struct Executor {
     core: core::Core,
 }
 impl Executor {
-    /// Start one ordered owner and two independent HTTP owners. Bindings are
+    /// Start one ordered owner and six independent HTTP owners. Bindings are
     /// never shared between owners. Retired but unfinished workers remain
     /// charged against a process limit; exhaustion refuses new work.
     pub fn start(
@@ -27,7 +27,7 @@ impl Executor {
     ) -> Self {
         let wake = wake.map(|(f, ctx)| (f, ctx as usize));
         Self {
-            core: core::Core::start(
+            core: core::Core::start_switched(
                 bindings,
                 grants,
                 Box::new(move || {
@@ -48,17 +48,26 @@ impl Executor {
         self.core.ordered_idle()
     }
     /// Called only after the runner has no retained ordered admission refusals.
-    pub fn resume_ordered(&self) {
-        self.core.resume_ordered();
+    /// Admits the ordered requests held behind them; returns any of those
+    /// refused at a limit, for the host to record on their tickets.
+    pub fn resume_ordered(&self) -> Vec<(u64, &'static str)> {
+        self.core.resume_ordered()
     }
     /// Let go of the work for tickets the runner no longer holds.
     pub fn forget(&self, held: impl Fn(u64) -> bool) {
         self.core.forget(held);
     }
-    /// Admit or return a terminal refusal without allocating a failure queue.
+    /// Admit, hold behind an earlier ordered refusal until it settles, or
+    /// return a terminal refusal without allocating a failure queue.
     /// The caller records refusals on existing runner tickets and wakes a pump.
     pub fn run(&self, request: RequestOut, work: Option<Work>) -> Result<(), &'static str> {
         self.core.run_owned(request, work)
+    }
+    /// Settle a re-ask (`Dispatch::Again`) in its ordered place, with no
+    /// work (LLP 1041 §8.4, amended 2026-10-09); kept pending while the
+    /// window is full. An error is terminal, for the host to record.
+    pub fn again(&self, request: &RequestOut) -> Result<(), &'static str> {
+        self.core.again(request.ticket)
     }
     /// Acknowledge the coalesced wake before choosing a completion or refusal.
     pub fn begin_pump(&self) {
@@ -76,6 +85,16 @@ impl Executor {
     pub fn waker(&self) -> std::sync::Arc<dyn Fn() + Send + Sync> {
         self.core.waker()
     }
+    /// Send a mutation's socket batch whose commit stood (LLP 1016.000 D7):
+    /// all of it, in order, or none. Each socket's frames sent and bytes
+    /// buffered, for [`exact_runner::Runner::socket_published`].
+    pub fn socket(&self, batch: &exact_runner::SocketSend) -> Result<Vec<(u64, u64, u64)>, String> {
+        self.core.socket(batch)
+    }
+    /// Each open socket's buffered bytes, by its stream ticket, live.
+    pub fn socket_reader(&self) -> exact_runner::SocketReader {
+        self.core.socket_reader()
+    }
 }
 
 /// What the bridge asks of the I/O executor (LLP 1047.001): the executor's
@@ -87,11 +106,13 @@ pub trait Io {
     /// [`Executor::ordered_idle`].
     fn ordered_idle(&self) -> bool;
     /// [`Executor::resume_ordered`].
-    fn resume_ordered(&self);
+    fn resume_ordered(&self) -> Vec<(u64, &'static str)>;
     /// [`Executor::forget`].
     fn forget(&self, held: &dyn Fn(u64) -> bool);
     /// [`Executor::run`].
     fn run(&self, request: RequestOut, work: Option<Work>) -> Result<(), &'static str>;
+    /// [`Executor::again`].
+    fn again(&self, request: &RequestOut) -> Result<(), &'static str>;
     /// [`Executor::begin_pump`].
     fn begin_pump(&self);
     /// [`Executor::drain`].
@@ -100,6 +121,10 @@ pub trait Io {
     fn notify(&self);
     /// [`Executor::waker`].
     fn waker(&self) -> std::sync::Arc<dyn Fn() + Send + Sync>;
+    /// [`Executor::socket`].
+    fn socket(&self, batch: &exact_runner::SocketSend) -> Result<Vec<(u64, u64, u64)>, String>;
+    /// [`Executor::socket_reader`].
+    fn socket_reader(&self) -> exact_runner::SocketReader;
 }
 
 impl Io for Executor {
@@ -109,7 +134,7 @@ impl Io for Executor {
     fn ordered_idle(&self) -> bool {
         Executor::ordered_idle(self)
     }
-    fn resume_ordered(&self) {
+    fn resume_ordered(&self) -> Vec<(u64, &'static str)> {
         Executor::resume_ordered(self)
     }
     fn forget(&self, held: &dyn Fn(u64) -> bool) {
@@ -117,6 +142,9 @@ impl Io for Executor {
     }
     fn run(&self, request: RequestOut, work: Option<Work>) -> Result<(), &'static str> {
         Executor::run(self, request, work)
+    }
+    fn again(&self, request: &RequestOut) -> Result<(), &'static str> {
+        Executor::again(self, request)
     }
     fn begin_pump(&self) {
         Executor::begin_pump(self)
@@ -129,6 +157,12 @@ impl Io for Executor {
     }
     fn waker(&self) -> std::sync::Arc<dyn Fn() + Send + Sync> {
         Executor::waker(self)
+    }
+    fn socket(&self, batch: &exact_runner::SocketSend) -> Result<Vec<(u64, u64, u64)>, String> {
+        Executor::socket(self, batch)
+    }
+    fn socket_reader(&self) -> exact_runner::SocketReader {
+        Executor::socket_reader(self)
     }
 }
 

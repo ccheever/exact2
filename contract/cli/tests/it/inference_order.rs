@@ -45,6 +45,30 @@ fn text(r: &Runner<Items>, id: &str) -> String {
 }
 
 #[test]
+fn action_writes_refresh_the_scope_before_a_later_send_is_lowered() {
+    let source = r#"
+component App
+  state first = none
+  state second = none
+  mutation changed as shape string
+  action set(n: number)
+    first = some(n)
+  action copy
+    second = first
+  action publish
+    send changed = out(second)
+  view
+    text "ok"
+"#;
+    contract::compile(source).unwrap_or_else(|e| panic!("{e:?}"));
+    // Handler arguments type parameters after the initial slot-write probes.
+    let inferred = source
+        .replace("set(n: number)", "set(n)")
+        .replace("text \"ok\"", "button \"ok\" press=set(1)");
+    contract::compile(&inferred).unwrap_or_else(|e| panic!("{e:?}"));
+}
+
+#[test]
 fn a_state_typed_by_a_write_types_the_derives_that_read_it() {
     let mut r = boot(
         r#"
@@ -53,10 +77,10 @@ shape P
 component App
   state s = none
   state l = []
-  resource ps = ps() as shape list<P>
+  resource ps = ps() as shape P[]
   derive d = match s { case some(x) => x.n, case none => 0 }
-  derive m = map(l, x => x.n)
-  derive e = length(m)
+  derive m = l.map(x => x.n)
+  derive e = m.length
   action a
     s = some(P(n=1))
     l = ps
@@ -64,14 +88,14 @@ component App
     column
       text `${d}` testId="d"
       text `${e}` testId="e"
-      when e > 0
+      if e > 0
         text "some" testId="when"
       match s
         case some(p)
           text `${p.n}` testId="match"
         case none
           text "none" testId="match"
-      each p in l key=toString(p.n)
+      for p in l key=p.n.toString()
         text `${p.n}` testId="each"
 "#,
     );
@@ -127,7 +151,7 @@ component C
   props
     o: option<number>
   view
-    text (match o { case some(v) => toString(v), case none => "none" }) testId="o"
+    text (match o { case some(v) => v.toString(), case none => "none" }) testId="o"
 "#,
     );
     let k = r.kernel();

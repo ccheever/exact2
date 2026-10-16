@@ -497,3 +497,79 @@ fn hdr_colors_outside_motion_storage_change_discretely() {
         );
     }
 }
+
+/// A role crosses as this platform's name for it (LLP 1095 D1). The accent
+/// is the view's tint on both Apple platforms (LLP 1115.000 D3.4: on the Mac
+/// the nearest authored `accent-color`, else the system's), so an authored
+/// accent reaches it. A link and a button's text are the tint on iOS, and
+/// resolve alike there (D3.6); on the Mac they are AppKit's own colours. An
+/// unset page is `-exact-background`.
+#[test]
+fn a_role_crosses_as_this_platforms_colour() {
+    let name = |role: &str| {
+        let mut out = String::new();
+        let color = exact_kernel::ColorValue::parse_light_dark(role).unwrap();
+        crate::style::push_color_value(&mut out, color);
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        v["sys"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{out}"))
+            .to_owned()
+    };
+    let mac = cfg!(target_os = "macos");
+    let on = |macos: &'static str, ios: &'static str| if mac { macos } else { ios };
+    assert_eq!(name("AccentColor"), "@tint");
+    assert_eq!(name("LinkText"), on("linkColor", "@tint"));
+    assert_eq!(name("-exact-link"), name("LinkText"));
+    assert_eq!(name("ButtonText"), on("controlTextColor", "@tint"));
+    assert_eq!(
+        name("-exact-background"),
+        on("windowBackgroundColor", "systemBackgroundColor")
+    );
+    assert_eq!(
+        name("Canvas"),
+        on("textBackgroundColor", "systemBackgroundColor")
+    );
+}
+
+/// LLP 1122 D4: a batch says `facts` when the root font size or the window's
+/// modes moved, the app's `setMode` (no command reaches the presenter) and
+/// `setRootFontSize` included, and only then.
+#[test]
+fn a_batch_says_when_the_root_font_size_or_the_modes_moved() {
+    let dir = std::env::temp_dir().join(format!("exact2-apple-facts-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("app.tamber"), "tamber t\n\naxes\n  density = cozy | compact\n\ntheme\n  ink = #111111\n    when density=compact: #222222\n").unwrap();
+    std::fs::write(dir.join("app.contract"), "component App\n  action compact\n    setMode(\"density\", \"compact\")\n  action larger\n    setRootFontSize(20)\n  action nothing\n    copyText(\"x\")\n  view\n    column\n      button press=compact testId=\"compact\"\n        text \"compact\" color=\"ink\"\n      button press=larger testId=\"larger\"\n        text \"larger\"\n      button press=nothing testId=\"nothing\"\n        text \"nothing\"\n").unwrap();
+    let plan = contract::compile_path(&dir.join("app.contract"))
+        .unwrap()
+        .encode();
+    let _ = std::fs::remove_dir_all(&dir);
+    let (mut host, _) = Host::boot(
+        &plan,
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+    )
+    .unwrap();
+    let facts =
+        |batch: &str| serde_json::from_str::<serde_json::Value>(batch).unwrap()["facts"] == true;
+    let press = |host: &mut Host<NoData>, id| {
+        facts(&host.dispatch(view(host, id), exact_runner::Event::Press))
+    };
+    assert!(!press(&mut host, "nothing"), "nothing moved");
+    assert!(press(&mut host, "compact"), "the app's setMode");
+    assert!(!press(&mut host, "compact"), "the same mode moves nothing");
+    assert!(press(&mut host, "larger"), "the app's setRootFontSize");
+    assert!(!press(&mut host, "larger"));
+    assert!(
+        !facts(&host.set_root_font_size(18.0)),
+        "the app's size stands over the host's"
+    );
+    assert!(
+        facts(&host.set_modes(&[("density", "cozy")])),
+        "the agent's prefer"
+    );
+}

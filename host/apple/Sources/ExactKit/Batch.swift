@@ -7,7 +7,7 @@ import CoreGraphics
 /// JSON values for style rows and the heterogeneous capability payloads. No
 /// Objective-C containers or conditional bridges enter ordinary presentation.
 package enum BatchValue: Equatable {
-    case number(Double), string(String), profile(ProfileSpaces.Handle), bool(Bool), array([BatchValue]), object([String: BatchValue]), null
+    case number(Double), string(String), profile(ProfileSpaces.Handle), calculation(CalculatedLength), bool(Bool), array([BatchValue]), object([String: BatchValue]), null
 
     package var number: Double? { if case .number(let n) = self { return n }; return nil }
     /// The value as text, for a cache key: different values never have the
@@ -17,6 +17,7 @@ package enum BatchValue: Equatable {
         case .number(let n): return "\(n)"
         case .string(let s): return s.debugDescription
         case .profile(let p): return "@" + p.key.debugDescription
+        case .calculation(let c): return c.value.key
         case .bool(let b): return b ? "true" : "false"
         case .array(let a): return "[" + a.map(\.key).joined(separator: ",") + "]"
         case .object(let o): return "{" + o.keys.sorted().map { $0.debugDescription + ":" + o[$0]!.key }.joined(separator: ",") + "}"
@@ -30,6 +31,14 @@ package enum BatchValue: Equatable {
     }
     var profileSpace: CGColorSpace? { if case .profile(let p) = self { return p.space }; return nil }
     var array: [BatchValue]? { if case .array(let a) = self { return a }; return nil }
+    /// Resolve points, mixed percentages, or a calculation with its saved
+    /// environment against the host's basis (LLP 1001 §2).
+    func length(basis: CGFloat) -> CGFloat? {
+        if let n = number { return CGFloat(n) }
+        if case .calculation(let c) = self { return c.length(basis: basis) }
+        guard case .object(let o) = self else { return nil }
+        return CGFloat(o["pct"]?.number ?? 0) * basis / 100 + CGFloat(o["px"]?.number ?? 0)
+    }
     var numbers: [Double]? {
         guard let a = array else { return nil }
         var result: [Double] = []; result.reserveCapacity(a.count)
@@ -49,6 +58,15 @@ package enum BatchValue: Equatable {
         case .array(let a): return a.contains { $0.containsSystemColor }
         default: return false
         }
+    }
+    /// A colour its author fixed: a literal, a `light-dark()` pair, one in
+    /// its own space, or one from the app's asset catalogue (`named:`); not
+    /// a system colour by name (a role, `AccentColor`, one a
+    /// `-exact-platform-color()` names). What selected text keeps on the
+    /// Mac, where a system colour's turns (LLP 1115.000 D7.9).
+    var fixesInk: Bool {
+        guard case .object(let o) = self, let name = o["sys"]?.string else { return true }
+        return name.hasPrefix("named:")
     }
     var isSchemeColor: Bool {
         if case .object(let o) = self { return o["sys"] != nil || o["cs"]?.array?.count == 2 }
@@ -124,6 +142,7 @@ package enum BatchValue: Equatable {
         case .number(let n): return NSNumber(value: n)
         case .string(let s): return s
         case .profile(let p): return p
+        case .calculation(let c): return c.value.any
         case .bool(let b): return b
         case .array(let a): return a.map(\.any)
         case .object(let o): return o.mapValues(\.any)
@@ -157,6 +176,8 @@ public struct BatchOp {
         case sticky // LLP 1083: a sticky box's constraint, or none
         case fragments // LLP 1093 D7: a box's column fragments or a container's columns
         case sound // LLP 1096 D8: the voice table's ops, and a boot's files
+        case roles // LLP 1095 D4: the roles the app's theme replaces
+        case midi // LLP 1125 D7: the MIDI queue's sends, retractions, inputs to open and a request
     }
     package let op: Kind
     var nodeID: UInt32?

@@ -20,18 +20,38 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+/// Why a bake failed, as its build script says it. Every app's build script
+/// ends in `.expect("bake …")`, which prints an error's `Debug`: a `String`'s
+/// quotes and escaped newlines put tsc's diagnostics on one line, so `Debug`
+/// is the text as written.
+pub struct BakeError(pub String);
+
+impl std::fmt::Debug for BakeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "\n{}", self.0.trim_end())
+    }
+}
+
+impl std::fmt::Display for BakeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for BakeError {}
+
 /// An app's Cargo build-script entrypoint. Write the paired artifacts and
 /// actual target/grants receipt to OUT_DIR; source files stay untouched.
 /// This development slice requires an updater-free composition (store L=0).
-pub fn build(app: &Path, platform: &str) -> Result<(), String> {
-    build_sources(app, platform, None, None)
+pub fn build(app: &Path, platform: &str) -> Result<(), BakeError> {
+    build_sources(app, platform, None, None).map_err(BakeError)
 }
 
 /// Bake a mixed app using each source's own identity and grants. Metadata reads
 /// never invoke or activate the Rust implementation; first-frame values bake
 /// through TypeScript alone.
-pub fn build_mixed(app: &Path, platform: &str, rust: &dyn DataSource) -> Result<(), String> {
-    build_sources(app, platform, Some(rust), None)
+pub fn build_mixed(app: &Path, platform: &str, rust: &dyn DataSource) -> Result<(), BakeError> {
+    build_sources(app, platform, Some(rust), None).map_err(BakeError)
 }
 
 /// Bake a mixed app through its own composer (LLP 1027.002 §5 step 0): the
@@ -45,12 +65,12 @@ pub fn build_mixed_with(
     rust: &dyn DataSource,
     rust_sources: &[&str],
     compose: impl FnOnce(Module) -> Box<dyn DataSource>,
-) -> Result<(), String> {
+) -> Result<(), BakeError> {
     let composer = Composer {
         rust_sources: rust_sources.iter().map(|s| s.to_string()).collect(),
         compose: Box::new(compose),
     };
-    build_sources(app, platform, Some(rust), Some(composer))
+    build_sources(app, platform, Some(rust), Some(composer)).map_err(BakeError)
 }
 
 /// How a Cargo bake composes the TypeScript module with the app's Rust.
@@ -86,6 +106,15 @@ impl DataSource for Composed {
         args: &[exact_plan::Value],
     ) -> Result<exact_runner::Answer, exact_runner::DataError> {
         self.0.answer_for(target, store, source, args)
+    }
+    fn overlay(
+        &mut self,
+        source: &str,
+        args: &[exact_plan::Value],
+        answer: &exact_plan::Value,
+        writes: &[exact_runner::Write<'_>],
+    ) -> Result<Option<exact_runner::Overlaid>, exact_runner::DataError> {
+        self.0.overlay(source, args, answer, writes)
     }
     fn app_id(&self) -> &str {
         self.0.app_id()
@@ -214,6 +243,18 @@ impl DataSource for Seeded<'_> {
         }
         self.module.answer_for(target, store, source, args)
     }
+    fn overlay(
+        &mut self,
+        source: &str,
+        args: &[exact_plan::Value],
+        answer: &exact_plan::Value,
+        writes: &[exact_runner::Write<'_>],
+    ) -> Result<Option<exact_runner::Overlaid>, exact_runner::DataError> {
+        if self.seed.values.contains_key(source) {
+            return Ok(None);
+        }
+        self.module.overlay(source, args, answer, writes)
+    }
     fn app_id(&self) -> &str {
         self.module.app_id()
     }
@@ -268,6 +309,13 @@ fn build_sources(
         composer,
         None,
     )?;
+    // Cargo says a build script's warnings (prefixed with the crate) as the
+    // script runs, which is when the plan's sources changed.
+    for warning in &baked.warnings {
+        for line in warning.lines().take(1) {
+            println!("cargo:warning={line}");
+        }
+    }
     let meta: serde_json::Value =
         serde_json::from_str(&baked.receipt).map_err(|e| e.to_string())?;
     let out = PathBuf::from(std::env::var_os("OUT_DIR").ok_or("build requires OUT_DIR")?);
@@ -377,6 +425,11 @@ fn build_sources(
     for file in package_declarations(&stage.0)? {
         println!("cargo:rerun-if-changed={}", file.display());
     }
+    println!("cargo:rerun-if-env-changed=EXACT_BACKEND_ORIGIN");
+    println!(
+        "cargo:rerun-if-changed={}",
+        root.join(".exact/backend-origin").display()
+    );
     // And the Contract libraries the app uses, wherever they are installed.
     contract::rerun_if_changed(&root.join("app.contract"));
     Ok(())
@@ -450,6 +503,9 @@ pub struct Baked {
     /// Development-only source locations, keyed by the final plan digest.
     /// Absent from standalone and Cargo bakes, receipts and module payloads.
     pub source_map: Option<String>,
+    /// The compiler's warnings, each as `contract build` prints it, its file
+    /// from the app's directory: the bake's caller says them (LLP 1116.004 D7).
+    pub warnings: Vec<String>,
 }
 
 /// A temporary directory we created, cleaned on every success/refusal path.
@@ -534,7 +590,13 @@ fn mounts(root: &Path) -> Result<Vec<(String, PathBuf)>, String> {
         let dir = root
             .join(path)
             .canonicalize()
-            .map_err(|e| format!("typescript.sources.{name}: {path}: {e}"))?;
+            // Relative to the app's directory, where app.json is: say which (app farm wave 1, five builds).
+            .map_err(|e| {
+                format!(
+                    "typescript.sources.{name}: {path}, resolved from the app's directory {}: {e}",
+                    root.display()
+                )
+            })?;
         let app = root.canonicalize().map_err(|e| e.to_string())?;
         if !dir.is_dir() || dir.starts_with(&app) || app.starts_with(&dir) {
             return Err(format!(
@@ -816,6 +878,7 @@ fn bake_in(
     }
     if [
         "__exact_entry.ts",
+        "__exact_backend_source.json",
         "__exact_tsconfig.json",
         "__exact_config.mjs",
         "__exact_paths.json",
@@ -858,7 +921,22 @@ fn bake_in(
     // Every independent refusal, one after another as `contract build`
     // prints them, in the bake's output and the dev overlay.
     let development = matches!(mode, BakeMode::Development { .. });
-    let compiled = contract::compile_path_all(&app.join("app.contract"), development);
+    let (compiled, warned) =
+        contract::compile_path_all_with_warnings(&app.join("app.contract"), development);
+    // Each from the app's directory, as `contract build app.contract` there names it.
+    let warnings = warned
+        .into_iter()
+        .map(|mut warning| {
+            if let Some(file) = warning
+                .file
+                .as_deref()
+                .and_then(|f| f.strip_prefix(&app).ok())
+            {
+                warning.file = Some(file.into());
+            }
+            warning.to_string()
+        })
+        .collect();
     // A changed graph (including a newly added import) is a refused capture.
     if sources(&app)? != captured || contract_inputs(&app)? != inputs {
         return Err("app sources changed during capture; retry the build".into());
@@ -870,7 +948,14 @@ fn bake_in(
             .collect::<Vec<_>>()
             .join("\n")
     })?;
-    let mut declarations = contract::typescript(&plan)?;
+    write_changed(
+        &stage.join("__exact_backend_source.json"),
+        serde_json::to_string(&String::from_utf8_lossy(&captured[Path::new("app.ts")]))
+            .map_err(|e| e.to_string())?
+            .as_bytes(),
+    )?;
+    let exported = contract::design_exports(&app.join("app.contract"));
+    let mut declarations = contract::typescript_exporting(&plan, exported.as_deref())?;
     // Canvas 2D (LLP 1056 D1): a module that exports `draw` and `surfaces`
     // speaks ABI 2, and only it carries the recorder.
     let app_ts = String::from_utf8_lossy(&captured[Path::new("app.ts")]).into_owned();
@@ -896,6 +981,10 @@ fn bake_in(
         write_changed(&app.join(DECLARATIONS), declarations.as_bytes())?;
     }
     let mut entry = format!("import * as app from './app';\nimport type {{ Answer }} from './app.contract.d.ts';\nexport const abi = {};\nexport const appId: string = app.appId;\nexport const grants: string = app.grants;\nexport const answer: Answer = app.answer;\n", if draws { 2 } else { 1 });
+    // An overlay shows writes over the resources they change.
+    if exports(&app_ts, "overlay") {
+        entry.push_str("import type { Overlay } from './app.contract.d.ts';\nexport const overlay: Overlay = app.overlay;\n");
+    }
     if draws {
         entry.push_str(CANVAS_ENTRY);
     }
@@ -970,6 +1059,7 @@ fn bake_in(
         declarations,
         receipt,
         source_map,
+        warnings,
     })
 }
 
@@ -1045,7 +1135,8 @@ import { configure, check } from './__exact_config.mjs';
 import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
 const [tsc, root] = process.argv.slice(1);
-configure(process.cwd());
+const {parseSync}=await import(createRequire(resolve(root, 'package.json')).resolve('rolldown/utils'));
+configure(process.cwd(),false,parseSync);
 const libraries = resolve(dirname(createRequire(resolve(root, 'package.json')).resolve(`@typescript/typescript-${process.platform}-${process.arch}/package.json`)), 'lib');
 try { await check(process.cwd(), tsc, libraries); }
 catch (error) { process.stderr.write(String(error?.message ?? error)); process.exit(3); }
@@ -1070,7 +1161,7 @@ fn compile_once(stage: &Path, tools: &Tools) -> Result<(), String> {
     if !checked.status.success() {
         let said = String::from_utf8_lossy(&checked.stderr).into_owned();
         return Err(if checked.status.code() == Some(3) {
-            format!("{} refused:\n{said}", tools.tsc.display())
+            format!("the TypeScript does not compile (tsc):\n{said}")
         } else {
             said
         });

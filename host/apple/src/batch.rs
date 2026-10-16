@@ -7,6 +7,17 @@ use std::fmt::Write as _;
 
 use crate::style::push_int;
 
+/// What `fieldContent` says, in the node's own space: a native text
+/// control's editor inside its chrome (LLP 1104 D5), or a box's CSS content
+/// box with the padding layout resolved (top, right, bottom, left), which
+/// the presenter places content and insets by. A native button's side its
+/// author left unsaid is `None` (JSON `null`): UIKit's own inset stays there.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct ContentBox {
+    pub(crate) rect: exact_kernel::Frame,
+    pub(crate) padding: Option<[Option<f32>; 4]>,
+}
+
 /// A JSON writer for one batch.
 #[derive(Debug, Default)]
 pub struct Batch {
@@ -36,6 +47,11 @@ pub struct Batch {
     /// Image handles a 2D canvas asked for (LLP 1056 D9): the presenter
     /// decodes each and answers `exact_canvas_image`.
     images: Vec<String>,
+    /// The root font size or the window's modes moved (`Host::facts_moved`).
+    pub facts: bool,
+    /// Whether a displayed element holds the wake lock, when that changed
+    /// (`Host::wakelock_moved`, LLP 1125 D11).
+    pub wakelock: Option<bool>,
 }
 
 pub use exact_runner::agent::quote;
@@ -76,6 +92,25 @@ fn id_list(ids: &[u32], out: &mut String) {
 }
 
 impl Batch {
+    /// @ref LLP 1095 D4 — the roles the app's theme replaces, by the
+    /// schema's name, each with the colour that replaces it as a style row
+    /// sends one; sent at boot, an empty table clearing the last plan's. A
+    /// surface the platform draws (a grouped list's ground, a bar's title)
+    /// colours itself from it where it would read the role.
+    pub fn roles(&mut self, entries: &[(&str, String)]) {
+        let mut s = String::from("{\"op\":\"roles\",\"roles\":{");
+        for (i, (name, colour)) in entries.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            quote(name, &mut s);
+            s.push(':');
+            s.push_str(colour);
+        }
+        s.push_str("}}");
+        self.ops.push(s);
+    }
+
     /// The resolved strings table owns the document's language and direction.
     pub fn language(&mut self, lang: &str, dir: &str) {
         let mut s = String::from("{\"op\":\"language\",\"lang\":");
@@ -86,14 +121,33 @@ impl Batch {
         self.ops.push(s);
     }
 
-    /// The editor box inside a field, or an explicit clear after appearance changes.
-    pub(crate) fn field_content(&mut self, id: u32, rect: Option<exact_kernel::Frame>) {
-        let value = rect.map_or_else(
+    /// A node's published box (`ContentBox`), or an explicit clear; `cell`
+    /// when the field is a grouped list row's content, which iOS draws
+    /// borderless in its cell (LLP 1116.005 D2).
+    pub(crate) fn field_content(&mut self, id: u32, content: Option<ContentBox>, cell: bool) {
+        let value = content.map_or_else(
             || "null".into(),
-            |r| format!("[{},{},{},{}]", r.x, r.y, r.width, r.height),
+            |c| {
+                let r = c.rect;
+                let rect = format!("[{},{},{},{}]", r.x, r.y, r.width, r.height);
+                match c.padding {
+                    Some(sides) => {
+                        let side =
+                            |p: Option<f32>| p.map_or_else(|| "null".into(), |p| p.to_string());
+                        let [t, rt, b, l] = sides.map(side);
+                        format!("{rect},\"padding\":[{t},{rt},{b},{l}]")
+                    }
+                    None => rect,
+                }
+            },
         );
+        let cell = if cell && content.is_some() {
+            ",\"cell\":true"
+        } else {
+            ""
+        };
         self.push_op(format!(
-            "{{\"op\":\"fieldContent\",\"id\":{id},\"rect\":{value}}}"
+            "{{\"op\":\"fieldContent\",\"id\":{id},\"rect\":{value}{cell}}}"
         ));
     }
 
@@ -109,7 +163,7 @@ impl Batch {
         out: &mut String,
         id: u32,
         parent: u32,
-        props: &std::collections::BTreeMap<String, String>,
+        props: &exact_kernel::SortedMap<String, String>,
         style: &str,
         handlers: &[&str],
         paints: bool,
@@ -319,23 +373,25 @@ impl Batch {
         self.ops.push(s);
     }
 
+    /// Takes out the layout geometry, and the motion samples unless
+    /// `keep_motion` (`Host::write`).
+    pub(crate) fn withhold(&mut self, keep_motion: bool) {
+        self.ops.retain(|op| {
+            !layout_geometry(op) || (keep_motion && op.starts_with("{\"op\":\"present\""))
+        });
+    }
+
     /// A 2D canvas's stamped lists (LLP 1056 D4), in order, for the Core
     /// Graphics replayer: `[address, length]` pairs the reader copies out
     /// as it decodes the batch (the host keeps them alive until then). `fresh` starts a new bitmap at `w`×`h`;
-    /// `box` is the content box in the view's border box, where it shows;
+    /// the presenter shows it at the view's content box;
     /// `p3` and `float16` are its getContext settings (LLP 1100 D12a).
-    pub fn canvas2d(
-        &mut self,
-        c: &exact_runner::CanvasList,
-        content: (f32, f32, f32, f32),
-        radii: [(f32, f32); 4],
-    ) {
+    pub fn canvas2d(&mut self, c: &exact_runner::CanvasList) {
         let mut s = String::new();
         let _ = write!(
             s,
-            "{{\"op\":\"canvas2d\",\"id\":{},\"lifetime\":{},\"generation\":{},\"seq\":{},\"fresh\":{},\"w\":{},\"h\":{},\"scale\":{},\"stretch\":{},\"animating\":{},\"p3\":{},\"float16\":{},\"box\":[{},{},{},{}],\"radii\":[{},{},{},{},{},{},{},{}],\"lists\":[",
-            c.view, c.lifetime, c.generation, c.seq, c.fresh, c.pixel_width, c.pixel_height, c.scale, c.stretch, c.animating, c.settings.p3, c.settings.float16,
-            content.0, content.1, content.2, content.3, radii[0].0, radii[0].1, radii[1].0, radii[1].1, radii[2].0, radii[2].1, radii[3].0, radii[3].1
+            "{{\"op\":\"canvas2d\",\"id\":{},\"lifetime\":{},\"generation\":{},\"seq\":{},\"fresh\":{},\"w\":{},\"h\":{},\"scale\":{},\"stretch\":{},\"animating\":{},\"p3\":{},\"float16\":{},\"lists\":[",
+            c.view, c.lifetime, c.generation, c.seq, c.fresh, c.pixel_width, c.pixel_height, c.scale, c.stretch, c.animating, c.settings.p3, c.settings.float16
         );
         for (i, l) in c.lists.iter().enumerate() {
             if i > 0 {
@@ -457,7 +513,8 @@ impl Batch {
     }
 
     /// `{"op":"sound","files":[…],"ops":[…]}` (LLP 1096 D8): the voice
-    /// table's `play` and `end` ops in runner milliseconds, and at a boot
+    /// table's `play` (with `playbackRate` and `pan` when not 1 and 0, LLP
+    /// 1125 D10) and `end` ops in runner milliseconds, and at a boot
     /// the files to decode, in declaration order (a new boot silences the
     /// last one's voices). Nothing is sent when there is nothing to say.
     pub fn sound(
@@ -492,21 +549,63 @@ impl Batch {
                     sound,
                     at,
                     gain,
-                } => write!(
-                    s,
-                    "{{\"op\":\"play\",\"id\":{id},\"sound\":{sound},\"at\":{},\"gain\":{}}}",
-                    exact_runner::agent::num(*at),
-                    exact_runner::agent::num(*gain)
-                ),
+                    playback_rate,
+                    pan,
+                } => {
+                    let _ = write!(
+                        s,
+                        "{{\"op\":\"play\",\"id\":{id},\"sound\":{sound},\"at\":{},\"gain\":{}",
+                        exact_runner::agent::num(*at),
+                        exact_runner::agent::num(*gain)
+                    );
+                    if *playback_rate != 1.0 {
+                        let _ = write!(
+                            s,
+                            ",\"playbackRate\":{}",
+                            exact_runner::agent::num(*playback_rate)
+                        );
+                    }
+                    if *pan != 0.0 {
+                        let _ = write!(s, ",\"pan\":{}", exact_runner::agent::num(*pan));
+                    }
+                    write!(s, "}}")
+                }
                 SoundOp::End { id, at } => write!(
                     s,
                     "{{\"op\":\"end\",\"id\":{id},\"at\":{}}}",
                     exact_runner::agent::num(*at)
                 ),
+                // A sequence step's haptic, at its time (LLP 1125 D3).
+                SoundOp::Haptic { id, kind, at } => {
+                    let _ = write!(s, "{{\"op\":\"haptic\",\"id\":{id},\"kind\":");
+                    quote(kind, &mut s);
+                    write!(s, ",\"at\":{}}}", exact_runner::agent::num(*at))
+                }
+                SoundOp::Unhaptic { id } => write!(s, "{{\"op\":\"unhaptic\",\"id\":{id}}}"),
             };
         }
         s.push_str("]}");
         self.ops.push(s);
+    }
+
+    /// This batch's ops, for another batch to carry (`Host::ending`).
+    pub(crate) fn into_ops(self) -> Vec<String> {
+        self.ops
+    }
+
+    /// The runner's timed outputs since the last take (LLP 1096 D7, LLP
+    /// 1125 D7): the voice table's `sound` op and the MIDI queue's `midi`
+    /// op; at a `boot`, the files to decode and whether MIDI's arm loads.
+    pub fn timed<D: exact_runner::DataSource>(
+        &mut self,
+        runner: &mut exact_runner::Runner<D>,
+        boot: bool,
+    ) {
+        self.sound(runner.take_sounds(), boot.then(|| runner.plan()));
+        let uses = boot && exact_runner::uses::uses_midi(runner.plan());
+        if let Some(op) = exact_runner::midi::batch_op(&runner.take_midi(), uses) {
+            self.ops.push(op);
+        }
     }
 
     /// `{"op":"destroy","id":…}`.
@@ -625,6 +724,16 @@ impl Batch {
         self.ops.push(s);
     }
 
+    /// `{"op":"block","id":…,"w":…,"h":…}` — the used size of the containing
+    /// block a host gave this subtree (LLP 1115.002 D8.2).
+    pub fn block(&mut self, id: u32, w: f32, h: f32) {
+        self.ops.push(format!(
+            "{{\"op\":\"block\",\"id\":{id},\"w\":{},\"h\":{}}}",
+            crate::style::num(w),
+            crate::style::num(h)
+        ));
+    }
+
     /// `{"op":"content","id":…,"w":…,"h":…}` — natural scrollable extent;
     /// the platform presenter applies its client-size minimum.
     pub fn content(&mut self, id: u32, w: f32, h: f32) {
@@ -685,13 +794,7 @@ impl Batch {
             ops + 256 + self.images.iter().map(|i| i.len() + 3).sum::<usize>(),
         );
         s.push_str("{\"ops\":[");
-        // A failed three-pass layout can retain native-region geometry staged
-        // before the miss. Publish its other updates, never guessed boxes.
-        let published = self
-            .ops
-            .iter()
-            .filter(|op| !self.layout_provisional || !layout_geometry(op));
-        for (i, op) in published.enumerate() {
+        for (i, op) in self.ops.iter().enumerate() {
             if i != 0 {
                 s.push(',');
             }
@@ -715,6 +818,12 @@ impl Batch {
         }
         if self.controls {
             s.push_str(",\"controls\":true");
+        }
+        if self.facts {
+            s.push_str(",\"facts\":true");
+        }
+        if let Some(held) = self.wakelock {
+            let _ = write!(s, ",\"wakelock\":{held}");
         }
         if !self.images.is_empty() {
             s.push_str(",\"canvasImages\":[");
@@ -751,7 +860,7 @@ fn layout_geometry(op: &str) -> bool {
     match kind {
         Some(
             "frame" | "content" | "fieldContent" | "flow" | "sticky" | "fragments" | "region"
-            | "native-region",
+            | "native-region" | "svg",
         ) => true,
         Some("present") => ["translate", "scale", "rotate", "layout", "height"]
             .iter()

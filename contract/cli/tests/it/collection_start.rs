@@ -8,12 +8,12 @@ use exact_runner::{
 
 const APP: &str = r#"component App
   state count = 1000
-  resource rows = rows(count) as shape list<number>
+  resource rows = rows(count) as shape number[]
   action more(n: number)
     count = count + n
   view
     list virtualized=true scroll-start="end" height=600 width=400 overflow-x="hidden" estimated-item-height=100
-      each x in rows key=x
+      for x in rows key=x
         text `${x}` width="100%"
 "#;
 
@@ -70,6 +70,7 @@ fn host(r: &mut Runner<Data>, mut at: f64, mut apply: bool) -> f64 {
                 port_main: 600.0,
                 port_cross: 400.0,
                 cross: 400.0,
+                padding: [0.0; 2],
                 measurements: c
                     .rows
                     .iter()
@@ -220,6 +221,7 @@ fn a_host_that_lays_out_rows_before_it_reports_them_opens_at_the_end() {
             port_main: 600.0,
             port_cross: 400.0,
             cross: 400.0,
+            padding: [0.0; 2],
             measurements,
             focus_view: None,
             interaction_view: None,
@@ -239,6 +241,7 @@ fn host_once(r: &mut Runner<Data>, offset: f64, velocity: f64) {
             port_main: 600.0,
             port_cross: 400.0,
             cross: 400.0,
+            padding: [0.0; 2],
             measurements: vec![],
             focus_view: None,
             interaction_view: None,

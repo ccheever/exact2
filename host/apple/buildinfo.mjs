@@ -57,7 +57,9 @@ const sdkOf = (sdk) => once(`sdk ${sdk}`, () => tool('xcrun', ['--sdk', sdk, '--
  * The app's commit and branch are left out when the app lives in exact2's
  * repository (they are exact2's). `EXACT_DISTRIBUTION_REVISION` is the
  * revision a deploy script publishes the build as (AppDrop's), when it names
- * one. */
+ * one. `EXACT_DEV_MENU` in the build's environment is stamped as
+ * `ExactDevMenu` (`0` off, anything else on), so an app launched with no
+ * environment, an installed iOS one, keeps what its build said. */
 /** `sdk` is the platform the link targets and `sdkVersion` the version it
  * records when that is not the selected Xcode's (a design-compatible build). */
 export function buildInfo(app, { root, archive = false, production = false, sdk = null, sdkVersion = null, now = new Date(), env = process.env }) {
@@ -79,5 +81,6 @@ export function buildInfo(app, { root, archive = false, production = false, sdk 
     ...(appBranch ? { ExactAppBranch: appBranch } : {}),
     ...(env.EXACT_DISTRIBUTION_REVISION ? { ExactDistributionRevision: env.EXACT_DISTRIBUTION_REVISION } : {}),
     ...(notes ? { ExactReleaseNotes: notes } : {}),
+    ...(env.EXACT_DEV_MENU != null ? { ExactDevMenu: env.EXACT_DEV_MENU !== '0' } : {}),
   };
 }

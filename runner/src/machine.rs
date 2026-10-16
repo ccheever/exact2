@@ -227,6 +227,10 @@ pub trait Host<V> {
     fn resource_flag(&self, op: Opcode, i: u64, pc: usize) -> Result<bool, Trap>;
     /// `none`, or `some` of why resource `i` failed (`FailureResource`).
     fn resource_failure(&mut self, i: u64, pc: usize) -> Result<V, Trap>;
+    /// Why mutation `i` failed, or none.
+    fn mutation_failure(&mut self, i: u64, pc: usize) -> Result<V, Trap>;
+    /// Whether mutation `i` failed.
+    fn mutation_failed(&self, i: u64) -> bool;
     /// Whether mutation `i` has a request in flight.
     fn pending_mutation(&self, i: u64) -> bool;
     /// `some(v)`.
@@ -745,6 +749,11 @@ pub fn exec<V: Val, H: Host<V>>(
         }
         Opcode::FailureResource => {
             let v = host.resource_failure(a0, pc)?;
+            m.stack.push(v);
+        }
+        Opcode::FailedMutation => m.stack.push(V::boolean(host.mutation_failed(a0))),
+        Opcode::FailureMutation => {
+            let v = host.mutation_failure(a0, pc)?;
             m.stack.push(v);
         }
         Opcode::PendingMutation => m.stack.push(V::boolean(host.pending_mutation(a0))),

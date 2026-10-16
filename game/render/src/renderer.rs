@@ -1,4 +1,4 @@
-mod culling;
+pub(crate) mod culling;
 mod draw;
 mod local;
 mod passes;
@@ -31,6 +31,10 @@ pub(crate) struct Mesh {
     cap: f32,
     capsule: bool,
     plain: bool,
+    /// The largest ball about the origin inside it, or zero: occludes nothing
+    /// (occlusion.rs `inscribed`); and whether it is a box (`boxed`).
+    pub(crate) inscribed: f32,
+    pub(crate) boxed: bool,
 }
 
 /// Persistent GPU arenas, tick history and draw lists; model pipelines prepare on arrival.
@@ -38,6 +42,7 @@ pub(crate) struct Mesh {
 pub struct RendererWithAssets<const ASSETS: bool> {
     pub(crate) device: wgpu::Device,
     pub(crate) queue: wgpu::Queue,
+    slot_capacity: u32,
     pub(crate) pipelines: Pipelines,
     pub(crate) models: crate::models::Models,
     pub(crate) quads: crate::quads::Quads,
@@ -49,11 +54,22 @@ pub struct RendererWithAssets<const ASSETS: bool> {
     attachment_words: Vec<f32>,
     current: usize,
     materials: Buffer,
+    // Each slot's material draws the grid (negative alpha), and how many do: a
+    // frame with none compiles the forward shader without it.
+    grid: Vec<bool>,
+    pub(crate) grids: u32,
     slots: Buffer,
     scene_binds: [wgpu::BindGroup; 2],
     /// The same scene group over the culled lists: binding 4 is a dynamic window.
     culled_binds: [wgpu::BindGroup; 2],
     culled_key: (wgpu::Buffer, u64),
+    /// The camera's occlusion culling (occlusion.rs), made on first use.
+    occlusion: Option<crate::occlusion::Occlusion>,
+    /// This frame draws last frame's camera lists as occluders.
+    occluding: bool,
+    occlusion_items: usize,
+    /// The last frame's cull wrote the camera lists the next frame may occlude with.
+    cull_drew: bool,
     pub(crate) cull: crate::cull::Cull,
     pub(crate) environment: crate::ibl::EnvironmentLight,
     pub(crate) lights: crate::lights::Lights,
@@ -82,6 +98,12 @@ pub struct RendererWithAssets<const ASSETS: bool> {
     // This frame's visible environment map is resident.
     pub(crate) sky_ready: bool,
     pub(crate) targets: Targets,
+    // A direct frame's attachments (`encode_hooked`), made at its target's size.
+    pub(crate) direct_targets: Option<crate::buffers::DirectTargets>,
+    // Frames may draw direct: on phones and tablets, whose tiling GPUs it is for.
+    // Elsewhere it would move MSAA edges (each sample is tonemapped before the
+    // resolve), and pinned pixels with them, for little gain.
+    pub(crate) allow_direct: bool,
     counts: Stats,
     shadows: Option<ShadowMaps>,
     bloom: Option<BloomTargets>,
@@ -152,6 +174,18 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     /// Compile effect pipelines for this output format and retain the device/queue.
     /// Draw targets must match this format; RGBA/BGRA unorm and sRGB are supported.
     /// Particle capacity prepares with emitters; asset arenas may compact retired spans.
+    /// Whether a frame that needs nothing of its HDR image after the opaque pass
+    /// draws tonemapped straight into the target: the default on Android and iOS.
+    pub fn set_direct(&mut self, allow: bool) {
+        self.allow_direct = allow;
+    }
+
+    /// Cull the camera's draws by occlusion (occlusion.rs) on frames whose lists
+    /// hold at least `items` slots: 32,768 by default, `usize::MAX` never.
+    pub fn set_occlusion_items(&mut self, items: usize) {
+        self.occlusion_items = items;
+    }
+
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, format: wgpu::TextureFormat) -> Self {
         let pipelines = Pipelines::new(device, format);
         let uniform = device.create_buffer(&wgpu::BufferDescriptor {
@@ -240,6 +274,12 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 },
             ],
         });
+        let limits = device.limits();
+        let slot_capacity = (limits
+            .max_storage_buffer_binding_size
+            .min(limits.max_buffer_size)
+            / 64)
+            .min(u64::from(u32::MAX)) as u32;
         Self {
             models: crate::models::Models::default(),
             quads: crate::quads::Quads::new::<ASSETS>(device, queue, &uniform),
@@ -247,6 +287,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             slot_list: Vec::new(),
             device: device.clone(),
             queue: queue.clone(),
+            slot_capacity,
             pipelines,
             uniform,
             transforms,
@@ -254,10 +295,16 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             attachment_words: Vec::new(),
             current: 1,
             materials,
+            grid: Vec::new(),
+            grids: 0,
             slots,
             scene_binds: retained_binds,
             culled_binds,
             culled_key,
+            occlusion: None,
+            occluding: false,
+            occlusion_items: crate::occlusion::ITEMS,
+            cull_drew: false,
             cull,
             environment,
             lights,
@@ -279,6 +326,8 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             soft_retained: false,
             sky_ready: false,
             targets,
+            direct_targets: None,
+            allow_direct: cfg!(any(target_os = "android", target_os = "ios")),
             shadows: None,
             bloom: None,
             ssao: None,
@@ -327,6 +376,33 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             let skip = (from - u64::from(first_slot)) as usize * 10;
             history.write(&self.queue, from * 40, bytes(&values[skip..]));
         }
+        Ok(())
+    }
+
+    /// [`Self::write_transforms`] of `floats` floats that `fill` writes, as bytes,
+    /// into the queue's staging memory. Slots new to the history take the
+    /// copying path, which writes them there too.
+    pub(crate) fn write_transforms_with(
+        &mut self,
+        first_slot: u32,
+        floats: usize,
+        fill: &mut crate::buffers::Fill<'_>,
+    ) -> Result<(), RenderError> {
+        let end = record_end(first_slot, floats, 10);
+        if floats == 0 {
+            return Ok(());
+        }
+        if end > self.transforms[1 - self.current].live / 40 {
+            return self.write_transforms(first_slot, &crate::buffers::filled(floats, fill));
+        }
+        self.check_capacity("transforms", end)?;
+        self.ensure_slots(end);
+        self.transforms[self.current].write_with(
+            &self.queue,
+            u64::from(first_slot) * 40,
+            floats as u64 * 4,
+            fill,
+        );
         Ok(())
     }
 
@@ -382,6 +458,21 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         self.ensure_slots(end);
         self.materials
             .write(&self.queue, u64::from(first_slot) * 48, bytes(values));
+        let first = first_slot as usize;
+        if self.grid.len() < first + values.len() / 12 {
+            self.grid.resize(first + values.len() / 12, false);
+        }
+        for (k, record) in values.chunks_exact(12).enumerate() {
+            let grid = record[3] < 0.;
+            if grid != self.grid[first + k] {
+                self.grid[first + k] = grid;
+                if grid {
+                    self.grids += 1;
+                } else {
+                    self.grids -= 1;
+                }
+            }
+        }
         Ok(())
     }
 
@@ -513,6 +604,12 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             cap,
             capsule,
             plain,
+            inscribed: if capsule {
+                0.0
+            } else {
+                crate::occlusion::inscribed(vertices, indices)
+            },
+            boxed: crate::occlusion::boxed(vertices, indices),
         };
         self.cull.epoch += 1;
         if id.0 == self.meshes.len() {
@@ -634,13 +731,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     /// Maximum slot count under the device's granted adapter limits and the widest
     /// arena (64-byte affine attachments). Valid slot indices are strictly below this count.
     pub fn max_slots(&self) -> u32 {
-        (self
-            .device
-            .limits()
-            .max_storage_buffer_binding_size
-            .min(self.device.limits().max_buffer_size)
-            / 64)
-            .min(u64::from(u32::MAX)) as u32
+        self.slot_capacity
     }
 
     /// Diagnostic readback of the GPU's per-view culling results. While on, each

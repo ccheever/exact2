@@ -64,6 +64,22 @@ function setT(t, i, h) {
   t.sums[n] = h;
   while (n > 1) { n >>= 1; t.sums[n] = t.sums[2 * n] + t.sums[2 * n + 1]; }
 }
+// Nonmutating changed leaves and ancestors, with setT's exact grouping.
+// Instantiated only for an actual height change, never an equal/noisy sample.
+class HeightPreview {
+  constructor(t) { this.t = t; this.sums = new Map(); }
+  set(position, height) {
+    const t = this.t, sums = this.sums;
+    let n = t.base + position;
+    if (height === (sums.get(n) ?? t.sums[n])) return;
+    sums.set(n, height);
+    while (n > 1) {
+      n >>= 1;
+      sums.set(n, (sums.get(2 * n) ?? t.sums[2 * n]) + (sums.get(2 * n + 1) ?? t.sums[2 * n + 1]));
+    }
+  }
+  get total() { return this.sums.get(1) ?? this.t.sums[1]; }
+}
 function setEpoch(t, i, e) { let n = t.base + i; t.me[n] = e; while (n > 1) { n >>= 1; t.me[n] = Math.min(t.me[2 * n], t.me[2 * n + 1]); } }
 function minEpoch(t, a, b) {
   let l = a + t.base, r = b + t.base, e = Infinity;
@@ -96,6 +112,12 @@ class SizeIndex {
   }
   prefix(end) { return prefixT(this.t, end); }
   get total() { return this.t.sums[1]; }
+  // Sufficient bound: every candidate leaf and padding <= H. B >= 1 is
+  // power-of-two; monotone nonnegative addition bounds each subtree by its
+  // leaf count * H using exact doubling. Root <= B*H, either padded order
+  // <= 4*B*H (two more exact doublings); MAX/(4*B) is also exact. Retained
+  // and denoised leaves <= current root; revived zeros are bounded by est.
+  paddedExtentDefinitelyFits(h) { return h >= 0 && h <= 3.4028234663852886e38 / (4 * this.t.base); }
   rowAt(offset) { return find(this.t, offset, false); }
   token(key) { const i = this.pos.get(key); return i === undefined ? null : this.epoch + ":" + this.gen[i]; }
   measured(key) { const i = this.pos.get(key); return i !== undefined && this.me[i] === this.epoch; }
@@ -190,7 +212,6 @@ const Held = new Set(); // collections whose edge waits for their covered route 
 class Collection {
   constructor(el, o, own) {
     this.el = el; this.view = viewId(el); this.axis = o.x ? "x" : "y"; this.own = own; this.o = o;
-    this.scrollPadding = [0, 0];
     this.est = o.est ?? ESTIMATED;
     if (!(isFinite(this.est) && this.est > 0)) throw new Refusal("estimated item height must be positive and finite");
     this.index = new SizeIndex(this.est);
@@ -209,6 +230,14 @@ class Collection {
       revision: this.revision, scrollSequence: g ? g.scroll_sequence : 0, count: this.index.len, totalExtent: this.index.total,
       rows: this.mounted.map(m => ({ view: m.view, root: m.root, index: m.position, start: this.index.prefix(m.position), size: this.index.h[m.position], epoch: m.epoch, measured: this.index.measured(this.index.order[m.position]) })),
       pending: this.pending || !!this.target, correction: this.correction }; // an into-view request wants its next report
+  }
+  scrollAnchor() {
+    const horizontal = this.axis === "x", i = this.index;
+    const offset = (horizontal ? this.el.scrollLeft : this.el.scrollTop) - i.leading;
+    const port = horizontal ? this.el.clientWidth : this.el.clientHeight;
+    const p = i.rowAt(Math.max(0, offset));
+    if (p === null || port <= 0 || i.prefix(p) >= offset + port) return [null, 0];
+    return [i.order[p].replace(/^d\d+:/, "").slice(2), offset - i.prefix(p)];
   }
   // ------------------------------------------------ data (mod.rs update_data)
   update(items, [idents, dups], fresh) {
@@ -394,6 +423,7 @@ class Collection {
     const served = this.served?.get(key);
     if (served) this.served.delete(key);
     const w = served ?? document.createElement("div");
+    w.$exactTree = true;
     w.style.cssText = WRAP[this.axis];
     w.setAttribute("role", "listitem");
     w.setAttribute("data-listitemkey", key);
@@ -423,7 +453,7 @@ class Collection {
       const gap = this.index.prefix(p) - this.index.prefix(cursor);
       if (gap > 0) {
         let s = this.spacers[n];
-        if (!s) { const el = document.createElement("div"); el.setAttribute("aria-hidden", "true"); el.style.cssText = SPACER[this.axis]; s = this.spacers[n] = { el, size: null }; }
+        if (!s) { const el = document.createElement("div"); el.$exactTree = true; el.setAttribute("aria-hidden", "true"); el.style.cssText = SPACER[this.axis]; s = this.spacers[n] = { el, size: null }; }
         if (s.size !== gap) { s.el.style.setProperty(MAIN[this.axis], num(gap) + "px"); s.size = gap; }
         kids.push(s.el); n++;
       }
@@ -516,7 +546,31 @@ class Collection {
     if (f.view !== this.view || f.revision !== this.revision || (g && f.scroll_sequence < g.scroll_sequence)) return null;
     if ([f.focus_view, f.interaction_view].some(v => v != null && this.pin(v) === null)) return null;
     const byView = new Map(this.mounted.map((m, i) => [m.view, i]));
-    if (f.measurements.some(m => !byView.has(m.view) || this.mounted[byView.get(m.view)].epoch !== m.epoch)) return null;
+    let h = Math.max(this.index.total, f.padding[0], f.padding[1]);
+    for (const m of f.measurements) {
+      const i = byView.get(m.view);
+      if (i === undefined || this.mounted[i].epoch !== m.epoch) return null;
+      h = Math.max(h, m.size);
+    }
+    const changedWidth = !g || g.cross !== f.cross;
+    if (changedWidth && this.zeros.size) h = Math.max(h, this.est);
+    if (this.index.paddedExtentDefinitelyFits(h)) return byView;
+    let preview;
+    if (changedWidth) {
+      // Width invalidation revives zero rows; old-width samples are discarded.
+      for (const key of this.zeros) {
+        const p = this.index.pos.get(key);
+        if (p !== undefined && this.index.h[p] !== this.est) (preview ??= new HeightPreview(this.index.t)).set(p, this.est);
+      }
+    } else {
+      for (const r of f.measurements) {
+        const p = this.mounted[byView.get(r.view)].position, key = this.index.order[p];
+        if (r.size !== this.index.h[p] && !noise(this.index, key, p, r.size)) (preview ??= new HeightPreview(this.index.t)).set(p, r.size);
+      }
+    }
+    const extent = preview ? preview.total : this.index.total;
+    const paddedExtent = Math.max(extent + f.padding[0] + f.padding[1], extent + f.padding[1] + f.padding[0]);
+    if (!isFinite(paddedExtent) || paddedExtent > 3.4028234663852886e38) throw new Refusal("collection height exceeds finite geometry");
     return byView;
   }
   dims(f) { const g = this.geometry; return g && g.port_cross === f.port_cross && g.port_main === f.port_main && g.cross === f.cross && g.focus_view === f.focus_view && g.interaction_view === f.interaction_view; }
@@ -527,9 +581,8 @@ class Collection {
   }
   feedback(f, byView, fill) {
     // A new padding is no travel (inset.rs): the anchor is taken on the old range.
-    const was = [this.index.leading, this.index.trailing], padding = this.paddingNext ?? was;
-    this.paddingNext = null;
-    const within = padding[0] === was[0] && padding[1] === was[1] ? this.travelWithin(f, byView, fill) : undefined;
+    const padding = f.padding, paddingChanged = padding[0] !== this.index.leading || padding[1] !== this.index.trailing;
+    const within = paddingChanged ? undefined : this.travelWithin(f, byView, fill);
     if (within !== undefined) return [false, within];
     const changedWidth = !this.geometry || this.geometry.cross !== f.cross;
     // Arrange's preview (reorder.js, loaded with the motion piece) ends with
@@ -562,7 +615,7 @@ class Collection {
     this.settleStart(extent);
     const now = this.snapshot();
     now.scrollSequence = previous.scrollSequence;
-    const changed = JSON.stringify(previous) !== JSON.stringify(now);
+    const changed = paddingChanged || JSON.stringify(previous) !== JSON.stringify(now);
     if (changed) this.revision++;
     return [changed, this.edge()];
   }
@@ -605,21 +658,27 @@ class Collection {
       return [text];
     };
     if (typeof key === "string" && key.trim() !== "" && isFinite(Number(key))) { const r = exactly(Number(key)); if (r[0]) return r; }
+    if (key === "true" || key === "false") { const r = exactly(key === "true"); if (r[0]) return r; }
     return exactly(key);
   }
-  /** The row root's margins on this axis: its wrapper encloses them, and the
-   * web aligns the element's border box. */
+  /** Insets from the row wrapper to its border box, expanded by scroll margins. */
   margins(p) {
     const m = this.mounted.find(m => m.position === p), root = m?.wrapper.firstElementChild;
     if (!root) return [0, 0];
     const cs = getComputedStyle(root), n = v => parseFloat(v) || 0;
-    return this.axis === "y" ? [n(cs.marginTop), n(cs.marginBottom)] : [n(cs.marginLeft), n(cs.marginRight)];
+    return this.axis === "y" ? [n(cs.marginTop) - n(cs.scrollMarginTop), n(cs.marginBottom) - n(cs.scrollMarginBottom)] : [n(cs.marginLeft) - n(cs.scrollMarginLeft), n(cs.marginRight) - n(cs.scrollMarginRight)];
+  }
+  /** The list's scroll-padding at each end on this axis, read when it aligns, as CSSOM View reads it. */
+  scrollPadding() {
+    const cs = getComputedStyle(this.el), n = v => Math.max(0, parseFloat(v) || 0);
+    return this.axis === "y" ? [n(cs.scrollPaddingTop), n(cs.scrollPaddingBottom)] : [n(cs.scrollPaddingLeft), n(cs.scrollPaddingRight)];
   }
   // Within the port less its scroll-padding (into_view.rs `aligned`), down to the padding before the first row.
-  aligned(p, align, current) {
+  aligned(p, align, current, offset) {
+    if (offset != null) return Math.min(Math.max(this.index.prefix(p) + offset, -this.index.leading), this.index.maxOffset(this.geometry?.port_main ?? 0));
     const [before, after] = this.margins(p);
     const start = this.index.prefix(p) + before, size = Math.max(0, this.index.h[p] - before - after), port = this.geometry?.port_main ?? 0;
-    const [i0, i1] = this.scrollPadding, low = i0, high = Math.max(i0, port - i1), view = high - low;
+    const [i0, i1] = this.scrollPadding(), low = i0, high = Math.max(i0, port - i1), view = high - low;
     const at = align === "start" ? start - low : align === "center" ? start + size / 2 - (low + high) / 2 : align === "end" ? start + size - high
       : this.nearest(start, size, current, low, high);
     return Math.min(Math.max(at, -this.index.leading), this.index.maxOffset(port));
@@ -631,11 +690,11 @@ class Collection {
   }
   /** Start a request: its window is built at the destination now, and the
    * host told to move there before it paints (the correction). */
-  intoView(key, align) {
+  intoView(key, align, within) {
     const p = this.index.pos.get(key), g = this.geometry;
-    const offset = this.aligned(p, align, g ? g.offset : this.startOffset);
+    const offset = this.aligned(p, align, g ? g.offset : this.startOffset, within);
     this.restoredAt = null; this.atEnd = false;
-    this.target = { key, align, reports: 0, travelling: 0, aligned: 0 };
+    this.target = { key, align, offset: within, reports: 0, travelling: 0, aligned: 0 };
     this.status = [key, "pending"];
     if (g) { g.offset = offset; this.correction = { scrollSequence: g.scroll_sequence, offset }; }
     else { this.startOffset = Math.max(0, offset); this.correction = { scrollSequence: 0, offset }; }
@@ -659,7 +718,7 @@ class Collection {
     const p = this.index.pos.get(t.key);
     if (p === undefined) return this.end("cancelled");
     if (!g) return;
-    const desired = this.aligned(p, t.align, reported);
+    const desired = this.aligned(p, t.align, reported, t.offset);
     const first = Math.min(this.mounted[0]?.position ?? p, p);
     if (Math.abs(desired - reported) <= 0.5) {
       t.aligned = this.index.rangeMeasured(first, p + 1) && !this.pending ? t.aligned + 1 : 0;
@@ -733,16 +792,17 @@ const Refused = [];
 /** The command (`scrollIntoView("id", key, block=, inline=, behavior=,
  * row=)`) and the agent's `tap <list> into <key>` (`view`), as the runner's
  * `scroll_into_view` (runner/src/runner/into_view.rs). */
-function intoView(list, key, block, inline, row, view) {
+function intoView(list, key, block, inline, row, view, offset) {
   const refuse = why => { journal.push(`scrollIntoView ${list} refused: ${why}`); Refused.push({ list, status: "refused: " + why.replaceAll('"', "'") }); if (Refused.length > 8) Refused.shift(); };
-  for (const a of [block, inline]) if (!ALIGN.includes(a)) { if (view != null) throw new Error(`no alignment ${a}: start, center, end or nearest`); return refuse(`no alignment ${a}`); }
-  const begin = (c, k) => { const [text, why] = c.resolve(k); if (!text) return refuse(why); c.intoView(text, c.axis === "y" ? block : inline); return true; };
+  if (offset != null && (typeof offset !== "number" || !Number.isFinite(offset))) return refuse("offset must be a finite number of CSS pixels");
+  for (const a of [block, inline]) if (!ALIGN.includes(a)) return refuse(`no alignment ${a}`);
+  const begin = (c, k, within = offset) => { const [text, why] = c.resolve(k); if (!text) return refuse(why); c.intoView(text, c.axis === "y" ? block : inline, within); return true; };
   if (view != null) { const c = Lists.get(view); if (!c) return refuse(`view ${view} is not a mounted virtualized list`); begin(c, key); }
   else if (row == null) { const c = [...Lists.values()].find(c => !c.up && c.el.id === list); if (!c) return refuse(`no virtualized list has id ${list}`); begin(c, key); }
   else {
     const outer = [...Lists.values()].find(c => !c.up && c.resolve(row)[0]);
     if (!outer) { let t = ""; try { t = keyText(row); } catch {} return refuse(`no virtualized list holds a row keyed ${t}`); }
-    if (!begin(outer, row)) return;
+    if (!begin(outer, row, null)) return;
     const m = outer.mounted.find(m => m.key === outer.resolve(row)[0]);
     if (!m) return refuse("the outer row did not mount");
     const c = m.inner.find(c => c.el.id === list);
@@ -751,8 +811,8 @@ function intoView(list, key, block, inline, row, view) {
   }
   settled();
 }
-const element = Hosts.scrollIntoView; // an element's, by id: four arguments, the row form's six (rt.js)
-Hosts.scrollIntoView = (...a) => a.length !== 6 ? element(...a) : intoView(a[0], a[1], a[2] ?? "start", a[3] ?? "nearest", a[5]);
+const element = Hosts.scrollIntoView; // an element's, by id: four arguments, the row form's seven (rt.js)
+Hosts.scrollIntoView = (...a) => a.length !== 7 ? element(...a) : intoView(a[0], a[1], a[2] ?? "start", a[3] ?? "nearest", a[5], null, a[6]);
 /** `state.scrollIntoView`: each list's latest request, then refusals. */
 const intoViewState = () => [...[...Lists.values()].filter(c => c.status).map(c => ({ list: c.view, key: c.status[0], status: c.status[1] })), ...Refused];
 function publish() {
@@ -790,7 +850,10 @@ function load() {
     publish();
   }).catch(e => console.error("exact: collections:", e)).finally(() => inflight.n--);
   (globalThis.exact ??= {}).lists = { settle: () => Controller?.settle(), pending: () => Loading,
-    into: (view, key, block = "start", inline = "nearest") => intoView(`#${view}`, key, block, inline, null, view), intoView: intoViewState,
+    into: (view, key, block = "start", inline = "nearest") => {
+      for (const a of [block, inline]) if (!ALIGN.includes(a)) throw Object.assign(new Error(`no alignment ${a}: start, center, end or nearest`), { malformed: true });
+      return intoView(`#${view}`, key, block, inline, null, view);
+    }, intoView: intoViewState,
     // Arrange's preview, installed by reorder.js (the motion piece's chunk).
     internals: { Collection, Lists, Views, find, minEpoch, settled, controller: () => Controller } };
 }
@@ -799,10 +862,6 @@ function report(bytes, f, fill) {
   f = { ...f, revision: Number(f.revision), scroll_sequence: Number(f.scroll_sequence), focus_view: f.focus_view ?? null, interaction_view: f.interaction_view ?? null };
   fill = { velocity: fill?.velocity ?? 0, limit: Number.isInteger(fill?.limit) ? fill.limit : null, ancestorMoving: !!fill?.ancestorMoving };
   const c = Lists.get(f.view);
-  // The list's resolved padding before its rows and after them, and its scroll
-  // padding, which the browser half reads (inset.rs `set_insets`).
-  if (c && Number.isFinite(f.leading) && Number.isFinite(f.trailing)) c.paddingNext = [Math.max(0, f.leading), Math.max(0, f.trailing)];
-  if (c && Array.isArray(f.scrollPadding)) c.scrollPadding = f.scrollPadding.map(n => Number.isFinite(n) ? Math.max(0, n) : 0);
   const byView = c?.prepare(f);
   if (!byView) return true;
   const cats = [f.focus_view != null, f.interaction_view != null];

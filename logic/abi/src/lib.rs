@@ -6,8 +6,8 @@ use exact_plan::{
     Plan, Value,
 };
 use exact_runner::{
-    Answer, DataError, DataSource, FailureKind, HttpScheduling, Outcome, Request, Response, Store,
-    SurfaceOutcome, SurfaceRequest,
+    Answer, DataError, DataSource, FailureKind, HttpScheduling, Outcome, Overlaid, Redirect,
+    Request, Response, Store, SurfaceOutcome, SurfaceRequest, Write,
 };
 
 pub mod draw;
@@ -39,6 +39,28 @@ fn read_pairs(r: &mut Reader<'_>) -> Result<Vec<(String, String)>, String> {
     let n = r.count().map_err(error)?;
     (0..n)
         .map(|_| Ok((r.string().map_err(error)?, r.string().map_err(error)?)))
+        .collect()
+}
+// A store value is length-prefixed bytes, as a string is
+fn store_value(w: &mut Writer, value: &[u8]) {
+    w.u32(value.len() as u32);
+    w.bytes(value);
+}
+fn read_store_value(r: &mut Reader<'_>) -> Result<Vec<u8>, String> {
+    let n = r.count().map_err(error)?;
+    Ok(r.bytes(n).map_err(error)?.to_vec())
+}
+fn store_pairs(w: &mut Writer, data: &[(String, Vec<u8>)]) {
+    w.u32(data.len() as u32);
+    for (name, value) in data {
+        w.string(name);
+        store_value(w, value);
+    }
+}
+fn read_store_pairs(r: &mut Reader<'_>) -> Result<Vec<(String, Vec<u8>)>, String> {
+    let n = r.count().map_err(error)?;
+    (0..n)
+        .map(|_| Ok((r.string().map_err(error)?, read_store_value(r)?)))
         .collect()
 }
 fn finish(w: Writer) -> Result<Vec<u8>, String> {
@@ -101,11 +123,69 @@ pub fn call_request(
         .into_iter()
         .filter(|(name, _)| !name.starts_with(Store::KEPT) && store.granted().contains(name))
         .collect::<Vec<_>>();
-    pairs(&mut w, &snapshot);
+    store_pairs(&mut w, &snapshot);
     if let Some(outcome) = outcome {
         encode_outcome(&mut w, outcome);
     }
     finish(w)
+}
+
+/// Encode an overlay operation (additive, as later outcome tags were): the
+/// resource's answer and the writes laid over it. No store crosses it.
+pub fn overlay_request(
+    source: &str,
+    args: &[Value],
+    answer: &Value,
+    writes: &[Write<'_>],
+) -> Result<Vec<u8>, String> {
+    let mut w = header(5);
+    w.string(source);
+    Value::list(args.to_vec()).encode(&mut w);
+    answer.encode(&mut w);
+    w.u32(writes.len() as u32);
+    for write in writes {
+        w.u64(write.id);
+        w.string(write.mutation);
+        w.string(write.source);
+        Value::list(write.args.to_vec()).encode(&mut w);
+        match write.reply {
+            Some(reply) => {
+                w.u8(1);
+                reply.encode(&mut w);
+            }
+            None => w.u8(0),
+        }
+        w.u8(u8::from(write.answered));
+    }
+    finish(w)
+}
+
+/// Decode an overlay reply: the value shown and the answered writes it
+/// keeps, or none (the answer shows).
+pub fn overlay_reply(data: &[u8]) -> Result<Option<Overlaid>, DataError> {
+    let decode = || -> Result<Result<Option<Overlaid>, DataError>, String> {
+        let mut r = reader(data)?;
+        if r.u8().map_err(error)? != 3 {
+            return Err("expected overlay reply".into());
+        }
+        let result = match r.u8().map_err(error)? {
+            0 => Ok(None),
+            1 => {
+                let value = Value::decode(&mut r).map_err(error)?;
+                let count = r.count().map_err(error)?;
+                let keep = (0..count)
+                    .map(|_| r.u64().map_err(error))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(Some(Overlaid { value, keep }))
+            }
+            2 => Err(DataError::Unavailable(r.string().map_err(error)?)),
+            3 => Err(DataError::UnknownSource(r.string().map_err(error)?)),
+            _ => return Err("invalid overlay tag".into()),
+        };
+        end(&r)?;
+        Ok(result)
+    };
+    decode().map_err(DataError::Interface)?
 }
 
 fn encode_outcome(w: &mut Writer, outcome: &Outcome) {
@@ -132,6 +212,15 @@ fn encode_outcome(w: &mut Writer, outcome: &Outcome) {
             w.string(&m.id);
             w.string(&m.data);
             w.u32(m.coalesced);
+        }
+        // A Rust module's stream only listens (LLP 1016.000 D7): a two-way
+        // socket's end crosses as the listener's end, worded as natively.
+        Outcome::Closed { code, reason, .. } => {
+            w.u8(1);
+            w.string(&match reason.is_empty() {
+                true => format!("the socket closed ({code})"),
+                false => format!("the socket closed ({code}: {reason})"),
+            });
         }
         Outcome::Failed { kind, message } => {
             w.u8(match kind {
@@ -173,6 +262,7 @@ fn read_outcome(r: &mut Reader<'_>) -> Result<Outcome, String> {
             id: r.string().map_err(error)?,
             data: r.string().map_err(error)?,
             coalesced: r.u32().map_err(error)?,
+            binary: None,
         }));
     }
     let kind = match tag {
@@ -254,6 +344,14 @@ fn encode_result(w: &mut Writer, result: Result<Answer, DataError>) {
             w.u8(u8::from(r.grants.is_some()));
             w.string(r.grants.as_deref().unwrap_or(""));
         }
+        // The seam's HTTP kinds carry no redirect mode yet: a module asking
+        // for one is refused, never silently followed.
+        Ok(Answer::Later(r)) if r.redirect != Redirect::Follow => encode_result(
+            w,
+            Err(DataError::Unavailable(
+                "a redirect mode cannot cross the Rust module seam yet".into(),
+            )),
+        ),
         Ok(Answer::Later(r))
             if r.continuation.is_none() && r.surface.is_none() && r.storage.is_none() =>
         {
@@ -295,7 +393,7 @@ fn encode_result(w: &mut Writer, result: Result<Answer, DataError>) {
                 DataError::Unavailable(s)
                 | DataError::Interface(s)
                 | DataError::DeferredAtBake(s)
-                | DataError::Failed(_, s) => (4, s),
+                | DataError::Failed(_, s, _) => (4, s),
             };
             w.u8(tag);
             w.string(&message);
@@ -308,8 +406,10 @@ fn read_result(r: &mut Reader<'_>) -> Result<Result<Answer, DataError>, String> 
         0 => Ok(Answer::Now(Value::decode(r).map_err(error)?)),
         1 | 6 | 9 => Ok(Answer::Later(Request {
             stream: tag == 9,
+            socket: false,
             timeout_ms: None,
             body_from: None,
+            redirect: Redirect::Follow,
             http: if tag != 1 {
                 let limit = r.u32().map_err(error)?;
                 if limit == 0 || limit > 64 << 20 {
@@ -468,6 +568,7 @@ impl<D: DataSource> Session<D> {
             0 => 0,
             1 | 2 => 1,
             3 | 4 => 2,
+            5 => 3,
             _ => return Err("unknown logic operation".into()),
         });
         match op {
@@ -494,7 +595,7 @@ impl<D: DataSource> Session<D> {
                 let Value::List(args) = Value::decode(&mut r).map_err(error)? else {
                     return Err("arguments must be a list".into());
                 };
-                let mut store = Store::module_mirror(self.data.grants(), read_pairs(&mut r)?);
+                let mut store = Store::module_mirror(self.data.grants(), read_store_pairs(&mut r)?);
                 let outcome = if op == 4 {
                     Some(read_outcome(&mut r)?)
                 } else {
@@ -513,10 +614,67 @@ impl<D: DataSource> Session<D> {
                     w.string(&write.name);
                     w.u8(u8::from(write.value.is_some()));
                     if let Some(value) = write.value {
-                        w.string(&value);
+                        store_value(&mut w, &value);
                     }
                 }
                 encode_result(&mut w, result);
+            }
+            5 => {
+                let source = r.string().map_err(error)?;
+                let Value::List(args) = Value::decode(&mut r).map_err(error)? else {
+                    return Err("arguments must be a list".into());
+                };
+                let answer = Value::decode(&mut r).map_err(error)?;
+                let count = r.count().map_err(error)?;
+                let mut decoded = Vec::with_capacity(count);
+                for _ in 0..count {
+                    let id = r.u64().map_err(error)?;
+                    let mutation = r.string().map_err(error)?;
+                    let source = r.string().map_err(error)?;
+                    let Value::List(args) = Value::decode(&mut r).map_err(error)? else {
+                        return Err("arguments must be a list".into());
+                    };
+                    let reply = match r.u8().map_err(error)? {
+                        0 => None,
+                        1 => Some(Value::decode(&mut r).map_err(error)?),
+                        _ => return Err("invalid reply tag".into()),
+                    };
+                    let answered = r.u8().map_err(error)? == 1;
+                    decoded.push((id, mutation, source, args, reply, answered));
+                }
+                end(&r)?;
+                let writes: Vec<Write<'_>> = decoded
+                    .iter()
+                    .map(|(id, mutation, source, args, reply, answered)| Write {
+                        id: *id,
+                        mutation,
+                        source,
+                        args,
+                        reply: reply.as_ref(),
+                        answered: *answered,
+                    })
+                    .collect();
+                match self.data.overlay(&source, &args, &answer, &writes) {
+                    Ok(None) => w.u8(0),
+                    Ok(Some(o)) => {
+                        w.u8(1);
+                        o.value.encode(&mut w);
+                        w.u32(o.keep.len() as u32);
+                        for id in o.keep {
+                            w.u64(id);
+                        }
+                    }
+                    // A source this module does not answer: a mixed app's
+                    // other half may overlay it.
+                    Err(DataError::UnknownSource(name)) => {
+                        w.u8(3);
+                        w.string(&name);
+                    }
+                    Err(e) => {
+                        w.u8(2);
+                        w.string(&format!("{e:?}"));
+                    }
+                }
             }
             _ => unreachable!(),
         }

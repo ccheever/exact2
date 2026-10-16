@@ -322,7 +322,7 @@ genuinely cannot do it the same way.
 
 | | Exact2 |
 |---|---|
-| list | one `list virtualized=true estimated-item-height=470` + keyed `each`; the row is a header and one body per kind, chosen by the row's one `some` kind field (`match r.photo …`) |
+| list | one `list virtualized=true estimated-item-height=470` + keyed `for`; the row is a header and one body per kind, chosen by the row's one `some` kind field (`match r.photo …`) |
 | images | `image … object-fit="cover"` (the host's downsampled ImageIO decode off the main thread) |
 | shader | a GPU `canvas surface=wave(…)` (LLP 1009): the module asks for the JPEG, decodes it off the main thread to ≤ 1,200 px, samples it through the wave + duotone in WGSL every frame |
 | canvas | Canvas 2D (LLP 1056 stage 2) drawn by the Rust data source: `roundRect`, `createLinearGradient`, `bezierCurveTo`, `arc`, `globalAlpha`, `drawImage` under an `arc` clip, `fillText` |

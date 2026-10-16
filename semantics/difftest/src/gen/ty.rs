@@ -24,6 +24,16 @@ impl Ty {
         Ty::List(Box::new(t))
     }
 
+    /// Whether a state of this type may say `persist` (LLP 1116 D5): a
+    /// number, string or bool, or an option or list of one.
+    pub(crate) fn persistable(&self) -> bool {
+        let scalar = |t: &Ty| matches!(t, Ty::Num | Ty::Str | Ty::Bool);
+        match self {
+            Ty::Opt(t) | Ty::List(t) => scalar(t),
+            t => scalar(t),
+        }
+    }
+
     /// Whether a value of this type, written without context, could need a
     /// `[]` whose element type nothing fixes.
     pub(crate) fn needs_list(&self) -> bool {
@@ -132,7 +142,7 @@ impl Gen<'_> {
             Ty::Str => "string".into(),
             Ty::Bool => "bool".into(),
             Ty::Opt(t) => format!("option<{}>", self.ty_name(t)),
-            Ty::List(t) => format!("list<{}>", self.ty_name(t)),
+            Ty::List(t) => format!("{}[]", self.ty_name(t)),
             Ty::Rec(i) => self.shapes[*i].name.clone(),
         }
     }

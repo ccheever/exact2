@@ -1,6 +1,6 @@
 import {test} from 'bun:test';
 import assert from 'node:assert/strict';
-import {readFileSync, writeFileSync, mkdirSync, unlinkSync, mkdtempSync, openSync, ftruncateSync, closeSync, rmSync, existsSync, readdirSync, watch, renameSync, watchFile, unwatchFile, statSync, utimesSync, symlinkSync} from 'node:fs';
+import {readFileSync, writeFileSync, mkdirSync, unlinkSync, mkdtempSync, openSync, ftruncateSync, closeSync, rmSync, existsSync, readdirSync, watch, renameSync, watchFile, unwatchFile, statSync, lstatSync, readlinkSync, utimesSync, symlinkSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {open, Cdp} from '../../../scripts/agent.mjs';
@@ -10,6 +10,9 @@ import {runInNewContext} from 'node:vm';
 import {spawn} from 'node:child_process';
 import {createServer} from 'node:http';
 import {watchStaticTrees} from '../serve.mjs';
+import {chromium} from '../../../scripts/agent-launch.mjs';
+import {need} from '../../../scripts/coverage.mjs';
+const {executable:chrome,unavailable}=chromium();
 // A test that edits an app's files and writes them back also puts their
 // times back, so a later test's build-freshness check is not tripped.
 const keepTimes = paths => { const kept = paths.map(p => [p, statSync(p)]); return () => { for (const [p, st] of kept) utimesSync(p, st.atime, st.mtime); }; };
@@ -25,14 +28,14 @@ test('the JS dev loop carries state by built logic revision and refreshes host f
   const privateDist=mkdtempSync(join(tmpdir(),'exact-dev-carry-'));
   const withProbe=text=>text
     .replace('component RealWorld\n','shape DevReloadAnswer\n  value: string\nshape DevReloadRow\n  id: string\nshape DevReloadPage\n  visibilityState: string\n  onLine: bool\n  canShare: bool\n\ncomponent RealWorld\n  state reloadProbe = "fresh"\n  state rowProbe = "row fresh"\n')
-    .replace('  resource follows = followings() as shape list<Follow>\n','  resource follows = followings() as shape list<Follow>\n  resource devReloadAnswer = devReloadAnswer() as shape DevReloadAnswer\n  resource devReloadRows = devReloadRows() as shape list<DevReloadRow>\n  resource devReloadPage = exactPage() as shape DevReloadPage\n')
+    .replace('  resource follows = followings() as shape Follow[]\n','  resource follows = followings() as shape Follow[]\n  resource devReloadAnswer = devReloadAnswer() as shape DevReloadAnswer\n  resource devReloadRows = devReloadRows() as shape DevReloadRow[]\n  resource devReloadPage = exactPage() as shape DevReloadPage\n')
     .replace('  action go(url: string)\n','  action setReloadProbe(value)\n    reloadProbe = value\n  action setRowProbe(value)\n    rowProbe = value\n  action go(url: string)\n')
-    .replace('      head title="Conduit" description="A place to share your knowledge."\n','      head title="Conduit" description="A place to share your knowledge."\n      input value=reloadProbe input=setReloadProbe testId="reload-probe" aria-label="Reload probe"\n      text devReloadAnswer.value testId="reload-answer"\n      text `${devReloadPage.onLine}` testId="reload-page-online"\n      list virtualized=true height=80 width="100%" overflow-y="scroll" testId="reload-list"\n        each row in devReloadRows key=row.id\n          column width="100%"\n            input value=rowProbe input=setRowProbe testId=`row-probe-${row.id}` aria-label="Row reload probe"\n');
+    .replace('      head title="Conduit" description="A place to share your knowledge."\n','      head title="Conduit" description="A place to share your knowledge."\n      input value=reloadProbe input=setReloadProbe testId="reload-probe" aria-label="Reload probe"\n      text devReloadAnswer.value testId="reload-answer"\n      text `${devReloadPage.onLine}` testId="reload-page-online"\n      list virtualized=true height=80 width="100%" overflow-y="scroll" testId="reload-list"\n        for row in devReloadRows key=row.id\n          column width="100%"\n            input value=rowProbe input=setRowProbe testId=`row-probe-${row.id}` aria-label="Row reload probe"\n');
   const withNumberProbe=text=>text
     .replace('component RealWorld\n','component RealWorld\n  state reloadProbe = 7\n')
     .replace('      head title="Conduit" description="A place to share your knowledge."\n','      head title="Conduit" description="A place to share your knowledge."\n      text `${reloadProbe}` testId="reload-probe"\n');
   const withLogic=text=>text
-    .replace("import type { Answer, Sources, Result } from './app.contract.d.ts';\n","import type { Answer, Sources, Result } from './app.contract.d.ts';\nimport { devReloadValue } from './dev-reload-helper';\n")
+    .replace(/^import type .* from '\.\/app\.contract\.d\.ts';\n/m,line=>`${line}import { devReloadValue } from './dev-reload-helper';\n`)
     .replace('const sources: Sources = {\n',"const sources: Sources = {\n  devReloadAnswer: () => ({ value: devReloadValue() }),\n  devReloadRows: () => [{ id: 'one' }],\n");
   const edited=text=>text.replace('          text "conduit"\n','          text "conduit carried"\n');
   const listener=createServer();await new Promise((ok,fail)=>{listener.once('error',fail);listener.listen(0,'127.0.0.1',ok)});const port=listener.address().port;await new Promise(ok=>listener.close(ok));
@@ -127,12 +130,10 @@ test('the Caltrain JS dev loop keeps its station search across an app edit', asy
     if(dev?.exitCode===null){dev.kill('SIGTERM');await new Promise(ok=>{const t=setTimeout(ok,2000);dev.once('exit',()=>{clearTimeout(t);ok()})})}
   }
 },180_000);
-test('a page whose first build failed reloads into the fixed build', async () => {
+need('chrome', unavailable)('a page whose first build failed reloads into the fixed build', async () => {
   // The first build's error page has no runtime (`globalThis.exact` never
   // exists), so its reload must not wait for one. Driven over a raw DevTools
   // pipe: agent.mjs's open() waits for a runtime this page never has.
-  const chrome=process.env.CHROME;
-  if(!chrome||!existsSync(chrome)){console.warn('SKIP first-build error reload: CHROME names no browser');return;}
   const contract=resolve(new URL('../../../apps/realworld/app.contract',import.meta.url).pathname),original=readFileSync(contract,'utf8');
   const restoreTimes=keepTimes([contract]);
   const listener=createServer();await new Promise((ok,fail)=>{listener.once('error',fail);listener.listen(0,'127.0.0.1',ok)});const port=listener.address().port;await new Promise(ok=>listener.close(ok));
@@ -202,16 +203,17 @@ test('static watcher follows immediate creation, in-place edits, and directory r
   } finally {watcher.close();rmSync(dir,{recursive:true,force:true});}
 },30_000); // a hang bound; every wait above is on the watcher's reports
 test('dev edits clear only their own errors while unrelated failures stay visible', async () => {
-  let stream, overlay, envelope, plan, seq=0, swapErrors=[];
+  let stream, overlay, envelope, plan, seq=0, swapErrors=[], reloaded=()=>{};
   const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
   const context={TextEncoder,TextDecoder,URL,URLSearchParams,AbortController,setTimeout,clearTimeout,performance,
     console:{error(){}},location:{origin:'http://localhost',href:'http://localhost/',search:''},
     EventSource:class {constructor(){stream=this;}},
     document:{body:{appendChild(el){overlay=el;return el;}},createElement(){return {remove(){overlay=null;}};},querySelector(){return null;}},
-    navigator:{sendBeacon(){}},requestAnimationFrame:callback=>callback(),
+    navigator:{sendBeacon(){}},requestAnimationFrame:callback=>callback(),crypto,addEventListener(){}, // inspect mode's capture gate (LLP 1122 T2b)
+    matchMedia:()=>({matches:false,addEventListener(){}}), // the build channel's facts (LLP 1122 D4)
     localStorage:{getItem:()=>'1',setItem(){}}, // the "Open in native" link was put away; the overlay is all this page shows
     fetch:async url=>new Response(url.endsWith('app.plan')?plan:JSON.stringify(envelope)),
-    exact:{ready:Promise.resolve(),compat:{inputs:{app:'fixture'}},reloadGeneration:async()=>true,
+    exact:{ready:Promise.resolve(),compat:{inputs:{app:'fixture'}},reloadGeneration:async()=>{reloaded();return true;},
       gpu:{swap:async()=>({ms:0,errors:swapErrors})}},
   };
   runInNewContext(readFileSync(new URL('../dev.js',import.meta.url),'utf8'),context);
@@ -223,7 +225,10 @@ test('dev edits clear only their own errors while unrelated failures stay visibl
     const card={bytes:plan.length,sha256:hash(plan)};
     const dev={epoch:'a'.repeat(32),seq,generation:hash(JSON.stringify({assets:[],plan:card}))};
     envelope={exact:1,app:{id:'fixture'},dev,assets:[],plan:{...card,url:'/app.plan'}};
-    send({...dev,envelope:'/exact.json'});await settled();
+    // The page fetches and hashes the generation before the host takes it, and crypto.subtle's digests
+    // resolve on no fixed turn: wait for the host's reload, then the turns in which the page commits it.
+    const reload=new Promise(resolve=>{reloaded=resolve;});
+    send({...dev,envelope:'/exact.json'});await reload;await settled();
   };
   send({error:'Rust: unknown speed',source:'gpu'});
   await edited();
@@ -245,6 +250,57 @@ test('dev edits clear only their own errors while unrelated failures stay visibl
   assert.match(text(),/runtime refusal/);assert.doesNotMatch(text(),/carry refusal/);
   await edited();assert.equal(text(),'');
 });
+test('the wasm page sends its build-channel reports one at a time, in order, and none across a reconnect', async () => {
+  // The server binds a refusal to the status after it (LLP 1122 D4): a slow
+  // refusal still reaches it first. Each post is "delivered" when its delay
+  // ends; a register answers when the test lets it.
+  let stream, delivered=[], held=new Map();
+  const slow={'pin.contrast':150};
+  const context={TextEncoder,TextDecoder,URL,URLSearchParams,AbortController,AbortSignal,Response,setTimeout,clearTimeout,performance,crypto,Event,
+    console:{error(){}},location:{origin:'http://localhost',href:'http://localhost/',search:'?agent=1'},
+    EventSource:class {constructor(){stream=this;}},
+    addEventListener(){},dispatchEvent(){},sessionStorage:{getItem:()=>null,setItem(){},removeItem(){}},
+    document:{body:{appendChild:el=>el},head:{appendChild:el=>el},createElement:()=>({remove(){}}),getElementById:()=>null,querySelector:()=>null,
+      documentElement:{style:{fontSize:'',getPropertyValue:()=>'',setProperty(){},removeProperty(){}}}},
+    getComputedStyle:()=>({colorScheme:'light dark',fontSize:'16px'}),
+    navigator:{sendBeacon(){}},requestAnimationFrame:callback=>callback(),
+    matchMedia:()=>({matches:false,addEventListener(){}}),localStorage:{getItem:()=>'1',setItem(){}},
+    fetch:async (url,init)=>{
+      const body=JSON.parse(init?.body??'{}');
+      if(body.kind==='register'){await new Promise(ok=>held.set(body.nonce,ok));delivered.push(body);return new Response(JSON.stringify({ok:true}));}
+      await new Promise(ok=>setTimeout(ok,slow[body.what]??0));
+      delivered.push(body);return new Response('{}');
+    },
+    exact:{ready:Promise.resolve(),designDigest:'d'.repeat(64),compat:{inputs:{app:'fixture'}}},
+  };
+  runInNewContext(readFileSync(new URL('../dev.js',import.meta.url),'utf8'),context);
+  const send=message=>stream.onmessage({data:JSON.stringify(message)});
+  const until=async (ok,ms=3000)=>{const end=Date.now()+ms;while(!ok()){if(Date.now()>end)throw new Error(`reports: ${JSON.stringify(delivered)}`);await new Promise(r=>setTimeout(r,5));}};
+  const sent=nonce=>delivered.filter(b=>b.nonce===nonce&&b.kind!=='register').map(b=>b.kind==='status'?`status@${b.revision}`:`${b.kind} ${b.what}@${b.revision}`);
+  // (a) A pin the page cannot hold all of: its refusal is slow, and the
+  // status after it still goes after it.
+  send({hello:1,nonce:'n1',ready:false});
+  await until(()=>held.has('n1'));held.get('n1')();
+  await until(()=>sent('n1').length===1);
+  send({kind:'pin',revision:1,pin:{contrast:'more'}});
+  await until(()=>sent('n1').length===3);
+  assert.deepEqual(sent('n1'),['status@null','unsupported pin.contrast@1','status@1']);
+  // (b) Reports made on a stream whose registration has not answered, which
+  // a reconnect then replaces, are not sent: not on the old stream, nor the
+  // new one's.
+  send({hello:1,nonce:'n2',ready:false});
+  await until(()=>held.has('n2'));
+  send({kind:'pin',revision:2,pin:{contrast:'more'}});
+  await new Promise(r=>setTimeout(r,20));
+  send({hello:1,nonce:'n3',ready:false});
+  await until(()=>held.has('n3'));
+  held.get('n2')();held.get('n3')();
+  await until(()=>sent('n3').length>=1);
+  await new Promise(r=>setTimeout(r,250));
+  assert.deepEqual(sent('n2'),[],'nothing made on the replaced stream is sent');
+  assert.deepEqual(sent('n3'),['status@2'],'the new stream sends its own status, and no report made before it');
+});
+
 test('dev startup rebuilds changed Rust even when the app identity still matches', async () => {
   const dir=mkdtempSync(join(tmpdir(),'exact-dev-startup-'));
   try {
@@ -398,7 +454,7 @@ test('a failed build\'s files ride with the next build, whatever it touches', ()
 test('compiler cleanup kills the recorded GPU cargo group too', () => {
   const cleanup=source.slice(source.indexOf('const killCompiler = () => {'),source.indexOf('\nstartCompiler();'));
   const killed=[];
-  new Function('process', `let gpuBuildChild={pid:123},manualTypescript,rustSourceWatch,rustOutputWatch,rustHeartbeat,rustActive,rustChild,moduleWatch,moduleTimer,moduleRun=0,dev,moduleStage; ${cleanup}; killCompiler();`)
+  new Function('process', `const unasked=()=>{};let gpuBuildChild={pid:123},manualTypescript,rustSourceWatch,rustOutputWatch,rustHeartbeat,rustActive,rustChild,moduleWatch,moduleTimer,moduleRun=0,dev,moduleStage; ${cleanup}; killCompiler();`)
     ({kill:(...args)=>killed.push(args)});
   assert.deepEqual(killed,[[-123,'SIGKILL']]);
 });
@@ -450,49 +506,105 @@ test('GPU reloads refresh their includes while retaining the current app input g
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
 
-test('declared source files report in-place edits after inclusion and replacement', async () => {
+test('declared source files report in-place edits after inclusion and replacement', () => {
+  // The dev loop polls each declared file's metadata (`watchFile`) and debounces a build (`setTimeout`). The test
+  // stats the real files itself and runs the debounce at once, so what it checks holds at any machine speed
   const dir=mkdtempSync(join(tmpdir(),'exact-source-watch-'));
   let api;
   try {
     const src=join(dir,'logic'), main=join(src,'lib.rs'), extra=join(src,'extra.rs');
     mkdirSync(src);mkdirSync(join(dir,'target'));writeFileSync(join(dir,'app.json'),'{}');
     writeFileSync(main,'one');writeFileSync(extra,'unused');
+    const polled=new Map(), timers=new Map();
+    const stats=path=>statSync(path,{bigint:true,throwIfNoEntry:false})??{dev:0n,ino:0n,size:0n,mtimeNs:0n,ctimeNs:0n};
+    const fakeWatchFile=(path,_options,listener)=>polled.set(path,{listener,previous:stats(path)});
+    const fakeUnwatchFile=path=>polled.delete(path);
+    let nextTimer=0;
+    const fakeSetTimeout=fn=>{timers.set(++nextTimer,fn);return nextTimer;}, fakeClearTimeout=id=>timers.delete(id);
+    // Poll every watched file, then run the pending build timers
+    const settle=()=>{
+      for(const [path,record] of polled){const previous=record.previous;record.previous=stats(path);record.listener(record.previous,previous);}
+      for(const [id,fn] of [...timers]){timers.delete(id);fn();}
+    };
     const start=source.indexOf('const watched=new Map();'),end=source.indexOf('\nwatchCompilerInputs();',start);
-    api=new Function('app','main','watch','resolve','existsSync','watchFile','unwatchFile',`
+    api=new Function('app','main','watch','resolve','existsSync','watchFile','unwatchFile','setTimeout','clearTimeout',`
       const source=resolve(app.dir,'app.contract'),skipped=/(^|\\/)(target|dist)(\\/|$)/;
       const builtReceipts=[{binary:{inputs:[{path:main}],directories:[],missing:[]}}];
       const contractGraph=()=>({files:new Set()});
       const rustInputFiles=new Set(),gpuInputs=new Set(),appInputs=new Set(),failedInputs=new Set(),assetTrees=[];
       const typescript=false,portableRust=false,rebuildOn={rust:'save'},changed=new Set();
       const console={log(){},error(message){throw Error(message);}},gpuOnly=()=>true;
-      let built=()=>{};const builds=[],rebuild=()=>{builds.push([...changed]);changed.clear();built();};let timer;
+      const builds=[],rebuild=()=>{builds.push([...changed]);changed.clear();};let timer;
       ${source.slice(start,end)}
       watchCompilerInputs();
-      return {changed,builds,build:()=>new Promise(r=>{built=r;}),add(path){gpuInputs.add(path);watchCompilerInputs();},remove(path){gpuInputs.delete(path);watchCompilerInputs();},
-        has:path=>watched.has(path),close(){clearTimeout(timer);for(const record of watched.values())record.close();}};
-    `)({dir,manifest:{game:{}}},main,watch,resolve,existsSync,watchFile,unwatchFile);
-    const edit=async(path,text,atomic=false)=>{
-      const count=api.builds.length,build=api.build();
+      return {changed,builds,add(path){gpuInputs.add(path);watchCompilerInputs();},remove(path){gpuInputs.delete(path);watchCompilerInputs();},
+        has:path=>watched.has(path),close(){for(const record of watched.values())record.close();}};
+    `)({dir,manifest:{game:{}}},main,watch,resolve,existsSync,fakeWatchFile,fakeUnwatchFile,fakeSetTimeout,fakeClearTimeout);
+    const edit=(path,text,atomic=false)=>{
+      const count=api.builds.length;
       if(text===null)unlinkSync(path);
       else if(atomic){const temp=path+'.new';writeFileSync(temp,text);renameSync(temp,path);}
       else writeFileSync(path,text);
-      await build; // the build the save requests; the test's timeout is the hang bound
-      assert.deepEqual(api.builds[count],[path],`save was not observed: ${path}`);
-      await Bun.sleep(1000);
-      assert.equal(api.builds.length,count+1,'one save requests one build');
+      settle();
+      assert.deepEqual(api.builds.slice(count),[[path]],`one save of ${path} requests one build of it`);
     };
     api.add(extra);
-    await edit(extra,'included');
-    await edit(extra,'replaced',true);
-    await edit(extra,'edited again');
-    await edit(extra,null);
-    await edit(extra,'recreated',true);
-    await edit(extra,'edited after recreation');
+    edit(extra,'included');
+    edit(extra,'replaced',true);
+    edit(extra,'edited again');
+    edit(extra,null);
+    edit(extra,'recreated',true);
+    edit(extra,'edited after recreation');
     api.remove(extra);assert.equal(api.has(extra),false,'obsolete file watches close');
     const count=api.builds.length;writeFileSync(extra,'no longer included');
     writeFileSync(join(dir,'target/output.rs'),'output');
-    writeFileSync(join(dir,'notes.txt'),'unrelated');await Bun.sleep(1000);
+    writeFileSync(join(dir,'notes.txt'),'unrelated');settle();
     assert.deepEqual([...api.changed],[],'output and unrelated files do not rebuild');
     assert.equal(api.builds.length,count,'ignored edits do not build');
   } finally {api?.close();rmSync(dir,{recursive:true,force:true});}
 },60_000); // a hang bound: six one-second quiet windows plus waits on the builds themselves
+
+// E2: the local backend selection is a bake input even though .exact is ignored.
+test('the JS dev loop rebuilds backend selection creation, edits and removal',async()=>{
+  const {createApp}=await import('../../../game/new.mjs');
+  const {fetchOrigins}=await import('../../../scripts/agent-test.mjs');
+  const root=mkdtempSync(resolve(import.meta.dir,'../../../target/dev-backend-')),app=join(root,'app');
+  let child,log='';
+  const until=async(origin)=>{const end=Date.now()+60000;while(Date.now()<end){try{if(fetchOrigins(join(app,'target/web-dist')).includes(origin))return;}catch{}await new Promise(r=>setTimeout(r,25));}throw new Error(`backend ${origin} not served:\n${log.slice(-4000)}`);};
+  try {
+    createApp(app);
+    writeFileSync(join(app,'app.contract'),'component App\n  resource chosen = chosen() as shape string else empty()\n  view\n    text chosen\n');
+    const appId=JSON.parse(readFileSync(join(app,'app.json'),'utf8')).app.id;
+    const authored="import type {Answer} from './app.contract.d.ts';\nexport const appId="+JSON.stringify(appId)+";const origin='http://127.0.0.1:4400';export const grants=`net.fetch ${origin}`;export const answer:Answer=()=>origin;\n";
+    writeFileSync(join(app,'app.ts'),authored);
+    const env={...process.env,EXACT_APP_DIR:app};delete env.EXACT_BACKEND_ORIGIN;
+    child=spawn(process.execPath,[resolve(import.meta.dir,'../dev.mjs'),'--app','app'],{env,stdio:['ignore','pipe','pipe']});
+    for(const stream of [child.stdout,child.stderr])stream.on('data',b=>{log+=b.toString();});
+    await until('http://127.0.0.1:4400');
+    mkdirSync(join(app,'.exact'),{recursive:true});const selection=join(app,'.exact/backend-origin');
+    writeFileSync(selection,'http://127.0.0.1:4412');await until('http://127.0.0.1:4412');
+    writeFileSync(selection,'http://127.0.0.1:4413');await until('http://127.0.0.1:4413');
+    rmSync(selection);await until('http://127.0.0.1:4400');
+    assert.equal(readFileSync(join(app,'app.ts'),'utf8'),authored);
+  }finally{
+    if(child?.exitCode===null){const ended=new Promise(r=>child.once('exit',r));child.kill('SIGTERM');await ended;}
+    rmSync(root,{recursive:true,force:true});
+  }
+},240000);
+
+test('the resident module watcher follows backend selection without other local state',async()=>{
+  const dir=mkdtempSync(join(tmpdir(),'exact-resident-backend-'));let watcher,changes=0;
+  const begin=source.indexOf('function watchModuleSources('),end=source.indexOf('\nlet moduleWatch',begin);
+  const make=new Function('lstatSync','readdirSync','resolve','readlinkSync','statSync','watch',source.slice(begin,end)+';return watchModuleSources;')(lstatSync,readdirSync,resolve,readlinkSync,statSync,watch);
+  const backendInput=new Function('return '+source.match(/const backendInput = (.*);/)[1])();
+  const until=async()=>{const n=changes,end=Date.now()+3000;while(changes===n&&Date.now()<end)await new Promise(r=>setTimeout(r,10));assert.ok(changes>n,'the resident producer was notified');};
+  try{
+    watcher=make(dir,name=>name.startsWith('.')&&!backendInput(name),error=>{assert.equal(error,null);changes++;});
+    mkdirSync(join(dir,'.exact'));const selection=join(dir,'.exact/backend-origin');
+    writeFileSync(selection,'http://127.0.0.1:4412');await until();
+    writeFileSync(selection,'http://127.0.0.1:4413');await until();
+    rmSync(selection);await until();
+    const before=changes;writeFileSync(join(dir,'.exact/other'),'not an input');
+    await new Promise(r=>setTimeout(r,250));assert.equal(changes,before);
+  }finally{watcher?.close();rmSync(dir,{recursive:true,force:true});}
+},15000);

@@ -317,18 +317,38 @@ fn border_layout_paint_and_current_color_follow_live_style_changes() {
         if control == "hidden" {
             assert!(op(&batch, wide).contains("\"border_width_top\":0"));
         } else {
-            // `hidden` to `none` paints the same box: the presenter gets no
-            // style (it never reads `border-style`, the widths say it).
-            assert_eq!(count(&batch, "style"), 0, "{batch}");
+            // The width and geometry stay zero, but the presenter now reads
+            // the authored style so a later dotted/dashed change can paint.
+            assert_eq!(count(&batch, "style"), 3, "{batch}");
+            assert!(op(&batch, wide).contains("\"border_style_top\":\"none\""));
         }
     }
+}
+
+#[test]
+fn patterned_border_styles_reach_the_presenter() {
+    use exact_kernel::{Env, StyleId, StyleProps, StyleValue};
+    let mut style = StyleProps::default();
+    style
+        .set_dynamic(StyleId::BorderStyleTop, &StyleValue::Text("dotted".into()))
+        .unwrap();
+    style
+        .set_dynamic(
+            StyleId::BorderStyleRight,
+            &StyleValue::Text("dashed".into()),
+        )
+        .unwrap();
+    let json = exact_apple::style::style_json(&style, &Env::default()).0;
+    let json: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(json["border_style_top"], "dotted");
+    assert_eq!(json["border_style_right"], "dashed");
 }
 
 #[test]
 #[ignore = "async lane: launches Bun and nested cargo builds; bun scripts/async.mjs runs it"]
 fn apple_artifacts_own_paths_locks_identity_and_failed_placement() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let result = std::process::Command::new("bun")
+    let result = std::process::Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
         .current_dir(root)
         .args(["--input-type=module", "-e", r#"
 import assert from 'node:assert/strict';
@@ -431,7 +451,7 @@ try {
 fn a_kept_module_is_taken_only_by_a_checkout_of_the_same_bytes() {
     // @ref LLP 1036.000 §10 — the host's Rust modules, kept for the machine.
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let result = std::process::Command::new("bun")
+    let result = std::process::Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
         .current_dir(root)
         .args(["--input-type=module", "-e", r#"
 import assert from 'node:assert/strict';
@@ -522,7 +542,7 @@ try {
 fn kept_registry_crates_are_one_target_directory_at_a_time() {
     // @ref LLP 1036.000 §11 — compiled registry crates, kept for the machine.
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let result = std::process::Command::new("bun")
+    let result = std::process::Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
         .current_dir(root)
         .args(["--input-type=module", "-e", r#"
 import assert from 'node:assert/strict';
@@ -663,7 +683,7 @@ fn a_reloaded_plan_resolves_line_height_kinds_against_the_new_receiving_font() {
 fn paragraph_batches_preserve_inline_identity_and_replace_the_complete_run_table() {
     let plan = contract::compile(r##"component Inline
   state changed = false
-  resource additions = additions(changed) as shape list<string>
+  resource additions = additions(changed) as shape string[]
   action change
     changed = not changed
   view
@@ -673,7 +693,7 @@ fn paragraph_batches_preserve_inline_identity_and_replace_the_complete_run_table
         text (changed ? "after 👩‍🚀" : "before é") testId="run" press=change font-weight=(changed ? 700 : 400) color=(changed ? "#ff0000" : "#000000")
         text testId="nested"
           text "link" href="https://example.invalid/" testId="link"
-        each value in additions key=value
+        for value in additions key=value
           text value testId="added"
 "##).unwrap();
     struct InlineData;
@@ -826,4 +846,162 @@ fn pointer_events_none_reaches_a_box_that_inherits_it() {
         op(&changed, toast).contains("\"pointer_events\":\"auto\""),
         "{changed}"
     );
+}
+
+/// An `href` that turns out empty is no link (LLP 1115 §3, the kernel's
+/// `Props::link`): Swift is told no `href`, so every place it asks whether a
+/// run has one (its role, its pointer, what a press follows) answers no, and
+/// the run inherits its paragraph's colour. A target that arrives is told,
+/// with the link's colour, and one that leaves is cleared.
+#[test]
+fn an_href_that_turns_out_empty_is_no_href_to_swift() {
+    let plan = contract::compile(
+        r##"component App
+  state to = ""
+  action go
+    to = to == "" ? "/about" : ""
+  view
+    column color="#336699"
+      button appearance="none" press=go testId="go"
+        text "Go"
+      text testId="p"
+        text "Read " testId="plain"
+        text "about" href=to testId="run"
+"##,
+    )
+    .unwrap();
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        402.0,
+        874.0,
+    )
+    .unwrap();
+    // The run as its paragraph tells it: `{"id":…,…,"handlers":[…]}`.
+    let run = view(&host, "run");
+    let told = |batch: &str| {
+        let from = batch
+            .find(&format!("{{\"id\":{run},\"parent\""))
+            .expect(batch);
+        batch[from..from + batch[from..].find("\"handlers\"").unwrap()].to_owned()
+    };
+    let page = "\"text_color\":[51,102,153,255]";
+    let made = told(&first);
+    assert!(!made.contains("\"href\""), "{made}");
+    assert!(made.contains(page), "{made}");
+    let linked = told(&host.dispatch(view(&host, "go"), Event::Press));
+    assert!(linked.contains("\"href\":\"/about\""), "{linked}");
+    assert!(!linked.contains(page), "{linked}");
+    let cleared = told(&host.dispatch(view(&host, "go"), Event::Press));
+    assert!(!cleared.contains("\"href\""), "{cleared}");
+    assert!(cleared.contains(page), "{cleared}");
+}
+
+#[test]
+fn explicit_clears_export_computed_values_and_own_declaration_intent() {
+    use exact_kernel::{Env, StyleId, StyleMask, StyleProps};
+    let clear = StyleProps {
+        written: StyleMask::of(StyleId::PlaceholderColor),
+        ..Default::default()
+    };
+    let only_intent = exact_apple::style::style_json(&clear, &Env::default()).0;
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&only_intent).unwrap(),
+        serde_json::json!({"written":["placeholder_color"]})
+    );
+    let check_placeholder = |batch: &str, id, colored| {
+        let batch: serde_json::Value = serde_json::from_str(batch).unwrap();
+        let style = &batch["ops"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|op| op["id"] == id && op.get("style").is_some())
+            .unwrap()["style"];
+        assert!(
+            style["written"]
+                .as_array()
+                .unwrap()
+                .contains(&serde_json::json!("placeholder_color")),
+            "{style}"
+        );
+        if colored {
+            assert_eq!(
+                style["placeholder_color"],
+                serde_json::json!([171, 205, 239, 255])
+            );
+        } else {
+            assert!(style.get("placeholder_color").is_none(), "{style}");
+        }
+    };
+    let check_color = |batch: &str, id, color: exact_kernel::ColorValue| {
+        let batch: serde_json::Value = serde_json::from_str(batch).unwrap();
+        let style = &batch["ops"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|op| op["id"] == id && op.get("style").is_some())
+            .unwrap()["style"];
+        let rgba = |dark| {
+            let c = color.resolve(dark);
+            serde_json::json!([c.r(), c.g(), c.b(), c.a()])
+        };
+        let light = rgba(false);
+        let expected = if matches!(color.fallback(), exact_kernel::ColorValue::Fixed(_)) {
+            light
+        } else {
+            serde_json::json!([light, rgba(true)])
+        };
+        let actual = &style["text_color"];
+        assert_eq!(actual.get("c").unwrap_or(actual), &expected, "{style}");
+    };
+    for ground in ["", " color=\"#123456\""] {
+        let plan = contract::compile(&format!(
+            r##"component App
+  state changed = false
+  action change
+    changed = not changed
+  view
+    column{ground}
+      button "Change" press=change testId="change"
+      input color="inherit" testId="field"
+      text "Words" color=(changed ? "#abcdef" : "unset") testId="words"
+      input placeholder="Hint" testId="placeholder"
+        ::placeholder
+          color=(changed ? "#abcdef" : "unset")
+"##
+        ))
+        .unwrap();
+        let (mut host, first) = Host::boot(
+            &plan.encode(),
+            NoData,
+            Box::new(MonospaceMeasurer::default()),
+            402.0,
+            874.0,
+        )
+        .unwrap();
+        for name in ["field", "words"] {
+            let id = view(&host, name);
+            let node = host.runner().kernel().node(id).unwrap();
+            assert!(!node.style.mask.has(StyleId::TextColor));
+            assert!(node.style.written.has(StyleId::TextColor));
+            check_color(&first, id, node.text_color());
+            let batch = op(&first, id);
+            assert!(batch.contains("\"written\":[\"text_color\"]"), "{batch}");
+        }
+        let placeholder = view(&host, "placeholder");
+        check_placeholder(&first, placeholder, false);
+        let colored = host.dispatch(view(&host, "change"), Event::Press);
+        check_placeholder(&colored, placeholder, true);
+        let restored = host.dispatch(view(&host, "change"), Event::Press);
+        check_placeholder(&restored, placeholder, false);
+        let id = view(&host, "words");
+        check_color(
+            &restored,
+            id,
+            host.runner().kernel().node(id).unwrap().text_color(),
+        );
+        let batch = op(&restored, id);
+        assert!(batch.contains("\"written\":[\"text_color\"]"), "{batch}");
+    }
 }

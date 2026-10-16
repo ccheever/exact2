@@ -27,10 +27,83 @@ final class ModalDetentIOSTests: XCTestCase {
     }
 
     func testTheWordsBecomeDetentsInOrder() {
-        let detents = ModalHost.detents("fit-content 300 large nonsense") { 120 }
-        XCTAssertEqual(detents.map(\.identifier.rawValue), ["fit-content-0", "authored-1", UISheetPresentationController.Detent.Identifier.large.rawValue])
-        XCTAssertEqual(detents[1].resolvedValue(in: Context(700)), 300)
+        let detents = ModalHost.detents("300 500 large nonsense") { 120 }
+        XCTAssertEqual(detents.map(\.identifier.rawValue), ["authored-0", "authored-1", UISheetPresentationController.Detent.Identifier.large.rawValue])
+        XCTAssertEqual(detents[0].resolvedValue(in: Context(700)), 300)
+        XCTAssertEqual(ModalHost.detents("fit-content large") { 120 }.map(\.identifier.rawValue), ["fit-content-0", UISheetPresentationController.Detent.Identifier.large.rawValue])
         XCTAssertTrue(ModalHost.detents(nil) { nil }.isEmpty)
+    }
+
+    /// LLP 1075.003 §9.13: a percentage is that share of UIKit's maximum
+    /// detent value, as RN's `sheetAllowedDetents: [0.45]` is.
+    func testAPercentageIsAShareOfTheMaximum() {
+        let large = UISheetPresentationController.Detent.Identifier.large.rawValue
+        let detents = ModalHost.detents("45% 70%") { nil }
+        XCTAssertEqual(detents.map(\.identifier.rawValue), ["authored-0", "authored-1"])
+        XCTAssertEqual(detents[0].resolvedValue(in: Context(700)), 315)
+        XCTAssertEqual(detents[0].resolvedValue(in: Context(600)), 270, "read at each resolution, as the maximum changes")
+        XCTAssertEqual(detents[1].resolvedValue(in: Context(700)), 490)
+        // All of the maximum is `large` itself (Grok's review): one rest, not
+        // two at one height, and the status bar's covering sheet (LLP 1105 D2).
+        XCTAssertEqual(ModalHost.detents("100%") { nil }.map(\.identifier.rawValue), [large])
+        var refused: [Substring] = []
+        XCTAssertEqual(ModalHost.detents("45% 100% large", refused: { word, _ in refused.append(word) }) { nil }.map(\.identifier.rawValue), ["authored-0", large])
+        XCTAssertEqual(refused, ["large"])
+    }
+
+    /// A point height stops at the maximum. Where a taller detent follows, a
+    /// height the maximum reaches is inactive (UIKit's resolver answers nil),
+    /// so "900 large" on a phone is `large` alone, not two rests at one
+    /// height; on a taller screen it is 900 then `large`.
+    func testAPointHeightNeverTiesTheDetentAfterIt() {
+        let followed = ModalHost.detents("900 large") { nil }[0]
+        XCTAssertNil(followed.resolvedValue(in: Context(800)))
+        XCTAssertNil(followed.resolvedValue(in: Context(900)))
+        XCTAssertEqual(followed.resolvedValue(in: Context(1000)), 900)
+        XCTAssertEqual(ModalHost.detents("300 900") { nil }[0].resolvedValue(in: Context(800)), 300)
+        XCTAssertEqual(ModalHost.detents("900") { nil }[0].resolvedValue(in: Context(800)), 800, "alone, it stops at the maximum")
+    }
+
+    /// A bound value can carry what the compiler refuses in a literal; the
+    /// words that name no detent are handed back for the journal, and the
+    /// line names the value, the route and what the sheet uses.
+    func testWordsThatNameNoDetentAreRefusedAloud() {
+        var refused: [Substring] = []
+        let detents = ModalHost.detents("0 -4 NaN nan inf 0% 150% x% 300 large", refused: { word, reason in
+            XCTAssertEqual(reason, .unknown)
+            refused.append(word)
+        }) { nil }
+        XCTAssertEqual(refused, ["0", "-4", "NaN", "nan", "inf", "0%", "150%", "x%"])
+        XCTAssertEqual(detents.count, 2)
+        XCTAssertEqual(
+            ModalHost.refusal(detent: "-12", words: [("-12", .unknown)], route: "3", kept: false),
+            "navigationDetent \"-12\" on route \"3\": \"-12\" is not large, medium, fit-content, a positive point height or a percentage above 0% and at most 100%; the sheet uses the platform's large detent")
+    }
+
+    /// LLP 1075.003 §9.13: UIKit takes detents shortest to tallest. "300 45%"
+    /// is in order on an 800-point maximum (300, 360) and not on a 600 one
+    /// (300, 270), so what a bound value keeps is one kind, ascending, with
+    /// `large` last, which is in order on any screen; the rest is journaled.
+    func testWhatIsKeptAscendsOnEveryScreen() {
+        var refused: [(Substring, ModalHost.DetentRefusal)] = []
+        let refuse = { (word: Substring, reason: ModalHost.DetentRefusal) in refused.append((word, reason)) }
+        let large = UISheetPresentationController.Detent.Identifier.large.rawValue
+        let kept = ModalHost.detents("300 45% large", refused: refuse) { nil }
+        XCTAssertEqual(kept.map(\.identifier.rawValue), ["authored-0", large])
+        for value in ["medium 300", "500 300", "60% medium", "fit-content 300", "large medium", "large large"] {
+            refused = []
+            XCTAssertEqual(ModalHost.detents(value, refused: refuse) { 120 }.count, 1, value)
+            XCTAssertEqual(refused.map { "\($0.0)" }, [String(value.split(separator: " ")[1])], value)
+            XCTAssertTrue(refused.allSatisfy { $0.1 == .order }, value)
+        }
+        let shares = ModalHost.detents("30% medium 80% large") { nil }
+        for maximum: CGFloat in [500, 600, 800] {
+            let custom = [shares[0], shares[2]].compactMap { $0.resolvedValue(in: Context(maximum)) }
+            XCTAssertEqual(custom, custom.sorted(), "at \(maximum)")
+        }
+        XCTAssertTrue(
+            ModalHost.refusal(detent: "300 45%", words: [("45%", .order)], route: "3", kept: true)
+                .hasSuffix("\"45%\" is not taller than the detent before it on every screen (UIKit takes them shortest to tallest; a point height, a share of the maximum and the content's height do not mix, and large goes last); the sheet uses its other detents"))
     }
 
     func testFitContentIsTheContentHeightWithinTheMaximum() {
@@ -53,7 +126,7 @@ final class ModalDetentIOSTests: XCTestCase {
 
     private func until(_ what: String, _ seconds: Double = 5, _ done: () -> Bool) {
         let deadline = Date().addingTimeInterval(seconds)
-        while !done(), Date() < deadline { spin(0.02) }
+        while !done(), Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02)) }
         XCTAssertTrue(done(), what)
     }
 
@@ -100,9 +173,9 @@ final class ModalDetentIOSTests: XCTestCase {
         return top
     }
 
-    /// The fixture's menu: 16 points of padding around More, Fewer and its
-    /// rows, 44 points each.
-    private func rows(_ n: Int) -> CGFloat { 16 + 44 * CGFloat(2 + n) + 16 }
+    /// The fixture's menu: 16 points of padding around More, Fewer, its
+    /// rows, Close and Close both, 44 points each.
+    private func rows(_ n: Int) -> CGFloat { 16 + 44 * CGFloat(4 + n) + 16 }
 
     /// `invalidateDetents()` calls on any sheet while `body` runs. This
     /// window finishes no presentation transition (the sheet's view stays
@@ -117,6 +190,43 @@ final class ModalDetentIOSTests: XCTestCase {
         defer { method_exchangeImplementations(original, counting) }
         UISheetPresentationController.exactTestInvalidations = 0
         try body()
+    }
+
+    /// LLP 1115 D5: a sheet that declares no Back control still swipes down,
+    /// and its dismissal goes back by the root's `navigate`, once.
+    func testASheetWithNoBackControlStillSwipesDownAndGoesBackByNavigate() throws {
+        try sheetSwipesDown(navigate: true)
+    }
+
+    /// The same with no `navigate` handler: the runner's own back, once.
+    func testASheetWithNoBackControlAndNoNavigateHandlerIsTheRunnersOwnBack() throws {
+        try sheetSwipesDown(navigate: false)
+    }
+
+    private func sheetSwipesDown(navigate: Bool) throws {
+        let session = try fixture("sheet-back-always")
+        let root = try node(session, "navigation")
+        if !navigate { root.handlers.remove("navigate") }
+        try tap(session, "open-note")
+        until("the note is presented as a sheet") { sheet()?.sheetPresentationController != nil }
+        let presented = try XCTUnwrap(sheet())
+        let controller = try XCTUnwrap(presented.presentationController)
+        let modals = session.presenter.modals
+        XCTAssertTrue(modals.presentationControllerShouldDismiss(controller), "the swipe may dismiss it")
+        // A finished swipe: UIKit dismisses the sheet, then tells its
+        // delegate (this window finishes no transition, so it is told here).
+        presented.presentingViewController?.dismiss(animated: false)
+        modals.presentationControllerDidDismiss(controller)
+        until("the router went back") {
+            let text = session.agent(#"{"op":"state"}"#)
+            let json = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any]
+            let nav = (json?["slots"] as? [String: Any])?["nav"] as? [String: Any]
+            return ((nav?["tabs"] as? [[String: Any]])?.first?["stack"] as? [Any])?.count == 1
+        }
+        let journal = session.agent(#"{"op":"logs","since":0}"#)
+        XCTAssertEqual(journal.components(separatedBy: "(follow)").count - 1, navigate ? 1 : 0, "navigate once, or never: \(journal)")
+        XCTAssertEqual(journal.components(separatedBy: "host back").count - 1, navigate ? 0 : 1, "the runner's own back without a handler: \(journal)")
+        XCTAssertFalse(journal.contains("modal dismissal refused"))
     }
 
     /// Through the real presenter: a row added or taken away reaches the
@@ -144,6 +254,62 @@ final class ModalDetentIOSTests: XCTestCase {
             XCTAssertTrue(sheet() === presented, "the same sheet, never presented again")
             // Taller than the sheet's maximum: the maximum.
             XCTAssertEqual(controller.detents.first?.resolvedValue(in: Context(100)), 100)
+        }
+    }
+
+    /// `navigationGrabber` is the author's word over the platform's: a sheet
+    /// of one height shows the grabber it says `visible`, and one of several
+    /// hides it when it says `hidden`; `auto` is the platform's again.
+    func testASheetsGrabberIsWhatItsRouteSays() throws {
+        let session = try fixture("detent-grabber")
+        try tap(session, "menu")
+        until("the menu is presented as a sheet") { sheet()?.sheetPresentationController != nil }
+        let controller = try XCTUnwrap(sheet()?.sheetPresentationController)
+        let route = try node(session, "route-menu")
+        XCTAssertFalse(controller.prefersGrabberVisible, "one detent, unsaid: none")
+        for (word, shown) in [("visible", true), ("hidden", false), ("auto", false)] {
+            route.props["navigationGrabber"] = word
+            session.presenter.modals.updatePermissions()
+            XCTAssertEqual(controller.prefersGrabberVisible, shown, word)
+        }
+        route.props["navigationDetent"] = "medium large"
+        session.presenter.modals.updatePermissions()
+        XCTAssertTrue(controller.prefersGrabberVisible, "several detents, auto: the platform's grabber")
+        // Dragged to large (a drag sets the selection): a grabber change
+        // leaves the sheet where the person put it.
+        controller.selectedDetentIdentifier = .large
+        route.props["navigationGrabber"] = "hidden"
+        session.presenter.modals.updatePermissions()
+        XCTAssertFalse(controller.prefersGrabberVisible, "several detents, hidden")
+        XCTAssertEqual(controller.selectedDetentIdentifier, .large, "still large")
+    }
+
+    /// Mounted, its route in its block (LLP 1123 D2), the sheet still
+    /// follows its rows: its content is measured at the block's width,
+    /// whatever height the block has.
+    func testAMountedFitContentSheetFollowsItsRows() throws {
+        let session = try fixture("detent-mounted")
+        try countingInvalidations {
+            try tap(session, "menu")
+            until("the menu is presented as a sheet") { sheet()?.sheetPresentationController != nil }
+            let presented = try XCTUnwrap(sheet())
+            let controller = try XCTUnwrap(presented.sheetPresentationController)
+            // Put where UIKit's transition, which this window never finishes, puts it
+            if presented.view.window == nil { window?.addSubview(presented.view) }
+            presented.view.frame = CGRect(x: 0, y: 400, width: 402, height: 474)
+            presented.view.layoutIfNeeded()
+            let route = try node(session, "route-menu")
+            let routeView = try XCTUnwrap(session.presenter.navigation.controllers[route.id]?.view)
+            until("the route has its block") { session.presenter.owners.told[route.id]?.block == .size(routeView.bounds.size) && !routeView.bounds.isEmpty }
+            let detent = { controller.detents.first?.resolvedValue(in: Context(800)) }
+            until("at its rows' height") { detent() == rows(1) }
+            var seen = UISheetPresentationController.exactTestInvalidations
+            for (press, n) in [("menu-more", 2), ("menu-more", 3), ("menu-fewer", 2)] {
+                try tap(session, press)
+                until("\(press): \(n) rows") { detent() == rows(n) }
+                until("\(press) invalidates the detents") { UISheetPresentationController.exactTestInvalidations > seen }
+                seen = UISheetPresentationController.exactTestInvalidations
+            }
         }
     }
 

@@ -1,0 +1,39 @@
+// The design tool's fixture design (LLP 1122 D7): dials of each kind a
+// colour can follow, each with its metadata or none, groups and priorities
+// (declared out of priority order), a select with an option that is no
+// literal, a range in scientific notation, two axes, a role override and a
+// fixed-scheme token, and declared pairs (one below 4.5:1).
+tamber dials
+
+axes
+  dark-style = black | dim  under scheme=dark
+  density = regular | compact
+
+dials
+  accent: color = #1083fe  control=color group=Colour priority=1 label="Accent"
+  lift: number = 0.1  in 0..0.5  step=0.01 control=slider group=Colour priority=2 label="Lift"
+  chroma: number = 0.1  in 0..0.3  group=Tone
+  hue: number = 200  in 0..360  step=5 control=stepper group=Tone priority=1
+  fine: number = 0.001  in 0..5e-3  group=Tone priority=3
+  paint: color = #f00  control=select options="#1083fe|#f00|brand.red" group=Colour priority=3
+  warmth: number = 20  in 0..60  step=1 group=Tone priority=3 label="Warmth"
+  shade: number = 0.2  in 0..0.5  control=none
+
+theme
+  surface.page = light-dark(#ffffff, #000000)
+    when dark-style=dim: light-dark(#ffffff, #15202b)
+  surface.card = light-dark(#f1f3f5, #16181c)
+    when dark-style=dim: light-dark(#f1f3f5, #1e2732)
+  surface.inset = light-dark(#f8f9fa, #101214)
+    when density=compact: light-dark(#eef0f2, #0c0e10)
+  accent.fill = accent
+  accent.soft = oklch(from accent calc(l + lift) c h)
+  tone.base = oklch(0.6 chroma hue)
+  tone.warm = oklch(0.7 0.1 warmth)  pair=surface.page
+  tone.fine = oklch(0.6 fine 200)
+  paint.pick = paint
+  tone.deep = oklch(from accent calc(l - shade) c h)
+  text.primary = light-dark(#0f1419, #e7e9ea)  pair=surface.page
+  text.system = -exact-secondary-label
+  ink.on-brand = #ffffff  scheme=fixed
+  -exact-label = text.primary

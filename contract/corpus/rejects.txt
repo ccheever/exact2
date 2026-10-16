@@ -39,7 +39,7 @@ component A
 == type-literal-digits
 component A
   view
-    text toFixed(1.5, 101)
+    text (1.5).toFixed(101)
 ---
 == type-list-item
 component A
@@ -86,7 +86,7 @@ component App
 component A
   state n = 1
   view
-    each x in n key=x
+    for x in n key=x
       text "a"
 ---
 == type-match-subject
@@ -195,6 +195,33 @@ component Row
   resource s = s() as shape S
   view
     text s.id
+---
+== type-persist-child
+# `persist` is the root's (LLP 1116 D5): a child's state lives as long as
+# each of its instances.
+component A
+  view
+    Row()
+component Row
+  state open = false persist
+  view
+    text "r"
+---
+== type-persist-type
+# A list of records is app data: it belongs in a source (LLP 1116 D5).
+shape Item
+  id: string
+component A
+  state items = [Item(id="a")] persist
+  view
+    text "a"
+---
+== syntax-persist-derive
+component A
+  state x = 1
+  derive d = x persist
+  view
+    text "a"
 ---
 == type-derive-cycle
 component A
@@ -353,7 +380,7 @@ component A
 component A
   state on = true
   view
-    when on
+    if on
       text "a"
     else
       text "b"
@@ -524,7 +551,7 @@ component A
 == syntax-empty-block
 component A
   view
-    when true
+    if true
     text "always"
 ---
 == type-unknown
@@ -698,7 +725,7 @@ component A
 ---
 == type-shape-recursive
 shape Left
-  right: list<Right>
+  right: Right[]
 shape Right
   left: option<Left>
 component A
@@ -851,7 +878,7 @@ component A
   view
     main navigationKey=`${top(nav).id}` navigationBack="back"
       column align-items="center"
-        each e in stack(nav) key=e.id
+        for e in stack(nav) key=e.id
           column navigationKey=`${e.id}`
             text e.url
 ---
@@ -864,7 +891,7 @@ component A
     nav = back(nav)
   view
     main navigationKey=`${top(nav).id}` navigationBack="back"
-      each e in stack(nav) key=e.id
+      for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` navigationScroll="list" position="absolute" inset=0
           scroll id="feed" height=400
             text e.url
@@ -888,10 +915,10 @@ component App
   state chosen = ""
   action choose(id: string, why: string)
     chosen = id
-  resource items = items() as shape list<Item>
+  resource items = items() as shape Item[]
   view
     column
-      each item in items key=item.id
+      for item in items key=item.id
         Row(item=item, pick=choose)
 component Row
   props
@@ -1060,7 +1087,7 @@ component A
       text "a"
 ---
 == type-share-argument
-# Neither text nor url.
+# Neither text, url nor files.
 component A
   action go
     share(title="Journal")
@@ -1073,6 +1100,42 @@ component A
 component A
   action go
     share(text=3)
+  view
+    button press=go
+      text "a"
+---
+== type-share-argument
+# `files=` is a list of strings (LLP 1125 D12).
+component A
+  action go
+    share(files="app:/data/a.png")
+  view
+    button press=go
+      text "a"
+---
+== type-share-argument
+# A literal file is an `app:/` path or an element's `#id`.
+component A
+  action go
+    share(files=["/tmp/a.png"])
+  view
+    button press=go
+      text "a"
+---
+== type-share-argument
+# An empty list shares nothing.
+component A
+  action go
+    share(files=[])
+  view
+    button press=go
+      text "a"
+---
+== lower-share-picture
+# A picture of an element no view carries.
+component A
+  action go
+    share(files=["#card"])
   view
     button press=go
       text "a"
@@ -1205,31 +1268,93 @@ component A
 # LLP 1017.003: an arrow is only the callback of `map` or `filter`.
 component A
   view
-    text toString(x => 1)
+    text round(x => 1).toString()
 ---
 == type-arrow-parameters
 component A
-  resource xs = xs() as shape list<number>
+  resource xs = xs() as shape number[]
   view
-    text join(map(xs, (a, a) => a), ",")
+    text xs.map((a, a) => a).join(",")
 ---
 == syntax-method-call
-# The web's `xs.map(f)`: Contract spells it `map(xs, f)`.
+# A method Contract does not have: `reduce` is computed in the data source.
 component A
-  resource xs = xs() as shape list<number>
+  resource xs = xs() as shape number[]
   view
-    text join(xs.map(x => x * 2), ",")
+    text xs.reduce(x => x * 2).toString()
+---
+== syntax-method-form
+# LLP 1116.015 D2: a roster function is called on its value, `s.trim()`.
+component A
+  state s = " a "
+  view
+    text trim(s)
+---
+== syntax-method-form
+# LLP 1116.015 D2: a list's length is `xs.length`.
+component A
+  state xs = [1]
+  view
+    text toString(length(xs))
+---
+== syntax-method-shadowed
+# LLP 1116.016 D2: a method call is the built-in, which a `fn` of its name would capture.
+fn trim(s: string): string = "x"
+component A
+  state s = " a "
+  view
+    text s.trim()
+---
+== syntax-list-type
+# LLP 1116.015 D2: a list type is `T[]`.
+shape S
+  xs: list<number>
+component A
+  view
+    text "a"
+---
+== syntax-length-field
+# LLP 1116.015 D2: `.length` is a list's or text's length, so no field takes the name.
+shape S
+  length: number
+component A
+  view
+    text "a"
 ---
 == syntax-map-view
-# The JSX habit: children repeat with `each`.
+# The JSX habit: children repeat with `for`.
 component A
-  resource xs = xs() as shape list<string>
+  resource xs = xs() as shape string[]
   view
     column
       map(xs, x => text x)
 ---
+== syntax-map-view
+# The JSX habit as a method call: children repeat with `for`.
+component A
+  resource xs = xs() as shape number[]
+  view
+    column
+      xs.map(x => text x)
+---
+== syntax-view-keyword
+# LLP 1116.015 D1: a view chooses with `if`, not `when`.
+component A
+  state n = 0
+  view
+    when n > 0
+      text "a"
+---
+== syntax-view-keyword
+# LLP 1116.015 D1: a view repeats with `for`, not `each`.
+component A
+  state xs = ["a"]
+  view
+    each x in xs key=x
+      text x
+---
 == syntax-else-keyword
-# An action branches with `if`, a view with `when`: `else if` here.
+# `else when` is not a construct: `else if` here.
 component A
   state n = 0
   action a
@@ -1242,22 +1367,22 @@ component A
 ---
 == syntax-callback-view
 component A
-  resource xs = xs() as shape list<string>
+  resource xs = xs() as shape string[]
   view
-    text join(map(xs, x => text x), "")
+    text xs.map(x => text x).join("")
 ---
 == type-callback-view
 component A
-  resource xs = xs() as shape list<string>
+  resource xs = xs() as shape string[]
   view
-    text join(map(xs, x => Row(label=x)), "")
+    text xs.map(x => Row(label=x)).join("")
 ---
 == type-refused-idiom
 # `reduce`, `find`, `sort`, `slice`, `toFixed`…: refused, with what to do instead.
 component A
-  resource xs = xs() as shape list<number>
+  resource xs = xs() as shape number[]
   view
-    text toString(reduce(xs, (a, x) => a + x, 0))
+    text reduce(xs, (a, x) => a + x, 0).toString()
 ---
 == type-geometry-outside-action
 # LLP 1051.000 D2: a derive that read layout would feed layout back into the tree it lays out.
@@ -1265,20 +1390,20 @@ component A
   derive h = frame("box").height
   view
     column id="box"
-      text toString(h)
+      text h.toString()
 ---
 == type-geometry-outside-action
 component A
   view
     column id="box"
-      text toString(measure("box").height)
+      text measure("box").height.toString()
 ---
 == type-geometry-outside-action
 # A `fn` can be called from a view, so its body is outside an action.
 fn roomOf(id: string): number = frame(id).height
 component A
   view
-    text toString(roomOf("x"))
+    text roomOf("x").toString()
 ---
 == type-geometry-outside-action
 # LLP 1094 D10: `elementFromPoint` reads `frame`'s boxes, so only an action may.
@@ -1287,6 +1412,27 @@ component A
   view
     column id="box"
       text match under { case some(id) => id, case none => "" }
+---
+== type-geometry-outside-action
+component A
+  derive hits = elementsFromPoint(10, 10)
+  view
+    text hits.length.toString()
+---
+== type-geometry-outside-action
+component A
+  derive hits = querySelectorAll("[data-paint~=\"accent\"]")
+  view
+    text hits.length.toString()
+---
+== type-data-selector
+component A
+  state count = 0
+  action read
+    count = querySelectorAll("button").length
+  view
+    button press=read
+      text count.toString()
 ---
 == type-measure-literal-id
 # The runner answers `measure` before the action runs, so its id is a literal.
@@ -1297,7 +1443,7 @@ component A
     h = measure(target).height
   view
     button press=size
-      text toString(h)
+      text h.toString()
 ---
 == type-record-missing
 # LLP 1035.005.000 D3: a record names every field; none is defaulted.
@@ -1384,12 +1530,12 @@ component A
 == lower-reorder-collection
 component A
   state moved = ""
-  resource rows = rows() as shape list<string>
+  resource rows = rows() as shape string[]
   action drop(item: string, before: option<string>)
     moved = item
   view
     list id="cities" reorderdrop=drop height=300
-      each city in rows key=city
+      for city in rows key=city
         row
           box reorderFor="cities" width=24 height=24
           text city
@@ -1429,12 +1575,37 @@ component A
     button "go" press=go
 ---
 == type-play-sound
+# LLP 1125 D10: a literal playback rate outside 0.25–4.
+component A
+  state src = "assets/kick.wav"
+  action go
+    playSound(src, playbackRate=5)
+  view
+    button "go" press=go
+---
+== type-play-sound
+# A hit's pan without its rate: the fields are read by position.
+shape Hit
+  src: string
+  at: number
+  gain: number
+  group: string
+  pan: number
+fn noHits(): Hit[] = []
+component A
+  state hits = noHits()
+  action go
+    playSounds(hits)
+  view
+    button "go" press=go
+---
+== type-play-sound
 # A hit without `at`: `playSounds` reads a hit's fields by position.
 shape Hit
   src: string
   gain: number
   group: string
-fn noHits(): list<Hit> = []
+fn noHits(): Hit[] = []
 component A
   state hits = noHits()
   action go
@@ -1449,7 +1620,7 @@ shape Hit
   at: number
   gain: string
   group: string
-fn noHits(): list<Hit> = []
+fn noHits(): Hit[] = []
 component A
   state hits = noHits()
   action go
@@ -1472,3 +1643,184 @@ component A
     seek = seek + 30
   view
     audio "assets/a.mp3" seekforward=skip
+---
+== contract-sequence-body
+# LLP 1125 D2: a sequence holds one `play(...)`, not a task's schedule.
+component A
+  state on = false
+  action go
+    on = true
+  sequence s when on
+    every(100, go)
+  view
+    text "a"
+---
+== syntax-task-start
+# A sequence starts at `mount` or while a condition holds.
+component A
+  sequence s
+    play([], bpm=120)
+  view
+    text "a"
+---
+== type-sequence-play
+# `play` needs `bpm=`.
+component A
+  state on = false
+  sequence s when on
+    play([])
+  view
+    text "a"
+---
+== type-sequence-play
+# A literal tempo of 0 is no tempo.
+component A
+  state on = false
+  sequence s when on
+    play([], bpm=0)
+  view
+    text "a"
+---
+== type-sequence-play
+# An option `play` does not take.
+component A
+  state on = false
+  sequence s when on
+    play([], bpm=120, swing=0.5)
+  view
+    text "a"
+---
+== type-sequence-play
+# A track is read by position: `loops` cannot be left out.
+shape Track
+  beats: number
+  offset: number
+  output: string
+fn noTracks(): Track[] = []
+component A
+  state on = false
+  state ts = noTracks()
+  sequence s when on
+    play(ts, bpm=120)
+  view
+    text "a"
+---
+== type-sequence-play
+# A step carries `playbackRate` and `pan` both or neither.
+shape Step
+  beat: number
+  src: string
+  gain: number
+  group: string
+  note: number
+  velocity: number
+  channel: number
+  duration: number
+  haptic: string
+  playbackRate: number
+fn noSteps(): Step[] = []
+component A
+  state on = false
+  state steps = noSteps()
+  sequence s when on
+    play([], bpm=120, from=-4, countIn=steps)
+  view
+    text "a"
+---
+== analyze-sequence-clock
+# `play`'s arguments are read at commits, not as the clock moves.
+component A
+  state on = false
+  sequence s when on
+    play([], bpm=60 + performanceNow())
+  view
+    text "a"
+---
+== analyze-task-gate-clock
+# A sequence's gate is a task's: it reads no clock.
+component A
+  sequence s when performanceNow() > 1000
+    play([], bpm=120)
+  view
+    text "a"
+---
+== lower-sequence-clock
+# Clock in is LLP 1125 stage 4.
+component A
+  state on = false
+  sequence s when on
+    play([], bpm=120, clock="op-xy")
+  view
+    text "a"
+---
+== type-send-midi
+# A literal message is held to MIDI 1.0: no running status.
+component A
+  action go
+    sendMIDI("out", [144, 60, 100, 62, 100])
+  view
+    button "go" press=go
+---
+== type-request-midi-access
+# `requestMIDIAccess()` takes no arguments.
+component A
+  action go
+    requestMIDIAccess(true)
+  view
+    button "go" press=go
+---
+== analyze-unknown-action
+# `ended=` names an action.
+component A
+  state on = false
+  sequence s when on
+    play([], bpm=120, ended=finished)
+  view
+    text "a"
+---
+== analyze-handler-arity
+# `ended=` runs as a timer does: with no arguments.
+component A
+  state on = false
+  action finished(n: number)
+    on = false
+  sequence s when on
+    play([], bpm=120, ended=finished)
+  view
+    text "a"
+---
+== type-child-resource
+# Only the root has a clock, so only the root declares a sequence.
+component A
+  view
+    B()
+component B
+  state on = false
+  sequence s when on
+    play([], bpm=120)
+  view
+    text "b"
+---
+== bake-transport-field
+# `exactTransport` answers its own fields only.
+shape T
+  state: string
+  beat: number
+component A
+  resource t = exactTransport() as shape T
+  view
+    text t.state
+---
+== bake-midi-field
+# A MIDI port answers its id, name, manufacturer and state only.
+shape Port
+  id: string
+  channel: number
+shape M
+  state: string
+  outputs: Port[]
+component A
+  resource m = exactMIDI() as shape M
+  view
+    text m.state
+---

@@ -1,4 +1,4 @@
-# wgpu-hal 30.0.1 — eight local patches: five in the Metal backend, three in Vulkan's
+# wgpu-hal 30.0.1 — nine local patches: five in the Metal backend, four in Vulkan's
 
 Complete crates.io archive, including the upstream MIT/Apache licenses and
 `.cargo_vcs_info.json`. No feature change or dependency upgrade. Every changed
@@ -161,6 +161,16 @@ image's are (patch 6) and released in `destroy_texture`: without that
 PowerVR made and tore down a render target per frame (`vkmem_free` 200 ms/s,
 measured). Upstreamable.
 
+## 9. The queue at low global priority (Vulkan, Android)
+
+`src/vulkan/adapter.rs`. Where the driver has `VK_EXT_global_priority`, the
+device's queue asks for `VK_QUEUE_GLOBAL_PRIORITY_LOW_KHR`. A canvas's frame
+is drawn on the screen by the platform's renderer (HWUI, patch 8's bitmap)
+and then its compositor: when the canvas's own GPU work fills a frame, theirs
+queues behind it and the frame they would show is missed. At low priority
+theirs preempts ours. On a Pixel 5 (Adreno 620), a GPU-bound game canvas
+showed 47.5–48.5 frames a second against 45.4 at the default priority.
+
 ## Updating
 
 Take the new archive whole, reapply the marked places (`git diff` against the
@@ -168,3 +178,9 @@ pristine archive is about 500 lines), and run `cargo test -p exact-gpu` on
 macOS: `frame.rs` fails if a frame commits more than one buffer a canvas.
 Patches 6 and 7 show only in an Android profile of an animated canvas (no
 `RGXAddRenderTarget` or `vkmem_free` per frame, one submit per frame).
+
+## Cargo workspace boundary
+
+`Cargo.toml` declares an empty workspace so `cargo fmt --all` in a nested
+Exact worktree does not attach this excluded path dependency to the enclosing
+checkout. This is an Exact integration patch to retain when updating.

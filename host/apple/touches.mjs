@@ -235,11 +235,13 @@ export const DRAG_BOUNDS = { press: 10000, hold: 10000, over: 2000, total: 10000
  * begun before the first, not lifted after the last. `ask` is the app's carrier; `touches`
  * the runner's.
  */
-export async function realTap({ ask, touches, id, at, drag, abandon }) {
+export async function realTap({ ask, touches, id, at, rel, drag, abandon }) {
   // A failure of the runner or of the app's carrier: no diagnostic read follows it (`tapRefusal`).
   const transport = (message) => Object.assign(new Error(message), { transport: true });
   const what = drag ? `drag #${id}` : `tap #${id}`;
-  const aimReq = { op: 'tap', id, aim: at ? { x: at[0], y: at[1] } : true };
+  // A plain tap aims at the target's own press (LLP 1012 §1: never a control inside it its middle reaches);
+  // `rel` is a point in the target (`tap <target> at <x> <y>`), whatever a finger there reaches; a drag starts at the middle.
+  const aimReq = { op: 'tap', id, aim: at ? { x: at[0], y: at[1] } : rel ? { at: rel } : drag ? true : { press: true } };
   const first = await ask(aimReq);
   if (first.error) throw new Error(first.error);
   const fg = await touches.ask({ op: 'foreground' });
@@ -345,8 +347,13 @@ export async function realTap({ ask, touches, id, at, drag, abandon }) {
     if (ids.length > 1) throw new Error(`${what}: ambiguous: ${ids.length} touches after seq ${a.seq}: ${JSON.stringify(seen.slice(0, 8))}`);
     const began = seen.find((e) => e.phase === 'began'), end = seen.find((e) => e.phase === 'ended');
     if (began && end) {
-      if (began.session !== a.session || began.generation !== a.generation) throw new Error(`${what}: the touch landed in session ${began.session} (generation ${began.generation}), not ${a.session}`);
-      if (began.node !== a.hit) throw new Error(`${what}: the touch landed on ${began.node == null ? began.view : `node #${began.node}`}, not on node #${a.hit} the aim hit-tested`);
+      // A row UIKit's menu shows (`native`) is in no session and no node: the touch must land outside every node.
+      if (a.native) {
+        if (began.node != null) throw new Error(`${what}: the touch landed on node #${began.node}, not on UIKit's ${a.native.kind} "${a.native.label}"`);
+      } else {
+        if (began.session !== a.session || began.generation !== a.generation) throw new Error(began.session == null ? `${what}: the touch landed on ${began.view}, outside every session, not in ${a.session}` : `${what}: the touch landed in session ${began.session} (generation ${began.generation}), not ${a.session}`);
+        if (began.node !== a.hit) throw new Error(`${what}: the touch landed on ${began.node == null ? began.view : `node #${began.node}`}, not on node #${a.hit} the aim hit-tested`);
+      }
       // A grouped list's cells are all the list's node: the row and part too (LLP 1084).
       if (a.projected && (began.projected?.row !== a.projected.row || began.projected?.part !== a.projected.part)) throw new Error(`${what}: the touch landed on ${JSON.stringify(began.projected ?? null)} in the grouped list, not on ${JSON.stringify(a.projected)} the aim hit-tested`);
       const moved = seen.filter((e) => e.phase === 'moved');
@@ -366,6 +373,7 @@ export async function realTap({ ask, touches, id, at, drag, abandon }) {
         ...(drag ? { drag: { dx: drag.dx, dy: drag.dy, press: drag.press, over: moves ? drag.over : 0, hold: drag.hold } } : {}),
         ...(during.length ? { during } : {}),
         injected: injected.injected, aim: a.point, orientation: a.orientation,
+        ...(a.avoided ? { avoided: a.avoided } : {}), ...(a.native ? { native: a.native } : {}),
       };
     }
     if (Date.now() >= deadline) throw new Error(`${what}: no touch reached the app's window within 1 s; the runner finished at ${injected.injected?.end} (log: ${JSON.stringify(seen)})`);

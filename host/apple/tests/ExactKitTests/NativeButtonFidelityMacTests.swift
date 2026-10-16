@@ -146,6 +146,21 @@ final class NativeButtonFidelityMacTests: XCTestCase {
         XCTAssertEqual(try button(session, "control-tile").imagePosition, .imageAbove)
         XCTAssertNotNil(try button(session, "resend-code").contentTintColor)
         XCTAssertNotNil(try button(session, "sign-in").bezelColor)
+        // LLP 1115 wave 1: an icon-only button's label is its help tag; a titled one has none unasked.
+        XCTAssertEqual(try button(session, "clear").toolTip, "Clear")
+        XCTAssertNil(try button(session, "sign-in").toolTip)
+    }
+    /// LLP 1115 wave 1: `plain` is SwiftUI's, in the label colour;
+    /// `borderless` keeps the accent; an authored colour wins over both.
+    func testPlainDrawsInLabelColourAndBorderlessInTheAccent() {
+        var f = ButtonFace(); f.title = "Title"; f.macos = "borderless"
+        f.style = "plain"
+        XCTAssertEqual(configured(f).contentTintColor, .labelColor)
+        f.style = "borderless"
+        XCTAssertEqual(configured(f).contentTintColor, .controlAccentColor)
+        f.style = "plain"
+        f.rows.title = ["text_color": .array([.number(255), .number(0), .number(0), .number(255)])]
+        XCTAssertNotEqual(configured(f).contentTintColor, .labelColor)
     }
     func testEveryUnsupportedRowHasAStandInAndRadiusWins() throws {
         var f = ButtonFace(); f.title = "Title"; f.subtitle = "Subtitle"; f.rows.imageGap = 17
@@ -233,7 +248,7 @@ final class NativeButtonFidelityMacTests: XCTestCase {
             column font-size=44 color="red"
               button appearance="auto" testId="show" press=show
                 text "Show"
-              when more
+              if more
                 button appearance="auto" testId="new" -exact-control-size="large" font-size=25
                   text "A new measured face"
 
@@ -321,7 +336,9 @@ final class NativeButtonFidelityMacTests: XCTestCase {
         let green = NSColor(red: 52.0 / 255, green: 199.0 / 255, blue: 89.0 / 255, alpha: 1)
         let tint = name.hasPrefix("a-") || name == "wide" ? green : NSColor.controlAccentColor
         if !glass && accent.contains(name) || ["prominent-glass", "prominent-clear-glass"].contains(name) { b.bezelColor = tint }
-        b.contentTintColor = !b.isBordered ? tint : nil
+        // `plain` is SwiftUI's: the label colour, not the accent (LLP 1115 wave 1).
+        let plain: Set<String> = ["plain", "get-app", "try-demo", "subscriptions", "sign-out", "clear", "a-plain"]
+        b.contentTintColor = b.isBordered ? nil : plain.contains(name) ? .labelColor : tint
         b.title = titles[name] ?? (symbols[name] == nil ? name : "")
         if name == "resend-code" || name == "disabled-authored" {
             b.contentTintColor = .controlAccentColor
@@ -363,7 +380,10 @@ final class NativeButtonFidelityMacTests: XCTestCase {
     func testAllFixtureRowsPixelDiffAgainstHandConfiguredAppKit() throws {
         let session = try fixture(); defer { session.destroy() }
         let host = try XCTUnwrap(window.contentView)
-        let buttons = session.presenter.controls.controls.values.compactMap { $0 as? NativeButtonMac }.sorted { ($0.written?.testId ?? "") < ($1.written?.testId ?? "") }
+        // The fixture's radios are its radio group's segments, which AppKit's segmented control draws (LLP 1116.004 D5.2).
+        let buttons = session.presenter.controls.controls.values.compactMap { $0 as? NativeButtonMac }
+            .filter { $0.owner?.props["accessibilityRole"] != "radio" }
+            .sorted { ($0.written?.testId ?? "") < ($1.written?.testId ?? "") }
         XCTAssertGreaterThan(buttons.count, 50)
         for native in buttons {
             let id = try XCTUnwrap(native.written?.testId), hand = try reference(id)

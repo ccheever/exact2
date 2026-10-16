@@ -10,8 +10,8 @@ use exact_plan::asm::Asm;
 use exact_plan::{Opcode, Stdlib};
 
 /// A host command's arguments in the order its hosts read them. `share`'s
-/// are named (LLP 1069.003 D1) and lower as `(title, text, url)`, `None`
-/// for an absent one, so the plan's `Command` op stays positional.
+/// are named (LLP 1069.003 D1) and lower as `(title, text, url, files)`,
+/// `None` for an absent one, so the plan's `Command` op stays positional.
 pub fn command_args<'e>(name: &str, args: &'e [Expr]) -> Vec<Option<&'e Expr>> {
     let named = |want: &str| {
         args.iter().find_map(|a| match a {
@@ -33,28 +33,38 @@ pub fn command_args<'e>(name: &str, args: &'e [Expr]) -> Vec<Option<&'e Expr>> {
         out.extend(["block", "inline", "behavior"].map(named));
         if !element {
             out.push(named("row"));
+            out.push(named("offset"));
         }
         return out;
+    }
+    if matches!(name, "showPopover" | "togglePopover") {
+        return vec![args.first(), named("source")];
     }
     // `saveFile(id, text=, suggestedName=)` lowers as `(id, none,
     // suggestedName, text)`: four, where the copy of a file is three.
     if name == "saveFile" && args.iter().any(|a| matches!(a, Expr::NamedArg(..))) {
         return vec![args.first(), None, named("suggestedName"), named("text")];
     }
-    // @ref LLP 1096 D2 — the sound first, then `at`, `gain` and `group`,
-    // `none` where the author left the default (now, 1, no group).
+    // @ref LLP 1096 D2, LLP 1125 D10 — the sound first, then `at`, `gain`,
+    // `group`, `playbackRate` and `pan`, `none` where the author left the
+    // default (now, 1, no group, 1, centred).
     if name == "playSound" {
         let src = args.iter().find(|a| !matches!(a, Expr::NamedArg(..)));
         return std::iter::once(src)
-            .chain(["at", "gain", "group"].map(named))
+            .chain(["at", "gain", "group", "playbackRate", "pan"].map(named))
             .collect();
+    }
+    // @ref LLP 1125 D7 — the output and the data, then `at` (`none` for now).
+    if name == "sendMIDI" {
+        let mut positional = args.iter().filter(|a| !matches!(a, Expr::NamedArg(..)));
+        return vec![positional.next(), positional.next(), named("at")];
     }
     // The Web Share API's members, the Notification API's title and
     // options, and `stopSounds`' group, in a fixed order, `none` where the
     // author gave none.
     let order: &[&str] = match name {
-        "share" => &["title", "text", "url"],
-        "showNotification" => &["title", "body", "tag", "showTrigger"],
+        "share" => &["title", "text", "url", "files"],
+        "showNotification" => &["title", "body", "tag", "showTrigger", "navigate"],
         "stopSounds" => &["group"],
         _ => return args.iter().map(Some).collect(),
     };
@@ -165,7 +175,7 @@ pub(crate) fn compile(
                         asm.str(id);
                     }
                     TemplatePart::Expr(x) => {
-                        if compile(l, asm, x, scope, locals)? != Ty::String {
+                        if !compile(l, asm, x, scope, locals)?.is_string() {
                             asm.call(Stdlib::ToString);
                         }
                     }
@@ -270,20 +280,18 @@ pub(crate) fn compile(
                 let [Expr::Ident(target, _)] = args.as_slice() else {
                     return err("lower-failed", format!("`{name}(x)` names one resource"), *span);
                 };
-                let Some((Ref::Resource(i), _)) = scope.lookup(target) else {
-                    return err(
-                        "lower-failed",
-                        format!("`{target}` is not a resource"),
-                        *span,
-                    );
-                };
-                let r = l.resources[i as usize];
-                if name == "failed" {
-                    asm.failed_resource(r);
-                    return Ok(Ty::Bool);
+                match scope.lookup(target) {
+                    Some((Ref::Resource(i), _)) => {
+                        let r = l.resources[i as usize];
+                        if name == "failed" { asm.failed_resource(r); } else { asm.failure_resource(r); }
+                    }
+                    Some((Ref::Mutation(i), _)) => {
+                        let m = l.mutations[i as usize];
+                        if name == "failed" { asm.failed_mutation(m); } else { asm.failure_mutation(m); }
+                    }
+                    _ => return err("lower-failed", format!("`{target}` is not a resource or mutation"), *span),
                 }
-                // @ref LLP 1109 D3 — `none`, or `some` of `{ code, message }`.
-                asm.failure_resource(r);
+                if name == "failed" { return Ok(Ty::Bool); }
                 return Ok(Ty::Option(Box::new(Ty::Record("Failure".into()))));
             }
             if name == "pending" {
@@ -373,14 +381,23 @@ pub(crate) fn compile(
             // The defaults of trailing optional parameters the call omitted
             // (LLP 1088 D2): the plan's call always carries the full arity.
             for &d in f.omitted(args.len()) {
-                asm.number(d);
+                match d {
+                    exact_plan::StdlibDefault::Number(n) => {
+                        asm.number(n);
+                    }
+                    exact_plan::StdlibDefault::Str(s) => {
+                        let id = l.b.str(s);
+                        asm.str(id);
+                    }
+                }
             }
             asm.call(f);
             match (f, given.first(), given.get(1)) {
-                // `first(list<T>)` is `option<T>` (LLP 1054.000 C4).
+                // `first(T[])` is `option<T>` (LLP 1054.000 C4).
                 (Stdlib::First | Stdlib::At, Some(Ty::List(item)), _) => Ty::Option(item.clone()),
                 // A list's own type, or text's (LLP 1088 §9.1).
                 (Stdlib::Concat, Some(a), Some(b)) => a.unify(b).unwrap_or(Ty::Unknown),
+                (Stdlib::Slice, Some(Ty::Enum(_)), _) => Ty::String,
                 (Stdlib::Slice, Some(t @ (Ty::String | Ty::List(_))), _) => t.clone(),
                 (Stdlib::Concat | Stdlib::Slice, ..) => Ty::Unknown,
                 _ => Ty::from_roster(f.returns()),
@@ -429,7 +446,7 @@ pub(crate) fn compile(
                     let ta = compile(l, asm, a, scope, locals)?;
                     let tb = compile(l, asm, b, scope, locals)?;
                     asm.simple(match op {
-                        BinOp::Add if ta == Ty::String => Opcode::Concat,
+                        BinOp::Add if ta.is_string() => Opcode::Concat,
                         BinOp::Add => Opcode::Add,
                         BinOp::Sub => Opcode::Sub,
                         BinOp::Mul => Opcode::Mul,
@@ -444,7 +461,7 @@ pub(crate) fn compile(
                         BinOp::And | BinOp::Or => unreachable!(),
                     });
                     match op {
-                        BinOp::Add if ta == Ty::String && tb == Ty::String => Ty::String,
+                        BinOp::Add if ta.is_string() && tb.is_string() => Ty::String,
                         BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem
                             if ta == Ty::Number && tb == Ty::Number =>
                         {
@@ -518,7 +535,7 @@ pub(crate) fn compile(
         }
         Expr::Typed(value, ty, span) => {
             let t = compile(l, asm, value, scope, locals)?;
-            contract_types::ascribe(&t, ty, &l.types.shapes, *span).map_err(|e| LowerError {
+            contract_types::ascribe(&t, value, ty, &l.types.shapes, *span, scope).map_err(|e| LowerError {
                 id: e.id,
                 message: e.message,
                 span: e.span,
@@ -527,7 +544,7 @@ pub(crate) fn compile(
         Expr::Arrow { span, .. } => {
             return err(
                 "lower-arrow-position",
-                "an arrow function is only the second argument of `map` or `filter`",
+                "an arrow function is only the argument of `xs.map(…)` or `xs.filter(…)`",
                 *span,
             )
         }
@@ -607,7 +624,7 @@ fn callback_call(
     let Expr::Arrow { params, body, span } = callback else {
         return err(
             "lower-arrow-position",
-            format!("the second argument of `{}` is an arrow function", f.name()),
+            format!("the argument of `.{}(…)` is an arrow function", f.name()),
             callback.span(),
         );
     };

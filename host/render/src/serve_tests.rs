@@ -14,6 +14,18 @@ fn a_socket_grant_is_a_connect_source() {
 }
 
 #[test]
+fn connect_sources_use_app_grants_even_when_a_request_has_a_narrower_source_scope() {
+    let policy = csp(
+        "net.fetch https://a.test\nnet.fetch https://b.test\nnet.fetch https://c.test",
+        Path::new("/nonexistent"),
+    );
+    assert!(
+        policy.contains("connect-src 'self' https://a.test https://b.test https://c.test;"),
+        "{policy}"
+    );
+}
+
+#[test]
 fn the_boot_swap_script_is_admitted_by_its_hash() {
     // @ref LLP 1048.005 — the one inline script a boot document's page adds.
     let policy = csp("", Path::new("/nonexistent"));
@@ -85,7 +97,10 @@ fn a_page_carries_the_permissions_policy_its_grants_derive() {
     let policy = exact_runner::device::permissions_policy(
         "net.fetch https://x/\ndevice.microphone purpose.mic",
     );
-    assert_eq!(policy, "microphone=(self), camera=(), geolocation=()");
+    assert_eq!(
+        policy,
+        "microphone=(self), camera=(), geolocation=(), midi=()"
+    );
     for (content_type, expected) in [("text/html; charset=utf-8", true), ("text/plain", false)] {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let mut client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
@@ -99,7 +114,7 @@ fn a_page_carries_the_permissions_policy_its_grants_derive() {
         client.read_to_string(&mut received).unwrap();
         assert_eq!(
             received.contains(
-                "\r\nPermissions-Policy: microphone=(self), camera=(), geolocation=()\r\n"
+                "\r\nPermissions-Policy: microphone=(self), camera=(), geolocation=(), midi=()\r\n"
             ),
             expected,
             "{received}"

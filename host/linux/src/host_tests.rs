@@ -36,11 +36,23 @@ fn named_agent_storage_keeps_a_secret_across_a_relaunch() {
     let app = "test.exact.keep";
     let write = |name: &str, value: Option<&str>| exact_runner::StoreWrite {
         name: name.into(),
-        value: value.map(str::to_string),
+        value: value.map(|v| v.as_bytes().to_vec()),
     };
     assert!(persist_store_writes(app, &[write("platformer.best", Some("22050"))]).is_empty());
     assert!(persist_store_writes(app, &[write("exact.kept.score", Some("9"))]).is_empty());
+    // A persisted state (LLP 1116 D5) is a preference in its own kv scope.
+    let tip = write("exact.state.tipPercent", Some("22"));
+    assert!(persist_store_writes(app, &[tip]).is_empty());
     let again = store_snapshot(app, false);
+    assert!(
+        again.contains(&("exact.state.tipPercent".into(), "22".into())),
+        "{again:?}"
+    );
+    let secrets = crate::picker::secret_root(app).unwrap().join("secrets");
+    assert!(
+        !secrets.join("exact.state.tipPercent").exists(),
+        "never a secret"
+    );
     assert!(
         again.contains(&("platformer.best".into(), "22050".into())),
         "{again:?}"
@@ -77,7 +89,8 @@ fn named_agent_storage_keeps_a_secret_across_a_relaunch() {
 
 /// b6 review C1: a fresh drive whose scratch tree cannot be emptied boots
 /// with nothing, not with the secret the last drive left. A child, as
-/// above.
+/// above. Unix only: it makes the tree unwritable with mode bits.
+#[cfg(unix)]
 #[test]
 fn a_fresh_tree_that_cannot_be_emptied_is_not_read() {
     const CHILD: &str = "EXACT_LINUX_FRESH_WIPE_TEST";
@@ -173,7 +186,7 @@ fn an_app_keeps_a_secret_across_a_relaunch_outside_the_agent() {
     let app = "test.exact.session";
     let write = |name: &str, value: Option<&str>| exact_runner::StoreWrite {
         name: name.into(),
-        value: value.map(str::to_string),
+        value: value.map(|v| v.as_bytes().to_vec()),
     };
     assert!(persist_store_writes(app, &[write("supabase.session", Some("{\"t\":1}"))]).is_empty());
     assert!(persist_store_writes(app, &[write("exact.kept.items", Some("[]"))]).is_empty());

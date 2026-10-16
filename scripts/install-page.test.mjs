@@ -7,11 +7,11 @@ if (!Bun.which('cargo', { PATH: process.env.PATH })) throw new Error(`these test
 // The fixtures name their apps; a caller's EXACT_APP_DIR would redirect every one.
 delete process.env.EXACT_APP_DIR;
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync, renameSync, symlinkSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync, mkdirSync, renameSync, symlinkSync, existsSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { closeFilesystemReader, filesystemRead } from './filesystem.mjs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { createServer } from 'node:http';
 import { allowHostArgs, allowHostName, developmentGate, developmentInstallPage, installData, installPage, installProblems, writeInstallPages, installBrowserOrigins, installNetworkPage, localInstallURL } from './install-page.mjs';
 import { readManifest, rustPolicy, rebuildPolicy } from './app.mjs';
@@ -154,6 +154,10 @@ test('the install data is what the page renders, for a client that draws its own
   const bare = installData({...manifest,brand:{logo:'assets/logo.png',wordmark:{text:'I',font:'assets/f.woff2'}}});
   assert.equal(bare.reach,null);assert.equal(bare.build.dirty,null);assert.equal(bare.build.source,null);
   assert.deepEqual(bare.brand,{logo:'/assets/logo.png',wordmark:{text:'I',font:'/assets/f.woff2'}});
+  // An AppDrop link is the iOS default; authored iOS methods replace it.
+  const dropped = {...manifest,deploy:{appdrop:{url:'https://appdrop.app/d/k3m9x2p7qa'}}};
+  assert.deepEqual(installData(dropped).platforms.ios.methods.map(m=>[m.kind,m.url,m.label]),[['direct','https://appdrop.app/d/k3m9x2p7qa','Install with AppDrop']]);
+  assert.deepEqual(installData({...dropped,install:{ios:{methods:[]}}}).platforms.ios.methods,[]);
 });
 
 test('only a Mac development response adds local Simulator and signed-device actions', () => {
@@ -284,7 +288,141 @@ chmod 755 target/exact-filesystem-tool/debug/exact-filesystem
     const child=spawnSync(process.execPath,['--eval',program],{cwd:dir,encoding:'utf8',env:{...process.env,PATH:join(dir,'bin')+':'+process.env.PATH,RUSTC_WORKSPACE_WRAPPER:'/toolchain/clippy-driver',CLIPPY_ARGS:'-D warnings'}});
     assert.equal(child.status,0,child.stderr);
   } finally {rmSync(dir,{recursive:true,force:true});}
-});
+}, 200_000);
+
+test('a helper named by its checker is taken without a build, and only if it is this checkout\'s and intact', () => {
+  const dir=realpathSync(mkdtempSync(join(tmpdir(),'exact-helper-named-')));
+  try {
+    mkdirSync(join(dir,'scripts'));mkdirSync(join(dir,'bin'));
+    writeFileSync(join(dir,'scripts/filesystem.mjs'),readFileSync(new URL('./filesystem.mjs',import.meta.url)));
+    // A stand-in Cargo that counts its builds and publishes whatever helper-source holds
+    writeFileSync(join(dir,'bin/cargo'),`#!/bin/sh
+set -e
+printf x >> builds
+mkdir -p target/exact-filesystem-tool/debug
+cp helper-source target/exact-filesystem-tool/debug/exact-filesystem
+chmod 755 target/exact-filesystem-tool/debug/exact-filesystem
+`,{mode:0o755});
+    const helper=value=>`#!/bin/sh\nprintf '%s\\n' '${JSON.stringify({value})}'\n`;
+    writeFileSync(join(dir,'helper-source'),helper('checked'));
+    const env={...process.env,PATH:join(dir,'bin')+':'+process.env.PATH};
+    delete env.EXACT_FILESYSTEM_HELPER;
+    const named=spawnSync(process.execPath,['scripts/filesystem.mjs','--helper'],{cwd:dir,encoding:'utf8',env});
+    assert.equal(named.status,0,named.stderr);
+    writeFileSync(join(dir,'helper-source'),helper('rebuilt'));
+    const get=(helperPath)=>spawnSync(process.execPath,['--eval',"import {filesystem} from './scripts/filesystem.mjs';console.log(filesystem({op:'get'}));"],
+      {cwd:dir,encoding:'utf8',env:{...env,EXACT_FILESYSTEM_HELPER:helperPath}});
+    let run=get(named.stdout);
+    assert.equal(run.status,0,run.stderr);
+    assert.equal(run.stdout.trim(),'checked');
+    assert.equal(readFileSync(join(dir,'builds'),'utf8'),'x','a named helper needs no build');
+    // A copy whose bytes no longer give the digest in its name is checked as usual
+    const tampered=join(dirname(named.stdout),`exact-filesystem-${'0'.repeat(64)}`);
+    writeFileSync(tampered,helper('tampered'),{mode:0o755});
+    run=get(tampered);
+    assert.equal(run.status,0,run.stderr);
+    assert.equal(run.stdout.trim(),'rebuilt');
+    assert.equal(readFileSync(join(dir,'builds'),'utf8'),'xx');
+    // As is one outside this checkout's helper directory
+    run=get(join(dir,'helper-source'));
+    assert.equal(run.stdout.trim(),'rebuilt');
+    assert.equal(readFileSync(join(dir,'builds'),'utf8'),'xxx');
+  } finally {rmSync(dir,{recursive:true,force:true});}
+}, 200_000);
+
+// The bridge over a stand-in `cargo`, as above. This one says when it is building (`building`),
+// stays in its build while `hold` exists, and publishes the helper by rename, so the build a
+// killed caller leaves running cannot tear the next one's.
+function helperBuilds() {
+  const dir=realpathSync(mkdtempSync(join(tmpdir(),'exact-helper-claim-')));
+  mkdirSync(join(dir,'scripts'));mkdirSync(join(dir,'bin'));
+  writeFileSync(join(dir,'scripts/filesystem.mjs'),readFileSync(new URL('./filesystem.mjs',import.meta.url)));
+  writeFileSync(join(dir,'helper-source'),`#!/bin/sh\nprintf '%s\\n' '{"value":"helper"}'\n`,{mode:0o755});
+  writeFileSync(join(dir,'bin/cargo'),`#!/bin/sh
+set -e
+out=target/exact-filesystem-tool/debug
+mkdir -p $out
+: > building
+while [ -e hold ]; do sleep 0.05; done
+cp helper-source $out/exact-filesystem.$$
+mv -f $out/exact-filesystem.$$ $out/exact-filesystem
+`,{mode:0o755});
+  // A caller of the bridge. Its clock reads ten seconds later at each look, up to two minutes,
+  // and `waited-<name>` appears when it gets there: it has then waited that long on a claim.
+  writeFileSync(join(dir,'caller.mjs'),`import {writeFileSync} from 'node:fs';
+import {filesystem,helperBuildWait} from './scripts/filesystem.mjs';
+let clock=0;
+helperBuildWait.now=()=>{if(clock<120_000&&(clock+=10_000)===120_000)writeFileSync('waited-'+process.argv[2],'');return clock;};
+try{console.log(filesystem({op:'get'}));}catch(error){console.log(error.message);process.exit(3);}
+`);
+  const env={...process.env,PATH:join(dir,'bin')+':'+process.env.PATH};
+  const call=name=>{
+    const child=spawn(process.execPath,['caller.mjs',name],{cwd:dir,env,stdio:['ignore','pipe','inherit']});
+    let out='';child.stdout.on('data',data=>{out+=data;});
+    return {child,done:new Promise(resolve=>child.on('close',code=>resolve({code,out:out.trim()})))};
+  };
+  return {dir,call,claim:join(dir,'target/exact-filesystem-tool/.bootstrap.lock'),has:name=>existsSync(join(dir,name))};
+}
+// Waits on what the fixture's files show; the bound only stops a hang.
+async function shown(what,condition) {
+  for(const end=Date.now()+60_000;!condition();await new Promise(resolve=>setTimeout(resolve,50))) if(Date.now()>end) throw new Error(`waited 60 s for ${what}`);
+}
+
+test('helper callers wait out a build that holds its claim for minutes, and each gets the helper', async () => {
+  const {dir,call,claim,has}=helperBuilds(), names=['a','b','c','d'];
+  try {
+    writeFileSync(join(dir,'hold'),'');
+    const builder=call('builder');
+    await shown('the builder to start its build',()=>has('building'));
+    const waiters=names.map(call);
+    await shown('each waiter to have waited two minutes on the builder',()=>{
+      for(const waiter of waiters) assert.equal(waiter.child.exitCode,null,'a waiter gave up on a builder that was still running');
+      return names.every(name=>has('waited-'+name));
+    });
+    rmSync(join(dir,'hold'));
+    for(const caller of [builder,...waiters]) assert.deepEqual(await caller.done,{code:0,out:'helper'});
+    assert.equal(existsSync(claim),false,'the last caller releases the claim');
+  } finally {rmSync(dir,{recursive:true,force:true});}
+},120_000);
+
+test('a helper claim whose builder was killed, or whose pid a later process has, fails its caller and stays in place', async () => {
+  const {dir,call,claim,has}=helperBuilds();
+  try {
+    writeFileSync(join(dir,'hold'),'');
+    const builder=call('builder');
+    await shown('the builder to start its build',()=>has('building'));
+    builder.child.kill('SIGKILL');await builder.done;
+    rmSync(join(dir,'hold'));
+    const killed=readFileSync(claim,'utf8');
+    assert.match(killed,new RegExp(`^${builder.child.pid}-`),'a killed builder leaves its claim');
+    const stopped=await call('a').done;
+    assert.equal(stopped.code,3,stopped.out);
+    assert.ok(stopped.out.includes(`(${claim}: pid ${builder.child.pid} has stopped)`),stopped.out);
+    assert.equal(readFileSync(claim,'utf8'),killed,'a stale claim is never taken');
+    // This process is running, and it started an hour after this claim was written.
+    const later=`${process.pid}-${'0'.repeat(24)}`;
+    writeFileSync(claim,later);
+    const written=new Date(Date.now()-process.uptime()*1000-3_600_000);utimesSync(claim,written,written);
+    const recycled=await call('b').done;
+    assert.equal(recycled.code,3,recycled.out);
+    assert.ok(recycled.out.includes(`(${claim}: pid ${process.pid} is a later process, not its builder)`),recycled.out);
+    assert.equal(readFileSync(claim,'utf8'),later,'a stale claim is never taken');
+  } finally {rmSync(dir,{recursive:true,force:true});}
+},120_000);
+
+test('a helper claim nobody is building under fails saying what was waited on, for how long, and what to do', async () => {
+  const {dir,call,claim}=helperBuilds();
+  try {
+    mkdirSync(join(claim,'..'),{recursive:true});
+    const gone=spawnSync(process.execPath,['-e','']).pid;
+    writeFileSync(claim,`${gone}-${'0'.repeat(24)}`);
+    assert.deepEqual(await call('a').done,{code:3,out:`filesystem helper: nothing has been building it for 60 s, yet its build claim is held (${claim}: pid ${gone} has stopped). This is the tooling's own helper, not the code being built. A stale claim is never taken automatically: remove it only after verifying its owner has exited.`});
+    writeFileSync(claim,''); // a builder killed between making its claim and signing it
+    const unsigned=await call('b').done;
+    assert.equal(unsigned.code,3,unsigned.out);
+    assert.ok(unsigned.out.includes(`(${claim}: it reads "", which names no process)`),unsigned.out);
+  } finally {rmSync(dir,{recursive:true,force:true});}
+},120_000);
 
 test('browser destinations respect listener binding and keep public URLs explicit', () => {
   const interfaces={lo0:[{address:'127.0.0.1',family:'IPv4',internal:true}],en0:[{address:'192.168.1.20',family:'IPv4',internal:false}],utun:[{address:'100.84.2.3',family:'IPv4',internal:false}]};

@@ -24,9 +24,13 @@ struct Varying {
 fn rotate(q: vec4<f32>, v: vec3<f32>) -> vec3<f32> {
     return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v);
 }
-fn transform(position: vec3<f32>, normal: vec3<f32>, cap: vec2<f32>,
-             instance: u32, color: vec4<f32>) -> Varying {
-    let slot = slots[instance];
+// A slot's pose between the two ticks, at the frame's alpha.
+struct Pose {
+    p: vec3<f32>,
+    q: vec4<f32>,
+    s: vec3<f32>,
+}
+fn pose(slot: u32) -> Pose {
     let i = slot * 10u;
     let a = frame.camera_alpha.w;
     let p = mix(vec3(prev[i], prev[i+1u], prev[i+2u]), vec3(curr[i], curr[i+1u], curr[i+2u]), a);
@@ -35,6 +39,15 @@ fn transform(position: vec3<f32>, normal: vec3<f32>, cap: vec2<f32>,
     let mixed_q = mix(qp, select(qc, -qc, dot(qp, qc) < 0.0), a);
     let q = mixed_q * inverseSqrt(max(dot(mixed_q, mixed_q), 1e-12));
     let s = mix(abs(vec3(prev[i+7u], prev[i+8u], prev[i+9u])), abs(vec3(curr[i+7u], curr[i+8u], curr[i+9u])), a);
+    return Pose(p, q, s);
+}
+fn transform(position: vec3<f32>, normal: vec3<f32>, cap: vec2<f32>,
+             instance: u32, color: vec4<f32>) -> Varying {
+    let slot = slots[instance];
+    let at = pose(slot);
+    let p = at.p;
+    let q = at.q;
+    let s = at.s;
     let m = slot * 12u;
     let dimensions = vec3(materials[m+9u], materials[m+10u], materials[m+11u]);
     let shape_scale = select(dimensions, vec3(dimensions.x), cap.y == 1.0);

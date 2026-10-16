@@ -8,10 +8,10 @@ import { Cdp } from '../../scripts/agent.mjs';
 import { chromium } from '../../scripts/agent-launch.mjs';
 import { collectionBytes } from './collection-glue.js';
 import { motionBytes } from './motion-glue.js';
+import { need } from '../../scripts/coverage.mjs';
 
 const { executable: chrome, unavailable } = chromium();
-if (unavailable) console.warn(`SKIP: ${unavailable}`);
-const test = unavailable ? (name, ...args) => bunTest.skip(`${name} — ${unavailable}`, ...args) : bunTest;
+const test = need('chrome', unavailable, { test: bunTest });
 let server, child, cdp, evaluate, protocol, dir;
 beforeAll(async () => {
   if (unavailable) return;
@@ -57,8 +57,8 @@ function setup() {
     let serial = 0;
     const controller = createController({ root, views, report(bytes) {
       const d = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-      const read = { view: d.getUint32(4, true), revision: String(d.getBigUint64(8, true)), sequence: String(d.getBigUint64(16, true)), top: d.getFloat64(24, true), width: d.getFloat64(40, true), height: d.getFloat64(32, true), rowWidth: d.getFloat64(48, true), focus: d.getUint32(56, true), interaction: d.getUint32(60, true), velocity: d.getFloat64(64, true), rows: [] };
-      for (let n = 0; n < d.getUint32(80, true); n++) read.rows.push({ view: d.getUint32(84 + n * 20, true), epoch: String(d.getBigUint64(88 + n * 20, true)), size: d.getFloat64(96 + n * 20, true) });
+      const read = { view: d.getUint32(4, true), revision: String(d.getBigUint64(8, true)), sequence: String(d.getBigUint64(16, true)), top: d.getFloat64(24, true), width: d.getFloat64(40, true), height: d.getFloat64(32, true), rowWidth: d.getFloat64(48, true), padding: [d.getFloat64(56, true), d.getFloat64(64, true)], focus: d.getUint32(72, true), interaction: d.getUint32(76, true), velocity: d.getFloat64(80, true), rows: [] };
+      for (let n = 0; n < d.getUint32(96, true); n++) read.rows.push({ view: d.getUint32(100 + n * 20, true), epoch: String(d.getBigUint64(104 + n * 20, true)), size: d.getFloat64(112 + n * 20, true) });
       wires.push(Array.from(bytes)); reports.push(read); return globalThis.f.onReport?.(read);
     }, requestFrame(fn) { frames.set(++serial, fn); return serial; }, cancelFrame(id) { frames.delete(id); }, ...rest });
     const snapshot = (revision = '1', extra = {}) => ({ view: 1, revision, scrollSequence: '0', totalExtent: 1900, count: 100, rows: [{ view: 2, root: 3, index: 0, start: 0, size: 40, epoch: '9007199254740993' }, { view: 4, root: 5, index: 99, start: 1840, size: 60, epoch: '2' }], correction: null, ...extra });
@@ -69,7 +69,7 @@ function setup() {
 }
 
 test('the production page reset leaves native and appearance-none checkboxes border-box', async () => {
-  const page = readFileSync(new URL('./index.html', import.meta.url), 'utf8');
+  const look = await import('./look.mjs'), page = look.withLook(readFileSync(new URL('./index.html', import.meta.url), 'utf8')); // as a default build ships it
   const stylesheet = page.split('<style>')[1].split('</style>')[0];
   const result = await evaluate(`(() => {
     const style=document.createElement('style');style.textContent=${JSON.stringify(stylesheet)};document.head.append(style);
@@ -87,17 +87,17 @@ test('the production page reset leaves native and appearance-none checkboxes bor
 });
 
 bunTest('LE feedback preserves u64 identity and rejects invalid geometry before admission', () => {
-  const feedback = { view: 1, revision: '18446744073709551615', scroll_sequence: '9007199254740993', offset: 25, port_cross: 320, port_main: 180, cross: 296, focus_view: null, interaction_view: 9, measurements: [{ view: 2, epoch: '9007199254740995', size: 40.5 }] };
+  const feedback = { view: 1, revision: '18446744073709551615', scroll_sequence: '9007199254740993', offset: 25, port_cross: 320, port_main: 180, cross: 296, padding: [92, 83.5], focus_view: null, interaction_view: 9, measurements: [{ view: 2, epoch: '9007199254740995', size: 40.5 }] };
   const bytes = collectionBytes(feedback), view = new DataView(bytes.buffer);
-  expect(bytes.length).toBe(104);
-  expect(view.getUint32(0, true)).toBe(3);
+  expect(bytes.length).toBe(120); expect(view.getUint32(0, true)).toBe(4);
   expect(view.getBigUint64(8, true)).toBe(18446744073709551615n);
-  expect(view.getUint32(72, true)).toBe(0xffffffff);
-  expect(view.getUint32(76, true)).toBe(0);
-  expect(view.getBigUint64(88, true)).toBe(9007199254740995n);
-  expect(view.getFloat64(96, true)).toBe(40.5);
-  expect(new DataView(collectionBytes(feedback, { ancestorMoving: true }).buffer).getUint32(76, true)).toBe(1);
-  expect(() => collectionBytes({ ...feedback, port_cross: NaN })).toThrow();
+  expect([view.getFloat64(56, true), view.getFloat64(64, true)]).toEqual([92, 83.5]);
+  expect(view.getUint32(88, true)).toBe(0xffffffff);
+  expect(view.getUint32(92, true)).toBe(0);
+  expect(view.getBigUint64(104, true)).toBe(9007199254740995n);
+  expect(view.getFloat64(112, true)).toBe(40.5);
+  expect(new DataView(collectionBytes(feedback, { ancestorMoving: true }).buffer).getUint32(92, true)).toBe(1);
+  for (const bad of [{ port_cross: NaN }, { padding: [-1, 0] }, { padding: [0, NaN] }, { padding: [92] }, { padding: undefined }]) expect(() => collectionBytes({ ...feedback, ...bad })).toThrow();
   expect(() => collectionBytes({ ...feedback, revision: Number.MAX_SAFE_INTEGER + 1 })).toThrow();
   expect(() => collectionBytes({ ...feedback, measurements: [feedback.measurements[0], feedback.measurements[0]] })).toThrow();
 });
@@ -142,7 +142,7 @@ test('observer baseline: commit to feedback to real observer reads each row once
     return {commit,feedback,observed,deliveries,queued,pending:f.frames.size,reports:f.reports.length,wire,width:f.port.clientWidth};
   })()`);
   expect(result.wire).toEqual([...collectionBytes({view:1,revision:'7',scroll_sequence:'1',offset:50,
-    port_cross:result.width,port_main:180,cross:result.width-24,focus_view:3,interaction_view:5,
+    port_cross:result.width,port_main:180,cross:result.width-24,padding:[10,10],focus_view:3,interaction_view:5,
     measurements:[{view:2,epoch:'9007199254740993',size:40.5},{view:4,epoch:'2',size:60.25}]},{limit:1})]);
   expect(result.deliveries.flat().filter(v=>v==='2')).toHaveLength(1);
   expect(result.deliveries.flat().filter(v=>v==='4')).toHaveLength(1);
@@ -215,7 +215,7 @@ test('observer baseline: external growth coalesced after final own commit surviv
   expect(result.last.rows[0]).toEqual({view:2,epoch:'9007199254740993',size:97.25});
   expect(result.wire).toEqual([...collectionBytes({view:1,revision:'3',scroll_sequence:result.last.sequence,
     offset:result.last.top,port_cross:result.last.width,port_main:180,cross:result.last.rowWidth,
-    focus_view:null,interaction_view:null,measurements:[{view:2,epoch:'9007199254740993',size:97.25},{view:4,epoch:'2',size:60}]},{limit:1})]);
+    padding:[10,10],focus_view:null,interaction_view:null,measurements:[{view:2,epoch:'9007199254740993',size:97.25},{view:4,epoch:'2',size:60}]},{limit:1})]);
   expect([result.reports,result.idle,result.pending]).toEqual([3,true,0]);
   console.log('observer baseline coalesced external growth',JSON.stringify(result));
 });
@@ -253,7 +253,7 @@ test('collection read reuse: correction-free commit reads only list and port bas
     f.controller.commit([f.snapshot()]);const commit=[...reads.counts];f.flush();
     return {commit,wire:f.wires.at(-1),width:f.port.clientWidth};})()`);
   expect(result.wire).toEqual([...collectionBytes({view:1,revision:'1',scroll_sequence:'0',offset:-10,
-    port_cross:result.width,port_main:180,cross:result.width-24,focus_view:null,interaction_view:null,
+    port_cross:result.width,port_main:180,cross:result.width-24,padding:[10,10],focus_view:null,interaction_view:null,
     measurements:[{view:2,epoch:'9007199254740993',size:40},{view:4,epoch:'2',size:60}]},{limit:1})]);
   expect(result.commit).toEqual([1,1,0,0]);
 });
@@ -265,7 +265,7 @@ test('collection read reuse: one row sample preserves fractional wire, epochs an
     reads.clear();let beforeReport;f.onReport=()=>{beforeReport=[...reads.counts];};f.flush();
     return {beforeReport,wire:f.wires.at(-1),width:f.port.clientWidth,pending:f.frames.size};})()`);
   expect(result.wire).toEqual([...collectionBytes({view:1,revision:'7',scroll_sequence:'1',offset:50,
-    port_cross:result.width,port_main:180,cross:result.width-24,focus_view:3,interaction_view:5,
+    port_cross:result.width,port_main:180,cross:result.width-24,padding:[10,10],focus_view:3,interaction_view:5,
     measurements:[{view:2,epoch:'9007199254740993',size:40.5},{view:4,epoch:'2',size:60.25}]},{limit:1})]);
   expect(result.pending).toBe(0);
   expect(result.beforeReport.slice(2)).toEqual([1,1]);
@@ -322,43 +322,42 @@ test('under scroll-behavior: smooth an anchor correction still lands before the 
 test('a smooth correction animates and reports where it is headed until it lands (LLP 1070.000 §6.2)', async () => {
   const result=await evaluate(`(async () => {const f=fixture();
     f.controller.commit([f.snapshot()]);f.flush();
-    const seq=f.reports.at(-1).sequence;
+    const seq=f.reports.at(-1).sequence,ended=new Promise(r=>{const t=setTimeout(r,10000);f.port.addEventListener('scrollend',()=>{clearTimeout(t);r();},{once:true});});
     f.controller.commit([f.snapshot('2',{correction:{scrollSequence:seq,offset:800,smooth:true}})]);
     const started=f.port.scrollTop;
     await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
     f.port.dispatchEvent(new Event('scroll'));f.flush();
     const midway=f.port.scrollTop,report=f.reports.at(-1);
-    await new Promise(r=>{const t=setTimeout(r,3000);f.port.addEventListener('scrollend',()=>{clearTimeout(t);r();},{once:true});});
+    await ended;
     return {started,midway,headed:report.top,sequence:report.sequence===seq,landed:f.port.scrollTop};})()`);
   expect(result.started).toBeLessThan(860);
   expect(result.headed).toBe(800);
   expect(result.sequence).toBe(true);
   expect(result.landed).toBe(860); // the list starts 60 px into its port
-});
+}, 30_000); // hang bound: the scroll end is waited for up to 10 s
 test('a smooth correction that arrives mid-flight is held, reported, and taken where it lands', async () => {
-  const result=await evaluate(`(async () => {const f=fixture();
+  const result=await evaluate(`(async () => {
     const frames=n=>new Promise(r=>{const step=k=>k?requestAnimationFrame(()=>step(k-1)):r();step(n);});
-    const ended=()=>new Promise(r=>{const t=setTimeout(r,3000);f.port.addEventListener('scrollend',()=>{clearTimeout(t);r();},{once:true});});
-    f.controller.commit([f.snapshot()]);f.flush();
-    const seq=f.reports.at(-1).sequence;
-    f.controller.commit([f.snapshot('2',{correction:{scrollSequence:seq,offset:800,smooth:true}})]);
-    await frames(3);f.port.dispatchEvent(new Event('scroll'));f.flush();
-    const mid=f.port.scrollTop;
+    // The first leg read at the first frame that moves it; tried again, up to five times, while that frame is already its end.
+    // Then, until the nth scroll end (counted from before the leg, so none is missed) or 10 s.
+    let f,ends,seq,mid;const ended=async n=>{for(const end=performance.now()+10000;ends<n&&performance.now()<end;)await frames(1);};
+    for(let i=0;i<5&&!(mid<860);i++){f=fixture();ends=0;f.controller.commit([f.snapshot()]);f.flush();f.port.addEventListener('scrollend',()=>ends++);seq=f.reports.at(-1).sequence;
+      f.controller.commit([f.snapshot('2',{correction:{scrollSequence:seq,offset:800,smooth:true}})]);
+      const from=f.port.scrollTop;while(f.port.scrollTop===from)await frames(1);f.port.dispatchEvent(new Event('scroll'));f.flush();mid=f.port.scrollTop;}
     f.controller.commit([f.snapshot('3',{correction:{scrollSequence:seq,offset:900,smooth:true}})]);
     f.port.dispatchEvent(new Event('scroll'));f.flush();
     const report=f.reports.at(-1);
-    await ended();await frames(3);f.port.dispatchEvent(new Event('scroll'));f.flush();
+    await ended(1);await frames(3);f.port.dispatchEvent(new Event('scroll'));f.flush();
     const secondLeg=f.reports.at(-1);
-    await ended();f.port.dispatchEvent(new Event('scroll'));f.flush();
+    await ended(2);f.port.dispatchEvent(new Event('scroll'));f.flush();
     return {mid,headed:report.top,velocity:report.velocity,landed:f.port.scrollTop,sequence:f.reports.at(-1).sequence===seq,
       secondLeg:{top:secondLeg.top,velocity:secondLeg.velocity,sequence:secondLeg.sequence===seq}};})()`);
   expect(result.mid).toBeLessThan(860);
-  expect(result.headed).toBe(900);
-  expect(result.velocity).toBe(0);
+  expect([result.headed,result.velocity]).toEqual([900,0]);
   expect(result.landed).toBe(960);
   expect(result.sequence).toBe(true);
   expect(result.secondLeg).toEqual({top:900,velocity:0,sequence:true}); // the held leg reports its destination too
-});
+}, 30_000); // hang bound: each scroll end is waited for up to 10 s
 test('an ordinary correction or a zero-length request ends a smooth one', async () => {
   const result=await evaluate(`(async () => {const f=fixture();
     const frames=n=>new Promise(r=>{const step=k=>k?requestAnimationFrame(()=>step(k-1)):r();step(n);});
@@ -378,12 +377,11 @@ test('an ordinary correction or a zero-length request ends a smooth one', async 
   expect(result.afterZero).toBe(40); // the reader's scroll, reported where it is
 });
 test('an authored jump on a list that is its own scrollport ends a smooth correction', async () => {
-  const result=await evaluate(`(async () => {const f=fixture({own:true});
+  const result=await evaluate(`(async () => {let f,moving;
     const frames=n=>new Promise(r=>{const step=k=>k?requestAnimationFrame(()=>step(k-1)):r();step(n);});
-    f.controller.commit([f.snapshot()]);f.flush();
-    const seq=f.reports.at(-1).sequence;
-    f.controller.commit([f.snapshot('2',{correction:{scrollSequence:seq,offset:1200,smooth:true}})]);
-    await frames(2);const moving=f.port.scrollTop;
+    // The correction two frames in, tried again, up to five times, while a slow frame has let it land
+    for(let i=0;i<5&&!(moving<1200);i++){f=fixture({own:true});f.controller.commit([f.snapshot()]);f.flush();const seq=f.reports.at(-1).sequence;
+      f.controller.commit([f.snapshot('2',{correction:{scrollSequence:seq,offset:1200,smooth:true}})]);await frames(2);moving=f.port.scrollTop;}
     f.controller.jump(1,400);await frames(2);f.flush();const jumped=f.port.scrollTop;
     await frames(30);f.port.dispatchEvent(new Event('scroll'));f.flush();
     return {moving,jumped,stayed:f.port.scrollTop,reported:f.reports.at(-1).top};})()`);
@@ -393,10 +391,11 @@ test('an authored jump on a list that is its own scrollport ends a smooth correc
   expect(result.reported).toBe(390); // the port, not the abandoned target (the list's padding is 10)
 });
 test('a mid-flight report after a flick carries no velocity', async () => {
-  const result=await evaluate(`(async () => {const f=fixture();
+  // The flick's samples are a frame apart on the fixture's clock, not the wall's: a velocity older than 150 ms reads 0
+  const result=await evaluate(`(async () => {globalThis.clock=1000;const f=fixture({now:()=>globalThis.clock});
     const frames=n=>new Promise(r=>{const step=k=>k?requestAnimationFrame(()=>step(k-1)):r();step(n);});
     f.controller.commit([f.snapshot()]);f.flush();
-    for (const top of [40,90,140]) { f.port.scrollTo({top,behavior:'instant'});f.port.dispatchEvent(new Event('scroll'));await frames(1); }
+    for (const top of [40,90,140]) { globalThis.clock+=16;f.port.scrollTo({top,behavior:'instant'});f.port.dispatchEvent(new Event('scroll'));await frames(1); }
     f.flush();const flick=f.reports.at(-1).velocity;
     const seq=f.reports.at(-1).sequence;
     f.controller.commit([f.snapshot('2',{correction:{scrollSequence:seq,offset:800,smooth:true}})]);
@@ -439,7 +438,7 @@ test('collection read reuse: synchronous report replacement samples new nodes an
   ]);
   for(const [i,r] of result.reports.entries())expect(result.wires[i]).toEqual([...collectionBytes({view:1,
     revision:r.revision,scroll_sequence:r.sequence,offset:-10,port_cross:r.width,port_main:180,
-    cross:r.rowWidth,focus_view:null,interaction_view:null,measurements:r.rows},{limit:1})]);
+    cross:r.rowWidth,padding:r.padding,focus_view:null,interaction_view:null,measurements:r.rows},{limit:1})]);
 });
 test('collection read reuse: width wrapping keeps actual fractional heights and fresh later-pass dimensions', async () => {
   const result=await evaluate(`(() => {const f=fixture(),row=f.views.get(2);row.style.cssText='font:16px monospace;line-height:20.25px';row.textContent='word '.repeat(41);
@@ -491,9 +490,9 @@ test('integer DOM end retains fractional measured extent in actual collection fe
   console.log('DOM integer-end facts', JSON.stringify(result));
 });
 // LLP 1050.000 stage 1: a limited fill, travel, and authored jumps that wait.
-const fillWire = wire => { const d = new DataView(new Uint8Array(wire).buffer); return { velocity: d.getFloat64(64, true), limit: d.getUint32(72, true) }; };
+const fillWire = wire => { const d = new DataView(new Uint8Array(wire).buffer); return { velocity: d.getFloat64(80, true), limit: d.getUint32(88, true) }; };
 bunTest('fill wire carries velocity and a clamped limit; none means u32::MAX', () => {
-  const facts = { view: 1, revision: '1', scroll_sequence: '0', offset: 0, port_cross: 1, port_main: 1, cross: 1, focus_view: null, interaction_view: null, measurements: [] };
+  const facts = { view: 1, revision: '1', scroll_sequence: '0', offset: 0, port_cross: 1, port_main: 1, cross: 1, padding: [0, 0], focus_view: null, interaction_view: null, measurements: [] };
   expect(fillWire([...collectionBytes(facts, { velocity: -2400.5, limit: 3 })])).toEqual({ velocity: -2400.5, limit: 3 });
   expect(fillWire([...collectionBytes(facts, { limit: 0 })])).toEqual({ velocity: 0, limit: 0 });
   expect(fillWire([...collectionBytes(facts, { limit: 0xffffffff })]).limit).toBe(0xfffffffe);
@@ -523,7 +522,7 @@ function jumpFixture() {
   const controller = createController({ root, views, requestFrame(fn) { frames.push(fn); return frames.length; }, cancelFrame() {},
     report(bytes) {
       const d = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-      seen.push({ reported: d.getFloat64(24, true), sequence: String(d.getBigUint64(16, true)), limit: d.getUint32(72, true), velocity: d.getFloat64(64, true), shown: list.scrollTop });
+      seen.push({ reported: d.getFloat64(24, true), sequence: String(d.getBigUint64(16, true)), limit: d.getUint32(88, true), velocity: d.getFloat64(80, true), shown: list.scrollTop });
       return globalThis.jf.onReport?.(seen.at(-1));
     } });
   const snapshot = (revision, extra = {}) => ({ view: 1, revision, scrollSequence: '0', totalExtent: 5100, count: 100,
@@ -622,7 +621,7 @@ test('activation retries unchanged geometry once and a continuing edge refusal b
   expect(result).toEqual({before:1,after:2,attempts:3,successes:1,errors:2,pending:0});
 });
 test('ResizeObserver updates real row heights and width, then becomes idle', async () => {
-  const result = await evaluate(`(async () => { const f=fixture(); f.controller.commit([f.snapshot()]); f.flush(); await new Promise(r=>setTimeout(r,50)); f.flush(); f.views.get(2).style.height='97px'; f.port.style.width='400px'; for(let i=0;i<40;i++){ await new Promise(r=>setTimeout(r,25)); f.flush(); if(f.reports.at(-1)?.rows[0].size===97 && f.reports.at(-1)?.rowWidth===f.port.clientWidth-24) break; } const last=f.reports.at(-1), n=f.reports.length; await new Promise(r=>setTimeout(r,50)); f.flush(); return {last,inner:f.port.clientWidth,idle:f.reports.length===n}; })()`);
+  const result = await evaluate(`(async () => { const f=fixture(); f.controller.commit([f.snapshot()]); f.flush(); await ${frames(2)}; f.flush(); f.views.get(2).style.height='97px'; f.port.style.width='400px'; for(let i=0;i<40;i++){ await ${frames(1)}; f.flush(); if(f.reports.at(-1)?.rows[0].size===97 && f.reports.at(-1)?.rowWidth===f.port.clientWidth-24) break; } const last=f.reports.at(-1), n=f.reports.length; await ${frames(2)}; f.flush(); return {last,inner:f.port.clientWidth,idle:f.reports.length===n}; })()`);
   expect(result.last.rowWidth).toBe(result.inner - 24);
   expect(result.last.rows[0].size).toBe(97);
   expect(result.idle).toBe(true);
@@ -1192,7 +1191,6 @@ test('Arrange terminal reservation survives grip replacement until explicit fini
   })()`);
   expect(result).toEqual({terminal:5,ended:0,wrapperLive:true,pending:0});
 });
-
 // Real DOM mapping, C0 rebasing and stacking; Common authority is tested in Rust.
 test('Arrange mapping uses signed list origin inside a bordered nested port', async()=>{
   const r=await evaluate(`(() => {const f=fixture();f.controller.commit([f.snapshot()]);f.flush();
@@ -1423,7 +1421,7 @@ function axisFixture(axis) {
   const controller = createController({ root, views, now: () => globalThis.clock, requestFrame(fn) { frames.push(fn); return frames.length; }, cancelFrame() {},
     report(bytes) {
       const d = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), rows = [];
-      for (let n = 0; n < d.getUint32(80, true); n++) rows.push(d.getFloat64(96 + n * 20, true));
+      for (let n = 0; n < d.getUint32(96, true); n++) rows.push(d.getFloat64(112 + n * 20, true));
       wires.push(Array.from(bytes));
       seen.push({ offset: d.getFloat64(24, true), main: d.getFloat64(32, true), portCross: d.getFloat64(40, true), cross: d.getFloat64(48, true),
         sequence: String(d.getBigUint64(16, true)), rows, shown: list[name] });
@@ -1447,7 +1445,7 @@ test('a row list reports scrollLeft, the port width and height, its rows\' heigh
   expect(r.cross).toBe(result.wrapper);
   expect(result.overflowAnchor).toBe('none');
   expect(result.wire).toEqual([...collectionBytes({ view: 1, revision: '1', scroll_sequence: '1', offset: 40, port_main: result.w,
-    port_cross: result.h, cross: result.h - 12, focus_view: null, interaction_view: null,
+    port_cross: result.h, cross: result.h - 12, padding: [0, 0], focus_view: null, interaction_view: null,
     measurements: [{ view: 2, epoch: '1', size: 100 }, { view: 4, epoch: '1', size: 150.5 }] }, { limit: 1 })]);
 });
 test('a correction on x moves scrollLeft; not while the strip moves, and a column list keeps correcting', async () => {
@@ -1478,17 +1476,16 @@ function chromePage() {
 }
 const frames = n => `new Promise(r=>{let k=${n};const f=()=>--k?requestAnimationFrame(f):r();requestAnimationFrame(f);})`;
 async function wheel(deltaX, deltaY) {
-  const at = await evaluate(`(() => { const r=document.getElementById('strip').getBoundingClientRect(); return {x:r.left+r.width/2,y:r.top+r.height/2}; })()`);
+  const at = await evaluate(`(() => { window.scrolled=new Promise(r=>{const t=setTimeout(r,10000);document.addEventListener('scrollend',()=>{clearTimeout(t);r();},{capture:true,once:true});}); const r=document.getElementById('strip').getBoundingClientRect(); return {x:r.left+r.width/2,y:r.top+r.height/2}; })()`);
   await protocol('Input.dispatchMouseEvent', { type: 'mouseWheel', x: at.x, y: at.y, deltaX, deltaY });
-  await evaluate(`new Promise(r=>setTimeout(r,400)).then(()=>${frames(3)})`);
-  return evaluate(`({outer:document.getElementById('outer').scrollTop,strip:document.getElementById('strip').scrollLeft})`);
+  return evaluate(`window.scrolled.then(()=>${frames(3)}).then(()=>({outer:document.getElementById('outer').scrollTop,strip:document.getElementById('strip').scrollLeft}))`);
 }
 test('Chrome: a phase-less tick over a row-only scroller goes by its components, never split', async () => {
   await evaluate(`(${chromePage})(), true`);
   expect(await wheel(0, 120)).toEqual({ outer: 120, strip: 0 });
   await evaluate(`(${chromePage})(), true`);
   expect(await wheel(60, 100)).toEqual({ outer: 0, strip: 60 });
-});
+}, 30_000); // hang bound: each wheel waits up to 10 s for its scroll to end
 test('Chrome: no inline-axis anchoring, a block-axis control anchors; a re-inserted scroller resets to 0', async () => {
   const result = await evaluate(`(async () => { const {outer,strip}=(${chromePage})();
     strip.scrollLeft=1000; await ${frames(2)}; strip.children[0].style.width='380px'; await ${frames(2)}; const inline=strip.scrollLeft;

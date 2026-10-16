@@ -39,7 +39,8 @@ mod disk;
 
 use crate::envelope::{resolve_url, safe_name, sha256_hex, Card, Envelope, FileCard};
 use disk::{
-    read_card, regular_file, sweep, sync_dir, temporary_name, write_atomic, write_file, Blobs,
+    read_bounded, read_card, regular_file, sweep, sync_dir, temporary_name, write_atomic,
+    write_file, Blobs,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -393,11 +394,13 @@ enum RecordFile {
     Ours(Record),
 }
 
+const MAX_RECORD_BYTES: u64 = 1024 * 1024;
+
 fn read_record(path: &Path) -> RecordFile {
-    let Ok(text) = std::fs::read_to_string(path) else {
+    let Ok(raw) = read_bounded(path, MAX_RECORD_BYTES) else {
         return RecordFile::Fresh;
     };
-    let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
+    let Ok(value) = serde_json::from_slice::<serde_json::Value>(&raw) else {
         return RecordFile::Fresh;
     };
     let Some(object) = value.as_object() else {
@@ -1140,8 +1143,7 @@ impl Store {
                 envelope_path.display()
             ));
         }
-        let raw = std::fs::read(&envelope_path)
-            .map_err(|e| format!("cannot read {}: {e}", envelope_path.display()))?;
+        let raw = read_bounded(&envelope_path, crate::MAX_ENVELOPE_BYTES as u64)?;
         let envelope = Envelope::parse(&raw)?;
         if envelope.digest != sha
             || envelope.app_id != self.embedded.app_id
@@ -1389,9 +1391,11 @@ impl Store {
                 let _ = std::fs::remove_dir_all(item.path());
                 continue;
             }
-            if let Ok(envelope) = std::fs::read(item.path().join("exact.json"))
-                .map_err(|e| e.to_string())
-                .and_then(|raw| Envelope::parse(&raw))
+            if let Ok(envelope) = read_bounded(
+                &item.path().join("exact.json"),
+                crate::MAX_ENVELOPE_BYTES as u64,
+            )
+            .and_then(|raw| Envelope::parse(&raw))
             {
                 digests.insert(envelope.plan.sha256);
                 digests.extend(envelope.assets.into_iter().map(|a| a.sha256));

@@ -31,6 +31,9 @@ final class FlatLeaf {
     /// Its paint, read from `style` on the owner thread (LLP 1072 stage 4).
     var paint: FlatPaint
     var frame = CGRect.zero
+    /// Its content box and padding as layout sent them (`fieldContent`),
+    /// kept for the view it becomes: a leaf paints only its fill.
+    var content: (box: CGRect, padding: [CGFloat?]?)?
     var opacity: Float = 1
     /// The node whose children op placed it.
     var parent: UInt32?
@@ -50,6 +53,8 @@ final class FlatLeaves {
     /// Whether `parent` holds a flat leaf: an authored child that is a
     /// layer, not a view.
     func holdsLeaves(_ parent: UInt32) -> Bool { order[parent]?.isEmpty == false }
+    /// `parent`'s children in order, its flat leaves among them, when it holds one.
+    func children(of parent: UInt32) -> [UInt32]? { order[parent] }
     /// Since launch: made flat, and promoted to views (`state`).
     private(set) var made = 0, promoted = 0
     private(set) var placements = 0
@@ -90,7 +95,7 @@ final class FlatLeaves {
         guard !candidates.isEmpty else { return }
         // A node with children is not a leaf; nor is one any op but the
         // box's own names, or a drag binding reaches.
-        let own: Set<BatchOp.Kind> = [.create, .children, .frame, .content, .style, .destroy, .present, .rank]
+        let own: Set<BatchOp.Kind> = [.create, .children, .frame, .content, .fieldContent, .style, .destroy, .present, .rank]
         for op in batch.ops {
             if op.op == .children && !op.ids.isEmpty { candidates.remove(op.id) }
             if op.op == .rank, (op.payload["rank"] as? NSNumber)?.int64Value != 0 { candidates.remove(op.id) }
@@ -158,6 +163,7 @@ final class FlatLeaves {
         if order[parent.id] == nil { order[parent.id] = parent.container.subviews.compactMap { ($0 as? NodeView)?.id } }
         let leaf = FlatLeaf(id: id, style: view.style, paint: flat)
         leaf.frame = view.frame
+        leaf.content = view.kernelContentBox.map { ($0, view.kernelPadding) }
         leaf.opacity = Float(view.alpha)
         leaf.parent = parent.id
         presenter.elements.destroyed(id)
@@ -167,6 +173,11 @@ final class FlatLeaves {
         made += 1
         frame(id, leaf.frame)
         leaf.layer.opacity = leaf.opacity
+    }
+
+    func content(_ id: UInt32, _ payload: [String: Any]) {
+        let r = payload["rect"] as? [Double]
+        leaves[id]?.content = r.flatMap { $0.count == 4 ? (CGRect(x: $0[0], y: $0[1], width: $0[2], height: $0[3]), NodeView.sentPadding(payload)) : nil }
     }
 
     func frame(_ id: UInt32, _ rect: CGRect) {
@@ -357,6 +368,7 @@ final class FlatLeaves {
         view.applyStyle(style ?? leaf.style)
         view.applyProps(set: [:], clear: [])
         view.frame = leaf.frame
+        if let content = leaf.content { view.applyKernelContentBox(content.box, padding: content.padding) }
         view.alpha = CGFloat(leaf.opacity)
         presenter.views[id] = view
         if let parentID = leaf.parent { remount.insert(parentID) }

@@ -77,6 +77,20 @@ fn pairs(pairs: &[(String, String)]) -> Json {
     )
 }
 
+/// A module's store snapshot as the realm reads it: text, as `Store::get`
+/// reads it, so a value that is not text is absent there as it is here.
+fn store_pairs(pairs: &[(String, Vec<u8>)]) -> Json {
+    Json::Array(
+        pairs
+            .iter()
+            .filter_map(|(k, v)| {
+                let text = std::str::from_utf8(v).ok()?;
+                Some(Json::Array(vec![k.as_str().into(), text.into()]))
+            })
+            .collect(),
+    )
+}
+
 /// Whether a `waiting` key names a target: `[null, …]` is a caller's that
 /// named none, which only that caller can let go.
 fn targeted(key: &str) -> bool {
@@ -137,6 +151,10 @@ pub struct Module {
     canvas_surfaces: Vec<(String, usize)>,
     /// A background round is out: the host holds its ticket (LLP 1097 D5).
     background_out: bool,
+    /// The sources whose worker realm can't overlay synchronously, each
+    /// said once in the journal, and what is still to say.
+    told_overlay: Vec<String>,
+    overlay_notes: Vec<String>,
 }
 impl Module {
     /// Construct from binary-admitted identity/grants and baked HBC digest.
@@ -154,6 +172,8 @@ impl Module {
             placement: Placement::Main,
             canvas_surfaces: Vec::new(),
             background_out: false,
+            told_overlay: Vec::new(),
+            overlay_notes: Vec::new(),
         }
     }
 
@@ -215,7 +235,7 @@ impl Module {
             ("target", target),
             ("source", source.into()),
             ("args", Json::Array(args)),
-            ("store", pairs(&snapshot)),
+            ("store", store_pairs(&snapshot)),
             ("grants", grants),
         ]);
         let response = match outcome {
@@ -247,7 +267,7 @@ impl Module {
                             ))
                         }
                         Outcome::Response(response) => response.body,
-                        Outcome::Message(_) => {
+                        Outcome::Message(_) | Outcome::Closed { .. } => {
                             return Err(unavailable(
                                 "a stream message supplied to JavaScript checkpoint",
                             ))
@@ -327,6 +347,7 @@ impl Module {
                 _ => exact_runner::failure::FailureCode::seam_error(
                     response["failure"].as_str(),
                     message,
+                    response["reason"].as_str(),
                 ),
             });
         }
@@ -380,7 +401,11 @@ impl Module {
                 .unwrap_or_else(|| json::decode(&Json::Null, result));
             Answer::Now(value.map_err(|e| {
                 let why = format!("`{source}` answered outside its shape: {e}");
-                DataError::Failed(exact_runner::failure::FailureCode::Shape, why)
+                DataError::Failed(
+                    exact_runner::failure::FailureCode::Shape,
+                    why,
+                    String::new(),
+                )
             })?)
         } else {
             return Err(unavailable("browser module returned no answer tag"));
@@ -419,6 +444,9 @@ fn outcome_json(outcome: Outcome) -> Result<Json, DataError> {
                 ("coalesced", m.coalesced.into()),
             ]),
         )]),
+        // The web's wasm host keeps every socket listening (LLP 1016.000 D7):
+        // no two-way socket ends here.
+        Outcome::Closed { .. } => return Err(unavailable("a socket close supplied to fetch")),
     })
 }
 
@@ -457,12 +485,102 @@ impl DataSource for Module {
                 | DataError::UnknownSource(e)
                 | DataError::Interface(e)
                 | DataError::DeferredAtBake(e)
-                | DataError::Failed(_, e),
+                | DataError::Failed(_, e, _),
             ) => exact_runner::DrawReply {
                 error: Some(e),
                 ..Default::default()
             },
         })
+    }
+    /// The module's `overlay` in its realm, in this turn: an overlay awaits
+    /// nothing. A worker realm can't run one synchronously, so its answer shows.
+    fn overlay(
+        &mut self,
+        source: &str,
+        args: &[Value],
+        answer: &Value,
+        writes: &[exact_runner::Write<'_>],
+    ) -> Result<Option<exact_runner::Overlaid>, DataError> {
+        if !self.ready {
+            return Ok(None);
+        }
+        let Some((params, result)) = self.signatures.get(source) else {
+            return Err(DataError::UnknownSource(source.into()));
+        };
+        let encode = |v: &Value, s: &Shape| json::encode(v, s).map_err(unavailable);
+        let args = args
+            .iter()
+            .zip(params)
+            .map(|(v, s)| encode(v, s))
+            .collect::<Result<Vec<_>, _>>()?;
+        let answer = encode(answer, result)?;
+        let mut list = Vec::with_capacity(writes.len());
+        for w in writes {
+            let Some((wparams, wresult)) = self.signatures.get(w.source) else {
+                return Err(DataError::UnknownSource(w.source.into()));
+            };
+            let wargs = w
+                .args
+                .iter()
+                .zip(wparams)
+                .map(|(v, s)| encode(v, s))
+                .collect::<Result<Vec<_>, _>>()?;
+            let mut entry: json::Object = [
+                ("id".to_string(), Json::from(w.id)),
+                ("mutation".to_string(), Json::from(w.mutation)),
+                ("source".to_string(), Json::from(w.source)),
+                ("args".to_string(), Json::Array(wargs)),
+                ("answered".to_string(), Json::from(w.answered)),
+            ]
+            .into_iter()
+            .collect();
+            if let Some(reply) = w.reply {
+                entry.insert("reply".into(), encode(reply, wresult)?);
+            }
+            list.push(Json::Object(entry));
+        }
+        let bytes = call(object([
+            ("op", "overlay".into()),
+            ("id", self.id.into()),
+            ("source", source.into()),
+            ("args", Json::Array(args)),
+            ("answer", answer),
+            ("writes", Json::Array(list)),
+        ]))?;
+        let reply = json::reply(&bytes, result).map_err(|e| unavailable(e.to_string()))?;
+        let fields = reply.fields;
+        match fields["tag"].as_u64() {
+            Some(0) => {
+                let value = reply
+                    .value
+                    .unwrap_or_else(|| json::decode(&Json::Null, result))
+                    .map_err(|e| {
+                        DataError::Failed(
+                            exact_runner::failure::FailureCode::Shape,
+                            format!("`{source}`'s overlay is outside its shape: {e}"),
+                            String::new(),
+                        )
+                    })?;
+                let keep = fields["keep"]
+                    .as_array()
+                    .map(|ids| ids.iter().filter_map(Json::as_u64).collect())
+                    .unwrap_or_default();
+                Ok(Some(exact_runner::Overlaid { value, keep }))
+            }
+            Some(4) => {
+                if fields["worker"] == true && !self.told_overlay.iter().any(|s| s == source) {
+                    self.told_overlay.push(source.to_string());
+                    self.overlay_notes.push(format!(
+                        "overlay: {source} runs in a worker, so its writes show when answered"
+                    ));
+                }
+                Ok(None)
+            }
+            _ => Err(unavailable(format!(
+                "`{source}`'s overlay failed: {}",
+                fields["message"].as_str().unwrap_or("")
+            ))),
+        }
     }
     fn canvases_retired(&mut self, retired: &[(u64, u32)]) {
         let mut json = String::from("[");
@@ -561,7 +679,7 @@ impl DataSource for Module {
             ("op", "dispatch".into()),
             ("id", self.id.into()),
             ("token", token.into()),
-            ("store", pairs(&snapshot)),
+            ("store", store_pairs(&snapshot)),
             ("grants", grants),
         ]))
         .and_then(|bytes| json::parse(&bytes).map_err(|e| unavailable(e.to_string())))
@@ -622,18 +740,13 @@ impl DataSource for Module {
         if !self.ready {
             return Vec::new();
         }
-        let Ok(reply) = self.realm("journal") else {
-            return Vec::new();
-        };
-        reply["lines"]
-            .as_array()
-            .map(|lines| {
-                lines
-                    .iter()
-                    .filter_map(|l| l.as_str().map(str::to_string))
-                    .collect()
-            })
-            .unwrap_or_default()
+        let mut lines = std::mem::take(&mut self.overlay_notes);
+        if let Ok(reply) = self.realm("journal") {
+            if let Some(more) = reply["lines"].as_array() {
+                lines.extend(more.iter().filter_map(|l| l.as_str().map(str::to_string)));
+            }
+        }
+        lines
     }
 
     fn discard(&mut self, token: u64) {
@@ -754,6 +867,24 @@ impl DataSource for Module {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The realm reads a secret as `Store::get` does: a value that is not
+    /// text is absent, never a replacement character.
+    #[test]
+    fn a_secret_that_is_not_text_is_absent_in_the_realm() {
+        let pairs = store_pairs(&[
+            ("token".into(), vec![0xff]),
+            ("name".into(), b"ada".to_vec()),
+        ]);
+        assert_eq!(
+            pairs,
+            Json::Array(vec![Json::Array(vec!["name".into(), "ada".into()])])
+        );
+        assert_eq!(
+            Store::new("secret.keep token", [("token".to_string(), vec![0xff])]).get("token"),
+            None
+        );
+    }
 
     #[test]
     fn two_targets_asking_one_source_with_equal_arguments_keep_their_own_turns() {
@@ -968,6 +1099,7 @@ mod tests {
                 Err(DataError::Failed(
                     exact_runner::failure::FailureCode::Shape,
                     "`source` answered outside its shape: expected a number, got null".into(),
+                    String::new(),
                 )),
             ),
         ] {

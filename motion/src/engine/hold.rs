@@ -359,7 +359,7 @@ impl Engine {
             let slots = &self.slots;
             self.held.retain(|serial, _| {
                 slots
-                    .values()
+                    .entries()
                     .any(|slot| slot.owner() == Some(Owner::Held(*serial)))
             });
         }

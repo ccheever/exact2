@@ -1,13 +1,12 @@
 // @ref LLP 1043.000 §3 D7/D8 — pure glue tests, beside existing bun:test glue tests.
 import { test, expect } from 'bun:test';
-import { fragmentDiff, framePhases, fontStyle, measurementCache } from './textflow-glue.js';
+import { baselineIn, fragmentBaseline, fragmentDiff, framePhases, fontStyle, forgetTextBoxEdges, measurementCache, textBoxCut } from './textflow-glue.js';
 import { render } from '../../scripts/agent.mjs';
 import { chromium } from '../../scripts/agent-launch.mjs';
 import { timerWake, createTimerScheduler } from './timer-glue.js';
 
 const { executable: chrome, unavailable: browserUnavailable } = chromium();
-if (browserUnavailable) console.warn(`SKIP: ${browserUnavailable}`);
-const browserTest = browserUnavailable ? (name, ...args) => test.skip(`${name} — ${browserUnavailable}`, ...args) : test;
+const browserTest = need('chrome', browserUnavailable);
 
 test('plain agent layout prints web fragment ranges, shapes and refusal reasons', () => {
   const node = { id: 7, type: 'Text', flow_shapes: [{ kind: 'Circle', cx: 40, cy: 30, r: 12 }],
@@ -108,7 +107,8 @@ test('worst fragment array is linear and a stable 1000-frame geometry touches no
 // Minimal DOM test double: exercises the actual controller and its phase order,
 // not browser line layout. Real metrics/selection remain an orchestrator check.
 import { createTextFlow } from './textflow-glue.js';
-function controllerFixture({ trim = false, clamp = false, paragraph = { id: 2, definite: true } } = {}) {
+import { need } from '../../scripts/coverage.mjs';
+function controllerFixture({ trim = false, clamp = false, empty = false, ascent = () => [16, 4], paragraph = { id: 2, definite: true } } = {}) {
   const events = [], frames = new Map(), timers = new Map(), fontEvents = new Map(); let serial = 0, paused = false, time = 0, interval = 16;
   const defaults = { ...style, fontFamily: 'serif', fontStyle: 'normal', fontWeight: '400', letterSpacing: '0px',
     transform: 'none', translate: 'none', scale: 'none', rotate: 'none', position: 'static', visibility: 'visible',
@@ -149,7 +149,7 @@ function controllerFixture({ trim = false, clamp = false, paragraph = { id: 2, d
       let text = '', done = false; const walk = n => { if (done) return; if (n === node) { text += n.textContent.slice(0, offset); done = true; }
         else if (n instanceof Text) text += n.data; else n.childNodes.forEach(walk); }; walk(root); return text;
     } }; },
-    createElement(tag) { const el = new Element(tag); if (tag === 'canvas') el.getContext = () => ({ measureText: t => ({ width: t.length * 5 }) }); return el; },
+    createElement(tag) { const el = new Element(tag); if (tag === 'canvas') el.getContext = () => ({ font: '', measureText(t) { const [up, down] = ascent(this.font); return { width: t.length * 5, fontBoundingBoxAscent: up, fontBoundingBoxDescent: down, actualBoundingBoxAscent: t === 'x' ? 10 : 14 }; } }); return el; },
     createTreeWalker(el) { const nodes = []; const visit = n => { if (n instanceof Text) nodes.push(n); else n.childNodes.forEach(visit); }; visit(el); let at = 0; return { nextNode() { this.currentNode = nodes[at++]; return !!this.currentNode; } }; },
   };
   doc.body.root = doc.head.root = true;
@@ -182,6 +182,7 @@ function controllerFixture({ trim = false, clamp = false, paragraph = { id: 2, d
     flowCount++;
     expect(new DataView(bytes.buffer).getFloat32(8, true)).toBe(16); // Rust owns MIN_FRAGMENT_EM; JS supplies only the strut size
     const x = bytes.length > 24 ? new DataView(bytes.buffer).getFloat32(36, true) + 20 + shift : 0;
+    if (empty) return { shapes: [], complete: true, clamped: false, height: 0, line_height: 24, fragments: [] };
     return { shapes: bytes.length === 24 || x > 900 ? [] : [{ kind: 'Circle', cx: x, cy: 10, r: 10 }], complete: !clamp, clamped: clamp, height: 24, line_height: 24,
       fragments: [{ ...fragment(0, 8, 0, 0), utf16_start: 0, utf16_end: 8, paint_start: 0, paint_end: trim ? 7 : 8, available: 30, width: 25, line: 0 },
         { ...fragment(8, text.length, x, 0), utf16_start: 8, utf16_end: text.length, paint_start: 8, paint_end: text.length, available: 50, width: 40, line: 0 }] };
@@ -348,6 +349,50 @@ test('auto-height overlap journals once per boot and a nonmeeting shape is legit
   } finally { f.close(); }
 });
 
+// CSS `text-box` on a flowed paragraph (Inline Layout 3 §4.2): its spans are
+// no longer trimmed by the browser, so the glue cuts as the native hosts do,
+// from the root font in its 24 px line box (ascent 16, descent 4, so the
+// baseline at 18): to the cap height (14) the lines move up 4, and to the
+// baseline the height loses 6 more. A trim that changes reflows.
+test('a flowed paragraph is trimmed as the native hosts trim it', async () => {
+  const f = controllerFixture({ paragraph: { id: 2, definite: false, refusal: null } });
+  try {
+    f.p.computed.textBoxTrim = 'trim-both'; f.p.computed.textBoxEdge = 'cap alphabetic';
+    await f.controller.settle();
+    expect(f.controller.facts(2).fragments.map(x => x.y)).toEqual([-4, -4]);
+    expect(f.p.style.height).toBe('14px');
+    f.p.computed.textBoxTrim = 'none';
+    const change = { ops: [{ op: 'style', id: 2 }], timers: false };
+    f.controller.beforeBatch(change); f.controller.afterBatch(change); await f.settle();
+    expect(f.controller.facts(2).fragments.map(x => x.y)).toEqual([0, 0]);
+    expect(f.p.style.height).toBe('24px');
+  } finally { f.close(); }
+});
+
+// The native hosts give a line's fragments one baseline: a fragment of only
+// the 16px root text moves down to where the 32px link's fragment paints its
+// baseline, trimmed or not.
+test('every flowed fragment paints its baseline at the line\'s', async () => {
+  const f = controllerFixture({ ascent: font => font.includes('32px') ? [24, 8] : [12, 4], paragraph: { id: 2, definite: false, refusal: null } });
+  try {
+    f.link.computed.fontSize = '32px';
+    await f.controller.settle();
+    expect(f.controller.facts(2).fragments.map(x => x.y)).toEqual([4, 0]);
+  } finally { f.close(); }
+});
+
+// CSS trims a formatted line's edges: a flow with no line keeps its zero
+// height, even where a short line box would make the cuts negative.
+test('a flowed paragraph with no line is not trimmed', async () => {
+  const f = controllerFixture({ empty: true, paragraph: { id: 2, definite: false, refusal: null } });
+  try {
+    f.p.computed.textBoxTrim = 'trim-both'; f.p.computed.textBoxEdge = 'text'; f.p.computed.lineHeight = f.link.computed.lineHeight = '10px';
+    await f.controller.settle();
+    expect(f.controller.facts(2).fragments).toEqual([]);
+    expect(f.p.style.height).toBe('0px');
+  } finally { f.close(); }
+});
+
 // @ref LLP 1043.000 §8 — the kernel admits auto height; the glue writes the flowed height.
 test('an admitted auto-height paragraph flows unbounded and takes the flowed height', async () => {
   const f = controllerFixture({ paragraph: { id: 2, definite: false, refusal: null } });
@@ -398,6 +443,9 @@ test('line-clamp paints a measured literal ellipsis in the final fragment', asyn
     expect(f.p.textContent.endsWith('…')).toBe(true);
     const final = f.controller.facts(2).fragments.at(-1);
     expect(final.width).toBeLessThanOrEqual(final.available);
+    // Its font does not reset the line's height, which its baseline is placed by
+    const find = n => n.textContent === '…' && n.style?.cssText ? n : n.childNodes?.map(find).find(Boolean);
+    expect(find(f.p)?.style.cssText).toContain('line-height:24px');
   } finally { f.close(); }
 });
 
@@ -524,7 +572,7 @@ test('a batch that wants frames presents every animation frame and keeps timer t
 // A real DOM is needed here: document capture runs before the clone forwards
 // its event to the detached original. A mock dispatch misses the double route.
 // Run an in-page fixture (a function) in headless Chrome over these glue modules; its result by value.
-async function inChrome(fixture, modules = ['/textflow-glue.js', '/timer-glue.js', '/input-glue.js']) {
+async function inChrome(fixture, modules = ['/textflow-glue.js', '/timer-glue.js', '/input-glue.js', '/prompt-glue.js'], files = {}, runtime = false) {
   const { spawn } = await import('node:child_process');
   const { mkdtempSync, rmSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
@@ -534,6 +582,12 @@ async function inChrome(fixture, modules = ['/textflow-glue.js', '/timer-glue.js
   const served = new Set(modules);
   const server = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(req) {
     const path = new URL(req.url).pathname;
+    if (files[path]) return new Response(Bun.file(files[path]));
+    if (runtime && path === '/names.js') return new Response('export const sourceTypes = {};', { headers: { 'content-type': 'text/javascript' } });
+    if (runtime && path.endsWith('.js')) {
+      const js = Bun.file(new URL('../web-js' + path, import.meta.url));
+      return js.exists().then(exists => new Response(exists ? js : Bun.file(new URL('.' + path, import.meta.url)), { headers: { 'content-type': 'text/javascript' } }));
+    }
     return served.has(path) ? new Response(Bun.file(new URL('.' + path, import.meta.url)))
       : new Response('<!doctype html><body><main id="root"></main>', { headers: { 'content-type': 'text/html' } });
   }});
@@ -564,6 +618,100 @@ browserTest('flowed links keep press ownership through document capture', async 
     { press: 0, navigate: 0, prevented: false },
   ]);
 }, 20000);
+
+// Exercise the runtime listener installation with Chrome's dispatchEvent, not a
+// test double that orders capture listeners itself. The dispatch sink stands in
+// for a Contract action; both hosts' actual listener functions run unchanged.
+browserTest('same-target capture precedes a key registered first in both web runtimes', async () => {
+  expect(await inChrome(targetKeyFixture, ['/glue.js'], {
+    '/rt.js': new URL('../web-js/rt.js', import.meta.url).pathname,
+  })).toEqual([
+    [['capture', 'key'], ['capture']],
+    [['capture', 'key'], ['capture']],
+  ]);
+}, 60000);
+
+async function targetKeyFixture() {
+  const [glue, rt] = await Promise.all(['/glue.js', '/rt.js'].map(url => fetch(url).then(r => r.text())));
+  const attach = glue.slice(glue.indexOf('function attach('), glue.indexOf('function viewFor('));
+  const on = rt.slice(rt.indexOf('export function on('), rt.indexOf('// Each event family')).replace('export ', '');
+  const onKey = rt.split('\n').find(line => line.startsWith('export const onKey =')).replace('export ', '');
+  const bindWasm = new Function('el', 'heard', `
+    let keyEvent = null;
+    const views = new Map([[1, el]]), retiredViews = new WeakSet(), inputReady = true, page = null;
+    const send = () => {}, writeIn = s => s, now = () => 0, keyChord = e => e.key;
+    const compositionFlush = new Map(), composing = new Set();
+    const wasm = { exact_dispatch(id, kind, key) {
+      heard.push(kind === 44 ? 'capture' : 'key');
+      if (kind === 44 && key === 'x') keyEvent.exactStopped = true;
+    }};
+    ${attach}
+    attach(el, 1, ['key', 'keycapture']);
+  `);
+  const bindJs = new Function('el', 'heard', `
+    let KeyEvent = null, Propagating = null;
+    const clock = { agent: true, timers: [], now: 0 }, Mutations = [], OnHooks = {};
+    ${on}
+${onKey}
+    on(el, 'key', () => heard.push('key'), onKey);
+    on(el, 'keycapture', key => { heard.push('capture'); if (key === 'x') KeyEvent.$stopped = true; }, onKey);
+  `);
+  return [bindWasm, bindJs].map(bind => {
+    const el = document.createElement('input'), heard = [], result = [];
+    document.getElementById('root').append(el); bind(el, heard); el.focus();
+    for (const key of ['a', 'x']) {
+      heard.length = 0;
+      el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+      result.push([...heard]);
+    }
+    el.remove(); return result;
+  });
+}
+
+browserTest('a flowed keydown forwards once with capture and bubble handlers', async () => {
+  expect(await inChrome(flowKeyFixture, undefined, {}, true)).toEqual({ events: ['keydown'], deliveries: [
+    { heard: ['column', 'capture', 'bubble'], prevented: false },
+    { heard: ['column'], prevented: false },
+    { heard: ['column', 'capture'], prevented: false },
+    { heard: ['column', 'capture', 'bubble'], prevented: true },
+    { heard: ['column', 'capture', 'bubble'], prevented: true },
+    { heard: ['column', 'capture', 'bubble'], prevented: true },
+  ] });
+}, 60000);
+
+async function flowKeyFixture() {
+  const { createTextFlow } = await import('/textflow-glue.js');
+  const { on, onKey, Hosts } = await import('/rt.js');
+  const root = document.getElementById('root'), views = new Map(), heard = [], results = [];
+  root.innerHTML = '<div style="position:relative"><div id="paragraph" style="width:200px;height:100px;font:16px/24px serif"><a href="/story" tabindex="0">flowed link</a></div><div id="ball" style="position:absolute;left:80px;top:0;width:20px;height:20px"></div></div>';
+  const parent = root.firstElementChild, paragraph = parent.firstElementChild, original = paragraph.firstElementChild, ball = parent.lastElementChild;
+  on(parent, 'keycapture', key => {
+    heard.push('column');
+    if (key === 'x') Hosts.stopPropagation();
+    if (key === 'z') Hosts.preventDefault();
+  }, onKey);
+  // Exact's stopPropagation marks the native event so its default stays available.
+  on(original, 'key', key => { heard.push('bubble'); if (key === 'p') Hosts.preventDefault(); }, onKey);
+  on(original, 'keycapture', key => { heard.push('capture'); if (key === 'y') Hosts.stopPropagation(); if (key === 'Enter') Hosts.preventDefault(); }, onKey);
+  views.set(1, parent); views.set(2, paragraph); views.set(3, ball);
+  const request = op => op === 0 ? { ranges: [[0, 11, 0, 11]], graphemes: Array.from({ length: 11 }, (_, i) => [i, i + 1, i, i + 1]) }
+    : op === 1 ? { prepared: true } : { shapes: [{ kind: 'Circle', cx: 90, cy: 10, r: 10 }], complete: true, height: 24, line_height: 24,
+      fragments: [{ start: 0, end: 11, utf16_start: 0, utf16_end: 11, paint_start: 0, paint_end: 11, x: 0, y: 0, width: 70, available: 80, line: 0 }] };
+  const flow = createTextFlow({ views, request, agentMode: true, advance() {} });
+  flow.afterBatch({ ops: [{ op: 'textflow', contexts: [{ id: 1, exclusions: [3], paragraphs: [{ id: 2, definite: true }] }] }], timers: false });
+  await flow.settle();
+  const clone = paragraph.querySelector('[data-flow-fragment] a');
+  if (!clone || clone === original) throw Error('fixture must key a flowed clone');
+  clone.focus();
+  for (const key of ['b', 'x', 'y', 'z', 'p', 'Enter']) {
+    heard.length = 0;
+    const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+    clone.dispatchEvent(event);
+    results.push({ heard: [...heard], prevented: event.defaultPrevented });
+  }
+  flow.dispose();
+  return { events: original.exactFlowEvents, deliveries: results };
+}
 
 // A batch that puts flowed paragraphs back to their text (the JS target's every commit, a topology
 // change on the wasm host) flows them again in the same task: no frame paints them unflowed, and a
@@ -677,3 +825,66 @@ async function flowScrollFixture() {
   return result;
 }
 
+
+// A flowed paragraph in a font with no `H` or `x` (Noto Sans Arabic: cap height
+// 416 of its 1000 units) is cut to that font's own cap height, as the browser's
+// `text-box` and the native hosts cut it, not to a fallback glyph's ink.
+browserTest('a flowed paragraph is trimmed to its own font\'s cap height, whatever glyphs it lacks', async () => {
+  const fixture = async () => {
+    const face = new FontFace('Arabic', 'url(/arabic.ttf)');
+    document.fonts.add(await face.load());
+    const { textBoxCut } = await import('/textflow-glue.js');
+    const context = document.createElement('canvas').getContext('2d');
+    context.font = '20px Arabic';
+    const m = context.measureText('H'), baseline = (30 - (m.fontBoundingBoxAscent + m.fontBoundingBoxDescent)) / 2 + m.fontBoundingBoxAscent;
+    const cut = textBoxCut({ textBoxTrim: 'trim-both', textBoxEdge: 'cap alphabetic' }, { font: '20px Arabic' }, 30, context);
+    return { cap: baseline - cut.top, fallbackInk: m.actualBoundingBoxAscent };
+  };
+  const { cap, fallbackInk } = await inChrome(fixture, ['/textflow-glue.js', '/timer-glue.js'], { '/arabic.ttf': new URL('../linux/tests/fonts/NotoSansArabic.ttf', import.meta.url) });
+  expect(Math.abs(cap - 20 * 0.416)).toBeLessThan(0.5);
+  expect(Math.abs(fallbackInk - 20 * 0.416)).toBeGreaterThan(1); // the fallback's H is not the font's cap height
+}, 20000);
+
+// A line box shorter than the font grows when trimmed to its text edges, as
+// Apple and Linux grow it: the cuts keep their sign.
+test('a trim to the text edges of a short line box is a negative cut', () => {
+  const context = { font: '', measureText: t => ({ fontBoundingBoxAscent: 16, fontBoundingBoxDescent: 4, actualBoundingBoxAscent: t === 'x' ? 10 : 14 }) };
+  const cut = textBoxCut({ textBoxTrim: 'trim-both', textBoxEdge: 'text' }, { font: '16px short' }, 10, context);
+  expect(cut).toEqual({ top: -5, bottom: -5 });
+});
+
+// A font that loads changes the metrics a trim was cut from: the edges are
+// measured again once it has (`refreshFonts` forgets them).
+test('a trim is cut again from the metrics of a font that loaded', () => {
+  let ascent = 16;
+  const context = { font: '', measureText: t => ({ fontBoundingBoxAscent: ascent, fontBoundingBoxDescent: 4, actualBoundingBoxAscent: t === 'x' ? 10 : 14 }) };
+  const style = { textBoxTrim: 'trim-start', textBoxEdge: 'text' }, font = { font: '16px loading' };
+  expect(textBoxCut(style, font, 20, context).top).toBe(0);
+  ascent = 20;
+  expect(textBoxCut(style, font, 20, context).top).toBe(0); // held until a font loads
+  forgetTextBoxEdges();
+  expect(textBoxCut(style, font, 20, context).top).toBe(-2);
+});
+
+// A larger inline run lowers the line's baseline, so the trim is cut from
+// where the line paints it, with the root font's own edges.
+test('a larger inline run moves the baseline a trim is cut from', () => {
+  const metrics = { '16px root': [12, 4, 11], '32px big': [24, 8, 22] };
+  const context = { font: '', measureText(t) { const [ascent, descent, cap] = metrics[this.font]; return { fontBoundingBoxAscent: ascent, fontBoundingBoxDescent: descent, actualBoundingBoxAscent: t === 'x' ? 8 : cap }; } };
+  const style = { textBoxTrim: 'trim-both', textBoxEdge: 'cap alphabetic' }, root = { font: '16px root' }, big = { font: '32px big' };
+  expect(textBoxCut(style, root, 48, context)).toEqual({ top: 28 - 11, bottom: 48 - 28 });
+  const baseline = Math.max(baselineIn(root, 48, context), baselineIn(big, 48, context));
+  expect(baseline).toBe(32);
+  expect(textBoxCut(style, root, 48, context, baseline)).toEqual({ top: 32 - 11, bottom: 48 - 32 });
+});
+
+// A clamped fragment that keeps only its ellipsis paints it in the run the
+// clamp ended in: that run's font sets the fragment's baseline.
+test('an ellipsis-only fragment paints at its ellipsis run\'s baseline', () => {
+  const state = { runs: [{ start: 0, end: 4 }, { start: 4, end: 8 }, { start: 8, end: 12 }], runEnds: [4, 8, 12] };
+  const baselines = [16, 16, 20, 40];
+  const ellipsisOnly = { paint_start: 8, paint_end: 8, ellipsis: true, ellipsisRun: 1 };
+  expect(fragmentBaseline(ellipsisOnly, state, baselines)).toBe(20);
+  expect(fragmentBaseline({ ...ellipsisOnly, ellipsis: false }, state, baselines)).toBe(16);
+  expect(fragmentBaseline({ paint_start: 0, paint_end: 12, ellipsis: false }, state, baselines)).toBe(40);
+});

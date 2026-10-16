@@ -56,7 +56,23 @@ async function within(response, limit) {
 // `expires`, when a caller already spent part of the deadline (an
 // `exactBodyFrom` read, ts-fetch.js): its instant on the page's clock and the
 // deadline as the caller gave it, checked just before the request goes out.
-export async function fetchWith(set, input, init = {}, expires = null) {
+/** `fetch`'s `redirect` as the native prelude checks it, read once: the
+ * init's, else a `Request`'s, else `follow`; any other word is a `TypeError`. */
+export function redirectOf(input, init) {
+  const raw = init?.redirect;
+  const mode = raw !== undefined ? String(raw) : typeof Request === 'function' && input instanceof Request ? input.redirect : 'follow';
+  if (mode !== 'follow' && mode !== 'manual' && mode !== 'error') throw new TypeError('redirect must be follow, manual or error');
+  return mode;
+}
+
+/** `{...init}` without `skip`, whose getters are not run again. */
+export function ownWithout(init, skip) {
+  const copy = {};
+  for (const key of Object.keys(init)) if (!skip.includes(key)) copy[key] = init[key];
+  return copy;
+}
+
+export async function fetchWith(set, input, init = {}, expires = null, redirect = redirectOf(input, init)) {
   let value, asset, deadline, signal;
   init ??= {};
   deadline = deadlineOf(init);
@@ -74,7 +90,7 @@ export async function fetchWith(set, input, init = {}, expires = null) {
   // @ref LLP 1103 D1, D2 — a driver fault: the refused connection's failure, never sent.
   if (!asset && takeFault(value)) throw new FetchError('Network', faultMessage(value));
   try {
-    const { exactTimeout: _, exactIndependentHttp: __, ...rest } = init;
+    const rest = ownWithout(init, ['exactTimeout', 'exactIndependentHttp', 'redirect']);
     // The caller's signal, from `init` or the input `Request` (`null`
     // clears the Request's, `undefined` keeps it, as `fetch` has them).
     const own = rest.signal !== undefined ? rest.signal : typeof Request === 'function' && input instanceof Request ? input.signal : undefined;
@@ -90,7 +106,7 @@ export async function fetchWith(set, input, init = {}, expires = null) {
     // By the clock, just before it goes out: grant work and a body read that
     // held the event loop past the deadline fire no timer first.
     if (until && performance.now() >= until.at) throw new FetchError('Timeout', `the request timed out after ${until.ms} ms`);
-    const response = await browserFetch(typeof Request === 'function' && input instanceof Request ? input : value, { ...rest, ...(signal ? { signal } : {}), redirect: 'follow' });
+    const response = await browserFetch(typeof Request === 'function' && input instanceof Request ? input : value, { ...rest, ...(signal ? { signal } : {}), redirect });
     // A redirect that left the grants names where it led (podcast F5), as
     // the native executor does; the browser followed it to this last hop.
     if (response.url && (asset
@@ -149,6 +165,16 @@ export function setAppGrantSet(...sets) {
 }
 export const appGrantSet = () => appSet;
 
+// While a source's `overlay` runs (overlay.js): it shows writes over an answer and has no effects, so `fetch`,
+// storage, the store, `native` and `crypto` refuse by name, as the prelude refuses them (js/src/prelude.js): a call
+// that returns a promise rejects, any other throws.
+export const overlaying = { on: false, say: null }; // `say`: the journal, set by ts-data.js
+export const inOverlay = api => {
+  const e = Object.assign(new Error(`${api} is unavailable in an overlay, which runs synchronously and has no effects; do the work in the source's answer or the mutation, and pass the overlay what it needs in the mutation's arguments`), { overlay: true });
+  overlaying.say?.(`overlay refused: ${e.message}`);
+  return e;
+};
+const effect = api => { if (overlaying.on) throw inOverlay(api); };
 export function createSecretFacade(store, admitted, keys) {
   const refused = name => {
     const parse = grantError(admitted);
@@ -160,14 +186,15 @@ export function createSecretFacade(store, admitted, keys) {
   const seen = {
     read: false,
     get(name) {
+      effect('store.get()');
       if (String(name).startsWith('exact.kept.')) return null;
       seen.read = true;
       return admitsSecret(admitted, name) ? store.get(name) ?? null : null;
     },
-    set(name, value) { allowed(name); store.set(name, String(value)); },
-    forget(name) { allowed(name); store.set(name, null); },
-    keepKey(name, pair) { allowed(name); const handle = 'exact.key:' + crypto.randomUUID(); store.set(name, handle); return keys().then(service => service.put(handle, pair)); },
-    key(name) { const handle = seen.get(name); return handle == null ? Promise.resolve(null) : keys().then(service => service.get(handle) ?? null); },
+    set(name, value) { effect('store.set()'); allowed(name); store.set(name, String(value)); },
+    forget(name) { effect('store.forget()'); allowed(name); store.set(name, null); },
+    keepKey(name, pair) { if (overlaying.on) return Promise.reject(inOverlay('store.keepKey()')); allowed(name); const handle = 'exact.key:' + crypto.randomUUID(); store.set(name, handle); return keys().then(service => service.put(handle, pair)); },
+    key(name) { if (overlaying.on) return Promise.reject(inOverlay('store.key()')); const handle = seen.get(name); return handle == null ? Promise.resolve(null) : keys().then(service => service.get(handle) ?? null); },
   };
   return seen;
 }

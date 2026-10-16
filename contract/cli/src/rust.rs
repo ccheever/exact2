@@ -120,7 +120,7 @@ pub fn rust(plan: &Plan) -> Result<String, String> {
         }
         out.push_str("}\n");
         writeln!(out, "impl ContractValue for {name} {{").unwrap();
-        out.push_str("    fn to_value(&self) -> exact_runner::Value {\n        exact_runner::Value::record(vec![\n");
+        out.push_str("    fn to_value(&self) -> exact_runner::Value {\n        exact_runner::Value::Record([\n");
         for f in fields {
             writeln!(
                 out,
@@ -129,7 +129,7 @@ pub fn rust(plan: &Plan) -> Result<String, String> {
             )
             .unwrap();
         }
-        out.push_str("        ])\n    }\n");
+        out.push_str("        ].into())\n    }\n");
         out.push_str("    fn from_value(value: &exact_runner::Value) -> Option<Self> {\n");
         writeln!(
             out,

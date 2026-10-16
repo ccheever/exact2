@@ -3,13 +3,27 @@ import AppKit
 import XCTest
 @testable import ExactKit
 
-final class DialogMacTests: XCTestCase {
+/// A `dialog` on the Mac, in both of its presentations: this class paints it
+/// in the page over its backdrop, the driver's own chrome (`--chrome agent`);
+/// `DialogSheetMacTests` runs every case again with it in AppKit's sheet, what
+/// a person gets (LLP 1115.002 D7.2). A case says so where the two differ.
+class DialogMacTests: XCTestCase {
     private var window: NSWindow!
-    override func tearDown() { window?.close(); window = nil }
+    private weak var presenter: Presenter?
+    /// Painted in the page, or AppKit's sheet.
+    var painted: Bool { true }
+    /// The window the keyboard is in: the open dialog's sheet, else the page's.
+    private var front: NSWindow { presenter?.dialogs.active?.window ?? window }
+    override func tearDown() { presenter?.dialogs.reset(); window?.close(); window = nil }
+    /// These cases walk a dialog's Tab through its buttons: Keyboard Navigation on (LLP 1115.000 D7.2).
+    override func setUp() { super.setUp(); keyboardNavigation(true) }
 
     private func fixture() -> Presenter {
         _ = NSApplication.shared
         let p = Presenter()
+        presenter = p
+        p.dialogs.painted = painted
+        p.menus.painted = painted
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
                           styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -31,18 +45,20 @@ final class DialogMacTests: XCTestCase {
         ]))
         return p
     }
-    private func key(_ code: UInt16, modifiers: NSEvent.ModifierFlags = [], character: String = "") -> NSEvent {
-        NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: 0,
-            windowNumber: window.windowNumber, context: nil, characters: character, charactersIgnoringModifiers: character, isARepeat: false, keyCode: code)!
+    private func key(_ code: UInt16, modifiers: NSEvent.ModifierFlags = [], character: String = "", up: Bool = false) -> NSEvent {
+        NSEvent.keyEvent(with: up ? .keyUp : .keyDown, location: .zero, modifierFlags: modifiers, timestamp: 0,
+            windowNumber: front.windowNumber, context: nil, characters: character, charactersIgnoringModifiers: character, isARepeat: false, keyCode: code)!
     }
-    private func click(_ node: NodeView) {
+    private func click(_ node: NodeView, clicks: Int = 1) {
         let point = node.convert(NSPoint(x: node.bounds.midX, y: node.bounds.midY), to: nil)
-        // Hit testing is AppKit's; no target-id activation can bypass the backdrop.
+        // Hit testing is AppKit's, in the node's own window (the page's, or its
+        // dialog's sheet): no target-id activation can bypass the backdrop.
+        let window: NSWindow = node.window ?? self.window
         let hit = window.contentView?.hitTest(point)
         let down = NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1)!
+            windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: clicks, pressure: 1)!
         let up = NSEvent.mouseEvent(with: .leftMouseUp, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 0)!
+            windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: clicks, pressure: 0)!
         hit?.mouseDown(with: down)
         hit?.mouseUp(with: up)
     }
@@ -50,20 +66,21 @@ final class DialogMacTests: XCTestCase {
         let p = fixture()
         let opener = p.views[2]!, dialog = p.views[3]!, field = try XCTUnwrap(p.views[4]?.field), close = p.views[5]!
         XCTAssertTrue(dialog.isHidden)
-        window.makeFirstResponder(opener)
+        front.makeFirstResponder(opener)
         click(opener)
         XCTAssertTrue(p.dialogs.active === dialog)
+        XCTAssertEqual(p.openTopLayer.modal, p.openTopLayer.frames.firstIndex { $0.0 == dialog.id })
         XCTAssertFalse(dialog.isHidden)
-        XCTAssertTrue(field.currentEditor() === window.firstResponder)
+        XCTAssertTrue(field.currentEditor() === front.firstResponder)
         XCTAssertTrue(opener.inert)
         XCTAssertFalse(p.shortcuts.perform(key(31, modifiers: .command, character: "o")))
         XCTAssertFalse(close.inert)
         XCTAssertTrue(p.dialogs.key(key(48)))
-        XCTAssertTrue(window.firstResponder === close)
+        XCTAssertTrue(front.firstResponder === close)
         XCTAssertTrue(p.dialogs.key(key(48)))
-        XCTAssertTrue(field.currentEditor() === window.firstResponder)
+        XCTAssertTrue(field.currentEditor() === front.firstResponder)
         XCTAssertTrue(p.dialogs.key(key(48, modifiers: .shift)))
-        XCTAssertTrue(window.firstResponder === close)
+        XCTAssertTrue(front.firstResponder === close)
         var presses: [UInt32] = []
         p.onPress = { presses.append($0) }
         p.press(opener.id)
@@ -71,7 +88,7 @@ final class DialogMacTests: XCTestCase {
         click(close)
         XCTAssertNil(p.dialogs.active)
         XCTAssertTrue(presses.isEmpty, "a command-only button has no runner press handler")
-        XCTAssertTrue(window.firstResponder === opener)
+        XCTAssertTrue(front.firstResponder === opener)
         XCTAssertTrue(dialog.superview === p.views[1])
         XCTAssertEqual(field.stringValue, "draft")
         XCTAssertTrue(p.shortcuts.perform(key(31, modifiers: .command, character: "o")))
@@ -81,6 +98,61 @@ final class DialogMacTests: XCTestCase {
         XCTAssertEqual(presses, [5], "the confirmation action is dispatched once before closing")
         XCTAssertNil(p.dialogs.active)
     }
+    func testActionCommandsShareModalFocusInertnessAndEscape() throws {
+        let p = fixture(), opener = p.views[2]!, dialog = p.views[3]!, last = p.views[5]!
+        let field = try XCTUnwrap(p.views[4]?.field)
+        front.makeFirstResponder(opener)
+        p.dialogCommand("showModal", "form")
+        XCTAssertTrue(p.dialogs.active === dialog)
+        XCTAssertTrue(field.currentEditor() === front.firstResponder)
+        XCTAssertTrue(opener.inert)
+        XCTAssertTrue(p.dialogs.key(key(48, modifiers: .shift)))
+        XCTAssertTrue(front.firstResponder === last)
+        XCTAssertTrue(p.dialogs.key(key(48)))
+        XCTAssertTrue(field.currentEditor() === front.firstResponder)
+        p.dialogCommand("showModal", "form")
+        XCTAssertTrue(p.dialogs.active === dialog)
+        p.dialogCommand("close", "form")
+        XCTAssertNil(p.dialogs.active)
+        XCTAssertFalse(opener.inert)
+        XCTAssertTrue(front.firstResponder === opener)
+        p.dialogCommand("showModal", "form")
+        XCTAssertTrue(p.dialogs.key(key(53)))
+        XCTAssertNil(p.dialogs.active)
+        XCTAssertTrue(front.firstResponder === opener)
+    }
+
+    func testCloseEventsAreQueuedOnceAndCanReopenTheDialog() {
+        let p = fixture(), dialog = p.views[3]!
+        dialog.handlers.insert("close")
+        var closed: [UInt32] = []
+        p.onClose = { [weak p] id in
+            guard let p else { return }
+            XCTAssertNil(p.dialogs.active)
+            closed.append(id)
+            if closed.count == 1 { p.dialogCommand("showModal", "form") }
+        }
+        front.makeFirstResponder(p.views[2])
+        p.dialogCommand("showModal", "form")
+        p.dialogCommand("close", "form")
+        p.dialogCommand("close", "form")
+        XCTAssertTrue(closed.isEmpty)
+        turn()
+        XCTAssertEqual(closed, [3])
+        XCTAssertTrue(p.dialogs.active === dialog)
+        XCTAssertTrue(p.dialogs.key(key(53)))
+        turn()
+        XCTAssertEqual(closed, [3, 3])
+        p.press(2)
+        p.press(5)
+        turn()
+        XCTAssertEqual(closed, [3, 3, 3])
+        p.press(2)
+        p.reset()
+        turn()
+        XCTAssertEqual(closed, [3, 3, 3], "reset retires the dialog without a close event")
+    }
+
     /// The web's order (docs/contract-grammar.md#keys): a field's `key`
     /// handlers hear Escape and Tab before the dialog's defaults, and one that
     /// calls `preventDefault()` keeps the dialog open and the focus put.
@@ -90,18 +162,18 @@ final class DialogMacTests: XCTestCase {
         node.handlers.insert("key")
         var heard: [String] = [], prevent = true
         p.onKey = { id, name in heard.append("\(id) \(name)"); if prevent { p.defaultPrevented = true } }
-        window.makeFirstResponder(opener)
+        front.makeFirstResponder(opener)
         click(opener)
-        XCTAssertTrue(field.currentEditor() === window.firstResponder)
+        XCTAssertTrue(field.currentEditor() === front.firstResponder)
         XCTAssertTrue(p.routeKey(key(53, character: "\u{1b}"), focused: true))
         XCTAssertTrue(p.routeKey(key(48, character: "\t"), focused: true))
         XCTAssertEqual(heard, ["4 Escape", "4 Tab"])
         XCTAssertNotNil(p.dialogs.active, "a prevented Escape leaves the dialog open")
-        XCTAssertTrue(field.currentEditor() === window.firstResponder, "a prevented Tab leaves the focus")
+        XCTAssertTrue(field.currentEditor() === front.firstResponder, "a prevented Tab leaves the focus")
         prevent = false
         XCTAssertTrue(p.routeKey(key(48, character: "\t"), focused: true))
-        XCTAssertTrue(window.firstResponder === p.views[5], "an unprevented Tab is the dialog's")
-        window.makeFirstResponder(field)
+        XCTAssertTrue(front.firstResponder === p.views[5], "an unprevented Tab is the dialog's")
+        front.makeFirstResponder(field)
         XCTAssertTrue(p.routeKey(key(53, character: "\u{1b}"), focused: true))
         XCTAssertEqual(heard, ["4 Escape", "4 Tab", "4 Tab", "4 Escape"])
         XCTAssertNil(p.dialogs.active, "an unprevented Escape closes it")
@@ -115,16 +187,165 @@ final class DialogMacTests: XCTestCase {
         p.views[3]!.handlers.insert("key")
         var heard: [String] = [], stop = true
         p.onKey = { id, name in heard.append("\(id) \(name)"); if stop, id == 4 { p.propagationStopped = true } }
-        window.makeFirstResponder(opener)
+        front.makeFirstResponder(opener)
         click(opener)
-        XCTAssertTrue(field.currentEditor() === window.firstResponder)
+        XCTAssertTrue(field.currentEditor() === front.firstResponder)
         XCTAssertTrue(p.routeKey(key(48, character: "\t"), focused: true))
         XCTAssertEqual(heard, ["4 Tab"], "the dialog's own handler does not hear a stopped key")
-        XCTAssertTrue(window.firstResponder === p.views[5], "its default, the dialog's Tab, still happens")
+        XCTAssertTrue(front.firstResponder === p.views[5], "its default, the dialog's Tab, still happens")
         stop = false
-        window.makeFirstResponder(field)
+        front.makeFirstResponder(field)
         XCTAssertTrue(p.routeKey(key(48, character: "\t"), focused: true))
         XCTAssertEqual(heard, ["4 Tab", "4 Tab", "3 Tab"])
+    }
+
+    /// A key in the open dialog reaches its ancestors' `keycapture`, `key`
+    /// and `keyup`, though the modal makes them inert: as in DOM, that keeps
+    /// them from being targets, not from hearing what bubbles. An `inert`
+    /// attribute or a route behind a presentation still silences them.
+    func testKeysInTheDialogReachItsAuthoredAncestors() throws {
+        let p = fixture(), root = try XCTUnwrap(p.views[1]), node = try XCTUnwrap(p.views[4])
+        root.handlers = ["keycapture", "key", "keyup"]
+        node.handlers.formUnion(["key", "keyup"])
+        var heard: [String] = []
+        p.onKey = { id, press in heard.append("\(id) \(press.capture ? "capture" : press.up ? "up" : "down") \(press)") }
+        p.press(2)
+        XCTAssertTrue(try XCTUnwrap(node.field).currentEditor() === front.firstResponder)
+        XCTAssertTrue(root.inert)
+        XCTAssertFalse(root.authoredInert)
+        XCTAssertFalse(p.routeKey(key(0, character: "a"), focused: true))
+        XCTAssertFalse(p.routeKey(key(0, character: "a", up: true), focused: true))
+        XCTAssertEqual(heard, ["1 capture a", "4 down a", "1 down a", "4 up a", "1 up a"])
+        for routed in [false, true] {
+            heard = []
+            root.props["inert"] = routed ? nil : "true"
+            root.routeInert = routed
+            XCTAssertFalse(p.routeKey(key(0, character: "a"), focused: true))
+            XCTAssertFalse(p.routeKey(key(0, character: "a", up: true), focused: true))
+            XCTAssertEqual(heard, ["4 down a", "4 up a"])
+        }
+    }
+
+    private func assertContextPoint(_ line: String, from source: NodeView, on target: NodeView,
+                                    file: StaticString = #filePath, lineNumber: UInt = #line) throws {
+        let sourceWindow = try XCTUnwrap(source.window), targetWindow = try XCTUnwrap(target.window)
+        let middle = source.convert(NSPoint(x: source.bounds.midX, y: source.bounds.midY), to: nil)
+        let point = targetWindow.convertPoint(fromScreen: sourceWindow.convertPoint(toScreen: middle))
+        let local = target.convert(point, from: nil)
+        let clip = try XCTUnwrap(target.presenter?.viewport.contentView), client = clip.convert(point, from: nil)
+        let sample = line.components(separatedBy: ",")
+        XCTAssertEqual(sample.prefix(2).compactMap(Double.init), [Double(local.x), Double(local.y)], file: file, line: lineNumber)
+        XCTAssertEqual(sample.dropFirst(6).prefix(2).compactMap(Double.init),
+                       [Double(client.x - clip.bounds.minX), Double(client.y - clip.bounds.minY)], file: file, line: lineNumber)
+    }
+
+    /// A right click and a Control-click in the dialog bubble out of the
+    /// top layer to its authored ancestor's `contextmenu`, once, at the
+    /// point in the ancestor's window.
+    func testSecondaryClicksInTheDialogReachItsAuthoredAncestorsOnce() throws {
+        let p = fixture(), root = try XCTUnwrap(p.views[1]), button = try XCTUnwrap(p.views[5])
+        root.handlers = ["contextmenu", "pointerdown", "pointerup"]
+        var heard: [String] = [], samples: [String] = []
+        p.onPointer = { id, kind, _ in heard.append("\(kind == .down ? "down" : "up") \(id)") }
+        p.onClipboard = { id, kind, line in XCTAssertEqual(kind, 10); heard.append("context \(id)"); samples.append(line) }
+        p.press(2)
+        XCTAssertEqual(button.window === window, painted)
+        let point = button.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), to: nil)
+        let hit = try XCTUnwrap(front.contentView?.hitTest(point))
+        XCTAssertTrue(hit === button || hit.isDescendant(of: button))
+        for control in [false, true] {
+            heard = []; samples = []
+            let down = try XCTUnwrap(NSEvent.mouseEvent(with: control ? .leftMouseDown : .rightMouseDown,
+                location: point, modifierFlags: control ? .control : [], timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: front.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+            let up = try XCTUnwrap(NSEvent.mouseEvent(with: control ? .leftMouseUp : .rightMouseUp,
+                location: point, modifierFlags: control ? .control : [], timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: front.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 0))
+            if control { hit.mouseDown(with: down); hit.mouseUp(with: up) }
+            else { hit.rightMouseDown(with: down); hit.rightMouseUp(with: up) }
+            XCTAssertEqual(heard, ["down 1", "context 1", "up 1"])
+            try assertContextPoint(try XCTUnwrap(samples.first), from: button, on: root)
+            XCTAssertTrue(p.dialogs.active === p.views[3], "Control-click must not press Close")
+        }
+    }
+
+    /// The ContextMenu key and VoiceOver's show menu at a focus in the
+    /// dialog reach its ancestor's `contextmenu`, in the dialog's sheet
+    /// window too; `inert` refuses, while `disabled` on the container does not.
+    func testContextMenuKeyAndShowMenuInTheDialogReachItsAuthoredAncestors() throws {
+        let p = fixture(), root = try XCTUnwrap(p.views[1]), button = try XCTUnwrap(p.views[5])
+        root.handlers = ["contextmenu"]
+        var heard: [UInt32] = [], samples: [String] = []
+        p.onClipboard = { id, kind, line in XCTAssertEqual(kind, 10); heard.append(id); samples.append(line) }
+        p.press(2)
+        XCTAssertEqual(button.window === window, painted)
+        XCTAssertTrue(front.makeFirstResponder(button))
+        XCTAssertTrue(p.routeKey(key(110), focused: true))
+        XCTAssertEqual(heard, [1])
+        try assertContextPoint(try XCTUnwrap(samples.first), from: button, on: root)
+        heard = []; samples = []
+        let showMenu = #selector(NodeView.accessibilityPerformShowMenu)
+        XCTAssertTrue(button.isAccessibilitySelectorAllowed(showMenu))
+        XCTAssertTrue(button.accessibilityPerformShowMenu())
+        XCTAssertEqual(heard, [1])
+        try assertContextPoint(try XCTUnwrap(samples.first), from: button, on: root)
+        heard = []
+        XCTAssertFalse(p.contextMenu(root, at: .zero), "the inert ancestor cannot itself be the target")
+        XCTAssertFalse(root.accessibilityPerformShowMenu())
+        for gate in ["inert", "route", "disabled"] {
+            root.props["inert"] = gate == "inert" ? "true" : nil
+            root.routeInert = gate == "route"
+            root.props["disabled"] = gate == "disabled" ? "true" : nil
+            let eligible = gate == "disabled"
+            XCTAssertEqual(button.isAccessibilitySelectorAllowed(showMenu), eligible, gate)
+            XCTAssertEqual(button.accessibilityPerformShowMenu(), eligible, gate)
+            XCTAssertEqual(p.routeKey(key(110), focused: true), eligible, gate)
+        }
+        XCTAssertEqual(heard, [1, 1], "disabled on the ancestor container does not block either request")
+        root.props.removeValue(forKey: "disabled")
+        button.props["inert"] = "true"
+        XCTAssertFalse(button.isAccessibilitySelectorAllowed(showMenu))
+        XCTAssertFalse(button.accessibilityPerformShowMenu())
+        XCTAssertFalse(p.contextMenuKey(key(110)))
+        if !painted {
+            XCTAssertTrue(front.makeFirstResponder(nil))
+            XCTAssertFalse(p.contextMenuKey(key(110)), "a sheet with no focus node keeps the key")
+        }
+    }
+
+    /// An ancestor behind the modal hears the request but opens no
+    /// `contextPopover`: in the browser that popover would be inert.
+    func testContextPopoverOnAnAncestorBehindTheModalOpensNoMenu() throws {
+        let p = fixture(), root = try XCTUnwrap(p.views[1]), button = try XCTUnwrap(p.views[5])
+        p.apply(wireBatch([
+            ["op": "props", "id": 1, "set": ["contextPopover": "menu"]],
+            ["op": "create", "id": 6, "kind": "view", "props": ["popover": "auto", "id": "menu"]],
+            ["op": "create", "id": 7, "kind": "button", "handlers": ["press"]],
+            ["op": "children", "id": 6, "ids": [7]],
+            ["op": "children", "id": 1, "ids": [2, 3, 6]],
+            ["op": "frame", "id": 6, "x": 0, "y": 0, "w": 120, "h": 40],
+            ["op": "frame", "id": 7, "x": 0, "y": 0, "w": 120, "h": 40],
+        ]))
+        var tracked = false
+        let observer = NotificationCenter.default.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
+            guard let menu = note.object as? NSMenu else { return }
+            tracked = true
+            RunLoop.current.perform(inModes: [.eventTracking, .default]) { menu.cancelTracking() }
+        }
+        defer { NotificationCenter.default.removeObserver(observer); p.menus.reset() }
+        p.press(2)
+        XCTAssertTrue(root.inert)
+        XCTAssertFalse(root.handlers.contains("contextmenu"))
+        XCTAssertTrue(front.makeFirstResponder(button))
+        XCTAssertTrue(p.routeKey(key(110), focused: true))
+        XCTAssertTrue(button.accessibilityPerformShowMenu())
+        // Closing before the menu's turn must not revive a request made behind the modal.
+        p.dialogs.close(try XCTUnwrap(p.views[3]))
+        let drained = expectation(description: "context menu requests drained")
+        RunLoop.main.perform(inModes: [.common]) { drained.fulfill() }
+        wait(for: [drained], timeout: 5)
+        XCTAssertFalse(tracked)
+        XCTAssertFalse(p.menus.isOpen(try XCTUnwrap(p.views[6])))
     }
     func testDismissalPoliciesAndBackgroundPointerBlocking() {
         let p = fixture()
@@ -148,13 +369,58 @@ final class DialogMacTests: XCTestCase {
         XCTAssertNotNil(p.dialogs.active)
         XCTAssertNil(p.views[2]!.hitTest(.zero))
     }
+    /// A press, a double click, a free move and a wheel in the open dialog
+    /// reach its authored ancestors' `pointerdown`, `pointerup`, `dblclick`,
+    /// `pointermove` and `wheel`, as DOM's events bubble out of the top
+    /// layer, though the dialog's view is over its backdrop or in its sheet
+    /// and its ancestors are inert behind it.
+    func testPointerEventsInTheDialogReachItsAuthoredAncestors() throws {
+        let p = fixture(), root = try XCTUnwrap(p.views[1])
+        p.apply(wireBatch([
+            ["op": "create", "id": 6, "kind": "view"],
+            ["op": "children", "id": 3, "ids": [4, 5, 6]],
+            ["op": "frame", "id": 6, "x": 120, "y": 80, "w": 80, "h": 30],
+        ]))
+        root.handlers = ["pointerdown", "pointerup", "dblclick", "pointermove"]
+        var log: [String] = []
+        p.onPointer = { id, kind, _ in log.append("\(kind == .down ? "down" : kind == .up ? "up" : "move") \(id)") }
+        p.onDblclick = { log.append("dblclick \($0)") }
+        p.press(2)
+        let box = try XCTUnwrap(p.views[6]), window = try XCTUnwrap(box.window)
+        XCTAssertTrue(p.dialogs.active === p.views[3])
+        XCTAssertFalse(box.isDescendant(of: root), "the dialog's view is in the top layer")
+        click(box)
+        click(box, clicks: 2)
+        XCTAssertEqual(log, ["down 1", "up 1", "down 1", "up 1", "dblclick 1"])
+        log = []
+        let point = box.convert(NSPoint(x: box.bounds.midX, y: box.bounds.midY), to: nil)
+        p.trackPointer(NSEvent.mouseEvent(with: .mouseMoved, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0)!)
+        p.flushHoverMove()
+        XCTAssertEqual(log, ["move 1"])
+        log = []
+        root.handlers.insert("wheel")
+        p.onClipboard = { id, kind, _ in if kind == 37 { log.append("wheel \(id)") } }
+        let wheel = try XCTUnwrap(CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: 0, wheel2: 14, wheel3: 0))
+        _ = box.wheel(try XCTUnwrap(NSEvent(cgEvent: wheel)))
+        XCTAssertEqual(log, ["wheel 1"])
+        // A stop in the dialog keeps the down from its ancestors there too.
+        log = []
+        box.handlers = ["pointerdown"]
+        p.onPointer = { [unowned p] id, kind, _ in
+            log.append("\(kind == .down ? "down" : kind == .up ? "up" : "move") \(id)")
+            if id == 6 { p.propagationStopped = true }
+        }
+        click(box)
+        XCTAssertEqual(log, ["down 6", "up 1"])
+    }
     func testBatchesKeepEditorAndRemovalAndResetRetireOwnership() throws {
         let p = fixture()
         p.press(2)
-        let field = try XCTUnwrap(p.views[4]?.field), editor = window.firstResponder
+        let field = try XCTUnwrap(p.views[4]?.field), editor = front.firstResponder
         p.apply(wireBatch([["op": "children", "id": 1, "ids": [2, 3]],
                           ["op": "frame", "id": 3, "x": 0, "y": 0, "w": 260, "h": 160]]))
-        XCTAssertTrue(window.firstResponder === editor)
+        XCTAssertTrue(front.firstResponder === editor)
         XCTAssertTrue(p.views[4]?.field === field)
         XCTAssertEqual(p.dialogs.active?.frame.size, NSSize(width: 260, height: 160))
         p.apply(wireBatch([["op": "children", "id": 1, "ids": [2]]]))
@@ -191,11 +457,11 @@ final class DialogMacTests: XCTestCase {
         p.press(2)
         XCTAssertTrue(inside.acceptsFirstResponder, "a native button without handlers remains a focus stop")
         XCTAssertTrue(p.dialogs.key(key(48)))
-        XCTAssertTrue(window.firstResponder === p.views[5])
+        XCTAssertTrue(front.firstResponder === p.views[5])
         XCTAssertTrue(p.dialogs.key(key(48)))
-        XCTAssertTrue(window.firstResponder === inside)
+        XCTAssertTrue(front.firstResponder === inside)
         XCTAssertTrue(p.dialogs.key(key(48)))
-        XCTAssertTrue(window.firstResponder === p.views[4]?.field?.currentEditor())
+        XCTAssertTrue(front.firstResponder === p.views[4]?.field?.currentEditor())
         background.performClick(nil)
         XCTAssertTrue(pressed.isEmpty, "native activation behind a modal stays blocked")
         p.dialogs.close(p.views[3]!)
@@ -300,25 +566,25 @@ final class DialogMacTests: XCTestCase {
         let p = fixture()
         let editor = try textarea(p, id: 7, parent: 3)
         p.press(2)
-        XCTAssertTrue(window.makeFirstResponder(editor))
+        XCTAssertTrue(front.makeFirstResponder(editor))
         XCTAssertTrue(p.dialogs.key(key(48, modifiers: .shift)))
-        XCTAssertTrue(window.firstResponder === p.views[5], "Shift-Tab leaves the last textarea for the preceding button")
-        XCTAssertTrue(window.makeFirstResponder(editor))
+        XCTAssertTrue(front.firstResponder === p.views[5], "Shift-Tab leaves the last textarea for the preceding button")
+        XCTAssertTrue(front.makeFirstResponder(editor))
         XCTAssertTrue(p.dialogs.key(key(48)))
-        XCTAssertTrue(window.firstResponder === p.views[4]?.field?.currentEditor(), "Tab wraps from the last textarea to the first field")
+        XCTAssertTrue(front.firstResponder === p.views[4]?.field?.currentEditor(), "Tab wraps from the last textarea to the first field")
         p.dialogs.close(p.views[3]!)
     }
 
     func testTextareaFocusAndSelectionRestoreAfterClosingDialog() throws {
         let p = fixture()
         let editor = try textarea(p, id: 7, parent: 1)
-        XCTAssertTrue(window.makeFirstResponder(editor))
+        XCTAssertTrue(front.makeFirstResponder(editor))
         let selection = NSRange(location: 2, length: 4)
         editor.setSelectedRange(selection)
         p.press(2)
         editor.setSelectedRange(NSRange(location: 0, length: 0))
         p.dialogs.close(p.views[3]!)
-        XCTAssertTrue(window.firstResponder === editor, "restore the text view, not its non-focusable delegate")
+        XCTAssertTrue(front.firstResponder === editor, "restore the text view, not its non-focusable delegate")
         XCTAssertEqual(editor.selectedRange(), selection)
     }
 
@@ -327,12 +593,12 @@ final class DialogMacTests: XCTestCase {
         let editor = try textarea(p, id: 7, parent: 3)
         p.views[3]!.props["tabIndex"] = "1"
         p.press(2)
-        XCTAssertTrue(window.makeFirstResponder(editor))
+        XCTAssertTrue(front.makeFirstResponder(editor))
         XCTAssertTrue(p.dialogs.key(key(48)))
-        XCTAssertTrue(window.firstResponder === p.views[3], "Tab wraps from the last editor to the positive-tab-index dialog")
-        XCTAssertTrue(window.makeFirstResponder(editor))
+        XCTAssertTrue(front.firstResponder === p.views[3], "Tab wraps from the last editor to the positive-tab-index dialog")
+        XCTAssertTrue(front.makeFirstResponder(editor))
         XCTAssertTrue(p.dialogs.key(key(48, modifiers: .shift)))
-        XCTAssertTrue(window.firstResponder === p.views[5], "Shift-Tab starts at the editor, not its focusable ancestor")
+        XCTAssertTrue(front.firstResponder === p.views[5], "Shift-Tab starts at the editor, not its focusable ancestor")
     }
 
     func testMarkedTextareaKeepsEscapeAndTabForItsInputMethod() throws {
@@ -341,12 +607,12 @@ final class DialogMacTests: XCTestCase {
         p.apply(wireBatch([["op": "props", "id": 5, "set": ["accessibilityKeyShortcuts": "Escape"], "clear": []]]))
         for code: UInt16 in [48, 53] {
             p.dialogs.show(p.views[3]!)
-            XCTAssertTrue(window.makeFirstResponder(editor))
+            XCTAssertTrue(front.makeFirstResponder(editor))
             editor.setMarkedText("한", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
             XCTAssertTrue(editor.hasMarkedText())
             XCTAssertFalse(p.dialogs.key(key(code)) || p.shortcuts.perform(key(code)), "composition keys must reach the text input client")
             XCTAssertTrue(p.dialogs.active === p.views[3])
-            XCTAssertTrue(window.firstResponder === editor)
+            XCTAssertTrue(front.firstResponder === editor)
             editor.unmarkText()
         }
         XCTAssertTrue(p.shortcuts.perform(key(53)), "the declared shortcut resumes after composition")
@@ -360,12 +626,12 @@ final class DialogMacTests: XCTestCase {
         p.apply(wireBatch([["op": "props", "id": 5, "set": ["accessibilityKeyShortcuts": "Escape"], "clear": []]]))
         for code: UInt16 in [48, 53] {
             p.dialogs.show(p.views[3]!)
-            XCTAssertTrue(window.makeFirstResponder(editor))
+            XCTAssertTrue(front.makeFirstResponder(editor))
             editor.setMarkedText("한", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
             XCTAssertTrue(editor.hasMarkedText())
             XCTAssertFalse(p.dialogs.key(key(code)) || p.shortcuts.perform(key(code)), "custom NSTextInputClient composition must own Tab/Escape")
             XCTAssertTrue(p.dialogs.active === p.views[3], "Escape must not dismiss during composition")
-            XCTAssertTrue(window.firstResponder === editor, "Tab must not move focus during composition")
+            XCTAssertTrue(front.firstResponder === editor, "Tab must not move focus during composition")
             editor.unmarkText()
         }
         XCTAssertTrue(p.dialogs.key(key(53)), "Escape resumes after composition")
@@ -393,7 +659,11 @@ final class DialogMacTests: XCTestCase {
         XCTAssertEqual(p.selection.selectedText(), "Background")
     }
 
-    func testDialogFocusDoesNotCrossSessionBoundary() {
+    /// Painted, a dialog is its own session's and a peer in the window keeps
+    /// its focus. A sheet is the window's: AppKit keeps every click and key
+    /// from all of it, the peer's part too.
+    func testDialogFocusDoesNotCrossSessionBoundary() throws {
+        try XCTSkipIf(!painted, "a sheet blocks its whole window, as AppKit's does")
         let p = fixture(), peer = Presenter()
         let mount = NSView(frame: window.contentView!.bounds)
         window.contentView = mount
@@ -408,37 +678,75 @@ final class DialogMacTests: XCTestCase {
         p.press(2)
         XCTAssertNotNil(p.dialogs.active)
         XCTAssertFalse(peerButton.inert)
-        XCTAssertTrue(window.makeFirstResponder(peerButton))
+        XCTAssertTrue(front.makeFirstResponder(peerButton))
         p.dialogs.sync()
-        XCTAssertTrue(window.firstResponder === peerButton)
+        XCTAssertTrue(front.firstResponder === peerButton)
         XCTAssertFalse(p.dialogs.key(key(53)))
         XCTAssertNotNil(p.dialogs.active)
         p.dialogs.close(p.views[3]!)
-        XCTAssertTrue(window.firstResponder === peerButton)
+        XCTAssertTrue(front.firstResponder === peerButton)
     }
 
     func testNegativeTabIndexAutofocusAndEmptyDialogStayContained() {
         let p = fixture()
         p.views[4]!.props["tabIndex"] = "-1"
         p.press(2)
-        XCTAssertTrue(p.views[4]!.field?.currentEditor() === window.firstResponder)
+        XCTAssertTrue(p.views[4]!.field?.currentEditor() === front.firstResponder)
         XCTAssertTrue(p.dialogs.key(key(48)))
-        XCTAssertTrue(window.firstResponder === p.views[5])
+        XCTAssertTrue(front.firstResponder === p.views[5])
         XCTAssertTrue(p.dialogs.key(key(48)))
-        XCTAssertTrue(window.firstResponder === p.views[5])
+        XCTAssertTrue(front.firstResponder === p.views[5])
         p.apply(wireBatch([["op": "children", "id": 3, "ids": []]]))
-        XCTAssertTrue(window.firstResponder === p.views[3])
+        XCTAssertTrue(front.firstResponder === p.views[3])
         XCTAssertTrue(p.dialogs.key(key(48)))
-        XCTAssertTrue(window.firstResponder === p.views[3])
+        XCTAssertTrue(front.firstResponder === p.views[3])
         p.dialogs.close(p.views[3]!)
     }
 
-    func testExplicitInsetsAndNestedDialogs() {
+    /// A node in the dialog that holds the focus and is no stop, a
+    /// `tabindex=-1` box an action focused, is where Tab starts, as on the
+    /// page: the stop after it in tree order, and Shift-Tab the one before
+    /// it, not the trap's first and last
+    /// (issues/closed/20261010-macos-tab-from-a-focused-box.md).
+    func testTabFromAFocusedBoxThatIsNoStopInTheDialog() throws {
+        let p = fixture()
+        p.apply(wireBatch([
+            ["op": "create", "id": 6, "kind": "view", "props": ["tabIndex": "-1"]],
+            ["op": "create", "id": 7, "kind": "button"],
+            ["op": "children", "id": 6, "ids": [7]],
+            ["op": "children", "id": 3, "ids": [4, 6, 5]],
+            ["op": "frame", "id": 6, "x": 10, "y": 45, "w": 200, "h": 30],
+            ["op": "frame", "id": 7, "x": 0, "y": 0, "w": 80, "h": 30],
+        ]))
+        p.press(2)
+        let box = try XCTUnwrap(p.views[6])
+        XCTAssertTrue(front.makeFirstResponder(box))
+        XCTAssertTrue(p.dialogs.key(key(48)))
+        XCTAssertTrue(front.firstResponder === p.views[7], "Tab from the box: its button, not the dialog's first stop")
+        XCTAssertTrue(front.makeFirstResponder(box))
+        XCTAssertTrue(p.dialogs.key(key(48, modifiers: .shift)))
+        XCTAssertTrue(p.views[4]!.field?.currentEditor() === front.firstResponder, "Shift-Tab: the field before it, not the dialog's last stop")
+        XCTAssertTrue(front.makeFirstResponder(p.views[3]!))
+        XCTAssertTrue(p.dialogs.key(key(48, modifiers: .shift)))
+        XCTAssertTrue(front.firstResponder === p.views[5], "the dialog itself: Shift-Tab to its last stop")
+        p.dialogs.close(p.views[3]!)
+    }
+
+    func testExplicitInsetsAndNestedDialogs() throws {
         let p = fixture()
         p.views[3]!.applyStyle(["left": 12, "bottom": ["pct": 10, "px": 8]])
         p.press(2)
-        XCTAssertEqual(p.views[3]!.frame.minX, 12)
-        XCTAssertEqual(p.views[3]!.frame.maxY, p.viewport.bounds.height * 0.9 - 8, accuracy: 0.01)
+        if painted {
+            XCTAssertEqual(p.views[3]!.frame.minX, 12)
+            XCTAssertEqual(p.views[3]!.frame.maxY, p.viewport.bounds.height * 0.9 - 8, accuracy: 0.01)
+        } else {
+            // A sheet has no insets: it is its content's size, and AppKit centres it on its window.
+            let sheet = try XCTUnwrap(p.views[3]!.window)
+            XCTAssertTrue(window.attachedSheet === sheet)
+            XCTAssertEqual(p.views[3]!.frame, NSRect(x: 0, y: 0, width: 240, height: 150))
+            XCTAssertEqual(sheet.frame.size, CGSize(width: 240, height: 150))
+            XCTAssertEqual(sheet.frame.midX, window.frame.midX, accuracy: 0.5)
+        }
         p.apply(wireBatch([
             ["op": "create", "id": 6, "kind": "view", "props": ["semanticTag": "dialog", "id": "inner"]],
             ["op": "children", "id": 3, "ids": [4, 5, 6]],
@@ -446,11 +754,17 @@ final class DialogMacTests: XCTestCase {
         ]))
         p.dialogs.show(p.views[6]!)
         XCTAssertTrue(p.views[4]!.inert)
-        XCTAssertTrue(window.firstResponder === p.views[6])
+        XCTAssertTrue(front.firstResponder === p.views[6])
         XCTAssertTrue(p.dialogs.key(key(53)))
         XCTAssertTrue(p.dialogs.active === p.views[3])
         XCTAssertFalse(p.views[4]!.inert)
+        if !painted {
+            // The dialog opened over it was a sheet on its sheet, and is gone from it.
+            XCTAssertNil(p.views[3]!.window?.attachedSheet)
+            XCTAssertTrue(window.attachedSheet === p.views[3]!.window)
+        }
         p.reset()
+        XCTAssertNil(window.attachedSheet)
     }
 
     func testReloadUnmountAndDestroyReleaseOnlyTheirDialog() throws {
@@ -460,12 +774,21 @@ final class DialogMacTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         let source = """
         component App
+          state closes = 0
+          action closed
+            closes = closes + 1
+          action openDialog
+            showModal("form")
+          action closeDialog
+            close("form")
           view
             column width="100%" height="100%"
-              button "Open" testId="open" commandfor="form" command="show-modal"
-              dialog id="form" width=240 padding=16
+              button "Open" testId="open" press=openDialog
+              text `${closes}` testId="closes"
+              dialog id="form" close=closed width=240 padding=16
                 input testId="edit" value="draft" autofocus=true
                 button "Close" commandfor="form" command="close"
+                button "Close action" testId="close-action" press=closeDialog
 
         """
         let input = directory.appendingPathComponent("app.contract")
@@ -491,6 +814,14 @@ final class DialogMacTests: XCTestCase {
             p.press(try XCTUnwrap(p.views.values.first { $0.props["testId"] == "open" }).id)
             XCTAssertNotNil(p.dialogs.active)
         }
+        try open()
+        p.press(try XCTUnwrap(p.views.values.first { $0.props["testId"] == "close-action" }).id)
+        XCTAssertNil(p.dialogs.active, "close(id) is dispatched by the session")
+        turn()
+        XCTAssertEqual(p.views.values.first { $0.props["testId"] == "closes" }?.props["text"], "1")
+        p.dialogCommand("close", "form")
+        turn()
+        XCTAssertEqual(p.views.values.first { $0.props["testId"] == "closes" }?.props["text"], "1", "closing a closed dialog fires nothing")
         try open()
         let stale = p.dialogs.command(try XCTUnwrap(p.views.values.first { $0.props["command"] == "close" }))
         view.removeFromSuperview()
@@ -550,19 +881,19 @@ final class DialogMacTests: XCTestCase {
         }
         func node(_ testId: String) throws -> NodeView { try XCTUnwrap(p.views.values.first { $0.props["testId"] == testId }) }
         let space = key(49, character: " ")
-        window.makeFirstResponder(nil)
-        XCTAssertTrue(window.firstResponder === window)
+        front.makeFirstResponder(nil)
+        XCTAssertTrue(front.firstResponder === window)
         XCTAssertTrue(view.ownsShortcutFocus(), "with nothing focused the window's keys are the page's")
         XCTAssertTrue(p.routeKey(space, focused: view.ownsShortcutFocus(), in: window))
         XCTAssertEqual(heard(), " space")
         let field = try XCTUnwrap(try node("field").field)
-        window.makeFirstResponder(field)
+        front.makeFirstResponder(field)
         XCTAssertEqual(heard(), " space focus", "focus arrives as the field takes it, before any edit")
         XCTAssertFalse(p.routeKey(space, focused: view.ownsShortcutFocus(), in: window), "a field's Space is its text")
         let notes = try XCTUnwrap(try node("notes").textArea)
-        window.makeFirstResponder(notes)
+        front.makeFirstResponder(notes)
         XCTAssertEqual(heard(), " space focus blur tfocus")
-        window.makeFirstResponder(nil)
+        front.makeFirstResponder(nil)
         XCTAssertEqual(heard(), " space focus blur tfocus tblur")
     }
 }

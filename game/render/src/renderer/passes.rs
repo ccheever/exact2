@@ -5,7 +5,7 @@ use super::*;
 use crate::hooks::CustomMaterial;
 
 impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
-    fn model_material(&self, batch: usize) -> Option<crate::MaterialId> {
+    pub(super) fn model_material(&self, batch: usize) -> Option<crate::MaterialId> {
         if ASSETS {
             self.model_batches[batch]
         } else {
@@ -89,6 +89,37 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         draws
     }
 
+    /// Last frame's camera lists of convex primitives, depth only at this
+    /// frame's poses, then the occlusion pyramid this frame's cull reads
+    /// (occlusion.rs).
+    pub(super) fn encode_occluders(&self, encoder: &mut wgpu::CommandEncoder) {
+        let occlusion = self.occlusion.as_ref().unwrap();
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("game occluders"),
+            color_attachments: &[],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: occlusion.depth(),
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(1.0),
+                    store: wgpu::StoreOp::Store,
+                }),
+                stencil_ops: None,
+            }),
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        pass.set_pipeline(occlusion.occluder());
+        pass.set_vertex_buffer(0, self.vertices.raw.slice(..));
+        pass.set_index_buffer(self.indices.raw.slice(..), wgpu::IndexFormat::Uint32);
+        for &(index, offset) in &occlusion.groups {
+            pass.set_bind_group(1, &occlusion.uniforms_bind, &[offset]);
+            self.draw_group(&mut pass, 0, index);
+        }
+        drop(pass);
+        occlusion.reduce(encoder);
+    }
+
     /// A depth-only caster pipeline and its groups 1-3 for one draw group.
     pub(super) fn set_depth_pipeline(
         &self,
@@ -125,6 +156,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     pub(super) fn encode_forward<H: crate::Hooks>(
         &self,
         encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
         state: &mut Resolved,
         frame: &FrameInput<'_>,
         hooks: &mut H,
@@ -137,23 +169,32 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             .environment
             .background
             .unwrap_or(frame.environment.horizon);
+        // A direct frame draws into its own attachments and resolves into the target.
+        let direct = state.direct.then(|| self.direct_targets.as_ref().unwrap());
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("game forward"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &self.targets.color,
-                resolve_target: (!split).then(|| {
-                    self.hook_targets
-                        .as_ref()
-                        .and_then(|t| t.scene())
-                        .map_or(&self.targets.resolved, |scene| scene.color)
-                }),
+                view: direct.map_or(&self.targets.color, |d| &d.color),
+                resolve_target: if direct.is_some() {
+                    Some(target)
+                } else {
+                    (!split).then(|| {
+                        self.hook_targets
+                            .as_ref()
+                            .and_then(|t| t.scene())
+                            .map_or(&self.targets.resolved, |scene| scene.color)
+                    })
+                },
                 depth_slice: None,
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color {
-                        r: sky[0] as f64,
-                        g: sky[1] as f64,
-                        b: sky[2] as f64,
-                        a: 1.0,
+                    load: wgpu::LoadOp::Clear(match direct {
+                        Some(d) => frame::tone(sky, frame, !d.format.is_srgb()),
+                        None => wgpu::Color {
+                            r: sky[0] as f64,
+                            g: sky[1] as f64,
+                            b: sky[2] as f64,
+                            a: 1.0,
+                        },
                     }),
                     store: if state.scene_copy || split {
                         wgpu::StoreOp::Store
@@ -163,7 +204,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 },
             })],
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: &self.targets.depth,
+                view: direct.map_or(&self.targets.depth, |d| &d.depth),
                 depth_ops: Some(wgpu::Operations {
                     load: wgpu::LoadOp::Clear(1.0),
                     store: if state.retained {
@@ -210,9 +251,10 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                     pass.set_bind_group(3, self.models.bind.as_ref().unwrap(), &[]);
                 }
             } else {
-                pass.set_pipeline(
-                    &self.pipelines.forward[variant + 4 * usize::from(group.mirrored)],
-                );
+                pass.set_pipeline(self.pipelines.forward_variant(
+                    &self.device,
+                    variant + 4 * usize::from(group.mirrored) + state.primitive,
+                ));
                 pass.set_bind_group(1, &self.shadow_sample, &[]);
             }
             if group.range.start != self.batches[group.batch].slots.start {
@@ -246,7 +288,11 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             self.scene_viewport(&mut pass, state.size, false);
         }
         if frame::has_sky(frame, self.sky_ready) {
-            pass.set_pipeline(&self.pipelines.sky);
+            pass.set_pipeline(if state.direct {
+                self.pipelines.sky_direct(&self.device)
+            } else {
+                &self.pipelines.sky
+            });
             pass.set_bind_group(0, &self.scene_binds[self.current], &[0]);
             pass.draw(0..3, 0..1);
             state.draws += 1;
@@ -425,7 +471,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             }
         }
         if let Some(bloom) = &self.bloom {
-            let draws = bloom.encode(
+            let passes = bloom.encode(
                 &self.queue,
                 encoder,
                 &self.pipelines,
@@ -434,7 +480,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             );
             if frame.timestamps.is_some() {
                 // Levels down from pair 4, then back up from pair 10.
-                let levels = draws.div_ceil(2);
+                let levels = passes.div_ceil(2);
                 for level in 0..levels {
                     self.mark(4 + level);
                     if level + 1 < levels {
@@ -442,7 +488,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                     }
                 }
             }
-            state.draws += draws;
+            state.draws += passes - 1; // The bright pass is a compute dispatch.
         }
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("game ACES"),

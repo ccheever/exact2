@@ -6,9 +6,9 @@
 // IndexedDB under a handle the store holds; its code is fetched on first
 // use); `openAuthSession` is auth.js.
 import * as source from '__APP_TS__';
-import { createSecretFacade, hasGrant, setAppGrantSet } from './admission.js';
+import { createSecretFacade, hasGrant, inOverlay, overlaying, setAppGrantSet } from './admission.js';
 import { tsGrantSet } from './admission-data.js';
-import { answering, files as bodyFiles } from './ts-fetch.js';
+import { answering, files as bodyFiles, SOCKET_AND_FETCH } from './ts-fetch.js';
 import { sourceTypes } from './names.js';
 import { checkpoint, clock, commit, inflight, journal, painted, R, Resources } from './rt.js';
 import { Shaped } from './shape.js';
@@ -131,15 +131,22 @@ const changed = (r, topic) => {
   if (!t.again) journal.push(`t=${clock.now} changed ${topic}: ticket ${t.id} (${r.name}) lands first, then it is asked again`);
   t.again = true;
 };
+const announce = (topic, why) => commit(() => { const s = watched.get(topic); for (const r of Resources) if (s?.has(r.source)) changed(r, topic); }, `${why} ${topic}`);
+const watch = topic => (watched.get(topic) ?? watched.set(topic, new Set()).get(topic)).add(watching);
+// The documents the answers watch, for the agent's `state.watches`, as the runner lists them.
+(globalThis.exact ??= {}).watchState = () => [...watched.keys()].sort().flatMap(t => {
+  const m = /^doc-watch(-recursive)?:(.*)$/.exec(t);
+  return m ? [{ path: m[2], recursive: !!m[1] }] : [];
+});
 const pageModule = () => page ??= load().then(m => m.pageModule({
   agent: clock.agent, now: () => clock.now,
-  changed: topic => commit(() => { const s = watched.get(topic); for (const r of Resources) if (s?.has(r.source)) changed(r, topic); }, `native ${topic}`),
+  changed: topic => announce(topic, 'native'),
 }));
 const native = Object.freeze({
   get available() { return true; },
-  call() { throw new Error('native.call: the web has no synchronous module call; use native.later'); },
-  watch(topic) { if (!watching) throw new Error('native.watch outside an answer'); const t = String(topic); (watched.get(t) ?? watched.set(t, new Set()).get(t)).add(watching); },
-  later: request => pageModule().then(p => p.later(request)),
+  call() { if (overlaying.on) throw inOverlay('native.call()'); throw new Error('native.call: the web has no synchronous module call; use native.later'); },
+  watch(topic) { if (overlaying.on) throw inOverlay('native.watch()'); if (!watching) throw new Error('native.watch outside an answer'); watch(String(topic)); },
+  later: request => overlaying.on ? Promise.reject(inOverlay('native.later()')) : pageModule().then(p => p.later(request)),
 });
 // App storage as a source sees it (`storage`, LLP 1027.001): `fs` and
 // `sqlite` over the web host's own adapters (`storage-fs.js`,
@@ -183,6 +190,7 @@ function landed(op, ok, value) {
   op.reject(error);
 }
 function queued(what, run) {
+  if (overlaying.on) return Promise.reject(inOverlay(`storage.${what.split(' ')[0]}()`)); // `what` is the method, then its path
   if (head && queue.length >= MAX_QUEUED) {
     journal.push(`t=${clock.now} storage refused: full (${what})`);
     return Promise.reject(Object.assign(new Error(`storage queue full: ${MAX_QUEUED} operations wait`), { kind: 'Unavailable', code: 'full' }));
@@ -262,10 +270,25 @@ function storageOf(grants) {
     const limits = { maxDimension: d, maxBytes: b };
     return (admitted ? queued(`compressImage ${from}`, () => files().then(f => f.compressImage(from, to, limits))) : denied('fs.compressImage')).catch(coded);
   };
+  // `fs.watch(path, {recursive})` (LLP 1069.010.000 D1): the answer depends
+  // on a document the person chose; the page's FileSystemObserver announces
+  // its topic, where the browser has one (documents-glue.js `observe`).
+  const watchDocument = (path, options) => {
+    const api = 'storage.fs.watch()';
+    if (overlaying.on) throw inOverlay(api);
+    if (!watching) throw new Error(`${api} outside an answer`);
+    if (typeof path !== 'string' || !path.startsWith('doc:/')) throw new TypeError(`${api}: path must be a doc:/ path`);
+    const recursive = !!options?.recursive, topic = `${recursive ? 'doc-watch-recursive:' : 'doc-watch:'}${path}`;
+    watch(topic);
+    documents().then(() => globalThis.exact.documents.observe(path, recursive, grants, () => announce(topic, 'changed'))).catch(() => {});
+  };
+  const expecting = (m, args) => ['writeFile', 'atomicWriteFile', 'appendFile'].includes(m) && args[2]?.expect;
   return Object.freeze({
     fs: Object.freeze({ directories: Object.freeze({ data: 'app:/data', cache: 'app:/cache', temporary: 'app:/tmp' }),
-      compressImage,
+      compressImage, watch: watchDocument,
       ...Object.fromEntries(methods.map(m => [m, (...args) => {
+        // A write's `expect` (LLP 1069.010.000 D2a) is the glue's, documents only.
+        if (expecting(m, args) && !isDocument(args)) return Promise.reject(new TypeError(`storage.fs.${m}(): expect is for doc:/ paths`));
         const captured = structuredClone(args);
         const run = () => (isDocument(captured) ? documents() : files()).then(f => f[m](...captured));
         return (admitted ? queued(`${m}${typeof args[0] === 'string' ? ` ${args[0]}` : ''}`, run) : denied(`fs.${m}`, isDocument(captured))).catch(coded);
@@ -276,7 +299,7 @@ function storageOf(grants) {
 }
 // A stream (LLP 1016.000; ts-fetch.js), opened by ts-stream.js, loaded on
 // first use so a module that never streams carries none of it.
-const opener = (stream, conv) => (deliver, controller) => import('./ts-stream.js').then(m => m.open(stream, conv, tsGrantSet, deliver, controller));
+const opener = (stream, conv, name) => (deliver, controller) => { controller.streamName = name; return import('./ts-stream.js').then(m => m.open(stream, conv, tsGrantSet, deliver, controller)); };
 export function install(data, mixed = false, modules = null) {
   data.appId = source.appId;
   bodyFiles.appId = source.appId ?? null; // `exactBodyFrom`'s store (ts-fetch.js)
@@ -311,31 +334,58 @@ export function install(data, mixed = false, modules = null) {
       if (k && types) try { source.kept(r.source, k[0].map((a, i) => named(a, types[0][i])), named(k[1], types[1])); } catch {}
     }
   };
-  const ts = (name, args, store, target) => {
+  const ts = (name, args, store, target, mutation = false) => {
     if (!seeded) seed();
     const types = sourceTypes[name], [params, result] = types ?? [[], 'u'];
     // The store as the module sees it (LLP 1018): a read marks the answer.
     const seen = createSecretFacade(store, tsGrantSet, kept);
     asking = target ?? name; watching = name;
-    const call = answering.call = { stream: null };
+    const call = answering.call = { stream: null, mutation };
     let r;
     try { r = source.answer(name, args.map((a, i) => named(a, params[i])), seen, storage, modules ? native : null); } catch (e) { call.settled = true; throw e; } finally { asking = ''; watching = null; answering.call = null; }
     const target_ = target ?? name;
     const shaped = types ? v => checked(name, v, result) : v => v;
     // A stream's answer has replied once it returns (LLP 1016.000): what runs on is background work.
-    if (call.stream) { call.settled = true; return { stream: opener(call.stream, v => conv(shaped(v), result, target_)), store: seen.read }; }
+    // Socket operations go out only with a value given now: not with a
+    // promise, a stream answer or any other fetch (LLP 1016.000 D7).
+    if (call.socketConflict || call.effects?.length && call.fetched) {
+      call.socketConflict = true; Promise.resolve(r).catch(() => {}); call.settled = true;
+      throw new Error(SOCKET_AND_FETCH);
+    }
+    if (call.effects?.length && r && typeof r.then === 'function') {
+      // A fetch its continuation makes is the module's, not the mutation's:
+      // the page has no turn to tie it to (LLP 1016.000 D7).
+      Promise.resolve(r).catch(() => {}); call.settled = true;
+      throw new Error('a socket mutation must answer synchronously');
+    }
+    if (call.stream) { call.settled = true; return { stream: opener(call.stream, v => conv(shaped(v), result, target_), target_), store: seen.read }; }
     if (r && typeof r.then === 'function') {
       pendingAnswers++;
       const settle = () => { call.settled = true; pendingAnswers--; if (!pendingAnswers && owed) { owed = false; leftOpen(); } };
       return { promise: r.then(v => (settle(), conv(shaped(v), result, target_)), e => { settle(); leftOpen(); throw e; }), store: seen.read };
     }
     call.settled = true;
-    return { v: conv(shaped(r), result, target_), store: seen.read };
+    return { v: conv(shaped(r), result, target_), store: seen.read, effects: call.effects?.map(effect => () => {
+      try { effect(); } catch (e) { journal.push(`t=${clock.now} send ${target_} failed: ${e?.message ?? e}; socket frames were refused`); }
+    }) };
   };
   // Beside a Rust source (LLP 1027.002): a source this module does not
   // answer is the Rust module's, not ready until it loads; rust-data.js
   // then asks it first and this module for what it calls unknown.
-  data.answer = mixed ? (name, args, store, target) => { try { return ts(name, args, store, target); } catch { return null; } } : ts;
+  data.answer = mixed ? (name, args, store, target, mutation) => { try { return ts(name, args, store, target, mutation); } catch { return null; } } : ts;
+  // An overlay (`overlay.js`): what a resource shows while writes affect it, in overlay mode; `undefined` without one.
+  overlaying.say = line => journal.push(`t=${clock.now} ${line}`);
+  data.overlay = source.overlay && ((name, args, answer, writes) => {
+    const types = sourceTypes[name]; if (!types) return undefined;
+    const keep = [], ws = writes.map(w => { const t = sourceTypes[w.source]; return Object.freeze({ id: w.id, mutation: w.mutation, source: w.source, answered: w.answered,
+      args: w.args.map((a, i) => named(a, t?.[0][i])), ...(w.reply === undefined ? {} : { reply: named(w.reply, t?.[1]) }), keep: () => { if (!keep.includes(w.id)) keep.push(w.id); } }); });
+    overlaying.on = true;
+    try {
+      const v = source.overlay(name, args.map((a, i) => named(a, types[0][i])), named(answer, types[1]), ws);
+      if (v && typeof v.then === 'function') throw new Error('an overlay returned a promise: it runs synchronously inside a commit and cannot await; compute its value from `answer` and `writes` and return it');
+      return v === undefined ? undefined : { value: conv(checked(name, v, types[1]), types[1], `overlay ${name}`), keep };
+    } finally { overlaying.on = false; }
+  });
   data.ts = ts;
   for (const f of data.q.splice(0)) f();
 }

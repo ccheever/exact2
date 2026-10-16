@@ -148,14 +148,15 @@ impl Gen<'_> {
     /// One of the voice table's commands (LLP 1096 D11): commands to the
     /// semantics, compared as issued. The source is computed (a program here
     /// declares no sound, and a literal must name one), so the runner drops
-    /// the voice; the gain is computed too, inside 0–1.
+    /// the voice; the gain and pan are computed too, inside their ranges.
     fn sound(&mut self, env: &Env, d: usize, pad: &str, out: &mut String) {
         match self.rng.below(3) {
             0 => {
                 let src = self.expr(env, &Ty::Str, d, false);
                 let gain = self.expr(env, &Ty::Num, d, false);
+                let pan = self.expr(env, &Ty::Num, d, false);
                 out.push_str(&format!(
-                    "{pad}playSound(`${{{src}}}`, gain=min(1, max(0, {gain})))\n"
+                    "{pad}playSound(`${{{src}}}`, gain=min(1, max(0, {gain})), pan=min(1, max(-1, {pan})))\n"
                 ));
             }
             1 => out.push_str(&format!("{pad}stopSounds()\n")),
@@ -259,7 +260,7 @@ impl Gen<'_> {
         let shown = self.show(&name, t);
         let reset = self.lit(t, true);
         out.push_str(&format!(
-            "{pad}let {name} = {e}\n{pad}{slot} = ((length({shown}) > {GROWTH_CAP}) ? {reset} : {name})\n"
+            "{pad}let {name} = {e}\n{pad}{slot} = ((({shown}).length > {GROWTH_CAP}) ? {reset} : {name})\n"
         ));
     }
 }

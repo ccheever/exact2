@@ -31,7 +31,12 @@ extension ControlHost {
 
     func configureValue(_ control: UIControl, _ owner: NodeView, accent: UIColor?) {
         #if !os(tvOS)
-        if let slider = control as? UISlider { configureRange(slider, owner, accent: accent); return }
+        if let slider = control as? RangeSlider {
+            // The accent is the slider's tint, which draws its filled track as a default slider's: grey behind a modal
+            assign(slider, \.tintColor, accent)
+            configureRange(slider, owner)
+            return
+        }
         if let picker = control as? UIDatePicker { configureDate(picker, owner, accent: accent); return }
         #endif
         guard let button = control as? UIButton else { return }
@@ -71,8 +76,17 @@ extension ControlHost {
     }
     #endif
 
-    /// The menu, with the option at `showing` the one shown.
+    /// The menu, with the option at `showing` the one shown. A select with
+    /// no options shows no title and opens nothing, as the web's. It holds
+    /// no menu: under `changesSelectionAsPrimaryAction`, `setMenu:` with an
+    /// empty one raises "Menu does not have a valid element for default
+    /// selection" (NSInternalInconsistencyException; app farm 008).
     private func install(_ button: UIButton, _ menu: SelectMenu, id: UInt32, showing: Int?) {
+        guard !menu.options.isEmpty else {
+            button.menu = nil
+            button.configuration?.title = nil
+            return
+        }
         button.menu = UIMenu(children: menu.options.enumerated().map { i, option in
             UIAction(title: option.label, attributes: option.disabled ? .disabled : [], state: i == showing ? .on : .off) { [weak self] _ in
                 self?.chose(id, option.value)
@@ -83,7 +97,10 @@ extension ControlHost {
     /// HTML sizes a select to its widest option, whichever is shown (D3).
     func naturalSize(_ control: UIControl, _ owner: NodeView) -> CGSize {
         #if !os(tvOS)
-        // A slider has no natural width; Chrome's range is 129 wide.
+        // A slider has no width of its own: it is as wide as its node, which
+        // the plan makes `width: 100%` (LLP 1115.000 D10.2). 129 is the
+        // range's intrinsic width on every host (`ControlKind::default_size`):
+        // what the node falls back to where that has nothing to resolve against.
         if control is UISlider { return CGSize(width: 129, height: ceil(control.intrinsicContentSize.height)) }
         // A compact date picker sizes by Auto Layout, not before it lays out.
         if control is UIDatePicker {
@@ -147,7 +164,7 @@ extension ControlHost {
     /// The agent's `type <id> <value>` (D9): the choice a menu would make.
     func type(_ node: NodeView, _ value: String) -> [String: Any]? {
         #if !os(tvOS)
-        if let slider = controls[node.id] as? UISlider {
+        if let slider = controls[node.id] as? RangeSlider {
             guard slider.isEnabled, !node.inert else { return ["error": "control #\(node.id) is disabled or inert"] }
             return typeRange(slider, node, value)
         }
@@ -191,7 +208,9 @@ extension ControlHost {
         #endif
         guard let button = control as? UIButton, !(button is NativeButtonIOS) else { return nil }
         let menu = menus[UInt32(button.tag)]
-        return ["view": "UIButton(pop-up)", "value": menu?.chosenValue as Any, "title": button.currentTitle as Any,
+        // `currentTitle` keeps the last selection's title after its menu goes.
+        let title = menu?.options.isEmpty == false ? button.currentTitle : nil
+        return ["view": "UIButton(pop-up)", "value": menu?.chosenValue as Any, "title": title as Any,
                 "options": menu?.options.map(\.label) ?? []]
     }
 }

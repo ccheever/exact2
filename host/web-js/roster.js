@@ -3,8 +3,7 @@
 export const x_length = v => v.length;
 export const x_isEmpty = v => v.length === 0;
 export const x_floor = Math.floor;
-// `f64::max`/`min` (runner/src/stdlib.rs): a NaN operand gives the other one.
-export const x_max = (a, b) => a !== a ? b : b !== b ? a : Math.max(a, b), x_min = (a, b) => a !== a ? b : b !== b ? a : Math.min(a, b);
+export const x_max = Math.max, x_min = Math.min;
 // Numbers print as JavaScript prints them (`push_number`), `-0` as `0`.
 export const x_toString = v => String(v);
 export const x_startsWith = (a, b) => a.startsWith(b), x_endsWith = (a, b) => a.endsWith(b);

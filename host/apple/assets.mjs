@@ -3,8 +3,8 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
-import { dirname, relative, resolve, isAbsolute } from 'node:path';
-import { chmodSync, closeSync, lstatSync, openSync, readlinkSync, readSync, realpathSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { basename, dirname, relative, resolve, isAbsolute } from 'node:path';
+import { chmodSync, closeSync, lstatSync, openSync, readlinkSync, readSync, copyFileSync, realpathSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 // The build's stamp, which build.mjs merges into Info.plist beside the icon keys.
 export { buildInfo } from './buildinfo.mjs';
 
@@ -19,8 +19,7 @@ const run = (cmd, args, opts = {}) => {
  * `CFBundleIcons` on iOS, an `.icns` built by `iconutil` on macOS. Returns
  * the plist keys to merge; nothing when the app declares no such icon. */
 export function appIcon(app, dir, platform, { catalog = false } = {}) {
-  // An Icon Composer package goes to actool as it is (`iosAssets`).
-  if (platform === 'ios' && app.manifest.host?.ios?.icon) return {};
+  if (app.manifest.host?.[platform]?.icon) return {};
   const icon = (app.manifest.icons ?? []).find((i) => { const m = /^(\d+)x(\d+)$/.exec(i.sizes ?? ''); return m && m[1] === m[2] && Number(m[1]) >= 512; });
   if (!icon) return {};
   const source = resolve(app.dir, icon.src);
@@ -50,81 +49,141 @@ export function appIcon(app, dir, platform, { catalog = false } = {}) {
   return { CFBundleIconFile: 'AppIcon' };
 }
 
-/** The manifest's `host.ios.icon` copied into `work` as AppIcon.icon, or
- * null when the app declares none. */
-function composedIcon(app, work) {
-  const declared = app.manifest.host?.ios?.icon;
-  if (!declared) return null;
-  const source = resolve(app.dir, declared);
-  if (!existsSync(resolve(source, 'icon.json'))) throw new Error(`host/apple: ${app.name}'s host.ios.icon ${declared} is not an Icon Composer package (no icon.json)`);
-  const target = resolve(work, 'AppIcon.icon');
-  cpSync(source, target, { recursive: true });
-  return target;
+/** The iOS launch screen's picture (`host.ios.launchImage`) with the SHA-256
+ * of its bytes, or null: a binary input, as the asset catalogs are, which the
+ * bake records and packaging draws from the bytes it recorded. */
+export function launchImageInventory(app) {
+  const image = app.manifest.host?.ios?.launchImage;
+  if (!image) return null;
+  const source = resolve(app.dir, image.src);
+  if (!existsSync(source)) throw new Error(`host/apple: ${app.name}'s launch image ${image.src} does not exist`);
+  return { src: image.src, width: image.width, sha256: createHash('sha256').update(readFileSync(source)).digest('hex') };
 }
 
-/** Every file of an Icon Composer package, by path and content, for the
- * kept assets' key. */
-function composedHash(app) {
-  const declared = app.manifest.host?.ios?.icon;
-  const source = declared && resolve(app.dir, declared);
-  if (!source || !existsSync(source)) return null;
-  const hash = createHash('sha256');
-  const walk = (dir) => {
-    for (const name of readdirSync(dir).sort()) {
-      const path = resolve(dir, name);
-      if (lstatSync(path).isDirectory()) walk(path);
-      else hash.update(relative(source, path)).update(readFileSync(path));
+/** Catalogs follow the app's native module directory selection; Icon Composer
+ * projects are explicitly selected per platform. Their bytes
+ * are native binary inputs, not portable plan assets or live update payloads. */
+export function appleAssetCatalogInventory(app, platform) {
+  const own = resolve(app.dir, platform === 'tvos' ? 'ios' : platform, 'modules');
+  const folder = existsSync(own) ? own : resolve(app.dir, 'modules/apple');
+  const catalogs = (existsSync(folder) ? readdirSync(folder) : []).filter(name => name.endsWith('.xcassets')).sort().map(name => {
+    const path = resolve(folder, name);
+    return { path: relative(app.dir, path), files: catalogFiles(path) };
+  });
+  const selected = ['ios', 'macos'].includes(platform) && app.manifest?.host?.[platform]?.icon;
+  if (selected) {
+    const path = resolve(app.dir, selected), field = `host.${platform}.icon: ${selected}`;
+    if (!existsSync(path)) throw new Error(`${field} does not exist`);
+    if (!selected.endsWith('.icon') || !lstatSync(path).isDirectory()) throw new Error(`${field} must name an .icon directory`);
+    if (isAbsolute(selected) || !path.startsWith(resolve(app.dir) + '/') || !realpathSync(path).startsWith(realpathSync(app.dir) + '/')) throw new Error(`${field} must be inside the app`);
+    // `AppIcon` is the primary set's name (`iosAssets`), and a set named like the project would take its name;
+    // any other `.appiconset` is an alternate icon, which actool compiles beside the project.
+    const taken = new Set(['AppIcon.appiconset', `${basename(selected, '.icon')}.appiconset`]);
+    for (const entry of catalogs) {
+      const primary = readdirSync(resolve(app.dir, entry.path), { recursive: true }).sort().find(name => taken.has(basename(name)));
+      if (primary) throw new Error(`${field} conflicts with ${entry.path}/${primary}; select one primary icon`);
     }
+    catalogs.push({ path: relative(app.dir, path), files: catalogFiles(path) });
+  }
+  return catalogs;
+}
+function catalogFiles(root) {
+  const files = [];
+  const walk = path => {
+    const info = lstatSync(path);
+    if (info.isSymbolicLink()) throw new Error(`Apple asset catalogs must not contain symlinks: ${path}`);
+    if (info.isDirectory()) for (const name of readdirSync(path).sort()) walk(resolve(path, name));
+    else if (info.isFile()) files.push({ name: relative(root, path), sha256: createHash('sha256').update(readFileSync(path)).digest('hex') });
+    else throw new Error(`Unsupported Apple asset catalog input: ${path}`);
   };
-  walk(source);
-  return hash.digest('hex');
+  if (!lstatSync(root).isDirectory()) throw new Error(`Apple asset catalog must be a directory: ${root}`);
+  walk(root);
+  return files;
 }
 
-/** All iOS asset sets share one actool pass: each pass replaces Assets.car.
- * `kept` names a directory of the app's and the toolchain's stamp: the icons
- * and the catalog are then made once for each icon file, colour, platform and
- * toolchain and copied into `dir`, since making them is over a second of
- * every simulator build. */
-export function iosAssets(app, dir, device, { catalog = false, kept = null } = {}) {
+/** One actool pass includes the app's catalogs, selected or generated icon and launch
+ * colours: separate passes silently replace Assets.car. No unchanged build
+ * reruns actool; the cache key includes source bytes, target and toolchain. */
+export function iosAssets(app, dir, device, options = {}) {
+  return appleAssets(app, dir, { ...options, device, platform: options.tv ? 'tvos' : 'ios' });
+}
+export function appleAssets(app, dir, { platform = 'macos', device = false, catalog = false, kept = null, expected, expectedLaunchImage, launch = 'system' } = {}) {
+  const sourcePlatform = platform === 'tvos' ? 'ios' : platform;
+  const catalogs = appleAssetCatalogInventory(app, platform);
+  const selected = catalogs.find(entry => entry.path.endsWith('.icon'));
+  if (expected !== undefined && JSON.stringify(catalogs) !== JSON.stringify(expected))
+    throw new Error('Apple asset catalogs changed after the bake; rebuild before packaging');
+  const launchImage = platform === 'ios' ? launchImageInventory(app) : null;
+  if (expectedLaunchImage !== undefined && JSON.stringify(launchImage) !== JSON.stringify(expectedLaunchImage))
+    throw new Error('the launch image changed after the bake; rebuild before packaging');
+  if (platform !== 'ios' && !catalogs.length) { rmSync(resolve(dir, 'Assets.car'), { force: true }); return {}; }
   if (kept) {
-    const icons = (app.manifest.icons ?? []).map((icon) => [icon, existsSync(resolve(app.dir, icon.src)) ? createHash('sha256').update(readFileSync(resolve(app.dir, icon.src))).digest('hex') : null]);
-    const key = createHash('sha256').update(JSON.stringify([icons, composedHash(app), app.manifest.background_color ?? null, app.manifest.background_color_dark ?? null,
-      app.manifest.host?.ios?.minimumOS ?? null, device, catalog, kept.stamp])).digest('hex').slice(0, 16);
-    const made = resolve(kept.dir, `assets-${key}`);
+    const icons = (app.manifest.icons ?? []).map(icon => [icon, existsSync(resolve(app.dir, icon.src)) ? createHash('sha256').update(readFileSync(resolve(app.dir, icon.src))).digest('hex') : null]);
+    const key = createHash('sha256').update(JSON.stringify([catalogs, icons, app.manifest.background_color ?? null, app.manifest.background_color_dark ?? null, launch, launchImage,
+      app.manifest.host?.[sourcePlatform]?.minimumOS ?? null, platform, device, catalog, kept.stamp,
+      // What the compile itself writes: a cache from before `--accent-color` named no accent
+      'accent-color'])).digest('hex').slice(0, 16);
+    const made = resolve(kept.dir, `assets-${platform}-${key}`);
     if (!existsSync(resolve(made, 'keys.json'))) {
       const making = `${made}.${process.pid}.tmp`;
       rmSync(making, { recursive: true, force: true });
       mkdirSync(making, { recursive: true });
-      writeFileSync(resolve(making, 'keys.json'), JSON.stringify(iosAssets(app, making, device, { catalog })));
-      rmSync(made, { recursive: true, force: true });
-      renameSync(making, made);
-      for (const old of readdirSync(kept.dir)) if (/^assets-[0-9a-f]{16}$/.test(old) && resolve(kept.dir, old) !== made) rmSync(resolve(kept.dir, old), { recursive: true, force: true });
+      try {
+        writeFileSync(resolve(making, 'keys.json'), JSON.stringify(appleAssets(app, making, { platform, device, catalog, expected: catalogs, expectedLaunchImage: launchImage, launch })));
+        rmSync(made, { recursive: true, force: true });
+        renameSync(making, made);
+      } finally { rmSync(making, { recursive: true, force: true }); }
+      for (const old of readdirSync(kept.dir)) if (old.startsWith(`assets-${platform}-`) && resolve(kept.dir, old) !== made) rmSync(resolve(kept.dir, old), { recursive: true, force: true });
     }
+    rmSync(resolve(dir, 'Assets.car'), { force: true });
     for (const file of readdirSync(made)) if (file !== 'keys.json') cpSync(resolve(made, file), resolve(dir, file), { recursive: true });
     return JSON.parse(readFileSync(resolve(made, 'keys.json'), 'utf8'));
   }
-  const work = mkdtempSync(resolve(tmpdir(), 'exact-ios-assets-'));
+  const work = mkdtempSync(resolve(tmpdir(), 'exact-apple-assets-'));
   try {
-    const assets = resolve(work, 'Assets.xcassets');
-    const keys = { ...appIcon(app, dir, 'ios', { catalog: catalog ? assets : false }), ...launchScreen(app, assets) };
-    // `host.ios.icon`, an Icon Composer package: actool takes it beside the
-    // catalog and names the icon after the package, so it goes in as
-    // AppIcon.icon. It writes the fallback PNGs and the plist keys itself.
-    const composed = composedIcon(app, work);
-    const hasIcon = Boolean(composed) || existsSync(resolve(assets, 'AppIcon.appiconset'));
-    if (catalog && !hasIcon) throw new Error(`host/apple: ${app.name}'s distribution bundle requires an AppIcon; declare a square icon of at least 512 px`);
+    const sources = catalogs.map(entry => {
+      const copied = resolve(work, 'app', entry.path);
+      cpSync(resolve(app.dir, entry.path), copied, { recursive: true });
+      if (JSON.stringify(catalogFiles(copied)) !== JSON.stringify(entry.files))
+        throw new Error('Apple asset catalogs changed while capturing them; rebuild before packaging');
+      return copied;
+    });
+    const assets = resolve(work, 'Generated.xcassets');
+    // The launch image drawn is the bytes the inventory hashed, copied once.
+    let picture = null;
+    if (launchImage) {
+      const bytes = readFileSync(resolve(app.dir, launchImage.src));
+      if (createHash('sha256').update(bytes).digest('hex') !== launchImage.sha256) throw new Error('the launch image changed while capturing it; rebuild before packaging');
+      picture = { path: resolve(work, 'launch.png'), width: launchImage.width };
+      writeFileSync(picture.path, bytes);
+    }
+    const keys = platform === 'ios' ? { ...appIcon(app, dir, 'ios', { catalog: catalog ? assets : false }), ...launchScreen(app, assets, launch, picture) } : {};
+    const hasIcon = existsSync(resolve(assets, 'AppIcon.appiconset'));
+    const iconName = selected ? basename(selected.path, '.icon') : hasIcon ? 'AppIcon' : null;
+    if (catalog && platform === 'ios' && !iconName) throw new Error(`host/apple: ${app.name}'s distribution bundle requires an AppIcon; declare host.ios.icon or a square icon of at least 512 px`);
     if (hasIcon || keys.UILaunchScreen) {
       writeFileSync(resolve(assets, 'Contents.json'), JSON.stringify({ info: { author: 'exact', version: 1 } }));
+      sources.push(assets);
+    }
+    rmSync(resolve(dir, 'Assets.car'), { force: true });
+    // An `AccentColor` colour set is the app's accent, as Xcode's default
+    // names it: actool writes `NSAccentColorName`, which AppKit applies and
+    // ExactKit gives every UIKit window (`AppAccent`) under an `auto` accent.
+    const accent = catalogs.some(c => c.files.some(f => /(^|\/)AccentColor\.colorset\/Contents\.json$/.test(f.name)));
+    if (sources.length) {
       const partial = resolve(work, 'partial.plist');
-      run('xcrun', ['actool', assets, ...(composed ? [composed] : []), '--compile', dir, '--platform', device ? 'iphoneos' : 'iphonesimulator',
-        '--minimum-deployment-target', app.manifest.host?.ios?.minimumOS ?? '17.0',
-        ...(hasIcon ? ['--app-icon', 'AppIcon', '--target-device', 'iphone', '--target-device', 'ipad'] : []),
+      const target = platform === 'macos' ? 'macosx' : platform === 'tvos' ? (device ? 'appletvos' : 'appletvsimulator') : device ? 'iphoneos' : 'iphonesimulator';
+      run('xcrun', ['actool', ...sources, '--compile', dir, '--platform', target,
+        '--minimum-deployment-target', app.manifest.host?.[sourcePlatform]?.minimumOS ?? (platform === 'macos' ? '14.0' : '17.0'),
+        ...(platform === 'macos' ? [] : ['--target-device', ...(platform === 'tvos' ? ['tv'] : ['iphone', '--target-device', 'ipad'])]),
+        ...(iconName ? ['--app-icon', iconName] : []),
+        ...(accent ? ['--accent-color', 'AccentColor'] : []),
         '--output-partial-info-plist', partial, '--output-format', 'human-readable-text'], { stdio: 'ignore' });
       Object.assign(keys, JSON.parse(run('plutil', ['-convert', 'json', '-o', '-', partial], { encoding: 'utf8', stdio: 'pipe' }).stdout));
     }
-    if (catalog) {
+    if (catalog && platform === 'ios') {
       const contents = JSON.parse(run('xcrun', ['assetutil', '--info', resolve(dir, 'Assets.car')], { encoding: 'utf8', stdio: 'pipe' }).stdout);
-      if (!contents.some(asset => asset.Name === 'AppIcon')) throw new Error(`host/apple: ${dir}/Assets.car has no AppIcon`);
+      if (!contents.some(asset => asset.Name === iconName)) throw new Error(`host/apple: ${dir}/Assets.car has no ${iconName}`);
     }
     return keys;
   } finally { rmSync(work, { recursive: true, force: true }); }
@@ -134,11 +193,37 @@ export function iosAssets(app, dir, device, { catalog = false, kept = null } = {
  * (the manifest's `background_color` and `background_color_dark`): iOS crossfades
  * from the launch screen to the first frame, and between two screens of one
  * colour that crossfade is invisible, so the app opens on its first frame.
- * `UILaunchScreen` names colours only from an asset catalog, so this
- * writes its colour set for the shared compile. Returns the plist keys to merge. */
-function launchScreen(app, catalog) {
-  const light = app.manifest.background_color, dark = app.manifest.background_color_dark;
-  if (!light) return {};
+ * Where the manifest names none, the app's unsaid background is the platform's
+ * (LLP 1115 D2): `systemBackground`, which an empty `UILaunchScreen` already is
+ * in both schemes, or, where the first route scrolls a grouped list (`launch`,
+ * the bake's `launchBackground`, LLP 1116.011 D2.3), `systemGroupedBackground`,
+ * which the system shows as #F2F2F7 and black. That is a colour set of its own
+ * (a reference to the system colour compiles to its light value alone), so the
+ * window under the first frame (`ExactLaunch`, read by the presenter) is the
+ * same grey and nothing lighter shows between the launch screen and the first
+ * frame (stopwatch, round 13: "blank white screen for ~1 s").
+ * `UILaunchScreen` names colours and images only from an asset catalog, so
+ * this writes its colour set, and the manifest's `host.ios.launchImage`
+ * (`picture`: its captured bytes' file and width) as an image set at its
+ * width in points (1x, 2x and 3x), which iOS centres on that colour, for the
+ * shared compile. Returns the plist keys to merge. */
+function launchScreen(app, catalog, launch = 'system', picture = null) {
+  const named = app.manifest.background_color;
+  const light = named ?? (launch === 'grouped' ? '#F2F2F7' : undefined);
+  const dark = named ? app.manifest.background_color_dark : launch === 'grouped' ? '#000000' : undefined;
+  const keys = {};
+  if (picture) {
+    const set = resolve(catalog, 'ExactLaunchImage.imageset');
+    mkdirSync(set, { recursive: true });
+    const images = [1, 2, 3].map(scale => {
+      const filename = `launch@${scale}x.png`;
+      run('sips', ['--resampleWidth', String(Math.round(picture.width * scale)), picture.path, '--out', resolve(set, filename)], { stdio: 'ignore' });
+      return { idiom: 'universal', filename, scale: `${scale}x` };
+    });
+    writeFileSync(resolve(set, 'Contents.json'), JSON.stringify({ images, info: { author: 'exact', version: 1 } }));
+    keys.UIImageName = 'ExactLaunchImage';
+  }
+  if (!light) return picture ? { UILaunchScreen: keys } : {};
   const components = (hex, field) => {
     const m = /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.exec(hex ?? '');
     if (!m) throw new Error(`${field} must be a #RGB, #RRGGBB or #RRGGBBAA colour, not ${JSON.stringify(hex)}`);
@@ -150,7 +235,7 @@ function launchScreen(app, catalog) {
   if (dark) colors.push({ idiom: 'universal', appearances: [{ appearance: 'luminosity', value: 'dark' }], color: components(dark, 'background_color_dark') });
   mkdirSync(resolve(catalog, 'ExactLaunch.colorset'), { recursive: true });
   writeFileSync(resolve(catalog, 'ExactLaunch.colorset', 'Contents.json'), JSON.stringify({ colors, info: { author: 'exact', version: 1 } }));
-  return { UILaunchScreen: { UIColorName: 'ExactLaunch' } };
+  return { UILaunchScreen: { UIColorName: 'ExactLaunch', ...keys } };
 }
 
 const NESTED_BUNDLE = /\.(app|appex|bundle|framework|plugin|xpc|systemextension)$/;
@@ -201,23 +286,148 @@ function bundleExecutable(bundle) {
  *  and every nested bundle after what it holds. A bundle is sealed over its
  *  contents, so code re-signed after its container invalidates the container.
  *  Symlinks are skipped: a framework's `Versions/Current` names what is signed
- *  through its real path. */
-export function signingOrder(bundle) {
+ *  through its real path. Baked code keeps its verified digest and signature;
+ *  static assets cannot contain code a release would have to re-sign. */
+export function signingOrder(bundle, compat = null, identity = null) {
+  const preserved = new Map();
+  const embedded = compat?.embedded;
+  for (const card of embedded?.assets ?? []) {
+    const path = resolve(bundle, 'Contents/Resources', card.name);
+    if (!machO(path)) continue;
+    if (!card.name.startsWith('rust/')) throw new Error(`Mach-O asset ${card.name}: move code to host.macos.resources before releasing`);
+    preserved.set(path, card.sha256);
+  }
+  // GPU cards name the code digest, signature left out (codeDigest).
+  const gpu = new Set();
+  const gpuCards = [...(embedded?.gpu ? [['libexact_gpu.dylib', embedded.gpu]] : []),
+    ...Object.entries(embedded?.gpuModules ?? {}).map(([name, card]) => [`libexact_gpu_${name.replaceAll('-', '_')}.dylib`, card])];
+  for (const [file, card] of gpuCards) {
+    const path = resolve(bundle, 'Contents/MacOS', file);
+    gpu.add(path); preserved.set(path, card.sha256);
+  }
+  for (const [path, digest] of preserved) {
+    if (!existsSync(path) || (gpu.has(path) ? codeDigest(readFileSync(path)) : createHash('sha256').update(readFileSync(path)).digest('hex')) !== digest)
+      throw new Error(`baked code ${path}: digest differs; rebuild before signing`);
+    run('codesign', ['--verify', '--strict', ...(identity && identity !== '-' ? ['-R', `=certificate leaf = H"${identity}"`] : []), path], { stdio: 'ignore' });
+  }
   const order = [];
   const walk = (dir, main) => {
     for (const name of readdirSync(dir, { withFileTypes: true })) {
       const path = resolve(dir, name.name);
-      if (name.isDirectory() && NESTED_BUNDLE.test(name.name)) {
+      if (name.isDirectory() && NESTED_BUNDLE.test(name.name) && bundleExecutable(path)) {
         walk(path, bundleExecutable(path));
         order.push(path);
       } else if (name.isDirectory()) walk(path, main);
-      else if (name.isFile() && path !== main && machO(path)) order.push(path);
+      else if (name.isFile() && path !== main && !preserved.has(path) && machO(path)) order.push(path);
     }
   };
   walk(resolve(bundle, 'Contents'), bundleExecutable(bundle));
   return [...order, bundle];
 }
 
+/** The Mach-O file type of a thin file, or of a universal file's first
+ *  architecture (`mach-o/loader.h`: 2 is `MH_EXECUTE`, 6 `MH_DYLIB`). */
+function machOType(path) {
+  const read = (at, n) => { const b = Buffer.alloc(n), fd = openSync(path, 'r'); try { return readSync(fd, b, 0, n, at) === n ? b : null; } finally { closeSync(fd); } };
+  let head = read(0, 16);
+  if (!head) return null;
+  const fat = head.readUInt32BE(0);
+  if (fat === 0xcafebabe || fat === 0xcafebabf) {
+    const arch = read(8, 16);
+    head = arch && read(fat === 0xcafebabe ? arch.readUInt32BE(8) : Number(arch.readBigUInt64BE(8)), 16);
+    if (!head) return null;
+  }
+  const magic = head.readUInt32BE(0);
+  if (magic === 0xfeedface || magic === 0xfeedfacf) return head.readUInt32BE(12);
+  if (magic === 0xcefaedfe || magic === 0xcffaedfe) return head.readUInt32LE(12);
+  return null;
+}
+
+/** The hardened-runtime entitlements `exact release` signs the Mac app with:
+ * the bake's derivation from the app's `device.*` grants (a usage string
+ * alone is not enough; a hardened app without the entitlement is silently
+ * refused). Runtime exceptions never reach the app's own executable (LLP
+ * 1069.008 D9). Null when the app grants no such device. */
+export const macReleaseEntitlements = (compat) => {
+  const names = compat?.reach?.entitlements ?? [];
+  // An https auth callback's `webcredentials:` domain (LLP 1069.006 D2),
+  // which a Developer ID build signs only with a profile that grants it.
+  const domains = compat?.reach?.auth?.associatedDomains ?? [];
+  if (!names.length && !domains.length) return null;
+  return plistFile({ ...Object.fromEntries(names.map((name) => [name, true])),
+    ...(domains.length ? { 'com.apple.developer.associated-domains': domains } : {}) });
+};
+
+/** The executable a bundle runs, as Foundation resolves it (`NSBundle`
+ *  `executablePath`, the resolver `codesign` shares): it honours
+ *  `Info-macos.plist`, XML comments and entities, which `bundleExecutable`'s
+ *  quick read does not. Real path, or null. */
+function resolvedExecutable(bundle) {
+  const read = spawnSync('osascript', ['-l', 'JavaScript', '-e',
+    'ObjC.import("Foundation"); function run(argv) { const b = $.NSBundle.bundleWithPath(argv[0]); return b.isNil() ? "" : (ObjC.unwrap(b.executablePath) || ""); }',
+    bundle], { encoding: 'utf8' });
+  const path = read.status === 0 ? read.stdout.replace(/\n$/, '') : '';
+  return path && existsSync(path) ? realpathSync(path) : null;
+}
+
+/** Each helper a `runtime.<exception> <path>` grant names (LLP 1069.008 D9),
+ *  keyed by the path `signingOrder` signs it as (a nested bundle, for the
+ *  executable that bundle runs), mapped to its entitlements plist. A target
+ *  must be a regular Mach-O executable inside a `host.macos.resources`
+ *  destination, reached through no symbolic link, with no other hard link
+ *  (a signature written to it is every link's), and signed by the walk;
+ *  every target that is not is refused, all in one error. No grant: an
+ *  empty map. */
+export function helperEntitlements(bundle, manifest, compat, order) {
+  const declared = Object.entries(compat?.reach?.helperEntitlements ?? {});
+  const signed = new Map(), errors = [];
+  if (!declared.length) return signed;
+  const roots = macResourceMappings(manifest).map(({ to }) => to);
+  const contents = resolve(bundle, 'Contents');
+  // Signing a nested bundle signs the executable Foundation resolves for it,
+  // whichever file the walk took for its main one; so a target that is that
+  // executable takes its grant through the bundle, which the walk signs after
+  // anything it signed the file as on its own.
+  const runs = new Map();
+  for (const p of order) if (p !== bundle && NESTED_BUNDLE.test(p)) {
+    const executable = resolvedExecutable(p);
+    if (executable) runs.set(executable, p);
+  }
+  for (const [path, keys] of declared) {
+    const file = resolve(contents, path), info = lstatSync(file, { throwIfNoEntry: false });
+    const real = info?.isFile() ? realpathSync(file) : null;
+    const at = runs.get(real) ?? (order.includes(file) ? file : null);
+    const why = !roots.some((to) => path.startsWith(to + '/')) ? `is not inside a host.macos.resources destination (${roots.join(', ') || 'none declared'})`
+      : !info?.isFile() ? 'is not a file in the bundle'
+      : real !== resolve(realpathSync(contents), path) ? 'is reached through a link'
+      : info.nlink !== 1 ? 'has another hard link, which its signature would reach'
+      : machOType(file) !== 2 ? 'is not a Mach-O executable'
+      : !at ? 'is not code the release signs' : null;
+    if (why) errors.push(`runtime grant: Contents/${path} ${why}`);
+    else signed.set(at, plistFile(Object.fromEntries(keys.map((key) => [key, true]))));
+  }
+  if (errors.length) throw new Error(errors.join('\n'));
+  return signed;
+}
+
+/** The release's signature walk: every path `signingOrder` names, innermost
+ *  first, with `identity`, the hardened runtime and `timestamp`. The app
+ *  carries `macReleaseEntitlements`, each helper a runtime grant names its
+ *  own (`helperEntitlements`), and all other nested code none. The plists
+ *  are written into `scratch`. */
+export function signRelease(bundle, { compat, manifest, identity, id, scratch, timestamp = ['--timestamp'] }) {
+  const order = signingOrder(bundle, compat, identity);
+  const plists = helperEntitlements(bundle, manifest, compat, order);
+  const own = macReleaseEntitlements(compat);
+  if (own) plists.set(bundle, own);
+  let n = 0;
+  for (const path of order) {
+    const plist = plists.get(path), file = plist && resolve(scratch, `entitlements-${n++}.plist`);
+    if (plist) writeFileSync(file, plist);
+    run('codesign', ['--force', '--sign', identity, '--options', 'runtime', ...timestamp,
+      ...(path === bundle ? ['--identifier', id] : []), ...(plist ? ['--entitlements', file] : []), path]);
+  }
+}
 
 /** Native files are binary inputs, never plan assets or TypeScript sources. */
 export function macResourceMappings(manifest) {
@@ -296,4 +506,86 @@ export function copyMacResources(app, contents, expected = null) {
   if (JSON.stringify(macResourceInventory(app, contents)) !== JSON.stringify(inventory))
     throw new Error('native resources changed during bundle copy; rebuild');
   return inventory;
+}
+
+/** A plist from a plain object: strings, booleans, numbers, arrays, and objects, the four spellings Apple's DTD has. */
+const plist = (value, indent = '  ') => {
+  if (typeof value === 'string') return `<string>${value.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</string>`;
+  if (typeof value === 'boolean') return value ? '<true/>' : '<false/>';
+  if (typeof value === 'number') return Number.isInteger(value) ? `<integer>${value}</integer>` : `<real>${value}</real>`;
+  if (Array.isArray(value)) return `<array>${value.map((v) => plist(v, indent)).join('')}</array>`;
+  return `<dict>\n${Object.entries(value).map(([k, v]) => `${indent}<key>${k}</key>${plist(v, indent + '  ')}`).join('\n')}\n${indent.slice(2)}</dict>`;
+};
+export const plistFile = (dict) => `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">${plist(dict)}</plist>\n`;
+
+/** A loose `Frameworks/lib….dylib` as `Frameworks/<name>.framework/<name>`,
+ * which is the only form App Store Connect accepts for an embedded library
+ * (ITMS-90171, ITMS-90432). The presenter loads either (`embeddedModule` in ExactKit). */
+export function wrapFramework(frameworks, loose, name, app, platform = 'iPhoneOS') {
+  const from = resolve(frameworks, loose);
+  if (!existsSync(from)) return;
+  const dir = resolve(frameworks, `${name}.framework`);
+  mkdirSync(dir, { recursive: true });
+  renameSync(from, resolve(dir, name));
+  run('install_name_tool', ['-id', `@rpath/${name}.framework/${name}`, resolve(dir, name)], { stdio: 'ignore' });
+  writeFileSync(resolve(dir, 'Info.plist'), plistFile({
+    CFBundleExecutable: name, CFBundleIdentifier: `${app.id}.${name.toLowerCase().replaceAll('_', '-')}`, CFBundleName: name,
+    CFBundlePackageType: 'FMWK', CFBundleVersion: process.env.EXACT_BUILD_NUMBER ?? '1', CFBundleShortVersionString: process.env.EXACT_VERSION ?? '0.1.0',
+    CFBundleSupportedPlatforms: [platform], MinimumOSVersion: app.manifest.host?.ios?.minimumOS ?? '17.0',
+  }));
+}
+
+/** The bake's GPU digest (bake/src/receipt.rs, `code_digest`): the bytes, less a signed 64-bit
+ *  Mach-O's code signature and the three sizes that follow it, so a re-signer (AppDrop) keeps it. */
+export function codeDigest(bytes) {
+  const word = (at) => at + 4 <= bytes.length ? bytes.readUInt32LE(at) : null;
+  const code = () => {
+    if (word(0) !== 0xfeedfacf || word(16) === null) return null;
+    let at = 32, signature = null;
+    const zero = [];
+    for (let i = 0; i < word(16); i++) {
+      const cmd = word(at), size = word(at + 4);
+      if (cmd === null || size === null) return null;
+      if (cmd === 0x1d) { signature = word(at + 8); zero.push([at + 12, 4]); }
+      else if (cmd === 0x19 && bytes.subarray(at + 8, at + 24).equals(Buffer.from('__LINKEDIT\0\0\0\0\0\0', 'latin1'))) zero.push([at + 32, 8], [at + 48, 8]);
+      at += Math.max(size, 8);
+    }
+    if (signature === null || signature > bytes.length) return null;
+    const out = Buffer.from(bytes.subarray(0, signature));
+    for (const [z, len] of zero) { if (z + len > out.length) return null; out.fill(0, z, z + len); }
+    return out;
+  };
+  return createHash('sha256').update(code() ?? bytes).digest('hex');
+}
+
+export function signedGpuProduct(product, { identity = '-', framework = null, app, platform = 'iPhoneOS', hardened = false } = {}) {
+  // Cargo puts its own unsigned file back on every build, and a signature
+  // carries its signing time: signing in place made the app's bake (which
+  // names this product's digest) run on every build. Sign a copy beside it,
+  // again only when Cargo's bytes or the identity change.
+  const directory = resolve(dirname(product), 'signed', ...(framework ? ['frameworks', basename(product)] : []));
+  const container = resolve(directory, framework ? `${framework}.framework` : basename(product));
+  const signed = framework ? resolve(container, framework) : container, record = `${container}.source`;
+  const source = JSON.stringify([createHash('sha256').update(readFileSync(product)).digest('hex'), identity ?? '-',
+    hardened, framework, framework ? [app.id, app.manifest.host?.ios?.minimumOS ?? '17.0', platform, process.env.EXACT_BUILD_NUMBER ?? '1', process.env.EXACT_VERSION ?? '0.1.0'] : null]);
+  // An ad-hoc signature (`-`: every simulator build) names no certificate
+  // to require; asked for one, the verification failed, and the copy was
+  // signed again by every build, which reran the app's bake and compile.
+  const current = existsSync(signed) && existsSync(record) && readFileSync(record, 'utf8') === source
+    && spawnSync('codesign', ['--verify', '--strict', ...(identity && identity !== '-' ? ['-R', `=certificate leaf = H"${identity}"`] : []), container]).status === 0;
+  if (!current) {
+    mkdirSync(directory, { recursive: true });
+    if (framework) rmSync(container, { recursive: true, force: true });
+    copyFileSync(product, resolve(directory, basename(product)));
+    if (framework) wrapFramework(directory, basename(product), framework, app, platform);
+    run('codesign', ['--force', '--sign', identity ?? '-', ...(hardened ? ['--options', 'runtime'] : []),
+      hardened && identity && identity !== '-' ? '--timestamp' : '--timestamp=none', container], {stdio:'ignore'});
+    writeFileSync(record, source);
+  }
+  return signed;
+}
+
+export function assertArchiveFrameworks(directory) {
+  const loose = readdirSync(directory).filter(name => name.endsWith('.dylib'));
+  if (loose.length) throw new Error(`archive has loose libraries in Frameworks: ${loose.join(', ')}`);
 }

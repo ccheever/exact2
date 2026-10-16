@@ -4,11 +4,11 @@ shape Item
   n: number
 
 component App
-  resource items = items() as shape list<Item>
+  resource items = items() as shape Item[]
   state chosen = "none"
   derive head = first(items)
   derive hasHead = head != none
-  derive agree = hasHead == not isEmpty(items)
+  derive agree = hasHead == not items.isEmpty()
   action chooseFirst
     match first(items)
       case some(i)

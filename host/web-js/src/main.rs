@@ -13,9 +13,14 @@
 mod budget_tests;
 mod code;
 mod emit;
+#[cfg(test)]
+mod emit_tests;
 mod events;
 mod faces;
 mod facts;
+mod modes;
+#[cfg(test)]
+mod modes_tests;
 mod paint;
 #[cfg(test)]
 mod paint_tests;
@@ -25,7 +30,38 @@ mod style;
 use std::process::ExitCode;
 
 const USAGE: &str =
-    "usage: exact-web-js js <app.contract | app.plan> -o <dir> [--dump] [--sites] [--dev-reload]\n       exact-web-js normalize-grants <file>";
+    "usage: exact-web-js js <app.contract | app.plan> -o <dir> [--dump] [--sites] [--dev-reload] [--app <dir>]\n       exact-web-js normalize-grants <file>\n       exact-web-js design <app.contract> <design text file, or - for stdin>";
+
+/// `design <app.contract> <file | ->` (LLP 1121 stage 4, commit 6): a scrub's
+/// design, the text (`-`: stdin) compiled in place of the app's design file, as a
+/// development build's `dev-design.json` says it, on stdout. Nothing is
+/// written.
+fn scrub_design(input: &std::path::Path, text: &str) -> ExitCode {
+    exact_web::link(exact_web_capabilities::ALL);
+    exact_kernel::style::roles::set_column(exact_kernel::style::roles::Column::Neutral);
+    let read = if text == "-" {
+        std::io::read_to_string(std::io::stdin())
+    } else {
+        std::fs::read_to_string(text)
+    };
+    let (Some(path), Ok(text)) = (contract::design_path(input), read) else {
+        eprintln!("{}: no design, or the text unreadable", input.display());
+        return ExitCode::from(1);
+    };
+    match contract::with_design_text(&path, text, || contract::compile_path_all(input, false)) {
+        Ok((plan, _)) => {
+            let _every = modes::every(true);
+            println!("{}", modes::design(&plan));
+            ExitCode::SUCCESS
+        }
+        Err(errors) => {
+            for e in errors {
+                eprintln!("{e}");
+            }
+            ExitCode::from(1)
+        }
+    }
+}
 
 fn main() -> ExitCode {
     // `--sites` (a development build): each element names its plan node, and
@@ -45,11 +81,27 @@ fn main() -> ExitCode {
             };
         }
     }
+    if let [cmd, input, text] = all.as_slice() {
+        if cmd == "design" {
+            return scrub_design(std::path::Path::new(input), text);
+        }
+    }
     let sites = all.iter().any(|a| a == "--sites");
     let dev_reload = all.iter().any(|a| a == "--dev-reload");
+    // `--app <dir>`: the app a baked plan is of, whose design's `exports`
+    // bound the declarations' token union (LLP 1121 D7).
+    let app = all
+        .iter()
+        .position(|a| a == "--app")
+        .and_then(|i| all.get(i + 1).cloned());
+    let mut skip = false;
     let args: Vec<String> = all
         .into_iter()
-        .filter(|a| a != "--sites" && a != "--dev-reload")
+        .filter(|a| {
+            let dropped = skip || a == "--app";
+            skip = a == "--app";
+            !dropped && a != "--sites" && a != "--dev-reload"
+        })
         .collect();
     let (input, out, dump) = match args.as_slice() {
         [cmd, input, o, out] if cmd == "js" && o == "-o" => (input, out, false),
@@ -63,6 +115,8 @@ fn main() -> ExitCode {
     // (animations, clip paths and filters, gradients, drag timelines) is
     // linked, as the render host links them (LLP 1047 D7).
     exact_web::link(exact_web_capabilities::ALL);
+    // Direct compiler invocations use the same roles and metrics as web builds.
+    exact_kernel::style::roles::set_column(exact_kernel::style::roles::Column::Neutral);
     let path = std::path::Path::new(input);
     // The dev loop watches every package the Contract reads (LLP 1091 D10),
     // even when this compile fails: the fix may be in the library.
@@ -150,6 +204,9 @@ fn main() -> ExitCode {
         let _ = std::fs::write(std::path::Path::new(out).join("dev-sources.json"), json);
     }
     let mut map = None;
+    // The compiler's warnings, as `contract build` prints them: a build says
+    // them too, and counts them, or they reach no one (LLP 1116.004 D7).
+    let mut warned = Vec::new();
     let plan = if input.ends_with(".plan") {
         let bytes = match std::fs::read(path) {
             Ok(b) => b,
@@ -167,7 +224,9 @@ fn main() -> ExitCode {
         }
     } else {
         // Every refusal, each naming its own file (LLP 1054 L9), as `contract build` prints them.
-        match contract::compile_path_all(path, sites) {
+        let (compiled, warnings) = contract::compile_path_all_with_warnings(path, sites);
+        warned = warnings;
+        match compiled {
             Ok((p, m)) => {
                 // The native bake's refusals, here too: this build bakes
                 // nothing, and a plan every native build refuses must not
@@ -212,6 +271,18 @@ fn main() -> ExitCode {
                     return ExitCode::from(1);
                 }
             }
+            // A development build's design, for the dev loop's live table
+            // (LLP 1121 stage 4): a value-only edit goes as a batch.
+            if dev_reload {
+                let _every = modes::every(true);
+                if let Err(e) = std::fs::write(
+                    dir.join("dev-design.json"),
+                    modes::design(&plan).to_string(),
+                ) {
+                    eprintln!("dev-design.json: {e}");
+                    return ExitCode::from(1);
+                }
+            }
             // What a Rust data module binds with (rust-data.js): the plan
             // without the bake's answers, which the page already has in
             // `app.js` and which can be most of a baked plan's bytes.
@@ -224,9 +295,17 @@ fn main() -> ExitCode {
             }
             // What `app.ts` is type-checked against, as the native bake
             // checks it (host/web-js/build.mjs; calendar F9).
-            if let Err(e) = contract::typescript(&plan).and_then(|d| {
-                std::fs::write(dir.join("app.contract.d.ts"), d).map_err(|e| e.to_string())
-            }) {
+            let contract_path = match (&app, input.ends_with(".plan")) {
+                (Some(app), _) => Some(std::path::Path::new(app).join("app.contract")),
+                (None, false) => Some(std::path::PathBuf::from(input)),
+                (None, true) => None,
+            };
+            let exports = contract_path.and_then(|p| contract::design_exports(&p));
+            if let Err(e) =
+                contract::typescript_exporting(&plan, exports.as_deref()).and_then(|d| {
+                    std::fs::write(dir.join("app.contract.d.ts"), d).map_err(|e| e.to_string())
+                })
+            {
                 eprintln!("app.contract.d.ts: {e}");
                 return ExitCode::from(1);
             }
@@ -279,6 +358,11 @@ fn main() -> ExitCode {
                     );
                 }
             }
+            // `wakelock` (wakelock.js, LLP 1125 D11).
+            let _ = std::fs::remove_file(dir.join("wakelock.flag"));
+            if exact_runner::wakelock::bound(&plan) {
+                let _ = std::fs::write(dir.join("wakelock.flag"), "");
+            }
             // Every portable symbol role, which symbols.js loads when a bound
             // source names one the plan's strings don't (ledger diary F10).
             let roles: Vec<String> = exact_kernel::generated::SYMBOL_ROLES
@@ -319,14 +403,18 @@ fn main() -> ExitCode {
             if let Some(meta) = &out_files.viewport {
                 let _ = std::fs::write(dir.join("viewport.txt"), meta);
             }
+            for w in &warned {
+                eprintln!("{w}");
+            }
             for w in &out_files.warnings {
                 eprintln!("warning: {w}");
             }
+            let count = warned.len() + out_files.warnings.len();
             println!(
-                "{out}: app.js {} B, app.css {} B, {} warnings",
+                "{out}: app.js {} B, app.css {} B, {count} warning{}",
                 out_files.js.len(),
                 out_files.css.len(),
-                out_files.warnings.len()
+                if count == 1 { "" } else { "s" }
             );
             ExitCode::SUCCESS
         }

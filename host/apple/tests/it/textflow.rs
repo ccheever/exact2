@@ -121,7 +121,7 @@ fn list_settlement_publishes_final_mounted_flow_and_clears_disappearing_shapes()
     }
     let plan = contract::compile(r#"component App
   state holes = true
-  resource rows = rows() as shape list<number>
+  resource rows = rows() as shape number[]
   action clear
     holes = false
   view
@@ -129,10 +129,10 @@ fn list_settlement_publishes_final_mounted_flow_and_clears_disappearing_shapes()
       button testId="clear" press=clear
         text "Clear"
       list testId="list" virtualized=true estimated-item-height=80 width=240 height=160 overflow-x="hidden"
-        each row in rows key=row
+        for row in rows key=row
           view position="relative" width=240 height=80
             text `Paragraph ${row} around the circle` testId=`row-${row}` width=240 height=80
-            when holes
+            if holes
               box position="absolute" left=80 top=10 width=40 height=40 wrap-flow="both" shape-outside="circle()"
 "#).unwrap().encode();
     let (mut h, _) = Host::boot(
@@ -161,6 +161,7 @@ fn list_settlement_publishes_final_mounted_flow_and_clears_disappearing_shapes()
         port_cross: 240.,
         port_main: 160.,
         cross: 240.,
+        padding: [0.0; 2],
         measurements: snapshot
             .rows
             .iter()

@@ -133,6 +133,37 @@ export function exercise(source: string): string {
       out[locale+' percent']=[0.0041,-0.0041,0.5].map(v=>new Intl.NumberFormat(locale,{style:'percent',minimumFractionDigits:2}).format(v));
       out[locale+' resolved']=[new Intl.NumberFormat(locale,{notation:'compact'}).resolvedOptions().notation as string];
     }
+    // A half rounds away from zero, from the number's shortest digits
+    // (X72: Apple's engine rounded USD 0.825 to even, `$0.82`), in each
+    // style and digit option, and by the formatter's roundingMode.
+    const halves=[0.825,1.005,2.675,0.125,-0.825], usd={style:'currency',currency:'USD'} as const;
+    const format=(options:object,v:number)=>{try{return new Intl.NumberFormat('en-US',options).format(v);}catch(e){return (e as Error).name;}};
+    out['en-US currency halves']=halves.map(v=>format(usd,v));
+    out['en-US currency halfExpand']=halves.map(v=>format({...usd,roundingMode:'halfExpand'},v));
+    out['en-US currency toLocaleString']=halves.map(v=>v.toLocaleString('en-US',usd));
+    out['de-DE currency halves']=halves.map(v=>new Intl.NumberFormat('de-DE',usd).format(v));
+    out['en-US yen halves']=[1234.5,-1234.5,0.5,2.5].map(v=>format({style:'currency',currency:'JPY'},v));
+    out['en-US percent halves']=[0.125,0.0125,-0.125,0.995,0.005].map(v=>format({style:'percent'},v));
+    out['en-US percent2 halves']=[0.00125,-0.00125,0.012345].map(v=>format({style:'percent',minimumFractionDigits:2},v));
+    out['en-US significant halves']=[0.125,12.5,1250,-0.0125,9.95,0.000125].map(v=>format({maximumSignificantDigits:2},v));
+    out['en-US scientific halves']=[1234.5,0.00012345,1.0005,-1234.5].map(v=>format({notation:'scientific'},v));
+    out['en-US decimal halves']=[1.0005,-1.0005,2.5,0.1+0.2,1234567890123.4567,-0.0001].map(v=>format({},v));
+    out['en-US integer halves']=[2.5,3.5,-2.5,0.5].map(v=>format({maximumFractionDigits:0},v));
+    for(const mode of ['ceil','floor','expand','trunc','halfCeil','halfFloor','halfExpand','halfTrunc','halfEven','up'])
+      out['en-US roundingMode '+mode]=[1.25,-1.25,1.35,1.21,-1.21,1.2,-0.01].map(v=>format({maximumFractionDigits:1,roundingMode:mode},v))
+        .concat([1250,-1250,1350,12500].map(v=>format({notation:'compact',roundingMode:mode},v)));
+    // Compact the prelude prints in full (a currency or percent, a long
+    // display, a locale it has no table for), at values Chrome's compact
+    // prints with the same digits.
+    out['en-US compact currency halves']=[0.825,0.125,-0.825].map(v=>format({...usd,notation:'compact'},v));
+    for(const mode of ['halfEven','floor','ceil'])
+      out['en-US compact currency '+mode]=[0.825,0.829,-0.821].map(v=>format({...usd,notation:'compact',roundingMode:mode},v));
+    out['en-US compact percent halves']=[0.125,-0.125,0.165].map(v=>format({style:'percent',notation:'compact'},v));
+    out['en-US compact long halves']=[0.0125,-0.0125,0.0145].map(v=>format({notation:'compact',compactDisplay:'long'},v));
+    out['sk-SK compact halves']=[0.0125,-0.0125,0.0145].map(v=>new Intl.NumberFormat('sk-SK',{notation:'compact'}).format(v));
+    const nf=new Intl.NumberFormat('en-US');
+    out['en-US resolved roundingMode']=[nf,new Intl.NumberFormat('en-US',{roundingMode:'floor'} as Intl.NumberFormatOptions),new Intl.NumberFormat('en-US',{notation:'compact',roundingMode:'halfEven'} as Intl.NumberFormatOptions)]
+      .map(f=>String((f.resolvedOptions() as {roundingMode?:string}).roundingMode)).concat([String(nf.format===nf.format),typeof Object.getOwnPropertyDescriptor(Intl.NumberFormat.prototype,'format')?.get]);
     // Intl.Locale and its week (#118): the tag, every field, and getWeekInfo(), or the error's name.
     const fields=['baseName','language','script','region','variants','calendar','caseFirst','collation','firstDayOfWeek','hourCycle','numeric','numberingSystem'];
     const locale=(tag:unknown,options?:object):string[]=>{

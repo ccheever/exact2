@@ -76,7 +76,7 @@ component UpdateLab
             text `${result.input} → ${result.output}` testId="ts-result" font-size=18
           case none
             text "Not run yet" testId="ts-version" font-size=22 color="#63718a"
-        when not live
+        if not live
           button press=runTypescript testId="run-ts" padding=12 background-color="#e6ecf7" border-radius=8
             text "Run TypeScript" color="#233d62" font-weight=600
           text "Edit VERSION or MULTIPLIER in app.ts; live probes show the new result." font-size=12 color="#63718a"
@@ -94,7 +94,7 @@ component UpdateLab
           case none
             text "Executor: waiting" testId="rust-executor" font-size=12 color="#63718a"
         text `Baked through Rust: ${rustConstants.label} × ${rustConstants.multiplier}` testId="rust-constants" font-size=12 color="#63718a"
-        when not live
+        if not live
           button press=runRust testId="run-rust" padding=12 background-color="#f6eade" border-radius=8
             text "Run Rust" color="#8c4d29" font-weight=600
           text "Edit VERSION or MULTIPLIER in data/src/probe.rs; live probes show the new result." font-size=12 color="#63718a"

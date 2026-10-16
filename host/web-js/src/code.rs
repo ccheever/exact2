@@ -33,7 +33,7 @@ pub struct Scope {
     /// Whether this is an action body (writes and commands are allowed).
     pub action: bool,
     /// The JavaScript object holding the row slots in force (LLP 1017 P4c:
-    /// a slot owned by an `each` lives on its row), by slot index.
+    /// a slot owned by a `for` lives on its row), by slot index.
     pub rows: Option<String>,
 }
 
@@ -595,8 +595,10 @@ impl Translator<'_> {
                     self.out.push_str(&format!("{r}(r_{});", x.args[0]));
                 }
                 Opcode::PendingResource => self.push(format!("r_{}.p()", x.args[0])),
+                Opcode::FailedMutation => self.push(format!("m_{}.f()", x.args[0])),
+                Opcode::FailureMutation => self.push(format!("m_{}.e()", x.args[0])),
                 Opcode::FailedResource => self.push(format!("r_{}.f()", x.args[0])),
-                // `none` or the `Failure` record, `[code, message]` (LLP 1109 D3).
+                // `none` or the `Failure` record, `[code, message, reason]` (LLP 1109 D3).
                 Opcode::FailureResource => self.push(format!("r_{}.e()", x.args[0])),
                 Opcode::Return => {
                     match self.stack.pop() {

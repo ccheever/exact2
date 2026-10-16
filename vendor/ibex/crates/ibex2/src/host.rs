@@ -10,8 +10,9 @@
 //! list, as a struct — and a request is checked against the grant the binding
 //! carries, never against who is calling.
 //!
-//! Synchronous, deliberately. These are the primitives; an executor is the
-//! consumer's, and a runner with its own loop puts them on its own workers.
+//! Blocking primitives and callback networking leave execution to the consumer.
+//! Tracked image jobs reserve bounded work before dispatch; owned handles expose
+//! cancellation separately from native retirement and completion collection.
 //!
 //! @ref LLP 0068#1-the-shape — bindings that carry their grant
 //! @ref LLP 0067#3-the-check — one chokepoint, the grant the binding carries
@@ -27,9 +28,10 @@ use crate::stdlib::fetch::{self, Request, Response, Transport};
 use crate::stdlib::fs::{self, FsOp, FsResult, Stat};
 use crate::stdlib::websocket::{self, MessageSource, SocketTransport};
 
-/// The host: the platform's transport, its secret store, and its kv store,
-/// and nothing else. One per process is the expected shape; it is the
-/// analogue of the runtime, without an engine.
+/// The engine-free host endowment: transports, secret/KV stores, optional app
+/// directories and SQLite/document/image providers, and storage/work budgets.
+/// Services are selected before endowing a consumer; grants travel with each
+/// resulting binding. Executors remain consumer-owned.
 pub struct Host {
     transport: Arc<dyn Transport>,
     sockets: Arc<dyn SocketTransport>,
@@ -37,6 +39,9 @@ pub struct Host {
     kv: Arc<dyn KvStore>,
     app_directories: Option<Arc<crate::stdlib::app_fs::AppDirectories>>,
     sqlite_provider: Option<Arc<dyn crate::stdlib::sqlite::Provider>>,
+    documents: Option<Arc<fs::Documents>>,
+    image_service: Option<crate::stdlib::fs_image::ImageService>,
+    storage_limits: fs::ResultLimits,
 }
 
 impl Host {
@@ -55,6 +60,9 @@ impl Host {
             kv: Arc::from(kv::default_store()),
             app_directories: None,
             sqlite_provider: None,
+            documents: None,
+            image_service: None,
+            storage_limits: fs::ResultLimits::default(),
         }
     }
 
@@ -93,10 +101,37 @@ impl Host {
         self
     }
 
+    pub fn with_storage_limits(mut self, limits: fs::ResultLimits) -> Result<Self, HostError> {
+        if !(16..=fs::RESULT_BYTES).contains(&limits.bytes) {
+            return Err(HostError::InvalidArgument(
+                "invalid storage result limits".into(),
+            ));
+        }
+        self.storage_limits = limits;
+        Ok(self)
+    }
+    pub fn with_documents(mut self, documents: Arc<fs::Documents>) -> Self {
+        self.documents = Some(documents);
+        self
+    }
+    pub fn with_image_codec(
+        mut self,
+        codec: Arc<dyn crate::stdlib::fs_image::ImageCodec>,
+        limits: crate::stdlib::fs_image::WorkLimits,
+    ) -> Result<Self, HostError> {
+        self.image_service = Some(crate::stdlib::fs_image::ImageService::new(codec, limits)?);
+        Ok(self)
+    }
+
     /// Endow a consumer with `grants`: the bindings a module receives as
     /// parameters, each carrying this grant set for its whole life.
     pub fn endow(&self, grants: GrantSet) -> Bindings {
         let grants = Arc::new(grants);
+        let image_work = crate::stdlib::fs_image::ImageWork::new(
+            self.image_service
+                .as_ref()
+                .map_or_else(Default::default, |s| s.limits),
+        );
         Bindings {
             fetch: Fetch {
                 transport: Arc::clone(&self.transport),
@@ -105,6 +140,11 @@ impl Host {
             fs: Fs {
                 grants: Arc::clone(&grants),
                 directories: self.app_directories.clone(),
+                documents: self.documents.clone(),
+                image_service: self.image_service.clone(),
+                image_work: image_work.clone(),
+                _image_owner: Arc::new(ImageOwner(image_work)),
+                storage_limits: self.storage_limits,
             },
             sqlite: Sqlite {
                 grants: Arc::clone(&grants),
@@ -164,15 +204,34 @@ impl Bindings {
     }
 
     #[cfg(feature = "bindings")]
+    pub(crate) fn storage_limits(&self) -> fs::ResultLimits {
+        self.fs.storage_limits
+    }
+    #[cfg(feature = "bindings")]
+    pub(crate) fn documents(&self) -> Option<Arc<fs::Documents>> {
+        self.fs.documents.clone()
+    }
+    #[cfg(feature = "bindings")]
+    pub(crate) fn image_service(&self) -> Option<crate::stdlib::fs_image::ImageService> {
+        self.fs.image_service.clone()
+    }
+
+    #[cfg(feature = "bindings")]
     pub(crate) fn with_runtime_configuration(
         &self,
         directories: Option<Arc<crate::stdlib::app_fs::AppDirectories>>,
         provider: Option<Arc<dyn crate::stdlib::sqlite::Provider>>,
+        documents: Option<Arc<fs::Documents>>,
+        image_service: Option<crate::stdlib::fs_image::ImageService>,
+        storage_limits: fs::ResultLimits,
     ) -> Self {
         let mut snapshot = self.clone();
         snapshot.fs.directories = directories.clone();
         snapshot.sqlite.directories = directories;
         snapshot.sqlite.provider = provider;
+        snapshot.fs.documents = documents;
+        snapshot.fs.image_service = image_service;
+        snapshot.fs.storage_limits = storage_limits;
         snapshot
     }
 }
@@ -375,6 +434,40 @@ pub struct Fetch {
 }
 
 impl Fetch {
+    /// Adapt this binding's configured blocking transport to caller-supplied
+    /// bounded workers. Pass the adapter to `start_async` so this binding still
+    /// admits each hop with its own grant; no raw grant extraction is needed.
+    pub fn blocking_adapter(
+        &self,
+        workers: Arc<dyn crate::stdlib::fetch_async::WorkerService>,
+    ) -> crate::stdlib::fetch_async::BlockingAdapter {
+        crate::stdlib::fetch_async::BlockingAdapter::new(self.transport.clone(), workers)
+    }
+
+    /// Start a bounded asynchronous fetch endowed with this binding's grants.
+    /// The consumer chooses the transport scope, dispatcher, and deadline.
+    // @ref LLP 0068.000#2-the-proposed-boundary — retain authority for the whole fetch
+    #[allow(clippy::too_many_arguments)]
+    pub fn start_async(
+        &self,
+        transport: Arc<dyn crate::stdlib::fetch_async::AsyncTransport>,
+        request: fetch::Request,
+        upload: Option<Arc<crate::stdlib::fetch_async::Upload>>,
+        signal: crate::stdlib::abort::AbortSignal,
+        caps: crate::stdlib::fetch_async::HeaderCaps,
+        events: Arc<dyn crate::stdlib::fetch_async::FetchEvents>,
+    ) -> Arc<crate::stdlib::fetch_async::FetchTask> {
+        crate::stdlib::fetch_async::FetchTask::start(
+            transport,
+            self.grants.clone(),
+            request,
+            upload,
+            signal,
+            caps,
+            events,
+        )
+    }
+
     #[cfg(feature = "bindings")]
     pub(crate) fn transport(&self) -> &dyn Transport {
         self.transport.as_ref()
@@ -397,14 +490,25 @@ impl Fetch {
     }
 }
 
-/// `fs`, carrying its grant. Paths are absolute, normalized lexically and
-/// checked as spelt and as the filesystem will really resolve them
-/// (LLP 0067 §3); a two-path operation needs read on the source and write on
-/// the destination.
+/// `fs`, carrying its grant. Native, app and chosen-document namespaces stay
+/// distinct. Optional providers and retained directory capabilities are shared
+/// by the Rust and JSI doors; every provider access follows grant admission.
+/// Bounded image jobs add owned cancellation/publication and retirement handles.
 #[derive(Clone)]
 pub struct Fs {
     grants: Arc<GrantSet>,
     directories: Option<Arc<crate::stdlib::app_fs::AppDirectories>>,
+    documents: Option<Arc<fs::Documents>>,
+    image_service: Option<crate::stdlib::fs_image::ImageService>,
+    image_work: crate::stdlib::fs_image::ImageWork,
+    _image_owner: Arc<ImageOwner>,
+    storage_limits: fs::ResultLimits,
+}
+struct ImageOwner(crate::stdlib::fs_image::ImageWork);
+impl Drop for ImageOwner {
+    fn drop(&mut self) {
+        self.0.close();
+    }
 }
 
 impl Fs {
@@ -415,14 +519,49 @@ impl Fs {
         destination: Option<&str>,
         data: Option<&[u8]>,
     ) -> Result<FsResult, HostError> {
-        fs::run(
+        fs::run_with_limits(
             &self.grants,
             self.directories.as_deref(),
+            self.documents.as_deref(),
+            self.storage_limits,
             op,
             path,
             destination,
             data,
         )
+    }
+
+    /// Reserve a bounded work/completion slot before dispatching on the caller's executor.
+    pub fn prepare_image(
+        &self,
+        from: &str,
+        to: &str,
+        request: crate::stdlib::fs_image::ImageRequest,
+    ) -> Result<crate::stdlib::fs_image::ImageJob, HostError> {
+        crate::stdlib::fs_image::ImageJob::prepare(
+            &self.image_work,
+            self.image_service.as_ref(),
+            self.directories.clone(),
+            self.grants.clone(),
+            from,
+            to,
+            request,
+        )
+    }
+    pub fn image_work(&self) -> &crate::stdlib::fs_image::ImageWork {
+        &self.image_work
+    }
+    /// Grant-checked app-file reader; trusted Rust code owns any opened handle's scheduling.
+    pub fn read_bounded(
+        &self,
+        path: &str,
+        cap: u64,
+        canceled: &dyn Fn() -> bool,
+    ) -> Result<Vec<u8>, HostError> {
+        self.directories
+            .as_ref()
+            .ok_or_else(|| HostError::Failed("app directories are not configured".into()))?
+            .read_bounded(&self.grants, path, cap, canceled)
     }
 
     pub fn read_file(&self, path: &str) -> Result<Vec<u8>, HostError> {
@@ -563,6 +702,22 @@ mod secrets_tests {
         Host::with_transport(Box::new(NoTransport)).with_secret_store(Box::new(MemoryStore::new()))
     }
 
+    /// A store that must never be reached: every method is a test failure.
+    struct UntouchableStore;
+    impl SecretStore for UntouchableStore {
+        fn get(&self, name: &str) -> Result<Option<String>, HostError> {
+            panic!("a denied call reached the store: get {name}")
+        }
+
+        fn set(&self, name: &str, _value: &str) -> Result<(), HostError> {
+            panic!("a denied call reached the store: set {name}")
+        }
+
+        fn forget(&self, name: &str) -> Result<(), HostError> {
+            panic!("a denied call reached the store: forget {name}")
+        }
+    }
+
     #[test]
     fn a_granted_secret_is_kept_read_and_forgotten() {
         let app = host().endow(GrantSet::parse("secret.keep castle.session\n").unwrap());
@@ -579,9 +734,8 @@ mod secrets_tests {
 
     #[test]
     fn an_ungranted_secret_is_denied_before_any_store_is_asked() {
-        let store = Box::new(MemoryStore::with([("other".to_string(), "v".to_string())]));
         let app = host()
-            .with_secret_store(store)
+            .with_secret_store(Box::new(UntouchableStore))
             .endow(GrantSet::parse("secret.keep castle.session\n").unwrap());
         for result in [
             app.secrets.get("other").map(|_| ()),
@@ -595,6 +749,10 @@ mod secrets_tests {
                 })
             );
         }
+    }
+
+    #[test]
+    fn consumers_share_the_secret_store_but_not_authority() {
         // Two consumers over one host share the store but not the authority:
         // the granted one keeps a value in the very store the ungranted one
         // is denied.

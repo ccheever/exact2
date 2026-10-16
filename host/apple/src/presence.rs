@@ -361,41 +361,55 @@ impl<D: DataSource> Host<D> {
                 }
                 continue;
             }
-            // A layout box is presented as its offset from the laid-out
-            // origin and its scale of the laid-out size; identity is
-            // `0 0 1 1`. The other three are one or two numbers.
-            let values = match p.property {
-                Property::Layout => layout_presented(&self.engine, p.node, p.value),
-                Property::Translate => [p.value.x, p.value.y, p.value.z, p.value.w],
-                _ => [p.value.x, 0.0, 0.0, 0.0],
-            };
-            let identity = match p.property.identity() {
-                Some(identity) => identity == p.value,
-                None => values == [0.0, 0.0, 1.0, 1.0],
-            };
-            if (boot && identity) || (identity && batch.creates(view)) {
-                continue;
-            }
-            if self.inline_runs.contains_key(&view) || self.svg.presented(view) {
-                continue;
-            }
-            if self.native_protected_id(view) && !self.native_current() {
-                continue;
-            }
-            if p.property == Property::Layout {
-                batch.present4(view, "layout", values);
-            } else if p.property == Property::Translate && (values[2] != 0.0 || values[3] != 0.0) {
-                // Its percentages ride as `w` and `h`; the presenter
-                // resolves them against the box (chess diary #4).
-                batch.present4(view, "translate", values);
-            } else {
-                batch.present(view, p.property.name(), values[0], values[1]);
-            }
+            self.present_value(view, p.property, p.node, p.value, boot, batch);
         }
         for (view, inherits) in colored {
             self.present_colors(view, batch, inherits);
         }
-        self.svg.emit(self.runner.kernel(), &self.engine, batch);
         self.land_flights(batch);
+    }
+
+    /// One presented value of a box as a `present` op, unless it is the
+    /// property's identity and the presenter starts the view there (at
+    /// boot, or in the batch that creates it).
+    pub(super) fn present_value(
+        &mut self,
+        view: ViewId,
+        property: Property,
+        node: u64,
+        value: exact_motion::Value,
+        boot: bool,
+        batch: &mut Batch,
+    ) {
+        // A layout box is presented as its offset from the laid-out
+        // origin and its scale of the laid-out size; identity is
+        // `0 0 1 1`. The other three are one or two numbers.
+        let values = match property {
+            Property::Layout => layout_presented(&self.engine, node, value),
+            Property::Translate => [value.x, value.y, value.z, value.w],
+            _ => [value.x, 0.0, 0.0, 0.0],
+        };
+        let identity = match property.identity() {
+            Some(identity) => identity == value,
+            None => values == [0.0, 0.0, 1.0, 1.0],
+        };
+        if (boot && identity) || (identity && batch.creates(view)) {
+            return;
+        }
+        if self.inline_runs.contains_key(&view) || self.svg.presented(view) {
+            return;
+        }
+        if self.native_protected_id(view) && !self.native_current() {
+            return;
+        }
+        if property == Property::Layout {
+            batch.present4(view, "layout", values);
+        } else if property == Property::Translate && (values[2] != 0.0 || values[3] != 0.0) {
+            // Its percentages ride as `w` and `h`; the presenter
+            // resolves them against the box (chess diary #4).
+            batch.present4(view, "translate", values);
+        } else {
+            batch.present(view, property.name(), values[0], values[1]);
+        }
     }
 }

@@ -4,6 +4,8 @@
 @group(0) @binding(6) var environment_radiance: texture_cube<f32>;
 @group(0) @binding(7) var environment_sampler: sampler;
 const ENVIRONMENT_LODS: f32 = 5.0; // ibl.rs MIPS - 1: lod = roughness × this
+// A uniform sky (one colour, no map): its irradiance is the constant band alone.
+override UNIFORM_AMBIENT: bool = false;
 
 // Outgoing radiance per unit albedo of a Lambertian surface facing n.
 // Indexes the uniform directly: a local copy of the array can stay in memory per fragment.
@@ -24,8 +26,11 @@ fn environment_brdf(roughness: f32, nv: f32) -> vec2<f32> {
 fn ambient(n: vec3<f32>, v: vec3<f32>, base: vec3<f32>, metallic: f32, roughness: f32) -> vec3<f32> {
     let ab = environment_brdf(roughness, max(dot(n, v), 0.0001));
     let specular = mix(vec3(0.04), base, metallic) * ab.x + ab.y;
+    // A uniform sky's prefiltered cube is one colour: any direction reads it.
+    let direction = select(reflect(-v, n), vec3(0.0, 1.0, 0.0), UNIFORM_AMBIENT);
     let radiance = textureSampleLevel(environment_radiance, environment_sampler,
-        reflect(-v, n), roughness * ENVIRONMENT_LODS).rgb;
-    let diffuse = irradiance(n) * base * (1.0 - metallic) * (vec3(1.0) - specular);
+        direction, roughness * ENVIRONMENT_LODS).rgb;
+    let e = select(irradiance(n), max(frame.irradiance[0].xyz, vec3(0.0)), UNIFORM_AMBIENT);
+    let diffuse = e * base * (1.0 - metallic) * (vec3(1.0) - specular);
     return (diffuse + radiance * specular) * frame.zenith_ambient.w;
 }

@@ -1,5 +1,4 @@
-import {parseFlags, chromium} from '../scripts/agent-launch.mjs';
-import {layoutArgs} from '../scripts/agent-inspect.mjs';
+import {chromium} from '../scripts/agent-launch.mjs';
 import {runFocusCommands} from '../host/web/navigation.js';
 import {captureWorld, diffWorlds, formatWorldDiff} from './proof.mjs';
 import {createHash} from 'node:crypto';
@@ -12,7 +11,7 @@ import {tmpdir} from 'node:os';
 import {agreePins, nativeProofHost, webUnavailable, pinRecorder, proofStatus, facilityReport, artifactDigest, closeSessions, equal, paranoidRuns, buildInputHash, ensureBuildReceipt, proofInputFiles} from './proof.mjs';
 import {proofCommand, worldObservations, pinRevision} from './proof.mjs';
 import {comparePlacement} from './games/placement-fixture/proof.mjs';
-import {typeArguments, typeFor, browserKey, nativeKey, render, worldView, tapRefusal, assertWebDistApp, clockSpan} from '../scripts/agent.mjs';
+import {typeArguments, typeFor, browserKey, nativeKey, render, worldView, tapRefusal, assertWebDistApp, clockSpan, main} from '../scripts/agent.mjs';
 
 test('external app sources and assets include every extension while outputs stay excluded', () => {
   const directory = mkdtempSync(resolve(tmpdir(), 'external-proof-inputs-'));
@@ -403,13 +402,15 @@ test('steady residency skips no-device worlds and asserts only device-backed wor
 test('explicit focus in a commit precedes autofocus and its authored side effects', () => {
   const source=readFileSync(resolve(import.meta.dir,'../host/web/glue.js'),'utf8');
   // The commit's tail: explicit focus commands, then autofocus (6dbf594b moved autofocus into navigation.js).
-  const start=source.indexOf('  runFocusCommands(focusCommands,'), end=source.indexOf('  positionContexts(); presence.live?.after');
+  const start=source.indexOf('  for (const command of focusCommands)'), end=source.indexOf('  positionContexts(); presence.live?.after');
   expect(start).toBeGreaterThan(-1); expect(end).toBeGreaterThan(start);
   const code=runFocusCommands.toString()+';\n'+source.slice(start,end);
   const calls=[], explicit={id:'chosen',isConnected:true,matches:()=>false,getClientRects:()=>[{}],focus:()=>{calls.push('explicit');document.activeElement=explicit;}};
   const document={activeElement:null};
-  new Function('focusAutofocus','focusCommands','inputReady','root','inertAncestor','getComputedStyle','log','document',code)(
-    ()=>{if(!document.activeElement) calls.push('autofocus side effect');},[{name:'focus',args:['chosen']}],true,{querySelectorAll:()=>[explicit]},()=>false,()=>({visibility:'visible'}),()=>{},document);
+  // `inputHandlers` (the tail's route-arrival call, optional there) has no
+  // part in the order under test, so it stands in as absent.
+  new Function('focusAutofocus','focusCommands','inputReady','root','inertAncestor','getComputedStyle','log','document','inputHandlers','popoverCommand',code)(
+    ()=>{if(!document.activeElement) calls.push('autofocus side effect');},[{name:'focus',args:['chosen']}],true,{querySelectorAll:()=>[explicit]},()=>false,()=>({visibility:'visible'}),()=>{},document,undefined,()=>{});
   expect(calls).toEqual(['explicit']);
 });
 
@@ -590,7 +591,7 @@ for (const scenario of ['report','repin','external-repin', ...['ordinary','repea
       mkdirSync(out,{recursive:true});
       const failed=!process.argv.includes('--build-only') && (process.env.R8B_FAIL==='1' || host==='web' && process.env.R8B_PASS_WEB!=='1');
       const status=failed?'FAIL':process.env.R8B_UNVERIFIED==='1'||process.env.R8B_UNVERIFIED_HOST===host||process.env.EXACT_PROOF_REPIN==='1'?'UNVERIFIED':'PASS';
-      const row={name:${JSON.stringify(name)},inputs:'c'.repeat(64),host,status,mode:process.env.EXACT_GAME_PARANOID,pins:${JSON.stringify(pins)},failures:failed?['refusal']:[],facilities:failed?['state unused; pending assets']:['no recorded stalls or refusals'],seconds:0,worlds:[{session:1,tick:1,hash:'same'}],saves:[{name:'a',sha256:'same'}]};
+      const row={name:${JSON.stringify(name)},inputs:'c'.repeat(64),sourceInputs:'d'.repeat(64),host,status,mode:process.env.EXACT_GAME_PARANOID,pins:${JSON.stringify(pins)},failures:failed?['refusal']:[],facilities:failed?['state unused; pending assets']:['no recorded stalls or refusals'],seconds:0,worlds:[{session:1,tick:1,hash:'same'}],saves:[{name:'a',sha256:'same'}]};
       if(process.env.R15_DRIFT==='1' && process.env.EXACT_GAME_PROOF_PROFILE==='release') row.pins.ticks[1]='0x'+'d'.repeat(16);
       writeFileSync(out+'/summary.json',JSON.stringify(row));
       if(host==='web' && process.env.R8B_PASS_WEB!=='1') console.error('web carrier unavailable: /missing/chrome: ENOENT; set CHROME');
@@ -671,7 +672,8 @@ for (const scenario of ['report','repin','external-repin', ...['ordinary','repea
     const written=JSON.parse(readFileSync(resolve(app,'pins.json'),'utf8'));
     expect(written.reason).toBe('Saved glow is a Tween sampled by the renderer');
     expect(written.inputs).toBe('c'.repeat(64));
-    if (scenario === 'external-repin') expect(written.at).toBe('inputs:'+'c'.repeat(64));
+    expect(written.sourceInputs).toBe('d'.repeat(64));
+    if (scenario === 'external-repin') expect(written.at).toBe('inputs:'+'d'.repeat(64));
     expect(written.game).toBe(name); expect(written.hosts).toEqual(['linux']); expect(written.generated).toEndWith('--hosts linux');
     const empty={ticks:{},saves:{}};
     writeFileSync(resolve(app,'pins.json'),JSON.stringify(empty));
@@ -712,7 +714,7 @@ test('clock settle diagnostic names busy, held input, and logs on a real unsettl
 });
 
 function pinLiterals(path, text) {
-  const evidence=/(^|\/)(artifacts|diaries)\/|^game\/bench\/results\/|^(llp|issues|vendor)\//;
+  const evidence=/(^|\/)(artifacts|diaries)\/|^game\/(bench|bakeoff\/[^/]+)\/results\/|^(llp|issues|vendor)\//;
   if(/(^|\/)(Cargo\.lock|bun\.lock|shells\.lock)$/.test(path) || path.endsWith('/pins.json') || evidence.test(path) || path==='scripts/fixtures/fonts/SOURCE.md') return [];
   const generated = path === '.llp/skills-receipt.json' || path.endsWith('/.baked-assets.json') || ['update/tests/it/fixtures/publisher/canonical.bin','update/tests/it/fixtures/publisher/exact.json'].includes(path);
   if (generated) return [];
@@ -726,6 +728,7 @@ test('pin scan includes authored benchmark tests and ordinary digest strings', (
   expect(pinLiterals('game/bench/feel.test.mjs',hash)).toEqual([hash]);
   for(const quote of ['"',"'",'`','']) expect(pinLiterals('game/engine/tests/foo.rs',quote+digest+quote).length).toBe(1);
   expect(pinLiterals('game/bench/results/receipt.md',digest)).toEqual([]);
+  expect(pinLiterals('game/bakeoff/garden/results/2026-10-06-r1/exact2/DIARY.md',hash)).toEqual([]); // a results diary is evidence, as the bench's is
   expect(pinLiterals('Cargo.lock',digest)).toEqual([]);
   expect(pinLiterals('game/engine/src/data/text.rs','0'.repeat(64))).toEqual([]); // Decimal padding, not a world pin.
   expect(pinLiterals('game/engine/src/data/text.rs',digest)).toEqual([digest]);
@@ -806,13 +809,20 @@ test('refusal advice executes as real driver CLI operations with a global JSON f
   const refusal=await tapRefusal(s,'sign',Error('no view matches sign'));
   const advised=[...refusal.message.matchAll(/`([^`]+)`/g)].map(m=>m[1]);
   expect(advised).toEqual(['layout world:sign']);
-  const source=readFileSync(new URL('../scripts/agent.mjs',import.meta.url),'utf8');
-  const body=source.slice(source.indexOf('async function main(argv)'),source.lastIndexOf('\nif (process.argv[1]'));
   const calls=[], output=[];
-  // main's free names: what agent.mjs imports and this test stands in for.
-  const cli=new Function('parseFlags','layoutArgs','open','resolve','render','console',`${body}; return main;`)(parseFlags,layoutArgs,async()=>({layout:async target=>{calls.push(['layout',target]);return {visible:true};},state:async()=>{calls.push(['state']);return {world:[{loading:['crate.model'],assets:[]}]};},close:async()=>{}}),x=>x,()=>{throw Error('global --json was ignored');},{log:x=>output.push(JSON.parse(x)),error:()=>{}});
-  for(const op of [...advised,'state']) expect(await cli(['web','--json',op])).toBe(0);
-  expect(calls).toEqual([['layout','world:sign'],['state']]);
+  // The real CLI (`main`), with a fake session and no app server. Captured
+  // output must parse as JSON: if `--json` were ignored, `render`'s text
+  // would reach `JSON.parse` and throw here. `driveNotes` also reads
+  // `state`, so only the layout call and the replies are pinned exactly.
+  const fakeOpen=async()=>({layout:async target=>{calls.push(['layout',target]);return {visible:true};},state:async()=>{calls.push(['state']);return {world:[{loading:['crate.model'],assets:[]}]};},close:async()=>{}});
+  const realLog=console.log, realError=console.error;
+  console.log=x=>output.push(JSON.parse(x)); console.error=()=>{};
+  try {
+    for(const op of [...advised,'state']) expect(await main(['web','--json',op],{open:fakeOpen,driveServer:async()=>null})).toBe(0);
+  } finally { console.log=realLog; console.error=realError; }
+  expect(calls[0]).toEqual(['layout','world:sign']);
+  expect(calls).toContainEqual(['state']);
+  expect(output).toHaveLength(2);
   expect(output[1].world[0].loading).toEqual(['crate.model']);
 });
 
@@ -931,7 +941,7 @@ test('a game\'s helper scripts are not proof inputs; its build inputs are', asyn
   const {proofInputExcluded}=await import('./proof.mjs');
   for(const file of ['bench.mjs','live.mjs','jev-proxy.mjs','tools/probe.js','tools/levels.ops','proof.mjs','pins.json','README.md','drive.sh','shots/exported.json','repros/bug.contract','app.test.contract','logic/src/foo.test.rs'])
     expect(proofInputExcluded(`game/games/forest/${file}`,'forest')).toBe(true);
-  for(const file of ['logic/src/lib.rs','logic/build.mjs','data/src/lib.rs','gpu/shaders/sky.wgsl','assets/x.js','presentation/view.mjs','app.contract','app.json','island.level.json','Cargo.toml','Cargo.lock'])
+  for(const file of ['logic/src/lib.rs','logic/build.mjs','data/src/lib.rs','gpu/shaders/sky.wgsl','assets/x.js','render/view.mjs','app.contract','app.json','island.level.json','Cargo.toml','Cargo.lock'])
     expect(proofInputExcluded(`game/games/forest/${file}`,'forest')).toBe(false);
   // Shared SDK scripts stay inputs: the web glue is JavaScript.
   expect(proofInputExcluded('host/web/gpu-glue.js','forest')).toBe(false);
@@ -954,6 +964,7 @@ test('engine test sources are not bake inputs: editing one leaves the proof inpu
   const file = resolve(root, 'game/engine/tests/regression.rs');
   try {
     mkdirSync(app, {recursive:true}); mkdirSync(dirname(file), {recursive:true});
+    writeFileSync(resolve(root, 'game/engine/Cargo.toml'), '[package]\nname = "engine"\nversion = "0.1.0"\n');
     writeFileSync(file, 'before');
     const hash = () => {
       const h = buildInputHash('linux', 'target');
@@ -1048,29 +1059,60 @@ test('E10 browser buttons retain UA keyboard focus and hover feedback', async ()
 },60000);
 
 test('E10 Beacons and skinned Linux proof hashes match release under the fast profile', async () => {
+  const {cpSync, existsSync} = await import('node:fs');
   const root=mkdtempSync(resolve(tmpdir(),'e10-profiles-'));
+  // The shared filesystem helper builds below this excluded output container.
+  mkdirSync(resolve(import.meta.dir,'../target'),{recursive:true});
   try {
     for(const name of ['beacons','skinned-fixture']) {
       const rows=[];
       for(const profile of ['gpu-dev','release']) {
-        const out=resolve(root,`${name}-${profile}`);mkdirSync(out,{recursive:true});
-        const child=Bun.spawn([process.execPath,resolve(import.meta.dir,'games',name,'proof.mjs'),'linux'],{
-          cwd:resolve(import.meta.dir,'..'),
-          env:{...process.env,EXACT_PROOF_OUT:out,EXACT_GAME_PROOF_PROFILE:profile},
-          stdout:Bun.file(resolve(out,'run.log')),stderr:Bun.file(resolve(out,'build.log')),
-        });
-        const code=await child.exited;
-        if(code !== 0) throw new Error(`${name} ${profile}: ${readFileSync(resolve(out,'run.log'),'utf8').slice(-4000)}\n${readFileSync(resolve(out,'build.log'),'utf8').slice(-2000)}`);
-        expect(code).toBe(0);
-        const row=JSON.parse(readFileSync(resolve(out,'summary.json'),'utf8'));
-        expect(row.status).toBe('PASS'); rows.push(row);
+        // Keep relative proof imports working while giving each profile fresh,
+        // private outputs. Never remove a developer's assets or compiler cache.
+        const app=mkdtempSync(resolve(import.meta.dir,'games',`e10-${name}-`));
+        const source=resolve(import.meta.dir,'games',name);
+        try {
+          for(const entry of readdirSync(source)) {
+            if(['target','artifacts','.shells','dist','dist.previous','dist-windows','assets','.baked-assets.json'].includes(entry)) continue;
+            cpSync(resolve(source,entry),resolve(app,entry),{recursive:true});
+          }
+          const receipt=resolve(app,'artifacts',profile==='gpu-dev'?'build-linux-gpu.sha256':'build-linux.sha256');
+          let stable;
+          for(const phase of ['fresh','stable','cached']) {
+            const out=resolve(root,`${name}-${profile}-${phase}`);mkdirSync(out,{recursive:true});
+            const child=Bun.spawn([process.execPath,resolve(app,'proof.mjs'),'linux'],{
+              cwd:resolve(import.meta.dir,'..'),
+              env:{...process.env,CARGO_TARGET_DIR:resolve(app,'target'),EXACT_PROOF_OUT:out,EXACT_GAME_PROOF_PROFILE:profile},
+              stdout:Bun.file(resolve(out,'run.log')),stderr:Bun.file(resolve(out,'build.log')),
+            });
+            const code=await child.exited, log=readFileSync(resolve(out,'run.log'),'utf8');
+            const expected=phase==='fresh'?1:0;
+            if(code !== expected) throw new Error(`${name} ${profile} ${phase}: ${log.slice(-4000)}\n${readFileSync(resolve(out,'build.log'),'utf8').slice(-2000)}`);
+            const row=JSON.parse(readFileSync(resolve(out,'summary.json'),'utf8'));
+            if(phase==='fresh') {
+              expect(row.status).toBe('FAIL');
+              expect(row.failures).toEqual(['proof interrupted']);
+              expect(log).toContain('app or asset directories changed during build; rerun the proof');
+              expect(log).not.toContain('authored proof inputs changed during build');
+              expect(existsSync(receipt)).toBe(false);
+            } else {
+              expect(row.status).toBe('PASS'); expect(existsSync(receipt)).toBe(true);
+              if(phase==='stable') { stable=row; rows.push(row); }
+              else {
+                expect(log).toContain('BUILD cached');
+                expect(row.worlds).toEqual(stable.worlds); expect(row.pins).toEqual(stable.pins);
+              }
+            }
+            console.log(`E10 ${name} ${profile} ${phase}: ${row.status}${phase==='fresh'?' (required rerun)':''}`);
+          }
+        } finally {rmSync(app,{recursive:true,force:true});}
       }
       expect(rows[0].worlds).toEqual(rows[1].worlds);
       expect(rows[0].pins).toEqual(rows[1].pins);
     }
   } finally {rmSync(root,{recursive:true,force:true});}
-// Each authored game owns its compiler intermediates, including on the first
-// cold run. This is a hash-equivalence check, not a build-latency assertion.
+// Four fresh-output builds, each followed by exactly one stable rerun and a
+// cache hit. This checks hash equivalence and receipt policy, not build latency.
 },1200000);
 
 
@@ -1092,11 +1134,13 @@ test('R15 macOS receipt includes modulemaps and extensionless compile inputs',as
   try {
     const file=resolve(dir,'host/apple/Sources/CExact/module.modulemap');mkdirSync(dirname(file),{recursive:true});writeFileSync(file,'module CExact {}');
     mkdirSync(resolve(dir,'game/games/test'),{recursive:true});
+    mkdirSync(resolve(dir,'game/engine'),{recursive:true});
+    writeFileSync(resolve(dir,'game/engine/Cargo.toml'),'[package]\nname = "engine"\nversion = "0.1.0"\n');
     const receipt=resolve(dir,'artifacts/receipt.json');mkdirSync(dirname(receipt),{recursive:true});let builds=0;
     const inputs=()=>{const h=buildInputHash('macos','aarch64-apple-darwin');for(const p of proofInputFiles(dir,resolve(dir,'game/games/test')))h.update(p).update(readFileSync(resolve(dir,p)));return h.digest('hex');};
     const before=inputs();writeFileSync(file,'module CExact { header "exact.h" }');expect(inputs()).not.toBe(before);
     for(const name of ['Header']) { const before=inputs();writeFileSync(resolve(dirname(file),name),'tracked compile input');expect(inputs()).not.toBe(before); }
-    // Outside `game/` every tracked file counts; under the add-on, tests, examples, proofs and pins describe proofs.
+    // Outside `game/` every tracked file counts; under the add-on, crate tests, examples, proofs and pins describe proofs.
     for(const path of ['host/apple/Sources/CExact/AnotherHeader']) { const before=inputs();const file=resolve(dir,path);mkdirSync(dirname(file),{recursive:true});writeFileSync(file,'tracked compile input');expect(inputs()).not.toBe(before); }
     for(const path of ['QUEUE.md','host/web/glue.test.mjs','host/apple/Sources/CExact/pins.json','game/games/test/tests/data','game/games/test/proof.mjs','game/engine/tests/a.rs']) { const before=inputs();const file=resolve(dir,path);mkdirSync(dirname(file),{recursive:true});writeFileSync(file,'not a bake input');expect(inputs()).toBe(before); }
     await ensureBuildReceipt({receipt,inputs:before,artifact:()=> 'binary',build:async()=>{builds++;}});
@@ -1124,7 +1168,7 @@ test.each(['in-tree','external','linked'])('R15 %s game compiles with contractio
     writeFileSync(resolve(probe,'Cargo.toml'),'[workspace]\n[package]\nname="flags-probe"\nversion="0.1.0"\nedition="2021"\n[lib]\npath="lib.rs"\n');
     writeFileSync(resolve(probe,'lib.rs'),'pub fn value() -> u32 { 1 }\n');
     writeFileSync(resolve(probe,'build.rs'),'fn main() { std::fs::write(std::env::var_os("EXACT_FLAGS_OUT").unwrap(), std::env::var("CARGO_ENCODED_RUSTFLAGS").unwrap()).unwrap(); }\n');
-    const env={...process.env,CARGO_HOME:resolve(root,'cargo'),CARGO_TARGET_DIR:resolve(root,'target'),CARGO_BUILD_BUILD_DIR:resolve(root,'build'),EXACT_FLAGS_OUT:output};
+    const env={...process.env,RUSTC_WRAPPER:'',CARGO_BUILD_RUSTC_WRAPPER:'',CARGO_HOME:resolve(root,'cargo'),CARGO_TARGET_DIR:resolve(root,'target'),CARGO_BUILD_BUILD_DIR:resolve(root,'build'),EXACT_FLAGS_OUT:output}; // no rustc wrapper from a Cargo config above the checkout: a caching one can skip the build script's run
     for(const key of ['RUSTFLAGS','CARGO_ENCODED_RUSTFLAGS','CARGO_BUILD_RUSTFLAGS'])delete env[key];
     const result=spawnSync('cargo',['check','--offline'],{cwd:probe,env,encoding:'utf8',timeout:60000});
     expect({status:result.status,stderr:result.status===0?'':result.stderr}).toEqual({status:0,stderr:''});
@@ -1207,48 +1251,6 @@ test('concurrent prove runs keep their save artifacts and web builds separate', 
     rmSync(dir,{recursive:true,force:true});
   }
 },15000);
-
-test('E11 split Linux receipts rebuild only GPU for logic and both for declarations', async () => {
-  const {ensureLinuxReceipts} = await import('./proof.mjs');
-  const dir=mkdtempSync(resolve(tmpdir(),'e11-split-')), builds=[];
-  let logic='one', declaration='one', plan='one', gpu='one', binary='one';
-  const run=()=>ensureLinuxReceipts({directory:dir, gpuInputs:logic, hostInputs:()=>plan+declaration,
-    gpuArtifact:()=>gpu, hostArtifact:()=>binary, build:async part=>{
-      builds.push(part); if(part==='gpu') gpu=logic; else binary=plan+declaration;
-    }});
-  try {
-    await run(); expect(builds.splice(0)).toEqual(['gpu','host']);
-    await run(); expect(builds).toEqual([]);
-    logic='two'; await run(); expect(builds.splice(0)).toEqual(['gpu']);
-    logic='three'; declaration='argument added'; await run(); expect(builds.splice(0)).toEqual(['gpu','host']);
-    plan='new plan'; await run(); expect(builds.splice(0)).toEqual(['host']);
-    gpu=null; await run(); expect(builds.splice(0)).toEqual(['gpu']);
-  } finally {rmSync(dir,{recursive:true,force:true});}
-});
-
-test('E11 clean Git blobs and stat-cached dirty inputs have stable identities', async () => {
-  const {proofInputs} = await import('./proof.mjs');
-  const {spawnSync}=await import('node:child_process');
-  const dir=mkdtempSync(resolve(tmpdir(),'e11-digest-')), app=resolve(dir,'game/games/sample');
-  const write=(file,text)=>{const path=resolve(dir,file);mkdirSync(dirname(path),{recursive:true});writeFileSync(path,text);};
-  const git=(...args)=>{const r=spawnSync('git',args,{cwd:dir,encoding:'utf8'});expect(r.status).toBe(0);};
-  try {
-    write('game/games/sample/logic/src/lib.rs','logic');write('host/linux/src/lib.rs','host');
-    write('game/games/sample/app.contract','plan');git('init','-q');git('add','.');
-    const cache=resolve(dir,'cache'), read=()=>proofInputs(dir,app,cache);
-    const a=read(); expect(a.reads).toBe(0);
-    write('game/games/sample/logic/src/lib.rs','changed');
-    const b=read();expect(b.gpu).not.toBe(a.gpu);expect(b.host).toBe(a.host);expect(b.reads).toBe(1);
-    expect(read()).toMatchObject({gpu:b.gpu,host:b.host,reads:0});
-    git('add','.');expect(read().all).toBe(b.all);
-    write('QUEUE.md','new task');write('host/web/glue.test.mjs','test');expect(read().all).toBe(b.all);
-    write('host/apple/Sources/CExact/module.modulemap','module CExact {}');expect(read().host).not.toBe(b.host);
-    const beforeEngine=read();write('game/engine/src/lib.rs','engine change');
-    const engine=read();expect(engine.gpu).not.toBe(beforeEngine.gpu);expect(engine.host).toBe(beforeEngine.host);
-    write('game/games/sample/logic/src/lib.rs','logic');expect(read().all).not.toBe(b.all);
-  } finally {rmSync(dir,{recursive:true,force:true});}
-});
-
 test('E11 repin provenance requires every observed tree digest to agree',async()=>{
   const {pinInputs}=await import('./proof.mjs');
   const inputs='a'.repeat(64);
@@ -1402,7 +1404,6 @@ test('world diff matches names across reordered slots, distinguishes unnamed ids
   ]);
   expect(diffWorlds(a,structuredClone(a)).total).toBe(0);
 });
-
 test('world diff bounds output, counts omitted changes, and never claims hash equality from JSON', () => {
   const a = diffCapture(), b = structuredClone(a);
   b.resources.Match.score = 2; b.entities[0].components.Health.hp = 0;
@@ -1411,7 +1412,6 @@ test('world diff bounds output, counts omitted changes, and never claims hash eq
   expect(formatWorldDiff(hashOnly)).toContain('not a complete binary save comparison');
   expect(()=>diffWorlds(a,b,{limit:0})).toThrow('positive integer');
 });
-
 test('world diff refuses partial, malformed, duplicate, and cross-game captures', () => {
   const a = diffCapture();
   for (const b of [null, {...a,truncated:true}, {...a,resources:undefined},
@@ -1420,7 +1420,6 @@ test('world diff refuses partial, malformed, duplicate, and cross-game captures'
   expect(diffWorlds({...a,resources:{x:null}}, {...a,resources:{x:[]}}).changes)
     .toEqual([{path:'resources.x',kind:'changed',before:null,after:[]}]);
 });
-
 test('capture uses existing reads and refuses mixed-tick or incomplete results', async () => {
   const a = diffCapture(), calls = [];
   const world = {name:a.name,tick:a.tick,hash:a.hash,entities:1,resources:a.resources,...a.simulation};
@@ -1433,7 +1432,6 @@ test('capture uses existing reads and refuses mixed-tick or incomplete results',
   world.tick--; world.entities++;
   await expect(captureWorld(session)).rejects.toThrow('incomplete');
 });
-
 test('offline world diff CLI reports differences and refuses invalid captures with distinct exits', () => {
   const dir = mkdtempSync(resolve(tmpdir(),'world-diff-'));
   try {
@@ -1448,8 +1446,6 @@ test('offline world diff CLI reports differences and refuses invalid captures wi
     writeFileSync(b,'{}'); expect(run().exitCode).toBe(2);
   } finally { rmSync(dir,{recursive:true,force:true}); }
 });
-
-
 test('game proof outputs do not invalidate host freshness, but game sources do', async () => {
   const { newerThan } = await import('../scripts/agent-launch.mjs');
   const dir = mkdtempSync(resolve(tmpdir(), 'game-freshness-'));
@@ -1463,8 +1459,6 @@ test('game proof outputs do not invalidate host freshness, but game sources do',
     expect(changed[0].endsWith('/logic/changed')).toBe(true);
   } finally { rmSync(dir, {recursive:true, force:true}); }
 });
-
-
 test('repin provenance distinguishes commit-less games from broken Git repositories', () => {
   const dir = mkdtempSync(resolve(tmpdir(), 'repin-revision-'));
   try {
@@ -1477,7 +1471,6 @@ test('repin provenance distinguishes commit-less games from broken Git repositor
     expect(() => pinRevision(dir, 'digest')).toThrow('git provenance failed');
   } finally { rmSync(dir,{recursive:true,force:true}); }
 });
-
 test('a split clock grows at most 4x a step and never past ten world minutes', async () => {
   const {clockSpan} = await import('../scripts/agent.mjs');
   expect(clockSpan(1000, 1)).toBe(4000);

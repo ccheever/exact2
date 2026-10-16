@@ -9,6 +9,43 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, rea
 import { execFile } from 'node:child_process';
 import { resolve, relative, dirname, join, sep, isAbsolute } from 'node:path';
 
+/** Explicit build input, ahead of an ignored app-local development selection. */
+export function backendOrigin(app, env=process.env) {
+  const file=resolve(app,'.exact/backend-origin');
+  const value=env.EXACT_BACKEND_ORIGIN ?? (existsSync(file) ? readFileSync(file,'utf8').trim() : null);
+  if (value===null) return null;
+  let url; try { url=new URL(value); } catch { throw new Error('EXACT_BACKEND_ORIGIN: expected an http(s) origin'); }
+  if (!['http:','https:'].includes(url.protocol) || url.username || url.password || url.pathname!=='/' || url.search || url.hash)
+    throw new Error('EXACT_BACKEND_ORIGIN: expected an http(s) origin without credentials, path, query or fragment');
+  return url.origin;
+}
+/** Rewrite only the top-level literal origin and its exact net.fetch grant literals in the captured copy. */
+export function injectBackendOrigin(code, origin, parse) {
+  if (origin===null) return code;
+  const parsed=parse('app.ts',code);
+  if (parsed.errors.length) throw new Error('EXACT_BACKEND_ORIGIN: app.ts must parse before selecting a backend');
+  const declarations=parsed.program.body.flatMap(s=>(s.type==='ExportNamedDeclaration' ? s.declaration : s)?.declarations ?? []);
+  const targets=declarations.filter(d=>d.id.type==='Identifier' && d.id.name==='origin');
+  const init=targets[0]?.init;
+  const literal=init?.type==='Literal' && typeof init.value==='string' ? init.value
+    : init?.type==='TemplateLiteral' && !init.expressions.length ? init.quasis[0].value.cooked : null;
+  if (targets.length!==1 || !literal || !/^https?:\/\//.test(literal))
+    throw new Error('EXACT_BACKEND_ORIGIN: app.ts needs one top-level literal const origin; use it in net.fetch ${origin}');
+  const edits=[[init.start,init.end,JSON.stringify(origin)]];
+  const previous=literal.replace(/\/+$/,'');
+  const replace=value=>value.split('\n').map(line=>line===`net.fetch ${previous}` || line===`net.fetch ${previous}/` ? `net.fetch ${origin}` : line).join('\n');
+  const walk=node=>{
+    if (!node || typeof node!=='object') return;
+    if (node.type==='Literal' && typeof node.value==='string') { const next=replace(node.value); if(next!==node.value) edits.push([node.start,node.end,JSON.stringify(next)]); return; }
+    if (node.type==='TemplateLiteral' && !node.expressions.length) { const next=replace(node.quasis[0].value.cooked); if(next!==node.quasis[0].value.cooked) edits.push([node.start,node.end,JSON.stringify(next)]); return; }
+    if (node.type==='TemplateElement') { if(replace(node.value.cooked)!==node.value.cooked) throw new Error('EXACT_BACKEND_ORIGIN: use net.fetch ${origin} in an interpolated grants template'); return; }
+    for(const child of Object.values(node)) if(Array.isArray(child)) child.forEach(walk); else if(child && typeof child==='object') walk(child);
+  };
+  declarations.filter(d=>d.id.type==='Identifier' && d.id.name==='grants').forEach(d=>walk(d.init));
+  for(const [start,end,value] of edits.sort((a,b)=>b[0]-a[0])) code=code.slice(0,start)+value+code.slice(end);
+  return code;
+}
+
 // Rolldown IDs are file paths, not URL or slash-normalized strings. Both
 // producers enforce the same captured-file boundary (LLP 1027 D5). A
 // package's declarations are captured for the checker alone (`stagePackages`):
@@ -215,7 +252,7 @@ function refusal(node,local) {
     const callee=node.callee;
     if (member(callee,'Date','now',local)) return ambient('Date.now()');
     if (member(callee,'performance','now',local)) return ambient('performance.now()');
-    if (member(callee,'Math','random',local)) return 'Math.random() is unavailable in data sources; pass time or a random seed as an argument, or use crypto.getRandomValues';
+    if (member(callee,'Math','random',local)) return 'Math.random() is unavailable in data sources; seed from crypto.getRandomValues in a source (docs/recipes/random-and-shuffle.md), or pass a seed as an argument';
     if (ambientGlobal(callee,'Date',local)) return ambient('Date()');
     const timer=TIMERS.find(name=>ambientGlobal(callee,name,local));
     if (timer) return timers(timer+'()');
@@ -306,6 +343,8 @@ export function ambientRefusals(stage, file, code, parse) {
 export const compilerOptions = {
   noEmit: true,
   strict: true,
+  // Installed declaration internals belong to their package; app sources stay strict.
+  skipLibCheck: true,
   target: 'ES2023',
   module: 'ESNext',
   moduleResolution: 'bundler',
@@ -329,7 +368,26 @@ const configuredLibrary=(file)=>{
     || Boolean(es && Number(es[1])<=year);
 };
 
-export function configure(stage, incremental=false) {
+/** On Snapback, a successful mutation record says ok:true; refusals throw.
+ * Narrow the captured seam, so TypeScript checks aliases and helpers without
+ * interpreting application code. Ordinary resource records retain boolean ok. */
+export function snapbackMutationTypes(declarations) {
+  const original="export type Result<S extends Source> = SourceMap[S]['result'];";
+  if(!declarations.includes(original)) return declarations;
+  if(!declarations.includes('export type MutationSource =')) throw new Error('Snapback mutation types need regenerated Contract declarations; rebuild the Contract compiler');
+  return declarations.replace(original,
+    "type SnapbackMutationSuccess<R> = R extends {ok: boolean} ? R & {ok: true} : R;\n"+
+    "export type Result<S extends Source> = S extends MutationSource ? SnapbackMutationSuccess<SourceMap[S]['result']> : SourceMap[S]['result'];");
+}
+
+export function configure(stage, incremental=false, parse) {
+  const app=capturedOrigins(stage).at(-1)[1], modulePath=resolve(stage,'app.ts');
+  if (existsSync(modulePath)) {
+    const before=readFileSync(modulePath,'utf8'), original=resolve(stage,'__exact_backend_source.json');
+    const authored=existsSync(original) ? JSON.parse(readFileSync(original,'utf8')) : before;
+    const after=injectBackendOrigin(authored,backendOrigin(app),parse);
+    if (before!==after) writeFileSync(modulePath,after);
+  }
   const inside = (path) => {
     if (path !== stage && !path.startsWith(stage+sep)) throw new Error('tsconfig: path outside captured app: '+path);
     return path;
@@ -389,7 +447,24 @@ export function configure(stage, incremental=false) {
     ...(incremental ? {incremental:true,tsBuildInfoFile:resolve(stage,'__exact_build.tsbuildinfo')} : {})},files:['__exact_entry.ts']};
   const path=resolve(stage,'__exact_tsconfig.json'), bytes=JSON.stringify(config);
   if (!existsSync(path) || readFileSync(path,'utf8')!==bytes) writeFileSync(path,bytes);
+  if(capturedOrigins(stage).slice(0,-1).some(([,from])=>/(?:^|[/\\])snapback4[/\\](?:ts|online)$/.test(from))) {
+    const declaration=resolve(stage,'app.contract.d.ts');
+    const before=readFileSync(declaration,'utf8'), after=snapbackMutationTypes(before);
+    if(before!==after) writeFileSync(declaration,after);
+  }
   stagePackages(stage);
+}
+
+/** A name that is not a source (`Result<'posted'>`, a mutation's slot) fails
+ * as "does not satisfy the constraint 'keyof SourceMap'", which lists none:
+ * say which there are (sb4 farm wave 7, E3: 061 and 066, 15 minutes). */
+function sourceNames(stage,diagnostics) {
+  if(!/constraint 'keyof SourceMap'/.test(diagnostics))return '';
+  let text='';
+  try { text=readFileSync(resolve(stage,'app.contract.d.ts'),'utf8'); } catch { return ''; }
+  const map=text.match(/export interface SourceMap \{\n([\s\S]*?)\n\}/)?.[1] ?? '';
+  const names=[...map.matchAll(/^\s+("[^"]+"|[A-Za-z_$][\w$]*):/gm)].map(m=>m[1].replace(/^"|"$/g,''));
+  return names.length ? `\nnote: Result<…> and Args<…> take a source's name, what the contract calls (\`resource x = name(…)\`, \`send slot = name(…)\`), never a resource's or mutation's own: ${names.map(n=>`'${n}'`).join(', ')}\n` : '';
 }
 
 // Short-lived native checks trade fewer GC cycles for a soft Go memory limit
@@ -415,11 +490,37 @@ export function check(stage, tsc, libraries) {
     {cwd:stage,env:checkEnv,encoding:'utf8',maxBuffer:4*1024*1024}, (error, stdout, stderr) => {
       if (error) {
         const diagnostics=String(stdout??'').split(/\r?\n/).filter(line=>! /^(?:\/|[A-Za-z]:[\\/]).*\.[cm]?[jt]sx?$/.test(line)).join('\n');
-        return fail(new Error(diagnostics+String(stderr??'') || String(error.message)));
+        const mutationFailure=/Type '(?:false|boolean)' is not assignable to type 'true'|SnapbackMutationSuccess/.test(diagnostics)
+          && readFileSync(resolve(stage,'app.contract.d.ts'),'utf8').includes('type SnapbackMutationSuccess<');
+        const refusal=mutationFailure ? "\nnote: a Snapback mutation returning {ok:false} leaves failure(slot) empty; throw refused({code: 'YOUR_CODE', message: 'Explain the refusal'}) instead. Annotate successful helpers with Result<'source'>, or keep ok:true literal with `as const`.\n" : '';
+        return fail(new Error(diagnostics+sourceNames(stage,diagnostics)+refusal+String(stderr??'') || String(error.message)));
       }
       for(const path of stdout.trim().split(/\r?\n/)) {
         if(path && !allowed(realpathSync(path)))return fail(new Error('module outside captured app: '+path));
       }
       done();
     }));
+}
+
+/** Contract build's early ambient check: walk reachable modules without executing application code. */
+export async function ambientDiagnostics(app) {
+  const {rolldown}=await import('rolldown');
+  const found=[];
+  let mounts={};
+  try { mounts=JSON.parse(readFileSync(resolve(app,'app.json'),'utf8')).typescript?.sources ?? {}; } catch { /* plain Contract directory */ }
+  const bundle=await rolldown({input:resolve(app,'app.ts'), logLevel:'silent', external:source=>!!packageName(source),
+    plugins:[{name:'contract-ambient', async resolveId(source,importer) {
+      if (!importer || !source.startsWith('.')) return null;
+      const path=resolve(dirname(importer),source), child=relative(app,path).split(sep);
+      return mounts[child[0]] ? this.resolve(resolve(app,mounts[child[0]],...child.slice(1)), importer, {skipSelf:true}) : null;
+    }, transform(code,id) { found.push(...ambientRefusals(app,id,code,(c,o)=>this.parse(c,o))); return null; }}]});
+  try { await bundle.generate({format:'esm'}); } finally { await bundle.close(); }
+  return found.map(line=>{
+    const [,file,row,col,message]=/^(.*?):(\d+):(\d+): ([\s\S]*)$/.exec(line);
+    return {file:resolve(app,file),line:Number(row),col:Number(col),message};
+  });
+}
+if (process.argv[2]==='--ambient' && process.argv[1]?.endsWith('/typescript.mjs')) {
+  try { console.log(JSON.stringify(await ambientDiagnostics(resolve(process.argv[3])))); }
+  catch(error) { console.error(error.message); process.exitCode=1; }
 }

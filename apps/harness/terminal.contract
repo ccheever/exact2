@@ -9,7 +9,7 @@
 // The conversation, the models and the tools live in the Rust data module
 // (apps/harness/data); this file is only the screen.
 
-use Run, Line, Block, Entry, Approval, ModelChoice, Session, Frame, Ack from "./shapes.contract"
+use Run, Line, Block, Entry, Approval, ModelChoice, Session, Workspace, FrameRun, Frame, Ack from "./shapes.contract"
 
 shape Cmd
   name: string
@@ -34,21 +34,22 @@ shape Terminal
 
 fn fg(c: string): string = c == "" ? "inherit" : c
 fn bg(c: string): string = c == "" ? "transparent" : c
-fn weight(r: Run): number = r.bold ? 700 : (r.dim ? 300 : 400)
-fn deco(r: Run): string = r.under ? (r.strike ? "underline line-through" : "underline") : (r.strike ? "line-through" : "none")
-fn frameOf(frames: list<string>, n: number): string = match at(frames, n % length(frames)) { case some(f) => f, case none => "" }
+fn weight(bold: bool, dim: bool): number = bold ? 700 : (dim ? 300 : 400)
+fn deco(under: bool, strike: bool): string = under ? (strike ? "underline line-through" : "underline") : (strike ? "line-through" : "none")
+fn frameOf(frames: string[], n: number): string = match frames.at(n % frames.length) { case some(f) => f, case none => "" }
 fn spinner(n: number): string = frameOf(["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"], n)
 fn star(n: number): string = frameOf(["✻", "✽", "✶", "✳", "✢", "·", "✢", "✳", "✶", "✽"], n)
-fn seconds(ticks: number): string = `${floor(ticks / 10)}s`
+fn seconds(ms: number): string = `${floor(ms / 1000)}s`
 fn statusColor(s: string): string = s == "ok" ? "#5fd75f" : (s == "error" ? "#ff5f5f" : (s == "denied" ? "#ffaf00" : (s == "waiting" ? "#ffaf00" : "#87afff")))
 fn phaseWord(p: string): string = p == "thinking" ? "Thinking" : (p == "streaming" ? "Writing" : (p == "tool" ? "Running" : (p == "waiting" ? "Waiting for you" : "Working")))
 fn kilo(n: number): string = n >= 1000 ? `${floor(n / 100) / 10}k` : `${n}`
-fn isCommand(s: string): bool = indexOf(s, "/") == 0
-fn matching(cmds: list<Cmd>, draft: string): list<Cmd> = filter(cmds, c => indexOf(c.name, trim(draft)) == 0)
+fn isCommand(s: string): bool = s.indexOf("/") == 0
+fn matching(cmds: Cmd[], draft: string): Cmd[] = cmds.filter(c => c.name.indexOf(draft.trim()) == 0)
 
 component Harness
-  resource session = session() as shape Session
   resource terminal = exactSurface("terminal") as shape Terminal
+  resource workspace = workspace() as shape Workspace
+  resource session = session(terminal.mode) as shape Session
   mutation sent as shape Ack queue
   mutation answered as shape Ack
   mutation stopped as shape Ack
@@ -60,6 +61,9 @@ component Harness
   state back = -1
   state sel = 0
   state tick = 0
+  // Time spent busy, measured: steps a suspension skipped still count
+  state busyMs = 0
+  state stepped = 0
   state anim = ""
   state frameTick = 0
   state quitArmed = false
@@ -92,7 +96,7 @@ component Harness
     Cmd(name="/wave", help="animation: the waving logo"),
     Cmd(name="/quit", help="leave"),
   ]
-  derive matches = isCommand(draft) and not includes(draft, " ") ? matching(commands, draft) : []
+  derive matches = isCommand(draft) and not draft.includes(" ") ? matching(commands, draft) : []
   derive animating = anim != ""
   derive animations = ["/plasma", "/fire", "/matrix", "/spinners", "/bars", "/donut", "/knot", "/tesseract", "/warp", "/tunnel", "/wave"]
   derive inline = terminal.mode != "fullscreen"
@@ -113,7 +117,10 @@ component Harness
     after(1, retire)
 
   action step
+    let now = performanceNow()
     tick = tick + 1
+    busyMs = busyMs + (now - stepped)
+    stepped = now
   action nextFrame
     frameTick = frameTick + 1
   action unarm
@@ -137,16 +144,20 @@ component Harness
           if text == "/model"
             showModal("models")
           else
-            if includes(animations, text)
-              anim = slice(text, 1)
+            if animations.includes(text)
+              anim = text.slice(1)
             else
+              // A turn starts when its prompt is sent, not when the step
+              // after it runs
+              if not session.busy
+                stepped = performanceNow()
               send sent = submit(text)
-        history = concat([text], history)
+        history = [text].concat(history)
         draft = ""
         back = -1
         sel = 0
   action complete
-    match at(matches, sel)
+    match matches.at(sel)
       case some(c)
         draft = `${c.name} `
       case none
@@ -159,28 +170,28 @@ component Harness
   // preventDefault().
   action onKey(key: string, e: KeyboardEvent)
     if key == "Enter" and not e.shiftKey and not e.altKey
-      sendText(match at(matches, sel) { case some(c) => c.name, case none => trim(draft) })
+      sendText(match matches.at(sel) { case some(c) => c.name, case none => draft.trim() })
       preventDefault()
     else
-      if key == "Tab" and length(matches) > 0
+      if key == "Tab" and matches.length > 0
         complete()
         preventDefault()
       else
-        if key == "ArrowDown" and length(matches) > 0
-          sel = (sel + 1) % length(matches)
+        if key == "ArrowDown" and matches.length > 0
+          sel = (sel + 1) % matches.length
           preventDefault()
         else
-          if key == "ArrowUp" and length(matches) > 0
-            sel = (sel + length(matches) - 1) % length(matches)
+          if key == "ArrowUp" and matches.length > 0
+            sel = (sel + matches.length - 1) % matches.length
             preventDefault()
           else
-            if key == "ArrowUp" and back + 1 < length(history) and not includes(draft, "\n")
-              draft = match at(history, back + 1) { case some(h) => h, case none => draft }
+            if key == "ArrowUp" and back + 1 < history.length and not draft.includes("\n")
+              draft = match history.at(back + 1) { case some(h) => h, case none => draft }
               back = back + 1
               preventDefault()
             else
-              if key == "ArrowDown" and back >= 0 and not includes(draft, "\n")
-                draft = match at(history, back - 1) { case some(h) => h, case none => "" }
+              if key == "ArrowDown" and back >= 0 and not draft.includes("\n")
+                draft = match history.at(back - 1) { case some(h) => h, case none => "" }
                 back = back - 1
                 preventDefault()
               else
@@ -215,7 +226,7 @@ component Harness
   action dropKey
     keyDraft = ""
   action saveKey
-    send keyed = setKey(keyFor, trim(keyDraft))
+    send keyed = setKey(keyFor, keyDraft.trim())
     keyDraft = ""
     close("keys")
   action answer(choice: string)
@@ -231,26 +242,26 @@ component Harness
       // screen, it scrolls in place and follows its end.
       // Keyed by the session's epoch: `/clear` makes a new log, and an
       // inline terminal clears for a new log.
-      when inline
-        each epoch in [session.epoch] key=epoch
+      if inline
+        for epoch in [session.epoch] key=epoch
           Transcript(entries=session.entries, tick=tick)
       else
         scroll flex=1 min-height=0 scrollFollowEnd=true testId="transcript-scroll"
-          each epoch in [session.epoch] key=epoch
+          for epoch in [session.epoch] key=epoch
             Transcript(entries=session.entries, tick=tick)
       // The live tail: everything below the log is redrawn in place.
       column testId="live" flex-shrink=0
-        when session.busy and session.approval.id == ""
+        if session.busy and session.approval.id == ""
           row margin-top="1lh" color="#d78700"
             text `${star(tick)} ${phaseWord(session.phase)}…` font-weight=700
-            text ` (${seconds(tick)} · ↓ ${kilo(session.tokensOut)} tokens · esc to interrupt)` white-space="pre" color="#8a8a8a"
+            text ` (${seconds(busyMs)} · ↓ ${kilo(session.tokensOut)} tokens · esc to interrupt)` white-space="pre" color="#8a8a8a"
         // An approval takes no default focus: Enter answers nothing, and a
         // key typed before it appeared cannot press it (LLP 1101.001 P11).
-        when session.approval.id != ""
+        if session.approval.id != ""
           column margin-top="1lh" border="thin solid #ffaf00" border-radius="1ch" padding="0 1ch" testId="approval"
             text session.approval.summary font-weight=700 color="#ffaf00"
             column margin="1lh 0" padding-left="2ch"
-              each l, i in session.approval.lines key=i
+              for l, i in session.approval.lines key=i
                 Runs(runs=l.runs, pre=false)
             text "Do you want to proceed? Press 1, 2 or 3."
             button appearance="none" press=answer("yes") aria-keyshortcuts="1" testId="approve-yes" text-align="start"
@@ -259,37 +270,37 @@ component Harness
               text `2. Yes, and don't ask again for ${session.approval.tool}`
             button appearance="none" press=answer("no") aria-keyshortcuts="3 Escape" testId="approve-no" text-align="start"
               text "3. No, and tell the model what to do differently (esc)"
-        when animating
+        if animating
           column margin-top="1lh" border="thin solid #5f5fd7" border-radius="1ch" testId="animation"
             row padding="0 1ch"
               text frame.title font-weight=700 color="#8787ff"
               button appearance="none" press=stopAnimation margin-left="auto" testId="stop-animation"
                 text "esc to stop" color="#6c6c6c"
-            each l, i in frame.lines key=i
-              Runs(runs=l.runs, pre=true)
-        when length(matches) > 0
+            for l, i in frame.lines key=i
+              FrameRuns(runs=l.runs)
+        if matches.length > 0
           column margin-top="1lh" testId="completions"
-            each c, i in matches key=c.name
+            for c, i in matches key=c.name
               button press=sendText(c.name) display="flex" text-align="start" background-color=(i == sel ? "#303050" : "transparent") padding="0 1ch" testId=`complete-${c.name}`
                 text c.name width="12ch" flex-shrink=0 color=(i == sel ? "#afafff" : "#87afff") font-weight=(i == sel ? 700 : 400)
                 text c.help color="#8a8a8a" white-space="nowrap" text-overflow="ellipsis" flex-shrink=1 min-width=0
-        when length(session.queued) > 0
+        if session.queued.length > 0
           column margin-top="1lh" color="#8a8a8a" padding="0 1ch" testId="queued"
-            each q, i in session.queued key=i
+            for q, i in session.queued key=i
               row
                 text "⏵ queued: " white-space="pre" flex-shrink=0
                 text q white-space="nowrap" text-overflow="ellipsis" min-width=0
         row margin-top="1lh" border="thin solid #585858" border-radius="1ch" padding="0 1ch"
           text "› " white-space="pre" color="#87afff" font-weight=700 flex-shrink=0
-          textarea value=draft appearance="none" input=write key=onKey disabled=(session.approval.id != "") autofocus=true placeholder=(session.busy ? "Type ahead — it runs when this turn ends" : "Ask anything, or / for commands") flex-grow=1 rows=min(8, length(split(draft, "\n"))) testId="prompt"
+          textarea value=draft appearance="none" input=write key=onKey disabled=(session.approval.id != "") autofocus=true placeholder=(session.busy ? "Type ahead — it runs when this turn ends" : "Ask anything, or / for commands") flex-grow=1 rows=min(8, draft.split("\n").length) testId="prompt"
         row padding="0 1ch" color="#6c6c6c" gap="2ch"
           button appearance="none" commandfor="models" command="show-modal" aria-keyshortcuts="Control+o" testId="model-button" white-space="nowrap" flex-shrink=0
             text `${session.model} (${session.provider})` color="#87afff"
-          text `${session.cwd}${session.branch == "" ? "" : ` (${session.branch})`}` white-space="nowrap" text-overflow="ellipsis" flex-shrink=1 min-width=0
+          text `${session.cwd}${workspace.branch == "" ? "" : ` (${workspace.branch})`}` white-space="nowrap" text-overflow="ellipsis" flex-shrink=1 min-width=0
           text `↑ ${kilo(session.tokensIn)} ↓ ${kilo(session.tokensOut)} · ${floor(session.contextPct)}% context` margin-left="auto" white-space="nowrap"
-        when quitArmed
+        if quitArmed
           text "Press Ctrl-C again to exit" color="#ffaf00" padding="0 1ch"
-        when session.toast != ""
+        if session.toast != ""
           text session.toast color="#5fd75f" padding="0 1ch"
       // Inline, the host anchors an open dialog to the bottom of the live
       // region (above it is the terminal's scrollback); full screen, it
@@ -298,7 +309,7 @@ component Harness
         text "Choose a model" font-weight=700 color="#87afff"
         text "↑/↓ to move · enter or click to choose · esc to cancel" color="#6c6c6c" margin-bottom="1lh"
         scroll flex=1 min-height=0 testId="model-list"
-          each m in session.models key=m.id
+          for m in session.models key=m.id
             button press=pickModel(m.id) commandfor="models" command="close" disabled=(not m.available) testId=`model-${m.id}` text-align="start" display="flex" gap="1ch"
               text (m.id == session.model ? "●" : "○") color=(m.available ? "#87afff" : "#585858")
               text m.label color=(m.available ? "inherit" : "#585858") flex-grow=1
@@ -322,22 +333,31 @@ component Harness
 // the host reports back when it has printed it).
 component Transcript
   props
-    entries: list<Entry>
+    entries: Entry[]
     tick: number
   view
     column role="log" testId="transcript"
-      each e in entries key=e.id
+      for e in entries key=e.id
         EntryView(e=e, tick=(e.busy ? tick : 0))
 
 // One paragraph of styled runs; it wraps unless `pre`.
 component Runs
   props
-    runs: list<Run>
+    runs: Run[]
     pre: bool
   view
     text white-space=(pre ? "pre" : "pre-wrap")
-      each r, i in runs key=i
-        text r.text color=fg(r.fg) background-color=bg(r.bg) font-weight=weight(r) font-style=(r.italic ? "italic" : "normal") text-decoration-line=deco(r) href=r.href
+      for r, i in runs key=i
+        text r.text color=fg(r.fg) background-color=bg(r.bg) font-weight=weight(r.bold, r.dim) font-style=(r.italic ? "italic" : "normal") text-decoration-line=deco(r.under, r.strike) href=r.href
+
+// Animation runs carry only their effective terminal style.
+component FrameRuns
+  props
+    runs: FrameRun[]
+  view
+    text white-space="pre"
+      for r, i in runs key=i
+        text r.text color=fg(r.fg) background-color=bg(r.bg) font-weight=r.weight font-style="normal" text-decoration-line="none" href=""
 
 // One block of rendered Markdown, or of pre-coloured lines.
 component BlockView
@@ -345,36 +365,36 @@ component BlockView
     b: Block
     first: bool
   view
-    when b.kind == "h1"
+    if b.kind == "h1"
       column margin-top=(first ? "0" : "1lh") color="#61afef" font-weight=700 text-decoration-line="underline"
         Runs(runs=b.runs, pre=false)
-    else when b.kind == "h2"
+    else if b.kind == "h2"
       column margin-top=(first ? "0" : "1lh") color="#61afef" font-weight=700
         Runs(runs=b.runs, pre=false)
-    else when b.kind == "h3"
+    else if b.kind == "h3"
       column margin-top=(first ? "0" : "1lh") font-weight=700
         Runs(runs=b.runs, pre=false)
-    else when b.kind == "li"
+    else if b.kind == "li"
       row padding-left=`${b.depth * 2}ch`
         text `${b.marker} ` white-space="pre" color="#808080" flex-shrink=0
         column flex-grow=1 min-width=0
           Runs(runs=b.runs, pre=false)
-    else when b.kind == "quote"
+    else if b.kind == "quote"
       row
         text "▌ " white-space="pre" color="#5f5f87" flex-shrink=0
         column flex-grow=1 min-width=0 font-style="italic" color="#a8a8a8"
           Runs(runs=b.runs, pre=false)
-    else when b.kind == "code"
+    else if b.kind == "code"
       column margin=(first ? "0 0 1lh" : "1lh 0") padding="0 1ch" background-color="#1c1c1c" border-left="thin solid #3a3a3a"
-        when b.lang != ""
+        if b.lang != ""
           text b.lang color="#6c6c6c" font-style="italic"
-        each l, i in b.lines key=i
+        for l, i in b.lines key=i
           Runs(runs=l.runs, pre=false)
-    else when b.kind == "rule"
+    else if b.kind == "rule"
       column height="1lh" border-top="thin solid #444444" margin-top=(first ? "0" : "1lh")
-    else when b.kind == "lines"
+    else if b.kind == "lines"
       column
-        each l, i in b.lines key=i
+        for l, i in b.lines key=i
           Runs(runs=l.runs, pre=true)
     else
       column margin-top=(b.kind == "p" and not first ? "1lh" : "0")
@@ -390,45 +410,45 @@ component EntryView
     tick: number
   view
     column id=e.id aria-busy=e.busy margin-top=(e.kind == "more" ? "0" : "1lh") testId=`entry-${e.id}`
-      when e.kind == "user"
+      if e.kind == "user"
         row background-color="#262626" padding="0 1ch"
           text "› " white-space="pre" color="#87afff" font-weight=700 flex-shrink=0
           column flex-grow=1 min-width=0
-            each b, i in e.blocks key=i
+            for b, i in e.blocks key=i
               BlockView(b=b, first=i == 0)
-      else when e.kind == "assistant"
+      else if e.kind == "assistant"
         row
           text (e.busy ? `${star(tick)} ` : "⏺ ") white-space="pre" color=(e.busy ? "#d78700" : "#d0d0d0") flex-shrink=0
           column flex-grow=1 min-width=0
             // Which model answered: a turn keeps the one it started with
             // (LLP 1101.002 §0 P12).
-            when e.model != ""
+            if e.model != ""
               text e.model color="#6c6c6c" font-style="italic"
-            each b, i in e.blocks key=i
+            for b, i in e.blocks key=i
               BlockView(b=b, first=i == 0)
-      else when e.kind == "more"
+      else if e.kind == "more"
         column padding-left="2ch"
-          each b, i in e.blocks key=i
+          for b, i in e.blocks key=i
             BlockView(b=b, first=false)
-      else when e.kind == "tool"
+      else if e.kind == "tool"
         column
           row
             text (e.status == "running" ? `${spinner(tick)} ` : "⏺ ") white-space="pre" color=statusColor(e.status) flex-shrink=0
             text e.title font-weight=700 href=e.link
-            when e.status == "waiting"
+            if e.status == "waiting"
               text "  waiting for approval" white-space="pre" color="#ffaf00" font-style="italic"
           row
             text "  ⎿  " white-space="pre" color="#6c6c6c" flex-shrink=0
             column flex-grow=1 min-width=0
-              each b, i in e.blocks key=i
+              for b, i in e.blocks key=i
                 BlockView(b=b, first=i == 0)
-              when e.more > 0
+              if e.more > 0
                 text `… +${e.more} lines` color="#6c6c6c"
-      else when e.kind == "banner"
+      else if e.kind == "banner"
         column border="thin solid #d78700" border-radius="1ch" padding="0 1ch"
-          each b, i in e.blocks key=i
+          for b, i in e.blocks key=i
             BlockView(b=b, first=i == 0)
-      else when e.kind == "image"
+      else if e.kind == "image"
         column
           text e.title color="#808080"
           image e.image width=`${e.cols}ch` height=`${e.rows}lh` aria-label=e.title
@@ -436,5 +456,5 @@ component EntryView
         row color=(e.kind == "error" ? "#ff5f5f" : "#8a8a8a")
           text (e.kind == "error" ? "✗ " : "· ") white-space="pre" flex-shrink=0
           column flex-grow=1 min-width=0
-            each b, i in e.blocks key=i
+            for b, i in e.blocks key=i
               BlockView(b=b, first=i == 0)

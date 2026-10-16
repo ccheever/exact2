@@ -1,0 +1,165 @@
+// A metronome and drum machine, LLP 1125's stage 2 consumer: one `sequence`
+// declares what plays, and the runner plays it a second ahead on its own
+// clock. A tempo stepper, an accent on beat 1, a count-in of four, a haptic on
+// each beat, and a four-track drum pattern whose tracks loop at their own
+// lengths. No action runs per beat; the beat shown is drawn from
+// `exactTransport()` in a frame task that runs only while it plays. With a
+// MIDI output chosen (LLP 1125 stage 3) each click and drum is also a note on
+// the General MIDI percussion channel, and the output can follow its clock.
+// Share as image sends a picture of the tempo card where the host draws one
+// (LLP 1125 D12).
+sound "assets/click-high.wav"
+sound "assets/click-low.wav"
+sound "assets/kick.wav"
+sound "assets/snare.wav"
+sound "assets/hat.wav"
+sound "assets/clap.wav"
+
+shape Step
+  beat: number
+  src: string
+  gain: number
+  group: string
+  note: number
+  velocity: number
+  channel: number
+  duration: number
+  haptic: string
+
+shape Track
+  beats: number
+  loops: number
+  offset: number
+  output: string
+  steps: Step[]
+
+shape Page
+  canSharePictures: bool
+
+shape Transport
+  state: string
+  reason: string
+  bpm: number
+  anchorAt: number
+  anchorBeat: number
+
+shape Port
+  id: string
+  name: string
+  state: string
+
+shape MIDI
+  state: string
+  outputs: Port[]
+
+// A step's sample and, on a track with a MIDI output, its General MIDI
+// percussion note (channel 10, index 9) at the sample's level.
+fn step(beat: number, src: string, gain: number, haptic: string, note: number): Step = Step(beat=beat, src=src, gain=gain, group="", note=note, velocity=max(1, round(gain * 127)), channel=9, duration=0.1, haptic=haptic)
+fn drum(beat: number, src: string, gain: number, note: number): Step = step(beat, src, gain, "", note)
+fn track(beats: number, out: string, steps: Step[]): Track = Track(beats=beats, loops=0, offset=0, output=out, steps=steps)
+
+// A bar of four clicks: beat 1 high when accented (the high and low wood
+// blocks, 76 and 77), each beat's haptic when asked.
+fn bar(accent: bool, buzz: bool, out: string): Track = track(4, out, [step(0, accent ? "assets/click-high.wav" : "assets/click-low.wav", 1, buzz ? "impact-medium" : "", accent ? 76 : 77), step(1, "assets/click-low.wav", 0.6, buzz ? "impact-light" : "", 77), step(2, "assets/click-low.wav", 0.6, buzz ? "impact-light" : "", 77), step(3, "assets/click-low.wav", 0.6, buzz ? "impact-light" : "", 77)])
+
+// Kick and snare over a bar, eighth-note hats, and a clap every three beats
+// against them (General MIDI's 36, 38, 42 and 39).
+fn drums(out: string): Track[] = [track(4, out, [drum(0, "assets/kick.wav", 1, 36), drum(2.5, "assets/kick.wav", 0.8, 36)]), track(4, out, [drum(1, "assets/snare.wav", 0.9, 38), drum(3, "assets/snare.wav", 0.9, 38)]), track(1, out, [drum(0, "assets/hat.wav", 0.5, 42), drum(0.5, "assets/hat.wav", 0.35, 42)]), track(3, out, [drum(2, "assets/clap.wav", 0.7, 39)])]
+
+component Metronome
+  state playing = false
+  state bpm = 120
+  state accent = true
+  state countIn = true
+  state haptics = false
+  state groove = false
+  state now = 0
+  // The MIDI output chosen, by its id ("" for none), and whether it follows the clock.
+  state output = ""
+  state clock = false
+  resource transport = exactTransport() as shape Transport
+  resource page = exactPage() as shape Page
+  resource midi = exactMIDI() as shape MIDI
+  derive tracks = groove ? [bar(accent, haptics, output)].concat(drums(output)) : [bar(accent, haptics, output)]
+  derive clicks = [step(0, "assets/click-high.wav", 1, "", 76), step(1, "assets/click-high.wav", 1, "", 76), step(2, "assets/click-high.wav", 1, "", 76), step(3, "assets/click-high.wav", 1, "", 76)]
+  derive beat = transport.state == "stopped" ? 0 : floor(transport.anchorBeat + (now - transport.anchorAt) * transport.bpm / 60000)
+  derive shown = transport.state == "countin" ? `Count-in ${beat + 5}` : transport.state == "playing" ? `Beat ${beat % 4 + 1}` : "Stopped"
+
+  action toggle
+    playing = not playing
+  action slower
+    bpm = max(30, bpm - 1)
+  action faster
+    bpm = min(300, bpm + 1)
+  action setAccent(on: bool)
+    accent = on
+  action setCountIn(on: bool)
+    countIn = on
+  action setHaptics(on: bool)
+    haptics = on
+  action setGroove(on: bool)
+    groove = on
+  action shareCard
+    share(title="Metronome", text=`${bpm} BPM`, files=["#card"])
+  action draw
+    now = performanceNow()
+  action connect
+    requestMIDIAccess()
+  action chooseOutput(id: string)
+    output = id
+  action setClock(on: bool)
+    clock = on
+
+  sequence click when playing
+    play(tracks, bpm=bpm, from=countIn ? -4 : 0, countIn=clicks, clockOut=clock ? output : "")
+  task playhead when playing
+    every(frame, draw)
+
+  view
+    main accent-color="-exact-system-orange" align-items="center" justify-content="center" flex=1 gap=24 padding=24 testId="app"
+      column align-items="center" gap=8 max-width=420
+        column id="card" align-items="center" gap=4 padding=16 border-radius=12 background-color="-exact-secondary-background" testId="card"
+          text `${bpm}` font="-exact-large-title" testId="bpm"
+          text "beats a minute" font="-exact-footnote" color="-exact-secondary-label"
+          text (groove ? "Kick, snare, hats and clap" : accent ? "Click, beat 1 accented" : "Click") font="-exact-footnote" testId="pattern"
+        row gap=12
+          button press=slower aria-label="Slower" testId="slower"
+            text "−"
+          button press=faster aria-label="Faster" testId="faster"
+            text "+"
+      text shown font="-exact-title-2" testId="beat"
+      button press=toggle buttonStyle="filled" testId="toggle"
+        text (playing ? "Stop" : "Start")
+      if page.canSharePictures
+        button press=shareCard testId="share-card"
+          text "Share as image"
+      column gap=8 max-width=420
+        row gap=8 align-items="center"
+          input type="checkbox" checked=accent change=setAccent aria-label="Accent beat 1" testId="accent"
+          text "Accent beat 1"
+        row gap=8 align-items="center"
+          input type="checkbox" checked=countIn change=setCountIn aria-label="Count in" testId="count-in"
+          text "Count in"
+        row gap=8 align-items="center"
+          input type="checkbox" checked=haptics change=setHaptics aria-label="Haptic on the beat" testId="haptics"
+          text "Haptic on the beat"
+        row gap=8 align-items="center"
+          input type="checkbox" checked=groove change=setGroove aria-label="Drum pattern" testId="groove"
+          text "Drum pattern"
+      // MIDI out: asked for at a press, then an output to play on and follow the clock.
+      column gap=8 max-width=420
+        if midi.state == "granted"
+          row gap=8 align-items="center"
+            text "MIDI output"
+            select value=output change=chooseOutput aria-label="MIDI output" testId="output"
+              option "None" value=""
+              for o in midi.outputs key = o.id
+                option (o.state == "connected" ? o.name : `${o.name} (disconnected)`) value=o.id
+          row gap=8 align-items="center"
+            input type="checkbox" checked=clock change=setClock aria-label="Send MIDI clock" testId="clock"
+            text "Send MIDI clock"
+        else if midi.state == "prompt"
+          button press=connect testId="connect"
+            text "Connect MIDI"
+        else
+          text (midi.state == "denied" ? "MIDI is not allowed" : "MIDI is unavailable here") font="-exact-footnote" color="-exact-secondary-label" testId="midi-state"

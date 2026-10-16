@@ -131,13 +131,22 @@ pub fn web_linked(plan: &exact_plan::Plan, inputs: &serde_json::Value) -> String
     // Inspection is linked by policy, not by use: in production too, so the
     // smoked artifact is the shipped one (LLP 1047 §10, Q3).
     // A grouped list is its authored nodes on the web, and the browser does
-    // its own I/O and plays CSS's transitions (LLP 1047.001 D2).
+    // its own I/O and plays CSS's transitions (LLP 1047.001 D2); its file
+    // input is the media picker, `auth` below is the sign-in sheet, and its
+    // numerals roll in the runtime's text (LLP 1077 D15), and its date and
+    // time controls are the browser's own (LLP 1115.001.000 D2).
     let names: Vec<&str> = uses
         .iter()
         .filter(|c| {
             !matches!(
                 c,
-                Capability::GroupedLists | Capability::Io | Capability::Transitions
+                Capability::GroupedLists
+                    | Capability::Io
+                    | Capability::Transitions
+                    | Capability::MediaPicker
+                    | Capability::AuthSession
+                    | Capability::Numerals
+                    | Capability::Dates
             )
         })
         .map(|c| c.name())
@@ -185,7 +194,11 @@ pub fn web_linked(plan: &exact_plan::Plan, inputs: &serde_json::Value) -> String
             | Capability::Notifications
             | Capability::GroupedLists
             | Capability::Io
-            | Capability::Transitions => {}
+            | Capability::Transitions
+            | Capability::MediaPicker
+            | Capability::AuthSession
+            | Capability::Numerals
+            | Capability::Dates => {}
         }
     }
     entry

@@ -3,8 +3,9 @@
 //! initializer is and evaluated by the runner at each commit.
 
 use crate::{err_one, LowerError, Lowerer};
-use contract_syntax::{Expr, Task, TaskKind};
+use contract_syntax::{Expr, Sequence, Task, TaskKind};
 use contract_types::Scope;
+use exact_plan::{SequencesRow, Value};
 
 impl Lowerer<'_> {
     /// Every task of the root, in declaration order.
@@ -32,10 +33,18 @@ impl Lowerer<'_> {
                     ));
                 };
                 if !(ms.is_finite() && ms.fract() == 0.0 && *ms >= 1.0 && *ms <= u32::MAX as f64) {
+                    // A timer is due when the clock passes it, so 0 would be due
+                    // in the commit that armed it; the web's `setTimeout(f, 0)`
+                    // runs after the current task, as 1 does here.
+                    let soonest = match t.kind {
+                        TaskKind::After if *ms < 1.0 => ": the soonest is `after(1, …)`, a commit after the one that armed it, as the web's `setTimeout(f, 0)` runs after the current task",
+                        TaskKind::Every if *ms < 1.0 => ": a tick each display frame is `every(frame, …)`",
+                        _ => "",
+                    };
                     return Err(err_one(
                         "lower-timer-interval",
                         format!(
-                            "`{word}` needs a whole number of milliseconds, at least 1; given {ms}"
+                            "`{word}` needs a whole number of milliseconds, at least 1; given {ms}{soonest}"
                         ),
                         t.timer.2,
                     ));
@@ -58,6 +67,63 @@ impl Lowerer<'_> {
             });
             let key = code(self, &t.key)?;
             self.b.set_timer_gate(id, gate, key);
+        }
+        Ok(())
+    }
+
+    /// Every sequence of the root (LLP 1125 D2), in declaration order: its
+    /// gate and key as a task's, and each `play` argument as plan code, an
+    /// omitted one a constant. Clock in is a later stage's.
+    pub(crate) fn sequences(
+        &mut self,
+        sequences: &[Sequence],
+        scope: &Scope,
+    ) -> Result<(), Vec<LowerError>> {
+        for q in sequences {
+            if let Some((_, _, at)) = q.options.iter().find(|o| o.0 == "clock") {
+                return Err(err_one(
+                    "lower-sequence-clock",
+                    "`clock=` is not built yet (LLP 1125 stage 4); a sequence keeps its own time from `bpm=`",
+                    *at,
+                ));
+            }
+            let code = |l: &mut Self, e: Option<&Expr>, default: Value| match e {
+                Some(e) => l.expr_code(e, scope, 0).map_err(|e| vec![e]),
+                None => Ok(l.b.constant(&default)),
+            };
+            let always = Value::Bool(true);
+            let gated = q.gate.is_some() || q.key.is_some();
+            let gate = code(self, q.gate.as_ref(), always.clone())?;
+            let key = code(self, q.key.as_ref(), always)?;
+            let tracks = code(self, Some(&q.tracks), Value::Number(0.0))?;
+            let bpm = code(self, q.option("bpm"), Value::Number(0.0))?;
+            let from = code(self, q.option("from"), Value::Number(0.0))?;
+            let count_in = code(self, q.option("countIn"), Value::list(Vec::new()))?;
+            let clock = code(self, None, Value::str(""))?;
+            let clock_out = code(self, q.option("clockOut"), Value::str(""))?;
+            let ended = q.ended.as_ref().map(|(name, _)| {
+                self.actions[self
+                    .root
+                    .actions
+                    .iter()
+                    .position(|a| &a.name == name)
+                    .unwrap()]
+            });
+            let name = self.b.str(&q.name);
+            self.b.sequence(SequencesRow {
+                name,
+                gated,
+                gate,
+                keyed: q.key.is_some(),
+                key,
+                tracks,
+                bpm,
+                from,
+                count_in,
+                clock,
+                clock_out,
+                ended,
+            });
         }
         Ok(())
     }

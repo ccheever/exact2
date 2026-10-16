@@ -12,14 +12,14 @@ use contract_syntax::{Attr, Expr, File, Node, Span};
 use contract_types::{Scope, Ty};
 use exact_kernel::PropId;
 use exact_plan::asm::Asm;
-use exact_plan::{BindingKind, BindingsRow};
+use exact_plan::BindingsRow;
 
 /// Words a host already writes as `data-<word>` on the elements it makes:
 /// the web host's own markers (`host/web`, `host/web-js`), and the props it
 /// has no DOM name for, written as `data-<the prop's name, lowercased>`.
 /// `host/web`'s `every_data_name_the_host_writes_is_a_reserved_word` keeps
 /// the second half whole.
-const HOST_WORDS: [&str; 85] = [
+const HOST_WORDS: [&str; 90] = [
     "accept",
     "accessibilitybusy",
     "accessibilitydisabled",
@@ -40,6 +40,7 @@ const HOST_WORDS: [&str; 85] = [
     "colortype",
     "context-preview",
     "dataset",
+    "disabledstyled",
     "depth",
     "destructive",
     "digest",
@@ -66,8 +67,10 @@ const HOST_WORDS: [&str; 85] = [
     "hatch",
     "hyphen",
     "initialitemcount",
+    "intersectmargin",
     "keyboarddismissmode",
     "listitemkey",
+    "listrows",
     "liststyle",
     "module",
     "module-ready",
@@ -76,7 +79,9 @@ const HOST_WORDS: [&str; 85] = [
     "nativeid",
     "nativeviewmodulename",
     "nativeviewprops",
+    "navigationbar",
     "navigationdetent",
+    "navigationgrabber",
     "navigationscroll",
     "num",
     "pressed",
@@ -301,7 +306,12 @@ impl Lowerer<'_> {
         for (key, a) in &keyed {
             asm.str(self.b.str(key));
             let ty = crate::expr::compile(self, &mut asm, &a.value, scope, &mut depth)?;
-            let scalar = |t: &Ty| matches!(t, Ty::String | Ty::Number | Ty::Bool | Ty::Unknown);
+            let scalar = |t: &Ty| {
+                matches!(
+                    t,
+                    Ty::String | Ty::Enum(_) | Ty::Number | Ty::Bool | Ty::Unknown
+                )
+            };
             let admitted = match &ty {
                 Ty::Option(inner) => scalar(inner),
                 t => scalar(t),
@@ -318,11 +328,8 @@ impl Lowerer<'_> {
             }
         }
         asm.native_props(keyed.len() as u32);
-        bindings.push(BindingsRow {
-            kind: BindingKind::Prop,
-            id: PropId::Dataset as u16,
-            expr: self.b.code(asm),
-        });
+        let written = attrs.iter().any(|a| a.written);
+        bindings.push(crate::prop_row(PropId::Dataset, self.b.code(asm), written));
         Ok(())
     }
 }

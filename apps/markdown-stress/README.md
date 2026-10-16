@@ -243,8 +243,9 @@ The four workspace crates depend on the existing `apps/markdown/parse` crate;
 no framework edit is required to run.
 
 The view components are copied from `apps/markdown/app.contract` because Contract
-does not currently import view components across app files. Parsing, block shapes,
-value conversion and theme tokens are shared; there is no second Markdown parser.
+does not currently import view components across app files. Parsing, block shapes
+and value conversion are shared, and the root `theme` block says the readers'
+palette (LLP 1095 D4); there is no second Markdown parser.
 The opt-in variable-height block window uses the shared runner collection and
 host measurement/anchor path. `data/tests/windowed.rs` exercises the actual
 1 MiB / 26,885-block document through scrolling, width changes, typing, reparse

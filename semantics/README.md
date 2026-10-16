@@ -8,7 +8,7 @@ tested against it, differentially and at random.
 | `Contract/Syntax.lean` | The abstract syntax: a deep embedding of the expanded root component (every used component's declarations lifted into it), the file's shapes and `fn`s. A statement may call an action (`Stmt.call`, LLP 1089 D9): by name, with its whole argument list, never the body the Rust compiler expanded. |
 | `Contract/Binary64.lean` | Numbers: IEEE-754 binary64 as its bits (`F64`), every operation the exact result rounded once to nearest, ties to even, over `Nat`/`Int` — computable in the kernel. |
 | `Contract/Binary64Facts.lean` | That model proved: correct rounding, overflow, monotonicity, exactness (below). |
-| `Contract/Number.lean` | `max`/`min` with the runner's NaN and signed-zero rules, and JavaScript's `Number#toString` over exact rationals. |
+| `Contract/Number.lean` | `max`/`min` as JavaScript's `Math.max`/`Math.min` (NaN and signed zero included), and JavaScript's `Number#toString` over exact rationals. |
 | `Contract/Value.lean` | Values, structural equality as the runner's `compare::equal`, and the roster's string functions. |
 | `Contract/Format.lean` | The roster's formats (`formatTime`, `formatDate`, `formatNumber`) and `t(...)`'s strings tables, as the runner computes them. |
 | `Contract/Route.lean` | The router (LLP 1038): canonical locations, the route table's matching, `path`, launch, the six verbs and the reads. |
@@ -119,11 +119,16 @@ every resource and `send` must meet. A disagreement is kept under
 
 A divergence is kept under `target/difftest/failures/` (the program, the
 events, both observations); random failures have their scripts shrunk first.
-The async lane (`scripts/async.mjs`, step `semantics`) builds the Lean
-project, checks the proofs (the app proofs among them), checks the app
-embeddings are current, runs the corpus and a random sweep seeded by the
-commit, and checks component expansion over the corpus and 200 generated
-programs (`difftest expansion`, below).
+The async lane (`scripts/async.mjs`) runs this as four checks: `lean`
+builds the Lean project and checks the proofs (the app proofs among them);
+`vm-extract` checks the extracted VM (`vm-extract/README.md`); `difftest`
+checks the app embeddings are current and runs the corpus, the explored
+programs, a random sweep with fixed seeds, the lowering, number, type and
+expansion checks; `difftest-js` runs the web JS target (below). Each is
+skipped when its inputs are those of a run that passed: the binaries it
+runs, the Lean sources, every program and what compiling it reads, the
+tools and the environment (`scripts/async-inputs.mjs`). `difftest` runs
+with `DIFFTEST_CACHE=1`.
 
 ## Using it day to day
 
@@ -132,9 +137,10 @@ commands, and they say how to install it when it is missing (below,
 "Lean"). The first run builds the library (minutes, once per worktree);
 after that, Lean's observation of a case is kept under
 `target/difftest/cache/`, keyed by the case's embedding, oracle and
-events and by the semantics' sources, so a rerun only takes Lean time for
-what changed. Only `verify` and `quick` use the cache unless
-`DIFFTEST_CACHE=1`, and the async lane always runs Lean.
+events and by the semantics' sources and the harness that runs them
+(`leanrun.rs`), so a rerun only takes Lean time for what changed. Only
+`verify` and `quick` use the cache unless `DIFFTEST_CACHE=1`, which the
+async lane sets.
 
 **Writing an app.** `contract verify apps/<app>/app.contract` runs the
 app's `test` blocks (its own and those in `app.test.contract` beside it)
@@ -172,7 +178,7 @@ and the lowering check on 8, seeded by the base, so a branch's reruns are
 warm. Warm, it takes about 10 s. Cold, with the semantics changed so Lean
 reruns everything, it takes one to three minutes depending on load. It
 prints a command that reproduces each divergence. The async lane's
-`semantics` step is still the full run.
+`difftest` check is still the full run.
 
 ## The web JS target
 
@@ -208,8 +214,8 @@ A program `exact-web-js` refuses is outside the JS target (`OUTSIDE-JS`),
 not a failure. A divergence prints `DIVERGE-JS` with whether the semantics
 agreed with the runner, and is kept under `target/difftest/failures/`
 (`*-js-*.{contract,events,rust.txt,js.txt}`); random ones are shrunk first.
-The async lane runs the corpus and the explored
-programs with `--js`, and a random sweep of 500 with `--js-only`.
+The async lane's `difftest-js` check runs the corpus and the explored
+programs, and a random sweep of 500, with `--js-only`.
 
 ## Verifying an app
 
@@ -369,7 +375,7 @@ region, use and `children` node numbered within its component.
 
 **Its meaning** (`Contract.CompSem`) is given directly, not by expanding.
 A use is an *instance*, identified by its path from the root: every use,
-region arm (`when`/`match` arm, `each` row by key and duplicate count) and
+region arm (`if`/`match` arm, `for` row by key and duplicate count) and
 `children` node on the way. Its states live in a store under that path,
 initialized in the instance's frame the first time it renders, kept while
 it renders, dropped when a render leaves it out. Names are read in a
@@ -410,7 +416,9 @@ Rust's expansion (the flat embedding of the expansion the plan compiler
 makes, `contract::lean::lean_plain`: its uses' arguments not ascribed as
 `contract lean`'s are for the checker), declaration by declaration and node
 by node, types apart (a lifted type that differs is reported, not failed:
-a child's declarations carry the standalone checker's types); (b) the
+a child's declarations carry the standalone checker's types; a curried
+argument's hidden parameter, `?` in both expansions until the checker types
+it from its handler, need only be at least the expansion's, `Ty.le`); (b) the
 component-level semantics of the unexpanded file against the flat
 semantics of Rust's expansion over the case's script, the oracle the
 runner's transcript, every observation line compared but the slots the
@@ -473,7 +481,7 @@ is now a case in `corpus/components/` and a runner test in
 `contract/cli/tests/it/child_state_lifetime.rs`.
 
 1. A stateful child in a slot fill, the slot component showing `children`
-   under a `when`, kept its state across hide and show: the fill was
+   under an `if`, kept its state across hide and show: the fill was
    inlined before the slot component's view, so its uses were owned by the
    *use site's* region. The fill is now inlined at `children`, under the
    arms around it (`fill-state-when`).
@@ -481,7 +489,7 @@ is now a case in `corpus/components/` and a runner test in
    and region tags between the copies (the fill was inlined once and
    copied). Each `children` now inlines the fill afresh: its own instances,
    numbers and tags (`fill-twice`).
-3. A slot component repeating `children` per `each` row shared one
+3. A slot component repeating `children` per `for` row shared one
    instance across the rows, for the same reason; each row now owns its
    copy (`fill-per-row`).
 4. A child whose prop held a number that is not finite had all its actions
@@ -714,6 +722,35 @@ What it does not carry, as restrictions:
   mutation's, whose answers an advance lands (`QUEUE.md`).
 - The component-level semantics (`Contract.CompSem`) refuses both, so
   `difftest expansion` writes and reads programs without them.
+
+## Persisted state (LLP 1116 D5)
+
+A root `state … persist` starts from the device's store: `Oracle.stored`,
+each persisted state's kept value by name, which `restore` (Runtime.lean)
+takes at boot where it `conforms` to the state's type, else the
+initializer's value stands. The store is part of the oracle because it is
+the device's, as every answer there is: `Reachable` quantifies over it, so
+every theorem holds whatever a device kept, and `SlotOrigin` gains the
+stored value of its type as a third origin of a persisted state's boot value
+(`restore_cases`, `restore_conforms`). Each step's observation adds a
+`store <name> <value>` line per persisted state after the slots: what the
+runner's store keeps for it, decoded (`Runner::persisted`), against the
+slot's value in the semantics, since after every commit that stands the
+store holds the slot's value. The oracle text carries the store as
+`stored <name> <value>` lines.
+
+A corpus test starts from an empty store, as an authored test does. Each
+corpus case whose program persists a state runs again as `<name> (stored)`
+on a store the oracle fills from its seed: per state nothing, a value of its
+type, or one of another kind (`Oracle::with_store`), with the case's events
+and no `expect`s. Random programs mark about a third of the root states of a
+persistable type `persist` (drawn apart from the program's own generator)
+and always run on a filled store. `--js` hands the JS target the same store
+as its `localStorage` (`persist.js`) and compares its `store` lines too.
+
+The store's text, its 16 KB bound, and the compiler's refusal of `persist`
+on other types (`type-persist-type`, `type-persist-child`) are the runner's
+and the compiler's: the semantics takes decoded values and any type.
 
 ## What the semantics leaves out
 

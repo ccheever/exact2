@@ -1,0 +1,109 @@
+// data: metronome
+// Synthetic conformance plan: MIDI (LLP 1125 D6–D8) on the wasm runner, the
+// JS runtime and the Linux host, all under the driver, on the metronome's
+// data app (which grants `device.midi`): ports the drive prefers, a request
+// the agent answers, `sendMIDI` (its `at=`, a late one, a malformed one), a
+// sequence's notes on two outputs (one not connected), a track's offset,
+// clock out, a tempo edit, a key restart, the gate's stop, a finite take's
+// `ended=`, `midimessage` heard by two elements with coalescing, an app's
+// own Start taken back at a stop without silencing the clock's Stop, and an
+// output pulled. The journal's `midi` and `sequence` lines, `state.midi` and
+// `exactMIDI()`'s answer compare on every target. (No slot shares a name
+// with the metronome's.)
+
+shape Step
+  beat: number
+  src: string
+  gain: number
+  group: string
+  note: number
+  velocity: number
+  channel: number
+  duration: number
+  haptic: string
+
+shape Track
+  beats: number
+  loops: number
+  offset: number
+  output: string
+  steps: Step[]
+
+shape Port
+  id: string
+  name: string
+  manufacturer: string
+  state: string
+
+shape MIDI
+  state: string
+  inputs: Port[]
+  outputs: Port[]
+
+fn note(beat: number, n: number): Step = Step(beat=beat, src="", gain=1, group="", note=n, velocity=100, channel=0, duration=0.5, haptic="")
+
+component MidiConf
+  state midiOn = false
+  state midiTake = 0
+  state midiBpm = 120
+  state midiShift = 0
+  state midiLoops = 0
+  state midiClock = "synth"
+  state midiHeard = 0
+  state midiHeard2 = 0
+  state midiLevel = 0
+  state midiBeat = -2
+  state midiEndedAt = -1
+  state midiBad = [144, 60]
+  resource ports = exactMIDI() as shape MIDI
+  action midiAsk
+    requestMIDIAccess()
+  action midiSend
+    sendMIDI("synth", [144, 64, 90, 128, 64, 0], at=performanceNow() + 200)
+  action midiLate
+    sendMIDI("synth", [176, 7, 100], at=performanceNow() - 25)
+  action midiMalformed
+    sendMIDI("synth", midiBad)
+  action midiOwnStart
+    sendMIDI("synth", [250], at=performanceNow() + 10000)
+  action midiStart
+    midiOn = true
+  action midiStop
+    midiOn = false
+  action midiFaster
+    midiBpm = 150
+  action midiLater
+    midiShift = 120
+  action midiRestart
+    midiTake = midiTake + 1
+  action midiFinite
+    midiLoops = 2
+    midiOn = true
+  action midiEnded
+    midiEndedAt = performanceNow()
+    midiOn = false
+  action midiHear(e: MIDIMessageEvent)
+    midiHeard = midiHeard + 1
+    midiLevel = match e.data.at(2) { case some(v) => v, case none => -1 }
+    midiBeat = e.beat
+  action midiHear2(e: MIDIMessageEvent)
+    midiHeard2 = midiHeard2 + 1
+  sequence pattern when midiOn key=midiTake
+    play([Track(beats=2, loops=midiLoops, offset=midiShift, output="synth", steps=[note(0, 60), note(1, 62)]), Track(beats=1, loops=midiLoops, offset=0, output="drums", steps=[note(0, 36)])], bpm=midiBpm, from=-1, clockOut=midiClock, ended=midiEnded)
+  view
+    column midimessage=midiHear midiinputs=["keys"] testId="root"
+      text `${ports.state} ${ports.outputs.length} ${midiHeard} ${midiHeard2} ${midiLevel} ${midiBeat}` testId="status"
+      text `ended at ${midiEndedAt}` testId="ended"
+      button "ask" press=midiAsk testId="ask"
+      button "send" press=midiSend testId="send"
+      button "late" press=midiLate testId="late"
+      button "malformed" press=midiMalformed testId="malformed"
+      button "start" press=midiStart testId="start"
+      button "stop" press=midiStop testId="stop"
+      button "own start" press=midiOwnStart testId="ownstart"
+      button "faster" press=midiFaster testId="faster"
+      button "later" press=midiLater testId="later"
+      button "restart" press=midiRestart testId="restart"
+      button "finite" press=midiFinite testId="finite"
+      column midimessage=midiHear2 midiinputs=["keys", "pads"]
+        text "pads" testId="pads"
