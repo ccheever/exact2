@@ -193,8 +193,15 @@ design.
 - `changed: [{file, token}]`: every token whose folded value differs, the dependents of a changed
   dial included, plus tokens added or removed;
 - `class`, `"live"` or `"rebuild"`: what the edit would do to running development builds (LLP
-  1121 D13). In `tamber/1.1` it is only a label, judged from the design's shape. Nothing applies
-  a live table yet, so every edit reaches a running app through the dev loop's reload;
+  1121 D13), judged by the edit's whole closure (stage 4, commit 2). It is `live` when the
+  design's shape is unchanged, no role override or anything one reads changes, and the app's
+  synthetic tokens (its Contract rows' expressions over tokens) fold on both sides. It is
+  `rebuild` for structure, a role override (hosts take role tables at boot), a synthetic token
+  gained, lost or left unfoldable, a profile colour, or an unknown closure (the app's build
+  stops before its design). Nothing applies a live table yet, so every edit still reaches a
+  running app through the dev loop's reload;
+- `synthetic: [{expr, values}]`: each synthetic token whose value the edit changes, its new
+  value as CSS text per app tuple, for the live batch;
 - `files`: the digests it planned against.
 
 A digest it carries is checked as a transaction's is, and a stale one is 409 (with no `by`).
@@ -213,7 +220,8 @@ A digest it carries is checked as a transaction's is, and a stale one is 409 (wi
   landed. If it can't judge the record (a partial landing it can't account for, a temporary
   file with the wrong digest, an unreadable record), it keeps it and refuses to start. The wire
   then reports the server down.
-- **The reply** is `{files, changed, class, diff, client, written, before, inverse}`:
+- **The reply** is `{files, changed, class, diff, synthetic, client, written, before, inverse}`
+  (`class` and `synthetic` as `propose` answers them):
   - `files` gives every design file's digest after the write;
   - `written` lists the files it wrote, and `before` their digests as it read them;
   - `inverse` is an id, or null when nothing changed on disk.
