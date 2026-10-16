@@ -457,6 +457,9 @@ final class NavigationBarIOSTests: XCTestCase {
             session.presenter.navigation.prepareRoutes(nav.viewControllers.compactMap { $0 as? RouteController }, in: nav)
         }
         func ink() -> UIColor? { field.attributedPlaceholder?.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? UIColor }
+        // Unsaid, the search field's own ink, darker than a text field's
+        // `placeholderText` (LLP 1104 D3, amended 2026-10-16).
+        XCTAssertNotEqual(ink()?.resolvedColor(with: field.traitCollection), UIColor.placeholderText.resolvedColor(with: field.traitCollection))
         let red: [String: BatchValue] = ["placeholder_color": .array([.number(255), .number(0), .number(0), .number(255)])]
         source.applyStyle(red)
         let authored = try XCTUnwrap(source.placeholderColor)

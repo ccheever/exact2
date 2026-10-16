@@ -301,6 +301,8 @@ final class NavigationDelegateProxy: NSObject, UINavigationControllerDelegate {
 final class HeaderSearch: NSObject, UISearchResultsUpdating, UISearchBarDelegate, UISearchControllerDelegate, UITextFieldDelegate {
     let controller = UISearchController(searchResultsController: nil)
     weak var host: NavigationHost?
+    /// The field's placeholder is drawn in an authored colour, not UIKit's.
+    var paintsPlaceholder = false
     weak var field: NodeView? {
         didSet {
             if oldValue !== field { oldValue?.headerField = nil }
@@ -748,9 +750,17 @@ extension NavigationHost {
         search.field = field
         let bar = search.controller.searchBar
         let placeholder = field.props["placeholder"] ?? ""
-        if bar.placeholder != placeholder { bar.placeholder = placeholder }
-        // The same font, colour and clearing rules as an ordinary field (LLP 1104 D3).
-        field.applyPlaceholder(bar.searchTextField)
+        // Unsaid, the placeholder is the search field's own, which UIKit
+        // draws darker than an ordinary field's `placeholderText`; an
+        // authored `::placeholder` colour or theme role wins (LLP 1104 D3).
+        if field.placeholderColor != nil || ThemeRoles.color("placeholder") != nil {
+            field.applyPlaceholder(bar.searchTextField)
+            search.paintsPlaceholder = true
+        } else if search.paintsPlaceholder || bar.placeholder != placeholder {
+            search.paintsPlaceholder = false
+            bar.searchTextField.attributedPlaceholder = nil
+            bar.placeholder = placeholder
+        }
         // The Contract's value wins unless the reader is typing it.
         let value = field.props["value"] ?? ""
         if !bar.isFirstResponder, bar.text != value { bar.text = value }
