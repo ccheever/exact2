@@ -613,7 +613,7 @@ A native host (and the wasm web target; the default JS target keeps none) can ma
 that child from a kept answer. When the data module is not ready at boot, a resource
 whose source read device state (a file, a database, a secret, a watched topic) shows
 the last answer the runner kept for it (asked with the same identifying
-arguments, and at most 4 KiB counting them; `with` values are not counted), so
+arguments, and at most 256 KiB counting them; `with` values are not counted), so
 the form's states take those fields. A larger answer is not kept, and an older one
 kept for the resource is forgotten, so a launch never shows an answer since replaced;
 `logs` says `too big to keep` once, naming the resource and what to do.

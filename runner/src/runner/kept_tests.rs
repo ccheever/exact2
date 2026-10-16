@@ -478,7 +478,10 @@ fn damaged_wrong_length_wrong_identity_and_wrong_shape_entries_use_the_fallback(
         (full("A", "100", 0.), Value::str("kept")),
         (vec![Value::str("B")], Value::str("kept")),
         (vec![Value::str("A")], Value::Bool(true)),
-        (vec![Value::str("A")], Value::str(&"x".repeat(5000))),
+        (
+            vec![Value::str("A")],
+            Value::str(&"x".repeat(kept::MAX_KEPT_BYTES)),
+        ),
     ] {
         snapshots.push(entry(&args, &value));
     }
@@ -493,7 +496,7 @@ fn damaged_wrong_length_wrong_identity_and_wrong_shape_entries_use_the_fallback(
 #[test]
 fn the_kept_budget_counts_identity_and_value_but_not_context() {
     let mut r = seeded();
-    let large = Value::str(&"x".repeat(5000));
+    let large = Value::str(&"x".repeat(kept::MAX_KEPT_BYTES));
     r.act("minute", vec![large.clone()]).unwrap();
     r.data.ready = true;
     r.data_ready().unwrap();
@@ -526,7 +529,7 @@ fn the_kept_budget_counts_identity_and_value_but_not_context() {
         "an answer too big to keep is said once: {said:?}"
     );
     assert!(
-        said[0].contains("more than 4096 bytes (4 KiB)") && said[0].contains("under 4 KiB"),
+        said[0].contains("more than 262144 bytes (256 KiB)") && said[0].contains("under 256 KiB"),
         "{}",
         said[0]
     );
@@ -720,7 +723,7 @@ fn a_refused_commit_does_not_forget_a_kept_answer() {
     r.data_ready().unwrap();
     let kept_answer = |r: &Runner<Source>| r.store.kept(&kept::kept_name("answer")).is_some();
     assert!(kept_answer(&r));
-    r.data.value = Value::str(&"x".repeat(5000));
+    r.data.value = Value::str(&"x".repeat(kept::MAX_KEPT_BYTES));
     assert!(matches!(
         r.act("refuse", vec![Value::str("B")]),
         Err(RunnerError::Trap(_))

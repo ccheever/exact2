@@ -14,9 +14,11 @@ use crate::store::Store;
 use exact_kernel::CommitReceipt;
 use exact_plan::Value;
 
-/// The largest kept answer: its identifying arguments' and its value's canonical bytes, 4 KiB together (a session,
-/// a list of names — never a feed)
-const KEPT_DATA_BYTES: usize = 4096;
+/// The largest kept answer: its identifying arguments' and its value's
+/// canonical bytes together. Reading, decoding and shape-checking one this
+/// size at boot takes under a millisecond on an iPhone simulator (LLP 1027
+/// D4, 2026-10-16): a library a first screen shows, never a feed.
+const KEPT_DATA_BYTES: usize = 256 * 1024;
 /// The longest kept entry: the data, with the arguments' list header
 pub(super) const MAX_KEPT_BYTES: usize = KEPT_DATA_BYTES + 5;
 
@@ -294,8 +296,9 @@ impl<D: DataSource> Runner<D> {
             if !self.keeping.too_big.contains(&i) {
                 self.keeping.too_big.push(i);
                 let line = format!(
-                    "too big to keep: resource `{}` answered with more than {KEPT_DATA_BYTES} bytes (4 KiB) counting its identifying arguments, so the next launch cannot show this answer before the resource answers again. To show it at launch, keep the answer and its identifying arguments under 4 KiB: move what the first screen does not need into another resource, and pass large inputs that do not identify the answer (a token, a time) after `with`, which are not counted; an input that identifies it stays in the call, or becomes a smaller key (LLP 1027 D4)",
-                    self.plan.str(row.name)
+                    "too big to keep: resource `{}` answered with more than {KEPT_DATA_BYTES} bytes ({kib} KiB) counting its identifying arguments, so the next launch cannot show this answer before the resource answers again. To show it at launch, keep the answer and its identifying arguments under {kib} KiB: move what the first screen does not need into another resource, and pass large inputs that do not identify the answer (a token, a time) after `with`, which are not counted; an input that identifies it stays in the call, or becomes a smaller key (LLP 1027 D4)",
+                    self.plan.str(row.name),
+                    kib = KEPT_DATA_BYTES / 1024,
                 );
                 self.log(line);
             }
@@ -504,8 +507,9 @@ mod tests {
                 );
             }
         }
-        // The data budget's edge: with no arguments, a string of 4091 bytes fits (its header is 5), 4092 does not.
-        for size in [4090, 4091, 4092, 10000] {
+        // The data budget's edge: with no arguments, a string of the budget less its 5-byte header fits, one more does not.
+        let edge = KEPT_DATA_BYTES - 5;
+        for size in [edge - 1, edge, edge + 1, 2 * KEPT_DATA_BYTES] {
             let value = Value::str(&"x".repeat(size));
             for args in [&[][..], &values[..]] {
                 assert_eq!(
@@ -514,6 +518,9 @@ mod tests {
                 );
             }
         }
-        assert!(!fits(&[], &Value::list(vec![Value::Unit; 100_000])));
+        assert!(!fits(
+            &[],
+            &Value::list(vec![Value::Unit; KEPT_DATA_BYTES + 1])
+        ));
     }
 }

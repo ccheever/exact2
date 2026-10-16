@@ -19,6 +19,10 @@ recorded in D6 (2026-09-07).
 D11 — a source may adopt the compiled value the runner already holds for
 its query, so an app keeps its list data once, not twice.
 
+**Amendment (2026-10-16, Charlie's euxy goal: the port starts faster than
+its native ports):** a kept answer may be 256 KiB, not 4 KiB, by its
+measured boot cost (D4, "Kept up to 256 KiB").
+
 **Tooling runtime (Charlie, 2026-09-14):** Bun replaces Node for the bake and
 repository scripts. Rolldown remains the app bundler, and `hermesc` remains the
 bytecode compiler; the resident producer and existing dev server retain their behavior.
@@ -483,8 +487,9 @@ such an answer needs is one store entry and its result is a fifty-byte
 record, so the runner now **keeps the answer**: the last fresh value of
 every store-reading resource is written beside the app's secrets under
 `exact.kept.<resource>` (arguments and value, canonical bytes; never
-granted to the app, never counted as a read, never a revision; capped at
-8 KB), persisted by the host like any store write. At a boot whose source
+granted to the app, never counted as a read, never a revision; capped,
+at 4 KiB as built and 256 KiB since 2026-10-16, below), persisted by the
+host like any store write. At a boot whose source
 is not ready (`DataSource::ready`, false for an unloaded module) the
 first frame shows the kept answer if its arguments still match and its
 value still fits, else the compiled **empty-store placeholder** the bake
@@ -500,7 +505,7 @@ uses for cached login state. `js/tests/castle.rs` drives all three.
 **Identifying arguments (LLP 1027.005, accepted 2026-10-02).** A declaration
 `source(call, …) with context, …` sends all arguments to its source, and a
 change to any argument asks again. Its kept entry contains only the call's
-identifying arguments and the value, under the same 8 KB bound and encoding.
+identifying arguments and the value, under the same bound and encoding.
 At a boot whose source is unready, that persisted entry may seed the first
 frame only when its argument count and identifying values match and its
 value fits the current shape. Without `with`, all arguments identify the
@@ -539,6 +544,63 @@ launch's snapshot and an orderly exit wait for the writer; a failed
 write is journaled at a later commit, by the successor of a host a reload
 replaced; an answer a crash (or macOS's sudden termination) loses is
 fetched again. The app's secrets stay synchronous (LLP 1018).
+
+**Kept up to 256 KiB (amended 2026-10-16, Charlie's euxy goal: the port
+starts faster than its native ports).** The bound was 4 KiB as built (this
+text said 8 KB, which the code never was), sized for "a session, a list of
+names".
+The euxy port's splash types on the active pattern from its library
+resource, a 60 KB answer, so it was never kept: every launch showed the
+unlit splash until Hermes and `app.ts` answered after first pixel, and
+waited for that answer before the 900 ms type-on and fade began. The SwiftUI
+port reads its library (a JSON file in Application Support) synchronously
+before its first frame, as a native app does. What the bound protects,
+measured on an iPhone 17 simulator (iOS 27, Release, an M-series Mac; the
+median of 100 rounds of `ibex2`'s kv `FileStore` and the runner's
+`Value::decode` and shape check on a library-shaped answer):
+
+| Kept entry | Read (listing, open) | Decode | Shape check | Boot, in all | Encode at the commit | Write (writer thread) |
+|---|---|---|---|---|---|---|
+| 4 KiB | 0.58 ms | 0.01 ms | 0.00 ms | 0.62 ms | 0.01 ms | 10.2 ms |
+| 64 KiB | 0.54 ms | 0.10 ms | 0.01 ms | 0.69 ms | 0.05 ms | 9.4 ms |
+| 256 KiB | 0.40 ms | 0.46 ms | 0.08 ms | 0.95 ms | 0.17 ms | 8.9 ms |
+| 1 MiB | 0.61 ms | 1.00 ms | 0.18 ms | 1.85 ms | 0.36 ms | 9.6 ms |
+
+- *Boot read and decode.* The file read is a directory listing and an open,
+  the same at any size (0.4 to 0.6 ms from run to run); decoding and
+  checking the shape grow at 1 to 2 µs per KiB. From run to run the whole
+  is 0.8 to 0.95 ms at 256 KiB, 1.2 to 1.4 ms at 512 KiB and 1.8 to 2.4 ms
+  at 1 MiB.
+- *The commit.* Encoding runs on the main thread at each fresh answer; the
+  write, a fresh file synced and renamed, is the writer thread's and costs
+  its `fsync`, about 9 ms at any size.
+- *Disk and the writer's memory.* One file per store-reading resource, and
+  at most one waiting value per key: each at most the bound.
+- *Staleness.* Unchanged by size: admission is still by identity and shape,
+  and `data_ready` still asks again.
+- *Page storage.* The wasm web target keeps answers in `localStorage` as
+  base64 (`exact.secret.exact.kept.<resource>`), in the origin's quota of
+  about 5 MB that the app's secrets share; a 256 KiB answer takes about
+  350 K characters of it. A write the quota refuses is warned in the
+  console and never fails the commit; the next launch shows the entry kept
+  before it, if any, until `data_ready` answers.
+  The default JS target keeps none. Linux keeps them in the same kv scope as
+  Apple (LLP 1027.007 D13), written with the commit.
+
+So the bound is 256 KiB of identifying arguments and value: four times what
+a first screen like euxy's needs, and under a millisecond at boot on the
+simulator, which leaves room for a slower phone and for more than one store
+reader. An answer over it is forgotten and `too big to keep` is said once,
+naming the bound. On the port (Release, iPhone 17 simulator, a 440-pattern
+library, median of 10 launches each, alternating), time to interactive (the
+splash's fade complete) went from 1494 ms to 1114 ms (another set: 1549 to
+1117 ms); the SwiftUI and UIKit ports measured 1210 and 1275 ms on a
+simulator of the same model. Its first frame now shows the splash typing on
+the active pattern, and lays out the screen beneath it too (242 views, first
+draw at 398 ms; 137 views at 270 ms before), work the old launch did once the
+answer came. The port also had to stop identifying its library by the
+launch's clock: `library() with time.epochAtZero`, since an epoch that
+differs at every launch never matches the kept entry (LLP 1027.005).
 
 **Storage readers (2026-09-07):** the same `resources.reader` marker covers
 filesystem and SQLite access. A storage call records an external read even when
