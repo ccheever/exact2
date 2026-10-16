@@ -25,13 +25,13 @@ public struct ExactTamberToken: Hashable, Sendable {
 
 /// The design's tokens where `view` is: its element's place in its session.
 public struct ExactTamber {
-    private let place: TamberPlace?
+    private let finder: TamberFinder
 
-    /// The place of `view`, a view this module made or one inside it.
+    /// The place of `view`, a view this module made or one inside it, found
+    /// when first asked (a binding made in the module's factory, before the
+    /// host has its view, finds it once it does).
     public init(_ view: ExactPlatformView) {
-        var at: ExactPlatformView? = view
-        while let v = at, Tambers.made[ObjectIdentifier(v)]?.view.value !== v { at = v.superview }
-        place = at.flatMap { v in Tambers.made[ObjectIdentifier(v)]?.module.value.map { Tambers.place(v, module: $0) } }
+        finder = TamberFinder(view)
     }
 
     /// `token`'s colour here, dynamic over the traits it is drawn with;
@@ -43,17 +43,20 @@ public struct ExactTamber {
     /// new answer; a colour copied out of it (a layer's `cgColor`) is a
     /// value: set it again in `observe`.
     public func color(_ token: ExactTamberToken, fallback: ExactTamberColor = .clear) -> ExactTamberColor {
-        let place = place
+        let finder = finder
         // Asked now, on the main thread, so a provider called off it (a
         // renderer's) finds the answer kept: the host answers on the main
         // thread only.
-        if Thread.isMainThread { _ = place?.sides(token.name) }
+        if Thread.isMainThread { _ = finder.place?.sides(token.name) }
         let side = { (side: Int) -> ExactTamberColor? in
-            guard let c = place?.sides(token.name)?[side], c.count == 4 else { return nil }
+            guard let c = finder.place?.sides(token.name)?[side], c.count == 4 else { return nil }
             #if os(macOS)
             return NSColor(colorSpace: .extendedSRGB, components: c.map { CGFloat($0) }, count: 4)
             #else
-            return UIColor(red: c[0], green: c[1], blue: c[2], alpha: c[3])
+            // Extended sRGB, unclamped: a wide colour keeps its gamut.
+            return CGColorSpace(name: CGColorSpace.extendedSRGB)
+                .flatMap { CGColor(colorSpace: $0, components: c.map { CGFloat($0) }) }
+                .map { UIColor(cgColor: $0) }
             #endif
         }
         #if os(macOS)
@@ -81,10 +84,8 @@ public struct ExactTamber {
     /// it with the observation's `stop()`. Main thread.
     public func observe(_ body: @escaping () -> Void) -> ExactTamberObservation {
         let observation = ExactTamberObservation(body)
-        if let place {
-            _ = place.sides(nil)
-            Tambers.observers.append((place, Weak(observation)))
-        }
+        _ = finder.place?.sides(nil)
+        Tambers.observers.append((finder, Weak(observation)))
         return observation
     }
 }
@@ -94,6 +95,26 @@ public final class ExactTamberObservation {
     fileprivate var body: (() -> Void)?
     fileprivate init(_ body: @escaping () -> Void) { self.body = body }
     public func stop() { body = nil }
+}
+
+/// The place a binding's view is in: found on the main thread when first
+/// asked, then kept (off the main thread, what was found).
+final class TamberFinder {
+    private weak var view: ExactPlatformView?
+    private var found: TamberPlace?
+    init(_ view: ExactPlatformView) { self.view = view }
+
+    var place: TamberPlace? {
+        guard Thread.isMainThread else { return Tambers.lock.withLock { found } }
+        if let found = Tambers.lock.withLock({ found }), found.view != nil { return found }
+        var at = view
+        while let v = at, Tambers.made[ObjectIdentifier(v)]?.view.value !== v { at = v.superview }
+        let place = at.flatMap { v in Tambers.made[ObjectIdentifier(v)]?.module.value.map { Tambers.place(v, module: $0) } }
+        Tambers.lock.withLock { found = place }
+        return place
+    }
+
+    var gone: Bool { view == nil }
 }
 
 /// A view the module made, and what its session last answered for it: one
@@ -162,6 +183,7 @@ final class TamberPlace {
 /// its dynamic colours again (the providers read it).
 struct TamberMoves: UITraitDefinition {
     static let defaultValue = 0
+    static let affectsColorAppearance = true
 }
 #endif
 
@@ -173,7 +195,7 @@ enum Tambers {
     nonisolated(unsafe) static var batches = 0
     nonisolated(unsafe) static var made: [ObjectIdentifier: (view: Weak<ExactPlatformView>, module: Weak<ExactModule>)] = [:]
     nonisolated(unsafe) static var places: [ObjectIdentifier: TamberPlace] = [:]
-    nonisolated(unsafe) static var observers: [(place: TamberPlace, observation: Weak<ExactTamberObservation>)] = []
+    nonisolated(unsafe) static var observers: [(finder: TamberFinder, observation: Weak<ExactTamberObservation>)] = []
 
     /// `view`, just made by `module` for an element: a place a binding finds.
     static func made(_ view: ExactPlatformView, by module: ExactModule) {
@@ -197,13 +219,16 @@ enum Tambers {
     static func moved() {
         batches += 1
         places = places.filter { $0.value.view != nil }
-        observers.removeAll { $0.observation.value?.body == nil || $0.place.view == nil }
+        observers.removeAll { $0.observation.value?.body == nil || $0.finder.gone }
+        // An observer's place found now, before the places are asked, so
+        // one first found here takes its answer without a move to hear.
+        let observed = observers.map { ($0.finder.place, $0.observation) }
         var moved: Set<ObjectIdentifier> = []
         for (id, place) in places where place.refresh() {
             moved.insert(id)
             if let view = place.view { redraw(view) }
         }
-        for (place, observation) in observers where place.view.map({ moved.contains(ObjectIdentifier($0)) }) ?? false {
+        for (place, observation) in observed where place?.view.map({ moved.contains(ObjectIdentifier($0)) }) ?? false {
             observation.value?.body?()
         }
     }

@@ -60,7 +60,8 @@ public struct ExactTamber {
         // the answer kept, with the tint it was asked under.
         if Thread.isMainThread { _ = place.value(token.name) }
         let side = { (dark: Bool, contrast: Bool, elevated: Bool) -> ExactTamberColor? in
-            guard let (value, tint) = place.value(token.name), let value else { return nil }
+            guard let (value, tints) = place.value(token.name), let value else { return nil }
+            let tint = tints[(dark ? 1 : 0) | (contrast ? 2 : 0) | (elevated ? 4 : 0)]
             return value.textChannels(dark: dark, contrast: contrast, elevated: elevated, tint: tint).map(TextEngine.color)
         }
         #if os(macOS)
@@ -85,7 +86,8 @@ public struct ExactTamber {
 
     /// `body` whenever what this place's tokens read moves (after the batch
     /// that moved it), wherever the view is then: observed before it is
-    /// mounted, or moved to another node, it hears that node's. Stop it with
+    /// mounted, it hears the first batch after (its colours leave the
+    /// fallback); moved to another node, it hears that node's. Stop it with
     /// the observation's `stop()`. Main thread.
     public func observe(_ body: @escaping () -> Void) -> ExactTamberObservation {
         let observation = ExactTamberObservation(body)
@@ -127,6 +129,9 @@ public struct ExactTamber {
         private var last: (session: Weak<ExactSession>, view: UInt32)?
         /// Whether a batch that moves its answer redraws its view.
         private var listed = false
+        /// The session and node its view was last drawn for (main thread):
+        /// one moved to another node is drawn again.
+        var drawnAt: (session: ObjectIdentifier, view: UInt32)?
 
         /// The session and node it is in now: a root's session, or the view's
         /// nearest node's; off the main thread, where it was last found.
@@ -142,20 +147,23 @@ public struct ExactTamber {
             return (session, node.id)
         }
 
-        /// `name`'s value as a row crosses it and the tint it resolves by,
-        /// asked once per inputs (`nil`: nothing to answer yet); off the main
-        /// thread, what was kept.
-        func value(_ name: String) -> (value: BatchValue?, tint: PlatformColor?)? {
+        /// `name`'s value as a row crosses it and the tint it resolves by on
+        /// each side, asked once per inputs (`nil`: nothing to answer yet);
+        /// off the main thread, what was kept.
+        func value(_ name: String) -> (value: BatchValue?, tints: [PlatformColor?])? {
             guard let (session, node) = found else { return nil }
-            if Thread.isMainThread, !listed, view != nil { listed = true; Tambers.places.append(Weak(self)) }
+            if Thread.isMainThread, view != nil {
+                if !listed { listed = true; Tambers.places.append(Weak(self)) }
+                drawnAt = (ObjectIdentifier(session), node)
+            }
             let tambers = Tambers.of(session)
             let known = tambers.answer(node)
-            if let known, let value = known.colors[name] { return (value, known.tint) }
+            if let known, let value = known.colors[name] { return (value, known.tints) }
             guard Thread.isMainThread else { return nil }
             let asked = Array(Set((known?.colors.keys).map(Array.init) ?? []).union([name]))
             guard let answer = Tambers.ask(session, view: node, names: asked) else { return nil }
             tambers.keep(node, answer)
-            return (answer.colors[name] ?? nil, answer.tint)
+            return (answer.colors[name] ?? nil, answer.tints)
         }
     }
 }
@@ -172,18 +180,21 @@ public final class ExactTamberObservation {
 /// resolves its dynamic colours again (the providers read it).
 struct TamberMoves: UITraitDefinition {
     static let defaultValue = 0
+    static let affectsColorAppearance = true
 }
 #endif
 
 /// One session's binding state: each place's last answer. Its answers are
 /// read by providers off the main thread, so they are kept under `lock`.
 final class Tambers {
-    /// A place's answer: its inputs (the tint it resolved by folded in, as
-    /// an accent above moves it), that tint, and the colours asked of it
-    /// since the inputs last moved.
+    /// A place's answer: its inputs (the tint it resolves by folded in, on
+    /// every side, as an accent above moves it), that tint resolved on each
+    /// of the eight sides (static colours, which a provider off the main
+    /// thread may read), and the colours asked of it since the inputs last
+    /// moved.
     struct Answer {
         var inputs: String
-        var tint: PlatformColor?
+        var tints: [PlatformColor?]
         var colors: [String: BatchValue?]
     }
     private var answers: [UInt32: Answer] = [:]
@@ -212,9 +223,33 @@ final class Tambers {
     /// with the tint a row naming it resolves by there. Main thread.
     static func ask(_ session: ExactSession, view: UInt32, names: [String]) -> Answer? {
         guard let answer = session.runtime.tamber(view: view, names: names) else { return nil }
-        let tint = ExactTamber.tint(view == 0 ? nil : session.presenter.views[view], session: session)
-        let said = tint.map { ExactTamber.extended($0).map { String($0) }.joined(separator: ",") } ?? ""
-        return Answer(inputs: answer.inputs + " tint " + said, tint: tint, colors: answer.colors)
+        let tints = sides(of: ExactTamber.tint(view == 0 ? nil : session.presenter.views[view], session: session))
+        let said = tints.map { $0.map { ExactTamber.extended($0).map { String($0) }.joined(separator: ",") } ?? "" }.joined(separator: " ")
+        return Answer(inputs: answer.inputs + " tint " + said, tints: tints, colors: answer.colors)
+    }
+
+    /// `tint` resolved for each of the eight sides a view draws in (bit 0
+    /// dark, bit 1 more contrast, bit 2 elevated), on the main thread: a
+    /// dynamic tint reads its node's style, which a provider off it must not.
+    static func sides(of tint: PlatformColor?) -> [PlatformColor?] {
+        guard let tint else { return Array(repeating: nil, count: 8) }
+        return (0..<8).map { side in
+            #if os(macOS)
+            let names: [NSAppearance.Name] = [.aqua, .darkAqua, .accessibilityHighContrastAqua, .accessibilityHighContrastDarkAqua]
+            var out: NSColor?
+            NSAppearance(named: names[side & 3])?.performAsCurrentDrawingAppearance { out = tint.usingColorSpace(.extendedSRGB) }
+            return out
+            #else
+            let traits = UITraitCollection { t in
+                t.userInterfaceStyle = side & 1 != 0 ? .dark : .light
+                t.accessibilityContrast = side & 2 != 0 ? .high : .normal
+                #if !os(tvOS)
+                t.userInterfaceLevel = side & 4 != 0 ? .elevated : .base
+                #endif
+            }
+            return tint.resolvedColor(with: traits)
+            #endif
+        }
     }
 
     static func observe(_ place: ExactTamber.Place, _ observation: ExactTamberObservation) {
@@ -238,28 +273,36 @@ final class Tambers {
     static func moved(_ session: ExactSession) {
         // A native module's bindings ask again themselves (ExactTamber.swift).
         session.natives.tamberMoved()
-        guard let tambers = lock.withLock({ bySession[ObjectIdentifier(session)] }).flatMap({ $0.session.value === session ? $0.tambers : nil }) else { return }
+        // A session with no answers kept may still have observers (first
+        // registered unmounted), which are asked below.
+        let tambers = lock.withLock({ bySession[ObjectIdentifier(session)] }).flatMap({ $0.session.value === session ? $0.tambers : nil })
         var moved: Set<UInt32> = []
-        for (view, known) in lock.withLock({ tambers.answers }) {
-            // A place gone (its node retired) is forgotten.
-            guard let now = ask(session, view: view, names: []) else { tambers.keep(view, nil); continue }
-            guard now.inputs != known.inputs else { continue }
-            moved.insert(view)
-            tambers.keep(view, known.colors.isEmpty ? now : ask(session, view: view, names: Array(known.colors.keys)) ?? now)
+        if let tambers {
+            for (view, known) in lock.withLock({ tambers.answers }) {
+                // A place gone (its node retired) is forgotten.
+                guard let now = ask(session, view: view, names: []) else { tambers.keep(view, nil); continue }
+                guard now.inputs != known.inputs else { continue }
+                moved.insert(view)
+                tambers.keep(view, known.colors.isEmpty ? now : ask(session, view: view, names: Array(known.colors.keys)) ?? now)
+            }
         }
         places.removeAll { $0.value?.view == nil }
-        if !moved.isEmpty {
-            for case let place? in places.map(\.value) {
-                guard let (s, view) = place.found, s === session, moved.contains(view), let v = place.view else { continue }
-                redraw(v)
-            }
+        for case let place? in places.map(\.value) {
+            guard let (s, view) = place.found, s === session, let v = place.view else { continue }
+            let at = (ObjectIdentifier(s), view)
+            // Its node's answer moved, or it was moved to another node.
+            guard moved.contains(view) || place.drawnAt.map({ $0 != at }) ?? true else { continue }
+            place.drawnAt = at
+            redraw(v)
         }
         observers.removeAll { $0.observation.value?.body == nil }
         for i in observers.indices {
             guard let (s, _) = observers[i].place.found, s === session else { continue }
             let now = heard(observers[i].place)
             defer { observers[i].seen = now }
-            if let seen = observers[i].seen, let now, seen != now { observers[i].observation.value?.body?() }
+            // Observed unmounted (`seen` none), the first batch it is found
+            // in moves it off the fallback.
+            if let now, observers[i].seen != now { observers[i].observation.value?.body?() }
         }
     }
 

@@ -167,7 +167,7 @@ private let hatchTamber: HatchTamberFn = { host, view, request, length, out, cap
     let colors = answer.colors.mapValues { value -> Any in
         guard let value else { return NSNull() }
         return (0..<8).map { side in
-            value.textChannels(dark: side & 1 != 0, contrast: side & 2 != 0, elevated: side & 4 != 0, tint: answer.tint)
+            value.textChannels(dark: side & 1 != 0, contrast: side & 2 != 0, elevated: side & 4 != 0, tint: answer.tints[side])
                 .map { ExactTamber.extended(TextEngine.color($0)) } ?? []
         }
     }

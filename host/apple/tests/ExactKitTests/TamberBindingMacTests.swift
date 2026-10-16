@@ -74,9 +74,27 @@ final class TamberBindingMacTests: XCTestCase {
         session.apply(session.runtime.setModes(["tone": "cool"]))
         XCTAssertEqual(rgb(kept), [0x0a, 0x7a, 0xff], "the colour kept reads the window's new tuple")
         XCTAssertGreaterThan(drawn.marked, 0, "the moved place's view is drawn again")
-        XCTAssertEqual(heard, 0, "observed unmounted: nothing heard before, so no move to hear")
+        XCTAssertEqual(heard, 1, "observed unmounted, the first batch since mounting moves it off the fallback")
         session.apply(session.runtime.setModes(["tone": "warm"]))
-        XCTAssertEqual(heard, 1, "mounted since, it hears its node's move")
+        XCTAssertEqual(heard, 2, "and it hears its node's next move")
+        observation.stop()
+    }
+
+    /// Review round 3: a session's first binding, observed unmounted, hears
+    /// its node once mounted.
+    func testAFirstObserverMadeUnmountedHearsOnceMounted() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "tamber-binding-first")
+        defer { session.destroy() }
+        XCTAssertNil(session.boot(plan: try Self.plan.get(), size: CGSize(width: 390, height: 844)).error)
+        let window = try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == "window" })
+        let later = NSView()
+        var heard = 0
+        let observation = ExactTamber(later).observe { heard += 1 }
+        window.addSubview(later)
+        session.apply(session.runtime.setModes(["tone": "cool"]))
+        session.apply(session.runtime.setModes(["tone": "warm"]))
+        XCTAssertEqual(heard, 2, "the first batch since mounting moves it off the fallback, the second moves it")
         observation.stop()
     }
 }
