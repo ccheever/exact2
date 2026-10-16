@@ -3,12 +3,21 @@
 //! 1027.000.000) and where the viewer is, told to the running host, and
 //! before each boot for its first settle (`set_launch_time`, `set_launch_place`);
 //! and the host's live clock while it owns time (the timers RFC, D1), told to the
-//! running host and kept for every boot (`set_live_clock`).
+//! running host and kept for every boot (`set_live_clock`); and whether the
+//! running plan reads the page's `onLine` (LLP 1069.000 D2).
 
 use super::{not_booted, Bridge};
 use exact_runner::DataSource;
 
 impl<D: DataSource> Bridge<D> {
+    /// 1 when the running plan reads `onLine`, and before boot: the host
+    /// watches the network only then.
+    pub fn reads_on_line(&self) -> u32 {
+        self.host
+            .as_ref()
+            .map_or(1, |h| u32::from(h.runner().reads_page_field("onLine")))
+    }
+
     /// The running session's role overrides (LLP 1121 stage 5), bound
     /// around each call to it (`registry::with_entry`).
     pub fn roles(&self) -> Option<std::rc::Rc<exact_kernel::style::roles::Roles>> {

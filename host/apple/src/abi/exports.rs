@@ -623,6 +623,13 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.set_page(bits), |n| n)
         }
 
+        /// 1 when the running plan reads `onLine`, and before boot: only
+        /// then does the host watch the network.
+        #[no_mangle]
+        pub extern "C" fn exact_reads_on_line(rt: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.reads_on_line(), |_| 1)
+        }
+
         /// App modes, `axis=value` pins in the input buffer (LLP 1121 D5).
         #[no_mangle]
         pub extern "C" fn exact_set_mode(rt: u32, len: usize) -> u32 {

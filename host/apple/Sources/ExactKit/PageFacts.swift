@@ -35,8 +35,10 @@ package enum PageFacts {
     private static let agentChanged = Notification.Name("ExactPageFactsChanged")
     private static func changed() { NotificationCenter.default.post(name: agentChanged, object: nil) }
 
-    /// One path monitor for the process, started on first use. Until its
-    /// first update the device is taken to be online, as a browser starts.
+    /// One path monitor for the process, started when a session's plan
+    /// reads `onLine`: it loads Network and keeps a queue, which an app that
+    /// never asks should not pay. Until its first update the device is taken
+    /// to be online, as a browser starts.
     nonisolated(unsafe) private static var monitor: NWPathMonitor?
     nonisolated(unsafe) private static var satisfied = true
     private static func startMonitor() {
@@ -179,15 +181,16 @@ package enum PageFacts {
     /// The ABI's form (`exact_set_page`) for a session in `window`: bit 0
     /// hidden, bit 1 offline, bit 2 a share sheet, bit 3 the document
     /// pickers, bit 4 without focus, bit 7 about to be suspended, bits 8 and
-    /// 9 a share takes files and pictures.
-    static func bits(_ window: FocusWindow?) -> UInt32 {
-        (hidden ? 1 : 0) | (onLine ? 0 : 2) | (canShare ? 4 : 0) | (canOpenFiles ? 8 : 0) | (hasFocus(window) ? 0 : 16) | (suspended ? 128 : 0) | (canShareFiles ? 256 : 0) | (canSharePictures ? 512 : 0)
+    /// 9 a share takes files and pictures. A session whose plan does not read
+    /// `onLine` starts no monitor for it.
+    static func bits(_ window: FocusWindow?, readsOnLine: Bool = true) -> UInt32 {
+        let online = readsOnLine ? onLine : substituted ? agent.onLine : satisfied
+        return (hidden ? 1 : 0) | (online ? 0 : 2) | (canShare ? 4 : 0) | (canOpenFiles ? 8 : 0) | (hasFocus(window) ? 0 : 16) | (suspended ? 128 : 0) | (canShareFiles ? 256 : 0) | (canSharePictures ? 512 : 0)
     }
 
     /// Calls `changed` on the main queue when any reading may have changed;
     /// the caller holds the tokens and removes them.
     static func observe(_ changed: @escaping () -> Void) -> [NSObjectProtocol] {
-        if !substituted { startMonitor() }
         #if os(macOS)
         // Visibility: hiding, occlusion, and a minimize or restore, which
         // need not change the occlusion. Focus (#114): any window's key change

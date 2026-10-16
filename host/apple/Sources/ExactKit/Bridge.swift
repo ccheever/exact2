@@ -556,6 +556,8 @@ package final class Runtime {
     func setLaunchPlace(locale: String, timeZone: String, seed: UInt64) { on { () -> Void in _ = exact_set_launch_place(rt, write(locale + "\0" + timeZone + "\0" + String(seed))) } }
     func setPreferences(_ bits: UInt32) -> Batch { on { read(exact_set_preferences(rt, bits)) } }
     func setPage(_ bits: UInt32) -> Batch { on { read(exact_set_page(rt, bits)) } }
+    /// Whether the running plan reads `onLine`; true when the owner is busy.
+    func readsOnLine() -> Bool { on(busy: true) { exact_reads_on_line(rt) != 0 } }
     func setRootFontSize(_ px: Double) -> Batch { on { read(exact_set_root_font_size(rt, px)) } }
     /// A live design batch or snapshot frame (LLP 1121 stage 4), applied in place.
     func designRows(_ frame: String) -> Batch { on { read(exact_design_rows(rt, write(frame))) } }

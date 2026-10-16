@@ -183,6 +183,11 @@ fn page_focus_reanswers_only_the_readers_of_it() {
         "the same facts again"
     );
     let mut online = boot(&["onLine"]);
+    assert!(online.reads_page_field("onLine") && !online.reads_page_field("hasFocus"));
+    assert!(
+        !boot(&["hasFocus"]).reads_page_field("onLine"),
+        "a host need not watch the network"
+    );
     assert!(online.set_page(blurred).unwrap().is_none());
     assert!(!online.page().has_focus);
     let offline = exact_runner::Page {
