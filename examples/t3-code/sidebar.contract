@@ -316,7 +316,7 @@ component ThreadSection
           text (expanded ? label : `${label} (${count})`) font-size="0.75rem" font-weight=500 line-height="1rem" color=(section == "settled" and dragTarget == "settled" ? "light-dark(#1b4ed8, #346bf1)" : section == "settled" and dragId != "" ? "light-dark(#27272acc, #f3f3f3cc)" : tone) flex-shrink=0
           box flex=1 min-width="0.5rem" height=1 background-color=(section == "snoozed" ? "light-dark(#2b7fff33, #51a2ff26)" : "light-dark(#e4e4e799, #ffffff0c)")
           SidebarIcon(name=(expanded ? "chevron-up" : "chevron-down"), size=12, color=tone)
-      for t in rows key=t.id
+      for t in rows key=t.rowKey // kept while an open moves the window to the row's environment (scopedRowKey)
         ThreadRow(reduced=reduced, t=t, now=now, presets=data.snoozePresets, busy=busy, local=local, run=run, menu=menu, open=open, hoverCard=hoverCard, pressDown=pressDown, hoverId=sweepRowHover(sweepLive, sweepRest, sweepRestSeq, hoverSeq, hoverId), drag=drag, dragEnd=dragEnd, dragId=dragId, dragVerb=dragVerb, dragOffset=(dragId == t.id ? dragOffset : 0), page=page, sweep=sweep, sweepKeys=(sweepCancelled and sweepEpoch == data.sidebar.sweepEpoch ? "|cancel|" : sweepLive ? sweepKeys : ""), sweepVerb=sweepVerb)
       // The sweep owns Escape while it is armed (a window shortcut: the pan's section gets no keys).
       if sweepLive
