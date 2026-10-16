@@ -49,6 +49,9 @@ impl<D: DataSource> Presenter<D> {
     fn clocked(&mut self, e: Option<String>) -> (f64, Option<String>) {
         let landed = self.host.now();
         self.host.tick(landed);
+        // A seek can move motion with no commit (a press's scale, a
+        // transition), and `after_commit` repaints only for a new epoch.
+        self.dirty = true;
         let after = self.after_commit();
         (landed, e.or(after))
     }
