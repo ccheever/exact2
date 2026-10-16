@@ -136,9 +136,9 @@ test "add, open, delete after asking"
   expect state lib == []
 ```
 
-- An alert has text, closing buttons and one Cancel. Escape/Back chooses Cancel; outside does
-  nothing unless written `closedby="any"` permits dismissal. Linux centres it;
-  any other modal is a sheet (`push`, `back`), closed in `then` only on ok
+- An alert's `aria-label` is its title. It has text, buttons and one Cancel. Escape/Back
+  chooses Cancel; only written `closedby="any"` dismisses outside. Linux centres it and
+  scrolls content to its actions; another modal is a sheet, closed on ok
   ([after-a-write](after-a-write.md)).
 - Routes stay mounted: use unique `testId`s. `clock settle` follows a push, sheet or alert;
   `clock data` precedes reading a save.

@@ -299,6 +299,23 @@ fn lifetime_and_authored_rows() {
         title["rect"][1].as_f64().unwrap() + title["rect"][3].as_f64().unwrap()
             <= p.rect_of(clear).unwrap().1 as f64
     );
+    style(&mut p, dialog, StyleId::FlexDirection, "column");
+    assert_eq!(
+        p.host().kernel().node(dialog).unwrap().style.flex_direction,
+        exact_kernel::FlexDirection::Column,
+        "the derived title does not restore the platform flex row"
+    );
+    assert!(p.host().kernel().alert_prefix_frame(dialog).is_some());
+    let mut direction = StyleMask::EMPTY;
+    direction.set(StyleId::FlexDirection);
+    ops(
+        &mut p,
+        &[Op::ClearStyle {
+            id: dialog,
+            mask: direction,
+            written: false,
+        }],
+    );
     let before = p.host().kernel().node(dialog).unwrap().style.clone();
     p.frame();
     p.frame();
@@ -310,6 +327,64 @@ fn lifetime_and_authored_rows() {
     assert!(p.resize(320., 640.).is_none());
     p.frame();
     assert_eq!(p.rect_of(dialog).unwrap().2, 250.);
+    let very_long = std::iter::repeat(
+        "This complete confirmation title remains readable while its actions stay reachable.",
+    )
+    .take(24)
+    .collect::<Vec<_>>()
+    .join(" ");
+    ops(
+        &mut p,
+        &[Op::SetProp {
+            id: dialog,
+            prop: PropId::AccessibilityLabel,
+            value: PropValue::Str(very_long.into()),
+        }],
+    );
+    assert!(p.resize(320., 220.).is_none());
+    p.frame();
+    let before_title = read(&mut p, "state")["surface"]["title"]["rect"][1]
+        .as_f64()
+        .unwrap();
+    let before_action = p.rect_of(clear).unwrap();
+    assert!(before_action.1 > 220., "the action begins below the clip");
+    style(&mut p, dialog, StyleId::OverflowX, "visible");
+    style(&mut p, dialog, StyleId::OverflowY, "visible");
+    p.wheel(dialog, 0., 10000.).unwrap();
+    p.frame();
+    assert_eq!(
+        p.scroll_of(dialog),
+        (0., 0.),
+        "authored visible overflow wins"
+    );
+    let mut overflow = StyleMask::EMPTY;
+    overflow.set(StyleId::OverflowX);
+    overflow.set(StyleId::OverflowY);
+    ops(
+        &mut p,
+        &[Op::ClearStyle {
+            id: dialog,
+            mask: overflow,
+            written: false,
+        }],
+    );
+    p.wheel(dialog, 0., 10000.).unwrap();
+    p.frame();
+    let after_title = read(&mut p, "state")["surface"]["title"]["rect"][1]
+        .as_f64()
+        .unwrap();
+    assert!(
+        after_title < before_title,
+        "the complete title scrolls with its item"
+    );
+    let action = visible(p.rect_of(clear), 320., 220.);
+    assert_eq!(
+        p.hit(action.0 + action.2 / 2., action.1 + action.3 / 2.),
+        Some(clear),
+        "the action is reachable at the end of the title"
+    );
+    assert!(p.resize(320., 640.).is_none());
+    p.frame();
     let mut mask = own.mask;
     mask.clear(StyleId::PaddingTop);
     ops(
@@ -502,9 +577,24 @@ fn defaults_fonts_and_visibility() {
     assert!(p.tap(clear).is_ok());
     p.run_commands(|| ());
     assert!(p.host().kernel().arena().cover(key.index).is_none());
-    // Removing the label retires only its host reservation.
+    // Empty generated content remains a flex item and therefore keeps its gap;
+    // removing the attribute removes the item itself.
     p.tap(id(&p, "ask-clear")).unwrap();
     p.run_commands(|| ());
+    ops(
+        &mut p,
+        &[Op::SetProp {
+            id: dialog,
+            prop: PropId::AccessibilityLabel,
+            value: PropValue::Str(String::new()),
+        }],
+    );
+    assert!(read(&mut p, "state")["surface"]["title"].is_null());
+    let empty_y = p.rect_of(clear).unwrap().1;
+    assert_eq!(
+        p.host().kernel().alert_prefix_frame(dialog).unwrap().height,
+        0.
+    );
     ops(
         &mut p,
         &[Op::ClearProp {
@@ -513,6 +603,11 @@ fn defaults_fonts_and_visibility() {
         }],
     );
     assert!(read(&mut p, "state")["surface"]["title"].is_null());
+    assert!(p.host().kernel().alert_prefix_frame(dialog).is_none());
+    assert!(
+        p.rect_of(clear).unwrap().1 < empty_y,
+        "empty content keeps the row gap"
+    );
     assert!(p.host().kernel().arena().cover(key.index).is_none());
     p.tap(id(&p, "clear-confirm-cancel")).unwrap();
     p.run_commands(|| ());
