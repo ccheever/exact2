@@ -413,6 +413,8 @@ fn a_development_build_makes_every_role_override_a_property() {
         "{}",
         dev.css
     );
+    // A page rendered ahead drops its baked colour for the class's property.
+    assert!(dev.js.contains(r#"c2:["color"]"#), "{}", dev.js);
     let design = {
         let _every = crate::modes::every(true);
         crate::modes::design(&plan)
@@ -430,6 +432,7 @@ fn a_development_build_makes_every_role_override_a_property() {
     assert_eq!(row("CanvasText")["css"], serde_json::json!(["#111111ff"]));
     assert_eq!(row("AccentColor")["prop"], "--exact-accent");
     assert_eq!(row("AccentColor")["css"], serde_json::json!(["#0a7affff"]));
+    assert_eq!(row("AccentColor")["root"], true);
     assert_eq!(row("-exact-label")["prop"], "--exact-label");
     assert!(dev.css.contains("color:var(--exact-label);"), "{}", dev.css);
     assert!(

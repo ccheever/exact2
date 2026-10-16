@@ -501,6 +501,23 @@ extension NavigationHost {
     /// whether its title is large, so a level-1 heading pushed over an
     /// inline one is large; `prefersLargeTitles` is the app's from the
     /// hatch on (§3.5).
+    /// The theme's label colour on `nav`'s titles (LLP 1095 D4); its glyphs
+    /// take the app's tint, which the theme's `AccentColor` sets. Set again
+    /// when a live edit moves the roles (LLP 1121 stage 5).
+    func titleInk(_ nav: UINavigationController) {
+        guard let ink = ThemeRoles.color("label", in: presenter.root) ?? ThemeRoles.color("CanvasText", in: presenter.root) else { return }
+        nav.navigationBar.titleTextAttributes = [.foregroundColor: ink]
+        #if !os(tvOS)
+        nav.navigationBar.largeTitleTextAttributes = [.foregroundColor: ink]
+        #endif
+    }
+
+    /// Every bar this host made, its titles' ink set again.
+    func retheme() {
+        var seen = Set<ObjectIdentifier>()
+        for nav in [primaryNavigation].compactMap({ $0 }) + presentedNavigations + tabNavigations.values where seen.insert(ObjectIdentifier(nav)).inserted { titleInk(nav) }
+    }
+
     func makeNavigation(first: NodeView?) -> UINavigationController {
         let nav = UINavigationController()
         stackCount += 1
@@ -511,14 +528,7 @@ extension NavigationHost {
         #if !os(tvOS)
         nav.navigationBar.prefersLargeTitles = true
         #endif
-        // The theme's label colour on the bar's titles (LLP 1095 D4); its
-        // glyphs take the app's tint, which the theme's `AccentColor` sets.
-        if let ink = ThemeRoles.color("label", in: presenter.root) ?? ThemeRoles.color("CanvasText", in: presenter.root) {
-            nav.navigationBar.titleTextAttributes = [.foregroundColor: ink]
-            #if !os(tvOS)
-            nav.navigationBar.largeTitleTextAttributes = [.foregroundColor: ink]
-            #endif
-        }
+        titleInk(nav)
         if presenter.session?.natives.hatchesConnected == true {
             stack.showsBar = presenter.session?.natives.navigationHatch(nav, built: true, showsBar: stack.showsBar, label: stack.label) ?? stack.showsBar
             stack.hatched = true

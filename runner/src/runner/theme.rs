@@ -42,13 +42,17 @@ impl<D: DataSource> Runner<D> {
                 .ok_or_else(|| refused("is no token this plan keeps"))?;
             // A role's value also crosses to the hosts and the kernel's own
             // defaults (LLP 1095 D4's reach): the session's overrides take it.
-            if let Some(id) = exact_kernel::style::roles::role(self.plan.str(token.role)) {
+            let role = self.plan.str(token.role);
+            if let Some(id) = exact_kernel::style::roles::role(role) {
                 let colour = crate::bridge::role_colour(value)
                     .ok_or_else(|| refused("overrides a role with no colour"))?;
-                let now = self.roles().overrides().iter().find(|(r, _)| *r == id);
-                if now.is_none_or(|(_, c)| *c != colour) {
+                let now = self.roles().overrides().into_iter().find(|(r, _)| *r == id);
+                if now.is_none_or(|(_, c)| c != colour) {
                     roles.push((id, colour));
                 }
+                // A row names the role by its spelling, which a bare
+                // token's name (`secondary-label`) is not.
+                bits |= exact_kernel::style::theme::name_bit(role);
             }
             bits |= exact_kernel::style::theme::name_bit(name);
         }
@@ -58,8 +62,7 @@ impl<D: DataSource> Runner<D> {
         // Rows below parse under the new overrides; what the host drew from
         // the old ones it re-presents (`roles_moved`).
         if !roles.is_empty() {
-            let next = self.roles().with(&roles);
-            self.roles.replace(next);
+            self.roles().set(&roles);
         }
         let mut patches: Vec<(exact_kernel::ViewId, Box<StyleProps>)> = Vec::new();
         let mut set = 0;

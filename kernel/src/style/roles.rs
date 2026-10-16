@@ -517,21 +517,13 @@ pub fn accent() -> u8 {
 #[track_caller]
 pub fn overridden(id: u8) -> Option<ColorValue> {
     let roles = bound();
-    {
-        let table = &roles.table;
-        if table.is_empty() {
-            return None;
-        }
-        let c = table.iter().find(|(r, _)| *r == id).map(|(_, c)| *c)?;
-        // One step: an override naming another overridden role reads that one's.
-        match c {
-            ColorValue::Role(next) => table
-                .iter()
-                .find(|(r, _)| *r == next)
-                .map(|(_, c)| *c)
-                .or(Some(c)),
-            other => Some(other),
-        }
+    if roles.is_empty() {
+        return None;
+    }
+    // One step: an override naming another overridden role reads that one's.
+    match roles.find(id)? {
+        ColorValue::Role(next) => roles.find(next).or(Some(ColorValue::Role(next))),
+        other => Some(other),
     }
 }
 

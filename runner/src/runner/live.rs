@@ -103,7 +103,7 @@ impl<D: DataSource> Runner<D> {
             });
         }
         let refusals = exact_kernel::style::wide::refusals();
-        let roles = self.roles().clone();
+        let roles = self.roles().generation();
         let tokens: Vec<_> = edit.tokens.iter().collect();
         let slices: Vec<Vec<&str>> = tokens
             .iter()
@@ -122,7 +122,7 @@ impl<D: DataSource> Runner<D> {
         // A role crosses to a host as what replaces it, in any row, and the
         // kernel's own defaults read it: every node is the host's to send
         // again (LLP 1121 stage 5).
-        let moved = !std::rc::Rc::ptr_eq(&roles, self.roles());
+        let moved = self.roles().generation() != roles;
         if moved {
             let mut touched: std::collections::HashSet<_> =
                 receipt.touched.iter().copied().collect();

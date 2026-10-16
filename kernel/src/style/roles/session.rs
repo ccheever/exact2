@@ -8,57 +8,89 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// A session's role overrides (LLP 1095 D4): the roles its design replaces,
 /// and with what (an existing form), with the wide colours they hold kept
 /// from the table's sweep while the session holds them. Each session has
-/// its own (LLP 1121 stage 5): a runner builds one from the plan it boots.
+/// its own (LLP 1121 stage 5): a runner builds one from the plan it boots,
+/// and a live edit sets it in place ([`Roles::set`]), so every scope bound
+/// to the session reads the new one.
 #[derive(Default)]
 pub struct Roles {
-    pub(super) table: Vec<(u8, ColorValue)>,
+    table: std::cell::RefCell<Vec<(u8, ColorValue)>>,
     /// Held for its life, never read.
     #[allow(dead_code)]
-    kept: crate::style::wide::Keep,
-    pub(super) generation: u64,
+    kept: std::cell::RefCell<crate::style::wide::Keep>,
+    generation: std::cell::Cell<u64>,
 }
 
-/// Every [`Roles`] made, numbered: what a host compares to re-present.
+/// Every table [`Roles`] took, numbered: what a host compares to re-present.
 static ROLES_MADE: AtomicU64 = AtomicU64::new(1);
+
+/// `next` without an unknown role or a role replaced by itself, and the
+/// keep of the wide colours it holds.
+fn table(next: Vec<(u8, ColorValue)>) -> (Vec<(u8, ColorValue)>, crate::style::wide::Keep) {
+    let table: Vec<(u8, ColorValue)> = next
+        .into_iter()
+        .filter(|(id, c)| role_of(*id).is_some() && !matches!(c, ColorValue::Role(r) if r == id))
+        .collect();
+    let kept = crate::style::wide::Keep::of(|m| {
+        for (_, c) in &table {
+            m.color(*c);
+        }
+    });
+    (table, kept)
+}
 
 impl Roles {
     /// A session's overrides from `next`: an unknown role, and a role
     /// replaced by itself, are left out.
     pub fn new(next: Vec<(u8, ColorValue)>) -> std::rc::Rc<Roles> {
-        let table: Vec<(u8, ColorValue)> = next
-            .into_iter()
-            .filter(|(id, c)| {
-                role_of(*id).is_some() && !matches!(c, ColorValue::Role(r) if r == id)
-            })
-            .collect();
-        let kept = crate::style::wide::Keep::of(|m| {
-            for (_, c) in &table {
-                m.color(*c);
-            }
-        });
+        let (table, kept) = table(next);
         std::rc::Rc::new(Roles {
-            table,
-            kept,
-            generation: ROLES_MADE.fetch_add(1, Ordering::AcqRel),
+            table: table.into(),
+            kept: kept.into(),
+            generation: ROLES_MADE.fetch_add(1, Ordering::AcqRel).into(),
         })
     }
 
     /// The overridden roles as set.
-    pub fn overrides(&self) -> &[(u8, ColorValue)] {
-        &self.table
+    pub fn overrides(&self) -> Vec<(u8, ColorValue)> {
+        self.table.borrow().clone()
     }
 
-    /// These overrides with each of `changes` set in place (a live edit,
-    /// LLP 1121 stage 5): a new table, so a host sees a new generation.
-    pub fn with(&self, changes: &[(u8, ColorValue)]) -> std::rc::Rc<Roles> {
-        let mut next = self.table.clone();
+    /// The table's number: another once a live edit sets it.
+    pub fn generation(&self) -> u64 {
+        self.generation.get()
+    }
+
+    /// Set each of `changes` in place (a live edit, LLP 1121 stage 5): the
+    /// session's table, wherever it is bound or installed, with a new
+    /// generation for its host to re-present.
+    pub fn set(&self, changes: &[(u8, ColorValue)]) {
+        let mut next = self.overrides();
         for &(id, c) in changes {
             match next.iter_mut().find(|(r, _)| *r == id) {
                 Some(entry) => entry.1 = c,
                 None => next.push((id, c)),
             }
         }
-        Roles::new(next)
+        let (table, kept) = table(next);
+        *self.table.borrow_mut() = table;
+        // The new colours are kept before the old ones' keep goes.
+        *self.kept.borrow_mut() = kept;
+        self.generation
+            .set(ROLES_MADE.fetch_add(1, Ordering::AcqRel));
+    }
+
+    /// The overridden role `id`'s colour, read in place.
+    pub(super) fn find(&self, id: u8) -> Option<ColorValue> {
+        self.table
+            .borrow()
+            .iter()
+            .find(|(r, _)| *r == id)
+            .map(|(_, c)| *c)
+    }
+
+    /// Whether it overrides no role.
+    pub(super) fn is_empty(&self) -> bool {
+        self.table.borrow().is_empty()
     }
 }
 
@@ -179,34 +211,6 @@ impl Installed {
         install(&self.roles);
     }
 
-    /// The session's roles now `next` (a live edit): where its old ones are
-    /// installed or bound on this thread, these are.
-    pub fn replace(&mut self, next: std::rc::Rc<Roles>) {
-        let (old, new) = (
-            std::rc::Rc::as_ptr(&self.roles),
-            std::rc::Rc::downgrade(&next),
-        );
-        INSTALLED.with(|i| {
-            for w in i
-                .borrow_mut()
-                .iter_mut()
-                .filter(|w| std::ptr::eq(w.as_ptr(), old))
-            {
-                *w = new.clone();
-            }
-        });
-        BOUND.with(|b| {
-            if let Some(bound) = b
-                .borrow_mut()
-                .as_mut()
-                .filter(|r| std::ptr::eq(std::rc::Rc::as_ptr(r), old))
-            {
-                *bound = next.clone();
-            }
-        });
-        self.roles = next;
-    }
-
     /// No longer this thread's: the ones installed before resolve again (a
     /// session that leaves the thread, or ends).
     pub fn uninstall(&mut self) {
@@ -226,7 +230,7 @@ impl Drop for Installed {
 /// The overridden roles that resolve now, for a caller that puts them back.
 #[track_caller]
 pub fn overrides() -> Vec<(u8, ColorValue)> {
-    bound().overrides().to_vec()
+    bound().overrides()
 }
 
 /// What a host compares to know it must re-present what it resolved from
@@ -234,7 +238,7 @@ pub fn overrides() -> Vec<(u8, ColorValue)> {
 /// set of the session's overrides.
 #[track_caller]
 pub fn generation() -> u64 {
-    reported_generation().wrapping_add(bound().generation.wrapping_mul(1 << 20))
+    reported_generation().wrapping_add(bound().generation().wrapping_mul(1 << 20))
 }
 
 /// Install `next` as the thread's overrides, held by the thread (tests and
@@ -245,7 +249,7 @@ pub fn set_overrides(next: Vec<(u8, ColorValue)>) -> bool {
     }
     let roles = Roles::new(next);
     let before = bound();
-    let replaced = !before.table.is_empty() && before.table != roles.table;
+    let replaced = !before.is_empty() && before.overrides() != roles.overrides();
     install(&roles);
     HELD.with(|h| *h.borrow_mut() = roles);
     replaced

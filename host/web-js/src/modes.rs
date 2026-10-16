@@ -340,9 +340,14 @@ impl Modes {
             if !each.is_empty() {
                 channels.push(format!("c{}:{{{}}}", i + 1, each.join(",")));
             }
+            // A development build's role overrides read their sheet
+            // property too (LLP 1121 stage 5): a page rendered ahead drops
+            // its baked value for it, as for a token's.
             let named: Vec<&str> = declarations(c)
                 .into_iter()
-                .filter(|(_, value)| value.contains("var(--x-"))
+                .filter(|(_, value)| {
+                    value.contains("var(--x-") || every_token() && value.contains("var(--exact-")
+                })
                 .map(|(name, _)| name)
                 .collect();
             if !named.is_empty() {
@@ -485,12 +490,13 @@ pub fn design(plan: &Plan) -> serde_json::Value {
                 row["css"] = css.into();
                 row["accent"] = accent.into();
             } else if let Some(prop) = tint_property(plan, &t.name) {
-                // The tint's override: its sheet property in every tuple's
-                // rule (the first's is the root's), which rows read as the
-                // role (LLP 1121 stage 5).
+                // The tint's override: its property in the theme's own
+                // `:root` rule (`root`), which rows read as the role and an
+                // authored `accent-color` redeclares below (LLP 1121 stage
+                // 5); a tuple's rule would mask an authored one above it.
                 row["prop"] = prop.into();
-                row["css"] = vec![css_of(&t.value); tables.len()].into();
-                row["accent"] = vec![false; tables.len()].into();
+                row["css"] = vec![css_of(&t.value)].into();
+                row["root"] = true.into();
             }
             row
         })

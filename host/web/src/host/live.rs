@@ -16,6 +16,9 @@ impl<D: DataSource> Host<D> {
                 Some("live: not a tamber batch or snapshot"),
             );
         };
+        // Its own roles across the receipt's walk, which an edit sets in
+        // place (LLP 1121 stage 5).
+        let _roles = self.runner.bind_roles();
         let mut batch = crate::batch::Batch::new();
         let (receipts, live, unsupported) = match self.runner.apply_live(&edit) {
             Ok(applied) => (

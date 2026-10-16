@@ -119,8 +119,15 @@ extension Presenter {
     func applyThemeTint() {
         #if os(iOS) || os(tvOS)
         root.tintColor = ThemeRoles.color("AccentColor", in: root)
-        // Its sheets sit outside the root: a live edit re-tints them too (LLP 1121 stage 5).
-        for sheet in ThemeRoles.adopted(by: root) { sheet.tintColor = root.tintColor }
+        // Its sheets sit outside the root, and its bars' titles were set
+        // once: a live edit sets them again (LLP 1121 stage 5).
+        for sheet in ThemeRoles.adopted(by: root) {
+            sheet.tintColor = root.tintColor
+            #if os(iOS)
+            sheet.backgroundColor = ThemeRoles.color("background", in: sheet) ?? ThemeRoles.color("Canvas", in: sheet, or: .systemBackground)
+            #endif
+        }
+        navigation.retheme()
         #else
         // The page's ground where the app sets none (LLP 1115 D2).
         viewport.backgroundColor = ThemeRoles.color("background", in: root) ?? ThemeRoles.color("Canvas", in: root, or: .windowBackgroundColor)

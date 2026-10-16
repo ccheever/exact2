@@ -33,7 +33,6 @@ impl<D: DataSource> Host<D> {
                     None,
                 );
                 if applied.roles {
-                    let _roles = self.runner.bind_roles();
                     self.colors_changed(false);
                 }
                 (error, applied.full, applied.roles)
