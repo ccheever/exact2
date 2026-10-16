@@ -255,9 +255,10 @@ final class AccessibilityClientMacTests: XCTestCase {
 
     /// A modal `dialog` drawn in the page is announced as it opens, as
     /// VoiceOver reads a sheet's or a panel's title as it appears, though
-    /// the focus goes straight into its first field (realinput-1016e rows C6
-    /// and C25: "Add Environment, dialog" was never spoken). One in a popover
-    /// is not, as an `NSPopover` is not: VoiceOver reads its focus.
+    /// the focus goes straight into its first field, and only once while it
+    /// stays up: a dialog closed over it does not have it read again, as an
+    /// AppKit sheet is not when its child sheet ends. One in a popover is
+    /// not announced, as an `NSPopover` is not: VoiceOver reads its focus.
     func testAModalDialogIsAnnouncedAsItOpensUnlessInAPopover() throws {
         let p = try fixture([])
         let client = AXClient()
@@ -276,6 +277,31 @@ final class AccessibilityClientMacTests: XCTestCase {
         let heard = client.notifications().filter { $0.name == "AXAnnouncementRequested" }
         XCTAssertEqual(heard.map { $0.info["AXAnnouncementKey"] as? String }, ["Add Environment, dialog"])
         XCTAssertEqual((heard.first?.info["AXPriorityKey"] as? NSNumber)?.intValue, NSAccessibilityPriorityLevel.high.rawValue)
+
+        // An alert dialog over it is announced; closed, the dialog under it is not read again.
+        client.clear()
+        p.apply(wireBatch([
+            ["op": "create", "id": 30, "kind": "view",
+             "props": ["accessibilityRole": "alertdialog", "accessibilityModal": "true", "accessibilityLabel": "Discard this environment?"]],
+            ["op": "children", "id": 1, "ids": [2, 10, 30]],
+            ["op": "frame", "id": 30, "x": 80.0, "y": 80.0, "w": 200.0, "h": 80.0],
+        ]))
+        p.syncAccessibility()
+        XCTAssertTrue(p.macAccessibilityModal === p.views[30], "the alert dialog is the modal")
+        p.apply(wireBatch([["op": "children", "id": 1, "ids": [2, 10]]]))
+        p.syncAccessibility()
+        XCTAssertTrue(p.macAccessibilityModal === p.views[10], "the dialog is the modal again")
+        XCTAssertEqual(client.notifications().filter { $0.name == "AXAnnouncementRequested" }.map { $0.info["AXAnnouncementKey"] as? String },
+                       ["Discard this environment?, dialog"])
+
+        // Closed and opened again, it is announced again.
+        client.clear()
+        p.apply(wireBatch([["op": "children", "id": 1, "ids": [2]]]))
+        p.syncAccessibility()
+        p.apply(wireBatch([["op": "children", "id": 1, "ids": [2, 10]]]))
+        p.syncAccessibility()
+        XCTAssertEqual(client.notifications().filter { $0.name == "AXAnnouncementRequested" }.map { $0.info["AXAnnouncementKey"] as? String },
+                       ["Add Environment, dialog"])
 
         // The same dialog as a popover's content: not announced.
         client.clear()
@@ -320,15 +346,12 @@ final class AccessibilityClientMacTests: XCTestCase {
     }
 
     /// An `input` is AppKit's text field to another process, whatever it
-    /// carries: a role of its own, a `keycapture` handler, a placeholder
-    /// (realinput-1016e row 10: "Search fonts" and the keybinding recorder
-    /// were `AXUnknown`, so VoiceOver said no "edit text"). A number's is
-    /// still AppKit's stepper.
+    /// carries: a `keycapture` handler, a placeholder. A number's is still
+    /// AppKit's stepper.
     func testAnInputIsATextField() throws {
         _ = try fixture([
             ["op": "create", "id": 11, "kind": "input", "handlers": ["input"], "props": ["value": "", "accessibilityLabel": "Project title"]],
-            ["op": "create", "id": 12, "kind": "input", "handlers": ["input"],
-             "props": ["value": "", "accessibilityLabel": "Search fonts", "accessibilityRole": "combobox", "accessibilityExpanded": "true"]],
+            ["op": "create", "id": 12, "kind": "input", "handlers": ["input"], "props": ["value": "", "accessibilityLabel": "Search fonts", "placeholder": "Search"]],
             ["op": "create", "id": 13, "kind": "input", "handlers": ["keycapture", "blur"],
              "props": ["value": "", "accessibilityLabel": "Keybinding for New thread", "placeholder": "Press shortcut"]],
             ["op": "create", "id": 14, "kind": "input", "handlers": ["input"], "props": ["value": "4", "type": "number", "accessibilityLabel": "Port"]],
@@ -345,30 +368,36 @@ final class AccessibilityClientMacTests: XCTestCase {
     /// A `menu`'s row taking the focus is the menu's highlight, as AppKit's
     /// menu has one (measured with an `NSMenu` and this observer): the menu
     /// says its selected child changed, serves the row as that child and
-    /// the row as selected. As the menu goes it says it closed, and the
-    /// focus it gave back is told again, so VoiceOver leaves the menu for it
-    /// (realinput-1016e row 9: the focused row was never read, and after
-    /// Escape VoiceOver read the page behind).
+    /// the row as selected. As the menu closes it says so, and the focus it
+    /// gives back is told after that, so VoiceOver leaves the menu for it.
     func testAMenusFocusedRowIsItsHighlight() throws {
         let p = try fixture([])
         let client = AXClient()
         try client.listen(["AXMenuOpened", "AXMenuClosed", "AXSelectedChildrenChanged", "AXFocusedUIElementChanged"])
         p.apply(wireBatch([
+            ["op": "create", "id": 20, "kind": "view", "props": ["popover": "auto", "testId": "layer"]],
             ["op": "create", "id": 10, "kind": "view", "props": ["accessibilityRole": "menu", "accessibilityLabel": "Environment actions", "testId": "menu"]],
             ["op": "create", "id": 11, "kind": "button", "handlers": ["press"], "props": ["accessibilityRole": "menuitem", "testId": "icon", "accessibilityLabel": "Icon"]],
             ["op": "create", "id": 12, "kind": "button", "handlers": ["press"], "props": ["accessibilityRole": "menuitem", "testId": "rename", "accessibilityLabel": "Rename"]],
             ["op": "children", "id": 10, "ids": [11, 12]],
-            ["op": "children", "id": 1, "ids": [2, 10]],
-            ["op": "frame", "id": 10, "x": 0.0, "y": 40.0, "w": 200.0, "h": 70.0],
+            ["op": "children", "id": 20, "ids": [10]],
+            ["op": "children", "id": 1, "ids": [2, 20]],
+            ["op": "frame", "id": 20, "x": 0.0, "y": 40.0, "w": 200.0, "h": 70.0],
+            ["op": "frame", "id": 10, "x": 0.0, "y": 0.0, "w": 200.0, "h": 70.0],
             ["op": "frame", "id": 11, "x": 0.0, "y": 0.0, "w": 200.0, "h": 30.0],
             ["op": "frame", "id": 12, "x": 0.0, "y": 35.0, "w": 200.0, "h": 30.0],
         ]))
         p.syncAccessibility()
-        XCTAssertEqual(client.identifiers(of: "menu", "AXSelectedChildren"), [], "no row is highlighted yet")
         func heard() -> [String] {
             defer { client.clear() }
             return client.notifications().map { "\($0.name) \(client.value(of: $0.element, "AXIdentifier") ?? "")" }
         }
+        // The trigger opens the menu.
+        XCTAssertTrue(window.makeFirstResponder(p.views[2]))
+        client.clear()
+        p.menus.show(try XCTUnwrap(p.views[20]), from: try XCTUnwrap(p.views[2]))
+        p.syncAccessibility()
+        XCTAssertEqual(client.identifiers(of: "menu", "AXSelectedChildren"), [], "no row is highlighted yet")
         XCTAssertEqual(heard(), ["AXMenuOpened menu"])
 
         // ↓: the app moves the focus to a row.
@@ -381,21 +410,39 @@ final class AccessibilityClientMacTests: XCTestCase {
         XCTAssertTrue(heard().contains("AXSelectedChildrenChanged menu"))
         XCTAssertEqual(client.identifiers(of: "menu", "AXSelectedChildren"), ["rename"])
 
-        // Escape: the menu goes and the focus returns to its invoker.
-        XCTAssertTrue(window.makeFirstResponder(p.views[2]))
+        // Escape: the popover closes and gives the focus back to the trigger.
+        XCTAssertTrue(p.menus.key(escape(window)))
+        _ = p.menus.key(escape(window, up: true))
+        p.syncAccessibility()
+        XCTAssertTrue(window.firstResponder === p.views[2], "the focus is the trigger's again")
+        let closing = heard()
+        XCTAssertEqual(closing.filter { $0.hasPrefix("AXMenu") }.map { $0.split(separator: " ").first.map(String.init) }, ["AXMenuClosed"], "\(closing)")
+        let closed = try XCTUnwrap(closing.firstIndex { $0.hasPrefix("AXMenuClosed") })
+        XCTAssertEqual(closing[(closed + 1)...].last, "AXFocusedUIElementChanged page-button", "\(closing)")
+
+        // A menu in the page that the app removes after focusing its invoker
+        // says it closed, and the focus is told after that.
+        p.apply(wireBatch([["op": "children", "id": 1, "ids": [2, 10]]]))
+        p.syncAccessibility()
+        XCTAssertTrue(window.makeFirstResponder(p.views[11]))
         client.clear()
+        XCTAssertTrue(window.makeFirstResponder(p.views[2]))
         p.apply(wireBatch([["op": "children", "id": 1, "ids": [2]]]))
         p.syncAccessibility()
-        let closing = heard()
-        XCTAssertEqual(closing.filter { $0.hasPrefix("AXMenu") }, ["AXMenuClosed "], "\(closing)")
-        let closed = try XCTUnwrap(closing.firstIndex { $0.hasPrefix("AXMenuClosed") })
-        XCTAssertEqual(closing[(closed + 1)...].first, "AXFocusedUIElementChanged page-button", "\(closing)")
+        let removed = heard()
+        let removedAt = try XCTUnwrap(removed.firstIndex { $0.hasPrefix("AXMenuClosed") }, "\(removed)")
+        XCTAssertEqual(removed[(removedAt + 1)...].last, "AXFocusedUIElementChanged page-button", "\(removed)")
 
         // A menu that opens with the focus already on a row says so after it opened.
         p.apply(wireBatch([["op": "children", "id": 1, "ids": [2, 10]]]))
         XCTAssertTrue(window.makeFirstResponder(p.views[11]))
         p.syncAccessibility()
         XCTAssertEqual(heard().filter { !$0.hasPrefix("AXFocused") }, ["AXMenuOpened menu", "AXSelectedChildrenChanged menu"])
+    }
+
+    private func escape(_ window: NSWindow, up: Bool = false) -> NSEvent {
+        NSEvent.keyEvent(with: up ? .keyUp : .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53)!
     }
 }
 #endif

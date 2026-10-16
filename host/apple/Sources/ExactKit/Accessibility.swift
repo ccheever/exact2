@@ -645,8 +645,10 @@ extension Presenter {
             NSAccessibility.post(element: menu.window != nil ? menu : viewport, notification: .init(rawValue: "AXMenuClosed"))
         }
         shownMenus = shown
-        // The focus a closing menu gave back (its invoker, Escape's) moved
-        // while VoiceOver was in the menu: told again, VoiceOver follows it.
+        // The focus moved out of the menu before it went (the app focused
+        // the invoker, then removed the menu): told again after AXMenuClosed,
+        // VoiceOver follows it. A popover's menu gives the focus back only
+        // after this pass, so `MenuHost.close` tells it then.
         if !closed.isEmpty, let focused = focusedNode {
             NSAccessibility.post(element: keyView(of: focused), notification: .focusedUIElementChanged)
         }
@@ -654,8 +656,17 @@ extension Presenter {
         if modal.map(ObjectIdentifier.init) != announcedModal {
             announcedModal = modal.map(ObjectIdentifier.init)
             NSAccessibility.post(element: viewport, notification: .layoutChanged, userInfo: modal.map { [.uiElements: [modalLanding($0)]] })
+            // A dialog is announced once while it stays up: one handed the
+            // modal back by a dialog closed over it is not read again, as an
+            // AppKit sheet is not when its child sheet ends.
+            announcedDialogs.removeAll { dialog in
+                dialog.window == nil || dialog.isHiddenOrHasHiddenAncestor || leaving[dialog.id] != nil
+                    || (dialog.props["accessibilityModal"] != "true" && dialogs.active !== dialog)
+            }
             if let modal, ["AXApplicationDialog", "AXApplicationAlertDialog"].contains(modal.groupSubrole ?? ""),
-               modal.window?.isSheet != true, !modal.inPopover, let words = modal.dialogWords {
+               modal.window?.isSheet != true, !modal.inPopover, !announcedDialogs.contains(where: { $0 === modal }),
+               let words = modal.dialogWords {
+                announcedDialogs.append(modal)
                 // VoiceOver reads a dialog window's title (a sheet's, a
                 // panel's) and an `NSAlert`'s message as it appears, whatever
                 // the focus does next, and WAI-ARIA's alertdialog fires the

@@ -20,6 +20,8 @@ package final class Presenter {
     /// Set the turn after the session's first activation. A booted session's autofocus waits for it.
     var launchAutofocusReleased = false
     var announcedModal: ObjectIdentifier?, shownMenus: [NodeView] = []
+    /// The page-drawn dialogs announced as they opened that are still up (`syncAccessibility`).
+    var announcedDialogs: [NodeView] = []
     /// The session this presenter shows (LLP 1031 D1).
     weak package var session: ExactSession?
     /// The document: the roots live here, content-sized like a page.
