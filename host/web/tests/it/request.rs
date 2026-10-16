@@ -134,7 +134,7 @@ fn a_send_leaves_as_a_request_op_and_the_reply_commits() {
 }
 
 #[test]
-fn module_replacement_swaps_with_a_post_in_flight_and_lets_it_go() {
+fn a_dev_module_replacement_swaps_with_a_post_in_flight_and_an_update_refuses() {
     let plan = contract::bake(contract::compile(SRC).unwrap(), Later)
         .unwrap()
         .encode();
@@ -145,12 +145,17 @@ fn module_replacement_swaps_with_a_post_in_flight_and_lets_it_go() {
     bridge.dispatch(view(&host, "who"), 1, 3, 0.0);
     bridge.dispatch(view(&host, "login"), 0, 0, 0.0);
     assert_eq!(bridge.request_active(1.0), 1);
-    // An app may always have a request out (LLP 1007 §6): the swap does not
-    // wait on it, and the new runner carries what was typed.
     let mut input = plan.clone();
     input.extend_from_slice(b"module");
+    // An update refuses while a request is out; the running app keeps it.
     bridge.input_write(&input);
-    let len = bridge.boot_module([plan.len(), 0, 6], Later);
+    let len = bridge.boot_module([plan.len(), 0, 6], Later, false);
+    assert!(String::from_utf8_lossy(bridge.output_bytes(len as usize)).contains("in-flight"));
+    assert_eq!(bridge.request_active(1.0), 1);
+    // The dev loop's swap does not wait on it, as an app may always have a
+    // request out (LLP 1007 §6), and the new runner carries what was typed.
+    bridge.input_write(&input);
+    let len = bridge.boot_module([plan.len(), 0, 6], Later, true);
     let out = String::from_utf8_lossy(bridge.output_bytes(len as usize)).into_owned();
     assert!(out.contains("\"error\":null"), "{out}");
     assert!(out.contains("\"value\":\"ada\""), "{out}");

@@ -226,7 +226,10 @@ function types() {
 globalThis.exact.documents = {
   mint, run, files, observe,
   install(host) {
-    // host: { dispatch(id, kind, payload), log(line), openFile(value) }
+    // host: { dispatch(id, kind, payload), generation() (none on the JS target), log(line), openFile(value) }
+    // A view id names a view only in the generation that asked: an answer that
+    // outlives a restart, which reuses ids, is dropped.
+    const since = () => { const g = host.generation?.(); return (id, kind, payload) => { if (host.generation?.() === g) host.dispatch(id, kind, payload); }; };
     // The files an installed app was launched with (`file_handlers`,
     // `launchQueue`, LLP 1069.010 slice 4), each opened as a document.
     globalThis.launchQueue?.setConsumer((params) => {
@@ -234,10 +237,10 @@ globalThis.exact.documents = {
         if (!host.openFile(mint(handle))) host.log('open-file: refused: this app has no `open-file` field');
       }
     });
-    const chosen = (view, name, found) => {
-      if (!found.length) { host.log(`${name}: cancelled`); return host.dispatch(view, 27, ''); }
+    const chosen = (dispatch, view, name, found) => {
+      if (!found.length) { host.log(`${name}: cancelled`); return dispatch(view, 27, ''); }
       host.log(`${name}: chosen`);
-      host.dispatch(view, 1, found.map(mint).join('\n'));
+      dispatch(view, 1, found.map(mint).join('\n'));
     };
     return {
       /** Files dropped on the page (studio diary R19): each handle the
@@ -251,18 +254,20 @@ globalThis.exact.documents = {
       /** A picker command's ruling `r`: call the browser's picker (the
        * press's activation is still live), then report what was chosen. */
       async show(r, name) {
-        if (!r.present) return host.dispatch(r.view, 27, '');
-        if (name === 'showSaveFilePicker' && typeof globalThis.showSaveFilePicker !== 'function') return chosen(r.view, name, [downloadFile(r.suggestedName)]);
+        const dispatch = since();
+        if (!r.present) return dispatch(r.view, 27, '');
+        if (name === 'showSaveFilePicker' && typeof globalThis.showSaveFilePicker !== 'function') return chosen(dispatch, r.view, name, [downloadFile(r.suggestedName)]);
         const options = name === 'showSaveFilePicker' ? { suggestedName: r.suggestedName } : name === 'showOpenFilePicker' ? { multiple: r.multiple } : {};
         if (name !== 'showDirectoryPicker') { const t = await types(); if (t.length) options.types = t; }
-        try { const found = await globalThis[name](options); chosen(r.view, name, [found].flat()); }
-        catch (e) { if (e?.name === 'AbortError') chosen(r.view, name, []); else { host.log(`${name}: refused: ${e?.name ?? e}`); host.dispatch(r.view, 27, ''); } }
+        try { const found = await globalThis[name](options); chosen(dispatch, r.view, name, [found].flat()); }
+        catch (e) { if (e?.name === 'AbortError') chosen(dispatch, r.view, name, []); else { host.log(`${name}: refused: ${e?.name ?? e}`); dispatch(r.view, 27, ''); } }
       },
       /** The agent's answer to a held picker: the driver's files as handles. */
       answer(r, name, files) {
-        if (r.answered === 'cancel') return chosen(r.node, name, []);
+        const dispatch = since();
+        if (r.answered === 'cancel') return chosen(dispatch, r.node, name, []);
         const made = (files ?? []).map((f) => f.files ? memoryFolder(f.name, f.files.map((c) => ({ path: c.path, bytes: bytesOf(c.bytes) }))) : memoryFile(f.name, bytesOf(f.bytes)));
-        chosen(r.node, name, made);
+        chosen(dispatch, r.node, name, made);
       },
     };
   },

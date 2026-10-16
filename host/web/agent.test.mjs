@@ -975,21 +975,21 @@ test('initial flow loading cannot hold the first frame or module activation', as
   await boot;
 });
 
-test('module replacement waits a settle window, rechecks supersession, then swaps with requests still in flight', async () => {
-  for (const result of ['accept', 'superseded', 'pending']) {
+test('module replacement waits for requests, rechecks supersession; the dev loop swaps after its settle window, an update refuses', async () => {
+  for (const [result, letGo] of [['accept', true], ['superseded', true], ['pending', true], ['accept', false], ['pending', false]]) {
     const f = fixture(false), entered = deferred(), drained = deferred(), lines = [];
-    let current = true, swaps = 0;
+    let current = true, swaps = 0, flag = null;
     f.waitForInflight = async deadline => {
-      expect(deadline).toBe(1010);
+      expect(deadline).toBe(letGo ? 1010 : 20010);
       entered.resolve();
       return drained.promise;
     };
     f.log = line => lines.push(line);
     f.setInputReady = value => { f.inputReady = value; };
-    f.wasm.exact_boot_module = () => { swaps++; return '{"ops":[],"timers":true}'; };
+    f.wasm.exact_boot_module = (...args) => { swaps++; flag = args[3]; return '{"ops":[],"timers":true}'; };
     // An app that always has a request out (LLP 1007 §6): it never drains.
     if (result === 'pending') f.inflight.add(new Promise(() => {}));
-    const candidate = {realm:{id:1},receipt:new Uint8Array([1])};
+    const candidate = {realm:{id:1},receipt:new Uint8Array([1]),letGo};
     const update = f.boot(new Uint8Array([1]), null, () => current, candidate);
     const outcome = update.then(value => ({value}), error => ({error}));
     await entered.promise;
@@ -999,14 +999,16 @@ test('module replacement waits a settle window, rechecks supersession, then swap
     if (result === 'superseded') current = false;
     drained.resolve(result !== 'pending');
     const reply = await outcome;
-    expect(reply.error).toBeUndefined();
-    if (result === 'superseded') {
+    if (result === 'superseded' || result === 'pending' && !letGo) {
       expect(swaps).toBe(0);
       expect(f.views.size).toBe(1);
       expect(f.activeModule).toBeNull();
-      expect(reply.value).toBeNull();
+      if (letGo) expect(reply.value).toBeNull();
+      else expect(String(reply.error)).toContain('in-flight requests');
     } else {
+      expect(reply.error).toBeUndefined();
       expect(swaps).toBe(1);
+      expect(flag).toBe(letGo ? 1 : 0);
       expect(f.activeModule).toBe(candidate);
       expect(f.inflight.size).toBe(0);
       expect(lines.filter(l => l.startsWith('module replacement'))).toEqual(result === 'pending' ? ['module replacement let go of 1 request still in flight after 1000 ms'] : []);

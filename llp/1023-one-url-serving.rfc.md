@@ -197,11 +197,13 @@ The browser uses the same generation protocol:
   full asset resolver, fonts, and shader namespace, then accept and commit
   together. Native acceptance covers every session owned by the app (1031).
   Browser font loading leaves the old page running until synchronous host
-  acceptance. A browser module replacement gives the current executor's
-  requests a 1 s settle window, then rechecks candidate currency and swaps
-  whether or not they drained (LLP 1007 §6, 2026-10-16): an app may always
-  have a request out. What is still out is let go as a plan restart lets it
-  go, and the journal names how many.
+  acceptance. A browser module replacement drains the current executor's
+  requests within the existing settlement deadline, then rechecks candidate
+  currency before the synchronous swap; timeout preserves the live page.
+  The dev loop's replacement waits 1 s instead, then swaps whether or not
+  they drained (LLP 1007 §6, 2026-10-16): an app may always have a request
+  out. What is still out is let go as a plan restart lets it go, and the
+  journal names how many.
   Initial module readiness alone does not imply those requests have drained.
   Omitted names have no embedded or previous-generation fallback.
   Failure preserves the old page, resources, and current generation. An

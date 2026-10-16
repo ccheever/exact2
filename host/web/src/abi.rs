@@ -228,10 +228,15 @@ impl<D: DataSource> Bridge<D> {
 
     /// The input concatenates plan, pairing receipt, and browser environment id.
     /// The JS loader prepares that private environment before this synchronous swap.
-    /// Requests still in flight do not refuse it: the glue gave them a settle
-    /// window, and the candidate boots carrying state as [`Self::boot_plan`]
-    /// does, asking again for what the old runner had not settled.
-    pub fn boot_module(&mut self, lengths: [usize; 3], admitted: D) -> u32 {
+    /// Requests in flight refuse it unless `let_go` (the dev loop's, LLP 1007 §6):
+    /// then it boots carrying state as [`Self::boot_plan`] does.
+    pub fn boot_module(&mut self, lengths: [usize; 3], admitted: D, let_go: bool) -> u32 {
+        let busy = self.host.as_ref().is_some_and(|h| h.runner().has_pending());
+        if !let_go && busy {
+            return self.emit(exact_runner::agent::error(
+                "module replacement waits for in-flight requests to settle; retry the update",
+            ));
+        }
         let [plan, receipt, module] = lengths;
         if plan
             .checked_add(receipt)
@@ -1166,7 +1171,7 @@ macro_rules! host {
         /// Replace the paired plan and privately prepared browser module:
         /// only a build whose entry says `EXACT_REPLACEMENT` links it.
         #[no_mangle]
-        pub extern "C" fn exact_boot_module(plan: u32, receipt: u32, module: u32) -> u32 {
+        pub extern "C" fn exact_boot_module(plan: u32, receipt: u32, module: u32, let_go: u32) -> u32 {
             $crate::link(EXACT_LINKED);
             EXACT_BRIDGE.with(|b| {
                 let mut b = b.borrow_mut();
@@ -1174,7 +1179,7 @@ macro_rules! host {
                     return b.refuse("this build takes no module replacement (LLP 1047 D6)");
                 }
                 b.set_links(EXACT_HOST_LINKS);
-                b.boot_module([plan as usize, receipt as usize, module as usize], ($new)())
+                b.boot_module([plan, receipt, module].map(|n| n as usize), ($new)(), let_go != 0)
             })
         }
 

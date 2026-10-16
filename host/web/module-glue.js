@@ -370,6 +370,9 @@ export async function prepare(payload, admitted, id = nextId++) {
       dispose() {
         disposed = true; storage.dispose(); pending.clear(); realms.delete(id); frame.remove();
         for (const [token,turn] of turns) if (turn.id === id) turns.delete(token);
+        // A parked answer settles too, or a wait raced against it (`clock settle`) runs out its deadline.
+        for (const p of parked) p.done.reject(new Error('module environment disposed'));
+        parked = [];
       },
     };
     realms.set(id, realm); return realm;

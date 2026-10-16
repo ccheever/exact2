@@ -498,26 +498,32 @@ The tree, ids, derives, and the DOM are rebuilt — five screens deep stays
 five screens deep, but scroll, focus, and a spring in flight do not survive
 (identity matching between the old and new trees is the later trade, and
 `rules/DEFERRED.md` §Runtime records this one). No patch format, no
-generations.
-
-**A module generation with requests in flight (2026-10-16).** A TypeScript or
-Rust data module's edit is a module generation, and its swap used to wait for
-the old executor's requests to settle, refusing after 20 s. An app with a
-request always out (the Bluesky clone's storage reads on the web) never took
-an edit. Now the page waits at most 1 s (`REPLACE_SETTLE_MS`, `glue.js`), then
-swaps anyway and treats what is still out as a plan restart does: settled
-resources carry, unsettled ones are asked again by the new runner, a write's
-fetch is aborted as every request's is (the server may or may not have
-seen it, and its `then` does not run), and a late answer from the old
-incarnation never lands. The journal says how many were let go.
-The settle window keeps the common case, a write that answers within a
-second, whole. The native hosts still refuse such a swap (QUEUE). A compile error is pushed to the page as an overlay with its line and
+generations. A compile error is pushed to the page as an overlay with its line and
 column; the last good plan stays. Measured (`scripts/metrics.mjs`, five runs):
 **save → plan ready 8–13 ms** (compile 0.5–1 ms, bake 0.5–1 ms, the rest the
 poll), **save → the new plan's first frame in the DOM 18–20 ms**. The
 compiler's ≤20 ms slice (1004 D5) holds with no incremental compilation at
 this size. The cold path — `bun host/web/build.mjs`, a cargo build of the
 app crate — is 6 s and is no longer the loop.
+
+**A module generation with requests in flight (2026-10-16).** A TypeScript or
+Rust data module's edit is a module generation, and its swap used to wait for
+the old executor's requests to settle, refusing after 20 s. An app with a
+request always out (the Bluesky clone's storage reads on the web) never took
+an edit. Now the dev page waits at most 1 s (`REPLACE_SETTLE_MS`, `glue.js`), then
+swaps anyway and treats what is still out as a plan restart does: slots
+carry, resources are asked again by the new runner (an answer carries only
+under the same data-module revision, which a module edit changes), a write's
+fetch is aborted as every request's is (the server may or may not have
+seen it, and its `then` does not run), and a late answer from the old
+incarnation never lands. The journal says how many were let go.
+The settle window lets a write that answers within a second land in the old
+runner, and its result carry; a `then` it scheduled for a later advance can
+still be lost to the swap. Only the dev loop lets go (`reloadGeneration`'s
+`letGo`, `Bridge::boot_module`'s `let_go`): a deployed update (`rust-glue.js`)
+still waits up to 20 s and is refused, keeping the running generation. A
+picker left open across the swap answers nothing: its view id is the old
+runner's. The native hosts still refuse such a swap (QUEUE).
 
 **The Rust side (2026-08-30).** `dev.mjs` also watches the crates the wasm
 is built from — `kernel`, `plan`, `motion`, `runner`, `host/web`, `gpu`,

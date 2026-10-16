@@ -3,11 +3,11 @@ import { textField, popoverCommand, contextAt, grantOrigins, createGrantSet, gra
 let guestOutline, guestTap, guestType, reveal, viewBox, layoutBoxes, selectAll, agentInputLoading;
 const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line (LLP 1069.007 D2)
 let httpModule, pickerModule, documentsModule, notifyModule; // the file picker (LLP 1069.002), documents (LLP 1069.010) and notifications, loaded on first use
-const picker = () => pickerModule ??= loadAfterPaint('./picker-glue.js', 'picker').then(install => install({ appId: globalThis.exact.compat?.inputs?.app, dispatch: (id, kind, payload) => { if (views.has(id)) send(wasm.exact_dispatch(id, kind, writeIn(payload), now())); }, pickedPath: (name) => loadStage('inspection').then(() => ask({ op: "pickedPath", name }).path), log }));
+const picker = () => pickerModule ??= loadAfterPaint('./picker-glue.js', 'picker').then(install => install({ appId: globalThis.exact.compat?.inputs?.app, generation: () => incarnation, dispatch: (id, kind, payload) => { if (views.has(id)) send(wasm.exact_dispatch(id, kind, writeIn(payload), now())); }, pickedPath: (name) => loadStage('inspection').then(() => ask({ op: "pickedPath", name }).path), log }));
 // An `app:/` source (D7): the app's own file, as the picker glue's object URL once it resolves; the old picture stays meanwhile, as for any `src`, and an element with none gets none (an empty media `src` is a failed load). A media element plays it (podcast F19): the glue hears the URL as its source, and a path with no file is handed to it as written, which it refuses (`src-not-supported`) as HTML refuses a source it cannot fetch. `then` runs once it lands (a `load` command's). A `data:` source past its bound shows nothing, as on every host (LLP 1011 §2; exact_raster::MAX_DATA_URL_BYTES).
 const DATA_LIMIT = 1024 * 1024; function appSource(el, name, value, then) { const p = picker().then(m => m.appURL(value)).then(url => { if (el[`exactApp-${name}`] !== value) return; const media = el instanceof HTMLMediaElement && name === "src", to = url || (media ? value : null); if (el.getAttribute(name) !== to) to ? el.setAttribute(name, to) : el.removeAttribute(name); if (media) { then?.(); syncMedia(el, { src: to }); } }); track(p.catch(() => {})); return el.getAttribute(name); }
 function appFrameSource(el, value) { el.exactSource = value; if (el.exactAppFrame?.path === value) return true; el.exactAppFrame?.dispose(); el.exactAppFrame = null; if (!value?.startsWith("app:/")) return false; const state = el.exactAppFrame = { path: value, live: true, url: null, dispose() { this.live = false; if (this.url) URL.revokeObjectURL(this.url); } }; el.removeAttribute("src"); iframeLoading.set(el, true); track(picker().then(m => m.appFrame(el, state, () => commitGuestOrigin(el)))); return true; }
-const documentsGlue = () => documentsModule ??= loadAfterPaint('./documents-glue.js', 'documents').then(d => d.install({ dispatch: (id, kind, payload) => { if (views.has(id)) send(wasm.exact_dispatch(id, kind, writeIn(payload), now())); }, log, openFile: (value) => { const id = [...views].find(([, el]) => el.dataset?.testid === "open-file")?.[0]; if (id == null) return false; send(wasm.exact_dispatch(id, 1, writeIn(value), now())); return true; } }));
+const documentsGlue = () => documentsModule ??= loadAfterPaint('./documents-glue.js', 'documents').then(d => d.install({ generation: () => incarnation, dispatch: (id, kind, payload) => { if (views.has(id)) send(wasm.exact_dispatch(id, kind, writeIn(payload), now())); }, log, openFile: (value) => { const id = [...views].find(([, el]) => el.dataset?.testid === "open-file")?.[0]; if (id == null) return false; send(wasm.exact_dispatch(id, 1, writeIn(value), now())); return true; } }));
 function httpHelpers() {
   return httpModule ??= moduleReady.then(() => loadAfterPaint('./http-body.js', 'httpHelpers'));
 }
@@ -1292,12 +1292,12 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   const shaderCommit = assets !== null && globalThis.exact.gpu ? await globalThis.exact.gpu.prepareShaders(assets) : null;
   // A retiring optional instance cannot delay boot; its generation guard disposes it.
   if (!current() || request !== bootAttempt) return null;
-  // A replacement gives the current executor a moment to finish its answers, then swaps anyway: an app
-  // may always have a request out. What is still out is let go as a plan restart lets it go, and the new
-  // runner asks again for what it has not settled (LLP 1007 §6). Initial module readiness drains nothing.
+  // A replacement lets the current executor finish its answers first. The dev loop's waits a moment, then swaps
+  // anyway, as an app may always have a request out: what is still out is let go as a plan restart lets it go,
+  // and the new runner asks again for what it has not settled (LLP 1007 §6). An update refuses instead.
   let left = 0;
   if (module) {
-    if (!(await waitForInflight(performance.now() + REPLACE_SETTLE_MS))) left = waiting().length;
+    if (!(await waitForInflight(performance.now() + (module.letGo ? REPLACE_SETTLE_MS : SETTLE_DEADLINE_MS)))) { if (!module.letGo) throw new Error('module replacement waits for in-flight requests to settle; retry the update'); left = waiting().length; }
     if (!current() || request !== bootAttempt) return null;
   }
   const launch = encoder.encode(launchLocation()); if (wasm.exact_set_launch) { const [epoch, offset] = reportTime(now()); wasm.exact_set_launch(epoch, offset, writeIn(reportPlace())); } // @ref LLP 1038 D5; then the date and place the boot's first settle reads (LLP 1027.000.000)
@@ -1308,7 +1308,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
     const payload = new Uint8Array(plan.length + module.receipt.length + id.length);
     payload.set(plan); payload.set(module.receipt, plan.length); payload.set(id, plan.length + module.receipt.length);
     ptr = wasm.exact_in(payload.length); new Uint8Array(memory.buffer, ptr, payload.length).set(payload);
-    len = wasm.exact_boot_module(plan.length, module.receipt.length, id.length);
+    len = wasm.exact_boot_module(plan.length, module.receipt.length, id.length, module.letGo ? 1 : 0);
   } else if (bytes) {
     ptr = wasm.exact_in(bytes.length + launch.length);
     const payload = new Uint8Array(memory.buffer, ptr, bytes.length + launch.length);
@@ -1382,7 +1382,7 @@ globalThis.exact = { ...globalThis.exact, mutate, devFirst: () => devFirst(),
   // behind the initial boot instead of acknowledging a reload that did not
   // happen.
   reload: async (bytes, fresh = false) => { await ready; await moduleReady; if (logicInfo || activeModule) throw new Error('module reload requires a paired generation'); return boot(bytes, devAssets, () => true, null, fresh); },
-  reloadGeneration: async (bytes, cards, current, module = null, rust = null) => {
+  reloadGeneration: async (bytes, cards, current, module = null, rust = null, letGo = false) => { // letGo: the dev loop's, which swaps with requests in flight
     await ready;
     await moduleReady;
     if (module && !logicInfo) throw new Error('this web client has binary-bound logic; rebuild with the browser module executor');
@@ -1402,6 +1402,7 @@ globalThis.exact = { ...globalThis.exact, mutate, devFirst: () => devFirst(),
           candidate = {...candidate, receipt:new TextEncoder().encode(JSON.stringify({version:1,kind:'mixed',javascript:decode(module.receipt),rust:decode(rust.receipt),javascriptBytes:js.length})),rust:payload};
         } else candidate = { receipt: rust.receipt, rust: rust.module };
       }
+      if (candidate) candidate.letGo = letGo;
       return await boot(bytes, assets, current, candidate) !== null;
     } finally {
       if (devAssets !== assets) releaseAssets(assets);

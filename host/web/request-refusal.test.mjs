@@ -371,7 +371,7 @@ test('a chosen folder is the same storage for a TypeScript source and a Rust req
   try {
     await import(`./documents-glue.js?documents=${Date.now()}`);
     let chosen;
-    const host = globalThis.exact.documents.install({ dispatch: (_, kind, payload) => { chosen = [kind, payload]; }, log() {}, openFile: () => false });
+    const host = globalThis.exact.documents.install({ generation: () => 0, dispatch: (_, kind, payload) => { chosen = [kind, payload]; }, log() {}, openFile: () => false });
     host.answer({ node: 1 }, 'showDirectoryPicker', [{ name: 'chosen', files: [{ path: 'a.txt', bytes: btoa('A') }, { path: 'sub/b.txt', bytes: btoa('B') }] }]);
     expect(chosen[0]).toBe(1);
     const doc = chosen[1], both = normalized('fs.read doc:/\nfs.write doc:/'), read = normalized('fs.read doc:/');
