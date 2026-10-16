@@ -55,7 +55,7 @@ export type FilesView = {
   // settings, `code` its fences' colours, `diagrams` its Mermaid fences, `mdUrls` its host-path media and `codeCopied` /
   // `codeCopyNonce` Copy code's check.
   markdownSource: MarkdownSource[]; md: MarkdownEnv; code: ReturnType<typeof messageCodeBlocks>; diagrams: MermaidDiagramView[]; mdUrls: { id: string; url: string; fill: string; hover: string; border: string; ink: string }[];
-  codeCopied: string; codeCopyNonce: number; table: { id: string; header: boolean; cells: CodeRun[] }[]; editing: boolean; editorText: string; editorsOpen: boolean; crumbMenu: CrumbMenu; crumbsMask: string; crumbsOffset: number;
+  codeCopied: string; codeCopyNonce: number; table: { id: string; header: boolean; cells: CodeRun[] }[]; editing: boolean; editorText: string; crumbMenu: CrumbMenu; crumbsMask: string; crumbsOffset: number;
   url: string; media: MediaView;
 };
 export type MarkdownSource = { id: string; kind: string; title: string; body: string };
@@ -65,7 +65,7 @@ type Edit = { contents: string; revision: number; confirmed: number; saving: boo
 type FilesState = {
   key: string; dirs: Map<string, Entry[]>; errors: Map<string, string>; requested: Set<string>; expanded: Set<string>; expandAll: boolean;
   query: string; search: { query: string; entries: Entry[]; truncated: boolean; error: string } | null;
-  reads: Map<string, Read>; edits: Map<string, Edit>; loading: number; editing: string; editorText: string; editorsOpen: boolean; crumb: { root: string; dir: string } | null;
+  reads: Map<string, Read>; edits: Map<string, Edit>; loading: number; editing: string; editorText: string; crumb: { root: string; dir: string } | null;
 };
 // Preferences the reference keeps in localStorage (t3code.fileExplorerOpen, t3code.renderMarkdown, t3code.renderTable),
 // persisted in the client's preference file (r5-panels-prefs.ts).
@@ -78,7 +78,7 @@ export function filesState(client: T3Client): FilesState {
   const { cwd } = workspaceOf(client), key = `${client.environmentId}|${cwd}`;
   let state = states.get(client);
   if (!state || state.key !== key) {
-    state = { key, dirs: new Map(), errors: new Map(), requested: new Set(), expanded: new Set(), expandAll: false, query: '', search: null, reads: new Map(), edits: new Map(), loading: 0, editing: '', editorText: '', editorsOpen: false, crumb: null };
+    state = { key, dirs: new Map(), errors: new Map(), requested: new Set(), expanded: new Set(), expandAll: false, query: '', search: null, reads: new Map(), edits: new Map(), loading: 0, editing: '', editorText: '', crumb: null };
     states.set(client, state);
   }
   return state;
@@ -281,13 +281,13 @@ export async function filesLocal(client: T3Client, native: Native, op: string, i
   if (op === 'wrap') { client.local.clientSettings.wordWrap = client.local.clientSettings.wordWrap === false; return ''; }
   if (op === 'edit') { await editFile(client, native, id, value); return ''; }
   if (op === 'task') { await toggleTask(client, native, value); return ''; }
-  if (op === 'editors') { state.editorsOpen = !state.editorsOpen; return ''; }
   // DirectoryBreadcrumb: a folder crumb opens its listing; folders navigate inside it, Back climbs toward the crumb.
-  if (op === 'crumb') { const root = id === '.' ? '' : id; state.crumb = state.crumb?.root === root ? null : { root, dir: root }; if (state.crumb) await loadDirectory(client, native, root); return ''; }
+  // The crumb's popover says when its menu opens and closes; another crumb's menu opening may come before the
+  // first one's closing, which then leaves the new listing alone.
+  if (op === 'crumb') { const root = id === '.' ? '' : id; state.crumb = { root, dir: root }; await loadDirectory(client, native, root); return ''; }
   if (op === 'crumb-dir') { if (state.crumb) { state.crumb.dir = id; await loadDirectory(client, native, id); } return ''; }
-  if (op === 'crumb-close') { state.crumb = null; return ''; }
+  if (op === 'crumb-close') { if (!id || state.crumb?.root === (id === '.' ? '' : id)) state.crumb = null; return ''; }
   if (op === 'open-editor') {
-    state.editorsOpen = false;
     const choices = await editorFor(client, native);
     if (!choices.editorShow) return '';
     if (choices.editorUnavailable) { pushToast(client, { kind: 'error', title: 'Unable to open in editor', description: choices.editorUnavailable }); return ''; }
@@ -503,7 +503,7 @@ export const emptyFiles = (): FilesView => ({
   cwd: '', project: '', ready: false, loading: false, error: '', query: '', truncated: false, rows: [], hasDirectories: false, allExpanded: false,
   explorer: true, showExplorer: true, path: '', preview: '', previewError: '', crumbs: [], lines: [], commentOpen: false, text: '', textKey: '', gutter: 0, wrap: true, rawText: false, openInBrowser: false,
   truncatedNote: '', canRender: false, rendered: false, renderLabel: '', renderIcon: '', editable: false, pending: false, editorId: '', editorLabel: '', editorShow: false, editorHint: '', editorUnavailable: '', editors: [], absolutePath: '',
-  markdownSource: [], md: { codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [], runCommands: [] }, code: [], diagrams: [], mdUrls: [], codeCopied: '', codeCopyNonce: 0, table: [], editing: false, editorText: '', editorsOpen: false, crumbMenu: closedCrumbs(), crumbsMask: 'none', crumbsOffset: -1, url: '', media: NO_MEDIA,
+  markdownSource: [], md: { codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [], runCommands: [] }, code: [], diagrams: [], mdUrls: [], codeCopied: '', codeCopyNonce: 0, table: [], editing: false, editorText: '', crumbMenu: closedCrumbs(), crumbsMask: 'none', crumbsOffset: -1, url: '', media: NO_MEDIA,
 });
 
 export async function filesView(client: T3Client, native: Native, active: Surface, now = 0): Promise<FilesView> {
@@ -553,7 +553,7 @@ export async function filesView(client: T3Client, native: Native, active: Surfac
     renderIcon: rendered ? 'code' : table ? 'table' : 'eye', editable, pending: pendingPaths(client).has(path),
     ...editors, absolutePath: absolute,
     ...(rich ?? { markdownSource: [], md: emptyFiles().md, code: [], diagrams: [], mdUrls: [], codeCopied: '', codeCopyNonce: 0 }), table: parsedTable?.rows ?? [],
-    editing: editable && state.editing === path, editorText: state.editing === path ? state.editorText : '', editorsOpen: state.editorsOpen && !!path,
+    editing: editable && state.editing === path, editorText: state.editing === path ? state.editorText : '',
     crumbMenu: crumbMenu(state, projectName, path, client.presentation), crumbsMask: path ? crumbsMask(client.presentation) : 'none',
     crumbsOffset: path !== '' && previewPath !== '' && !!read && !read.error && !rendered && !pdf ? crumbsOffset(client.presentation ?? {}, cold, true) : -1,
     url: frame ? page.url : '', media,

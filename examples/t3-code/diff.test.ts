@@ -87,15 +87,11 @@ describe('diff panel', () => {
     expect(requests(calls).length).toBe(count);
     expect(snapshot(client)).toMatchObject({ diffOpen: true, diffError: 'That turn is no longer available.' });
   });
-  test('scope menu, whitespace, layout, wrap, tree and collapse are real and stateful', async () => {
+  test('scope, whitespace, layout, wrap, tree and collapse are real and stateful', async () => {
     const { client, command, calls } = harness();
-    await command('diff-view', 'menu', 'scope');
-    expect(snapshot(client).diffMenu).toBe('');
     await command('diff');
-    await command('diff-view', 'menu', 'scope');
-    expect(snapshot(client).diffMenu).toBe('scope');
     await command('diff-scope', '', 'latest');
-    expect(snapshot(client)).toMatchObject({ diffMenu: '', diffScopeLabel: 'Latest turn', diffLatestSelected: true });
+    expect(snapshot(client)).toMatchObject({ diffScopeLabel: 'Latest turn', diffLatestSelected: true });
     expect(requests(calls).at(-1)).toMatchObject({ payload: { fromTurnCount: 1, toTurnCount: 2 } });
     expect(snapshot(client).diffTurns.map(turn => [turn.label, turn.selected])).toEqual([['Turn 2', true], ['Turn 1', false]]);
     await command('diff-whitespace');

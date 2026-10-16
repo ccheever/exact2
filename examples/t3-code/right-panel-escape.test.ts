@@ -49,7 +49,7 @@ function keysOf(row: string): (facts: Record<string, boolean>) => string {
 }
 
 // The thread details popover (`detailsOpen`, the window's above a sheet) holds it as the topmost layer.
-const holders = ['detailsOpen', 'panel.deviceSetup', 'panel.files.editorsOpen', 'panel.files.editing', 'searchFocused', 'panel.browser.capture.pickActive'];
+const holders = ['detailsOpen', 'panel.deviceSetup', 'panel.files.editing', 'searchFocused', 'panel.browser.capture.pickActive'];
 const none = Object.fromEntries(holders.map(name => [name, false]));
 
 describe('right-panel-escape: the right panel takes Escape only as a sheet', () => {

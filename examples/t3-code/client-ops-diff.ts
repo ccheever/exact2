@@ -35,7 +35,7 @@ async function diff(this: T3Client, native: Native, op: string, id: string, valu
     return;
   }
   // The scope menu lists Latest turn with no turns too; choosing it then only closes the menu (DiffPanel selectScopeValue).
-  if (op === 'diff-scope' && value === 'latest' && !turnSummaries(this.projection).length) { this.diffState.menu = ''; return; }
+  if (op === 'diff-scope' && value === 'latest' && !turnSummaries(this.projection).length) return;
   this.diffOpen = true; this.diffError = '';
   let request;
   try {

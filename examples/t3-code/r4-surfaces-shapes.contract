@@ -137,7 +137,6 @@ shape R4Files
   table: R4TableRow[]
   editing: bool
   editorText: string
-  editorsOpen: bool
   crumbMenu: R4CrumbMenu
   crumbsMask: string
   crumbsOffset: number
@@ -197,7 +196,6 @@ shape R4Prs
   rows: R4LinkedRow[]
   footer: string
   canWatch: bool
-  menu: string
 shape R4Platform
   id: string
   platform: string

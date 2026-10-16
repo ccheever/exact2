@@ -490,7 +490,7 @@ describe('a real Escape, the pill by a real pointer, the drag and the resize, th
     // A real Escape met the toggle's aria-keyshortcuts before the page: the panel closed and floated the tab. Since
     // The toggle declares Escape only in a sheet (the reference's inline panel binds none); the pick holds it there.
     const toggle = line(source('r4-surfaces.contract'), 'testId="panel-toggle-right"');
-    expect(toggle).toContain('aria-keyshortcuts=((sheet and not (detailsOpen or panel.deviceSetup or panel.files.editorsOpen or panel.files.editing or searchFocused or panel.browser.capture.pickActive)) ? "Escape" : "")');
+    expect(toggle).toContain('aria-keyshortcuts=((sheet and not (detailsOpen or panel.deviceSetup or panel.files.editing or searchFocused or panel.browser.capture.pickActive)) ? "Escape" : "")');
   });
 
   it('the handle\'s box covers the pill while it shows, and the pill\'s buttons hear no hover of their own', () => {

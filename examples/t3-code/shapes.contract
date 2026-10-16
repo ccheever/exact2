@@ -408,7 +408,6 @@ shape Snapshot
   diffLoading: bool
   diffError: string
   diffScopeLabel: string
-  diffMenu: string
   diffScope: string
   diffTurns: DiffTurn[]
   diffLatestSelected: bool
