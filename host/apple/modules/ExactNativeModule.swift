@@ -1167,7 +1167,7 @@ private let moduleConnect: @convention(c) (UnsafeMutableRawPointer?, UnsafeRawPo
 }
 
 /// `tamber(module)`: a batch moved what a binding reads (LLP 1121 D12); each
-/// observed place is asked again (ExactTamber.swift).
+/// place is asked again, and each that moved redrawn (ExactTamber.swift).
 private let moduleTamber: @convention(c) (UnsafeMutableRawPointer?) -> Void = { raw in
     guard module(raw) != nil else { return }
     Tambers.moved()

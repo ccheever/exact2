@@ -5,9 +5,9 @@
 // each colour for the eight sides a view draws in, under the view's tint, as
 // extended sRGB (the library cannot read a row's value); the colour is a
 // dynamic provider over the view's traits. After each batch the host calls
-// the module's `tamber` entry (at 216): every place asks again, when next
-// read, whether what it read moved, and each observed place whose inputs
-// moved tells its observers.
+// the module's `tamber` entry (at 216): every place asks whether what it
+// read moved (the inputs fold in the tint), and each that moved asks again
+// for its names, redraws its view and tells its observers.
 #if os(macOS)
 import AppKit
 public typealias ExactTamberColor = NSColor
@@ -31,12 +31,17 @@ public struct ExactTamber {
     public init(_ view: ExactPlatformView) {
         var at: ExactPlatformView? = view
         while let v = at, Tambers.made[ObjectIdentifier(v)]?.view.value !== v { at = v.superview }
-        place = at.flatMap { v in Tambers.made[ObjectIdentifier(v)]?.module.value.map { TamberPlace(view: v, module: $0) } }
+        place = at.flatMap { v in Tambers.made[ObjectIdentifier(v)]?.module.value.map { Tambers.place(v, module: $0) } }
     }
 
     /// `token`'s colour here, dynamic over the traits it is drawn with;
     /// `fallback` where the session's plan lacks it, or before the host can
-    /// answer (its hatches connect after the first frame).
+    /// answer (its hatches connect after the first frame). After a batch
+    /// moves what it read, the module's view is redrawn and laid out again,
+    /// and on UIKit its traits change, so a UIKit property holding the
+    /// colour, or a `draw` or `layoutSubviews` that resolved it, reads the
+    /// new answer; a colour copied out of it (a layer's `cgColor`) is a
+    /// value: set it again in `observe`.
     public func color(_ token: ExactTamberToken, fallback: ExactTamberColor = .clear) -> ExactTamberColor {
         let place = place
         // Asked now, on the main thread, so a provider called off it (a
@@ -60,6 +65,8 @@ public struct ExactTamber {
         }
         #else
         return UIColor { traits in
+            // Read, so UIKit's trait tracking redraws what resolved it when a batch moves it.
+            _ = traits[TamberMoves.self]
             var at = (traits.userInterfaceStyle == .dark ? 1 : 0) | (traits.accessibilityContrast == .high ? 2 : 0)
             #if !os(tvOS)
             at |= traits.userInterfaceLevel == .elevated ? 4 : 0
@@ -75,7 +82,7 @@ public struct ExactTamber {
     public func observe(_ body: @escaping () -> Void) -> ExactTamberObservation {
         let observation = ExactTamberObservation(body)
         if let place {
-            _ = place.inputs()
+            _ = place.sides(nil)
             Tambers.observers.append((place, Weak(observation)))
         }
         return observation
@@ -89,7 +96,9 @@ public final class ExactTamberObservation {
     public func stop() { body = nil }
 }
 
-/// A view the module made, and what its session last answered for it.
+/// A view the module made, and what its session last answered for it: one
+/// per view, which every binding on it shares. Its answer is read by
+/// providers off the main thread, so it is kept under `Tambers.lock`.
 final class TamberPlace {
     weak var view: ExactPlatformView?
     weak var module: ExactModule?
@@ -99,26 +108,32 @@ final class TamberPlace {
     private var checked = -1
     init(view: ExactPlatformView, module: ExactModule) { self.view = view; self.module = module }
 
-    func sides(_ name: String) -> [[Double]]? {
-        // A batch since: what it read may have moved (off the main thread,
-        // the answer kept is what there is).
-        if checked != Tambers.batches, Thread.isMainThread { _ = inputs() }
-        if let known, let colors = known.colors[name] { return colors }
-        guard Thread.isMainThread else { return nil }
-        let names = Array(Set(known?.colors.keys.map { $0 } ?? []).union([name]))
-        guard let answer = ask(names) else { return nil }
-        known = answer
+    /// `name`'s eight sides (`nil`: none, or nothing to answer yet). On the
+    /// main thread, after a batch it first asks whether its inputs moved;
+    /// off it, what was kept.
+    func sides(_ name: String?) -> [[Double]]? {
+        guard Thread.isMainThread else { return name.flatMap { n in Tambers.lock.withLock { known?.colors[n] ?? nil } } }
+        if checked != Tambers.batches { _ = refresh() }
+        guard let name else { return nil }
+        let kept = Tambers.lock.withLock { known }
+        if let kept, let colors = kept.colors[name] { return colors }
+        guard let answer = ask(Array(Set(kept?.colors.keys.map { $0 } ?? []).union([name]))) else { return nil }
+        Tambers.lock.withLock { known = answer }
         return answer.colors[name] ?? nil
     }
 
-    /// The inputs now, keeping what was asked when they have not moved;
-    /// whether they moved.
-    func inputs() -> Bool {
+    /// Main thread: asks whether the inputs moved since the answer kept, and
+    /// if so asks again for every name kept, so a provider off the main
+    /// thread never finds the answer emptied; whether they moved.
+    func refresh() -> Bool {
         checked = Tambers.batches
-        guard let answer = ask([]) else { return false }
-        let moved = known.map { $0.inputs != answer.inputs } ?? false
-        if known == nil || moved { known = (answer.inputs, [:]) }
-        return moved
+        guard let now = ask([]) else { return false }
+        let kept = Tambers.lock.withLock { known }
+        guard let kept else { Tambers.lock.withLock { known = now }; return false }
+        guard kept.inputs != now.inputs else { return false }
+        let again = kept.colors.isEmpty ? now : ask(Array(kept.colors.keys)) ?? now
+        Tambers.lock.withLock { known = again }
+        return true
     }
 
     private func ask(_ names: [String]) -> (inputs: String, colors: [String: [[Double]]?])? {
@@ -142,11 +157,22 @@ final class TamberPlace {
     }
 }
 
-/// The library's binding state: each view the module made, and the observers.
+#if !os(macOS)
+/// A trait each moved place's view takes a new value of, so UIKit resolves
+/// its dynamic colours again (the providers read it).
+struct TamberMoves: UITraitDefinition {
+    static let defaultValue = 0
+}
+#endif
+
+/// The library's binding state: each view the module made, its place, and
+/// the observers. Main thread, but for `lock`.
 enum Tambers {
+    static let lock = NSLock()
     /// The batches the host has said were applied: a place asks again when it moves.
     nonisolated(unsafe) static var batches = 0
     nonisolated(unsafe) static var made: [ObjectIdentifier: (view: Weak<ExactPlatformView>, module: Weak<ExactModule>)] = [:]
+    nonisolated(unsafe) static var places: [ObjectIdentifier: TamberPlace] = [:]
     nonisolated(unsafe) static var observers: [(place: TamberPlace, observation: Weak<ExactTamberObservation>)] = []
 
     /// `view`, just made by `module` for an element: a place a binding finds.
@@ -155,19 +181,44 @@ enum Tambers {
         made[ObjectIdentifier(view)] = (Weak(view), Weak(module))
     }
 
-    /// The host's `tamber` entry, after each batch: each observed place
-    /// asks once whether its inputs moved, and if so every observer of it
-    /// hears.
+    /// The place of `view`, a view `module` made, shared by its bindings.
+    static func place(_ view: ExactPlatformView, module: ExactModule) -> TamberPlace {
+        let id = ObjectIdentifier(view)
+        if let place = places[id], place.view === view { return place }
+        places = places.filter { $0.value.view != nil }
+        let place = TamberPlace(view: view, module: module)
+        places[id] = place
+        return place
+    }
+
+    /// The host's `tamber` entry, after each batch: each place asks whether
+    /// its inputs moved; each that moved asks again for what it kept, its
+    /// view is redrawn, and its observers hear.
     static func moved() {
         batches += 1
+        places = places.filter { $0.value.view != nil }
         observers.removeAll { $0.observation.value?.body == nil || $0.place.view == nil }
-        var asked: [ObjectIdentifier: Bool] = [:]
-        for (place, observation) in observers {
-            let id = ObjectIdentifier(place)
-            let moved = asked[id] ?? place.inputs()
-            asked[id] = moved
-            if moved { observation.value?.body?() }
+        var moved: Set<ObjectIdentifier> = []
+        for (id, place) in places where place.refresh() {
+            moved.insert(id)
+            if let view = place.view { redraw(view) }
         }
+        for (place, observation) in observers where place.view.map({ moved.contains(ObjectIdentifier($0)) }) ?? false {
+            observation.value?.body?()
+        }
+    }
+
+    /// `view` and what it holds, drawn and laid out again; on UIKit their
+    /// traits move too, which resolves their dynamic colours again.
+    static func redraw(_ view: ExactPlatformView) {
+        #if os(macOS)
+        func walk(_ v: NSView) { v.needsDisplay = true; v.needsLayout = true; v.subviews.forEach(walk) }
+        walk(view)
+        #else
+        view.traitOverrides[TamberMoves.self] = view.traitCollection[TamberMoves.self] &+ 1
+        func walk(_ v: UIView) { v.setNeedsDisplay(); v.setNeedsLayout(); v.subviews.forEach(walk) }
+        walk(view)
+        #endif
     }
 }
 

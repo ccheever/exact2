@@ -155,19 +155,19 @@ private typealias HatchTamberFn = @convention(c) (UnsafeMutableRawPointer?, Unsa
 /// resolved for the eight sides a view draws in (bit 0 dark, bit 1 more
 /// contrast, bit 2 elevated) under the view's tint, as extended sRGB
 /// (0–1, past it for a wide colour), as the library cannot read a row's
-/// value. Written into `out` when `cap` holds it; its length either way.
+/// value; `inputs` folds that tint in. Written into `out` when `cap` holds
+/// it; its length either way.
 private let hatchTamber: HatchTamberFn = { host, view, request, length, out, cap in
     guard let session = hatchSession(host), let request,
           let asked = try? JSONSerialization.jsonObject(with: Data(bytes: request, count: Int(length))) as? [String: Any] else { return 0 }
     var at = view.map { Unmanaged<PlatformView>.fromOpaque($0).takeUnretainedValue() }
     while let v = at, !(v is NodeView) { at = v.superview }
     let node = at as? NodeView
-    guard let answer = session.runtime.tamber(view: node?.id ?? 0, names: asked["names"] as? [String] ?? []) else { return 0 }
-    let tint = ExactTamber.tint(node, session: session)
+    guard let answer = Tambers.ask(session, view: node?.id ?? 0, names: asked["names"] as? [String] ?? []) else { return 0 }
     let colors = answer.colors.mapValues { value -> Any in
         guard let value else { return NSNull() }
         return (0..<8).map { side in
-            value.textChannels(dark: side & 1 != 0, contrast: side & 2 != 0, elevated: side & 4 != 0, tint: tint)
+            value.textChannels(dark: side & 1 != 0, contrast: side & 2 != 0, elevated: side & 4 != 0, tint: answer.tint)
                 .map { ExactTamber.extended(TextEngine.color($0)) } ?? []
         }
     }

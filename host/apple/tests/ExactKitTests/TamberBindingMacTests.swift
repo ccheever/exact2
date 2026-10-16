@@ -52,5 +52,40 @@ final class TamberBindingMacTests: XCTestCase {
         session.apply(session.runtime.setModes(["tone": "warm"]))
         XCTAssertEqual(heard, 1, "a stopped observation hears nothing")
     }
+
+    /// Review round 2: a colour kept across a batch reads the new answer, a
+    /// moved place's view is redrawn, and a view observed before it is
+    /// mounted hears the node it is mounted in.
+    func testAKeptColourFollowsAndAnUnmountedViewHearsOnceMounted() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "tamber-binding-kept")
+        defer { session.destroy() }
+        XCTAssertNil(session.boot(plan: try Self.plan.get(), size: CGSize(width: 390, height: 844)).error)
+        let window = try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == "window" })
+        let ink = ExactTamberToken("ink")
+        let drawn = Marked(), later = NSView()
+        window.addSubview(drawn)
+        let kept = ExactTamber(drawn).color(ink)
+        XCTAssertEqual(rgb(kept), [0xc8, 0x10, 0x2e])
+        var heard = 0
+        let observation = ExactTamber(later).observe { heard += 1 }
+        window.addSubview(later)
+        drawn.marked = 0
+        session.apply(session.runtime.setModes(["tone": "cool"]))
+        XCTAssertEqual(rgb(kept), [0x0a, 0x7a, 0xff], "the colour kept reads the window's new tuple")
+        XCTAssertGreaterThan(drawn.marked, 0, "the moved place's view is drawn again")
+        XCTAssertEqual(heard, 0, "observed unmounted: nothing heard before, so no move to hear")
+        session.apply(session.runtime.setModes(["tone": "warm"]))
+        XCTAssertEqual(heard, 1, "mounted since, it hears its node's move")
+        observation.stop()
+    }
+}
+/// A view that counts the times it is marked to be drawn.
+private final class Marked: NSView {
+    var marked = 0
+    override var needsDisplay: Bool {
+        get { super.needsDisplay }
+        set { if newValue { marked += 1 }; super.needsDisplay = newValue }
+    }
 }
 #endif

@@ -49,14 +49,19 @@ public struct ExactTamber {
 
     /// `token`'s colour here, dynamic over the traits it is drawn with;
     /// `fallback` where the plan lacks it (said once in the session's log).
+    /// After a batch moves what it read, the view the binding was made for
+    /// is redrawn and laid out again, and on UIKit its traits change, so a
+    /// UIKit property holding the colour, or a `draw` or `layoutSubviews`
+    /// that resolved it, reads the new answer; a colour copied out of it (a
+    /// layer's `cgColor`) is a value: set it again in `observe`.
     public func color(_ token: ExactTamberToken, fallback: ExactTamberColor = .clear) -> ExactTamberColor {
         let place = place
         // Asked now, on the main thread, so a provider called off it finds
-        // the answer kept.
+        // the answer kept, with the tint it was asked under.
         if Thread.isMainThread { _ = place.value(token.name) }
         let side = { (dark: Bool, contrast: Bool, elevated: Bool) -> ExactTamberColor? in
-            let tint = Thread.isMainThread ? place.found.flatMap { ExactTamber.tint($0.session.presenter.views[$0.view], session: $0.session) } : nil
-            return place.value(token.name)?.textChannels(dark: dark, contrast: contrast, elevated: elevated, tint: tint).map(TextEngine.color)
+            guard let (value, tint) = place.value(token.name), let value else { return nil }
+            return value.textChannels(dark: dark, contrast: contrast, elevated: elevated, tint: tint).map(TextEngine.color)
         }
         #if os(macOS)
         return NSColor(name: nil) { appearance in
@@ -65,20 +70,26 @@ public struct ExactTamber {
             let contrast = match == .accessibilityHighContrastAqua || match == .accessibilityHighContrastDarkAqua
             return side(dark, contrast, false) ?? fallback
         }
-        #elseif os(tvOS)
-        return UIColor { traits in side(traits.userInterfaceStyle == .dark, traits.accessibilityContrast == .high, false) ?? fallback }
         #else
         return UIColor { traits in
-            side(traits.userInterfaceStyle == .dark, traits.accessibilityContrast == .high, traits.userInterfaceLevel == .elevated) ?? fallback
+            // Read, so UIKit's trait tracking redraws what resolved it when a batch moves it.
+            _ = traits[TamberMoves.self]
+            #if os(tvOS)
+            return side(traits.userInterfaceStyle == .dark, traits.accessibilityContrast == .high, false) ?? fallback
+            #else
+            return side(traits.userInterfaceStyle == .dark, traits.accessibilityContrast == .high, traits.userInterfaceLevel == .elevated) ?? fallback
+            #endif
         }
         #endif
     }
 
     /// `body` whenever what this place's tokens read moves (after the batch
-    /// that moved it); stop it with the observation's `stop()`.
+    /// that moved it), wherever the view is then: observed before it is
+    /// mounted, or moved to another node, it hears that node's. Stop it with
+    /// the observation's `stop()`. Main thread.
     public func observe(_ body: @escaping () -> Void) -> ExactTamberObservation {
         let observation = ExactTamberObservation(body)
-        place.observe(observation)
+        Tambers.observe(place, observation)
         return observation
     }
 
@@ -105,45 +116,46 @@ public struct ExactTamber {
         #endif
     }
 
-    /// A place, and what its session answered for it.
+    /// A place, and the view it redraws.
     final class Place {
         private weak var root: ExactSession?
-        private weak var view: ExactTamberView?
+        weak var view: ExactTamberView?
         init(view: ExactTamberView) { self.view = view }
         init(session: ExactSession) { root = session }
 
         /// Where the view was last found, for a provider called off the main thread.
-        private weak var lastSession: ExactSession?
-        private var lastView: UInt32 = 0
+        private var last: (session: Weak<ExactSession>, view: UInt32)?
+        /// Whether a batch that moves its answer redraws its view.
+        private var listed = false
 
         /// The session and node it is in now: a root's session, or the view's
         /// nearest node's; off the main thread, where it was last found.
         var found: (session: ExactSession, view: UInt32)? {
             if let root { return (root, 0) }
-            guard Thread.isMainThread else { return lastSession.map { ($0, lastView) } }
+            guard Thread.isMainThread else {
+                return Tambers.lock.withLock { last }.flatMap { l in l.session.value.map { ($0, l.view) } }
+            }
             var at = view
             while let v = at, !(v is NodeView) { at = v.superview }
             guard let node = at as? NodeView, let session = node.presenter?.session else { return nil }
-            (lastSession, lastView) = (session, node.id)
+            Tambers.lock.withLock { last = (Weak(session), node.id) }
             return (session, node.id)
         }
 
-        /// `name`'s value as a row crosses it, asked once per inputs.
-        func value(_ name: String) -> BatchValue? {
-            guard let (session, view) = found else { return nil }
-            let known = Tambers.of(session).known[view]
-            if let known, known.colors.keys.contains(name) { return known.colors[name] ?? nil }
-            let asked = Array(Set((known?.colors.keys).map(Array.init) ?? []).union([name]))
-            guard let answer = session.runtime.tamber(view: view, names: asked) else { return nil }
-            Tambers.of(session).known[view] = answer
-            return answer.colors[name] ?? nil
-        }
-
-        func observe(_ observation: ExactTamberObservation) {
-            guard let (session, view) = found else { return }
+        /// `name`'s value as a row crosses it and the tint it resolves by,
+        /// asked once per inputs (`nil`: nothing to answer yet); off the main
+        /// thread, what was kept.
+        func value(_ name: String) -> (value: BatchValue?, tint: PlatformColor?)? {
+            guard let (session, node) = found else { return nil }
+            if Thread.isMainThread, !listed, view != nil { listed = true; Tambers.places.append(Weak(self)) }
             let tambers = Tambers.of(session)
-            tambers.observers.append((view, Weak(observation)))
-            if tambers.known[view] == nil, let answer = session.runtime.tamber(view: view, names: []) { tambers.known[view] = answer }
+            let known = tambers.answer(node)
+            if let known, let value = known.colors[name] { return (value, known.tint) }
+            guard Thread.isMainThread else { return nil }
+            let asked = Array(Set((known?.colors.keys).map(Array.init) ?? []).union([name]))
+            guard let answer = Tambers.ask(session, view: node, names: asked) else { return nil }
+            tambers.keep(node, answer)
+            return (answer.colors[name] ?? nil, answer.tint)
         }
     }
 }
@@ -155,40 +167,115 @@ public final class ExactTamberObservation {
     public func stop() { body = nil }
 }
 
-/// One session's binding state: each place's last answer, and the observers.
+#if !os(macOS)
+/// A trait each moved binding's view takes a new value of, so UIKit
+/// resolves its dynamic colours again (the providers read it).
+struct TamberMoves: UITraitDefinition {
+    static let defaultValue = 0
+}
+#endif
+
+/// One session's binding state: each place's last answer. Its answers are
+/// read by providers off the main thread, so they are kept under `lock`.
 final class Tambers {
-    /// Each place's inputs and the colours asked of it since they last moved.
-    var known: [UInt32: (inputs: String, colors: [String: BatchValue?])] = [:]
-    var observers: [(view: UInt32, observation: Weak<ExactTamberObservation>)] = []
+    /// A place's answer: its inputs (the tint it resolved by folded in, as
+    /// an accent above moves it), that tint, and the colours asked of it
+    /// since the inputs last moved.
+    struct Answer {
+        var inputs: String
+        var tint: PlatformColor?
+        var colors: [String: BatchValue?]
+    }
+    private var answers: [UInt32: Answer] = [:]
+    static let lock = NSLock()
     nonisolated(unsafe) private static var bySession: [ObjectIdentifier: (session: Weak<ExactSession>, tambers: Tambers)] = [:]
+    /// The places that read a colour, for redrawing; and the observers,
+    /// each with the inputs it last heard. Main thread.
+    nonisolated(unsafe) static var places: [Weak<ExactTamber.Place>] = []
+    nonisolated(unsafe) private static var observers: [(place: ExactTamber.Place, seen: String?, observation: Weak<ExactTamberObservation>)] = []
+
+    func answer(_ view: UInt32) -> Answer? { Tambers.lock.withLock { answers[view] } }
+    func keep(_ view: UInt32, _ answer: Answer?) { Tambers.lock.withLock { answers[view] = answer } }
 
     static func of(_ session: ExactSession) -> Tambers {
         let key = ObjectIdentifier(session)
-        if let entry = bySession[key], entry.session.value === session { return entry.tambers }
-        bySession = bySession.filter { $0.value.session.value != nil }
-        let tambers = Tambers()
-        bySession[key] = (Weak(session), tambers)
-        return tambers
+        return lock.withLock {
+            if let entry = bySession[key], entry.session.value === session { return entry.tambers }
+            bySession = bySession.filter { $0.value.session.value != nil }
+            let tambers = Tambers()
+            bySession[key] = (Weak(session), tambers)
+            return tambers
+        }
+    }
+
+    /// The binding core's answer for `view` (0: the root) in `session`,
+    /// with the tint a row naming it resolves by there. Main thread.
+    static func ask(_ session: ExactSession, view: UInt32, names: [String]) -> Answer? {
+        guard let answer = session.runtime.tamber(view: view, names: names) else { return nil }
+        let tint = ExactTamber.tint(view == 0 ? nil : session.presenter.views[view], session: session)
+        let said = tint.map { ExactTamber.extended($0).map { String($0) }.joined(separator: ",") } ?? ""
+        return Answer(inputs: answer.inputs + " tint " + said, tint: tint, colors: answer.colors)
+    }
+
+    static func observe(_ place: ExactTamber.Place, _ observation: ExactTamberObservation) {
+        observers.append((place, heard(place), Weak(observation)))
+    }
+
+    /// The inputs `place` reads now, asked when not kept; `nil` unmounted.
+    private static func heard(_ place: ExactTamber.Place) -> String? {
+        guard let (session, view) = place.found else { return nil }
+        let tambers = of(session)
+        if let known = tambers.answer(view) { return known.inputs }
+        guard let answer = ask(session, view: view, names: []) else { return nil }
+        tambers.keep(view, answer)
+        return answer.inputs
     }
 
     /// After `session` applied a batch: each place whose inputs moved is
-    /// asked again when next drawn, and its observers hear it.
+    /// asked again for every name it kept, its views are redrawn, and the
+    /// observers of a place whose inputs moved, here or by a move of the
+    /// view, hear it.
     static func moved(_ session: ExactSession) {
         // A native module's bindings ask again themselves (ExactTamber.swift).
         session.natives.tamberMoved()
-        guard let entry = bySession[ObjectIdentifier(session)], entry.session.value === session else { return }
-        let tambers = entry.tambers
-        tambers.observers.removeAll { $0.observation.value?.body == nil }
+        guard let tambers = lock.withLock({ bySession[ObjectIdentifier(session)] }).flatMap({ $0.session.value === session ? $0.tambers : nil }) else { return }
         var moved: Set<UInt32> = []
-        for (view, known) in tambers.known {
+        for (view, known) in lock.withLock({ tambers.answers }) {
             // A place gone (its node retired) is forgotten.
-            guard let now = session.runtime.tamber(view: view, names: []) else { tambers.known[view] = nil; continue }
-            if now.inputs != known.inputs { moved.insert(view); tambers.known[view] = now }
+            guard let now = ask(session, view: view, names: []) else { tambers.keep(view, nil); continue }
+            guard now.inputs != known.inputs else { continue }
+            moved.insert(view)
+            tambers.keep(view, known.colors.isEmpty ? now : ask(session, view: view, names: Array(known.colors.keys)) ?? now)
         }
-        for (view, observation) in tambers.observers where moved.contains(view) { observation.value?.body?() }
+        places.removeAll { $0.value?.view == nil }
+        if !moved.isEmpty {
+            for case let place? in places.map(\.value) {
+                guard let (s, view) = place.found, s === session, moved.contains(view), let v = place.view else { continue }
+                redraw(v)
+            }
+        }
+        observers.removeAll { $0.observation.value?.body == nil }
+        for i in observers.indices {
+            guard let (s, _) = observers[i].place.found, s === session else { continue }
+            let now = heard(observers[i].place)
+            defer { observers[i].seen = now }
+            if let seen = observers[i].seen, let now, seen != now { observers[i].observation.value?.body?() }
+        }
+    }
+
+    /// `view` and what it holds, drawn and laid out again; on UIKit their
+    /// traits move too, which resolves their dynamic colours again.
+    static func redraw(_ view: ExactTamberView) {
+        #if os(macOS)
+        func walk(_ v: NSView) { v.needsDisplay = true; v.needsLayout = true; v.subviews.forEach(walk) }
+        walk(view)
+        #else
+        view.traitOverrides[TamberMoves.self] = view.traitCollection[TamberMoves.self] &+ 1
+        func walk(_ v: UIView) { v.setNeedsDisplay(); v.setNeedsLayout(); v.subviews.forEach(walk) }
+        walk(view)
+        #endif
     }
 }
-
 /// A weak reference, for a table that must not keep what it names alive.
 struct Weak<T: AnyObject> {
     weak var value: T?
