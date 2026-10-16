@@ -375,7 +375,6 @@ pub(crate) fn target<D: DataSource>(
     }
 }
 
-/// Every live root and node, in structural preorder.
 /// The tree: every live node in preorder — id, parent, depth, type, props by
 /// their schema names, the events it handles, `inactive` when it is under a
 /// route its navigation root has not selected, `unopened` on a tab panel not
