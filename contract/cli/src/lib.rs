@@ -27,6 +27,8 @@ mod sources;
 mod strings;
 mod surface;
 mod symbols;
+/// `uses` (LLP 1121 stage 4, commit 6): where the app reads a token.
+pub mod tamber_uses;
 pub mod terminal;
 mod typescript;
 

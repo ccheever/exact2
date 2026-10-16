@@ -26,10 +26,13 @@ export const SCRUB_IDLE_MS = 30_000;
  * them the committed design; `ended(e)` is told each end.
  */
 export function scrubSessions({ ask, write, preview, restore, ended = () => {}, idleMs = SCRUB_IDLE_MS }) {
-  // `ends` counts ends: a preview that lands after one is taken back.
-  let open = null, count = 0, ends = 0;
+  // The scrub open (from its first update: one opening is open, and ends
+  // as one does) and `ends`, a count of ends, by which a preview that
+  // lands after one is taken back.
+  let open = null, count = 0, ends = 0, releasing = false;
   // The update previewing now, and the latest waiting behind it.
   let busy = null, waiting = null;
+  const refused = (status, message) => ({ status, error: { message } });
 
   const end = (reason) => {
     if (!open) return false;
@@ -38,8 +41,8 @@ export function scrubSessions({ ask, write, preview, restore, ended = () => {}, 
     open = null;
     ends++;
     if (waiting) { waiting.done({ ok: { scrub: was.id, ended: reason } }); waiting = null; }
-    void restore();
-    ended({ scrub: was.id, client: was.client, reason });
+    // One that never previewed changed no build.
+    if (was.shown) { void restore(); ended({ scrub: was.id, client: was.client, reason }); }
     return true;
   };
   const idle = () => {
@@ -47,25 +50,28 @@ export function scrubSessions({ ask, write, preview, restore, ended = () => {}, 
     open.timer = setTimeout(() => end('idle'), idleMs);
     open.timer.unref?.();
   };
-  const refused = (status, message) => ({ status, error: { message } });
+  /** An opening scrub whose first update failed: gone, with nothing to restore. */
+  const failed = (id) => {
+    if (open?.id === id && !open.shown) { clearTimeout(open.timer); open = null; }
+  };
 
-  /** Plan and preview one update; `opening`: the digests it opens on. */
-  async function show(request, opening) {
-    const files = open?.files ?? opening;
-    const planned = await ask({ method: 'propose', ops: request.ops, files, texts: true });
-    if (!planned.ok) return planned;
-    if (planned.ok.class !== 'live') return refused(409, 'a rebuild-class edit has no scrub: it applies on release; send it as a `transaction`');
-    // Ended (or taken by another) while it planned.
-    if (opening === undefined && (!open || open.client !== request.client)) return refused(409, 'the scrub ended');
+  /** Plan and preview one update of scrub `id`. */
+  async function show(request, id) {
+    if (open?.id !== id) return refused(409, 'the scrub ended');
     const at = ends;
+    const planned = await ask({ method: 'propose', ops: request.ops, files: open.files, texts: true });
+    if (ends !== at || open?.id !== id) return refused(409, 'the scrub ended');
+    if (!planned.ok) { failed(id); return planned; }
+    if (planned.ok.class !== 'live') { failed(id); return refused(409, 'a rebuild-class edit has no scrub: it applies on release; send it as a `transaction`'); }
+    // Texts that change nothing preview the committed design.
     const shown = await preview(planned.ok.texts ?? {});
     // Ended while it previewed: the committed design again, after it.
-    if (ends !== at) { void restore(); return refused(409, 'the scrub ended'); }
-    if (shown?.error) return refused(502, `the builds could not preview it: ${shown.error}`);
-    if (!open) open = { id: `scrub-${++count}`, client: request.client, files, timer: null };
+    if (ends !== at || open?.id !== id) { void restore(); return refused(409, 'the scrub ended'); }
+    if (shown?.error) { failed(id); return refused(502, `the builds could not preview it: ${shown.error}`); }
+    open.shown = true;
     open.ops = request.ops;
     idle();
-    return { ok: { scrub: open.id, class: 'live', changed: planned.ok.changed, synthetic: planned.ok.synthetic, files: planned.ok.files } };
+    return { ok: { scrub: id, class: 'live', changed: planned.ok.changed, synthetic: planned.ok.synthetic, files: planned.ok.files } };
   }
 
   return {
@@ -75,43 +81,52 @@ export function scrubSessions({ ask, write, preview, restore, ended = () => {}, 
      * client's own. */
     update(request) {
       if (!Array.isArray(request.ops)) return Promise.resolve(refused(400, 'a scrub carries its `ops`'));
-      // Whose scrub is open, or opening (its first update previewing).
-      const owner = open?.client ?? (busy?.opening !== undefined ? busy.request.client : null);
-      if (owner !== null && owner !== request.client) return Promise.resolve(refused(409, `a scrub is open (\`${owner}\`'s): one at a time`));
+      // A release being written: the next scrub opens on what it wrote.
+      if (releasing) return Promise.resolve(refused(409, 'a scrub\'s release is being written; open one again once it lands'));
+      if (open && open.client !== request.client) return Promise.resolve(refused(409, `a scrub is open, \`${open.client}\`'s: one at a time`));
       if (open && request.scrub !== undefined && request.scrub !== open.id) return Promise.resolve(refused(409, `\`${request.scrub}\` is not the scrub open now`));
-      const files = open ? undefined : request.files ?? busy?.opening;
-      if (!open && (typeof files !== 'object' || files === null || Array.isArray(files))) return Promise.resolve(refused(400, 'a scrub opens on the `files` digests its client read'));
-      const opening = files;
-      return new Promise(done => {
-        const job = { request, opening, done };
+      if (!open) {
+        const files = request.files;
+        if (typeof files !== 'object' || files === null || Array.isArray(files)) return Promise.resolve(refused(400, 'a scrub opens on the `files` digests its client read'));
+        open = { id: `scrub-${++count}`, client: request.client, files, ops: request.ops, shown: false, timer: null };
+      }
+      // Idle counts from each update's arrival.
+      idle();
+      const id = open.id;
+      return new Promise((done) => {
+        const job = { request, id, done };
         if (busy) {
-          if (waiting) waiting.done({ ok: { scrub: open?.id ?? null, superseded: true } });
+          if (waiting) waiting.done({ ok: { scrub: id, superseded: true } });
           waiting = job;
           return;
         }
         const run = async (j) => {
           busy = j;
-          try { j.done(await show(j.request, j.opening)); } catch (e) { j.done(refused(500, e.message)); }
+          try { j.done(await show(j.request, j.id)); } catch (e) { failed(j.id); j.done(refused(500, e.message)); }
           busy = null;
           const after = waiting;
           waiting = null;
-          // A waiting update opens nothing once the scrub it updated ended.
-          if (after) void run(after.opening === undefined && !open ? { ...after, opening: after.request.files ?? {} } : after);
+          if (after) void run(after);
         };
         void run(job);
       });
     },
     /** `scrub-release` `{client, scrub}`: the one write. */
     async release(request) {
-      if (!open || open.client !== request.client || request.scrub !== open.id) return refused(409, 'no such scrub open for this client');
-      while (busy) await new Promise(ok => setTimeout(ok, 5));
-      if (!open) return refused(409, 'the scrub ended');
+      const mine = () => open && open.client === request.client && request.scrub === open.id;
+      if (!mine()) return refused(409, 'no such scrub open for this client');
+      while (busy || waiting) await new Promise(ok => setTimeout(ok, 5));
+      // It may have ended, and another opened, while a preview finished.
+      if (!mine()) return refused(409, 'the scrub ended');
       const { files, ops, id } = open;
       clearTimeout(open.timer);
       open = null;
-      const result = await write({ method: 'transaction', client: request.client, files, ops });
-      // Refused (a file moved since it opened): nothing written, the
-      // builds back on the committed design.
+      ends++;
+      releasing = true;
+      let result;
+      try { result = await write({ method: 'transaction', client: request.client, files, ops }); } finally { releasing = false; }
+      // Refused (a file moved since it opened; `by` names who moved it):
+      // nothing written, the builds back on the committed design.
       if (!result.ok) void restore();
       ended({ scrub: id, client: request.client, reason: result.ok ? 'released' : 'refused' });
       return result.ok ? { ok: { ...result.ok, scrub: id } } : result;

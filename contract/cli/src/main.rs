@@ -16,7 +16,6 @@ mod tamber;
 mod tamber_history;
 mod tamber_import;
 mod tamber_serve;
-mod tamber_uses;
 mod verify;
 mod vocab;
 

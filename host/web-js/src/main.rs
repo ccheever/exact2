@@ -30,17 +30,21 @@ mod style;
 use std::process::ExitCode;
 
 const USAGE: &str =
-    "usage: exact-web-js js <app.contract | app.plan> -o <dir> [--dump] [--sites] [--dev-reload]\n       exact-web-js normalize-grants <file>\n       exact-web-js design <app.contract> <design text file>";
+    "usage: exact-web-js js <app.contract | app.plan> -o <dir> [--dump] [--sites] [--dev-reload]\n       exact-web-js normalize-grants <file>\n       exact-web-js design <app.contract> <design text file, or - for stdin>";
 
-/// `design <app.contract> <file>` (LLP 1121 stage 4, commit 6): a scrub's
-/// design, the file's text compiled in place of the app's design file, as a
+/// `design <app.contract> <file | ->` (LLP 1121 stage 4, commit 6): a scrub's
+/// design, the text (`-`: stdin) compiled in place of the app's design file, as a
 /// development build's `dev-design.json` says it, on stdout. Nothing is
 /// written.
 fn scrub_design(input: &std::path::Path, text: &str) -> ExitCode {
     exact_web::link(exact_web_capabilities::ALL);
     exact_kernel::style::roles::set_column(exact_kernel::style::roles::Column::Neutral);
-    let (Some(path), Ok(text)) = (contract::design_path(input), std::fs::read_to_string(text))
-    else {
+    let read = if text == "-" {
+        std::io::read_to_string(std::io::stdin())
+    } else {
+        std::fs::read_to_string(text)
+    };
+    let (Some(path), Ok(text)) = (contract::design_path(input), read) else {
         eprintln!("{}: no design, or the text unreadable", input.display());
         return ExitCode::from(1);
     };

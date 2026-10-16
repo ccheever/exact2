@@ -715,7 +715,7 @@ fn uses_names_every_site_through_aliases_and_synthetic_tokens() {
     );
     std::fs::write(
         dir.join("app.contract"),
-        "component App\n  view\n    column\n      text \"brand\" color=\"brand\"\n      text \"b\" color=\"ink\"\n      text \"c\" background-color=\"color-mix(in srgb, brand 60%, white)\"\n      text \"d\" color=\"brand-2\"\n",
+        "component App\n  state pick = \"brand\"\n  state on = false\n  view\n    column\n      text \"brand\" color=\"brand\"\n      text \"b\" color=\"ink\"\n      text \"c\" background-color=\"color-mix(in srgb, brand 60%, white)\"\n      text \"d\" color=\"brand-2\"\n      text \"e\" width=(pick == \"brand\" ? 10 : 20)\n      text \"f\" color=pick\n      text \"g\" color=(on ? \"brand\" : \"brand-2\")\n      text \"h\" font-family=\"brand sans\"\n",
     )
     .unwrap();
     let mut s = Serve::start(&dir, &[]);
@@ -724,16 +724,21 @@ fn uses_names_every_site_through_aliases_and_synthetic_tokens() {
         .as_array()
         .unwrap_or_else(|| panic!("{uses}"));
     let at = |line: u64| sites.iter().find(|s| s["line"] == line);
-    assert_eq!(sites.len(), 3, "{uses}");
-    assert_eq!(at(4).unwrap()["row"], "text_color");
-    assert!(at(4).unwrap().get("via").is_none(), "{uses}");
-    assert_eq!(at(5).unwrap()["via"], json!({"token": "ink"}));
+    // A string compared is no read; a slot holding the name is one; either
+    // arm of a choice is one; a row that takes no colour reads no token.
+    assert_eq!(sites.len(), 5, "{uses}");
+    assert!(sites.iter().all(|s| s["line"] != 10), "{uses}");
+    assert_eq!(at(11).unwrap()["via"], json!({"slot": "pick"}));
+    assert!(at(12).unwrap().get("via").is_none(), "{uses}");
+    assert_eq!(at(6).unwrap()["row"], "text_color");
+    assert!(at(6).unwrap().get("via").is_none(), "{uses}");
+    assert_eq!(at(7).unwrap()["via"], json!({"token": "ink"}));
     assert_eq!(
-        at(6).unwrap()["via"],
+        at(8).unwrap()["via"],
         json!({"synthetic": "color-mix(in srgb, brand 60%, white)", "through": null})
     );
     assert_eq!(
-        at(4).unwrap()["file"]
+        at(6).unwrap()["file"]
             .as_str()
             .map(|f| f.ends_with("app.contract")),
         Some(true)
@@ -743,4 +748,46 @@ fn uses_names_every_site_through_aliases_and_synthetic_tokens() {
     let (none, _) = s.ask(json!({"method": "uses", "token": "nope"}));
     assert!(none["error"]["message"].is_string(), "{none}");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `uses` answers once for every plan of the same sources (theme2's
+/// condition): the JS target compiles the plan `uses` does, and a native
+/// bake keeps its nodes and bindings, so the sites (node indices and
+/// spans) are the same on each.
+#[test]
+fn uses_sites_are_the_same_on_the_js_plan_and_the_native_bake() {
+    use exact_runner::{DataError, DataSource};
+    struct NoData;
+    impl DataSource for NoData {
+        fn query(
+            &mut self,
+            source: &str,
+            _: &[exact_runner::Value],
+        ) -> Result<exact_runner::Value, DataError> {
+            Err(DataError::UnknownSource(source.into()))
+        }
+    }
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../apps/theme-fixture/app.contract");
+    let (mapped, map) = contract::compile_path_mapped(&root).unwrap();
+    let map: Value = serde_json::from_str(&map.json(&mapped.encode())).unwrap();
+    // The JS target's compile (host/web-js `exact-web-js js`, with sites).
+    let (js, _) = contract::compile_path_all(&root, true).unwrap();
+    let native = contract::bake(mapped.clone(), NoData).unwrap();
+    let none = std::collections::BTreeSet::new();
+    for token in [
+        "surface.page",
+        "accent.fill",
+        "border.hairline",
+        "text.primary",
+    ] {
+        let synthetic = ["color-mix(in srgb, border.hairline 60%, transparent)".to_string()];
+        let of = |plan: &exact_plan::Plan| {
+            contract::tamber_uses::sites(plan, &map, token, &none, &synthetic)
+        };
+        let ours = of(&mapped);
+        assert!(!ours.is_empty(), "{token}");
+        assert_eq!(of(&js), ours, "{token} on the JS target's plan");
+        assert_eq!(of(&native), ours, "{token} on the native bake");
+    }
 }

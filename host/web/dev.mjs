@@ -278,14 +278,16 @@ function scrubBatch(from, to) {
 }
 // A scrub's previews and its end, asked of the resident compiler (dev.rs's
 // `scrub`/`restore` lines, the TypeScript producer's `{scrub}` request).
+// Each answer is applied (`apply`) as its line is read, in order with the
+// compiler's other lines, so a later edit's batch never goes out before it.
 const scrubAsks = new Map();
 let scrubAskId = 0;
-const scrubAsk = (line) => new Promise((done) => {
+const scrubAsk = (line, apply) => new Promise((done) => {
   const child = dev;
   if (!child?.stdin?.writable) return done({ error: 'no resident compiler runs' });
   const id = `scrub-${++scrubAskId}`;
   const late = setTimeout(() => { scrubAsks.delete(id); done({ error: 'the compiler did not answer' }); }, 30_000);
-  scrubAsks.set(id, (v) => { clearTimeout(late); scrubAsks.delete(id); done(v); });
+  scrubAsks.set(id, (v) => { clearTimeout(late); scrubAsks.delete(id); done(apply(v)); });
   child.stdin.write(`${line(id)}\n`);
 });
 // The design the builds run while a TypeScript app's scrub previews.
@@ -293,23 +295,26 @@ let moduleScrubbed = null;
 /** Preview a scrub's texts on every build: the batch from the design they
  * run; nothing written. */
 async function scrubPreview(texts) {
-  const file = relative(app.dir, designPath(app.dir));
-  if (!(file in texts)) return {};
   if (!typescript && portableRust) return { error: 'this app\'s own producer publishes every plan: its design edits reload' };
+  const file = relative(app.dir, designPath(app.dir));
+  // Texts that leave the design file as it is: the committed design.
+  if (!(file in texts)) { await scrubRestore(); return {}; }
   if (typescript) {
-    const reply = await scrubAsk((id) => JSON.stringify({ id, scrub: texts[file] }));
-    if (!reply.ok) return { error: reply.error ?? 'the producer refused it' };
-    const from = moduleScrubbed ?? moduleDesign;
-    const live = from && scrubBatch(from, reply.design);
-    if (!live) return { error: 'it changes the design\'s shape: a rebuild applies on release' };
-    moduleScrubbed = reply.design;
-    if (live.batch.tokens.length) pushDesign(live); else designSnapshot = live.snapshot;
-    return {};
+    return scrubAsk((id) => JSON.stringify({ id, scrub: texts[file] }), (reply) => {
+      if (!reply.ok) return { error: reply.error ?? 'the producer refused it' };
+      const from = moduleScrubbed ?? moduleDesign;
+      const live = from && scrubBatch(from, reply.design);
+      if (!live) return { error: 'it changes the design\'s shape: a rebuild applies on release' };
+      moduleScrubbed = reply.design;
+      if (live.batch.tokens.length) pushDesign(live); else designSnapshot = live.snapshot;
+      return {};
+    });
   }
-  const reply = await scrubAsk((id) => `scrub ${id} ${JSON.stringify(texts[file])}`);
-  if (reply.error) return { error: reply.error };
-  if (reply.batch) pushDesign(reply); else designSnapshot = reply.snapshot;
-  return {};
+  return scrubAsk((id) => `scrub ${id} ${JSON.stringify(texts[file])}`, (reply) => {
+    if (reply.error) return { error: reply.error };
+    if (reply.batch) pushDesign(reply); else designSnapshot = reply.snapshot;
+    return {};
+  });
 }
 /** A scrub ended without its write: every build back on the committed design. */
 async function scrubRestore() {
@@ -320,8 +325,9 @@ async function scrubRestore() {
     return;
   }
   if (portableRust) return;
-  const reply = await scrubAsk((id) => `restore ${id}`);
-  if (reply.batch) pushDesign(reply); else if (reply.snapshot) designSnapshot = reply.snapshot;
+  await scrubAsk((id) => `restore ${id}`, (reply) => {
+    if (reply.batch) pushDesign(reply); else if (reply.snapshot) designSnapshot = reply.snapshot;
+  });
 }
 // A revision owns its plan and complete asset namespace. Its process epoch
 // makes a restarted server's seq=1 newer than the previous server's seq=N.

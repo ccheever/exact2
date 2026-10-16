@@ -800,7 +800,7 @@ impl Server {
         if !folding.tokens.iter().any(|t| t.name == name) {
             return Err(json!({"message": format!("no token `{name}`")}));
         }
-        let aliases = crate::tamber_uses::aliases(
+        let aliases = contract::tamber_uses::aliases(
             &name,
             folding
                 .tokens
@@ -817,7 +817,7 @@ impl Server {
             .map_err(|e| json!({"message": format!("the app does not build: {}", e.message)}))?;
         let map: Value = serde_json::from_str(&map.json(&plan.encode()))
             .map_err(|e| json!({"message": format!("source map: {e}")}))?;
-        let sites = crate::tamber_uses::sites(&plan, &map, &name, &aliases, &synthetic);
+        let sites = contract::tamber_uses::sites(&plan, &map, &name, &aliases, &synthetic);
         Ok(
             json!({"token": name, "plan": map["digest"], "sites": sites, "aliases": aliases, "files": files_json(&snap)}),
         )

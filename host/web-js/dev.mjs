@@ -134,9 +134,10 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     const keep = (next, logic) => designOnly && design && next && logic === logicRevision
       && next.structure === design.structure && next.tokens.length === design.tokens.length
       && next.tokens.every((t, i) => t.name === design.tokens[i].name && String(t.accent) === String(design.tokens[i].accent));
-    const from = scrubbed ?? design;
     built = await build(app, dist, keep); error = built.error;
-    // A build that lands ends a scrub's preview: its batch is from it.
+    // The design the pages run now (a scrub's preview, or its end, may have
+    // come while it built); a build that lands ends a preview.
+    const from = scrubbed ?? design;
     if (!error) { scrubbed = null; aside = null; }
     watchPackages(built.packages);
     if (error) {
@@ -250,13 +251,13 @@ let due=false;const moved=()=>{if(due||!ch.nonce)return;due=true;setTimeout(()=>
 const pin=m=>{liveQ=liveQ.then(async()=>{await ready();const r=document.documentElement.style,p=m.pin,x=globalThis.exact;ch.before??={fontSize:r.fontSize,hostFont:r.getPropertyValue('--exact-host-font-size'),mode:x?.modes?.read?.()??{}};const sh=document.getElementById('exact-dev-pin')??document.head.appendChild(Object.assign(document.createElement('style'),{id:'exact-dev-pin'}));sh.textContent=p?.scheme?':root{color-scheme:'+p.scheme+'}':'';if((x.systemScheme??null)!==(p?.scheme??null)){x.systemScheme=p?.scheme??null;dispatchEvent(new Event('resize'))}r.fontSize=p?.rootFontSize?p.rootFontSize+'px':ch.before.fontSize;if(p?.rootFontSize)r.setProperty('--exact-host-font-size',r.fontSize);else if(ch.before.hostFont)r.setProperty('--exact-host-font-size',ch.before.hostFont);else r.removeProperty('--exact-host-font-size');const mode=Object.entries({...ch.before.mode,...(p?.mode??{})});if(mode.length&&x?.modes?.set){const why=x.modes.set(mode);if(why){rep({kind:'unsupported',what:'pin.mode',detail:why});x.modes.set(Object.entries(ch.before.mode))}}if(p?.contrast)rep({kind:'unsupported',what:'pin.contrast',detail:"a web page cannot pin the browser's contrast"});if(!p)ch.before=null;ch.revision=m.revision;status()}).catch(e=>console.error('exact dev:',e))};
 es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==='tamber-snapshot'){live(m);return}if(m.kind==='pin'){pin(m);return}if(m.kind==='inspect'||m.kind==='outline'||m.kind==='hold'){rep({kind:'unsupported',what:m.kind});return}if(m.nonce&&m.nonce!==ch.nonce){const n=ch.nonce=m.nonce;ch.registered=ready().then(async()=>(await post(n,{kind:'register',id:await bid,host:'web-js',capabilities:['pin'],plan:null,design:globalThis.exact?.designDigest??null})).ok).catch(()=>false);status()}if(m.error!==undefined)show(m.error);if(m.reload>seq&&!reloading){reloading=true;if(!globalThis.exact){location.reload();return}ready().then(async()=>{const checkpoint=capture(m.revision!==logicRevision),id=crypto.getRandomValues(new Uint32Array(4)).join('-');console.info('exact dev reload: checkpoint',m.reload);const saved=await fetch('/__dev/checkpoint?id='+id+'&seq='+m.reload+'&revision='+encodeURIComponent(m.revision??''),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(checkpoint)});if(!saved.ok)throw new Error('checkpoint handoff answered '+saved.status);const next=new URL(location.href);next.searchParams.set('__exactDev',id);if(admission)for(const [k,v]of admission)if(!next.searchParams.has(k))next.searchParams.set(k,v);location.replace(next.href)}).catch(e=>{reloading=false;console.error('exact dev reload: current page retained; checkpoint handoff failed',e)})}}})()</script>`;
   const checkpoints = new Map();
-  /** A scrub's design: the compiler's (`exact-web-js design`) with its text
-   * in place of the design file's, written nowhere but a scratch file. */
+  /** A scrub's design: the compiler's (`exact-web-js design`) with its text,
+   * on stdin, in place of the design file's; written nowhere. */
   const scrubDesign = (text) => new Promise((done) => {
-    const file = resolve(app.target, 'web-js-scrub.tamber');
-    writeFileSync(file, text);
     const compiler = webCompiler();
-    const child = spawn(compiler.cmd, [...compiler.pre, 'design', resolve(app.dir, 'app.contract'), file], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(compiler.cmd, [...compiler.pre, 'design', resolve(app.dir, 'app.contract'), '-'], { cwd: root, stdio: ['pipe', 'pipe', 'pipe'] });
+    child.stdin.on('error', () => {});
+    child.stdin.end(text);
     let out = '', err = '';
     child.stdout.on('data', (d) => { out += d; });
     child.stderr.on('data', (d) => { err += d; });
@@ -268,7 +269,8 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
    * value-only edit sends one, and its snapshot for a page that asks. */
   async function scrubPreview(texts) {
     const file = relative(app.dir, designPath(app.dir));
-    if (!(file in texts)) return {};
+    // Texts that leave the design file as it is: the committed design.
+    if (!(file in texts)) { scrubRestore(); return {}; }
     const next = await scrubDesign(texts[file]);
     if (next.error) return next;
     const from = scrubbed ?? design;
