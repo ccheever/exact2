@@ -814,13 +814,38 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   an HTTPS wrapper would still block that page as mixed content after the ATS
   opt-in. The inner iframe keeps its sandbox and its authored dimensions.
   To drive what a user sees on macOS, build with `bun exact.mjs mac --bundle` and set
-  `EXACT_MAC_BIN` to the `.app`'s `Contents/MacOS/ExactMac`; the driver then skips its
+  `EXACT_MAC_BIN` to the `.app`'s `Contents/MacOS/<Name>`; the driver then skips its
   stale-build check, so rebuild the bundle before each drive. An app's own page
-  (`src="assets/…"`) is served at `http://exact.localhost`: its `http:`
-  sub-resources on loopback load, and one on a named host follows the same ATS
-  setting. A sub-resource that fails is logged (`exact: iframe assets/…: <url>
-  did not load (<reason>)`) (#135).
+  (`src="assets/…"`) is a document at `http://exact.localhost`, which no server
+  answers: an absolute `http:` sub-resource on loopback loads, one on a named host
+  follows the same ATS setting, and a relative one does not load (the next entry).
+  A sub-resource that fails is logged (`exact: iframe assets/…: <url> did not load
+  (<reason>)`) (#135).
   (Issue #106, 2026-10-06.)
+
+- **A multi-file web page in `assets/` runs on the web and not on Apple.** An
+  `iframe src="assets/editor/index.html"` whose page loads `./app.js`, a stylesheet,
+  fonts or lazy chunks works on the web, where the build copies `assets/` beside the
+  app's page, and is blank or unstyled on macOS and iOS. Cause: the Apple host reads
+  the one HTML file and gives it to WebKit as a document at
+  `http://exact.localhost/frame/<id>/index.html`; nothing serves that origin, so
+  every relative URL in it fails (`localBytes` in `host/apple/webarm/WebArm.swift`).
+  Fix: build the page as one self-contained HTML file (scripts, styles and fonts
+  inlined, no lazy chunks), or serve it from a local server and set `src` to its
+  `http://127.0.0.1:<port>/` URL (the next entry says what that server sees). LLP
+  1020.001 proposes serving the tree. (Exact Draw, 2026-10-15.)
+
+- **A local server behind an `iframe` is loaded from the frame's parent, not the
+  app.** On macOS an `iframe` of an `http(s)` URL with no `sandbox` is the web view's
+  own document. With a `sandbox` on macOS, and always on iOS, it is the child of a
+  wrapper page at `http://exact.invalid` (for an `http:` guest) or
+  `https://exact.invalid`: the page's first request is a cross-site navigation, and
+  `window.parent`'s origin is the wrapper's. On the web the parent is the app's own
+  page, whose loopback port differs between the dev loop and an `agent web` or
+  `test web` run. A server that checks `Origin`, `Referer` or `Sec-Fetch-Site`
+  against a fixed list therefore refuses its own page on some hosts. Fix: admit the
+  page by a token in the `src` URL the data module builds, and keep the origin check
+  for the API requests the page itself makes. (Exact Draw, 2026-10-15.)
 
 - **A focus ring never shows in an `agent macos` screenshot.** `type save key Tab`
   moves the focus (`state` reads it in `focus.logical`), yet neither `screenshot`

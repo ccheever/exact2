@@ -202,9 +202,9 @@ Ports    none. Runs to completion (--run too); --prebuild returns at once, the b
     line: 'build the macOS app (--run launches it here)',
     usage: 'bun exact.mjs mac [--run|--prebuild] [--bundle] [--url <url>] [--optimize speed|size]',
     flags: [
-      ['--run', 'launch it when built, in the foreground (its log here) until it quits'],
+      ['--run', 'assemble the .app and launch it when built, in the foreground (its log here) until it quits'],
       PREBUILD,
-      ['--bundle', 'also assemble the .app bundle'],
+      ['--bundle', 'also assemble the .app bundle (--run does)'],
       ['--url <url>', 'with --run or --bundle: connect it to that dev server (web\'s URL) for live reload'],
       OPTIMIZE,
     ],
