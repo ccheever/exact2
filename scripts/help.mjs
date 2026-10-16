@@ -442,7 +442,7 @@ export function indexText({ verbs = Object.keys(HELP).filter((v) => v !== 'new')
     ...names.map((verb) => `  ${verb.padEnd(width)}  ${line(verb)}`),
     ...(forms.length ? ['The forms a build uses:', ...forms.map((form) => `  ${form}`)] : []),
     '',
-    'bun exact.mjs <verb> --help: what each flag does, whether it stays in the foreground, an example;',
+    'bun exact.mjs <verb> --help: flags, foreground behavior, example;',
     'bun exact.mjs <verb> --help all: every other flag and the ports it opens. Read it only for a flag not above.',
   ].join('\n');
 }

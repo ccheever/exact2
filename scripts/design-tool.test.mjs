@@ -638,7 +638,7 @@ test('T1a: an import reviewed through the file picker, overrides off until ticke
       'clock data', 'clock +1', 'clock data',
       `type mapped-value-${figmaId}-${moded.index}-1 #123457`, `type mapped-value-${figmaId}-${moded.index}-1 key Enter`, 'clock data', 'clock +1', 'clock data',
       `tap accept-${figmaEdited}`, 'clock data', 'clock +1', 'clock data', 'state',
-    ]);
+    ], { keepStorage: true });
     expect(last.filter(r => r.resources).at(-1).slots.written.note).toBe(`Accepted ${figmaEdited}.`);
     expect(tool.writes.at(-1).after).toContain(`when ${moded.modes[1].label}: #123457`);
   } finally {
