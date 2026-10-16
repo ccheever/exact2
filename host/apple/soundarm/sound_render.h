@@ -1,10 +1,14 @@
-// @ref LLP 1096 D8. The sound arm's mixer: a C render callback, so the
-// realtime thread runs no Swift (AVAudioSourceNodeRenderBlockRealtimeSafe is
-// Swift-unavailable), with no allocation and no lock in it. Swift pushes
-// `Play` and `End` ops onto a single-producer, single-consumer ring; each
-// render applies every op in the ring, then sums every live voice from its
-// first frame to its end frame, times its gain. Times are host seconds on
-// CACurrentMediaTime's timebase: when the voice should reach the speaker.
+// @ref LLP 1096 D8, LLP 1125 D10. The sound arm's mixer: a C render
+// callback, so the realtime thread runs no Swift
+// (AVAudioSourceNodeRenderBlockRealtimeSafe is Swift-unavailable), with no
+// allocation and no lock in it. Swift pushes `Play` and `End` ops onto a
+// single-producer, single-consumer ring; each render applies every op in the
+// ring, then sums every live voice from its first frame to its end frame,
+// times its gain. A voice reads its sound at its playback rate, from a
+// fractional position by linear interpolation, and a panned one is placed by
+// the Web Audio StereoPannerNode's equal-power algorithm. Times are host
+// seconds on CACurrentMediaTime's timebase: when the voice should reach the
+// speaker.
 #ifndef EXACT_SOUND_RENDER_H
 #define EXACT_SOUND_RENDER_H
 
@@ -22,13 +26,19 @@ typedef struct ExactMixer ExactMixer;
 /// A mixer for `channels` deinterleaved float channels at `rate` frames a second.
 ExactMixer *exact_sound_mixer(uint32_t channels, double rate);
 void exact_sound_mixer_free(ExactMixer *mixer);
-/// Sound `index`'s samples, converted to the output format: `channels`
-/// planes of `frames` floats, one after another. The caller keeps them alive.
-void exact_sound_set(ExactMixer *mixer, uint32_t index, const float *planes, uint32_t frames);
-/// Push an op: kind 1 plays `sound` from `at` times `gain`; kind 2 ends voice
+/// Sound `index`'s samples, converted to the output's rate: planes of
+/// `frames` floats, one after another, one per output channel, except that a
+/// stereo file for a mono output keeps its two (the mixer down-mixes them,
+/// after a pan). `source` is the file's own channel count (1 or 2), which
+/// decides how a pan places it. The caller keeps the planes alive.
+void exact_sound_set(ExactMixer *mixer, uint32_t index, const float *planes, uint32_t frames, uint32_t source);
+/// Push an op: kind 1 plays `sound` from `at` times `gain`, read at `rate`
+/// (Web Audio's `playbackRate`, 1 the file's own) and placed at `pan` (−1
+/// left to 1 right; 0 is the voice as it was, unpanned), on a mono output
+/// panned in stereo and then down-mixed as Web Audio does; kind 2 ends voice
 /// `id` at `at` (an end for a slot already freed is ignored); kind 3 ends
 /// every voice now. False when the ring is full: the op is dropped and counted.
-bool exact_sound_push(ExactMixer *mixer, uint32_t kind, uint64_t id, uint32_t sound, double at, float gain);
+bool exact_sound_push(ExactMixer *mixer, uint32_t kind, uint64_t id, uint32_t sound, double at, float gain, float rate, float pan);
 /// The source node's `outputPresentationLatency`: the delay from a buffer's
 /// render time (its `mHostTime`) to the speaker (LLP 1096 D6).
 void exact_sound_latency(ExactMixer *mixer, double seconds);

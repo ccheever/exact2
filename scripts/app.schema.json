@@ -813,6 +813,26 @@
       "additionalProperties": false,
       "description": "Where app.ts runs: `placement` is \"main\" (the default) or \"worker\". The TypeScript module's placement (LLP 1027.002), globally and per platform, and the directories it imports from outside the app."
     },
+    "verify": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "accept": {
+          "type": "array",
+          "description": "Findings of `verify`'s check that are the app's design (a brand palette's contrast, a reference's small keys): each names the check's finding kind and a node by its testId (or the testId of the control whose label it is; a trailing * matches a prefix, `mute-*`) and says why. verify prints them as accepted and does not count them.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["finding", "node", "why"],
+            "properties": {
+              "finding": { "type": "string", "enum": ["covered", "clipped", "overflow", "overlap", "contrast", "card", "target"] },
+              "node": { "type": "string", "pattern": "^[^*]+\\*?$", "description": "A testId, or a non-empty prefix of one and a single trailing *: a bare * would accept the finding on every node." },
+              "why": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
     "audio_session": {
       "type": "string",
       "enum": [

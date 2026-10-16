@@ -132,7 +132,7 @@ record_variants! {
         Pick { target, paths, span }, Clipboard { target, edit, text, span },
         Clock { arg, span }, Reload { span }, Close { span }, Back { span }, Resize { width, height, span }, Screenshot { path, span }, ExpectTree { target, present, span }, ExpectDisabled { target, disabled, span },
         ExpectText { target, value, span }, ExpectState { name, value, span },
-        ExpectSound { src, present, at, gain, ends, by, span },
+        ExpectSound { src, present, at, gain, ends, playback_rate, pan, by, span },
         ExpectMediaSession { field, value, span }, ExpectMediaSessionAction { action, present, span },
     }
 }

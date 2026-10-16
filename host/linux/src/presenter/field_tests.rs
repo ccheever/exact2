@@ -560,10 +560,8 @@ fn agent_typing_selects_all_then_delivers_a_cancelable_insert_text() {
         text(&p, "events"),
         "before:insertText:key ArrowLeft:true:old:0-3|input:insertText:false:13-13|"
     );
-    assert_eq!(
-        text(&p, "result"),
-        "key ArrowLeft|1|0|key ArrowLeft:13-13:1|13-13"
-    );
+    // The select-all's `select` is heard before the insertion.
+    assert_eq!(text(&p, "result"), "key ArrowLeft|1|0|old:0-3:0|13-13");
     p.tap(id(&p, "blur")).unwrap();
     assert_eq!(p.edited, None);
     p.type_text(editor, "cancel").unwrap();
@@ -610,11 +608,14 @@ fn queued_selection_events_follow_the_edits_focus_command() {
       text moved testId="moved"
 "#;
     let plan = crate::test_plan(source);
-    for (path, expected, select) in [
-        ("agent", "true:new:3-3", true),
-        ("keyboard", "true:oldx:4-4", false),
-        ("paste", "true:oldpaste:8-8", false),
-        ("cancel", "true:old:0-3", true),
+    // The agent's select-all is heard before its edit: its `select` and
+    // `selectionchange` read the field as the edit found it, before the
+    // edit's focus command. A cancelled edit moves nothing after them.
+    for (path, expected, picked) in [
+        ("agent", "true:new:3-3", "false:old:0-3"),
+        ("keyboard", "true:oldx:4-4", ""),
+        ("paste", "true:oldpaste:8-8", ""),
+        ("cancel", "false:old:0-3", "false:old:0-3"),
     ] {
         let (mut p, error) = Presenter::boot_with(
             &plan,
@@ -649,11 +650,100 @@ fn queued_selection_events_follow_the_edits_focus_command() {
         }
         assert_eq!(p.focus(), Some(id(&p, "other")), "{path}");
         assert_eq!(text(&p, "moved"), expected, "{path}");
-        assert_eq!(
-            text(&p, "picked"),
-            if select { expected } else { "" },
-            "{path}"
+        assert_eq!(text(&p, "picked"), picked, "{path}");
+    }
+}
+
+#[test]
+fn the_select_alls_handler_and_its_commands_run_before_the_agents_insertion() {
+    // On the web the select-all's `select` handler, and the selection it
+    // sets, land before the driver's insertion, which then goes where it put
+    // the caret: after "old", not over it.
+    let source = r#"component App
+  state body = "old"
+  state picks = 0
+  action edited(v: string)
+    body = v
+  action selected(e: InputEvent)
+    picks = picks + 1
+    if picks == 0
+      setSelectionRange("editor", 3, 3)
+  view
+    column
+      textarea id="editor" testId="editor" value=body input=edited select=selected
+      text `${body}|${picks}` testId="result"
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &crate::test_plan(source),
+        (),
+        (400., 600.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none());
+    p.run_commands(<()>::default);
+    let editor = id(&p, "editor");
+    let reply = crate::agent::handle(
+        &mut p,
+        &format!(r#"{{"op":"type","id":{editor},"text":"x"}}"#),
+    );
+    assert!(!reply.contains("\"error\""), "{reply}");
+    // Two `select`s: the select-all's, then the collapse its handler made.
+    assert_eq!(text(&p, "result"), "oldx|2");
+}
+
+#[test]
+fn a_select_handler_that_moves_the_focus_takes_the_agents_insertion_with_it() {
+    // The browser inserts the driver's text at the focus: the field the
+    // select handler focused (its caret after the value the app wrote), or,
+    // focused on a button, nowhere.
+    let source = r#"component App
+  state body = "old"
+  state note = "n"
+  state toButton = false
+  action edited(v: string)
+    body = v
+  action noted(v: string)
+    note = v
+  action selected(e: InputEvent)
+    if toButton
+      focus("go")
+    else
+      focus("other")
+  action aim
+    toButton = true
+  view
+    column
+      textarea id="editor" testId="editor" value=body input=edited select=selected
+      input id="other" testId="other" value=note input=noted
+      button "Go" id="go" testId="go" press=aim
+      text `${body}|${note}` testId="result"
+"#;
+    for (to_button, expected) in [(false, "old|nx"), (true, "old|n")] {
+        let (mut p, error) = Presenter::boot_with(
+            &crate::test_plan(source),
+            (),
+            (400., 600.),
+            1.,
+            PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert!(error.is_none());
+        p.run_commands(<()>::default);
+        if to_button {
+            p.tap(id(&p, "go")).unwrap();
+            p.run_commands(<()>::default);
+        }
+        let editor = id(&p, "editor");
+        let reply = crate::agent::handle(
+            &mut p,
+            &format!(r#"{{"op":"type","id":{editor},"text":"x"}}"#),
         );
+        assert!(!reply.contains("\"error\""), "{reply}");
+        assert_eq!(text(&p, "result"), expected, "to the button: {to_button}");
     }
 }
 

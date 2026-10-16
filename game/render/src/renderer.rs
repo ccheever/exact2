@@ -38,6 +38,7 @@ pub(crate) struct Mesh {
 pub struct RendererWithAssets<const ASSETS: bool> {
     pub(crate) device: wgpu::Device,
     pub(crate) queue: wgpu::Queue,
+    slot_capacity: u32,
     pub(crate) pipelines: Pipelines,
     pub(crate) models: crate::models::Models,
     pub(crate) quads: crate::quads::Quads,
@@ -240,6 +241,12 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 },
             ],
         });
+        let limits = device.limits();
+        let slot_capacity = (limits
+            .max_storage_buffer_binding_size
+            .min(limits.max_buffer_size)
+            / 64)
+            .min(u64::from(u32::MAX)) as u32;
         Self {
             models: crate::models::Models::default(),
             quads: crate::quads::Quads::new::<ASSETS>(device, queue, &uniform),
@@ -247,6 +254,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             slot_list: Vec::new(),
             device: device.clone(),
             queue: queue.clone(),
+            slot_capacity,
             pipelines,
             uniform,
             transforms,
@@ -634,13 +642,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     /// Maximum slot count under the device's granted adapter limits and the widest
     /// arena (64-byte affine attachments). Valid slot indices are strictly below this count.
     pub fn max_slots(&self) -> u32 {
-        (self
-            .device
-            .limits()
-            .max_storage_buffer_binding_size
-            .min(self.device.limits().max_buffer_size)
-            / 64)
-            .min(u64::from(u32::MAX)) as u32
+        self.slot_capacity
     }
 
     /// Diagnostic readback of the GPU's per-view culling results. While on, each

@@ -329,10 +329,9 @@ pub(crate) fn patterns() -> Vec<PathBuf> {
     dirs
 }
 
-/// Every pattern `exact.mjs pattern` writes compiles with no diagnostic,
-/// error or warning, and its `app.test.contract` parses.
+/// Every pattern compiles with only its documented diagnostics, and its tests parse.
 #[test]
-fn every_pattern_compiles_with_no_diagnostic_and_its_tests_parse() {
+fn every_pattern_compiles_with_expected_diagnostics_and_its_tests_parse() {
     let mut failures = Vec::new();
     let all = patterns();
     assert!(all.len() >= 5, "docs/patterns has {} patterns", all.len());
@@ -348,12 +347,13 @@ fn every_pattern_compiles_with_no_diagnostic_and_its_tests_parse() {
         if let Err(all) = contract::compile_path_all(&path, false) {
             failures.extend(all.iter().map(at));
         }
-        failures.extend(
-            contract::compile_path_all_warned(&path, false)
-                .1
-                .iter()
-                .map(at),
-        );
+        let warnings = contract::compile_path_all_warned(&path, false).1;
+        let warnings = if name == "one-screen" {
+            super::text_px_width::without_round_button_widths(warnings)
+        } else {
+            warnings
+        };
+        failures.extend(warnings.iter().map(at));
         match std::fs::read_to_string(dir.join("app.test.contract")) {
             Ok(tests) => match contract::tests(&tests) {
                 Ok(decls) if decls.is_empty() => {

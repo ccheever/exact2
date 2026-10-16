@@ -165,7 +165,7 @@ const CASES: &[Case] = &[
         fixed: &[("  task goTimer when on\n    every(1000, go)\n", "text \"a\"")],
     },
     Case {
-        wrote: ("", "list appearance=\"auto\"\n  section\n    row\n      text \"x\"\n    footer\n      if on\n        text \"On\"\n      else\n        text \"Off\""),
+        wrote: ("", "list appearance=\"auto\"\n  section\n    row\n      text \"x\"\n    footer\n      if on\n        text \"On\" testId=\"on\"\n      else\n        text \"Off\""),
         id: "lower-grouped-list",
         leads: "write this `footer`'s 2 texts as one `text` whose words the same conditions choose",
         fixed: &[("", "list appearance=\"auto\"\n  section\n    row\n      text \"x\"\n    footer\n      text (on ? \"On\" : \"Off\")")],

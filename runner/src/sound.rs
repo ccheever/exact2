@@ -11,6 +11,9 @@
 //!
 //! - **Start.** `max(at, t)`, `t` the commit's time: a timer's commit is its
 //!   due time, so a hit planned at `t` lands on the grid (D3).
+//! - **Length.** The file's, divided by the voice's `playbackRate`: pitch
+//!   and duration move together, as on tape (LLP 1125 D10), so a group's
+//!   cut and the bound read the end the speaker will reach.
 //! - **Groups** are monophonic by start time: a voice ends at the start of
 //!   the next voice in its group, a tie going to the later call (D4).
 //! - **The bound.** At most [`LIVE`] voices sound or wait at a commit's
@@ -25,12 +28,15 @@ use std::collections::VecDeque;
 pub const LIVE: usize = 32;
 /// Voices the record keeps for `expect sound` (D5).
 pub const RECORD: usize = 1024;
+/// The range of `playbackRate=` (LLP 1125 D10); a computed one is clamped to it.
+pub const PLAYBACK_RATE: std::ops::RangeInclusive<f64> = 0.25..=4.0;
 
 /// What the output does: the table's changes, in order.
 #[derive(Clone, Debug, PartialEq)]
 pub enum SoundOp {
     /// Start voice `id` of the plan's sound `sound` at runner time `at`
-    /// (ms), times `gain`; it plays to the file's end unless an `End` comes.
+    /// (ms), times `gain`, read at `playback_rate` and placed at `pan`; it
+    /// plays to the file's end unless an `End` comes.
     Play {
         /// The voice.
         id: u64,
@@ -40,6 +46,10 @@ pub enum SoundOp {
         at: f64,
         /// Its linear gain, 0–1.
         gain: f64,
+        /// Web Audio's `AudioBufferSourceNode.playbackRate`, 0.25–4.
+        playback_rate: f64,
+        /// Web Audio's `StereoPannerNode.pan`, −1 (left) to 1 (right).
+        pan: f64,
     },
     /// Voice `id` now ends at runner time `at`, earlier than it did.
     End {
@@ -98,6 +108,10 @@ pub struct Voice {
     pub gain: f64,
     /// Its group; empty is none.
     pub group: String,
+    /// Its playback rate, clamped to [`PLAYBACK_RATE`]; 1 is the file's own.
+    pub playback_rate: f64,
+    /// Its pan, clamped to −1–1; 0 is centred.
+    pub pan: f64,
     /// When it ends: its start plus its length, or earlier.
     pub ends: f64,
     /// How it ends.
@@ -228,6 +242,8 @@ impl Sounds {
                     sound: v.sound,
                     at: v.at,
                     gain: v.gain,
+                    playback_rate: v.playback_rate,
+                    pan: v.pan,
                 });
                 if v.ends < v.natural {
                     self.ops.push(SoundOp::End {
@@ -246,8 +262,8 @@ impl Sounds {
         }
     }
 
-    /// One `playSound(src, at, gain, group)`, or one hit's fields in the
-    /// same order.
+    /// One `playSound(src, at, gain, group, playbackRate, pan)`, or one
+    /// hit's fields in the same order (a hit may stop after `group`).
     fn play(&mut self, plan: &Plan, t: f64, args: &[Value], log: &mut Vec<String>) {
         let src = match args.first() {
             Some(v) if v.is_str() => v.text().to_string(),
@@ -275,8 +291,18 @@ impl Sounds {
         let group = given(args.get(3))
             .map(|g| g.text().to_string())
             .unwrap_or_default();
+        let Some(playback_rate) = number(4, 1.0) else {
+            return log.push(format!(
+                "sound dropped: playbackRate is not a number ({src})"
+            ));
+        };
+        let Some(pan) = number(5, 0.0) else {
+            return log.push(format!("sound dropped: pan is not a number ({src})"));
+        };
+        let playback_rate = playback_rate.clamp(*PLAYBACK_RATE.start(), *PLAYBACK_RATE.end());
+        let pan = pan.clamp(-1.0, 1.0);
         let at = asked.max(t);
-        let length = 1000.0 * f64::from(row.frames) / f64::from(row.rate.max(1));
+        let length = 1000.0 * f64::from(row.frames) / f64::from(row.rate.max(1)) / playback_rate;
         let saved: Vec<(u64, f64, By)> = self.voices.iter().map(|v| (v.id, v.ends, v.by)).collect();
         self.next += 1;
         let id = self.next;
@@ -287,6 +313,8 @@ impl Sounds {
             at,
             gain: gain.clamp(0.0, 1.0),
             group,
+            playback_rate,
+            pan,
             ends: at + length,
             by: By::End,
             natural: at + length,
@@ -336,6 +364,12 @@ impl Sounds {
         );
         if !voice.group.is_empty() {
             line.push_str(&format!(" group {}", voice.group));
+        }
+        if voice.playback_rate != 1.0 {
+            line.push_str(&format!(" playbackRate {}", num(voice.playback_rate)));
+        }
+        if voice.pan != 0.0 {
+            line.push_str(&format!(" pan {}", num(voice.pan)));
         }
         if asked < t {
             line.push_str(&format!(" (asked {})", num(asked)));

@@ -203,7 +203,7 @@ test('static watcher follows immediate creation, in-place edits, and directory r
   } finally {watcher.close();rmSync(dir,{recursive:true,force:true});}
 },30_000); // a hang bound; every wait above is on the watcher's reports
 test('dev edits clear only their own errors while unrelated failures stay visible', async () => {
-  let stream, overlay, envelope, plan, seq=0, swapErrors=[];
+  let stream, overlay, envelope, plan, seq=0, swapErrors=[], reloaded=()=>{};
   const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
   const context={TextEncoder,TextDecoder,URL,URLSearchParams,AbortController,setTimeout,clearTimeout,performance,
     console:{error(){}},location:{origin:'http://localhost',href:'http://localhost/',search:''},
@@ -213,7 +213,7 @@ test('dev edits clear only their own errors while unrelated failures stay visibl
     matchMedia:()=>({matches:false,addEventListener(){}}), // the build channel's facts (LLP 1122 D4)
     localStorage:{getItem:()=>'1',setItem(){}}, // the "Open in native" link was put away; the overlay is all this page shows
     fetch:async url=>new Response(url.endsWith('app.plan')?plan:JSON.stringify(envelope)),
-    exact:{ready:Promise.resolve(),compat:{inputs:{app:'fixture'}},reloadGeneration:async()=>true,
+    exact:{ready:Promise.resolve(),compat:{inputs:{app:'fixture'}},reloadGeneration:async()=>{reloaded();return true;},
       gpu:{swap:async()=>({ms:0,errors:swapErrors})}},
   };
   runInNewContext(readFileSync(new URL('../dev.js',import.meta.url),'utf8'),context);
@@ -225,7 +225,10 @@ test('dev edits clear only their own errors while unrelated failures stay visibl
     const card={bytes:plan.length,sha256:hash(plan)};
     const dev={epoch:'a'.repeat(32),seq,generation:hash(JSON.stringify({assets:[],plan:card}))};
     envelope={exact:1,app:{id:'fixture'},dev,assets:[],plan:{...card,url:'/app.plan'}};
-    send({...dev,envelope:'/exact.json'});await settled();
+    // The page fetches and hashes the generation before the host takes it, and crypto.subtle's digests
+    // resolve on no fixed turn: wait for the host's reload, then the turns in which the page commits it.
+    const reload=new Promise(resolve=>{reloaded=resolve;});
+    send({...dev,envelope:'/exact.json'});await reload;await settled();
   };
   send({error:'Rust: unknown speed',source:'gpu'});
   await edited();
@@ -400,7 +403,7 @@ test('a failed build\'s files ride with the next build, whatever it touches', ()
 test('compiler cleanup kills the recorded GPU cargo group too', () => {
   const cleanup=source.slice(source.indexOf('const killCompiler = () => {'),source.indexOf('\nstartCompiler();'));
   const killed=[];
-  new Function('process', `let gpuBuildChild={pid:123},manualTypescript,rustSourceWatch,rustOutputWatch,rustHeartbeat,rustActive,rustChild,moduleWatch,moduleTimer,moduleRun=0,dev,moduleStage; ${cleanup}; killCompiler();`)
+  new Function('process', `const unasked=()=>{};let gpuBuildChild={pid:123},manualTypescript,rustSourceWatch,rustOutputWatch,rustHeartbeat,rustActive,rustChild,moduleWatch,moduleTimer,moduleRun=0,dev,moduleStage; ${cleanup}; killCompiler();`)
     ({kill:(...args)=>killed.push(args)});
   assert.deepEqual(killed,[[-123,'SIGKILL']]);
 });

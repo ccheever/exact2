@@ -587,7 +587,7 @@ impl Feed {
             // Entity/parent/visibility revisions include cameras, particles and
             // gameplay-only rows. Rebuild draw records only if their effective
             // membership changed, or a draw's own mesh/LOD/assets changed.
-            self.visibility.begin();
+            self.visibility.begin(w);
             let entities: Vec<_> = w
                 .query::<(&Mesh, &Transform)>()
                 .iter()
@@ -629,11 +629,12 @@ impl Feed {
             // A scene without offsets already has exact propagated globals.
             // Check once per feed, not once per entity's entire parent chain.
             let has_offsets = w.query::<&exact_game::Offset>().iter().next().is_some();
+            let globals = w.globals();
             let world_pose = |e| {
                 if has_offsets {
                     scene::drawn(w, e)
                 } else {
-                    w.global(e)
+                    globals.get(e)
                 }
                 .map(scene::decompose)
             };
@@ -997,11 +998,17 @@ impl Feed {
             self.changed_pages
                 .extend(self.changed_blocks.iter().map(|&b| b as usize / PAGE));
             // An offset moves drawn model poses without a simulated pose write.
-            let moved = if initial || parent_changed || offset_changed || batches {
+            let moved = if initial
+                || parent_changed
+                || offset_changed
+                || next.assets != old.assets
+                || next.mesh != old.mesh
+            {
                 crate::models::Moved::All
             } else {
                 crate::models::Moved::Pages {
                     pages: &self.changed_pages,
+                    reconcile: batches,
                 }
             };
             r.model_poses(

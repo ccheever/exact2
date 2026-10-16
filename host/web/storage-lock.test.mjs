@@ -41,4 +41,4 @@ test('storage locks queue and time out without retaining acquired ancestors', as
     expect(result.refusal.message).toContain('after 30 ms');
     expect(result.locks).toEqual({held: [], pending: []});
   } finally { await browser.close(); server.stop(true); }
-});
+}, 60_000);

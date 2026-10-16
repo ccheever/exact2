@@ -39,6 +39,7 @@ export const WEB_SIZES = [[390, 844], [1280, 900]];
 const SHOWN = 6, WARNINGS = 4; // the findings and build warnings shown; the count says the rest
 const REAL_MS = 4000, REAL_STEP = 250; // the relaunch's bound on real time for its first loads, in steps
 const FIRST = 'first screen', RELAUNCH = 'relaunch';
+let ACCEPT = []; // app.json `verify.accept`: findings the app's design accepts, set by main
 const secs = (ms) => `${(ms / 1000).toFixed(1)} s`;
 const firstLine = (text) => String(text ?? '').split('\n').find((l) => l.trim())?.trim() ?? '';
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -459,10 +460,10 @@ async function checkHere(s, { screen, sizes = [null], shot, state }) {
   const runs = [];
   for (const size of sizes) {
     if (size) { await s.resize(...size); await s.clock('settle'); }
-    const r = await checkOp(s, ['both'], { shots: shot });
+    const r = await checkOp(s, ['both'], { shots: shot, accept: ACCEPT });
     runs.push(...groups(r.text).map((g, i) => {
       const run = r.check[i] ?? {}, vp = run.viewport ?? { w: size?.[0], h: size?.[1] }, kept = shot?.(vp, run.asked ?? run.scheme);
-      return { screen, size: [vp.w, vp.h], scheme: run.scheme, asked: run.asked, ...(kept ? { shot: kept } : {}), findings: run.findings ?? [], lines: [...failed, ...g.lines], hidden: g.hidden, advice: g.advice };
+      return { screen, size: [vp.w, vp.h], scheme: run.scheme, asked: run.asked, ...(kept ? { shot: kept } : {}), findings: run.findings ?? [], accepted: run.accepted ?? [], lines: [...failed, ...g.lines], hidden: g.hidden, advice: g.advice };
     }));
   }
   return runs;
@@ -650,7 +651,7 @@ export function distinctFindings(runs) {
 }
 
 /** The report's lines and its problem count, from what each stage gave. */
-export function report({ host, built, compiler = [], server, tested, checks, relaunched, refused = [], reloads = [], shots, copied, own = [], ms, cwd = process.cwd() }) {
+export function report({ host, built, compiler = [], server, tested, checks, relaunched, refused = [], reloads = [], shots, copied, own = [], accept = [], ms, cwd = process.cwd() }) {
   const out = [];
   let failedTests = 0, findings = 0, broken = 0;
   // What the host refused while the app ran (LLP 1116.010 D5): first, since each is a call or a wiring the app got wrong.
@@ -699,6 +700,14 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
     if (count > SHOWN) out.push(`  … and ${count - Math.min(SHOWN, shown.length)} more (verify --json lists them all)`);
     out.push(...new Set(runs.flatMap((r) => r.advice ?? [])));
     findings += count;
+  }
+  // What app.json's `verify.accept` names as the app's design: said once each, not counted; an entry that took nothing is named.
+  const accepted = distinctFindings(runs.map((r) => ({ ...r, lines: (r.accepted ?? []).map((f) => f.line) })));
+  const idle = accept.filter((e) => !runs.some((r) => (r.accepted ?? []).some((f) => f.accept?.finding === e.finding && f.accept?.node === e.node)));
+  if (accepted.length || idle.length) {
+    out.push(`accepted (app.json verify.accept, not counted): ${plural(accepted.length, 'finding')}`, ...accepted.slice(0, SHOWN));
+    if (accepted.length > SHOWN) out.push(`  … and ${accepted.length - SHOWN} more (verify --json lists them all)`);
+    for (const e of idle) out.push(`  accepts nothing: ${e.finding} ${e.node} (no such finding in this run)`);
   }
   // Each test's end screen reloaded where it stands (LLP 1116.010 D6): a saved value that came back different is a finding, one a
   // route and change, the first test that ended there named; any other change is a note under its own heading, which counts
@@ -754,6 +763,7 @@ async function main(argv) {
   const started = Date.now();
   const { resolveApp } = await import('./app.mjs');
   const app = resolveApp(value('--app'));
+  ACCEPT = app.manifest.verify?.accept ?? [];
   const say = (lines) => console.log(lines.join('\n'));
   // An app with a server of its own: verify runs it where the app calls it, on an empty database. One already
   // answering there (the builder's dev server) is refused before the build: never stopped, never written to; so is
@@ -845,7 +855,7 @@ async function main(argv) {
   refusedAt(RELAUNCH, relaunched?.refusals);
   const refusedList = [...refused].map(([line, where]) => ({ line, where }));
   const reloads = results.filter((t) => t.end?.reloaded).map((t) => ({ test: t.name, ...t.end.reloaded }));
-  const r = report({ host, built, compiler, server: serverSaid, tested, checks, relaunched, refused: refusedList, reloads, shots: kept, copied: copyTo && resolve(copyTo), own, ms: Date.now() - started });
+  const r = report({ host, built, compiler, server: serverSaid, tested, checks, relaunched, refused: refusedList, reloads, shots: kept, copied: copyTo && resolve(copyTo), own, accept: ACCEPT, ms: Date.now() - started });
   if (json) {
     const testsOut = tested?.results ? { ...tested, results: results.map(({ name, failures, end }) => ({ name, failures, ...(end?.shot && existsSync(end.shot) ? { shot: end.shot } : {}), ...(end?.error ? { endError: end.error } : {}) })) } : tested;
     const relaunchOut = relaunched && (({ runs, ...rest }) => rest)(relaunched);

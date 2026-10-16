@@ -38,6 +38,22 @@ pub const MAX_WARNINGS: usize = 20;
 
 /// Every warning the checked file earns, in source order of its checks.
 pub fn warnings(checked: &Checked<'_>) -> Vec<LowerError> {
+    with_text_styles(checked, &TextStyles::new())
+}
+
+/// Effective text sizing and native control boundaries from lowering. A reused
+/// source site whose lowering differs between instances stays unknown. The tag
+/// distinguishes a button from the title synthesized at the same source span.
+pub(crate) type TextStyles = std::collections::BTreeMap<(Span, u32, String), Option<TextStyle>>;
+
+#[derive(Clone, PartialEq)]
+pub(crate) struct TextStyle {
+    pub(crate) native: Option<bool>,
+    pub(crate) font: Option<Attr>,
+    pub(crate) layout: Vec<Attr>,
+}
+
+pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> Vec<LowerError> {
     let root = &checked.expanded.root;
     let mut out = Vec::new();
     // Each node, whether a navigation root (the outermost element with a
@@ -121,6 +137,7 @@ pub fn warnings(checked: &Checked<'_>) -> Vec<LowerError> {
     // @ref LLP 1027.005 D6 — an identifying argument of the launch's own.
     launch::launch_identity(root, &checked.file.fns, &mut out);
     width::width_padding(&root.view, &checked.file.styles, &mut out);
+    width::text_px_width(&root.view, &checked.file.styles, lowered, &mut out);
     out.extend(
         contract_analyze::read_after_assign(checked)
             .into_iter()

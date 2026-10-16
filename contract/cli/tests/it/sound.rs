@@ -190,6 +190,9 @@ fn the_checker_reads_literal_sources_and_named_arguments() {
     };
     for ok in [
         "playSound(\"assets/kit/hat.wav\", at=performanceNow() + 100, gain=0.8, group=\"hat\")",
+        "playSound(\"assets/kit/hat.wav\", playbackRate=0.25, pan=-1)",
+        "playSound(\"assets/kit/hat.wav\", playbackRate=4, pan=1)",
+        "playSound(src, playbackRate=performanceNow(), pan=-performanceNow())",
         "playSound(src)",
         "stopSounds(group=\"hat\")",
         "stopSounds()",
@@ -206,7 +209,9 @@ fn the_checker_reads_literal_sources_and_named_arguments() {
     );
     for bad in [
         "playSound(\"assets/kit/hat.wav\", gain=1.5)",
-        "playSound(\"assets/kit/hat.wav\", pan=1)",
+        "playSound(\"assets/kit/hat.wav\", pitch=1)",
+        "playSound(\"assets/kit/hat.wav\", playbackRate=\"fast\")",
+        "playSound(\"assets/kit/hat.wav\", pan=0.5, pan=0.5)",
         "playSound(\"assets/kit/hat.wav\", at=\"soon\")",
         "playSound(at=0)",
     ] {
@@ -214,6 +219,61 @@ fn the_checker_reads_literal_sources_and_named_arguments() {
             app(bad).compile().unwrap_err().id,
             "type-play-sound",
             "{bad}"
+        );
+    }
+    // A literal rate or pan outside its range is refused, as a literal gain is (LLP 1125 D10).
+    for (bad, message) in [
+        (
+            "playSound(\"assets/kit/hat.wav\", playbackRate=8)",
+            "`playbackRate=8` is outside 0.25–4: 1 is the file's own speed, 2 an octave up and half as long",
+        ),
+        (
+            "playSound(\"assets/kit/hat.wav\", playbackRate=0.1)",
+            "`playbackRate=0.1` is outside 0.25–4: 1 is the file's own speed, 2 an octave up and half as long",
+        ),
+        (
+            "playSound(\"assets/kit/hat.wav\", pan=-1.5)",
+            "`pan=-1.5` is outside −1–1: −1 is the left speaker, 0 the centre, 1 the right",
+        ),
+    ] {
+        let e = app(bad).compile().unwrap_err();
+        assert_eq!((e.id.as_str(), e.message.as_str()), ("type-play-sound", message), "{bad}");
+    }
+}
+
+#[test]
+fn a_hit_may_carry_a_rate_and_then_a_pan_after_its_group() {
+    let shape = |extra: &str| {
+        format!("sound \"assets/kit/hat.wav\"\nshape Hit\n  src: string\n  at: number\n  gain: number\n  group: string\n{extra}fn noHits(): Hit[] = []\ncomponent A\n  state hits = noHits()\n  action go\n    playSounds(hits)\n  view\n    button \"go\" press=go\n")
+    };
+    let app = |extra: &str| {
+        let dir = App::new(&[], "");
+        std::fs::create_dir_all(dir.0.join("assets/kit")).unwrap();
+        std::fs::write(
+            dir.0.join("assets/kit/hat.wav"),
+            wav(1, 16, 1, 48_000, 480, &[]),
+        )
+        .unwrap();
+        std::fs::write(dir.0.join("app.contract"), shape(extra)).unwrap();
+        dir
+    };
+    for ok in [
+        "",
+        "  playbackRate: number\n",
+        "  playbackRate: number\n  pan: number\n",
+    ] {
+        app(ok).compile().unwrap_or_else(|e| panic!("{ok:?}: {e}"));
+    }
+    // The fields are read by position: a pan without a rate would be read as the rate.
+    for bad in [
+        "  pan: number\n",
+        "  playbackRate: string\n",
+        "  playbackRate: number\n  pan: number\n  loop: bool\n",
+    ] {
+        assert_eq!(
+            app(bad).compile().unwrap_err().id,
+            "type-play-sound",
+            "{bad:?}"
         );
     }
 }
@@ -226,13 +286,14 @@ fn sound_is_a_word_only_at_the_top_level() {
 
 #[test]
 fn expect_sound_parses_and_reaches_the_driver() {
-    let src = "test \"kicks\"\n  tap \"play\"\n  expect sound has \"assets/kit/kick.wav\" at 0\n  expect sound missing \"assets/kit/kick.wav\" at 125\n  expect sound has \"assets/kit/kick.wav\" at 500 gain 0.8 ends 550 by cancelled\n";
+    let src = "test \"kicks\"\n  tap \"play\"\n  expect sound has \"assets/kit/kick.wav\" at 0\n  expect sound missing \"assets/kit/kick.wav\" at 125\n  expect sound has \"assets/kit/kick.wav\" at 500 gain 0.8 ends 550 by cancelled\n  expect sound has \"assets/kit/kick.wav\" playbackRate 2 pan -0.5\n";
     let tests = contract::tests(src).unwrap();
     let json = contract::tests_json(&tests);
     for want in [
         r#"{"op":"expect-sound","src":"assets/kit/kick.wav","present":true,"at":0,"line":3}"#,
         r#"{"op":"expect-sound","src":"assets/kit/kick.wav","present":false,"at":125,"line":4}"#,
         r#"{"op":"expect-sound","src":"assets/kit/kick.wav","present":true,"at":500,"gain":0.8,"ends":550,"by":"cancelled","line":5}"#,
+        r#"{"op":"expect-sound","src":"assets/kit/kick.wav","present":true,"playbackRate":2,"pan":-0.5,"line":6}"#,
     ] {
         assert!(json.contains(want), "{want}\n{json}");
     }

@@ -393,19 +393,9 @@ impl Module {
             self.window = Some(unsafe { WindowFrame::new(gpu, hwnd, hinstance, width, height) }?);
         }
         let window = self.window.as_mut().unwrap();
-        // A timeout or occlusion can happen after the host accepted new UI.
-        // Keep its upload pending even when the next host frame is cached.
+        // Upload accepted UI into retained textures before acquiring a drawable.
+        // Those uploads remain valid if acquisition later times out.
         window.pending_ui |= changed;
-        use wgpu::CurrentSurfaceTexture as Current;
-        let drawable = match window.target.get_current_texture() {
-            Current::Success(t) | Current::Suboptimal(t) => t,
-            Current::Timeout | Current::Occluded => return Ok(()),
-            Current::Lost | Current::Outdated => {
-                self.window = None;
-                return Ok(());
-            }
-            other => return Err(format!("window surface: {other:?}")),
-        };
         let mut encoder = gpu.device.create_command_encoder(&Default::default());
         window.background.prepare(
             &gpu.queue,
@@ -456,6 +446,30 @@ impl Module {
                 ..Default::default()
             });
         }
+        // Start offscreen rendering before waiting for the swapchain. Otherwise
+        // the acquisition wait serializes the previous GPU frame with this
+        // frame's simulation, scene uploads and command encoding.
+        gpu.queue.submit([encoder.finish()]);
+        if let Some(inst) = inst.as_mut() {
+            inst.surface.submitted();
+            // Rendering can publish messages or errors even if no drawable is
+            // available. Consume them before any acquisition early return.
+            inst.drain();
+            if let Some(SurfaceError(e)) = inst.surface.take_error() {
+                return Err(e);
+            }
+        }
+        use wgpu::CurrentSurfaceTexture as Current;
+        let drawable = match window.target.get_current_texture() {
+            Current::Success(t) | Current::Suboptimal(t) => t,
+            Current::Timeout | Current::Occluded => return Ok(()),
+            Current::Lost | Current::Outdated => {
+                self.window = None;
+                return Ok(());
+            }
+            other => return Err(format!("window surface: {other:?}")),
+        };
+        let mut encoder = gpu.device.create_command_encoder(&Default::default());
         {
             let view = drawable.texture.create_view(&Default::default());
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -480,11 +494,6 @@ impl Module {
         }
         gpu.queue.submit([encoder.finish()]);
         if let Some(inst) = inst {
-            inst.surface.submitted();
-            inst.drain();
-            if let Some(SurfaceError(e)) = inst.surface.take_error() {
-                return Err(e);
-            }
             inst.dirty = false;
             inst.seen.store(true, Ordering::Release);
         }

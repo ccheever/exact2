@@ -98,7 +98,8 @@ use           = "use" use-name { "," use-name } "from" STRING NL ;
 use-name      = IDENT [ "as" IDENT ] ;
 shape         = "shape" IDENT block(field) ;
 field         = FIELD ":" type NL ;
-function      = "fn" IDENT "(" [ typed-params ] ")" ":" type "=" expr NL ;
+function      = "fn" IDENT "(" [ typed-params ] ")" ":" type "="
+                ( expr NL | NL INDENT expr NL DEDENT ) ;
 typed-params  = typed-param { "," typed-param } [ "," ] ;
 typed-param   = IDENT ":" type ;
 style         = "style" IDENT block(style-line | part) ;
@@ -565,7 +566,8 @@ a string, a bool, `none`, or `[]` — not an expression (`-1 + 2` is refused).
 `expect sound has "assets/x.wav"`
 passes when the runner's record of voices (every host's, under the driver's
 clock) holds one of that source matching each clause given: its start (`at`,
-runner milliseconds), its `gain`, its end (`ends`), and how it ended (`by
+runner milliseconds), its `gain`, its end (`ends`), its `playbackRate` and `pan`
+(a voice that set neither has 1 and 0), and how it ended (`by
 end|group|cut|stop|cancelled`); `missing` is the negation. A dropped call is not
 a voice, and a test that asks about a voice the 1,024-voice record no longer
 holds fails and says so. `tap "audio" mediasession "seekforward"` calls the
@@ -762,14 +764,14 @@ Several tags share a kernel node type with different fixed properties.
 | --- | --- |
 | Boxes / layout | `view`, `box`, `row`, `column`, `scroll`, `list` |
 | Structure | `main`, `header`, `nav`, `section`, `footer`, `article`, `aside`, `dialog`, `hr` |
-| Text and controls | `text`, `button`, `link`, `input`, `textarea`, `select`, `option`, `progress` |
+| Text and controls | `text`, `h1`–`h6`, `button`, `link`, `input`, `textarea`, `select`, `option`, `progress` |
 | Media / metadata | `image`, `video`, `audio`, `iframe`, `canvas`, `head` |
 | SVG scene | `svg`, `g`, `path`, `polyline`, `polygon`, `circle`, `ellipse`, `line`, `rect` |
 | SVG definitions | `defs`, `symbol`, `use`, `clipPath`, `marker`, `mask`, `pattern` |
 | SVG color / text / embedding | `linearGradient`, `radialGradient`, `stop`, `tspan`, `foreignObject` |
 | SVG filters | `filter`, `feBlend`, `feColorMatrix`, `feComponentTransfer`, `feComposite`, `feConvolveMatrix`, `feDiffuseLighting`, `feDisplacementMap`, `feDropShadow`, `feFlood`, `feFuncR`, `feFuncG`, `feFuncB`, `feFuncA`, `feGaussianBlur`, `feMerge`, `feMergeNode`, `feMorphology`, `feOffset`, `feSpecularLighting`, `feTile`, `feTurbulence`, `feDistantLight`, `fePointLight`, `feSpotLight` |
 
-`text` inside SVG has SVG semantics. A hyphenated tag names a native module: the
+`h1` to `h6` are `text role="heading" aria-level=1` to `6` (LLP 1116.017 D1). `text` inside SVG has SVG semantics. A hyphenated tag names a native module: the
 bake checks it against `app.json`'s `modules` list (`bake-unknown-module`), and
 its unknown attributes, and an SVG element's own props, pass to the module as one
 object. A known attribute binds to the module's box, and the box takes only layout,
@@ -1690,7 +1692,7 @@ argument validation. Use the working implementation when selecting arguments:
 | `showModal(id)`, `close(id)`: `HTMLDialogElement.showModal()` and `close()` on a dialog by its `id`, from an action (bare `close()` is the window's). The terminal takes them (LLP 1101.001 P5); iOS presents a `dialog` or `role="alertdialog"` popover by its id as its confirmation (an alert or action sheet, with no invoker) and any other `dialog` as a sheet as tall as its content (LLP 1115.000 D11.5), the web shows the dialog (or the alertdialog popover), macOS the dialog in its top layer, or a `role="alertdialog"` one in the alert's shape as `NSAlert`, a sheet on the window (LLP 1115 D6, LLP 1115.000 D7.6) | [the harness](../apps/harness/terminal.contract), [the native fixture](../apps/native-fixture/app.contract) (`askClear`) |
 | `fastSeek(id, seconds)`, `load(id)`: a `video` or `audio`, by HTML's method names (LLP 1042 §3). `fastSeek` seeks each time it runs, where a bound `currentTime` seeks only when its value changes; every host seeks to the exact time, which HTML's approximate-for-speed allows. `load` loads the source again, as a changed `src` does: the bound `currentTime` waits for its metadata and a bound `paused` false plays | [media tests](../contract/cli/tests/it/media.rs), [media conformance plan](../host/web-js/conformance/media.contract) |
 | `deliveryCheck`, `deliveryActivate` | [delivery corpus](../contract/corpus/delivery.contract) |
-| `playSound(src, at=, gain=, group=)`: a new voice of a declared sound (a literal `src` must be declared, `type-sound-undeclared`), starting at `at` on the runner's clock (`performanceNow()`'s milliseconds; the past and the default are the commit's time), at a linear `gain` 0–1 (default 1; a literal outside is refused, a computed one clamped), in a `group` that is monophonic by start time. `playSounds(hits)`: one voice per item of a list of a shape whose fields are, in order, `src: string`, `at: number`, `gain: number`, `group: string`. `stopSounds()`, `stopSounds(group=)`: what sounds stops, what waits is cancelled. The runner keeps the voice table (`state sounds`); the web and Apple play it, Linux and Windows keep the record (LLP 1096) | [sound tests](../contract/cli/tests/it/sound.rs), [sounds conformance](../host/web-js/conformance/sounds/app.contract) |
+| `playSound(src, at=, gain=, group=, playbackRate=, pan=)`: a new voice of a declared sound (a literal `src` must be declared, `type-sound-undeclared`), starting at `at` on the runner's clock (`performanceNow()`'s milliseconds; the past and the default are the commit's time), at a linear `gain` 0–1 (default 1; a literal outside is refused, a computed one clamped), in a `group` that is monophonic by start time, read at `playbackRate` 0.25–4 (default 1; pitch and length move together, so the voice lasts its file's length divided by it) and placed at `pan` −1 to 1 (default 0, centred; Web Audio's equal-power `StereoPannerNode`), each refused as a literal outside its range and clamped when computed, as `gain` is (LLP 1125 D10). `playSounds(hits)`: one voice per item of a list of a shape whose fields are, in order, `src: string`, `at: number`, `gain: number`, `group: string`, then optionally `playbackRate: number` and then `pan: number`. `stopSounds()`, `stopSounds(group=)`: what sounds stops, what waits is cancelled. The runner keeps the voice table (`state sounds`); the web and Apple play it, Linux and Windows keep the record (LLP 1096) | [sound tests](../contract/cli/tests/it/sound.rs), [sounds conformance](../host/web-js/conformance/sounds/app.contract) |
 
 The web (its JS target) and the Apple hosts carry every command. The
 headless Linux host has no browser, clipboard, editor or dev menu: its

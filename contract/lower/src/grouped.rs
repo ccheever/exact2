@@ -395,6 +395,19 @@ fn section(style: &'static str, node: &Node, first: bool) -> Result<Node, LowerE
             span,
         );
     }
+    // LLP 1116.017 D3, before the label's check: copied only when one folds.
+    let fold = |c: &Node| {
+        (is(c, "header") || is(c, "footer"))
+            .then(|| messages::fold_label(c))
+            .flatten()
+    };
+    let folded: Option<Vec<Node>> = children.iter().any(|c| fold(c).is_some()).then(|| {
+        children
+            .iter()
+            .map(|c| fold(c).unwrap_or_else(|| c.clone()))
+            .collect()
+    });
+    let children = folded.as_ref().unwrap_or(children);
     let head = children.iter().take_while(|c| is(c, "header")).count();
     let tail = children[head..]
         .iter()

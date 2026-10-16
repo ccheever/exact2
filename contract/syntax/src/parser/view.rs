@@ -201,8 +201,9 @@ impl Parser {
                 },
             );
         }
+        let tag = heading(word, span, &mut attrs)?;
         Ok(Node::Element {
-            tag: word,
+            tag,
             positional,
             attrs,
             children,
@@ -210,4 +211,45 @@ impl Parser {
             instance: 0,
         })
     }
+}
+
+/// LLP 1116.017 D1: HTML's heading elements are headings, the level in the
+/// name; every host then sees the one form, `text role="heading"`. Apart from
+/// `node_element`, whose frame every nested view node costs.
+#[inline(never)]
+fn heading(word: String, span: Span, attrs: &mut Vec<Attr>) -> R<String> {
+    let level = match word.as_str() {
+        "h1" => 1.0,
+        "h2" => 2.0,
+        "h3" => 3.0,
+        "h4" => 4.0,
+        "h5" => 5.0,
+        "h6" => 6.0,
+        _ => return Ok(word),
+    };
+    if let Some(a) = attrs
+        .iter()
+        .find(|a| matches!(a.name.as_str(), "role" | "aria-level"))
+    {
+        return Err(SyntaxError {
+            id: "syntax-heading-level",
+            message: format!(
+                "an `{word}` is a heading of level {level}: drop its `{}`, or write `text … role=\"heading\" aria-level=…` for a level the app computes",
+                a.name
+            ),
+            span: a.span,
+        });
+    }
+    for (name, value) in [
+        ("role", Expr::Str("heading".into(), span)),
+        ("aria-level", Expr::Number(level, span)),
+    ] {
+        attrs.push(Attr {
+            name: name.into(),
+            value,
+            span,
+            written: true,
+        });
+    }
+    Ok("text".into())
 }

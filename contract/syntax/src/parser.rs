@@ -558,9 +558,29 @@ impl Parser {
         self.expect_punct(":")?;
         let ret = self.type_expr()?;
         self.expect_punct("=")?;
-        self.on_its_line("fn")?;
-        let body = self.expr()?;
-        self.newline()?;
+        // LLP 1116.017 D2: the body may start on the next line, indented: one
+        // expression, as after `= (`.
+        let body = if matches!(self.peek_kind(), TokenKind::Newline)
+            && matches!(self.peek2(), TokenKind::Indent)
+        {
+            self.next();
+            self.next();
+            let body = self.expr()?;
+            self.newline()?;
+            if !matches!(self.peek_kind(), TokenKind::Dedent) {
+                return self.err(
+                    "syntax-expected-expression",
+                    "a `fn`'s body is one expression: wrap a long one in parentheses, `(…`, with the rest of it on the lines under it",
+                );
+            }
+            self.next();
+            body
+        } else {
+            self.on_its_line("fn")?;
+            let body = self.expr()?;
+            self.newline()?;
+            body
+        };
         Ok(FnDecl {
             name,
             params,

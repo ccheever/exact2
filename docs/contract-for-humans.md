@@ -835,8 +835,8 @@ call outside them fails. The capabilities are:
   and seeds are arguments: pass `performanceNow()` from the Contract (the
   [data-module reference](reference.md#generate-typescript-data-source-types) has the full list).
 - *There is no storage or network at build time.* The build bakes each
-  resource's first value into the plan, and a storage call then is refused
-  with `code: 'bake'`. An uncaught storage refusal leaves the resource unbaked;
+  resource's first value into the plan, and a storage or `native.call` then is refused
+  with `code: 'bake'`. An uncaught refusal leaves the resource unbaked;
   its placeholder (or the type's zero) shows until the app asks again at launch.
   Catching that code can also supply a first-frame value, as `books` does.
   Other source errors still fail the build. A source used as an `else` placeholder

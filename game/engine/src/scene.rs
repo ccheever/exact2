@@ -862,6 +862,8 @@ impl World {
     }
 }
 
+mod globals;
+pub use globals::Globals;
 mod hierarchy;
 mod visibility;
 pub(crate) use hierarchy::Hierarchy;

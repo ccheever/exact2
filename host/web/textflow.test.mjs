@@ -649,7 +649,7 @@ async function targetKeyFixture() {
     attach(el, 1, ['key', 'keycapture']);
   `);
   const bindJs = new Function('el', 'heard', `
-    let KeyEvent = null;
+    let KeyEvent = null, Propagating = null;
     const clock = { agent: true, timers: [], now: 0 }, Mutations = [], OnHooks = {};
     ${on}
 ${onKey}

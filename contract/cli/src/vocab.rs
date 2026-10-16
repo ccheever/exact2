@@ -261,6 +261,15 @@ fn one_json(name: &str) -> (Value, bool) {
 /// One name as text, printed (a refusal on stderr), and whether it was
 /// known; a concept already in `shown` is named, not printed again.
 fn one_text(name: &str, shown: &mut Vec<&'static str>) -> bool {
+    // LLP 1116.017 D1: the parser reads `h1`-`h6` as headings, so no table has them.
+    if let Some(level) = name
+        .strip_prefix('h')
+        .and_then(|n| n.parse::<u8>().ok())
+        .filter(|n| (1..=6).contains(n))
+    {
+        println!("{name}: a heading of level {level}: `{name} \"Title\"` is `text \"Title\" role=\"heading\" aria-level={level}`; a level the app computes is written that way");
+        return true;
+    }
     let Some(Entry {
         tag,
         attr,
@@ -585,6 +594,8 @@ fn tag_json(name: &str, t: &Tag) -> Value {
     doc
 }
 
+const TEXT_PX_WIDTH: &str = "An absolute width (a number, px, pt or absolute calc()) containing scalable text stays fixed at accessibility sizes (lower-text-px-width). Use rem for the width (width=\"3rem\"), or let content determine it. The lint is deliberately conservative: it stays silent for unresolved classes, uncertain visibility or sizing, flex sizing that can supersede width, and min/max-width bounds that may change it. Text in absolute or fixed positioning, popovers and dialogs is checked inside that subtree, without counting against enclosing boxes. Text inherits the platform root font. Native Apple controls use the Apple control font, which can scale with Dynamic Type; web controls inherit, and Linux control defaults are fixed. An absolute font size stops scaling within that boundary; inherit and unset use the parent font even on controls. The warning checks layout boxes containing text runs or text fields, including HTML inside SVG foreignObject. It reads lowering’s grouped-list typography and known styles; computed widths and fonts remain unknown.";
+
 fn attr_json(name: &str, a: &AttrTarget) -> Value {
     let mut doc = json!({ "name": name, "kind": kind(a) });
     match a {
@@ -614,6 +625,9 @@ fn attr_json(name: &str, a: &AttrTarget) -> Value {
     }
     if name == "accept" {
         doc["note"] = "On input type=file, omit, leave empty, or use */* for any file; specific types are media or app file_handlers types".into();
+    }
+    if matches!(name, "width" | "font-size") {
+        doc["note"] = TEXT_PX_WIDTH.into();
     }
     if name == "buttonStyle" {
         doc["note"] = vocab::BUTTON_DEFAULT_NOTE.into();
@@ -719,6 +733,9 @@ fn attr_detail(name: &str, a: &AttrTarget) -> Vec<String> {
             }
             if name == "backdrop-filter" {
                 lines.push("macOS samples only the parent's subtree; make the glass a sibling of what it covers (LLP 1053.000 §3)".into());
+            }
+            if matches!(name, "width" | "font-size") {
+                lines.push(TEXT_PX_WIDTH.into());
             }
             if name == "font-family" {
                 lines.push("CSS family list: literal lists and literal choices work on every host; a string from state or data names installed or generic families on web, macOS, iOS and Linux. Invalid lists leave the row unset. Bundled faces use a `font` declaration".into());

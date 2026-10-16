@@ -78,6 +78,8 @@ impl<D: DataSource> Presenter<D> {
             self.host.log(error);
         }
         let dirty = self.host.take_row_dirty();
+        self.brush.numerals.now = self.host.now();
+        self.brush.numerals.still = self.host.runner().viewport().preferences.reduced_motion;
         self.brush.rows_dirty(self.host.kernel(), dirty);
         let roots = self.host.roots();
         let collection_limits = if self.host.content_region().is_some() {

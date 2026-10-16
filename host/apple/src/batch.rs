@@ -510,7 +510,8 @@ impl Batch {
     }
 
     /// `{"op":"sound","files":[…],"ops":[…]}` (LLP 1096 D8): the voice
-    /// table's `play` and `end` ops in runner milliseconds, and at a boot
+    /// table's `play` (with `playbackRate` and `pan` when not 1 and 0, LLP
+    /// 1125 D10) and `end` ops in runner milliseconds, and at a boot
     /// the files to decode, in declaration order (a new boot silences the
     /// last one's voices). Nothing is sent when there is nothing to say.
     pub fn sound(
@@ -545,12 +546,27 @@ impl Batch {
                     sound,
                     at,
                     gain,
-                } => write!(
-                    s,
-                    "{{\"op\":\"play\",\"id\":{id},\"sound\":{sound},\"at\":{},\"gain\":{}}}",
-                    exact_runner::agent::num(*at),
-                    exact_runner::agent::num(*gain)
-                ),
+                    playback_rate,
+                    pan,
+                } => {
+                    let _ = write!(
+                        s,
+                        "{{\"op\":\"play\",\"id\":{id},\"sound\":{sound},\"at\":{},\"gain\":{}",
+                        exact_runner::agent::num(*at),
+                        exact_runner::agent::num(*gain)
+                    );
+                    if *playback_rate != 1.0 {
+                        let _ = write!(
+                            s,
+                            ",\"playbackRate\":{}",
+                            exact_runner::agent::num(*playback_rate)
+                        );
+                    }
+                    if *pan != 0.0 {
+                        let _ = write!(s, ",\"pan\":{}", exact_runner::agent::num(*pan));
+                    }
+                    write!(s, "}}")
+                }
                 SoundOp::End { id, at } => write!(
                     s,
                     "{{\"op\":\"end\",\"id\":{id},\"at\":{}}}",

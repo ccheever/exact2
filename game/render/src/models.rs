@@ -77,6 +77,8 @@ impl Uploaded {
 }
 mod looks;
 mod merge;
+mod poses;
+pub(crate) use poses::Moved;
 mod textures;
 use textures::upload_texture;
 pub(crate) use textures::Texture;
@@ -755,129 +757,8 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
             records,
         )
     }
-    /// Feed poses for transparency and winding on completed ticks. A full pass
-    /// walks every model instance; otherwise only instances in blocks whose
-    /// local or propagated poses changed and those still interpolating.
-    pub(crate) fn model_poses(
-        &mut self,
-        world: &exact_game::World,
-        entities: &[exact_game::Entity],
-        initial: bool,
-        moved: Moved<'_>,
-        poses: &[crate::world::PreparedPose],
-    ) {
-        if let Some(skinning) = &mut self.models.skinning {
-            skinning.feed(&self.queue, world, entities, initial);
-        }
-        let models = &mut self.models;
-        // The instance list changes only with the feed's batches, which pass
-        // `Moved::All`; an incremental step skips the O(instances) comparison.
-        let rebuilt = matches!(moved, Moved::All) && models.reconcile_pose_history(entities);
-        let mut touched = std::mem::take(&mut models.touched);
-        touched.clear();
-        match moved {
-            Moved::Pages { pages } if !initial && !rebuilt => {
-                touched.append(&mut models.moving);
-                let history = &models.pose_history;
-                let at =
-                    |index: usize| history.partition_point(|h| (h.entity.index() as usize) < index);
-                for &page in pages {
-                    touched.extend(at(page * exact_game::PAGE)..at((page + 1) * exact_game::PAGE));
-                }
-                touched.sort_unstable();
-                touched.dedup();
-                for &i in &touched {
-                    models.update_pose(world, i, None, poses);
-                }
-            }
-            _ => {
-                models.moving.clear();
-                for i in 0..models.pose_history.len() {
-                    let digest = world
-                        .get::<exact_game::Mesh>(models.pose_history[i].entity)
-                        .and_then(|m| match &*m {
-                            exact_game::Mesh::Asset(name) => {
-                                models.loaded.get(name).map(|m| m.digest)
-                            }
-                            _ => None,
-                        })
-                        .unwrap_or(0);
-                    models.update_pose(world, i, Some((digest, initial)), poses);
-                }
-            }
-        }
-        models.touched = touched;
-    }
 }
-/// Which model instances a completed tick may have moved.
-pub(crate) enum Moved<'a> {
-    /// Every instance: structure, parents or assets changed.
-    All,
-    /// Instances on these pages (`PAGE` entity blocks), in index order, whose
-    /// local or propagated poses may have changed. The instance list is the
-    /// previous step's.
-    Pages { pages: &'a [usize] },
-}
-impl Models {
-    /// Whether any instance's owner pose has a negative scale axis at either
-    /// endpoint, so its winding can differ from its batch's.
-    pub(crate) fn any_mirrored_owner(&self) -> bool {
-        self.mirrored != 0
-    }
-    // One instance's history step. A full pass supplies its asset digest and
-    // whether the feed is initial; an incremental one keeps the saved digest.
-    fn update_pose(
-        &mut self,
-        world: &exact_game::World,
-        i: usize,
-        full: Option<(u64, bool)>,
-        poses: &[crate::world::PreparedPose],
-    ) {
-        #[cfg(test)]
-        POSE_STEPS.with(|n| n.set(n.get() + 1));
-        let history = &mut self.pose_history[i];
-        let Some(pose) = crate::world::prepared_pose(world, history.entity, poses) else {
-            return;
-        };
-        let digest = full.map_or_else(|| history.saved.map_or(0, |s| s.0), |(d, _)| d);
-        let saved = history
-            .saved
-            .get_or_insert((digest, world.tick(), [pose; 2]));
-        // Conservative: any negative axis at either endpoint may flip parity
-        // somewhere between them.
-        let mirrored = |pair: &[exact_game::Transform; 2]| {
-            pair.iter().any(|t| t.scale.cmplt(glam::Vec3::ZERO).any())
-        };
-        if full.is_some_and(|(_, initial)| initial)
-            || saved.0 != digest
-            || crate::world::scene::snap(world, history.entity, false)
-        {
-            saved.2 = [pose; 2];
-        } else {
-            if saved.1 != world.tick() {
-                saved.2[0] = saved.2[1];
-            }
-            saved.2[1] = pose;
-        }
-        saved.0 = digest;
-        saved.1 = world.tick();
-        let now = mirrored(&saved.2);
-        if saved.2[0] != saved.2[1] {
-            self.moving.push(i);
-        }
-        if history.mirrored != now {
-            history.mirrored = now;
-            if now {
-                self.mirrored += 1;
-            } else {
-                self.mirrored -= 1;
-            }
-        }
-        if let Some(active) = self.poses.get_mut(i) {
-            *active = saved.2;
-        }
-    }
-}
+
 fn material_bind(
     device: &wgpu::Device,
     queue: &wgpu::Queue,

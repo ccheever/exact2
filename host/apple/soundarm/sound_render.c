@@ -1,4 +1,4 @@
-// @ref LLP 1096 D6, D8. See sound_render.h.
+// @ref LLP 1096 D6, D8, LLP 1125 D10. See sound_render.h.
 #include "sound_render.h"
 #include <math.h>
 #include <stdatomic.h>
@@ -6,7 +6,7 @@
 #include <string.h>
 #include <mach/mach_time.h>
 
-typedef struct { uint32_t kind; uint32_t sound; uint64_t id; double at; float gain; } Op;
+typedef struct { uint32_t kind; uint32_t sound; uint64_t id; double at; float gain, rate, pan; } Op;
 
 typedef struct {
     bool live, started;
@@ -14,10 +14,13 @@ typedef struct {
     uint32_t sound;
     double start, end;   // host seconds at the speaker; `end` infinite until an End
     float gain;
-    uint32_t position;   // frames of its sound already played
+    double position;     // where in its sound the next frame reads, in frames
+    double rate;         // frames of its sound a frame of output
+    bool panned;
+    float pan, left, right;  // the pan and its equal-power gains, set when the voice starts
 } Voice;
 
-typedef struct { const float *planes; uint32_t frames; } Sound;
+typedef struct { const float *planes; uint32_t frames, source; } Sound;
 
 struct ExactMixer {
     uint32_t channels;
@@ -46,7 +49,7 @@ void exact_sound_mixer_free(ExactMixer *m) {
     free(m);
 }
 
-void exact_sound_set(ExactMixer *m, uint32_t index, const float *planes, uint32_t frames) {
+void exact_sound_set(ExactMixer *m, uint32_t index, const float *planes, uint32_t frames, uint32_t source) {
     // Called before the engine starts (or while it is stopped): not on the render thread.
     if (index >= m->count) {
         Sound *grown = realloc(m->sounds, (index + 1) * sizeof(Sound));
@@ -55,17 +58,17 @@ void exact_sound_set(ExactMixer *m, uint32_t index, const float *planes, uint32_
         m->sounds = grown;
         m->count = index + 1;
     }
-    m->sounds[index] = (Sound){ planes, frames };
+    m->sounds[index] = (Sound){ planes, frames, source };
 }
 
-bool exact_sound_push(ExactMixer *m, uint32_t kind, uint64_t id, uint32_t sound, double at, float gain) {
+bool exact_sound_push(ExactMixer *m, uint32_t kind, uint64_t id, uint32_t sound, double at, float gain, float rate, float pan) {
     uint32_t tail = atomic_load_explicit(&m->tail, memory_order_relaxed);
     uint32_t head = atomic_load_explicit(&m->head, memory_order_acquire);
     if (tail - head >= EXACT_SOUND_RING) {
         atomic_fetch_add_explicit(&m->dropped, 1, memory_order_relaxed);
         return false;
     }
-    m->ring[tail % EXACT_SOUND_RING] = (Op){ kind, sound, id, at, gain };
+    m->ring[tail % EXACT_SOUND_RING] = (Op){ kind, sound, id, at, gain, rate, pan };
     atomic_store_explicit(&m->tail, tail + 1, memory_order_release);
     return true;
 }
@@ -88,7 +91,20 @@ static void apply(ExactMixer *m) {
                 atomic_fetch_add_explicit(&m->dropped, 1, memory_order_relaxed);
                 continue;
             }
-            *free_slot = (Voice){ true, false, op.id, op.sound, op.at, INFINITY, op.gain, 0 };
+            Voice v = { .live = true, .id = op.id, .sound = op.sound, .start = op.at, .end = INFINITY, .gain = op.gain,
+                        .rate = isfinite(op.rate) && op.rate > 0 ? op.rate : 1 };
+            // A pan of 0 leaves the voice as it was: no panner, its level unchanged.
+            if (isfinite(op.pan) && op.pan != 0) {
+                // Web Audio 1.1, StereoPannerNode: a mono input's x is (pan + 1) / 2; a stereo
+                // input's is pan + 1 left of centre and pan right of it, its far side kept whole.
+                float pan = fminf(fmaxf(op.pan, -1), 1);
+                double x = m->sounds[op.sound].source >= 2 ? (pan <= 0 ? pan + 1 : pan) : (pan + 1) / 2;
+                v.panned = true;
+                v.pan = pan;
+                v.left = (float)cos(x * M_PI / 2);
+                v.right = (float)sin(x * M_PI / 2);
+            }
+            *free_slot = v;
         } else if (op.kind == 2) {
             for (int i = 0; i < EXACT_SOUND_SLOTS; i++) {
                 Voice *v = &m->slots[i];
@@ -99,6 +115,13 @@ static void apply(ExactMixer *m) {
         }
     }
     atomic_store_explicit(&m->head, head, memory_order_release);
+}
+
+/// Plane `c` of `sound` between frame `k` and `k + 1`, `fraction` of the way.
+static inline float sample(const Sound *sound, uint32_t c, uint32_t k, float fraction) {
+    const float *plane = sound->planes + (size_t)c * sound->frames;
+    float a = plane[k], b = k + 1 < sound->frames ? plane[k + 1] : 0;
+    return a + (b - a) * fraction;
 }
 
 /// Host ticks (mach_absolute_time, CACurrentMediaTime's base) as seconds.
@@ -139,11 +162,41 @@ bool exact_sound_render(ExactMixer *m, const AudioTimeStamp *ts, uint32_t frames
         // Cut before it sounded here, or ended in an earlier buffer.
         if (stop <= begin) { v->live = false; continue; }
         v->started = true;
-        for (int64_t i = begin; i < stop && v->position < sound->frames; i++, v->position++) {
-            for (uint32_t c = 0; c < m->channels; c++) {
-                float x = sound->planes[(size_t)c * sound->frames + v->position] * v->gain;
-                if (interleaved) ((float *)out->mBuffers[0].mData)[i * m->channels + c] += x;
-                else if (c < out->mNumberBuffers) ((float *)out->mBuffers[c].mData)[i] += x;
+        // A stereo sound for a mono output keeps both its planes (exact_sound_set).
+        uint32_t stored = m->channels == 1 && sound->source >= 2 ? 2 : m->channels;
+        for (int64_t i = begin; i < stop && v->position < sound->frames; i++, v->position += v->rate) {
+            // Between frame k and k + 1 by linear interpolation; past the last frame is silence.
+            // At the file's own rate the fraction is 0, and the frame is read as it is.
+            uint32_t k = (uint32_t)v->position;
+            float fraction = (float)(v->position - k);
+            if (!v->panned && stored == m->channels) {
+                for (uint32_t c = 0; c < m->channels; c++) {
+                    float x = sample(sound, c, k, fraction) * v->gain;
+                    if (interleaved) ((float *)out->mBuffers[0].mData)[i * m->channels + c] += x;
+                    else if (c < out->mNumberBuffers) ((float *)out->mBuffers[c].mData)[i] += x;
+                }
+                sounded = true;
+                continue;
+            }
+            // A mono sound's planes are copies of it, so its left is all of it.
+            float l = sample(sound, 0, k, fraction), r = stored > 1 ? sample(sound, 1, k, fraction) : l;
+            float outL = l, outR = r;
+            if (v->panned) {
+                if (sound->source < 2) { outL = l * v->left; outR = l * v->right; }
+                else if (v->pan <= 0) { outL = l + r * v->left; outR = r * v->right; }
+                else { outL = l * v->left; outR = r + l * v->right; }
+            }
+            if (m->channels == 1) {
+                // Web Audio 1.1's speaker down-mix of stereo to mono: 0.5 × (L + R).
+                ((float *)out->mBuffers[0].mData)[i] += 0.5f * (outL + outR) * v->gain;
+            } else if (interleaved) {
+                // The channels past the second take nothing, as a destination up-mixing the
+                // panner's stereo output gives them.
+                ((float *)out->mBuffers[0].mData)[i * m->channels] += outL * v->gain;
+                ((float *)out->mBuffers[0].mData)[i * m->channels + 1] += outR * v->gain;
+            } else {
+                ((float *)out->mBuffers[0].mData)[i] += outL * v->gain;
+                if (out->mNumberBuffers > 1) ((float *)out->mBuffers[1].mData)[i] += outR * v->gain;
             }
             sounded = true;
         }

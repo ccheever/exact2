@@ -706,6 +706,11 @@ fn every_content_part_ends_with_one_working_call() {
                     .map(|e| format!("{part}: [{}] {}", e.id, e.message)),
             );
         }
+        let warnings = if *part == "RoundButton" {
+            super::text_px_width::without_round_button_widths(warnings)
+        } else {
+            warnings
+        };
         failures.extend(
             warnings
                 .iter()
@@ -900,5 +905,25 @@ fn transform_vocab_names_the_box_refusal_and_individual_properties() {
         ] {
             assert!(note.contains(expected), "{expected}: {note}");
         }
+    }
+}
+
+#[test]
+fn text_width_vocabulary_names_the_accessibility_warning_and_rem_repair() {
+    for name in ["width", "font-size"] {
+        let out = stdout(&vocab(&[name]));
+        assert!(
+            out.contains("lower-text-px-width")
+                && out.contains("rem")
+                && out.contains("Apple")
+                && out.contains("web controls inherit")
+                && !out.contains("native controls start with their own scalable font"),
+            "{out}"
+        );
+        let doc: Value = serde_json::from_str(&stdout(&vocab(&[name, "--json"]))).unwrap();
+        assert!(doc["attribute"]["note"]
+            .as_str()
+            .unwrap()
+            .contains("lower-text-px-width"));
     }
 }

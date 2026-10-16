@@ -447,7 +447,8 @@ pub enum Step {
         /// Where.
         span: Span,
     },
-    /// `expect sound has|missing "src" [at N] [gain N] [ends N] [by word]`
+    /// `expect sound has|missing "src" [at N] [gain N] [ends N]
+    /// [playbackRate N] [pan N] [by word]`
     /// (LLP 1096 D10): a voice in the runner's record of that source that
     /// matches every clause given, or none that does.
     ExpectSound {
@@ -461,6 +462,10 @@ pub enum Step {
         gain: Option<f64>,
         /// Its end, in runner milliseconds.
         ends: Option<f64>,
+        /// Its playback rate (LLP 1125 D10); a voice without one has 1.
+        playback_rate: Option<f64>,
+        /// Its pan; a voice without one has 0.
+        pan: Option<f64>,
         /// How it ended: `end`, `group`, `cut`, `stop` or `cancelled` (D4).
         by: Option<String>,
         /// Where.

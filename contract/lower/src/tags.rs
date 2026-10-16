@@ -566,6 +566,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "swipeIndicator" => AttrTarget::Prop(p("swipeIndicator")),
         "aria-live" => AttrTarget::Prop(p("accessibilityLive")),
         "aria-busy" => AttrTarget::Prop(p("accessibilityBusy")),
+        "aria-atomic" => AttrTarget::Prop(p("accessibilityAtomic")),
         "autofocus" => AttrTarget::Prop(p("autofocus")),
         "action" => AttrTarget::Prop(p("action")),
         "aria-label" => AttrTarget::Prop(p("accessibilityLabel")),
@@ -970,9 +971,7 @@ pub(crate) fn html_tag(name: &str) -> Option<&'static str> {
         "label" => {
             "a label is `text` beside its field, and the field is named by `aria-label` (or `aria-labelledby` with the text's `id`)"
         }
-        "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "heading" => {
-            "a heading is `text role=\"heading\" aria-level=1` (2 and on for the level)"
-        }
+        "heading" => "a heading is `h1` (to `h6` for the level)",
         // The app farm's guesses (round 1): each names the Contract form
         // that does the job.
         "small" | "code" | "pre" | "paragraph" | "subtitle" => {

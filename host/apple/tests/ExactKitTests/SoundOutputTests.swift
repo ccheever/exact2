@@ -21,10 +21,12 @@ private enum Arm {
     nonisolated(unsafe) static var refuseStart: String?
     nonisolated(unsafe) static var running: UInt64 = 0
     nonisolated(unsafe) static var plays: [UInt64] = []
+    /// Each play's playback rate and pan.
+    nonisolated(unsafe) static var placed: [[Float]] = []
     /// Every engine call's `what`.
     nonisolated(unsafe) static var engine: [UInt32] = []
     nonisolated(unsafe) static var closes = 0
-    static func reset() { opens = []; refuse = nil; refuseStart = nil; running = 0; plays = []; engine = []; closes = 0 }
+    static func reset() { opens = []; refuse = nil; refuseStart = nil; running = 0; plays = []; placed = []; engine = []; closes = 0 }
     static let library = SoundLibrary(
         open: { _, _, _, _, start, reason, size in
             Arm.opens.append(start)
@@ -32,7 +34,7 @@ private enum Arm {
             Arm.running = start ? 1 : 0
             return UnsafeMutableRawPointer(bitPattern: 0x5011)
         },
-        op: { _, kind, id, _, _, _ in if kind == 1 { Arm.plays.append(id) } },
+        op: { _, kind, id, _, _, _, rate, pan in if kind == 1 { Arm.plays.append(id); Arm.placed.append([rate, pan]) } },
         counts: { _, out in out?[3] = Arm.running },
         engine: { _, what, reason, size in
             Arm.engine.append(what)
@@ -90,6 +92,13 @@ final class SoundOutputTests: XCTestCase {
         play(output, 2)
         XCTAssertEqual(Arm.opens.count, 1, "once")
         XCTAssertEqual(Arm.plays, [1, 2])
+    }
+
+    func testAPlayCarriesItsPlaybackRateAndPanToTheMixer() {
+        let output = output()
+        play(output, 1)
+        output.apply(["ops": [["op": "play", "id": 2, "sound": 0, "at": 0, "gain": 1, "playbackRate": 1.5, "pan": -0.25]]])
+        XCTAssertEqual(Arm.placed, [[1, 0], [1.5, -0.25]], "a play without them is at rate 1, unpanned (LLP 1125 D10)")
     }
 
     func testAFailedOpenIsJournaledReportedSkippedAndTriedAgainASecondLater() {

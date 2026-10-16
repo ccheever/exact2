@@ -1548,6 +1548,12 @@
       "name": "navigationGrabber",
       "kind": "str",
       "_comment": "@ref LLP 1115 §2 (what the author writes wins): a sheet route's grabber, `visible`, `hidden` or `auto` (the default: the platform's, shown on a sheet with several detents, as the HIG puts one on a resizable sheet). UIKit's `prefersGrabberVisible`, SwiftUI's `presentationDragIndicator`; iOS reads it, hosts whose sheets have no grabber ignore it."
+    },
+    {
+      "id": 267,
+      "name": "accessibilityAtomic",
+      "kind": "bool",
+      "_comment": "@ref LLP 1116.018 D3: WAI-ARIA's `aria-atomic`, whether a live region is announced whole. The web hosts write it; the Apple and Linux hosts announce a live region's whole text already, so `true` holds there and `false` is announced whole too (a declared deviation)."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",

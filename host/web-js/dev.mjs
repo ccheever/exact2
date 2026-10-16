@@ -13,7 +13,7 @@
 // place in ~20 ms, state carried).
 import { spawn } from 'node:child_process';
 import { createServer, request } from 'node:http';
-import { existsSync, lstatSync, readFileSync, rmSync, statSync, watch, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, rmSync, statSync, utimesSync, watch, writeFileSync } from 'node:fs';
 import { dirname, relative, resolve } from 'node:path';
 import { acceptsHTML, appDocumentPath, webRequestURL } from '../../scripts/origin.mjs';
 import { compilerWarnings, INPUT_TREE, OUTPUT, listenOn } from '../../scripts/agent-launch.mjs';
@@ -21,7 +21,7 @@ import { appManifestDigest, buildFileCards, buildTreeFile, replaceBuild, saveTra
 import { localInstaller } from '../web/local-install.mjs';
 import { designPath, tamberServer } from '../../scripts/tamber-server.mjs';
 import { serveCommands, serveReport } from '../../scripts/tamber-builds.mjs';
-import { webCompiler } from './module.mjs';
+import { fresh, webCompiler } from './module.mjs';
 
 const CHECKPOINT_BYTES = 16 * 1024 * 1024, CHECKPOINTS = 8;
 
@@ -117,30 +117,147 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   // `released`: that scrub is being written; the build of what it writes
   // goes from it, and ends it.
   let scrubbed = null, aside = null, released = false;
+  // A design (`exact-web-js design`), read from the compiler with no build:
+  // a value-only edit's and a scrub's. Optimised (host-dev), built as the
+  // loop starts and again after any edit that is not a design's, so it is
+  // the compiler the builds use; until it is, the debug compiler answers.
+  const tool = { path: resolve(process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(root, 'target'), 'host-dev/exact-web-js'), ready: false, child: null, reading: null };
+  // Cargo and the compilers it runs, as a group (stopped together).
+  const stopGroup = (child) => { if (!child) return; try { process.kill(-child.pid, 'SIGTERM'); } catch { child.kill(); } };
+  const buildTool = () => {
+    tool.ready = false;
+    stopGroup(tool.child);
+    const started = new Date();
+    const child = tool.child = spawn('cargo', ['build', '-q', '--profile', 'host-dev', '-p', 'exact-web-js'], { cwd: root, stdio: ['ignore', 'ignore', 'pipe'], detached: true });
+    let err = '';
+    child.stderr.on('data', (d) => { err = (err + d).slice(-2000); });
+    child.on('error', (e) => { if (tool.child === child) { tool.child = null; console.log(`the design reader did not build (design edits take the full build): ${e.message}`); } });
+    child.on('exit', (code, signal) => {
+      if (tool.child !== child) return;
+      tool.child = null;
+      tool.ready = code === 0 && existsSync(tool.path);
+      // Dated to the build's start, as Cargo dates its fingerprints: a
+      // source saved while it compiled makes it stale (`fresh`).
+      if (tool.ready) { try { utimesSync(tool.path, started, started); } catch { tool.ready = false; } }
+      if (!tool.ready && !signal) console.log(`the design reader did not build (design edits take the full build):\n${err.trim().split('\n').slice(-4).join('\n')}`);
+    });
+  };
+  // Ready, and built from the compiler's sources as they are (a compiler
+  // edit the loop does not watch, under contract/ or kernel/, rebuilds it).
+  const toolFresh = () => {
+    if (!tool.ready) return false;
+    if (fresh(tool.path, `${tool.path}.d`)) return true;
+    buildTool();
+    return false;
+  };
+  buildTool();
+  const designOf = (text) => new Promise((done) => {
+    const compiler = toolFresh() ? { cmd: tool.path, pre: [] } : webCompiler();
+    // A group: the debug fallback is a `cargo run`, stopped with its compilers.
+    const child = tool.reading = spawn(compiler.cmd, [...compiler.pre, 'design', resolve(app.dir, 'app.contract'), '-'], { cwd: root, stdio: ['pipe', 'pipe', 'pipe'], detached: true });
+    child.on('error', (e) => done({ error: e.message }));
+    child.stdin.on('error', () => {});
+    child.stdin.end(text);
+    let out = '', err = '';
+    child.stdout.on('data', (d) => { out += d; });
+    child.stderr.on('data', (d) => { err += d; });
+    // `close`: its output read whole.
+    child.on('close', (code) => {
+      if (tool.reading === child) tool.reading = null;
+      try { done(code === 0 ? JSON.parse(out) : { error: err.trim().split('\n').slice(-6).join('\n') || `the compiler exited ${code}` }); } catch (e) { done({ error: e.message }); }
+    });
+  });
+  // The design's shape and the plan's structure (a profile colour's value
+  // is in it) as a kept build requires, and each token's accent.
+  const sameShape = (from, next) => from && next && from.shape === next.shape && from.structure === next.structure && from.tokens.length === next.tokens.length
+    && next.tokens.every((t, i) => t.name === from.tokens[i].name && String(t.accent) === String(from.tokens[i].accent));
+  // A fast batch is checked by the full build after it (`verifying`): the
+  // design's module inputs and its compile; a value-only edit during that
+  // build is sent at once and checked again after (`fastSeq`).
+  let designing = false, verifying = false, fastSeq = 0, stopping = false;
   // The files edited since the last build, by path: only design files may
   // be a value-only edit.
   const edited = new Set(), appeared = new Set();
   let seq = 1, saved = 0, again = false, timer = null, since = t0;
   const pending = new Map(); // seq -> the save it answers
   const rebuild = async () => {
-    if (building) { again = true; return; }
-    const at = saved, t = since = Date.now();
+    const at = saved, t = Date.now();
     // A path that existed during the save and is gone by now (an editor's
     // or sed's temporary file) edited nothing; one already gone when its
     // event came (a deleted asset) is an edit.
     const designs = [...edited].filter((path) => path.endsWith('.tamber'));
     const designOnly = designs.length > 0 && [...edited].every((path) => path.endsWith('.tamber') || (!existsSync(path) && appeared.has(path)));
+    // A value-only design edit (LLP 1121 stage 4): its design from the
+    // compiler, no build, sent as a batch; the page in dist stays, as a kept
+    // build's does; the full build after it checks what the read cannot (the
+    // modules' inputs, the whole compile). One that moves the design's shape
+    // (or fails) builds. Only the app's own design: another .tamber may be
+    // any build's input.
+    const file = designPath(app.dir);
+    const fast = designOnly && design && designs.every((path) => path === file);
+    if (designing || (building && !(verifying && fast))) { again = true; return; }
     // Kept until a build lands: a failed one's edits are the next build's too.
     const pendingEdits = [...edited], pendingAppeared = [...appeared];
     edited.clear(); appeared.clear();
+    if (fast && toolFresh()) {
+      designing = true;
+      let next;
+      try { next = existsSync(file) ? await designOf(readFileSync(file, 'utf8')) : { error: 'no design' }; } catch (e) { next = { error: e.message }; } finally { designing = false; }
+      // The loop stopped while it read: no build follows.
+      if (stopping) return;
+      if (!next.error && sameShape(design, next)) {
+        const from = scrubbed ?? design;
+        design = next;
+        const committed = { kind: 'tamber-snapshot', structure: design.shape, base: null, design: design.digest, tokens: design.tokens };
+        if (scrubbed && released) { scrubbed = null; aside = null; released = false; }
+        if (scrubbed) aside = committed; else snapshot = committed;
+        const tokens = design.tokens.filter((tk, i) => !same(tk, from.tokens[i]));
+        if (tokens.length && !scrubbed) {
+          console.log(`edit → batch ready ${Date.now() - at} ms (design read in ${Date.now() - t} ms, no build) · ${tokens.length} token${tokens.length === 1 ? '' : 's'} to ${clients.size} page${clients.size === 1 ? '' : 's'}, no reload`);
+          const batch = framed({ kind: 'tamber-batch', structure: design.shape, base: from.digest, design: design.digest, tokens });
+          push(batch);
+          tamber?.channel.broadcast(batch);
+        }
+        fastSeq++;
+        // A check already under way is done again after it.
+        if (building) { again = true; return; }
+      }
+    }
+    if (building) { for (const p of pendingEdits) edited.add(p); for (const p of pendingAppeared) appeared.add(p); again = true; return; }
+    // Anything else may move the compiler: the design tool is built again.
+    if (!designOnly) buildTool();
+    // What a full build reads from disk is what changed since it began.
+    since = t;
+    verifying = fast;
+    const seqAtStart = fastSeq, hadError = error;
     const keep = (next, logic) => designOnly && design && next && logic === logicRevision
       && next.structure === design.structure && next.tokens.length === design.tokens.length
       && next.tokens.every((t, i) => t.name === design.tokens[i].name && String(t.accent) === String(design.tokens[i].accent));
-    built = await build(app, dist, keep); error = built.error;
+    built = await build(app, dist, keep);
+    verifying = false;
+    // A value-only edit was sent while this built: what it built is behind
+    // the pages, so it changes nothing and builds again.
+    if (fast && fastSeq !== seqAtStart) {
+      watchPackages(built.packages);
+      // What it put in dist is published, though: new module code reloads
+      // the pages, which take the design from the snapshot.
+      if (!built.error && !built.kept) {
+        logicRevision = built.logic;
+        pending.set(++seq, at);
+        push({ reload: seq, revision: logicRevision });
+      }
+      edited.add(file);
+      again = false;
+      rebuild();
+      return;
+    }
+    error = built.error;
     // The design the pages run now (a scrub's preview, or its end, may have
     // come while it built).
     const from = scrubbed ?? design;
     watchPackages(built.packages);
+    // A repair clears the page's error.
+    if (!error && hadError) push({ error: null });
     if (error) {
       for (const p of pendingEdits) edited.add(p);
       for (const p of pendingAppeared) appeared.add(p);
@@ -258,20 +375,8 @@ let due=false;const moved=()=>{if(due||!ch.nonce)return;due=true;setTimeout(()=>
 const pin=m=>{liveQ=liveQ.then(async()=>{await ready();const r=document.documentElement.style,p=m.pin,x=globalThis.exact;ch.before??={fontSize:r.fontSize,hostFont:r.getPropertyValue('--exact-host-font-size'),mode:x?.modes?.read?.()??{}};const sh=document.getElementById('exact-dev-pin')??document.head.appendChild(Object.assign(document.createElement('style'),{id:'exact-dev-pin'}));sh.textContent=p?.scheme?':root{color-scheme:'+p.scheme+'}':'';if((x.systemScheme??null)!==(p?.scheme??null)){x.systemScheme=p?.scheme??null;dispatchEvent(new Event('resize'))}r.fontSize=p?.rootFontSize?p.rootFontSize+'px':ch.before.fontSize;if(p?.rootFontSize)r.setProperty('--exact-host-font-size',r.fontSize);else if(ch.before.hostFont)r.setProperty('--exact-host-font-size',ch.before.hostFont);else r.removeProperty('--exact-host-font-size');const mode=Object.entries({...ch.before.mode,...(p?.mode??{})});if(mode.length&&x?.modes?.set){const why=x.modes.set(mode);if(why){rep({kind:'unsupported',what:'pin.mode',detail:why});x.modes.set(Object.entries(ch.before.mode))}}if(p?.contrast)rep({kind:'unsupported',what:'pin.contrast',detail:"a web page cannot pin the browser's contrast"});if(!p)ch.before=null;ch.revision=m.revision;status()}).catch(e=>console.error('exact dev:',e))};
 es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==='tamber-snapshot'){live(m);return}if(m.kind==='pin'){pin(m);return}if(m.kind==='inspect'||m.kind==='outline'||m.kind==='hold'){rep({kind:'unsupported',what:m.kind});return}if(m.nonce&&m.nonce!==ch.nonce){const n=ch.nonce=m.nonce;ch.registered=ready().then(async()=>(await post(n,{kind:'register',id:await bid,host:'web-js',capabilities:['pin'],plan:null,design:globalThis.exact?.designDigest??null})).ok).catch(()=>false);status()}if(m.error!==undefined)show(m.error);if(m.reload>seq&&!reloading){reloading=true;if(!globalThis.exact){location.reload();return}ready().then(async()=>{const checkpoint=capture(m.revision!==logicRevision),id=crypto.getRandomValues(new Uint32Array(4)).join('-');console.info('exact dev reload: checkpoint',m.reload);const saved=await fetch('/__dev/checkpoint?id='+id+'&seq='+m.reload+'&revision='+encodeURIComponent(m.revision??''),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(checkpoint)});if(!saved.ok)throw new Error('checkpoint handoff answered '+saved.status);const next=new URL(location.href);next.searchParams.set('__exactDev',id);if(admission)for(const [k,v]of admission)if(!next.searchParams.has(k))next.searchParams.set(k,v);location.replace(next.href)}).catch(e=>{reloading=false;console.error('exact dev reload: current page retained; checkpoint handoff failed',e)})}}})()</script>`;
   const checkpoints = new Map();
-  /** A scrub's design: the compiler's (`exact-web-js design`) with its text,
-   * on stdin, in place of the design file's; written nowhere. */
-  const scrubDesign = (text) => new Promise((done) => {
-    const compiler = webCompiler();
-    const child = spawn(compiler.cmd, [...compiler.pre, 'design', resolve(app.dir, 'app.contract'), '-'], { cwd: root, stdio: ['pipe', 'pipe', 'pipe'] });
-    child.stdin.on('error', () => {});
-    child.stdin.end(text);
-    let out = '', err = '';
-    child.stdout.on('data', (d) => { out += d; });
-    child.stderr.on('data', (d) => { err += d; });
-    child.on('exit', (code) => {
-      try { done(code === 0 ? JSON.parse(out) : { error: err.trim().split('\n').slice(-6).join('\n') || `the compiler exited ${code}` }); } catch (e) { done({ error: e.message }); }
-    });
-  });
+  /** A scrub's design: the compiler's, with its text in place of the design file's; written nowhere. */
+  const scrubDesign = designOf;
   /** Preview a scrub's texts: a batch from the design the pages run, as a
    * value-only edit sends one, and its snapshot for a page that asks. */
   async function scrubPreview(texts) {
@@ -450,7 +555,8 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
     }, (e) => { if (gone) return; res.writeHead(503, { 'content-type': 'text/plain', 'cache-control': 'no-store' }); res.end(`${e.message}\n`); });
   };
   const stop = async () => {
-    for (const w of watchers) w.close(); building?.kill('SIGKILL'); residentChild?.kill('SIGTERM'); server.close();
+    stopping = true;
+    for (const w of watchers) w.close(); building?.kill('SIGKILL'); stopGroup(tool.child); stopGroup(tool.reading); residentChild?.kill('SIGTERM'); server.close();
     // The design server lets go of its lock before this exits.
     await tamber?.close();
     // A local iOS build in flight is stopped and waited for, as the resident loop does.
@@ -463,7 +569,7 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
   process.on('SIGHUP', stop);
   watchLauncher(stop);
   await new Promise((ok, fail) => { server.on('error', fail); server.listen(port, host, ok); })
-    .catch((e) => { console.error(`cannot listen on ${host}:${port}: ${e.code ?? e.message}${e.code === 'EADDRINUSE' ? ' (another dev loop? --port <n> picks another)' : ''}`); process.exit(1); });
+    .catch((e) => { console.error(`cannot listen on ${host}:${port}: ${e.code ?? e.message}${e.code === 'EADDRINUSE' ? ' (another dev loop? --port <n> picks another)' : ''}`); stopGroup(tool.child); process.exit(1); });
   const urls = origins.map((o) => `${o.origin}/`);
   console.log(urls.join('\n'));
   console.log(urls.map(url => `  Open in native: ${url}__dev/open`).join('\n'));

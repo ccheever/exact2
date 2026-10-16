@@ -15,7 +15,7 @@ component Pad
 ```
 
 ```swift
-import UIKit // for macOS too, import AppKit under #if os(macOS)
+import UIKit // AppKit on macOS, under #if os(macOS)
 
 final class Pad: ExactModule {
     override class var views: [String: ExactNativeFactory] {
@@ -49,19 +49,18 @@ final class Strip: ExactNativeInstance {
 }
 ```
 
-- **Props are strings**, the whole object again on each change. A name Contract knows
-  is the box's, not the module's: an attribute or event (`value`, `size`, `name`,
-  `title`, `input`, `playing`). Check a name with `contract vocab <name>`.
+- **Props are strings**, the whole object on each change. A name Contract knows
+  (`value`, `size`, `title`, `playing`) is the box's, not the module's: `contract vocab <name>`.
 - **Events:** `events.message(text)` runs `message=`; `press()`, `change(v)`, `load()` likewise.
-- **Time is the session's:** `context.frames` and `context.after(ms)`, never a
-  `CADisplayLink` or `DispatchQueue` timer, so the agent's `clock +N` moves the animation
-  and a drive repeats.
-- **Touches:** recognizers on the view. A touch its `point(inside:)` declines goes to what
-  is under the box (a capsule blocks only its shape), unless the box has `press=` or
-  `isUserInteractionEnabled = false`.
-  The agent's plain `tap` runs no recognizer: use `agent ios --touch platform`.
-- **Size:** `intrinsicSize` is the natural size; an authored `width`, `height` wins.
+- **Time is the session's:** `context.frames`, `context.after(ms)`, never a
+  `CADisplayLink` or a timer, so `clock +N` moves the animation.
+- **Touches:** recognizers on the view; one its `point(inside:)` declines goes to what is
+  under the box unless it has `press=`. Plain `tap` runs none: `agent ios --touch platform`.
+- **Size:** `intrinsicSize` is the natural size; an authored size wins.
 - **Accessibility:** [native views](../contract-for-agents.md#native-views-accessibility).
+- **Data:** `app.ts` asks: `native!.watch('state'); return native!.call({op: 'state'});`. The
+  build has no module, so the resource shows its `else` row until launch: write no bake code.
+- **A crash:** `agent ios logs` shows this build's newest crash report on this simulator.
 - **First frame:** views attach after first paint. Only a cheap one it shows (a splash)
   says `ExactNativeFactory(firstFrame: true)`, never an engine's. The module is made with
   it, on main: make an `AVAudioEngine` on first use, not in `init`.

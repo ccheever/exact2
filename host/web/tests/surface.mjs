@@ -39,7 +39,8 @@ export async function fixture(options = {}) {
     gpu_assets: () => '{"requests":[],"retired":[]}', gpu_asset: () => true, gpu_lifecycle: () => true, gpu_clock: () => true, gpu_period: () => {},
   };
   const glue = readFileSync(process.env.R8A_GLUE_SOURCE || new URL('../glue.js', import.meta.url), 'utf8');
-  const applySource = glue.slice(glue.indexOf('function applyBatch(batch)'), glue.indexOf('\nfunction send(', glue.indexOf('function applyBatch(batch)')));
+  // Up to the top-level function's closing brace: what follows it in glue.js can end in a line comment.
+  const applySource = glue.slice(glue.indexOf('function applyBatch(batch)'), glue.indexOf('\n}\n', glue.indexOf('function applyBatch(batch)')) + 2);
   const operationSource = glue.slice(glue.indexOf('function apply(batch)'), glue.indexOf('function applyBatch(batch)', glue.indexOf('function apply(batch)')));
   const applyOperations = new Function('exact', 'views', 'globalThis', `
     let timelinesMoved = false;

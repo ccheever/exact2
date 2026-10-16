@@ -292,3 +292,282 @@ fn flag(span: Span, seen: &mut BTreeSet<(u32, u32, u32, u32)>, out: &mut Vec<Low
         span,
     });
 }
+
+/// @ref LLP 1116.011 D2.4 — role text grows with accessibility sizes; px widths do not.
+pub(super) fn text_px_width(
+    view: &[Node],
+    styles: &[StyleDecl],
+    lowered: &super::TextStyles,
+    out: &mut Vec<LowerError>,
+) {
+    text_widths(
+        view,
+        Some(true),
+        TextContext::default(),
+        styles,
+        lowered,
+        &mut BTreeSet::new(),
+        out,
+    );
+}
+
+/// `inherit` and `unset` use the CSS parent even where `em` uses a native
+/// control font. An unknown font is not evidence for a warning.
+fn scaling_font(
+    attr: Option<&Attr>,
+    inherited: Option<bool>,
+    em: Option<bool>,
+    default: Option<bool>,
+) -> Option<bool> {
+    let Some(attr) = attr else {
+        return default;
+    };
+    let value = if attr.name == "font" {
+        crate::shorthands::component(&attr.value, "font", 2).ok()?
+    } else {
+        attr.value.clone()
+    };
+    match value {
+        Expr::Number(..) => Some(false),
+        Expr::Str(ref s, _) => {
+            use exact_kernel::style::{
+                relative::{parse, Unit},
+                StyleValue,
+            };
+            if StyleValue::text_unsets(s, exact_kernel::StyleId::FontSize) {
+                return inherited;
+            }
+            if absolute_length(&value).is_some() {
+                return Some(false);
+            }
+            match parse(s) {
+                Some((_, 0.0)) => Some(false),
+                Some((Unit::Rem | Unit::TextStyle(_), _)) => Some(true),
+                Some((Unit::Em, _)) => em,
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Use the kernel's simplification: absolute CSS units and absolute math
+/// become points; percentages, viewport lengths and environment reads do not.
+fn absolute_length(value: &Expr) -> Option<f64> {
+    use exact_kernel::style::Dimension;
+    match value {
+        Expr::Number(n, _) if n.is_finite() => Some(*n),
+        Expr::Str(s, _) => match Dimension::parse_calc(&format!("calc({s})")) {
+            Some(Dimension::Points(n)) if n.is_finite() => Some(f64::from(n)),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Relative bounds are only fixed when their basis is an authored absolute font.
+fn fixed_bound(value: &Expr, font: Option<&Attr>) -> Option<f64> {
+    use exact_kernel::style::relative::{parse, Unit};
+    if let Some(n) = absolute_length(value) {
+        return Some(n);
+    }
+    let Expr::Str(s, _) = value else { return None };
+    match parse(s) {
+        Some((_, 0.0)) => Some(0.0),
+        Some((Unit::Em, n)) => {
+            let font = font?;
+            let size = if font.name == "font" {
+                crate::shorthands::component(&font.value, "font", 2).ok()?
+            } else {
+                font.value.clone()
+            };
+            Some(f64::from(n) * absolute_length(&size)?)
+        }
+        _ => None,
+    }
+}
+
+fn literal_word(attr: &Attr, words: &[&str]) -> bool {
+    matches!(&attr.value, Expr::Str(s, _) if words.contains(&s.trim().to_ascii_lowercase().as_str()))
+}
+
+/// Unknown positioning may hoist text to a different containing block.
+fn in_flow(rows: &[&Attr]) -> bool {
+    last(rows, "position")
+        .is_none_or(|a| literal_word(a, &["static", "relative", "sticky", "initial", "unset"]))
+}
+
+/// Only diagnose an authored width that other effective rows cannot supersede.
+fn proven_width(rows: &[&Attr], font: Option<&Attr>) -> bool {
+    let Some(width) = last(rows, "width") else {
+        return false;
+    };
+    let Some(px) = absolute_length(&width.value).filter(|n| *n > 0.0) else {
+        return false;
+    };
+    if !width.written
+        || !in_flow(rows)
+        || last(rows, "flex").is_some()
+        || last(rows, "flex-basis").is_some_and(|a| !literal_word(a, &["auto"]))
+        || last(rows, "flex-grow").is_some_and(|a| !matches!(a.value, Expr::Number(0.0, _)))
+        || last(rows, "display").is_some_and(|a| !literal_word(a, &["block", "flex", "grid"]))
+    {
+        return false;
+    }
+    let minimum = last(rows, "min-width")
+        .is_none_or(|a| fixed_bound(&a.value, font).is_some_and(|n| n <= px));
+    let maximum = last(rows, "max-width").is_none_or(|a| {
+        literal_word(a, &["none"]) || fixed_bound(&a.value, font).is_some_and(|n| n >= px)
+    });
+    minimum && maximum
+}
+
+#[derive(Clone, Copy, Default)]
+struct TextContext {
+    inline: bool,
+    svg: bool,
+    web_only: bool,
+}
+
+/// Returns whether this subtree contains text whose known font scales.
+fn text_widths(
+    nodes: &[Node],
+    inherited: Option<bool>,
+    context: TextContext,
+    styles: &[StyleDecl],
+    lowered: &super::TextStyles,
+    seen: &mut BTreeSet<(u32, u32, u32, u32)>,
+    out: &mut Vec<LowerError>,
+) -> bool {
+    let mut scales = false;
+    for node in nodes {
+        scales |= match node {
+            Node::Element {
+                tag,
+                attrs,
+                positional,
+                children,
+                span,
+                instance,
+            } => {
+                let svg = context.svg || tag == "svg";
+                if svg
+                    && matches!(
+                        tag.as_str(),
+                        "defs" | "symbol" | "clipPath" | "mask" | "pattern" | "marker"
+                    )
+                {
+                    continue;
+                }
+                let resolved = rows(attrs, styles);
+                let known_class = resolved.is_some();
+                let all = resolved
+                    .unwrap_or_else(|| attrs.iter().filter(|a| a.name != "class").collect());
+                let effective = lowered.get(&(*span, *instance, tag.clone()));
+                let layout: Vec<_> = match effective {
+                    Some(Some(style)) => style.layout.iter().collect(),
+                    _ => all.clone(),
+                };
+                if matches!(effective, Some(None))
+                    || last(&layout, "display").is_some_and(|a| {
+                        !literal_word(a, &["block", "flex", "grid", "initial", "unset"])
+                    })
+                {
+                    continue;
+                }
+                let heading = tag == "text"
+                    && matches!(last(&all, "role").map(|a| &a.value), Some(Expr::Str(v, _)) if v == "heading");
+                let field = matches!(tag.as_str(), "input" | "textarea")
+                    && contract_syntax::input_control(tag, attrs).is_none();
+                let base = if (tag == "button" || field) && !context.web_only {
+                    match effective.and_then(|s| s.as_ref()).and_then(|s| s.native) {
+                        Some(true) if known_class => Some(true),
+                        Some(false) if known_class => inherited,
+                        _ => None,
+                    }
+                } else {
+                    inherited
+                };
+                let default = if !known_class {
+                    None
+                } else if heading {
+                    Some(true)
+                } else {
+                    base
+                };
+                let font_row = match effective {
+                    Some(Some(style)) => style.font.as_ref(),
+                    _ => all
+                        .iter()
+                        .rev()
+                        .find(|a| matches!(a.name.as_str(), "font" | "font-size"))
+                        .copied(),
+                };
+                let font = if matches!(effective, Some(None)) {
+                    None
+                } else {
+                    scaling_font(font_row, inherited, base, default)
+                };
+                let child_context = TextContext {
+                    inline: !svg && tag == "text",
+                    svg: svg && tag != "foreignObject",
+                    web_only: context.web_only || tag == "foreignObject",
+                };
+                let child_scales =
+                    text_widths(children, font, child_context, styles, lowered, seen, out);
+                if svg {
+                    continue;
+                }
+                let text = positional
+                    .first()
+                    .or_else(|| last(&all, "text").map(|a| &a.value));
+                let text_scales = if tag == "text" && text.is_some() {
+                    font == Some(true) && !matches!(text, Some(Expr::Str(s, _)) if s.is_empty())
+                } else {
+                    (field && font == Some(true)) || child_scales
+                };
+                if text_scales
+                    && known_class
+                    && proven_width(&layout, font_row)
+                    && !(tag == "text" && context.inline)
+                    && seen.insert((span.source_id, span.line, span.col, span.end_col))
+                {
+                    out.push(LowerError {
+                        id: "lower-text-px-width",
+                        message: "this absolute `width` stays fixed while its text can grow at accessibility sizes and may overrun it: say the width in `rem` (for example, `width=\"3rem\"`) so it follows the root font, or let the content determine the width. Native Apple controls use the Apple control font, which can scale with Dynamic Type; web controls inherit, and Linux control defaults are fixed".into(),
+                        span: *span,
+                    });
+                }
+                text_scales
+                    && known_class
+                    && in_flow(&layout)
+                    && tag != "dialog"
+                    && last(&layout, "popover").is_none()
+            }
+            Node::When {
+                then, otherwise, ..
+            } => {
+                let yes = text_widths(then, inherited, context, styles, lowered, seen, out);
+                text_widths(otherwise, inherited, context, styles, lowered, seen, out) || yes
+            }
+            Node::Each { body, .. } => {
+                text_widths(body, inherited, context, styles, lowered, seen, out)
+            }
+            Node::Match { some, none, .. } => {
+                let yes = text_widths(&some.1, inherited, context, styles, lowered, seen, out);
+                text_widths(none, inherited, context, styles, lowered, seen, out) || yes
+            }
+            Node::Use { children, .. } => text_widths(
+                children,
+                None,
+                TextContext::default(),
+                styles,
+                lowered,
+                seen,
+                out,
+            ),
+            Node::Children { .. } => false,
+        };
+    }
+    scales
+}
