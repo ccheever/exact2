@@ -48,7 +48,8 @@ in [the adapter guide](../snapback4/README.md#personas-and-password-accounts).
 For a server-only schema, add `--online`; `snapback` and `update` preserve it.
 On a plain scaffold, `snapback --port <n>` adds the origin and fetch/storage
 grants. A computed origin or grants declaration needs an explicit edit.
-After upgrading Snapback4 or Exact's device, run `bun exact.mjs snapback --rebuild`.
+After upgrading Snapback4, run `bun exact.mjs snapback --rebuild`.
+`bun exact.mjs update` also rebuilds a mounted device after updating Exact.
 Custom mounts: add `--artifact-only` to rebuild without rewiring.
 The device's embedded `snapback4.engine` section records its identity;
 `assets/snapback4.wasm.json` is derived diagnostic output.

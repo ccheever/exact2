@@ -569,6 +569,9 @@ export function refreshTypes(dir, binary = resolve(ROOT, 'target/debug', process
 function newApp(path, {update = false, game = false, assets = false, snapback = null} = {}) {
   if (update) {
     console.log(createApp(path, {update}));
+    const manifest = resolve(path, 'app.json');
+    if (existsSync(manifest) && Object.values(JSON.parse(readFileSync(manifest, 'utf8')).typescript?.sources ?? {}).some(p => /(?:^|\/)snapback4\/ts\/?$/.test(p)))
+      console.log(wireSnapback(path, {artifactOnly:true}));
     // A file names what it uses (LLP 1091 D1): an app written before module
     // scope gets the `use` lines its files lack, as `contract fmt --uses` writes them.
     if (contract(['fmt', '--uses', resolve(path, 'app.contract')]) !== 0)
