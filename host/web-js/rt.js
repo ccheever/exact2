@@ -814,7 +814,6 @@ export function nm(e) {
     .then(h => { h.attach(e); return h.loaded; }, err => { st.state = "unavailable"; st.error = String(err?.message ?? err); say(`native ${st.name} #${id}: unavailable: ${st.error}`); })
     .finally(() => setTimeout(() => inflight.n--));
 }
-// An empty string declares nothing (`StyleValue::text_unsets`): no value, before a row's map reads it.
 export const blank = v => typeof v === "string" && !v.trim() ? null : v;
 export function S(e, prop, unit, f) { let rendered = Adopt; effect(() => { css(e, prop, unit, f(), rendered); rendered = false; }); }
 let Scratch = null;
