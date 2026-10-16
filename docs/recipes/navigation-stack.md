@@ -136,13 +136,13 @@ test "add, open, delete after asking"
   expect state lib == []
 ```
 
-- The alert holds text, closing buttons and one Cancel. By default, Escape or Back chooses
-  Cancel and a press outside does nothing; written `closedby="any"` makes outside dismissible.
-  Linux draws this confirmation as a centred Neutral modal; any other modal is a sheet
-  (`push`, `back`), closed in `then` only on an ok reply ([after-a-write](after-a-write.md)).
-- Covered routes stay mounted: no two screens share a `testId`. Tests: `clock settle` after a
-  push, sheet or alert; `clock data` before a save's read.
-- A wide window (900 px up) shows a list beside its detail when rows push (a `link` or a
-  router write); `follow` replaces it; `navigationSplit="none"` keeps it pushed.
-- An unmatched location keeps its URL and shows not-found with a way home, or the
-  `notfound` route; a detail whose id names nothing says so.
+- An alert has text, closing buttons and one Cancel. Escape/Back chooses Cancel; outside does
+  nothing unless written `closedby="any"` permits dismissal. Linux centres it;
+  any other modal is a sheet (`push`, `back`), closed in `then` only on ok
+  ([after-a-write](after-a-write.md)).
+- Routes stay mounted: use unique `testId`s. `clock settle` follows a push, sheet or alert;
+  `clock data` precedes reading a save.
+- At 900 px up, pushed rows split list and detail; `follow` replaces it and
+  `navigationSplit="none"` keeps it pushed.
+- An unmatched location keeps its URL and offers home (or uses `notfound`); a missing detail
+  says so.
