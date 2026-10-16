@@ -68,6 +68,8 @@ shell commands have no such help, so keep one directory.
 `verify`, `test web` and `agent` build and serve their own copy: no dev server. Run `verify` when the features work; `verify ios` once at the end for an iPhone app. A screen you
 want checked or captured is a test's end; a drive takes any others (`resize`, `prefer …`, `screenshot`).
 Create seam types once with `bun exact.mjs contract types app.contract -o app.contract.d.ts`.
+`contract build` refreshes that declaration after a successful compile and reports
+the change on stderr. `contract types --check app.contract` checks freshness without writing.
 Keep scratch files in `.exact/` (any other new file makes the build stale).
 
 `agent ios` is the app as a person sees it, UIKit's bars included, with screenshots a pixel a

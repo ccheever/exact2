@@ -497,9 +497,13 @@ fn unknown_handlers_continue_through_siblings_children_and_timer_targets() {
 
 #[test]
 fn checked_backend_projection_requires_every_contract_key_and_narrows_nullable_values() {
-    let fixture=Fixture::new();
-    fixture.write("projection.ts",include_str!("../../../../snapback4/online/projection.ts"));
-    let checked=fixture.check(r#"
+    let fixture = Fixture::new();
+    fixture.write(
+        "projection.ts",
+        include_str!("../../../../snapback4/online/projection.ts"),
+    );
+    let checked = fixture.check(
+        r#"
 import {pick} from './projection';
 type Note={id:string;body:string;parent:string|null};
 const project=pick<Note>();
@@ -513,6 +517,45 @@ project(row,'id','body','parent','at');
 project({...row,body:3},'id','body','parent');
 // @ts-expect-error a hidden-parent projection is nullable
 pick<{parent:string}>()(row,'parent');
-"#);
-    assert!(checked.status.success(),"{checked:?}");
+"#,
+    );
+    assert!(checked.status.success(), "{checked:?}");
+}
+
+#[test]
+fn types_check_is_read_only_and_build_reports_only_changed_declarations() {
+    let fixture = Fixture::new();
+    fixture.write("app.contract", CONTRACT);
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_contract"))
+            .args(args)
+            .current_dir(&fixture.0)
+            .output()
+            .unwrap()
+    };
+    let check = || run(&["types", "--check", "app.contract"]);
+    assert_eq!(check().status.code(), Some(1));
+    assert!(!fixture.0.join("app.contract.d.ts").exists());
+    fixture.write("app.contract.d.ts", "stale");
+    assert_eq!(check().status.code(), Some(1));
+    assert_eq!(
+        std::fs::read_to_string(fixture.0.join("app.contract.d.ts")).unwrap(),
+        "stale"
+    );
+    let built = run(&["build", "app.contract", "--json"]);
+    assert!(built.status.success(), "{built:?}");
+    assert_eq!(built.stdout, b"[]\n");
+    assert!(String::from_utf8_lossy(&built.stderr).contains("refreshed app.contract.d.ts"));
+    assert!(check().status.success());
+    let repeated = run(&["build", "app.contract", "--json"]);
+    assert!(repeated.status.success());
+    assert!(repeated.stderr.is_empty());
+    assert!(run(&["types", "app.contract", "-o", "other.d.ts"])
+        .status
+        .success());
+    assert!(
+        run(&["types", "app.contract", "--check", "-o", "other.d.ts"])
+            .status
+            .success()
+    );
 }

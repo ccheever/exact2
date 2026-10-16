@@ -130,6 +130,22 @@ pub(super) fn run(args: &[String]) -> ExitCode {
             return report_all(&errors, &warnings, json, 1);
         }
     };
+    // Existing declarations are an author's data seam. Refresh them from this
+    // successful compile, including imported source changes, without creating
+    // declarations for builds that never requested TypeScript.
+    let declaration = format!("{input}.d.ts");
+    if Path::new(&declaration).is_file() {
+        let types = match contract::typescript(&plan) {
+            Ok(types) => types,
+            Err(message) => return report(&error("contract-types", message, Some(input)), json, 1),
+        };
+        if std::fs::read(&declaration).ok().as_deref() != Some(types.as_bytes()) {
+            if let Err(error) = write_output(&declaration, types.as_bytes()) {
+                return report(&error, json, 1);
+            }
+            eprintln!("refreshed {declaration}");
+        }
+    }
     let bytes = plan.encode();
     if let Some(output) = output {
         if let Some(map) = map.as_ref().filter(|_| want_map) {
