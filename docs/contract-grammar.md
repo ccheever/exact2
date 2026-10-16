@@ -871,6 +871,20 @@ arguments precede the event payload. The table contains all 60 handler names.
 Numeric multi-argument payload ordering should be copied from the feature's
 working fixture, not inferred from JavaScript's Event interface.
 
+Six events bubble, as in the DOM: `key` and `keyup` from the focus,
+`focusin` and `focusout` from the element gaining or losing focus,
+`pointerdown` and `pointerup` from the node pressed, and `wheel` from the node
+under the pointer, each to every ancestor that declares it, innermost first
+(`keycapture` goes outermost first). An action that calls `stopPropagation()`
+stops that event at its handler, as DOM's
+[`Event.stopPropagation()`](https://dom.spec.whatwg.org/#dom-event-stoppropagation)
+does: no handler after it hears that event. The stop is that event's alone. A
+stopped `pointerdown` still sends its `pointerup` to every node it passed, and
+the pointer's moves stay with the node that holds them. The event's default
+action still happens: only `preventDefault()` stops a key's typing or a
+wheel's scroll, and a stopped `pointerdown` or `pointerup` leaves the click's
+`press` alone.
+
 | Payload appended to captured arguments | Handler names |
 | --- | --- |
 | A string, then optionally an `InputEvent` | `change`, `input` on a text field, textarea, `select`, date or time input, and `type="radio"` (the radio's `value`); an action taking one more parameter also hears the [target](#form-controls-radio-inputevent-setselectionrange) |
@@ -1045,8 +1059,8 @@ enabled node that hears any of the three holds the pointer: its
 `pointermove`s follow the pointer wherever it goes until it lifts, and a
 `pointermove`, or a `pan` that takes the contact, takes no ancestor's down
 or up. A node disabled when the pointer goes down hears none of them, and
-its ancestors still do. No handler stops the bubbling:
-`stopPropagation()` is for keys and focus. A free pointer (a mouse or a pen
+its ancestors still do. A handler's `stopPropagation()` stops the down or up
+it hears there ([Events](#events)). A free pointer (a mouse or a pen
 hovering, no button down) moving over a node is that node's `pointermove`
 too, the innermost hearing it; a touch has none. Moves go out at most once a frame,
 the latest. None of them takes anything from `press`, `pan` or scrolling, so
@@ -1091,8 +1105,9 @@ every node from it up that declares it, innermost first. Its `WheelEvent` is
 `offsetX`, `offsetY`, `deltaX`, `deltaY` (CSS px; positive scrolls down and
 right), `deltaMode` (0 pixels) and the four modifiers. A trackpad's pinch is a
 wheel with `ctrlKey` and `deltaY` of -100 × its magnification, as browsers
-deliver one. An action that calls `preventDefault()` keeps the scroll from
-happening (web, macOS, Linux; iOS has none):
+deliver one. An action that calls `stopPropagation()` stops the wheel at its
+handler and leaves the scroll alone; one that calls `preventDefault()` keeps
+the scroll from happening (web, macOS, Linux; iOS has none):
 
 ```text
 action wheeled(e: WheelEvent)
@@ -1610,8 +1625,8 @@ The current command name inventory is:
 `showOpenFilePicker`, `showDirectoryPicker`, `showSaveFilePicker`, `scrollIntoView`, `scrollBy`, `showModal`,
 `showNotification`, `closeNotification`, `haptic`, `postMessage`, `reload`, `relaunch`, `close`,
 `playSound`, `playSounds`, `stopSounds`
-([pointer](#pointer): a window's `beforeunload`), `preventDefault` and
-`stopPropagation` ([keys](#keys)).
+([pointer](#pointer): a window's `beforeunload`), `preventDefault` ([keys](#keys)) and
+`stopPropagation` ([events](#events)).
 
 These appear only as action statements. They are not ordinary value-returning
 functions. Some have dedicated compiler checks while others also rely on host

@@ -157,8 +157,10 @@ impl<D: DataSource> Presenter<D> {
             .collect();
         self.pointer_buttons = buttons;
         let mut error = None;
+        self.stopped();
         for key in self.pointer_path.clone() {
-            // A handler may remove or disable a node further up before its turn.
+            // A handler may remove or disable a node further up before its
+            // turn, or stop this down; the up's path and the hold stay.
             let Some(node) = self.host.kernel().node_by_key(key) else {
                 continue;
             };
@@ -176,8 +178,20 @@ impl<D: DataSource> Presenter<D> {
                 now_ms,
             );
             error = error.or(failed);
+            if self.stopped() {
+                break;
+            }
         }
         error
+    }
+
+    /// Whether the dispatch just made called `stopPropagation()`, which ends
+    /// this event's bubbling there, as the DOM's does; the command is the
+    /// event's, never one for the host to run.
+    fn stopped(&mut self) -> bool {
+        let queued = self.commands.len();
+        self.commands.retain(|c| c.name != "stopPropagation");
+        self.commands.len() != queued
     }
 
     /// The pointer moved: the held node's move, or a free pointer's over
@@ -232,6 +246,7 @@ impl<D: DataSource> Presenter<D> {
         let path = std::mem::take(&mut self.pointer_path);
         let (x, y) = at.or(self.contact_position()).or(self.pointer)?;
         let mut error = None;
+        self.stopped();
         for key in path {
             let Some(view) = self.host.kernel().node_by_key(key).map(|n| n.id) else {
                 continue;
@@ -242,14 +257,18 @@ impl<D: DataSource> Presenter<D> {
             let failed =
                 self.pointer_dispatch(view, EventKind::Pointerup, Event::Pointerup(record), now_ms);
             error = error.or(failed);
+            if self.stopped() {
+                break;
+            }
         }
         error
     }
 
     /// DOM's `wheel` at a viewport point (studio diary R3): every enabled
     /// node from the hit up that hears it, innermost first, as it bubbles,
-    /// each with its `WheelEvent` (pixels, the web's sign). True when one
-    /// called `preventDefault()`: the caller does not scroll.
+    /// each with its `WheelEvent` (pixels, the web's sign), until one calls
+    /// `stopPropagation()`. True when one called `preventDefault()`: the
+    /// caller does not scroll.
     pub(crate) fn wheel_event(&mut self, x: f32, y: f32, dx: f32, dy: f32) -> bool {
         let mut path = Vec::new();
         let mut at = self.hit(x, y);
@@ -258,6 +277,7 @@ impl<D: DataSource> Presenter<D> {
             at = self.display.parent(self.host.kernel(), hit);
         }
         let mut prevented = false;
+        self.stopped();
         for view in path {
             let Some(point) = self.pointer_record(view, x, y, 0) else {
                 continue;
@@ -279,6 +299,9 @@ impl<D: DataSource> Presenter<D> {
             let queued = self.commands.len();
             self.commands.retain(|c| c.name != "preventDefault");
             prevented |= self.commands.len() != queued;
+            if self.stopped() {
+                break;
+            }
         }
         prevented
     }

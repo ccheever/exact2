@@ -699,7 +699,9 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
   **Amended (Charlie, 2026-10-15, option 1 of
   `issues/closed/20261010-pointer-events-reach-ancestors.md`):** both bubble
   to every ancestor that hears them, as `key` and `wheel` do; the innermost
-  node hearing any pointer event still holds the moves. Unblocks a window's
+  node hearing any pointer event still holds the moves; `stopPropagation()`
+  stops either, and `wheel`, at its handler (decided under Charlie's
+  delegation, 2026-10-15, after Astra's review). Unblocks a window's
   outside-press dismiss beside a popup that hears `pointermove`. Take: none;
   Charlie's ruling.
   **Built (2026-10-04, LLP 1056 §8.6; the widening confirmed by Charlie the

@@ -122,9 +122,13 @@ extension NodeView {
             next = presenter.menus.parent(of: view)
         }
         presenter.pointerPath = path.map(\.id)
-        // A handler may remove or disable a node further up before its turn.
-        for node in path where node.handlers.contains("pointerdown") && presenter.views[node.id] === node && !node.disabled {
-            presenter.pointer(node.id, .down, node.pointerSample(event))
+        // A handler may remove or disable a node further up before its turn,
+        // or stop this down there; the up's path and the hold stay.
+        presenter.propagating {
+            for node in path where node.handlers.contains("pointerdown") && presenter.views[node.id] === node && !node.disabled {
+                presenter.pointer(node.id, .down, node.pointerSample(event))
+                if presenter.propagationStopped { break }
+            }
         }
     }
     /// `pointerup` for every node the button's down was held by, innermost first.
@@ -145,8 +149,12 @@ extension NodeView {
         let path = presenter.pointerPath
         presenter.pointerHeld = nil
         presenter.pointerPath = []
-        for id in path {
-            if let node = presenter.views[id], node.handlers.contains("pointerup") { presenter.pointer(id, .up, node.pointerSample(event, lifted: true)) }
+        presenter.propagating {
+            for id in path {
+                guard let node = presenter.views[id], node.handlers.contains("pointerup") else { continue }
+                presenter.pointer(id, .up, node.pointerSample(event, lifted: true))
+                if presenter.propagationStopped { break }
+            }
         }
     }
     /// A drag of the held pointer: its node's `pointermove`. AppKit

@@ -567,8 +567,8 @@ fixes its target, so what a down began ends and an app's outside-press
 dismiss pairs every down with its up. The innermost enabled node that hears any of
 the three also holds the pointer for its `pointermove`s until it lifts (LLP
 1056 §8.6); a `pointermove` takes nothing from an ancestor's down or up.
-No handler stops the bubbling: `stopPropagation()` is the key and focus
-events' (as for `wheel`). The up is heard on the document on the web (a
+A handler's `stopPropagation()` stops the down or the up there (the one
+rule, below). The up is heard on the document on the web (a
 pointer capture would also retarget the click and press on a lift
 elsewhere), where the pointer leaving the document (out of the window, into
 a frame) or the window losing focus also ends it, and a node the tree has
@@ -606,13 +606,39 @@ Tests: `contract/cli/tests/it/pointer.rs` (the runner and DOM's order),
 `host/web/tests/pointer.test.mjs` (Chrome: order, bubbling, a lift elsewhere,
 the secondary button, a disabled node).
 
+**`stopPropagation()`, one rule** (decided under Charlie's delegation,
+2026-10-15, after Astra's review). Every bubbling event (`key`, `keyup`,
+`keycapture`'s capture, `focusin`, `focusout`, `pointerdown`, `pointerup`
+and `wheel`) ends its walk at the handler whose action calls
+`stopPropagation()`, as DOM's
+[`Event.stopPropagation()`](https://dom.spec.whatwg.org/#dom-event-stoppropagation)
+ends a dispatch: no handler after it hears that event. The stop is that
+event's alone. It does not stop the other event of a focus transition or an
+enclosing event, and a stopped `pointerdown` still sends its `pointerup` to
+every node it passed, while the node holding the moves keeps them (LLP 1056
+§8.6). Default actions are separate: only `preventDefault()` cancels a key's
+typing or a wheel's scroll, and no stop cancels the click's `press`.
+- **Web:** the running event is marked (`$stopped` in `rt.js`, `exactStopped`
+  in `glue.js`). The pointer's walk from the root's capture, the up's
+  listeners and the wheel's skip a marked event. The browser's own
+  propagation is left alone.
+- **Apple:** each walk runs under `Presenter.propagating`
+  (`KeyEvents.swift`), which scopes `propagationStopped` to it.
+- **Linux:** the walk reads the command from the commit (`stopped`,
+  `presenter/pointer.rs`).
+- **Tests:** the `stop-bubble` conformance plan (both web runtimes),
+  `GesturePrecedenceMacTests.testAStopEndsOneDispatchAndNothingElse`,
+  `GesturePrecedenceIOSTests.testAStoppedDownStillSendsItsUpAndKeepsTheTouch`
+  and the Linux presenter's
+  `a_stop_ends_one_dispatch_and_neither_the_up_nor_the_scroll`.
+
 **`keyup`, and `KeyboardEvent.code` and `.repeat`** (2026-10-07, #140: a
 coding-agent desktop app's ⌘-held hints, a held ⌘W that closes one panel,
 shortcuts by physical key under a non-Latin layout; admitting `keyup` to
 `rules/DEFERRED.md` is the owner's call, as `pointerdown`/`pointerup` were).
 `keyup` is DOM's: a key's release at the focus, bubbling to every `keyup`
 handler from the focus out, as `key` (keydown) does, `stopPropagation()`
-included, with the same payload (the key's name) and record. A modifier's
+included (the one rule, above), with the same payload (the key's name) and record. A modifier's
 release is one (`"Meta"`), and DOM's flags hold: a modifier's own keydown
 holds it, its keyup no longer does, so an app knows ⌘ was released. A keyup
 reaches the focus whatever took the keydown (a shortcut, a

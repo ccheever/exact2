@@ -228,3 +228,38 @@ fn the_down_and_the_up_bubble_and_the_innermost_holds_the_moves() {
         " d:inner d:outer u:inner u:outer d:outer m:mid u:outer"
     );
 }
+
+/// `stopPropagation()` ends one dispatch and nothing else (decided under
+/// Charlie's delegation, 2026-10-15): a down stopped in the middle never
+/// reaches the root, yet its up does and the pad keeps the moves; a stopped
+/// wheel never reaches the root and still scrolls.
+#[test]
+fn a_stop_ends_one_dispatch_and_neither_the_up_nor_the_scroll() {
+    const STOPS: &str = r#"component App
+  state seen = ""
+  action at(what: string)
+    seen = `${seen} ${what}`
+  action stop(what: string)
+    seen = `${seen} ${what}`
+    stopPropagation()
+  action moved(e: PointerEvent)
+    seen = `${seen} m:pad`
+  view
+    column width=400 height=400 pointerdown=at("d:root") pointerup=at("u:root") wheel=at("w:root")
+      column pointerdown=stop("d:mid") wheel=stop("w:mid") width=300 height=200
+        box pointermove=moved pointerup=at("u:pad") width=100 height=100
+      scroll testId="list" height=100 wheel=stop("w:list")
+        box height=400
+      text seen testId="log" height=20
+"#;
+    let mut p = boot(STOPS);
+    p.pointer_down(20., 20., 1.).unwrap();
+    p.pointer_move(250., 150., 2.).unwrap();
+    p.pointer_up(390., 390., 3.).unwrap();
+    assert_eq!(log(&p), " d:mid m:pad u:pad u:root");
+    p.wheel_at(20., 20., 0., 30.);
+    let list = id(&p, "list");
+    p.wheel_at(20., 250., 0., 40.);
+    assert_eq!(log(&p), " d:mid m:pad u:pad u:root w:mid w:list");
+    assert!(p.scroll_of(list).1 > 0., "a stopped wheel still scrolls");
+}

@@ -53,8 +53,9 @@ export function pointer(e, kind, f) {
       for (const [type, target] of ends) target.removeEventListener(type, up, target === document);
       document.removeEventListener("pointermove", held, true);
       flush();
-      // Never for a removed element, or one kept only for its exit animation.
-      if (live()) s.pointerup?.(record(e, ev.type === "blur" ? s.last : ev, true));
+      // Never for a removed element, or one kept only for its exit animation,
+      // nor past a handler further in that stopped this up (`$stopped`, rt.js).
+      if (live() && !ev.$stopped) s.pointerup?.(record(e, ev.type === "blur" ? s.last : ev, true), ev);
     };
     s.down = ev => {
       // Any button, as the DOM's (studio diary R22: a secondary click's down; `buttons` says which).
@@ -69,7 +70,8 @@ export function pointer(e, kind, f) {
       for (const [type, target] of ends) target.addEventListener(type, up, target === document);
       document.addEventListener("pointermove", held, true);
       flush();
-      s.pointerdown?.(record(e, ev));
+      // Stopped further in, it still holds the up and the moves; only this down is not heard.
+      if (!ev.$stopped) s.pointerdown?.(record(e, ev), ev);
     };
     // A free pointer over it (no button down, as AppKit sends `mouseMoved`
     // only then): the innermost element hearing moves takes them.

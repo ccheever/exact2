@@ -1,0 +1,9 @@
+# The middle stops the down: the root does not hear it. The pad holds the
+# moves, and the up still reaches the pad and the root.
+down pad
+move 30 0
+up
+# The middle stops the wheel: the root does not hear it.
+wheel pad 40
+# A stopped wheel still scrolls its scroller.
+wheel scroller 120

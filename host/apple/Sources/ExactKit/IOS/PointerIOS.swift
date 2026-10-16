@@ -65,8 +65,21 @@ final class PointerRecognizer: UIGestureRecognizer {
         // the others from here up leave the touch to it (`nearer`), so it
         // sends the bubbling down and up for them all.
         path = Self.bubbling(from: node).map(Weak.init)
-        for n in path.compactMap(\.node) where n.handlers.contains("pointerdown") && Self.live(n) && !n.disabled {
-            n.presenter?.pointer(n.id, .down, sample(first, at: n))
+        // A handler may disable a node further up before its turn, or stop
+        // this down; the up's path and the hold stay.
+        dispatch(path.compactMap(\.node).filter { $0.handlers.contains("pointerdown") }) { n in
+            if !n.disabled { n.presenter?.pointer(n.id, .down, sample(first, at: n)) }
+        }
+    }
+    /// One bubbling dispatch to `nodes`, innermost first, each still the
+    /// tree's when its turn comes, until a handler calls `stopPropagation()`.
+    private func dispatch(_ nodes: [NodeView], _ send: (NodeView) -> Void) {
+        guard let presenter = node?.presenter ?? nodes.first?.presenter else { return }
+        presenter.propagating {
+            for n in nodes where Self.live(n) {
+                send(n)
+                if presenter.propagationStopped { break }
+            }
         }
     }
     /// Up the authored tree: a lifted popover's parent, a presented route's
@@ -124,11 +137,9 @@ final class PointerRecognizer: UIGestureRecognizer {
     private func lift(_ touches: Set<UITouch>) {
         guard let held = touch, touches.contains(held) else { return }
         touch = nil
-        let nodes = path.compactMap(\.node)
+        let nodes = path.compactMap(\.node).filter { $0.handlers.contains("pointerup") }
         path = []
-        for n in nodes where n.handlers.contains("pointerup") && Self.live(n) {
-            n.presenter?.pointer(n.id, .up, sample(held, lifted: true, at: n))
-        }
+        dispatch(nodes) { n in n.presenter?.pointer(n.id, .up, sample(held, lifted: true, at: n)) }
         if relay != nil { node = nil }
         state = .failed
     }

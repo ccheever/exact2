@@ -1,0 +1,30 @@
+// `stopPropagation()` stops `pointerdown`, `pointerup` and `wheel` at the
+// handler that calls it, as the DOM does (decided under Charlie's
+// delegation, 2026-10-15). The stop is that event's alone: a stopped down
+// still sends its up to every node it passed, and the moves stay with the
+// node that holds them; a stopped wheel still scrolls.
+component StopBubble
+  state log = ""
+  state held = false
+  state scrolled = false
+  action at(what: string)
+    log = `${log} ${what}`
+  action stopDown
+    log = `${log} down:mid-stop`
+    stopPropagation()
+  action stopWheel
+    log = `${log} wheel:mid-stop`
+    stopPropagation()
+  action moved(e: PointerEvent)
+    if e.buttons == 1
+      held = true
+  action scrolledTo(left: number, top: number)
+    scrolled = top > 0
+  view
+    column testId="root" gap=8 padding=8 pointerdown=at("down:root") pointerup=at("up:root") wheel=at("wheel:root")
+      text log testId="log"
+      text `held moves ${held} scrolled ${scrolled}` testId="counts"
+      column testId="mid" padding=8 pointerdown=stopDown wheel=stopWheel
+        box testId="pad" height=60 pointermove=moved pointerup=at("up:pad") touch-action="none"
+      scroll testId="scroller" height=80 wheel=stopWheel scroll=scrolledTo
+        box height=400

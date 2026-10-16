@@ -71,6 +71,44 @@ final class GesturePrecedenceMacTests: XCTestCase {
         XCTAssertNil(p.pointerHeld)
     }
 
+    /// `stopPropagation()` ends one dispatch and nothing else (decided under
+    /// Charlie's delegation, 2026-10-15): a down stopped in the middle never
+    /// reaches the root, yet its up does and the pad keeps the drags; a
+    /// stopped wheel never reaches the root and still scrolls.
+    func testAStopEndsOneDispatchAndNothingElse() {
+        let p = host([
+            ["op": "create", "id": 1, "kind": "view", "handlers": ["pointerdown", "pointerup", "wheel"]],
+            ["op": "create", "id": 2, "kind": "view", "handlers": ["pointerdown", "wheel"]],
+            ["op": "create", "id": 3, "kind": "view", "handlers": ["pointermove", "pointerup"]],
+            ["op": "children", "id": 1, "ids": [2]], ["op": "children", "id": 2, "ids": [3]], ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 200.0],
+            ["op": "frame", "id": 2, "x": 10.0, "y": 10.0, "w": 200.0, "h": 150.0],
+            ["op": "frame", "id": 3, "x": 10.0, "y": 10.0, "w": 100.0, "h": 100.0]
+        ])
+        var log: [String] = []
+        // The middle's handlers call `stopPropagation()`: the batch they commit sets the flag.
+        p.onPointer = { id, kind, _ in
+            log.append("\(kind == .down ? "down" : kind == .up ? "up" : "move") \(id)")
+            if id == 2 { p.propagationStopped = true }
+        }
+        p.onClipboard = { id, kind, _ in
+            log.append("wheel \(id)")
+            if kind == 37, id == 2 { p.propagationStopped = true }
+        }
+        let pad = p.views[3]!
+        pad.mouseDown(with: event(.leftMouseDown, pad))
+        XCTAssertEqual(p.pointerHeld, 3, "the pad holds the drags")
+        pad.mouseDragged(with: event(.leftMouseDragged, pad, right: 10))
+        pad.mouseUp(with: event(.leftMouseUp, pad))
+        XCTAssertEqual(log, ["down 2", "move 3", "up 3", "up 1"], "the stopped down's up still reaches the root")
+        XCTAssertFalse(p.propagationStopped, "the stop was that dispatch's alone")
+        log = []
+        let wheel = NSEvent(cgEvent: CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: -3, wheel2: 0, wheel3: 0)!)!
+        XCTAssertFalse(pad.wheel(wheel), "a stop prevents no scroll")
+        XCTAssertEqual(log, ["wheel 2"])
+        XCTAssertFalse(p.propagationStopped)
+    }
+
     /// The down and the up bubble, innermost first (Charlie, 2026-10-15):
     /// a box hearing only `pointermove` holds the drags and takes nothing
     /// from its ancestors' down and up (#20261010, X71). The up still

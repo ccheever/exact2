@@ -347,7 +347,8 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
         for (const [type, target] of ends) target.removeEventListener(type, up, target === document);
         document.removeEventListener("pointermove", heldMove, true);
         flush();
-        if (wants("pointerup") && ready()) fire(30, record(e.type === "blur" ? last : e, true));
+        // A handler further in that stopped this up (`exactStopped`, glue.js).
+        if (wants("pointerup") && ready() && !e.exactStopped) fire(30, record(e.type === "blur" ? last : e, true), e);
       };
       const disabled = () => el.matches(":disabled") || el.hasAttribute("disabled") || inertAncestor(el);
       // A free pointer over it: the innermost node hearing moves takes them;
@@ -371,7 +372,8 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
         for (const [type, target] of ends) target.addEventListener(type, up, target === document);
         document.addEventListener("pointermove", heldMove, true);
         flush();
-        if (wants("pointerdown") && ready()) fire(29, record(e));
+        // Stopped further in, it still holds the up and the moves; only this down is not heard.
+        if (wants("pointerdown") && ready() && !e.exactStopped) fire(29, record(e), e);
       };
     },
     // Studio diary R22, R3, R19, R17: a `contextmenu` with its point (10),
@@ -383,7 +385,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
       if (!ready()) return;
       if (kind === "beforeunload") return el.isConnected && fire(36, "");
       if (el.matches(":disabled") || inertAncestor(el)) return;
-      if (kind === "wheel") return fire(37, `${pointerLine(el, e).split(",").slice(0, 2)},${e.deltaX},${e.deltaY},${e.deltaMode},${modifiers(e)}`);
+      if (kind === "wheel") return e.exactStopped || fire(37, `${pointerLine(el, e).split(",").slice(0, 2)},${e.deltaX},${e.deltaY},${e.deltaMode},${modifiers(e)}`);
       if (kind === "dragover") { if (e.dataTransfer?.types?.includes("Files")) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; } return; }
       if (kind === "drop") {
         const dt = e.dataTransfer;

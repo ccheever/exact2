@@ -135,6 +135,33 @@ final class GesturePrecedenceIOSTests: XCTestCase {
         XCTAssertFalse(outer.nearer(touched), "a disabled inner node passes it out")
     }
 
+    /// `stopPropagation()` ends one dispatch and nothing else (decided under
+    /// Charlie's delegation, 2026-10-15): a down stopped at the inner node
+    /// never reaches the outer one, yet its up does and the inner node keeps
+    /// the touch's moves.
+    func testAStoppedDownStillSendsItsUpAndKeepsTheTouch() throws {
+        let p = host([
+            ["op": "create", "id": 1, "kind": "view", "handlers": ["pointerdown", "pointerup"]],
+            ["op": "create", "id": 2, "kind": "view", "handlers": ["pointerdown", "pointermove"]],
+            ["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 100.0],
+            ["op": "frame", "id": 2, "x": 10.0, "y": 10.0, "w": 80.0, "h": 60.0]
+        ])
+        var log: [String] = []
+        // The inner node's handler calls `stopPropagation()`: the batch it commits sets the flag.
+        p.onPointer = { id, kind, _ in
+            log.append("\(kind == .down ? "down" : kind == .up ? "up" : "move") \(id)")
+            if id == 2, kind == .down { p.propagationStopped = true }
+        }
+        let inner = try XCTUnwrap(p.views[2]?.gestureRecognizers?.compactMap { $0 as? PointerRecognizer }.first)
+        let touch = UITouch()
+        inner.touchesBegan([touch], with: UIEvent())
+        inner.touchesMoved([touch], with: UIEvent())
+        inner.touchesEnded([touch], with: UIEvent())
+        XCTAssertEqual(log, ["down 2", "move 2", "up 1"])
+        XCTAssertFalse(p.propagationStopped, "the stop was that dispatch's alone")
+    }
+
     func testTheSecondTapStillPressesAndDblclickComesAfterIt() throws {
         let p = host([
             ["op": "create", "id": 1, "kind": "view", "handlers": ["press", "dblclick"]],

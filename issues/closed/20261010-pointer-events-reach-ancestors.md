@@ -161,8 +161,11 @@ What was built to it:
   fixes its target. A node the tree removes while the pointer is down is skipped; its ancestors still
   hear the up. A node that heard the down hears the up even if it was disabled since, so what the down
   began ends.
-- **No `stopPropagation()`.** As for `wheel`, no handler stops the bubbling; `stopPropagation()`
-  stays the key and focus events'. Admitting it for pointers is a separate decision.
+- **`stopPropagation()`** (decided under Charlie's delegation, 2026-10-15, after Astra's review):
+  it stops `pointerdown`, `pointerup` and `wheel` at the handler that calls it, as the DOM does and
+  as it already stopped keys and focus. The stop is that event's alone: a stopped down still sends its
+  up to every node it passed, and the moves stay with their holder. Default actions are separate
+  (LLP 1005 §Events, "`stopPropagation()`, one rule").
 - **Disabled.** A node disabled when the pointer goes down (a control or any node with `disabled`)
   hears neither event; its enabled ancestors still do. Each host checks at each node's turn, so an inner
   handler that disables an ancestor keeps the down from it.
