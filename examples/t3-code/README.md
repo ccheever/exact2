@@ -391,27 +391,11 @@ could not, the comment at the fix says what happened and why the code is so.
 ## Work left
 
 As of 2026-10-16, after merging main's macOS fixes of that day (exact2 PRs #636 to #640, #646,
-#647, #651 and #655), a session with real keys on the terminal and VoiceOver session G. Each item
+#647, #651, #655, #663 and #664), a session with real keys on the terminal and VoiceOver session G. Each item
 says what is wrong or missing; the open framework issues that someone using the app runs into are
 in the section above.
 
-**Fails:**
-
-- A press in the composer, Search threads or Search settings does not close an open popover menu
-  (Project scripts, Git options, Environment scope): the Mac host light-dismisses only on a
-  mouse-down/mouse-up pair its event monitor sees, and a text view's tracking loop takes the
-  mouse-up (host). Fixed in exact2 PR #663, a draft not yet on main: there the menu closes when
-  the button is released, as on the web. Once it is merged, re-run session G's row 4.
-- macOS VoiceOver (session G, rows 3, 5, 6, 10, 11, 12 and 14): a dialog drawn in the page that
-  opens with the focus in a field says "<name>, dialog" and cuts off the field; an alertdialog
-  says only "Cancel, button"; after Escape closes a painted menu, VoiceOver can land on a switch
-  or 'scroll area' instead of the trigger (host). Fixed in exact2 PR #664, a draft not yet on
-  main: there VoiceOver lands where a commit's focus() or the focus given back puts it, the
-  dialog's name and message follow the focused control's words at low priority, and a painted
-  menu opened with VO-Space and closed with Escape sends VoiceOver back to its trigger, as an
-  NSMenu does. The clone needs no change for it; if the low-priority name proves to be dropped,
-  its confirmations could become `dialog role="alertdialog"` with `showModal(id)` (NSAlert) and
-  its form dialogs `dialog` with `showModal(id)` (a sheet).
+**Fails:** none known. Session G's two host failures are fixed on main (below).
 
 The items below that were fixed since the 2026-10-15 session still want real keys, a pointer and
 VoiceOver.
@@ -477,15 +461,34 @@ menu, not TISSelectInputSource, before they judge IME rows.
 
 **Fixed, not checked with real input or VoiceOver:**
 
+- A press in the composer, Search threads or Search settings closes an open popover menu
+  (Project scripts, Git options, Environment scope) when the button is released, as on the web
+  (exact2 PR #663, session G's row 4). Before, a text view's tracking loop took the mouse-up and
+  the host never completed the press. Checked by the host's XCTests only.
+- macOS VoiceOver (exact2 PR #664, session G's rows 3, 5, 6, 10, 11, 12 and 14): VoiceOver lands
+  where a commit's `focus()` or the focus given back puts it, a dialog drawn in the page is named
+  after the focused control's words at low priority, and a painted menu opened with VO-Space and
+  closed with Escape sends VoiceOver back to its trigger, as an NSMenu does. The clone needs no
+  change for it: its dialogs still become `aria-modal` only once the focus has entered them
+  (`dialogSeated`), as their initial focus comes from a later layout, not from the opening
+  commit. If VoiceOver drops the low-priority name, the confirmations could become
+  `dialog role="alertdialog"` with `showModal(id)` (NSAlert) and the form dialogs `dialog` with
+  `showModal(id)` (a sheet).
 - A field the reference focuses when it mounts now takes the focus whatever held it: the flat
-  sidebar's rename after a double-click from the prompt, the project scope search, the citation,
+  and legacy sidebars' rename after a double-click from the prompt, also on a row of another
+  environment, whose first click moves the window there (the rename starts once that open
+  lands), the project scope search, the citation,
   diff and pull request comment drafts, the pull request title and editors, Reply, the
   keybindings and licenses searches, and the custom model fields.
 - The main sidebar trigger is one node, 'Toggle main sidebar' (a toggle), at the window controls
   and over the Settings nav, so a VoiceOver press on it no longer answers 'no action available'.
   Usage's dialogs cover it, and it is inert while they or a pull request's confirm are open.
-- Removing an image that is also an inline chip returns the focus to its Remove on Cancel; on
-  Confirm, once the removal lands, the focus moves to the next tile or the prompt.
+- Removing an image that is also an inline chip: Cancel gives the focus back to its Remove, and
+  Confirm moves it to the next tile or the prompt. Both happen before the confirm closes, which it
+  does 200 ms later, as Base UI's finalFocus runs during the dialog's exit transition. Before, the
+  pressed button was destroyed while it still had the focus, and VoiceOver, after its VO-Space,
+  went to the window and then the sidebar's Search. An out-of-process AXPress now sees the focus
+  move about 230 ms before the dialog's elements go.
 - macOS VoiceOver (exact2 PR #655, rows 8, 10 and 13 of session F): an `inert` page is out of
   VoiceOver's reach. After Escape closes a painted menu over Settings, the host gives the focus
   back to the trigger before it says the menu closed, then sends VoiceOver there, so VoiceOver no
@@ -573,8 +576,8 @@ menu, not TISSelectInputSource, before they judge IME rows.
   whole group at its width, and the group lights on hover.
 - Tab from the window (session D: it did nothing): with nothing focused, for example after a
   menu opened by the pointer closes, Tab goes to the first control (Keyboard Navigation on) or
-  the first text field (off), with its focus ring, and Shift-Tab to the last (exact2 PR #646,
-  `issues/closed/20261016-macos-tab-from-the-window-focuses-nothing.md`). Covered by XCTests only.
+  the first text field (off), with its focus ring, and Shift-Tab to the last (exact2 PR #646).
+  Covered by XCTests only.
 - In the flat sidebar, settling, snoozing, waking and pinning a background environment's row act
   on that environment, and the undo notice's ⌘Z reverts on the thread's own environment, also
   after the focus has moved to another one (agent drive).
@@ -616,7 +619,10 @@ menu, not TISSelectInputSource, before they judge IME rows.
   VoiceOver's order. The strip scrolls sideways only once it holds a SnapShot frame, so plain
   images are no longer behind a scroll area.
 
-**Next real-input session:** VoiceOver rows 1, 2, 3, 4, 6, 25 and 28 of realinput-1015c (the
+**Next real-input session:** session G's row 4 with the pointer (a press in the composer, Search
+threads and Search settings closes the open menu) and rows 3, 5, 6, 8, 10, 11, 12, 13 and 14 with
+VoiceOver (exact2 PR #664: the field, Cancel or trigger read first, then the dialog's name);
+VoiceOver rows 1, 2, 3, 4, 6, 25 and 28 of realinput-1015c (the
 `aria-modal` views and dialogs); rows 22 and 24 (VO-Right from the text area reaches every chip
 in text order, `sample.py` included, and none before the text area); rows 5, 10, 13 and 15 of
 realinput-1016a (VoiceOver's speech for an opening confirmation, a menu, a group and the font
@@ -679,9 +685,9 @@ environment, a machines list and an ACP agent stand-in (each has its README). St
 tailnet, and a server older than the client for the machines-update popover's busy states.
 
 **Framework issues opened by this app:** the macOS issues it opened from 2026-10-13 to 2026-10-16
-are closed on main, and so is the pointer events one (`pointerdown` and `pointerup` now bubble to
-every ancestor that hears them, and `stopPropagation()` stops them). Open: the light-dismiss and
-VoiceOver-sequence fixes above, exact2 drafts #663 and #664.
+are closed on main, the light-dismiss and VoiceOver-sequence ones (exact2 PRs #663 and #664)
+included, and so is the pointer events one (`pointerdown` and `pointerup` now bubble to every
+ancestor that hears them, and `stopPropagation()` stops them). None is open.
 
 **Workarounds main has made unnecessary:** since pointer events bubble, the window's `main` hears
 every press itself, so the app's forwards to it are redundant: the sidebar's `sidebarPressDown`
