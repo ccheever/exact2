@@ -159,7 +159,10 @@ fn contrast(design: &Design, tokens: &[Checked], tuples: usize, vocab: &Vocab) -
                 };
                 let Some((bg, b)) = bg else { continue };
                 for side in 0..2 {
-                    let Some(r) = ratio(&fg[side], &bg[side]) else {
+                    // As the badges show it, two places cut, never rounded up past
+                    // the line: 4.499 is 4.49, below 4.5.
+                    let Some(r) = ratio(&fg[side], &bg[side]).map(|r| (r * 100.0).floor() / 100.0)
+                    else {
                         continue;
                     };
                     if r < TEXT_CONTRAST && lowest.is_none_or(|(l, ..)| r < l) {

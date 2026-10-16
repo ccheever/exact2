@@ -233,16 +233,18 @@ impl<'a> Checker<'a> {
     /// (`tamber-pair`). Every token is a colour today, so a token is one.
     fn pairs(&mut self, i: usize, t: &Token) -> Vec<String> {
         let mut out = Vec::new();
-        let named = t
+        let named: Vec<&str> = t
             .meta
             .iter()
             .filter(|(k, _)| k == "pair")
-            .flat_map(|(_, v)| v.split(','));
-        for name in named
+            .flat_map(|(_, v)| v.split(','))
             .map(str::trim)
-            .filter(|n| !n.is_empty())
-            .collect::<Vec<_>>()
-        {
+            .collect();
+        // An empty list, or an empty name in one, names nothing.
+        if named.iter().any(|n| n.is_empty()) {
+            self.at(&t.name, "tamber-pair", format!("`{}` has an empty `pair=` name: `pair=` names what it is drawn on, `pair=surface.page` or several, comma-separated", t.name.value));
+        }
+        for name in named.into_iter().filter(|n| !n.is_empty()) {
             let token = self.names.get(name).copied().or_else(|| {
                 let (_, row) = self.role_key(name)?;
                 self.names.get(&row.to_ascii_lowercase()).copied()

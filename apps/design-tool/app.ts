@@ -645,18 +645,24 @@ const sources: Sources = {
       // Each declared pair's contrast per cell (LLP 1121 D3, `pair=`): the
       // token over what it is drawn on, a token's stored value or a role's
       // fallback; below 4.5:1, WCAG's for text, it is marked low.
-      const declared = (read.pairs ?? {}) as Record<string, { name: string; token: boolean; fallback: { light: string; dark: string } | null }[]>;
+      // A Map, so a token named `constructor` is no inherited property.
+      const declared = new Map(Object.entries((read.pairs ?? {}) as Record<string, { name: string; token: boolean; fallback: { light: string; dark: string } | null }[]>));
       for (const row of tokens) {
-        for (const pair of declared[row.name] ?? []) {
+        for (const pair of declared.get(row.name) ?? []) {
           const under = stored.get(pair.name), mine = stored.get(row.name)!;
           for (const [k, c] of columns.entries()) {
             const fg = mine[c.tuple]?.[c.dark ? 1 : 0];
             const bg = under ? under[c.tuple]?.[c.dark ? 1 : 0]?.srgb : pair.fallback?.[c.dark ? 'dark' : 'light'];
             const r = fg && bg ? contrast(fg.srgb, bg) : 'not a colour';
             const residual = fg?.residual || (under ? under[c.tuple]?.[c.dark ? 1 : 0]?.residual : true);
-            row.cells[k].pairs.push(typeof r === 'string'
-              ? { name: pair.name, ratio: r, low: false }
-              : { name: pair.name, ratio: `${r.toFixed(2)}:1${residual ? ' (fallback)' : ''}`, low: r < 4.5 });
+            // Two places cut, never rounded up past 4.5, as the server's warning.
+            const cut = typeof r === 'string' ? r : Math.floor(r * 100) / 100;
+            const badge = typeof cut === 'string'
+              ? { name: pair.name, ratio: cut, low: false }
+              : { name: pair.name, ratio: `${cut.toFixed(2)}:1${residual ? ' (fallback)' : ''}`, low: cut < 4.5 };
+            row.cells[k].pairs.push(badge);
+            // Said with the cell, not only drawn under it.
+            row.cells[k].label += `, ${badge.ratio} on ${pair.name}${badge.low ? ', low contrast' : ''}`;
           }
         }
       }
