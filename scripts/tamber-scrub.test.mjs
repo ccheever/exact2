@@ -391,3 +391,12 @@ test('the design server dying, and idle, each end a scrub and restore', async ()
   await wire.close();
   local.close();
 }, 30_000);
+
+test('an update naming a scrub that ended opens none', async () => {
+  const t = await opened();
+  t.s.cancel({ client: 'tool', scrub: 'scrub-1' });
+  const late = await t.s.update({ client: 'tool', scrub: 'scrub-1', ops: op('#999999'), files: {} });
+  expect(late.status).toBe(409);
+  expect(t.s.current()).toBe(null);
+  expect(t.seen.previews).toEqual(['ink = #111111']);
+});

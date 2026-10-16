@@ -280,16 +280,18 @@ function scrubBatch(from, to) {
 // `scrub`/`restore` lines, the TypeScript producer's `{scrub}` request).
 // Each answer is applied (`apply`) as its line is read, in order with the
 // compiler's other lines, so a later edit's batch never goes out before it.
+// The compiler answers each in turn; one stopped answers those it had not
+// (`unasked`), and its next starts with no preview.
 const scrubAsks = new Map();
 let scrubAskId = 0;
 const scrubAsk = (line, apply) => new Promise((done) => {
   const child = dev;
   if (!child?.stdin?.writable) return done({ error: 'no resident compiler runs' });
   const id = `scrub-${++scrubAskId}`;
-  const late = setTimeout(() => { scrubAsks.delete(id); done({ error: 'the compiler did not answer' }); }, 30_000);
-  scrubAsks.set(id, (v) => { clearTimeout(late); scrubAsks.delete(id); done(apply(v)); });
+  scrubAsks.set(id, (v) => { scrubAsks.delete(id); done(v.error && v.stopped ? v : apply(v)); });
   child.stdin.write(`${line(id)}\n`);
 });
+const unasked = () => { for (const answer of [...scrubAsks.values()]) answer({ error: 'the compiler stopped', stopped: true }); moduleScrubbed = null; moduleReleased = false; };
 // The design the builds run while a TypeScript app's scrub previews.
 let moduleScrubbed = null, moduleReleased = false;
 /** Preview a scrub's texts on every build: the batch from the design they
@@ -305,7 +307,9 @@ async function scrubPreview(texts) {
       const from = moduleScrubbed ?? moduleDesign;
       const live = from && scrubBatch(from, reply.design);
       if (!live) return { error: 'it changes the design\'s shape: a rebuild applies on release' };
+      // A new preview is no released scrub's.
       moduleScrubbed = reply.design;
+      moduleReleased = false;
       if (live.batch.tokens.length) pushDesign(live); else designSnapshot = live.snapshot;
       return {};
     });
@@ -874,6 +878,7 @@ const killCompiler = () => {
 
   moduleWatch?.close(); moduleWatch = null; clearImmediate(moduleTimer); moduleRun++;
   const d = dev; dev = null; if (d) { try { process.kill(-d.pid, 'SIGKILL'); } catch {} }
+  unasked();
   if (moduleStage) { rmSync(moduleStage, { recursive: true, force: true }); moduleStage = null; }
 };
 startCompiler();

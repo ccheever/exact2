@@ -329,7 +329,9 @@ impl Session {
         let batch =
             exact_runner::design::batch(&shape, from, &tokens).filter(|b| !b.tokens.is_empty());
         let snapshot = exact_runner::design::snapshot(&shape, &tokens);
+        // A new preview is no released scrub's.
         self.scrub = Some((shape, tokens));
+        self.released = false;
         Ok((batch, snapshot))
     }
 

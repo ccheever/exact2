@@ -654,6 +654,24 @@ fn a_scrub_previews_without_writing_and_restores_the_committed_design() {
     );
     assert!(live.batch.tokens.is_empty(), "the builds already show it");
     assert!(s.restore().is_none(), "ended");
+    // A scrub that previews before a released one's write builds keeps its
+    // preview: that build changes only what its end restores.
+    s.scrub::<NoData>(tamber.replace("#111111", "#777777"))
+        .unwrap();
+    s.release();
+    let (next, _) = s
+        .scrub::<NoData>(tamber.replace("#111111", "#888888"))
+        .unwrap();
+    save(&design, &tamber.replace("#111111", "#777777"), 3);
+    let written = s.poll::<NoData>().expect("the first's write").unwrap();
+    assert!(written.live.expect("value-only").batch.tokens.is_empty());
+    let (back, _) = s.restore().expect("the second still previews");
+    let back = back.expect("to the written design");
+    assert_eq!(
+        back.base.as_deref(),
+        next.as_ref().map(|b| b.design.as_str())
+    );
+    assert_eq!(back.tokens[0].value, "#777777ff");
     let _ = std::fs::remove_dir_all(dir);
 }
 

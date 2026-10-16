@@ -40,7 +40,7 @@ struct Reads<'a> {
 }
 
 /// One op of a walk: the op, the string it pushed, the slot (`true`) or
-/// derive it loaded, and the slot it stored.
+/// derive it loaded, and the slot it stored or the local it loaded.
 type Step<'a> = (
     Opcode,
     Option<&'a str>,
@@ -55,11 +55,18 @@ fn reads<'a>(plan: &'a Plan, code: &[u8]) -> Reads<'a> {
         let Some(op) = r.u8().ok().and_then(Opcode::from_wire) else {
             return Reads::default();
         };
-        let (mut pushed, mut loaded, mut stored) = (None, None, None);
+        let (mut pushed, mut loaded, mut slot) = (None, None, None);
         for operand in op.operands() {
             let ok = match operand {
                 Operand::U8 | Operand::Enum(_) => r.u8().is_ok(),
-                Operand::U16 => r.u16().is_ok(),
+                Operand::U16 => r
+                    .u16()
+                    .map(|v| {
+                        if op == Opcode::LoadLocal {
+                            slot = Some(v as usize);
+                        }
+                    })
+                    .is_ok(),
                 Operand::U32 => r.u32().is_ok(),
                 Operand::Idx(table) => r
                     .u32()
@@ -67,7 +74,7 @@ fn reads<'a>(plan: &'a Plan, code: &[u8]) -> Reads<'a> {
                         Opcode::LoadSlot | Opcode::LoadDerive => {
                             loaded = Some((*table == "slots", v as usize));
                         }
-                        Opcode::StoreSlot => stored = Some(v as usize),
+                        Opcode::StoreSlot => slot = Some(v as usize),
                         _ => {}
                     })
                     .is_ok(),
@@ -85,18 +92,28 @@ fn reads<'a>(plan: &'a Plan, code: &[u8]) -> Reads<'a> {
                 return Reads::default();
             }
         }
-        ops.push((op, pushed, loaded, stored));
+        ops.push((op, pushed, loaded, slot));
     }
-    // The stack: each value, the ops (strings, loads) it carries.
+    // The stack, and the locals bound: each value, the ops (strings, loads)
+    // it carries.
     let mut stack: Vec<Vec<usize>> = Vec::new();
+    let mut locals: Vec<Vec<usize>> = Vec::new();
     let mut compared = vec![false; ops.len()];
-    // Each store: its slot and the run of ops whose value it stores.
-    let mut runs: Vec<(usize, usize, usize)> = Vec::new();
+    // Each store: its slot, the run of ops before it, and what the value it
+    // stores carries (through a local, a concatenation).
+    let mut runs: Vec<(usize, usize, usize, Vec<usize>)> = Vec::new();
     let mut start = 0;
-    for (i, (op, pushed, loaded, stored)) in ops.iter().enumerate() {
+    for (i, (op, pushed, loaded, slot)) in ops.iter().enumerate() {
         let pop = |stack: &mut Vec<Vec<usize>>| stack.pop().unwrap_or_default();
         use Opcode as O;
         match op {
+            O::LoadLocal => {
+                let v = slot
+                    .and_then(|n| locals.get(n))
+                    .cloned()
+                    .unwrap_or_default();
+                stack.push(v);
+            }
             O::Number
             | O::Bool
             | O::Str
@@ -108,7 +125,6 @@ fn reads<'a>(plan: &'a Plan, code: &[u8]) -> Reads<'a> {
             | O::LoadParam
             | O::LoadItem
             | O::LoadBound
-            | O::LoadLocal
             | O::PendingResource
             | O::PendingMutation
             | O::FailedResource
@@ -144,11 +160,20 @@ fn reads<'a>(plan: &'a Plan, code: &[u8]) -> Reads<'a> {
                 stack.push(Vec::new());
             }
             O::StoreSlot => {
-                pop(&mut stack);
-                runs.push((stored.unwrap_or(usize::MAX), start, i));
+                let v = pop(&mut stack);
+                runs.push((slot.unwrap_or(usize::MAX), start, i, v));
                 start = i + 1;
             }
-            O::Pop | O::BindLocal | O::DropLocal => {
+            O::BindLocal => {
+                let v = pop(&mut stack);
+                locals.push(v);
+                start = i + 1;
+            }
+            O::DropLocal => {
+                locals.pop();
+                start = i + 1;
+            }
+            O::Pop => {
                 pop(&mut stack);
                 start = i + 1;
             }
@@ -161,9 +186,9 @@ fn reads<'a>(plan: &'a Plan, code: &[u8]) -> Reads<'a> {
             }
         }
     }
-    let read = |range: std::ops::Range<usize>| {
+    let read = |run: &mut dyn Iterator<Item = usize>| {
         let mut out = Reads::default();
-        for j in range {
+        for j in run {
             if compared[j] {
                 continue;
             }
@@ -179,10 +204,15 @@ fn reads<'a>(plan: &'a Plan, code: &[u8]) -> Reads<'a> {
         }
         out
     };
-    let mut out = read(0..ops.len());
+    let mut out = read(&mut (0..ops.len()));
     out.stores = runs
         .into_iter()
-        .map(|(slot, a, b)| (slot, read(a..b)))
+        .map(|(slot, a, b, carried)| {
+            let mut run: Vec<usize> = (a..b).chain(carried).collect();
+            run.sort_unstable();
+            run.dedup();
+            (slot, read(&mut run.into_iter()))
+        })
         .collect();
     out
 }
@@ -200,8 +230,19 @@ pub fn sites(
 ) -> Vec<Value> {
     // What a row may name to read it: the token, a token that aliases it,
     // or a synthetic expression over either.
+    // A role override is read by any of its spellings (`secondary-label`,
+    // `-exact-secondary-label`, any case), as the compiler takes them.
+    let role = |name: &str| {
+        let name = name.trim();
+        exact_kernel::style::roles::role(name).or_else(|| {
+            (!name.starts_with('-'))
+                .then(|| exact_kernel::style::roles::role(&format!("-exact-{name}")))
+                .flatten()
+        })
+    };
+    let token_role = role(token);
     let via_token = |s: &str| {
-        if names(s, token) {
+        if names(s, token) || token_role.is_some() && role(s) == token_role {
             return Some(Value::Null);
         }
         aliases

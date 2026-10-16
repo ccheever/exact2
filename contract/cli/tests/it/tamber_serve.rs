@@ -814,3 +814,32 @@ fn uses_follows_stores_and_skips_comparisons_and_ids() {
     assert_eq!(sites[0]["via"], json!({"slot": "copy"}));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// `uses` follows a value through an action's local (`let`), and reads a
+/// role override by any of its spellings.
+#[test]
+fn uses_follows_locals_and_role_spellings() {
+    let dir = app(
+        "uses-local",
+        "tamber app\n\ntheme\n  brand = #0a7aff\n  secondary-label = #445566\n",
+    );
+    std::fs::write(
+        dir.join("app.contract"),
+        "component App\n  state ink = \"#000000\"\n  action set\n    let chosen = \"brand\"\n    ink = chosen\n  view\n    column\n      text \"a\" color=ink press=set\n      text \"b\" color=\"secondary-label\"\n",
+    )
+    .unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let (uses, _) = s.ask(json!({"method": "uses", "token": "brand"}));
+    let sites = uses["ok"]["sites"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{uses}"));
+    assert_eq!(sites.len(), 1, "{uses}");
+    assert_eq!(sites[0]["via"], json!({"slot": "ink"}));
+    let (role, _) = s.ask(json!({"method": "uses", "token": "-exact-secondary-label"}));
+    let sites = role["ok"]["sites"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{role}"));
+    assert_eq!(sites.len(), 1, "{role}");
+    assert_eq!(sites[0]["line"], 9, "{role}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

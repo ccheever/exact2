@@ -87,7 +87,7 @@ export function scrubSessions({ ask, write, preview, restore, released = () => {
       // A release being written: the next scrub opens on what it wrote.
       if (releasing) return Promise.resolve(refused(409, 'a scrub\'s release is being written; open one again once it lands'));
       if (open && open.client !== request.client) return Promise.resolve(refused(409, `a scrub is open, \`${open.client}\`'s: one at a time`));
-      if (open && request.scrub !== undefined && request.scrub !== open.id) return Promise.resolve(refused(409, `\`${request.scrub}\` is not the scrub open now`));
+      if (request.scrub !== undefined && request.scrub !== open?.id) return Promise.resolve(refused(409, `\`${request.scrub}\` is not the scrub open now`));
       if (!open) {
         const files = request.files;
         if (typeof files !== 'object' || files === null || Array.isArray(files)) return Promise.resolve(refused(400, 'a scrub opens on the `files` digests its client read'));
