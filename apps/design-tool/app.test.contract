@@ -349,3 +349,18 @@ test "an import's review: tokens in, overrides off until ticked with their notes
   clock data
   expect tree missing "held-imp"
   expect tree has "held-held-1"
+
+test "an undo goes only to the server run that issued it: after a restart it is refused, and undo and redo start again"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  type "dial-hue-stepper" "210"
+  clock data
+  tap "apply"
+  clock data
+  expect text "undo" == "Undo (1)"
+  request POST "/__stub/restart" {} as ada
+  tap "undo"
+  clock data
+  expect text "write-error" == "The design server restarted (or another took its port) since this session began: nothing was written, and undo and redo start again."
+  expect text "undo" == "Undo (0)"

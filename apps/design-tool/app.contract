@@ -341,8 +341,9 @@ component DesignTool
   // One slot for a write, an undo or a redo: its reply holds the stacks.
   mutation written as shape Written refreshes design then afterWrite
   // The stacks as the last write left them, unless a new run of the
-  // server has emptied them since.
-  derive stack = match written { case some(w) => (w.session == changes.session ? w : Written(ok=true, error="", undo=changes.undo, redo=changes.redo, last="", key="", session=changes.session, note="")), case none => Written(ok=true, error="", undo=changes.undo, redo=changes.redo, last="", key="", session=changes.session, note="") }
+  // server has emptied them since (a write that found the restart itself is
+  // newer than the poll, and says so).
+  derive stack = match written { case some(w) => (w.session >= changes.session ? w : Written(ok=true, error="", undo=changes.undo, redo=changes.redo, last="", key="", session=changes.session, note="")), case none => Written(ok=true, error="", undo=changes.undo, redo=changes.redo, last="", key="", session=changes.session, note="") }
   derive draftKey = `${file}␟${editKind}␟${editTarget}␟${editWhen}␟${editValue}`
   // A cell's edit whose branch the grid no longer shows (another client
   // changed it): not applied, lest it make a `when` no one asked for.
