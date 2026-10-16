@@ -174,8 +174,8 @@ the re-export and the bounded journal (D4).
 - **Production trust: collection off.** The host tells the runner once,
   after boot: `Runner::measure(on, moves)` (ruled, Q2: never a field the app
   can read). The Apple, Linux and web wasm hosts already hold the baked
-  `compat.json` and decide from its `inputs.trust` (`delivery::production`),
-  so no new export is needed. Off, each counter is one branch on an empty
+  `compat.json` and decide from its `inputs.trust` (`delivery::production`).
+  Off, each counter is one branch on an empty
   table. A production JS build references neither `pf` nor `perf.js`. This is
   not a cargo feature, so the ban on optional capability in core crates is
   untouched.
@@ -188,6 +188,18 @@ the re-export and the bounded journal (D4).
   - the `--stress-url` sampler's p95 frame gap with collection on and off.
 
   Stage 1 measures these. The results are in §As built.
+- **An Apple release build the agent did not launch: on from the first ask.**
+  Such a build (stamped `release` or `archive`, without production trust)
+  starts its counters at the agent's first request or its first Save Trace,
+  as it starts its frame sampler (D3), and holds no counter table until then.
+  ExactKit tells the library before the first runner boots
+  (`exact_measure_work_later`, once a process) and asks with
+  `exact_measure_work` (`Runner::measure_from_now`): live instances seed
+  `created`, and the next batch trailer's `seq` starts after the
+  transactions already applied. Once asked, every runtime booted after
+  counts from boot. Until then a `perf` read says the build's work is not
+  measured until first asked; under production trust it still says the
+  build measures no work.
 
 ### D2 — `perf <target>`: the work read
 
@@ -607,7 +619,10 @@ accepted the four recommendations below ("sure").
   boot. It is never a reserved field the app can read: an app has no business
   branching on whether it is measured (D1). As built, the switch is
   `Runner::measure`, which only the host calls. Each host decides from the
-  baked `compat.json` it already holds, so no new export was needed (§10).
+  baked `compat.json` it already holds (§10). An Apple release build the
+  agent did not launch starts at the first ask instead, which ExactKit tells
+  the library through two exports, `exact_measure_work_later` and
+  `exact_measure_work` (D1).
 - **Q3 — Split `changed` into `authored` and `inherited`.** One counter more,
   on a path the kernel already distinguishes (`txn.rs:1138-1141`). Without
   it, a parent style flipping reads the same as every row being wasteful
@@ -645,7 +660,7 @@ thing.
 |---|---|---|---|
 | 1 | `retired` counted "the same place, on retirement" | `NodeInst::destroy` emits one `DestroyView` and drops the subtree unvisited; a receipt's destroyed keys no longer resolve to view ids | D1: read from liveness. The views the runner remembers (`Ids`) whose kernel node is gone, plus a count kept when it forgets them. Within-batch churn is covered, since every realization is remembered |
 | 2 | `inherited` from "the kernel's inherited path", with "Kernel: nothing new" | `touched` does not say why a node is in it; telling would change the kernel | D1: the runner classifies each touched node against the targets of its own ops in that transaction. The kernel is unchanged, and `inherited` is named for what it is: touched with no op naming the node |
-| 3 | "a private ABI flag" for the trust switch | the Apple, Linux and web wasm hosts already hold the baked `compat.json` | D1: `Runner::measure(on, moves)`, decided by each host from `inputs.trust`; no new export. Measuring starts after boot, live instances seed `created` |
+| 3 | "a private ABI flag" for the trust switch | the Apple, Linux and web wasm hosts already hold the baked `compat.json` | D1: `Runner::measure(on, moves)`, decided by each host from `inputs.trust`. Measuring starts after boot, or in an Apple release build the agent did not launch at the first ask (two exports); live instances seed `created` |
 | 4 | the JS target's counters in `rt.js` | `rt.js` is at the 1,500-line cap; `P`/`S` stamps would ship in every production bundle | D1: `perf.js`, referenced only by a development build. The emitter wraps each dynamic binding in `pf(site, f)`, and mutation records give `authored`, `created`, `retired`. A production bundle was checked to carry none of it |
 | 5 | site totals "for the target subtree" | a target inside a list is one instance of sites that have many | D2: counters are site-wide; `instances` is live under the target, `live` site-wide, so `created − retired = live` |
 | 6 | `nodes: true` per-node counters | a per-slot table and a second reply shape, with no finding in the RFC that needs them | cut. A site-wide total plus `instances` answered every case met here |

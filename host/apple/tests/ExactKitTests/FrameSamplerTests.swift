@@ -141,6 +141,22 @@ final class FrameSamplerTests: XCTestCase {
         XCTAssertNotEqual(try Data(contentsOf: latest), first)
     }
 
+    /// A release build's sessions count their sites' work from the first ask
+    /// (LLP 1079 D1), and one made after it, a second window, counts from its
+    /// boot: making it does not undo the ask.
+    func testASessionMadeAfterTheFirstAskCountsItsWorkFromBoot() throws {
+        let first = ExactApp.shared.makeSession()
+        defer { first.runtime.measureWork(); first.destroy() }
+        XCTAssertNil(FrameSampler.fromBoot(first, atBoot: false), "a release build samples nothing at boot")
+        XCTAssertNil(first.boot(size: CGSize(width: 390, height: 844)).error)
+        first.runtime.measureWork()
+        let second = ExactApp.shared.makeSession()
+        defer { second.destroy() }
+        XCTAssertNil(FrameSampler.fromBoot(second, atBoot: false))
+        XCTAssertNil(second.boot(size: CGSize(width: 390, height: 844)).error)
+        XCTAssertTrue(second.agent(#"{"op":"perf"}"#).contains("\"sites\""), "the second session counts from boot")
+    }
+
     /// A release build measures nothing until something asks (LLP 1079):
     /// its first trace still has the journal and the sites' work, its frames
     /// and hatch timings empty and saying so, and starts the measuring that
@@ -151,7 +167,7 @@ final class FrameSamplerTests: XCTestCase {
         // As a release build boots: no site's work counted, no sampler, no hatch timing.
         exact_measure_work_later()
         XCTAssertNil(session.boot(size: CGSize(width: 390, height: 844)).error)
-        XCTAssertTrue(session.agent(#"{"op":"perf"}"#).contains("measures no work"), "no site's work is counted")
+        XCTAssertTrue(session.agent(#"{"op":"perf"}"#).contains("not measured until first asked"), "no site's work is counted")
         session.sampler?.stop()
         session.sampler = nil
         HatchDiagnostics.measuring = false

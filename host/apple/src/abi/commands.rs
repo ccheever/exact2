@@ -22,9 +22,13 @@ pub fn measure_work_later() {
     WORK_FROM_BOOT.store(false, Ordering::Relaxed);
 }
 
-/// Whether a runner booted now counts its work from boot.
-pub fn work_from_boot() -> bool {
-    WORK_FROM_BOOT.load(Ordering::Relaxed)
+/// A runner just booted counts its work from now, or from the first ask.
+pub fn measure_at_boot<D: DataSource>(runner: &mut exact_runner::Runner<D>, compat: Option<&str>) {
+    if WORK_FROM_BOOT.load(Ordering::Relaxed) {
+        runner.measure_unless_production(compat, true);
+    } else {
+        runner.measure_later(compat);
+    }
 }
 
 /// The alert shape (LLP 1115 D6), the kernel's rule
@@ -41,8 +45,7 @@ impl<D: DataSource> Bridge<D> {
     pub fn measure_work(&mut self) -> u32 {
         WORK_FROM_BOOT.store(true, Ordering::Relaxed);
         if let Some(host) = self.host.as_mut() {
-            host.runner_mut()
-                .measure_unless_production(self.compat, true);
+            host.runner_mut().measure_from_now(self.compat, true);
         }
         0
     }

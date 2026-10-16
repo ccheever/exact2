@@ -446,9 +446,7 @@ impl<D: DataSource> Host<D> {
         runner.set_device_links(links.device);
         // @ref LLP 1079 D1 — a development build measures its work, a
         // release build from the first ask (`Bridge::measure_work`).
-        if crate::abi::work_from_boot() {
-            runner.measure_unless_production(compat, true);
-        }
+        crate::abi::measure_at_boot(&mut runner, compat);
         runner.admit_live(compat);
         if let Some(action) = region.and_then(|r| r.activate) {
             runner.act(action, Vec::new()).map_err(HostError::Runner)?;

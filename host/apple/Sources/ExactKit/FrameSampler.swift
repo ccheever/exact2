@@ -27,12 +27,16 @@ final class FrameSampler: NSObject {
 
     /// A new session's sampler, where it samples from boot. Where it starts
     /// at the first ask instead, so does the count of its runner's plan
-    /// sites' work (LLP 1079 D1), which is told before the runner boots.
-    static func fromBoot(_ session: ExactSession) -> FrameSampler? {
+    /// sites' work (LLP 1079 D1), which is told before the first runner
+    /// boots.
+    static func fromBoot(_ session: ExactSession, atBoot: Bool = atBoot) -> FrameSampler? {
         guard measured else { return nil }
-        guard atBoot else { exact_measure_work_later(); return nil }
+        guard atBoot else { _ = workFromFirstAsk; return nil }
         return FrameSampler(session: session)
     }
+    /// Told once a process: a later session must not undo an earlier ask,
+    /// after which every runtime booted counts from boot.
+    private static let workFromFirstAsk: Void = exact_measure_work_later()
     static let ring = 600, lateKept = 100, quiet = 0.5
     /// A release build's frames before anything asked for them.
     static let unmeasured = "a release build measures frames from the first agent request or trace; this is the first"
