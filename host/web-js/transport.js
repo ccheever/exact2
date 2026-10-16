@@ -173,8 +173,10 @@ function fill(at, how) {
 // `p`'s hits in [from, to), each timed by the segment it falls in: a fill an edit restarts before its time reaches back
 // into the tempo before it (the runner's `Transport::hits`).
 // When beat `b` of a hit at `at` falls: in the hit's own segment, or a later one the beat reaches (a note's end past a
-// tempo edit), never across a restart, whose beat goes back (the runner's `time_of` in `fill`).
+// tempo edit), never across a restart, whose beat goes back (the runner's `time_of` in `fill`). Following a clock, in its
+// one segment: its segments do not join.
 function timeOf(at, b) {
+  if (Follow) return time(seg(), b);
   let j = Math.max(Segments.findLastIndex(g => g.at <= at), 0);
   while (j + 1 < Segments.length && Segments[j + 1].beat <= b && Segments[j + 1].beat >= Segments[j].beat) j++;
   return Segments.length ? time(Segments[j], b) : time(seg(), b);
