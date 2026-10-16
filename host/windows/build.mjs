@@ -7,17 +7,25 @@ import { bakeTarget, buildBake, copyShaders, developmentBuildEnv, resolveApp, wi
 
 if (process.platform !== 'win32') throw new Error('build the Windows host on Windows with the MSVC Rust target');
 const args = process.argv.slice(2);
-const app = resolveApp(args.find(arg => !arg.startsWith('--')));
+const outAt = args.indexOf('--out');
+if (outAt >= 0 && !args[outAt + 1]) throw new Error('--out needs a directory');
+const app = resolveApp(args.find((arg, i) => !arg.startsWith('--') && i !== outAt + 1));
 const target = bakeTarget('windows');
 const profile = args.includes('--release') ? 'release' : 'gpu-dev';
 const build = buildBake(app, 'windows', target, { profile, env: developmentBuildEnv(app) });
-const output = resolve(app.dir, 'dist-windows');
+// A running copy holds its executable and DLL open, so another directory lets
+// a second copy be packaged beside it.
+const output = outAt >= 0 ? resolve(args[outAt + 1]) : resolve(app.dir, 'dist-windows');
 mkdirSync(output, {recursive:true});
 let executable;
 for (const product of build.products) {
   if (!/\.(exe|dll)$/.test(product.path)) continue;
   const destination = resolve(output, windowsFile(app, product.path));
-  copyFileSync(product.path, destination);
+  try { copyFileSync(product.path, destination); }
+  catch (error) {
+    if (error.code !== 'EBUSY' && error.code !== 'EPERM') throw error;
+    throw new Error(`${destination} is in use, most likely by a running copy of the game: quit it, or package into another directory with --out <dir> (run that copy under the agent with EXACT_WINDOWS_BIN)`);
+  }
   if (product.path.endsWith(`${app.crate('windows')}.exe`)) executable = destination;
 }
 if (!executable) throw new Error('Windows bake produced no executable');
