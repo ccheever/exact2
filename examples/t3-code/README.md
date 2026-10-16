@@ -391,11 +391,22 @@ could not, the comment at the fix says what happened and why the code is so.
 ## Work left
 
 As of 2026-10-16, after merging main's macOS fixes of that day (exact2 PRs #636 to #640, #646,
-#647, #651, #655, #663 and #664), a session with real keys on the terminal and VoiceOver session G. Each item
+#647, #651, #655, #663, #664, #676 and #679), a session with real keys on the terminal and the real-input
+and VoiceOver sessions G, H and I. Each item
 says what is wrong or missing; the open framework issues that someone using the app runs into are
 in the section above.
 
-**Fails:** none known. Session G's two host failures are fixed on main (below).
+**Fails:**
+
+- A press outside the Thread details card (the timeline, the sidebar, the prompt) does not close
+  its 'Open in' menu. The menu is an app-drawn layer whose click-away backdrop covers only the
+  card. Making it a `popover="auto"` anchored to its row and opened by `popovertarget`, as the
+  project scripts menu is (R6ScriptMenu), would let the host light-dismiss it since exact2 PR
+  #676; that is left for later.
+
+**Known difference:** the font picker opened by a pointer press with VoiceOver elsewhere: its
+search field is always read, the dialog's name ('Interface font family, dialog') in about half the
+runs (2 of 5).
 
 The items below that were fixed since the 2026-10-15 session still want real keys, a pointer and
 VoiceOver.
@@ -429,6 +440,20 @@ VoiceOver.
 
 **Checked with real keys** (2026-10-16):
 
+- Light dismiss on macOS (exact2 PR #676, rows H-6 and H-7): a real click in the composer, Search
+  threads, Search settings, the terminal or a sidebar row closes an open popover menu (Project
+  scripts, Git action options, Settings' Environment and Project scope), every time, with no
+  change in the clone. A press dragged onto the menu keeps it open.
+- A double-click on a sidebar row of another environment renames it: 23 of 23 runs in the flat
+  sidebar and 21 of 21 in the legacy one, in both directions, with a text draft or an image and
+  text draft on the destination thread (0 of 10 and 0 of 12 before). Rows are keyed by the thread
+  with its environment, as the reference keys them, and a rename asked for before that
+  environment's shell is in waits for the row.
+- A press on the empty composer's placeholder line puts the caret in Message, as the placeholder
+  takes no press, like the reference's `pointer-events-none` one (fresh bundle id).
+- A Korean word typed (2-Set) with nothing editable focused composes whole in the composer:
+  type-to-focus hands the key to the prompt instead of inserting its characters (fresh bundle id).
+
 - Terminal, Korean 2-Set with VoiceOver on (C9): VoiceOver was not the cause. When another
   process selects the input source with TISSelectInputSource (an input switcher, or the
   real-input harness's own tool) while the terminal has the focus, WebKit's input context can be
@@ -461,10 +486,26 @@ menu, not TISSelectInputSource, before they judge IME rows.
 
 **Fixed, not checked with real input or VoiceOver:**
 
-- A press in the composer, Search threads or Search settings closes an open popover menu
-  (Project scripts, Git options, Environment scope) when the button is released, as on the web
-  (exact2 PR #663, session G's row 4). Before, a text view's tracking loop took the mouse-up and
-  the host never completed the press. Checked by the host's XCTests only.
+- The font picker by VO-Space on 'Interface font family' (row H-10, exact2 PR #679): the host
+  posts the landing's layout change on the picker dialog, not the page's scroll view, so VoiceOver
+  reads 'Search fonts, edit text', then 'Interface font family, dialog'. No clone change; checked
+  with VoiceOver on main's host, not yet in the clone.
+- The same double-click rename on another environment's row when the destination's draft holds an
+  image as an inline chip in the prompt (the real-input runs had an attached image tile only).
+- The composer's text area is always its own AXTextArea, with no AXScrollArea around it, with or
+  without chips, and stays in the tree after the last chip is removed. An empty prompt reads
+  'Message, edit text' to VO-Right, not 'empty, scroll area'. Removing the last image tile that is
+  also an inline chip keeps VoiceOver on the prompt: the focused text area keeps its parent, where
+  before VoiceOver lost it and went to the sidebar's Search. Checked by AppKit tests and an
+  accessibility walk (`tree --ax`), not by VoiceOver.
+- Opening a thread marked unread clears it again after another thread was opened within 10 s of
+  its last visit (session I). The clone dropped that other thread's throttled visit, so the
+  dedupe key stayed on the first thread and reopening it after Mark unread sent nothing. A visit
+  for another thread now goes at once; only one thread's mid-turn updates are throttled, as a data
+  source has no clock to run the reference's trailing timer on (LLP 1027). Checked by an agent
+  drive (open, open another, Mark unread, reopen).
+- Escape closes Thread details' 'Open in' menu wherever the focus is, and gives the focus back to
+  the chevron when the menu held it (Base UI Menu). Checked by an agent drive.
 - macOS VoiceOver (exact2 PR #664, session G's rows 3, 5, 6, 10, 11, 12 and 14): VoiceOver lands
   where a commit's `focus()` or the focus given back puts it, a dialog drawn in the page is named
   after the focused control's words at low priority, and a painted menu opened with VO-Space and
@@ -597,7 +638,7 @@ menu, not TISSelectInputSource, before they judge IME rows.
   read as a text field, not a combo box (QUEUE.md). A modal dialog drawn in the page, such as Add
   Environment or Rename project, is announced as it opens ("Add Environment, dialog"), before its
   first field is read, and only once while it stays open, even after a dialog opened over it
-  closes. A dialog in a popover, such as the font picker, is still not announced. In a painted
+  closes. A dialog in a popover, such as the font picker, is announced since exact2 PR #679 (above). In a painted
   menu, the focused row is the menu's selected child (AXSelectedChildrenChanged), the way an
   NSMenu reports its highlighted item; when the menu closes it posts AXMenuClosed, and after
   Escape gives the focus back to the trigger, that focus is posted as well, so VoiceOver follows
@@ -619,8 +660,12 @@ menu, not TISSelectInputSource, before they judge IME rows.
   VoiceOver's order. The strip scrolls sideways only once it holds a SnapShot frame, so plain
   images are no longer behind a scroll area.
 
-**Next real-input session:** session G's row 4 with the pointer (a press in the composer, Search
-threads and Search settings closes the open menu) and rows 3, 5, 6, 8, 10, 11, 12, 13 and 14 with
+**Next real-input session:** rows H-10 and H-11 with VoiceOver (VO-Space on 'Interface font
+family': 'Search fonts, edit text', then 'Interface font family, dialog'; VO-F3 on Search fonts);
+VO-Right onto the empty prompt ('Message, edit text') and the removal of the last image tile that
+is an inline chip; Mark unread, then reopening, after opening another thread; a double-click rename
+on another environment's row whose draft holds an inline image chip; session G's rows 3, 5, 6, 8,
+10, 11, 12, 13 and 14 with
 VoiceOver (exact2 PR #664: the field, Cancel or trigger read first, then the dialog's name);
 VoiceOver rows 1, 2, 3, 4, 6, 25 and 28 of realinput-1015c (the
 `aria-modal` views and dialogs); rows 22 and 24 (VO-Right from the text area reaches every chip
@@ -685,7 +730,7 @@ environment, a machines list and an ACP agent stand-in (each has its README). St
 tailnet, and a server older than the client for the machines-update popover's busy states.
 
 **Framework issues opened by this app:** the macOS issues it opened from 2026-10-13 to 2026-10-16
-are closed on main, the light-dismiss and VoiceOver-sequence ones (exact2 PRs #663 and #664)
+are closed on main, the light-dismiss and VoiceOver ones (exact2 PRs #663, #664, #676 and #679)
 included, and so is the pointer events one (`pointerdown` and `pointerup` now bubble to every
 ancestor that hears them, and `stopPropagation()` stops them). None is open.
 
