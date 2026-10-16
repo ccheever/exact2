@@ -390,21 +390,64 @@ could not, the comment at the fix says what happened and why the code is so.
 
 ## Work left
 
-As of 2026-10-16, after merging main's macOS fixes of that day (exact2 PRs #636 to #640, #646,
-#647, #651, #655, #663, #664, #676 and #679), a session with real keys on the terminal and the real-input
-and VoiceOver sessions G, H and I. Each item
-says what is wrong or missing; the open framework issues that someone using the app runs into are
-in the section above.
+As of 2026-10-17, after merging main's macOS fixes (exact2 PRs #636 to #640, #646, #647, #651,
+#655, #663, #664, #676, #679 and #681), a session with real keys on the terminal and the
+real-input and VoiceOver sessions G to K. Each item says what is wrong or missing; the open
+framework issues that someone using the app runs into are in the section above.
 
-**Known difference:** the font picker opened by a pointer press with VoiceOver elsewhere: its
-search field is always read, the dialog's name ('Interface font family, dialog') in about half the
-runs (2 of 5).
+**Known differences:**
 
-The items below that were fixed since the 2026-10-15 session still want real keys, a pointer and
-VoiceOver.
+- VO-Space on a composer citation chip, from the end of the thread, scrolls the timeline to the
+  cited text. VoiceOver then moves its cursor to the 'Scroll to end' pill that appears as the
+  timeline leaves the end, and the keyboard focus follows it; the reference keeps the focus on
+  the chip's link. Only VoiceOver's own press does this. A pointer press, or an accessibility
+  press from another client, leaves the focus on the prompt with the chip selected, and a
+  VO-Space while the pill is already showing keeps it there too. The app posts nothing that
+  names the pill before the focus moves (a macOS host issue: VoiceOver's press moves its cursor
+  to an element that appears during the press).
+- Escape in a new binding's recorder (Settings › Keybindings) with nothing recorded blurs the
+  field to the window on macOS, where the reference keeps it focused
+  ([`issues/20261016-escape-in-recorder-blurs-on-macos.md`](../../issues/20261016-escape-in-recorder-blurs-on-macos.md);
+  F-2). It is not VoiceOver's: after main's #681, real keys alone reproduce it, Tab into the field
+  then Escape 3 of 3 and a click into it then Escape 1 of 1 (VoiceOver then says 'scroll area').
+- A context-menu item that opens Rename project or Project grouping can still let VoiceOver
+  re-read a long draft before the dialog, and the dialog's name is then not heard
+  ([`issues/20261016-native-menu-pick-voiceover-old-focus.md`](../../issues/20261016-native-menu-pick-voiceover-old-focus.md);
+  rows H-9, G-5 and FN6 pass with this difference). The landing (the field or Cancel) is right.
 
-**Not failures** (the reference does the same):
+**Not failures:**
 
+- Opening a thread marked unread does not clear it when the thread opened in between had
+  nothing new (session K's FN4), as in the reference. ChatView's visit effect dedupes on
+  `${routeThreadKey}:${updatedAt}` (ChatView.tsx:2866-2868) and returns early, without touching
+  that key, for a thread with nothing new (2858); ChatView is not remounted between server
+  threads (ThreadRouteView.tsx:184, _chat.tsx:209-221); and mark-unread leaves `updatedAt` as it
+  is (Orchestrator.ts:2660-2670, 2789-2790). Reopening the thread hits the same key and sends no
+  visit, as the clone's `sidebar-commands.ts` does.
+- Settings › Keybindings: 'Preview: Zoom In' (`mod++`) shows ⌘ and two blank key caps, as the
+  reference's KeybindingPill splits a literal '+' into empty parts (KeybindingsSettings.tsx:74-103;
+  `keybinding-view.ts`).
+- In the accent picker, VO-Right stops at 'Accent brightness' and Tab reaches 'Accent hue'
+  (E-C3). The saturation and brightness sliders are inside the plane, a group as the reference's
+  ColorSaturationValuePlane is, and VO-Right stops at a group's last child until VO-Shift-Up
+  leaves it, as in any AppKit group. The hue slider reads as the reference's ('223, Accent hue,
+  slider').
+- A flat sidebar drag lands the row by the lifted row's centre, not the pointer's drop point
+  (FN13), as the reference's closestCenter and sortable strategy do (Sidebar.drag.ts:1-47,
+  Sidebar.tsx:5071-5082; the clone's `sidebar-drop.ts`). Each write went to the row's own
+  environment.
+- Shift-Tab from the window goes to 'Toggle main sidebar', the last view in tree order though it
+  is drawn top-left (FN28, exact2 PR #646): AppKit's Shift-Tab with no first responder selects the
+  last key view of the loop.
+- The font picker and Add Environment name their dialog after the focused field or radio, about
+  0.5 s later (H-10, J18, J21, FN32), the order exact2 PRs #664 and #679 chose; a caption window
+  shorter than that misses the name.
+- ⌘Z after snoozing a background row from another environment once left it snoozed (FN29); it
+  did not reproduce, and the input tool could not choose the submenu item again.
+- Pull Requests in the lane: 'GitHub CLI returned no login for the authenticated account' and a
+  first click on #144 that did not open it come from the github-lane fixture's `gh` stand-in;
+  the list loaded and the second click opened it. The timeline's 'Image unavailable' for a table
+  image and a linked image is the lane's missing media server.
 - The legacy sidebar's thread machine glyph has no pointer tooltip, and neither does the
   reference's. Its meta slot is `pointer-events-none` and fades out on hover
   (LegacySidebar.tsx:489-493, 903-920); 'Lane Second' is only the glyph's accessible name.
@@ -416,9 +459,9 @@ VoiceOver.
   after Escape, Close or a backdrop click replaces the file or image chip (C14/C23). T3 Code's
   Tiptap editor keeps the chip's NodeSelection and Base UI's finalFocus gives the editor back the
   focus; measured on the reference web build. `macos/tests/composer/chipactions.swift` pins it.
-- Dragging a zoomed preview image past an edge (row 4): ZoomableImage's drag keeps its press as
-  the origin, so the image moves back only once the pointer passes where the edge was hit.
-  Measured on the reference's own ZoomableImage.tsx in Chrome for Testing 154;
+- Dragging a zoomed preview image past an edge (row 4, E-D4): ZoomableImage's drag keeps its
+  press as the origin, so the image moves back only once the pointer passes where the edge was
+  hit. Measured on the reference's own ZoomableImage.tsx in Chrome for Testing 154;
   `composer-preview-keys.test.ts` pins it.
 - Escape on an existing binding's recorder brings back its pill and leaves the focus on no
   element (KeybindingKeyControl's showPill).
@@ -429,6 +472,41 @@ VoiceOver.
   `!terminalFocus && !editableFocus`).
 - The right panel toggle moves from the chat header into the panel when the panel opens, as the
   reference's does.
+- Session K did not run some rows, for want of fixture data or because the task left them out;
+  none is a failure: Usage's dialogs (H-2, FN8; no pooled limits), FN17 (no real-input path makes
+  a focused control disabled), FN24 (a Screen Recording grant), G-5's Remove project (no empty
+  project), the diff Turn submenu and the linked pull request, approval and device menus (FN5),
+  the project scope search, Reply and a diff comment (FN7), and realinput-1015c row 24. J9, J11,
+  J15, J16 and J17 need pre-fix builds or superseded framework test apps. J10 ran on the T3 lane
+  instead of PR #676's test app (58 of 58 outside presses closed the popovers), and J19's
+  NSPopover path does not exist in the clone.
+
+**Checked with real keys, pointer and VoiceOver** (session K, 2026-10-17, bundle of
+`c5574fdca`): everything the previous "Fixed, not checked" list held, but for the rows above.
+That is: the font picker by VO-Space and by pointer; double-click rename across environments
+(flat and legacy, 34 of 34, also onto a draft with an inline image chip); the empty prompt read
+as 'Message, edit text' and the last-tile removal staying on the prompt; light dismiss of the
+'Open in', file 'Open in', folder crumb and diff scope menus; VoiceOver landings in dialogs
+(#655, #664, `dialogSeated`); the fields focused on mount; 'Toggle main sidebar'; the shelf's
+Remove handing on the focus; Escape order at a narrow window and the focus back on the Git
+options chevron; the chips as the text area's siblings in text order; Return on menu rows; a
+clicked button taking no focus; AXPress answering success; the font picker's keyboard pick; the
+legacy row names; the image preview as ZoomableImage; no 'HTTP 404' after a hover Settle; #647's
+alertdialog, menu and group speech; the Git split button's chevron; settle, snooze, wake and pin
+on a background environment's row; Mark unread from the native menu; the keybinding recorder as
+a text field; a new binding by keys; the Project scripts menu; the composer's 'Preview <name>'
+buttons; the Snoozed header and Wake; and Tab through the legacy Rename project dialog.
+
+**Checked with VoiceOver after main's #681** (2026-10-17, FN15): the shortcut recorder, an
+`aria-modal` row with no role, is served by its field. VO-Space on 'Edit shortcut for Chat: New'
+reads 'Keybinding for Chat: New Press shortcut, edit text', and VO-F3 'Keybinding for Chat: New,
+edit text, is in the VoiceOver cursor' (2 of 2; before, 'scroll area'). The clone needed no change.
+
+**Fixed, not checked with real input or VoiceOver:**
+
+- Each Settings page opens at its top: each page has its own scroller, keyed on the route, the
+  scope and a restore, as `routes/settings.tsx` keys its Outlet. The search jump still lands on
+  its target (tests and an agent drive).
 
 **Checked with real keys** (2026-10-16):
 
@@ -476,264 +554,39 @@ Real-input sessions should type IME rows with held keys: orca's zero-dwell press
 input method commit a jamo at once. They should switch input sources with the system shortcut or
 menu, not TISSelectInputSource, before they judge IME rows.
 
-**Fixed, not checked with real input or VoiceOver:**
-
-- The font picker by VO-Space on 'Interface font family' (row H-10, exact2 PR #679): the host
-  posts the landing's layout change on the picker dialog, not the page's scroll view, so VoiceOver
-  reads 'Search fonts, edit text', then 'Interface font family, dialog'. No clone change; checked
-  with VoiceOver on main's host, not yet in the clone.
-- The same double-click rename on another environment's row when the destination's draft holds an
-  image as an inline chip in the prompt (the real-input runs had an attached image tile only).
-- The composer's text area is always its own AXTextArea, with no AXScrollArea around it, with or
-  without chips, and stays in the tree after the last chip is removed. An empty prompt reads
-  'Message, edit text' to VO-Right, not 'empty, scroll area'. Removing the last image tile that is
-  also an inline chip keeps VoiceOver on the prompt: the focused text area keeps its parent, where
-  before VoiceOver lost it and went to the sidebar's Search. Checked by AppKit tests and an
-  accessibility walk (`tree --ax`), not by VoiceOver.
-- Opening a thread marked unread clears it again after another thread was opened within 10 s of
-  its last visit (session I). The clone dropped that other thread's throttled visit, so the
-  dedupe key stayed on the first thread and reopening it after Mark unread sent nothing. A visit
-  for another thread now goes at once; only one thread's mid-turn updates are throttled, as a data
-  source has no clock to run the reference's trailing timer on (LLP 1027). Checked by an agent
-  drive (open, open another, Mark unread, reopen).
-- Menus the reference draws as Base UI Menus whose click-away layer covered only their card or
-  panel are now `popover="auto"` popovers opened by `popovertarget`, modal while they show, so
-  the host light-dismisses them (exact2 PR #676): Thread details' 'Open in' (under its row, as
-  wide), the file subheader's 'Open in' and folder crumbs, a linked pull request's actions, an
-  approval's 'More approval options', the diff scope menu and its Turn submenu, and the device
-  rail's Text size, Rotate (Android) and More menus. An agent drive at 1280x840 with mouse clicks:
-  'Open in' closes on a press in the sidebar's Search, the timeline and the prompt, and on Escape
-  after Enter opened it, which gives the focus back to the chevron; the diff scope menu and the
-  file 'Open in' close on a press in the sidebar, the folder menu on one in the prompt. Real
-  clicks, and the approval, linked pull request and device menus (no approval, link or device in
-  the drive's fixture), are still to check.
-- macOS VoiceOver (exact2 PR #664, session G's rows 3, 5, 6, 10, 11, 12 and 14): VoiceOver lands
-  where a commit's `focus()` or the focus given back puts it, a dialog drawn in the page is named
-  after the focused control's words at low priority, and a painted menu opened with VO-Space and
-  closed with Escape sends VoiceOver back to its trigger, as an NSMenu does. The clone needs no
-  change for it: its dialogs still become `aria-modal` only once the focus has entered them
-  (`dialogSeated`), as their initial focus comes from a later layout, not from the opening
-  commit. If VoiceOver drops the low-priority name, the confirmations could become
-  `dialog role="alertdialog"` with `showModal(id)` (NSAlert) and the form dialogs `dialog` with
-  `showModal(id)` (a sheet).
-- A field the reference focuses when it mounts now takes the focus whatever held it: the flat
-  and legacy sidebars' rename after a double-click from the prompt, also on a row of another
-  environment, whose first click moves the window there (the rename starts once that open
-  lands), the project scope search, the citation,
-  diff and pull request comment drafts, the pull request title and editors, Reply, the
-  keybindings and licenses searches, and the custom model fields.
-- The main sidebar trigger is one node, 'Toggle main sidebar' (a toggle), at the window controls
-  and over the Settings nav, so a VoiceOver press on it no longer answers 'no action available'.
-  Usage's dialogs cover it, and it is inert while they or a pull request's confirm are open.
-- Removing an image that is also an inline chip: Cancel gives the focus back to its Remove, and
-  Confirm moves it to the next tile or the prompt. Both happen before the confirm closes, which it
-  does 200 ms later, as Base UI's finalFocus runs during the dialog's exit transition. Before, the
-  pressed button was destroyed while it still had the focus, and VoiceOver, after its VO-Space,
-  went to the window and then the sidebar's Search. An out-of-process AXPress now sees the focus
-  move about 230 ms before the dialog's elements go.
-- macOS VoiceOver (exact2 PR #655, rows 8, 10 and 13 of session F): an `inert` page is out of
-  VoiceOver's reach. After Escape closes a painted menu over Settings, the host gives the focus
-  back to the trigger before it says the menu closed, then sends VoiceOver there, so VoiceOver no
-  longer lands on the chat behind Settings. A dialog drawn in the page, such as Rename project,
-  is announced before the focus moves into its field, and VoiceOver is then sent to the field.
-  The font picker lands VoiceOver on 'Search fonts', not on the dialog. The image preview's
-  zoomable image is `role="region"`, as the reference's is, read as 'region'
-  (AXLandmarkRegion). Checked only by AX reads and notification observers, not by VoiceOver.
-- A dialog that reports its focus to the window becomes `aria-modal` only once the focus has
-  entered it (`dialogSeated`, dialog-trap.contract): the legacy Rename project and Project
-  grouping dialogs, the confirmations, the file preview and the composer and timeline image and
-  video previews. The Mac host therefore lands VoiceOver on the dialog's initial focus (the
-  Project title field, Disable word wrap, Close image preview) and announces "<name>, dialog";
-  before, it landed on the dialog group and moved the focus there (rows 13 and 7 of session F
-  and C14; read from another process with AXObserver). Other `aria-modal` popups that do not
-  report through `dialogEntered` (Add environment, the font picker, the This machine dialog, the
-  network dialogs) still announce the popup before their focus moves.
-- A focused Remove on the composer's shelf (VO-Space, keys) hands the focus to the next tile's
-  button or the prompt, where the reference's next Tab goes (the reference leaves it on the
-  body). A pointer press leaves the focus where it was.
-- The flat sidebar's rows of a background environment have their context menu, built from that
-  environment's capabilities and acting there, and a drag writes each pin and order key on its
-  thread's own environment (agent drive; a native menu choice and a real drag are still to
-  check).
-- At a narrow window with the right panel as a sheet, Escape closes the Git dialog, then the
-  Thread details popover drawn above the sheet, then the sheet; a Git options menu item gives the
-  focus to its chevron as it closes, so the Commit or Publish dialog returns the focus there
-  (agent drive at 903x840).
-
-- While an `aria-modal` view is shown (the keybinding recorder, a Connections "More actions"
-  menu or another key-scoped menu, the colour picker, the font picker, an `alertdialog`), another
-  process reads it: the window's scroll area holds exactly the modal, a dialog says "<name>,
-  dialog", and its controls and slider values can be reached. Opening the modal posts a layout
-  change that names it (exact2 PR #638). The Base UI-modal dialogs are now `aria-modal` too: Add
-  environment, the remove confirms (Remove from this device, a usage hub's, a theme collection's,
-  and Settings' confirmations) and the file preview, whose Escape is now its Close button's, as
-  the backdrop lies outside the modal. VoiceOver itself has not read them yet.
-- VoiceOver: the prompt's chips (and the Appearance sample's) are the text area's siblings, and
-  VO-Right reaches them right after the text area in text order, each with its name and role.
-  The Mac host serves each node's navigation order as its tree order (PR #636). One
-  accessibility press opens a chip (checked with AXPress from another process).
-- macOS focus (PR #639): a focused control that becomes disabled gives up the focus, and Tab
-  goes on from its place; `aria-hidden` above the focused node no longer drops the focus; an
-  `autofocus` node inserted again takes the focus on each insert. The launcher still focuses
-  itself at its first layout, as the reference's focusOnMount takes the focus from whatever
-  holds it and `autofocus` does not.
-- Return on a focused `menuitem`, `menuitemradio` or `option` presses it as Space does (PR #640),
-  so every painted menu takes Return: the pull request pages, Usage, the Files crumbs, the
-  Browser's own menus, the snapshot sounds and the rest. The rows that took Return themselves now
-  leave it to the host; the composer's Workspace menu keeps its own, which checks the row.
-- A clicked button takes no focus on the Mac whatever its `tabindex` (PR #640): the composer's
-  previews no longer need `retainFocus` on their backdrops, nor the legacy sidebar's count
-  steppers, and the timeline's image, video and diagram previews no longer lose the focus to
-  their backdrop on a click.
-- AXPress from an assistive app (VoiceOver's VO-Space, Switch Control) on a button, checkbox or
-  switch answers success, no more kAXErrorAttributeUnsupported, and the press runs once, right
-  after AppKit's request returns (PR #637). A probe that reads the app's state right after
-  `AXUIElementPerformAction` returns must wait one run-loop turn.
-- The font picker opens on the family in use, and a pick (by Return or pointer) leaves the focus
-  on its trigger without scrolling Settings (the trigger stays enabled while the setting is
-  written); an Escape with nothing open still leaves Settings, as the reference's
-  useEscapeToGoBack does. Its search has the focus as it opens; typing lights the first match,
-  ↓/↑ move the highlight and Return picks.
-- A legacy thread row's name includes its machine, worktree and terminal glyphs' labels
-  ("Background follow-up, Lane Second"), as the reference's row is named from its content.
-- The composer image preview takes the image's own size and behaves as ZoomableImage: a press
-  beside the image closes it; the image is a Tab stop ("<name>, zoomable image") on the page
-  background with a ring; a click (its release over the image), Enter, + - 0 or the wheel zooms
-  it, a double click zooms once, a window resize fits it again, and the zoom level is announced
-  politely; it pans while zoomed by arrows or drag, stopping at the edges.
-- A snapshot shortcut letter is found on the ASCII-capable layout under 2-Set Korean, and the
-  snapshot AppKit test no longer depends on the input source.
-- The 'HTTP 404' after a hover Settle came from parking the open thread when the next card
-  belonged to another environment. That card now opens in its own environment, and a thread the
-  shell does not hold no longer fetches its detail. It is checked by tests and an agent drive
-  with `tools/second-environment`; one real pointer run is still to do.
-- macOS VoiceOver (exact2 PR #647): an `alertdialog` that opens is announced with its title,
-  "dialog" and the message its `aria-describedby` names (each confirmation names its message, as
-  Base UI's AlertDialog.Description does); `role="menu"` popovers are menus and their rows menu
-  items (AXMenu, AXMenuItem, with AXMenuOpened as one shows); a labelled group says "group"; a
-  popover dialog that autofocuses a field reads the field. Checked by AX reads and notification
-  observers only.
-- The Git split button's options trigger is its chevron only (row C21), so its frame and click
-  target are the chevron's, as the reference's MenuTrigger is; the menu still hangs under the
-  whole group at its width, and the group lights on hover.
-- Tab from the window (session D: it did nothing): with nothing focused, for example after a
-  menu opened by the pointer closes, Tab goes to the first control (Keyboard Navigation on) or
-  the first text field (off), with its focus ring, and Shift-Tab to the last (exact2 PR #646).
-  Covered by XCTests only.
-- In the flat sidebar, settling, snoozing, waking and pinning a background environment's row act
-  on that environment, and the undo notice's ⌘Z reverts on the thread's own environment, also
-  after the focus has moved to another one (agent drive).
-- `tools/second-environment`'s `seed second --turns` gives "Background thread (completed turn)" a
-  completed turn, answered offline by the ACP stand-in. After Mark unread its legacy row shows the
-  reference's green "Completed" status (checked by sending `thread.mark-unread` through the
-  server); Mark unread from the native context menu is still to choose by pointer.
-- The keybinding recorder (Settings › Keybindings and the project action editor) is an editable
-  field named "Keybinding for <command>" with the placeholder "Press shortcut", as the
-  reference's Input is. Other processes read it as a text field (AXTextField) only since exact2
-  PR #651 (below); before, they read AXUnknown. Whether VoiceOver announces it on open is
-  unchecked.
-- macOS VoiceOver (exact2 PR #651): every text field, including "Search fonts", the keybinding
-  recorder and Rename project's "Project title", is a text field (AXTextField) to VoiceOver.
-  Before, other processes read it as AXUnknown, so VoiceOver did not say "edit text". A field with
-  `role="combobox"` (the font picker's "Search fonts", the palette's input, Settings' search) is
-  read as a text field, not a combo box (QUEUE.md). A modal dialog drawn in the page, such as Add
-  Environment or Rename project, is announced as it opens ("Add Environment, dialog"), before its
-  first field is read, and only once while it stays open, even after a dialog opened over it
-  closes. A dialog in a popover, such as the font picker, is announced since exact2 PR #679 (above). In a painted
-  menu, the focused row is the menu's selected child (AXSelectedChildrenChanged), the way an
-  NSMenu reports its highlighted item; when the menu closes it posts AXMenuClosed, and after
-  Escape gives the focus back to the trigger, that focus is posted as well, so VoiceOver follows
-  it. Checked only by AX reads and notification observers, not by VoiceOver.
-- Settings › Keybindings: the new binding's field is a text field from the start ('Unassigned').
-  The focus stays on Add keybinding, as in T3 Code; taking the focus starts recording. Escape
-  restores the binding and keeps the field focused, and a press outside the field ends recording
-  (KeybindingsSettings.tsx's Input).
-- The git dialogs and the Merge confirmation are modal, so over a narrow window's right panel
-  sheet Escape closes the dialog and not the sheet. The Thread details project scripts menu is an
-  anchored popover that closes on Escape or a press outside it (ProjectScriptsControl's Menu).
-- Opening a thread marked unread clears it on a background environment too. The clone asks for
-  the open thread's visit after every refresh, as ChatView's visit effect does, so a thread
-  opened from another environment's row (which moves the window to that environment) sends
-  `thread.visit` there. Checked in agent drives of the flat and legacy sidebars against lane
-  servers.
-- The composer's image thumbnails are 'Preview <name>' buttons (pressing one opens the expanded
-  preview over the draft's images), each followed by its Remove, before the prompt in
-  VoiceOver's order. The strip scrolls sideways only once it holds a SnapShot frame, so plain
-  images are no longer behind a scroll area.
-
-**Next real-input session:** rows H-10 and H-11 with VoiceOver (VO-Space on 'Interface font
-family': 'Search fonts, edit text', then 'Interface font family, dialog'; VO-F3 on Search fonts);
-VO-Right onto the empty prompt ('Message, edit text') and the removal of the last image tile that
-is an inline chip; Mark unread, then reopening, after opening another thread; a double-click rename
-on another environment's row whose draft holds an inline image chip; session G's rows 3, 5, 6, 8,
-10, 11, 12, 13 and 14 with
-VoiceOver (exact2 PR #664: the field, Cancel or trigger read first, then the dialog's name);
-VoiceOver rows 1, 2, 3, 4, 6, 25 and 28 of realinput-1015c (the
-`aria-modal` views and dialogs); rows 22 and 24 (VO-Right from the text area reaches every chip
-in text order, `sample.py` included, and none before the text area); rows 5, 10, 13 and 15 of
-realinput-1016a (VoiceOver's speech for an opening confirmation, a menu, a group and the font
-picker's search); rows 2 and 26 of session C and session D's Tab from the window (with Keyboard
-Navigation on, open a menu with the pointer, close it, then press Tab and Shift-Tab); rows 7, 8,
-10 and 13 of session F and C14 (exact2 PR #655 and `dialogSeated`: VoiceOver stays on Settings'
-trigger after Escape closes a menu, and lands on Rename project's field, the font picker's search
-and the image preview's Close, each dialog announced first), and the zoomable image read as
-"region". For
-exact2 PR #651, with VoiceOver: "edit text" on "Search fonts", a keybinding recorder and Rename
-project's "Project title"; "Add Environment, dialog" and Rename project's announcement as each
-opens, before the first field, and not again after a dialog over it closes; a painted menu's
-focused row read as its selection as ↓/↑ move it, its close, and the trigger read again after
-Escape. With real keys: a new binding in Settings › Keybindings (focus stays on Add keybinding,
-recording starts on focus, Escape restores, a press outside ends it), Escape on a git dialog
-over a narrow window's right panel sheet (then the Thread details popover, then the sheet), the
-focus back on the Git options chevron after a Commit or Publish dialog it opened, and the project
-scripts menu's Escape and outside press. With the pointer and VoiceOver: a composer image
-thumbnail's Preview button and its Remove (VO-Space on Remove moves the focus to the next tile or
-the prompt). With the pointer: a background environment's flat sidebar row's context menu and a
-drag that reorders it; the Snoozed (1) header and Wake on a background thread. With real keys and
-VoiceOver: the fields focused on mount (above), the 'Toggle main sidebar' toggle, and the focus
-after Cancel and Confirm on removing an image that is also an inline chip.
-
-**Passed with real keys, pointer or VoiceOver** (2026-10-15): the keybinding recorder's Escape,
-Snooze's focus return, Return on the fixed menus, the launcher's letters after a remount, the
-mention, citation, image, video, PDF and audio chips, Cite by double-click, Tab and drag, the
-reply's table and linked images, split view's stripes while scrolling, the PR pages' refocus and
-thread picker, route order across launches, the Browser's Appearance submenu by hover, fonts
-kept across launches, wheel settling, VoiceOver's show menu on links, rows and media, and the
-legacy sidebar's background rows, project menu and a Finder drop onto a background thread.
-
 **Not checked yet:** the device player (needs a device), Reduce motion and trackpad momentum,
-the thread, pull request, review comment and annotation chips by pointer, every chip kind by
-VO-Space, the context popover and progress bars under VoiceOver, the branch's PR glyph, bold
-and italic font faces, the permission helper's real grant (the user's), and a tailnet. Also:
+the thread, pull request, review comment and annotation chips by pointer, the context popover
+and progress bars under VoiceOver, the branch's PR glyph, bold and italic font faces, the
+permission helper's real grant (the user's), and a tailnet. Also:
 
-- The composer's file and image previews after the 2026-10-15 fixes (checked by tests and an
-  agent drive only): Tab and Shift-Tab pass over their buttons with Keyboard Navigation off and
-  wrap through them with it on; a backdrop click gives the focus back to the prompt; in an HTML
-  preview a `target="_blank"` link opens the default browser, a `_top` link does nothing and a
-  link to the page's own section scrolls the frame; ← and → step through the draft's images;
-  VoiceOver stays inside the open preview.
-- Escape on "Remove from this device…" and on "Delete action?" by a person's keys (agent drives
-  and AX reads pass); Escape on a git dialog or the Merge confirmation over the thread-details
-  popover in a narrow window.
-- VO-Space on each chip kind.
+- The composer's file and image previews: Tab and Shift-Tab over their buttons with Keyboard
+  Navigation off and on; in an HTML preview a `target="_blank"` link opens the default browser, a
+  `_top` link does nothing and a link to the page's own section scrolls the frame; the image
+  preview refitting after a window resize.
+- Escape on "Remove from this device…" and on "Delete action?" by a person's keys (VoiceOver and
+  pointer pass); Escape on a git dialog or the Merge confirmation over the thread-details popover
+  in a narrow window.
+- VO-Space on the chip kinds session K did not press (sample.py, an image, a video and doc.pdf
+  pass; the citation chip is the known difference above).
 - Kotoeri's ⌃K in the terminal has not been run: no Japanese input source is installed.
-- The Snoozed (1) header did not expand on a real click, which an agent drive does not reproduce
-  (the agent's tap expands it), so Wake on a background environment's thread still needs one.
-- Tab in the legacy Rename project dialog, now that the accessibility tree no longer collapses
-  under a modal popup.
 
-**Checked by tests and agent drives only:** Home's choice of the most recent project across
-environments (driven with `tools/second-environment`), and Settings › Projects for a project
-only a background environment has (tests only).
+**Next real-input session:** each Settings page opening at its top after another page was
+scrolled, and the search jump still landing on its target; the rows session K did not run (under
+"Not failures") once the lane has pooled limits, an empty project, a linked pull request, an
+approval, a device and turn diffs; and the list above.
 
 **Fixtures.** `tools/second-environment`, `tools/machines` and `tools/acp-standin` give a second
 environment, a machines list and an ACP agent stand-in (each has its README). Still missing: a
 tailnet, and a server older than the client for the machines-update popover's busy states.
 
-**Framework issues opened by this app:** the macOS issues it opened from 2026-10-13 to 2026-10-16
-are closed on main, the light-dismiss and VoiceOver ones (exact2 PRs #663, #664, #676 and #679)
+**Framework issues opened by this app:** open on main are
+[`issues/20261016-escape-in-recorder-blurs-on-macos.md`](../../issues/20261016-escape-in-recorder-blurs-on-macos.md)
+and [`issues/20261016-native-menu-pick-voiceover-old-focus.md`](../../issues/20261016-native-menu-pick-voiceover-old-focus.md)
+(both under "Known differences" above); the VoiceOver press that moves its cursor to the 'Scroll
+to end' pill has no record yet. The macOS issues opened from 2026-10-13 to 2026-10-16 are closed
+on main, the light-dismiss and VoiceOver ones (exact2 PRs #663, #664, #676, #679 and #681)
 included, and so is the pointer events one (`pointerdown` and `pointerup` now bubble to every
-ancestor that hears them, and `stopPropagation()` stops them). None is open.
+ancestor that hears them, and `stopPropagation()` stops them).
 
 **Workarounds main has made unnecessary:** since pointer events bubble, the window's `main` hears
 every press itself, so the app's forwards to it are redundant: the sidebar's `sidebarPressDown`
