@@ -68,6 +68,9 @@ describe('a skill chip\'s details popover', () => {
     const native = { available: true, later: async (request: Obj) => { calls.push(request); return { ok: true, generation: 0, value: {} }; } } as unknown as Native;
     await chipPopoverLocal({} as T3Client, native, 'chip-close', '7', '');
     expect(calls).toEqual([{ op: 'editorChipClose', seq: 7 }]);
+    // Escape asks the editor to take the focus back with the chip selected (PopoverPopup's finalFocus: the trigger).
+    await chipPopoverLocal({} as T3Client, native, 'chip-close', '9', 'escape');
+    expect(calls.at(-1)).toEqual({ op: 'editorChipClose', seq: 9, escape: true });
     // openFileSurface needs a project: the close still happens first.
     const noProject = { config: {}, shell: { projects: [] }, projection: {}, projectId: '', ready: true } as unknown as T3Client;
     await expect(chipPopoverLocal(noProject, native, 'chip-instructions', '8', '/skills/a/SKILL.md')).rejects.toThrow();
@@ -83,8 +86,13 @@ describe('the popover\'s Contract (composer-chip-popover.contract, app-window.co
     expect(layer).toContain('derive width = min(24 * rem, viewportWidth - 2 * rem)');
     expect(layer).toContain('bottom=(above ? viewportHeight - chip.y + 4 : "auto")');
     expect(layer).toContain('padding-top="0.5rem" padding-bottom="0.5rem" padding-left="0.75rem" padding-right="0.75rem"');
-    expect(layer).toContain('role="dialog" aria-label=chip.title testId="chip-popover"');
+    expect(layer).toContain('role="dialog" aria-label=chip.title tabindex=-1 autofocus=(not chipPopoverHasStop(chip)) testId="chip-popover"');
     expect(layer).toContain('text "View instructions"');
+    // PopoverPopup's initialFocus: the first tabbable (a terminal excerpt's output, View instructions), else the popup, so
+    // VoiceOver reads the dialog as the reference's ('Skill Frontend Design, dialog', the Settings prompt sample).
+    expect(layer).toContain('fn chipPopoverHasStop(chip: ChipPopover): bool = chip.kind == "terminal" or (chip.kind == "skill" and chip.path != "")');
+    expect(layer).toContain('aria-label="Captured terminal output" tabindex=0 autofocus=true');
+    expect(layer).toContain('button press=instructions autofocus=true testId="chip-popover-instructions"');
   });
   test('a press outside the popover closes it; View instructions closes it with the file', async () => {
     const window = await source('app-window.contract');
@@ -106,7 +114,7 @@ describe('the popover\'s Contract (composer-chip-popover.contract, app-window.co
     expect(firstChild).toBe('      ChipPopoverEscape(held=(chipShown and not (sshPrompt.open or paletteOpen or modelsOpen or optionsOpen != "" or projectsOpen or confirmOp != "")), dismiss=chipEscape)');
     // The same Escape ends a citation's comment (its textarea's Cancel, else escape-key's close: the native
     // editor tells which, citation-comment.ts `chip-cite-escape`), and closes a skill chip's details.
-    expect(window).toContain('  action chipEscape\n    if chip.kind == "citation"\n      editorOp("chip-cite-escape", `${chip.seq}`, "")\n    else\n      chipClose(false)');
+    expect(window).toContain('  action chipEscape\n    if chip.kind == "citation"\n      editorOp("chip-cite-escape", `${chip.seq}`, "")\n    else\n      chipClosed = chip.seq\n      editorOp("chip-close", `${chip.seq}`, "escape")');
     expect(window).not.toContain('dismiss=chipClose(false), escape=');
     const settings = await source('app-settings.contract');
     const escapeOwners = (settings.match(/derive escapeOwned = ([^\n]+)/)?.[1] ?? '').split(' or ');

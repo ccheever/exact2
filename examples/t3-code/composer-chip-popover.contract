@@ -54,6 +54,10 @@ fn chipPopoverEstimate(chip: ChipPopover, width: number): number = (chip.kind ==
 // The annotation's crop at the popover's content width (w-full), capped at 16rem (max-h-64), object-contain.
 fn chipShotHeight(chip: ChipPopover, width: number): number = min(256, chip.aspect > 0 ? (width - 26) * chip.aspect : 160)
 
+// Whether the popup holds a tabbable control, which takes the focus as it opens (PopoverPopup's `initialFocus`: the first
+// tabbable, else the popup itself): a terminal excerpt's output, a skill's View instructions.
+fn chipPopoverHasStop(chip: ChipPopover): bool = chip.kind == "terminal" or (chip.kind == "skill" and chip.path != "")
+
 // Within the window, 5 pt from its edges (Base UI's collision padding).
 fn chipPopoverLeft(chip: ChipPopover, width: number, viewportWidth: number): number = max(5, min(viewportWidth - width - 5, chip.x + chip.width / 2 - width / 2))
 
@@ -70,7 +74,7 @@ component ChipPopoverLayer
   derive estimate = chipPopoverEstimate(chip, width)
   derive above = chip.y - 9 >= estimate or chip.y >= viewportHeight - chip.y - chip.height
   view
-    column id="chip-popover" position="absolute" left=chipPopoverLeft(chip, width, viewportWidth) top=(above ? "auto" : chip.y + chip.height + 4) bottom=(above ? viewportHeight - chip.y + 4 : "auto") width=width padding-top="0.5rem" padding-bottom="0.5rem" padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 16px 40px -18px #0000008c" z-index=130 role="dialog" aria-label=chip.title testId="chip-popover"
+    column id="chip-popover" position="absolute" left=chipPopoverLeft(chip, width, viewportWidth) top=(above ? "auto" : chip.y + chip.height + 4) bottom=(above ? viewportHeight - chip.y + 4 : "auto") width=width padding-top="0.5rem" padding-bottom="0.5rem" padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 16px 40px -18px #0000008c" z-index=130 role="dialog" aria-label=chip.title tabindex=-1 autofocus=(not chipPopoverHasStop(chip)) testId="chip-popover"
       // TerminalContextInlineChip's details (rounded-md border, the header with its
       // TerminalIcon in the success colour, the terminal's name and lines, then the captured output, max-h-80, scrolling).
       if chip.kind == "terminal"
@@ -81,7 +85,7 @@ component ChipPopoverLayer
             text chip.label flex=1 min-width=0 font-size="0.875rem" font-weight=500 line-height="1.25rem" line-clamp=1 color="light-dark(#27272a, #f5f5f5)" testId="chip-popover-label"
             text chip.lines font-size="0.75rem" line-height="1rem" white-space="nowrap" flex-shrink=0 color="light-dark(#71717b, #818181)" testId="chip-popover-lines"
           scroll width="100%" max-height="20rem" background-color="light-dark(#fafafa, #ffffff08)"
-            text chip.description aria-label="Captured terminal output" tabindex=0 padding="0.75rem" box-sizing="border-box" font-family="ui-monospace" font-size="0.75rem" line-height="1.21875rem" white-space="pre" color="light-dark(#27272a, #f5f5f5)" testId="chip-popover-output"
+            text chip.description aria-label="Captured terminal output" tabindex=0 autofocus=true padding="0.75rem" box-sizing="border-box" font-family="ui-monospace" font-size="0.75rem" line-height="1.21875rem" white-space="pre" color="light-dark(#27272a, #f5f5f5)" testId="chip-popover-output"
       // ComposerReviewCommentDetails (rounded-lg border-border/70 bg-background/70 p-3, space-y-2): the file path and
       // "<section> · <range>", the comment, and the diff in an h-64 bordered box. The comment is ChatMarkdown and the
       // diff ReadOnlySourcePreview (highlighted, numbered) in the reference; here both are plain text.
@@ -110,7 +114,7 @@ component ChipPopoverLayer
           text chip.label font-size="0.875rem" line-height="1.25rem" font-weight=500 testId="chip-popover-label"
           text chip.description font-size="0.875rem" line-height="1.25rem" testId="chip-popover-description"
           if chip.path != ""
-            button press=instructions testId="chip-popover-instructions" display="flex" flex-direction="row" align-items="center" justify-content="center" box-sizing="border-box" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" flex-shrink=0
+            button press=instructions autofocus=true testId="chip-popover-instructions" display="flex" flex-direction="row" align-items="center" justify-content="center" box-sizing="border-box" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" flex-shrink=0
               text "View instructions" font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap"
 
 // The details' Escape: Base UI's Popover dismisses on an Escape anywhere in the document,
