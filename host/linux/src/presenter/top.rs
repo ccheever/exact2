@@ -251,6 +251,7 @@ impl<D: DataSource> Presenter<D> {
     }
 
     fn surface_changed(&mut self) {
+        self.report_top_layer();
         self.back_changed();
         // The shell comes for the statement whether or not a frame follows.
         self.executor.notify();
@@ -363,6 +364,7 @@ impl<D: DataSource> Presenter<D> {
             }
             None => self.focus.or(invoker),
         };
+        self.report_top_layer();
         if let Err(e) = self.pointer_cancel(now_ms) {
             self.host.log(e);
         }
@@ -409,6 +411,7 @@ impl<D: DataSource> Presenter<D> {
         let Some(open) = self.top.open.take() else {
             return;
         };
+        self.report_top_layer();
         self.queue_toggle(open.key, false);
         let back = open.restore.filter(|id| {
             self.host.kernel().node(*id).is_some()
@@ -928,7 +931,7 @@ impl<D: DataSource> Presenter<D> {
     /// route no longer shows or whose rows are no longer its shape closes,
     /// running nothing; one that says something else, or is shown under
     /// another scheme, font scale or window, is measured again.
-    fn sync_surface(&mut self) {
+    pub(super) fn sync_surface(&mut self) {
         let Some(open) = &self.top.open else {
             return;
         };
@@ -968,6 +971,35 @@ impl<D: DataSource> Presenter<D> {
             open.anchor = anchor;
             open.revision += 1;
         }
+        self.report_top_layer();
+    }
+
+    /// The shell makes the page inert under either kind of surface. Its
+    /// menu frame is in window pixels; the runner reads viewport points.
+    /// Native alerts, as on Apple, report no authored geometry.
+    fn report_top_layer(&mut self) {
+        let Some(open) = &self.top.open else {
+            self.host.runner_mut().top_layer_frames(&[], None);
+            return;
+        };
+        let rect = match open.kind {
+            SurfaceKind::Alert => [0.0; 4],
+            SurfaceKind::Menu => {
+                let (window, margins) = self.surface_window();
+                let (x, y) = look::place(open.anchor, open.layout.size, window, margins);
+                let [px, py, ..] = self.chrome().frame;
+                let scale = self.brush.scale;
+                let points = |v: f32| f64::from((v * scale).round() / scale);
+                [
+                    points(x) - f64::from(px),
+                    points(y) - f64::from(py),
+                    points(open.layout.size.0),
+                    points(open.layout.size.1),
+                ]
+            }
+        };
+        let frames = [(open.node, rect)];
+        self.host.runner_mut().top_layer_frames(&frames, Some(0));
     }
 
     /// The open surface as the shell is told it: its frame in the window
