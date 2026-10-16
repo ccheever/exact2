@@ -292,9 +292,10 @@ test("a mutation whose reply was refused is named with the field its shape lacks
 test('a named port still held is asked again, then refused', async () => {
   const { listenOn } = await import('./agent-launch.mjs');
   const { createServer } = await import('node:http');
-  const holder = createServer(), port = await listenOn(holder, 0);
+  const holder = createServer(), next = createServer();
+  const port = await listenOn(holder, 0, '127.0.0.1', 0, false, {});
   try {
-    const next = createServer(), started = Date.now();
+    const started = Date.now();
     setTimeout(() => holder.close(), 300);
     expect(await listenOn(next, port)).toBe(port);
     expect(Date.now() - started).toBeGreaterThanOrEqual(250);
@@ -304,8 +305,7 @@ test('a named port still held is asked again, then refused', async () => {
     const said = await listenOn(createServer(), port, '127.0.0.1', 0, true).catch((e) => e.message);
     expect(said).toContain(`port ${port} (--port or EXACT_PORT) is in use`);
     if (process.platform === 'linux') expect(said).toContain("in this machine's ephemeral range");
-    next.close();
-  } finally { holder.close(); }
+  } finally { holder.close(); next.close(); }
 });
 
 
