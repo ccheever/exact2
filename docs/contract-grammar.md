@@ -49,13 +49,14 @@ a `keyframes` or `font` block, and a component need at least one entry.
   a text field's `min`, `max` and `step` take a number of either sign as a
   range's do. Separators, leading-dot numbers, and a trailing dot are not
   supported forms. Units belong in quoted strings.
-- Strings use `"…"`. Escapes accepted by the ordinary string lexer are `\n`,
-  `\t`, `\"`, `\\`, ``\` ``, and `\$`. Single quotes are not delimiters.
+- Strings use `"…"`. Their escapes are `\n`, `\t`, `\"`, `\\`, ``\` ``, `\$`,
+  and a Unicode code point in hex, as JavaScript and Swift write it: `\u{2011}`
+  (one to six digits; `\u{1F600}`, never a surrogate pair) or `\u2011` (four).
+  Any other is refused, naming these. Single quotes are not delimiters.
 - Templates use backticks and `${expression}`. Interpolation scanning balances
   nested braces, strings, and templates. A template is one physical source line.
-  Template text is verbatim: a backslash is never an escape and stays in the
-  text, and `\${` still interpolates. Use an ordinary string when you need an
-  escape.
+  Template text takes a string's escapes (`` `${a}\t${b}` `` is a tab), and
+  `\${` is literal text, not an interpolation.
 - A hex color may be written bare, as CSS writes it: `#` and 3, 4, 6 or 8 hex
   digits (`color=#1f9d62`, a keyframe's `background-color=#1f9d6244`) is the
   string `"#1f9d62"`, and the formatter prints it quoted. Any other `#` is
