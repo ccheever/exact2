@@ -93,12 +93,13 @@ final class PopoverRelayIOSTests: XCTestCase {
             }
             let down = try XCTUnwrap(agent.recognizedPan("down", ["id": 3]))
             XCTAssertNil(down["error"], "\(down)")
-            XCTAssertTrue(agent.panContact?.pointer === target)
+            XCTAssertTrue(agent.panContact?.pointer?.node === target)
             _ = agent.recognizedPan("cancel", [:])
         }
         XCTAssertEqual(doubled, [1, 2])
         XCTAssertEqual(contexts, [1, 2])
-        XCTAssertEqual(pointers, ["1 down", "1 up", "2 down", "2 up"])
+        // The popover's down and up bubble to its authored parent, as a finger's do (`pointerParent`).
+        XCTAssertEqual(pointers, ["1 down", "1 up", "2 down", "1 down", "2 up", "1 up"])
     }
 
     /// One relay per open popover, gone when it closes or the menus reset.
