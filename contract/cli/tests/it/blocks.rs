@@ -588,9 +588,9 @@ fn a_lifted_block_inherits_visibility_and_pointer_events() {
 /// inert to point reads, as UIKit's dimming view and the host's
 /// `inertBehind` do: a root-level toast is not found outside the sheet nor
 /// under it, and `elementsFromPoint` stops at the sheet. The host says
-/// where the presentation begins in the top layer; the runner reads no
-/// presentation attribute: a lifted box the host reports as none (a
-/// popover) leaves the document reachable.
+/// where the presentation begins in the top layer. A non-popover `dialog`
+/// there is also a modal boundary. For a lifted box that is not such a
+/// dialog, a host modal index of none leaves the document reachable.
 #[test]
 fn a_modal_presentation_makes_the_document_behind_it_inert_to_point_reads() {
     let source = r#"component App

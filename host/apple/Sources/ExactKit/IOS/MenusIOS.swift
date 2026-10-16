@@ -1004,7 +1004,7 @@ final class MenuHost {
     /// Whether a confirmation is open modally, nil when it is not open: a
     /// reopen waiting on its predecessor's dismissal counts, a finishing
     /// alert does not
-    private func openModally(_ pop: NodeView) -> Bool? {
+    func openModally(_ pop: NodeView) -> Bool? {
         if let pending = pendingConfirmation, pending.popover === pop { return pending.modal }
         if let owner = confirmation, owner.popover === pop, !owner.finishing { return owner.modal }
         return sheets.isOpen(pop) ? true : nil

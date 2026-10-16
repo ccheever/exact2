@@ -123,6 +123,7 @@ final class AlertMacTests: XCTestCase {
         XCTAssertTrue(window.attachedSheet === alert.window, "a sheet on its window")
         XCTAssertNil(p.dialogs.active, "not the painted dialog")
         XCTAssertEqual(p.openTopLayerFrames.map(\.0), [3], "the runner must see the open alertdialog")
+        XCTAssertEqual(p.openTopLayer.modal, 0)
         XCTAssertTrue(dialog.isHidden)
         XCTAssertEqual(alert.messageText, "Remove Book?")
         XCTAssertEqual(alert.informativeText, "“Piranesi” will be removed from your library.")
@@ -207,10 +208,32 @@ final class AlertMacTests: XCTestCase {
         let owner = try XCTUnwrap(p.alerts.presented)
         XCTAssertTrue(owner.source === trigger)
         XCTAssertTrue(p.alerts.valid(owner))
+        XCTAssertEqual(p.openTopLayer.frames.map { $0.0 }, [3])
+        XCTAssertNil(p.openTopLayer.modal, "a confirmation popover leaves the page reachable")
         p.menus.action("showPopover", ["ask", "trigger"])
         XCTAssertTrue(p.alerts.presented === owner)
         p.menus.action("togglePopover", ["ask", "trigger"])
         XCTAssertNil(p.alerts.presented)
+        p.menus.action("togglePopover", ["ask", "trigger"])
+        XCTAssertNotNil(p.alerts.presented)
+        XCTAssertNil(p.openTopLayer.modal)
+        p.menus.action("hidePopover", ["ask"])
+
+        p.apply(wireBatch([
+            ["op": "create", "id": 100, "kind": "view", "props": ["id": "form", "semanticTag": "dialog"]],
+            ["op": "frame", "id": 100, "x": 0, "y": 0, "w": 300, "h": 200],
+            ["op": "children", "id": 1, "ids": [100]],
+            ["op": "children", "id": 100, "ids": [2, 3]],
+        ]))
+        p.dialogCommand("showModal", "form")
+        defer { p.dialogs.reset() }
+        let sheet = p.openTopLayer
+        XCTAssertNotNil(sheet.modal)
+        p.menus.action("showPopover", ["ask", "trigger"])
+        XCTAssertNotNil(p.alerts.presented)
+        XCTAssertEqual(p.openTopLayer.frames.last?.0, 3)
+        XCTAssertEqual(p.openTopLayer.modal, sheet.modal, "the sheet remains the modal boundary")
+        p.menus.action("hidePopover", ["ask"])
     }
 
     /// A press handler that changes its own button's action: what the surviving

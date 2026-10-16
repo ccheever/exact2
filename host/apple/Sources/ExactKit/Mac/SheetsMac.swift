@@ -184,12 +184,11 @@ extension Presenter {
                                   y: rect.minY - clip.bounds.minY,
                                   width: rect.width, height: rect.height))
         }
-        let alerts = (carrying("popover") + carrying("tag:dialog"))
-            .filter { self.alerts.isOpen($0) }.map { ($0.id, CGRect.zero) }
-        let modal = alerts.isEmpty
-            ? ordered.lastIndex { $0 === dialogs.active || dialogs.presentsRoute($0) }
-            : painted.count + alerts.count - 1
-        return (painted + alerts, modal)
+        let modal = ordered.lastIndex { $0 === dialogs.active || dialogs.presentsRoute($0) }
+        if let alert = alerts.presented, let node = alert.node {
+            return (painted + [(node.id, CGRect.zero)], alert.popover ? modal : painted.count)
+        }
+        return (painted, modal)
     }
     package var openTopLayerFrames: [(UInt32, CGRect)] { openTopLayer.frames }
 }
