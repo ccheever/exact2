@@ -707,7 +707,7 @@ function inputFixture() {
     removeEventListener(kind, fn) { windowListeners.set(kind, (windowListeners.get(kind) ?? []).filter(g => g !== fn)); },
   });
   const module = readFileSync(new URL('./input-glue.js', import.meta.url), 'utf8');
-  const withoutPrompt = module.replace(/^import\s+["']\.\/prompt-glue\.js["'];[^\n]*\n/, '');
+  const withoutPrompt = module.replace(/^import\s+["']\.\/prompt-glue\.js["'];[^\n]*\n/m, '');
   if (withoutPrompt === module) throw new Error('input glue must retain the prompt side-effect import');
   const tested = withoutPrompt.replaceAll('export function', 'function').replace('export const agentInput', 'const agentInput');
   vm.runInContext(tested + '\n' + declaration('attach'), f);
