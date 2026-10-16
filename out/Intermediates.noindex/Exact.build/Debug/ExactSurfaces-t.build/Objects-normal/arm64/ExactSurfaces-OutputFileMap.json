@@ -1,0 +1,149 @@
+{
+  "" : {
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/ExactSurfaces-primary.dia",
+    "emit-module-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/ExactSurfaces-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/ExactSurfaces-primary-emit-module.dia",
+    "pch" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/ExactSurfaces-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/ExactSurfaces-primary.swiftdeps"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactSurfaces/Canvas2D.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2D.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2D.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2D.dia",
+    "index-unit-output-path" : "/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2D.o",
+    "llvm-bc" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2D.bc",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2D.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2D.swiftdeps",
+    "swiftmodule" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2D~partial.swiftmodule"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactSurfaces/Canvas2DGpu.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2DGpu.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2DGpu.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2DGpu.dia",
+    "index-unit-output-path" : "/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2DGpu.o",
+    "llvm-bc" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2DGpu.bc",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2DGpu.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2DGpu.swiftdeps",
+    "swiftmodule" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2DGpu~partial.swiftmodule"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactSurfaces/Canvas2DImage.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2DImage.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2DImage.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2DImage.dia",
+    "index-unit-output-path" : "/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2DImage.o",
+    "llvm-bc" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2DImage.bc",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2DImage.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2DImage.swiftdeps",
+    "swiftmodule" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2DImage~partial.swiftmodule"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactSurfaces/Canvas2DPaint.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2DPaint.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2DPaint.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2DPaint.dia",
+    "index-unit-output-path" : "/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2DPaint.o",
+    "llvm-bc" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2DPaint.bc",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2DPaint.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2DPaint.swiftdeps",
+    "swiftmodule" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2DPaint~partial.swiftmodule"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactSurfaces/Canvas2DRecord.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2DRecord.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2DRecord.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2DRecord.dia",
+    "index-unit-output-path" : "/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2DRecord.o",
+    "llvm-bc" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2DRecord.bc",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2DRecord.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2DRecord.swiftdeps",
+    "swiftmodule" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2DRecord~partial.swiftmodule"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactSurfaces/Canvas2DText.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2DText.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2DText.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2DText.dia",
+    "index-unit-output-path" : "/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2DText.o",
+    "llvm-bc" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2DText.bc",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2DText.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2DText.swiftdeps",
+    "swiftmodule" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/Canvas2DText~partial.swiftmodule"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactSurfaces/CanvasInputIOS.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/CanvasInputIOS.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/CanvasInputIOS.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/CanvasInputIOS.dia",
+    "index-unit-output-path" : "/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/CanvasInputIOS.o",
+    "llvm-bc" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/CanvasInputIOS.bc",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/CanvasInputIOS.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/CanvasInputIOS.swiftdeps",
+    "swiftmodule" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/CanvasInputIOS~partial.swiftmodule"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactSurfaces/CanvasInputMac.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/CanvasInputMac.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/CanvasInputMac.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/CanvasInputMac.dia",
+    "index-unit-output-path" : "/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/CanvasInputMac.o",
+    "llvm-bc" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/CanvasInputMac.bc",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/CanvasInputMac.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/CanvasInputMac.swiftdeps",
+    "swiftmodule" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/CanvasInputMac~partial.swiftmodule"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactSurfaces/CanvasSeams.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/CanvasSeams.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/CanvasSeams.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/CanvasSeams.dia",
+    "index-unit-output-path" : "/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/CanvasSeams.o",
+    "llvm-bc" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/CanvasSeams.bc",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/CanvasSeams.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/CanvasSeams.swiftdeps",
+    "swiftmodule" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/CanvasSeams~partial.swiftmodule"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactSurfaces/GpuIOS.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/GpuIOS.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/GpuIOS.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/GpuIOS.dia",
+    "index-unit-output-path" : "/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/GpuIOS.o",
+    "llvm-bc" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/GpuIOS.bc",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/GpuIOS.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/GpuIOS.swiftdeps",
+    "swiftmodule" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/GpuIOS~partial.swiftmodule"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactSurfaces/GpuMac.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/GpuMac.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/GpuMac.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/GpuMac.dia",
+    "index-unit-output-path" : "/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/GpuMac.o",
+    "llvm-bc" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/GpuMac.bc",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/GpuMac.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/GpuMac.swiftdeps",
+    "swiftmodule" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/GpuMac~partial.swiftmodule"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactSurfaces/GpuModule.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/GpuModule.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/GpuModule.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/GpuModule.dia",
+    "index-unit-output-path" : "/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/GpuModule.o",
+    "llvm-bc" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/GpuModule.bc",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/GpuModule.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/GpuModule.swiftdeps",
+    "swiftmodule" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/GpuModule~partial.swiftmodule"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactSurfaces/SurfaceGlue.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/SurfaceGlue.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/SurfaceGlue.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/SurfaceGlue.dia",
+    "index-unit-output-path" : "/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/SurfaceGlue.o",
+    "llvm-bc" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/SurfaceGlue.bc",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/SurfaceGlue.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/SurfaceGlue.swiftdeps",
+    "swiftmodule" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/SurfaceGlue~partial.swiftmodule"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactSurfaces/SurfacesHost.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/SurfacesHost.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/SurfacesHost.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/SurfacesHost.dia",
+    "index-unit-output-path" : "/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/SurfacesHost.o",
+    "llvm-bc" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/SurfacesHost.bc",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/SurfacesHost.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/SurfacesHost.swiftdeps",
+    "swiftmodule" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactSurfaces-t.build/Objects-normal/arm64/SurfacesHost~partial.swiftmodule"
+  }
+}

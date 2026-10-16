@@ -1,0 +1,128 @@
+{
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactKit/IOS/FlightsIOS.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/FlightsIOS.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/FlightsIOS.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/FlightsIOS.dia",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/FlightsIOS.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/FlightsIOS.swiftdeps"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactKit/IOS/FocusSearchIOS.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/FocusSearchIOS.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/FocusSearchIOS.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/FocusSearchIOS.dia",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/FocusSearchIOS.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/FocusSearchIOS.swiftdeps"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactKit/IOS/FrameClockIOS.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/FrameClockIOS.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/FrameClockIOS.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/FrameClockIOS.dia",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/FrameClockIOS.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/FrameClockIOS.swiftdeps"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactKit/IOS/GesturePrecedenceIOS.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/GesturePrecedenceIOS.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/GesturePrecedenceIOS.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/GesturePrecedenceIOS.dia",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/GesturePrecedenceIOS.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/GesturePrecedenceIOS.swiftdeps"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactKit/IOS/GroupedListsLinkIOS.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/GroupedListsLinkIOS.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/GroupedListsLinkIOS.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/GroupedListsLinkIOS.dia",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/GroupedListsLinkIOS.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/GroupedListsLinkIOS.swiftdeps"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactKit/IOS/HeavyLeavesIOS.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/HeavyLeavesIOS.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/HeavyLeavesIOS.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/HeavyLeavesIOS.dia",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/HeavyLeavesIOS.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/HeavyLeavesIOS.swiftdeps"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactKit/IOS/KeyboardAvoidanceIOS.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/KeyboardAvoidanceIOS.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/KeyboardAvoidanceIOS.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/KeyboardAvoidanceIOS.dia",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/KeyboardAvoidanceIOS.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/KeyboardAvoidanceIOS.swiftdeps"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactKit/IOS/KeyboardToolbarIOS.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/KeyboardToolbarIOS.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/KeyboardToolbarIOS.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/KeyboardToolbarIOS.dia",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/KeyboardToolbarIOS.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/KeyboardToolbarIOS.swiftdeps"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactKit/IOS/LayoutRegionsIOS.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/LayoutRegionsIOS.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/LayoutRegionsIOS.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/LayoutRegionsIOS.dia",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/LayoutRegionsIOS.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/LayoutRegionsIOS.swiftdeps"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactKit/IOS/ListRowsIOS.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/ListRowsIOS.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/ListRowsIOS.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/ListRowsIOS.dia",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/ListRowsIOS.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/ListRowsIOS.swiftdeps"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactKit/IOS/MenuFocusIOS.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/MenuFocusIOS.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/MenuFocusIOS.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/MenuFocusIOS.dia",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/MenuFocusIOS.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/MenuFocusIOS.swiftdeps"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactKit/IOS/MenusIOS.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/MenusIOS.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/MenusIOS.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/MenusIOS.dia",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/MenusIOS.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/MenusIOS.swiftdeps"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactKit/IOS/ModalIOS.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/ModalIOS.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/ModalIOS.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/ModalIOS.dia",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/ModalIOS.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/ModalIOS.swiftdeps"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactKit/IOS/MountRelayIOS.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/MountRelayIOS.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/MountRelayIOS.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/MountRelayIOS.dia",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/MountRelayIOS.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/MountRelayIOS.swiftdeps"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactKit/IOS/NativeButtonsIOS.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/NativeButtonsIOS.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/NativeButtonsIOS.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/NativeButtonsIOS.dia",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/NativeButtonsIOS.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/NativeButtonsIOS.swiftdeps"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactKit/IOS/NativeFieldsIOS.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/NativeFieldsIOS.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/NativeFieldsIOS.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/NativeFieldsIOS.dia",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/NativeFieldsIOS.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/NativeFieldsIOS.swiftdeps"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactKit/IOS/NavigationBarIOS.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/NavigationBarIOS.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/NavigationBarIOS.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/NavigationBarIOS.dia",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/NavigationBarIOS.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/NavigationBarIOS.swiftdeps"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactKit/IOS/NavigationIOS.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/NavigationIOS.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/NavigationIOS.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/NavigationIOS.dia",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/NavigationIOS.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactKit-t.build/Objects-normal/arm64/NavigationIOS.swiftdeps"
+  }
+}

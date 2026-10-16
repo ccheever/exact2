@@ -1,0 +1,69 @@
+{
+  "" : {
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/ExactMarkdown-primary.dia",
+    "emit-module-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/ExactMarkdown-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/ExactMarkdown-primary-emit-module.dia",
+    "pch" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/ExactMarkdown-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/ExactMarkdown-primary.swiftdeps"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactMarkdown/MarkdownHost.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkdownHost.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkdownHost.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkdownHost.dia",
+    "index-unit-output-path" : "/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkdownHost.o",
+    "llvm-bc" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkdownHost.bc",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkdownHost.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkdownHost.swiftdeps",
+    "swiftmodule" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkdownHost~partial.swiftmodule"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactMarkdown/MarkupCommands.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkupCommands.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkupCommands.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkupCommands.dia",
+    "index-unit-output-path" : "/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkupCommands.o",
+    "llvm-bc" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkupCommands.bc",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkupCommands.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkupCommands.swiftdeps",
+    "swiftmodule" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkupCommands~partial.swiftmodule"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactMarkdown/MarkupEditor.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkupEditor.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkupEditor.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkupEditor.dia",
+    "index-unit-output-path" : "/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkupEditor.o",
+    "llvm-bc" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkupEditor.bc",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkupEditor.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkupEditor.swiftdeps",
+    "swiftmodule" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkupEditor~partial.swiftmodule"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactMarkdown/MarkupEditorIOS.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkupEditorIOS.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkupEditorIOS.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkupEditorIOS.dia",
+    "index-unit-output-path" : "/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkupEditorIOS.o",
+    "llvm-bc" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkupEditorIOS.bc",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkupEditorIOS.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkupEditorIOS.swiftdeps",
+    "swiftmodule" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkupEditorIOS~partial.swiftmodule"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactMarkdown/MarkupEditorMac.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkupEditorMac.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkupEditorMac.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkupEditorMac.dia",
+    "index-unit-output-path" : "/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkupEditorMac.o",
+    "llvm-bc" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkupEditorMac.bc",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkupEditorMac.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkupEditorMac.swiftdeps",
+    "swiftmodule" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkupEditorMac~partial.swiftmodule"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactMarkdown/MarkupRuns.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkupRuns.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkupRuns.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkupRuns.dia",
+    "index-unit-output-path" : "/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkupRuns.o",
+    "llvm-bc" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkupRuns.bc",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkupRuns.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkupRuns.swiftdeps",
+    "swiftmodule" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactMarkdown-t.build/Objects-normal/arm64/MarkupRuns~partial.swiftmodule"
+  }
+}

@@ -743,3 +743,28 @@ fn a_running_web_build_takes_a_role_override_edit_in_place() {
     assert!(out.contains("--exact-canvas-text:#222222ff"), "{out}");
     let _ = std::fs::remove_dir_all(dir);
 }
+
+/// Two web sessions on one thread, each with its own role overrides (LLP
+/// 1121 stage 5): an event on one sends its rows under its own roles, with
+/// no role resolved unbound beside the other (a debug build would assert).
+#[test]
+fn an_event_beside_another_session_crosses_under_its_own_roles() {
+    let dir = scratch("two-sessions");
+    let view = "component App\n  state n = 0\n  action bump\n    n = n + 1\n  view\n    column\n      button press=bump testId=\"bump\"\n        text `${n}` color=\"#ff0000\" testId=\"count\"\n";
+    let plan = |tamber: &str| {
+        std::fs::write(dir.join("app.tamber"), tamber).unwrap();
+        std::fs::write(dir.join("app.contract"), view).unwrap();
+        contract::compile_path(&dir.join("app.contract")).unwrap()
+    };
+    let a = plan("tamber t\n\ntheme\n  CanvasText = #111111\n");
+    let b = plan("tamber t\n\ntheme\n  CanvasText = #222222\n");
+    let (mut first, _) = Host::boot(&a.encode(), NoData, Default::default(), "/").unwrap();
+    let (_second, _) = Host::boot(&b.encode(), NoData, Default::default(), "/").unwrap();
+    let bump = {
+        let k = first.runner().kernel();
+        k.node_by_key(k.find_by_test_id("bump")[0]).unwrap().id
+    };
+    let out = first.dispatch(bump, exact_runner::Event::Press);
+    assert!(out.contains("\"1\""), "{out}");
+    let _ = std::fs::remove_dir_all(dir);
+}

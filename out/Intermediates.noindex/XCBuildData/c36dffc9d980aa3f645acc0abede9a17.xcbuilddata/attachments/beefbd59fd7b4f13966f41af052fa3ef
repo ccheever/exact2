@@ -1,0 +1,4 @@
+module ExactMediaPicker {
+header "ExactMediaPicker-Swift.h"
+export *
+}

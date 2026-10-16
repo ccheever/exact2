@@ -1,0 +1,109 @@
+{
+  "" : {
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/ExactDrag-primary.dia",
+    "emit-module-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/ExactDrag-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/ExactDrag-primary-emit-module.dia",
+    "pch" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/ExactDrag-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/ExactDrag-primary.swiftdeps"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactDrag/DragHost.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/DragHost.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/DragHost.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/DragHost.dia",
+    "index-unit-output-path" : "/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/DragHost.o",
+    "llvm-bc" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/DragHost.bc",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/DragHost.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/DragHost.swiftdeps",
+    "swiftmodule" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/DragHost~partial.swiftmodule"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactDrag/HeightDragHold.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/HeightDragHold.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/HeightDragHold.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/HeightDragHold.dia",
+    "index-unit-output-path" : "/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/HeightDragHold.o",
+    "llvm-bc" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/HeightDragHold.bc",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/HeightDragHold.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/HeightDragHold.swiftdeps",
+    "swiftmodule" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/HeightDragHold~partial.swiftmodule"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactDrag/HeightDragIOS.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/HeightDragIOS.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/HeightDragIOS.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/HeightDragIOS.dia",
+    "index-unit-output-path" : "/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/HeightDragIOS.o",
+    "llvm-bc" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/HeightDragIOS.bc",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/HeightDragIOS.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/HeightDragIOS.swiftdeps",
+    "swiftmodule" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/HeightDragIOS~partial.swiftmodule"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactDrag/MouseHeightDragMac.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/MouseHeightDragMac.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/MouseHeightDragMac.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/MouseHeightDragMac.dia",
+    "index-unit-output-path" : "/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/MouseHeightDragMac.o",
+    "llvm-bc" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/MouseHeightDragMac.bc",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/MouseHeightDragMac.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/MouseHeightDragMac.swiftdeps",
+    "swiftmodule" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/MouseHeightDragMac~partial.swiftmodule"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactDrag/MouseReorderMac.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/MouseReorderMac.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/MouseReorderMac.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/MouseReorderMac.dia",
+    "index-unit-output-path" : "/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/MouseReorderMac.o",
+    "llvm-bc" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/MouseReorderMac.bc",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/MouseReorderMac.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/MouseReorderMac.swiftdeps",
+    "swiftmodule" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/MouseReorderMac~partial.swiftmodule"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactDrag/MouseTransformDragMac.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/MouseTransformDragMac.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/MouseTransformDragMac.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/MouseTransformDragMac.dia",
+    "index-unit-output-path" : "/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/MouseTransformDragMac.o",
+    "llvm-bc" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/MouseTransformDragMac.bc",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/MouseTransformDragMac.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/MouseTransformDragMac.swiftdeps",
+    "swiftmodule" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/MouseTransformDragMac~partial.swiftmodule"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactDrag/ReorderHold.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/ReorderHold.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/ReorderHold.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/ReorderHold.dia",
+    "index-unit-output-path" : "/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/ReorderHold.o",
+    "llvm-bc" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/ReorderHold.bc",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/ReorderHold.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/ReorderHold.swiftdeps",
+    "swiftmodule" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/ReorderHold~partial.swiftmodule"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactDrag/ReorderIOS.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/ReorderIOS.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/ReorderIOS.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/ReorderIOS.dia",
+    "index-unit-output-path" : "/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/ReorderIOS.o",
+    "llvm-bc" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/ReorderIOS.bc",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/ReorderIOS.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/ReorderIOS.swiftdeps",
+    "swiftmodule" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/ReorderIOS~partial.swiftmodule"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactDrag/TransformDragHold.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/TransformDragHold.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/TransformDragHold.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/TransformDragHold.dia",
+    "index-unit-output-path" : "/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/TransformDragHold.o",
+    "llvm-bc" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/TransformDragHold.bc",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/TransformDragHold.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/TransformDragHold.swiftdeps",
+    "swiftmodule" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/TransformDragHold~partial.swiftmodule"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactDrag/TransformDragIOS.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/TransformDragIOS.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/TransformDragIOS.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/TransformDragIOS.dia",
+    "index-unit-output-path" : "/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/TransformDragIOS.o",
+    "llvm-bc" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/TransformDragIOS.bc",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/TransformDragIOS.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/TransformDragIOS.swiftdeps",
+    "swiftmodule" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactDrag-t.build/Objects-normal/arm64/TransformDragIOS~partial.swiftmodule"
+  }
+}

@@ -504,18 +504,30 @@ extension NavigationHost {
     /// The theme's label colour on `nav`'s titles (LLP 1095 D4); its glyphs
     /// take the app's tint, which the theme's `AccentColor` sets. Set again
     /// when a live edit moves the roles (LLP 1121 stage 5).
+    /// Only the colour is the theme's: what a native hatch set beside it (a
+    /// font, spacing) stays, and so does a colour it set over the theme's.
     func titleInk(_ nav: UINavigationController) {
         guard let ink = ThemeRoles.color("label", in: presenter.root) ?? ThemeRoles.color("CanvasText", in: presenter.root) else { return }
-        nav.navigationBar.titleTextAttributes = [.foregroundColor: ink]
+        let bar = nav.navigationBar, before = titleInks[ObjectIdentifier(bar)]
+        func themed(_ attributes: [NSAttributedString.Key: Any]?) -> [NSAttributedString.Key: Any] {
+            var attributes = attributes ?? [:]
+            let now = attributes[.foregroundColor] as? UIColor
+            if now == nil || now === before { attributes[.foregroundColor] = ink }
+            return attributes
+        }
+        bar.titleTextAttributes = themed(bar.titleTextAttributes)
         #if !os(tvOS)
-        nav.navigationBar.largeTitleTextAttributes = [.foregroundColor: ink]
+        bar.largeTitleTextAttributes = themed(bar.largeTitleTextAttributes)
         #endif
+        titleInks[ObjectIdentifier(bar)] = ink
     }
 
-    /// Every bar this host made, its titles' ink set again.
+    /// Every bar this host made, its titles' ink set again, and each rich
+    /// title's subtitle.
     func retheme() {
         var seen = Set<ObjectIdentifier>()
         for nav in [primaryNavigation].compactMap({ $0 }) + presentedNavigations + tabNavigations.values where seen.insert(ObjectIdentifier(nav)).inserted { titleInk(nav) }
+        for c in controllers.values { c.titleView?.retheme() }
     }
 
     func makeNavigation(first: NodeView?) -> UINavigationController {

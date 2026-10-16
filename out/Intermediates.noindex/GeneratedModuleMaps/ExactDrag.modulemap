@@ -1,0 +1,4 @@
+module ExactDrag {
+header "ExactDrag-Swift.h"
+export *
+}

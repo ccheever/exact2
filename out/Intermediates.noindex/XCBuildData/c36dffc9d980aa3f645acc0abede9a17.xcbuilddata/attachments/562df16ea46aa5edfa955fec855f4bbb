@@ -1,0 +1,19 @@
+{
+  "" : {
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactComposition-t.build/Objects-normal/arm64/ExactComposition-primary.dia",
+    "emit-module-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactComposition-t.build/Objects-normal/arm64/ExactComposition-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactComposition-t.build/Objects-normal/arm64/ExactComposition-primary-emit-module.dia",
+    "pch" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactComposition-t.build/Objects-normal/arm64/ExactComposition-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactComposition-t.build/Objects-normal/arm64/ExactComposition-primary.swiftdeps"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactEmbedded/Composition.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactComposition-t.build/Objects-normal/arm64/Composition.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactComposition-t.build/Objects-normal/arm64/Composition.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactComposition-t.build/Objects-normal/arm64/Composition.dia",
+    "index-unit-output-path" : "/Exact.build/Debug/ExactComposition-t.build/Objects-normal/arm64/Composition.o",
+    "llvm-bc" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactComposition-t.build/Objects-normal/arm64/Composition.bc",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactComposition-t.build/Objects-normal/arm64/Composition.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactComposition-t.build/Objects-normal/arm64/Composition.swiftdeps",
+    "swiftmodule" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactComposition-t.build/Objects-normal/arm64/Composition~partial.swiftmodule"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "" : {
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactGroupedLists-t.build/Objects-normal/arm64/ExactGroupedLists-primary.dia",
+    "emit-module-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactGroupedLists-t.build/Objects-normal/arm64/ExactGroupedLists-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactGroupedLists-t.build/Objects-normal/arm64/ExactGroupedLists-primary-emit-module.dia",
+    "pch" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactGroupedLists-t.build/Objects-normal/arm64/ExactGroupedLists-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactGroupedLists-t.build/Objects-normal/arm64/ExactGroupedLists-primary.swiftdeps"
+  },
+  "/Users/admin/x2p2/apps/exact2-s4d/host/apple/Sources/ExactGroupedLists/GroupedListIOS.swift" : {
+    "const-values" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactGroupedLists-t.build/Objects-normal/arm64/GroupedListIOS.swiftconstvalues",
+    "dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactGroupedLists-t.build/Objects-normal/arm64/GroupedListIOS.d",
+    "diagnostics" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactGroupedLists-t.build/Objects-normal/arm64/GroupedListIOS.dia",
+    "index-unit-output-path" : "/Exact.build/Debug/ExactGroupedLists-t.build/Objects-normal/arm64/GroupedListIOS.o",
+    "llvm-bc" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactGroupedLists-t.build/Objects-normal/arm64/GroupedListIOS.bc",
+    "object" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactGroupedLists-t.build/Objects-normal/arm64/GroupedListIOS.o",
+    "swift-dependencies" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactGroupedLists-t.build/Objects-normal/arm64/GroupedListIOS.swiftdeps",
+    "swiftmodule" : "/Users/admin/x2p2/apps/exact2-s4d/out/Intermediates.noindex/Exact.build/Debug/ExactGroupedLists-t.build/Objects-normal/arm64/GroupedListIOS~partial.swiftmodule"
+  }
+}

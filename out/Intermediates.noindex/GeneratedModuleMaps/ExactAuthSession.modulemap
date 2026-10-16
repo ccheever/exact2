@@ -1,0 +1,4 @@
+module ExactAuthSession {
+header "ExactAuthSession-Swift.h"
+export *
+}

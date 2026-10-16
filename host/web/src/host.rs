@@ -462,10 +462,7 @@ impl<D: DataSource> Host<D> {
         runner.set_device_links(links.device);
         // @ref LLP 1095 D4 — the theme's reach into the host's own sheet (a
         // new runner's page drops the last one's, glue.js).
-        let theme = exact_kernel::style::roles::theme_css();
-        if !theme.is_empty() {
-            batch.theme(&theme);
-        }
+        batch.theme(&exact_kernel::style::roles::theme_css());
         let font_names = font_names_for_runner(&runner);
         let font_catalog = font_catalog(&font_faces(runner.plan()));
         let mut host = Host {
@@ -901,6 +898,7 @@ impl<D: DataSource> Host<D> {
     }
 
     fn batch_from(&mut self, mut batch: Batch, receipts: &[Timed], error: Option<&str>) -> String {
+        let _roles = self.runner.bind_roles(); // Its own, crossing (LLP 1121 stage 5).
         self.sync_runtime_font_names();
         self.emit_receipts(receipts, &mut batch);
         self.complete(batch, error.map(str::to_string))
