@@ -333,6 +333,13 @@ fn a_socket_let_go_refuses_its_batch_and_closes() {
     core.run_owned(socket(1), None).unwrap();
     next(&core, &woke);
     core.forget(|_| false);
+    // A frame during the close's grace is dropped; the socket stays until
+    // the abort, so the close is not cut off.
+    feed(&peer, 0).send(frame("late")).unwrap();
+    assert!(
+        !core.shared.sockets.lock().unwrap().is_empty(),
+        "kept for the close"
+    );
     let hi = batch(vec![SocketOp::Text("hi".into())]);
     assert!(core.socket(&hi).is_err());
     assert_eq!(

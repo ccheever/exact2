@@ -53,13 +53,21 @@ pub(crate) fn close(shared: &Shared, tickets: Option<&[u64]>) -> Vec<u64> {
 const CLOSE_GRACE: std::time::Duration = std::time::Duration::from_millis(250);
 
 /// Abort the work let go, each with its stream's ticket when it is one: a
-/// socket is closed with 1000 first, and aborted after [`CLOSE_GRACE`] (the
-/// reader ends sooner when the far side answers the close).
+/// socket is closed with 1000 first (unless a mutation already closed it),
+/// and aborted after [`CLOSE_GRACE`] (the reader ends sooner when the far
+/// side answers the close).
 pub(crate) fn release(shared: &Shared, aborts: Vec<(Option<u64>, AbortController)>) {
     let streams: Vec<u64> = aborts.iter().filter_map(|(t, _)| *t).collect();
-    let closed = close(shared, Some(&streams));
+    let _ = close(shared, Some(&streams));
+    let sockets: Vec<u64> = {
+        let open = shared.sockets.lock().unwrap();
+        streams
+            .into_iter()
+            .filter(|t| open.contains_key(t))
+            .collect()
+    };
     let (later, now): (Vec<_>, Vec<_>) =
-        (aborts.into_iter()).partition(|(t, _)| t.is_some_and(|t| closed.contains(&t)));
+        (aborts.into_iter()).partition(|(t, _)| t.is_some_and(|t| sockets.contains(&t)));
     for (_, abort) in now {
         abort.abort();
     }
@@ -150,6 +158,10 @@ pub(super) fn read(
             };
             match frame(shared, ticket, m) {
                 Frame::Queued => {}
+                // Released, its close on the way: frames are dropped, and the
+                // socket is kept until the far side answers or the abort comes,
+                // so the close is not cut off.
+                Frame::Gone if closing(shared, ticket) => {}
                 Frame::Gone => return gone(),
                 Frame::Overflow => {
                     return failed(
@@ -164,6 +176,12 @@ pub(super) fn read(
     shared.sockets.lock().unwrap().remove(&ticket);
     drop(socket);
     complete(shared, ticket, run);
+}
+
+/// Whether `ticket`'s socket has sent its close.
+fn closing(shared: &Shared, ticket: u64) -> bool {
+    let sockets = shared.sockets.lock().unwrap();
+    sockets.get(&ticket).is_some_and(|socket| socket.closing)
 }
 
 /// Queue one frame behind the ones the runner has not taken: never
