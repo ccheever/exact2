@@ -728,6 +728,36 @@ final class NodePoolIOSTests: XCTestCase {
         XCTAssertTrue(FakeModule.made.last?.view.superview === p.views[1])
     }
 
+    /// A touch a module view declines inside its box (its hit test answers
+    /// nil there) is passed on; one on a view that takes no touches, or on a
+    /// box with `press`, is the box's, as a UIKit superview's would be.
+    func testAModuleViewThatDeclinesATouchPassesItOn() throws {
+        FakeModule.reset()
+        FakeModule.table.withUnsafeBytes { NativeViews.install(table: $0.baseAddress!) }
+        defer { NativeViews.uninstallTable() }
+        let p = Presenter()
+        let natives = NativeViews()
+        natives.install(module: UnsafeMutableRawPointer(bitPattern: 1)!)
+        let v = NodeView(id: 1, kind: "native", presenter: p)
+        v.frame = CGRect(x: 0, y: 0, width: 200, height: 100)
+        p.viewport.addSubview(v); p.views[1] = v
+        natives.create(owner: v)
+        v.props = ["nativeViewModuleName": "fake-plain", "nativeViewProps": "{}"]
+        natives.update(v)
+        let view = try XCTUnwrap(FakeModule.made.first?.view)
+        let inside = CGPoint(x: 100, y: 50)
+        XCTAssertFalse(natives.declined(v, at: inside), "a plain view takes the touch")
+        view.declines = true
+        XCTAssertTrue(natives.declined(v, at: inside))
+        XCTAssertFalse(natives.declined(v, at: CGPoint(x: 300, y: 50)), "outside the module view")
+        v.handlers = ["press"]
+        XCTAssertFalse(natives.declined(v, at: inside), "the box's own press takes it")
+        v.handlers = ["message"]
+        XCTAssertTrue(natives.declined(v, at: inside))
+        view.isUserInteractionEnabled = false
+        XCTAssertFalse(natives.declined(v, at: inside), "a view that takes no touches declines nothing")
+    }
+
     func testHeavyLeafCostsLeaveOutEachKindsFirstCreation() {
         let kind = "test-kind-\(UUID().uuidString)"
         HeavyLeaves.record(kind, 0.5)
@@ -737,12 +767,17 @@ final class NodePoolIOSTests: XCTestCase {
     }
 }
 
-/// A module table in memory for the reuse and activation tests: two tags,
-/// `fake-map` (reuse) and `fake-plain`, each instance a plain view that
-/// records what the host asked of it.
+/// A module table in memory for the reuse and activation tests: three tags,
+/// `fake-map` (reuse), `fake-plain` and `fake-splash` (first frame), each
+/// instance a plain view that records what the host asked of it.
 private enum FakeModule {
+    /// A view whose hit test answers nil inside it once it `declines`.
+    final class View: UIView {
+        var declines = false
+        override func point(inside point: CGPoint, with event: UIEvent?) -> Bool { !declines && super.point(inside: point, with: event) }
+    }
     final class Instance {
-        let view = UIView()
+        let view = View()
         let nonce: UInt32
         let event: @convention(c) (UnsafeMutableRawPointer?, UInt32, UInt32, UnsafePointer<UInt8>?, UInt32) -> Void
         var props: [String] = []

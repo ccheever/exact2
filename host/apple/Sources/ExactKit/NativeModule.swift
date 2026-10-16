@@ -1062,6 +1062,22 @@ final class NativeViews {
     }
 
     #if os(iOS) || os(tvOS)
+    /// Whether `owner`'s module view declined a touch at `point` that it
+    /// covers, so the touch goes to what is under the box, as it does past a
+    /// UIView whose hit test returns nil: the view takes touches but its own
+    /// hit test (a `point(inside:)` that follows a drawn shape) answered
+    /// nil there. A view that takes none (`isUserInteractionEnabled` false)
+    /// is not declining, and its box answers, as a UIKit superview would; so
+    /// does a box with a handler a touch on it runs (`press`).
+    func declined(_ owner: NodeView, at point: CGPoint) -> Bool {
+        guard let entry = entries[owner.id], entry.owner === owner, let view = entry.view, view.superview === owner,
+              !view.isHidden, view.alpha > 0.01, view.isUserInteractionEnabled, view.frame.contains(point),
+              owner.handlers.isSubset(of: Self.reported) else { return false }
+        return view.hitTest(owner.convert(point, to: view), with: nil) == nil
+    }
+    /// The handlers a module's own events run (its `ExactNativeEvents`), not a touch on the box.
+    private static let reported: Set<String> = ["change", "hover", "focus", "blur", "key", "submit", "load", "message"]
+
     func refreshWorldGeometry() {
         for entry in entries.values {
             guard let view = entry.view else { continue }
