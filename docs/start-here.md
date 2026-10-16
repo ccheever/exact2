@@ -10,13 +10,12 @@ The only required reading; the rest is lookup.
 2. **Leave the rest unsaid:** controls, bars, type and dark mode are the platform's, and so
    are a `list`'s rows: its children are rows, so draw no separator and no press. A
    colour or size names a role (`-exact-secondary-label`, `font="-exact-footnote"`; `bun
-   <exact2>/scripts/no-tells.mjs .` lists literals). The one colour you write is the
-   accent, on the view's root node: a system colour
-   (`main accent-color="-exact-system-teal"`) or a `light-dark(light, dark)` pair. A brand is an `app.tamber`; a colour names a role or
+   <exact2>/scripts/no-tells.mjs .` lists literals). The accent is the platform's (system
+   blue): write one only for a brand, once on the root (`main accent-color=…`, a system colour
+   or a `light-dark(light, dark)` pair); blue, indigo, purple, pink and red keep a filled
+   button's white label easiest to read. A brand is an `app.tamber`; a colour names a role or
    one of its tokens (`recipes/tamber.md`). A card is `-exact-secondary-background`
-   (`-exact-secondary-grouped-background` on a grouped page). White text on a prominent
-   button fails on green, mint, teal, cyan, yellow, orange (`check` refuses it;
-   `RoundButton` tints them).
+   (`-exact-secondary-grouped-background` on a grouped page).
 3. **Design your content:** a focal point (big type, a fill, a shape), a hierarchy in
    rows, an empty state with its next step; inset-grouped is for settings and forms.
    `use X from "exact:content"` draws them; the card gives each one's call (`none` for an option):

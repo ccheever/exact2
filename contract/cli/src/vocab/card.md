@@ -142,9 +142,9 @@ Root `state` only: a number, string or bool (or an option or list of one) up to 
 state units = "C" persist
 ```
 ### colour
-Say the accent once, on the root, and leave controls unpainted; elsewhere a role, which follows the scheme: text `label`, `secondary-label`; a card `secondary-background`; a fill `secondary-fill`; a hue `system-red`…. No hex.
+Leave the accent unsaid (system blue; a brand's is accent-color once, on the root) and controls unpainted; elsewhere a role, which follows the scheme: text `label`, `secondary-label`; a card `secondary-background`; a fill `secondary-fill`; a hue `system-red`…. No hex.
 ```contract
-main accent-color="-exact-system-indigo"
+main
   text "Total" color="-exact-secondary-label"
   view padding=12 background-color="-exact-secondary-background"
     text "Over" color="-exact-system-red"

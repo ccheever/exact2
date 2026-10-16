@@ -357,10 +357,10 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
 - **Dark mode is unreadable: white text on a light card, labels lost on a light page.**
   Cause: a brand written as hex on a page, a card or text (`#f3f5f1`, `#ffffff`,
   `#18392d`); it stays the same in dark mode while the platform's text and controls
-  turn dark. Four of round 4's five hex-heavy bake-off apps broke so. Fix: the one
-  authored colour is the accent on the root, a role (`accent-color="-exact-system-indigo"`)
-  or one `light-dark(light, dark)` pair; surfaces and text are roles (`-exact-label`)
-  or unsaid. Look in both schemes: `"prefer prefers-color-scheme dark"` as a drive's
+  turn dark. Four of round 4's five hex-heavy bake-off apps broke so. Fix: write no
+  colour, or for a brand only the accent on the root, a role
+  (`accent-color="-exact-system-indigo"`) or one `light-dark(light, dark)` pair; surfaces
+  and text are roles (`-exact-label`) or unsaid. Look in both schemes: `"prefer prefers-color-scheme dark"` as a drive's
   first op. (LLP 1116.002 D1.)
 - **A card is white on a white page in light mode.** Cause:
   `-exact-secondary-grouped-background` (white in light) on a plain page (white), as

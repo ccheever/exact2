@@ -146,8 +146,8 @@ a timer: `every(ms, action)` repeats, `after(ms, action)` fires once, `when cond
   text `${now}`
 keeping a value: Root `state` only: a number, string or bool (or an option or list of one) up to 16 KB, read before the first frame. Records belong in a source (`files-and-grants`).
   state units = "C" persist
-colour: Say the accent once, on the root, and leave controls unpainted; elsewhere a role, which follows the scheme: text `label`, `secondary-label`; a card `secondary-background`; a fill `secondary-fill`; a hue `system-red`…. No hex.
-  main accent-color="-exact-system-indigo"
+colour: Leave the accent unsaid (system blue; a brand's is accent-color once, on the root) and controls unpainted; elsewhere a role, which follows the scheme: text `label`, `secondary-label`; a card `secondary-background`; a fill `secondary-fill`; a hue `system-red`…. No hex.
+  main
     text "Total" color="-exact-secondary-label"
     view padding=12 background-color="-exact-secondary-background"
       text "Over" color="-exact-system-red"
