@@ -159,16 +159,23 @@ impl Assets {
         }) {
             return false;
         }
+        // Both lists follow entity order. Walk them together instead of looking
+        // up each surviving range and entity again in the tree.
+        let mut kept = keep
+            .iter()
+            .map(|&i| structure.models[i].0.index())
+            .peekable();
         self.ranges.retain(|slot, _| {
-            keep.binary_search_by_key(slot, |&i| structure.models[i].0.index())
-                .is_ok()
+            while kept.peek().is_some_and(|next| next < slot) {
+                kept.next();
+            }
+            kept.peek() == Some(slot)
         });
         let mut remap = vec![u32::MAX; self.records.len()];
         let (mut records, mut parts) = (0, 0);
-        for &i in &keep {
-            let Some(range) = self.ranges.get_mut(&structure.models[i].0.index()) else {
-                continue; // A declared model may not have resident draws yet.
-            };
+        self.entities.clear();
+        for range in self.ranges.values_mut() {
+            self.entities.push(range.entity);
             for offset in 0..range.count {
                 let old = range.first + offset;
                 let new = records + offset;
@@ -196,8 +203,6 @@ impl Assets {
         self.part_bases.truncate(records);
         self.levels.truncate(records);
         self.part_looks.truncate(parts);
-        self.entities
-            .retain(|entity| self.ranges.contains_key(&entity.index()));
         for group in self.groups.values_mut() {
             group.retain_mut(|slot| {
                 let record = remap[(*slot - RENDER_SLOT_BASE) as usize];
