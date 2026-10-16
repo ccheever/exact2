@@ -20,12 +20,14 @@ const name = (spec) => spec.split(' ')[0];
 const takesValue = (spec) => spec.includes(' ');
 
 // The drive flags `scripts/agent-launch.mjs` `parseFlags` takes, shared by `agent` and `test`
-// (`runTests` reads all but those `test` lists as internal).
+// (`runTests` reads all but those `test` lists as internal). A default said as exact.mjs's is the app
+// launcher's (app-cli.mjs): scripts/agent.mjs run alone paints the bars and keeps the device's pixels,
+// which the repository's smokes and pixel fixtures are written against.
 const DRIVE = [
   ['--storage <name>', 'a scratch store, kept between drives by name'],
   ['--size <w>x<h>', 'the viewport (default 420x900; a simulator\'s own)'],
-  ['--scale <n>', 'screenshots at n pixels per point (agent on ios and macos: 1; 3, an iPhone\'s own)'],
-  ['--chrome platform|agent', 'the platform\'s bars (iOS default); agent paints the header'],
+  ['--scale <n>', 'screenshots at n pixels per point (exact.mjs agent on ios, macos: 1; an iPhone\'s own: 3)'],
+  ['--chrome platform|agent', 'UIKit\'s bars (exact.mjs on iOS); agent paints the header'],
   ['--timing platform', 'Apple: UIKit\'s transitions keep their own timing (default: frozen)'],
   ['--touch platform', 'iOS simulator: every tap a real touch, through the XCTest runner'],
   ['--epoch <ISO|ms|now>', 'the date at the clock\'s zero (default 2026-01-01)'],
