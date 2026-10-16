@@ -269,7 +269,8 @@ arrive a frame late over a bare one, a boot splash; a slow view (a map) stays
 behind the gate, which still holds every other tag. The host learns which
 tags opted in without loading the artifact: the build reads the roster (from
 a Mac Catalyst build of the module's sources for iOS) and writes the tags to
-Info.plist (`ExactFirstFrameModules`). Measured on an iPhone 17 simulator
+Info.plist (`ExactFirstFrameModules`). A tvOS build reads its roster from a macOS
+build, which compiles none of its tvOS code, and so has no first-frame tags. Measured on an iPhone 17 simulator
 (iOS 27), nine cold launches each: a splash attached at the gate drew 70 ms
 (median) after the first frame, which showed the page without it; with
 `firstFrame` it drew in the first frame's commit.

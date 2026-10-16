@@ -988,7 +988,7 @@ async function main(args) {
   // Each is written under this process's name and renamed, since another
   // app's build may compile the same arm at once. A cached arm is copied out
   // at once and marked used, so another build's `evictArms` keeps it.
-  const arm = (args, source, built, extra = '', own = false, optional = false) => { // optional: placing a failed one answers its log
+  const arm = (args, source, built, extra = '', own = false, optional = false) => { // optional: placing a failed one answers its log's path
     const key = createHash('sha256').update(JSON.stringify([args.map(a => a === built ? '<out>' : a), [].concat(source).map(f => readFileSync(f, 'utf8')), swiftc, extra])).digest('hex').slice(0, 16);
     const dir = resolve(own ? linkRoot : swiftBuildRoot, 'arms'), cached = resolve(dir, `${key}-${basename(built)}`);
     try { const now = new Date(); utimesSync(cached, now, now); copyFileSync(cached, built); return async () => true; } catch {} // none, or evicted meanwhile
@@ -997,7 +997,7 @@ async function main(args) {
     const log = resolve(webBuildDir, `arm-${beside.length}.log`), compile = startApple('xcrun', args.map(a => a === built ? making : a), log);
     beside.push(compile);
     return async () => {
-      if (!await compile.done({ repeated: optional })) return readFileSync(log, 'utf8');
+      if (!await compile.done({ repeated: optional })) return log;
       // Place this build's result before publishing it to the shared eviction pool.
       copyFileSync(making, built);
       renameSync(making, cached);
@@ -1075,16 +1075,16 @@ async function main(args) {
   const moduleArgs = (sdkFor, targetArgs, out, forIos = false, simulator = false, arch = macArch) => ['--sdk', sdkFor, 'swiftc', '-module-cache-path', resolve(swiftBuildRoot, 'modules-module-cache'), '-parse-as-library', '-emit-library', '-O', '-swift-version', '5', '-module-name', 'ExactAppModules', ...moduleSources, ...frameworkArgs(forIos, simulator, arch), ...linkArgs(forIos), '-o', out, ...targetArgs];
   const macTarget = ['-target', `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-macos14.0`];
   if (modulesBuilt) arms.push(arm(moduleArgs(sdkName, ios ? ['-target', tv ? iosTripleFor(app, device, true) : device ? 'arm64-apple-ios17.0' : iosTriple, '-sdk', sdk] : macTarget, modulesBuilt, ios, ios && !device, ios ? iosArch : macArch), moduleSources, modulesBuilt, frameworkStamp(ios, ios && !device, ios ? iosArch : macArch), true));
-  // The roster the artifact serves (which tags, and which join the first frame) is read from its
-  // table: for an iOS build, from a Mac Catalyst executable of the same sources, which compiles their
-  // iOS code and runs here, or else (an xcframework with no Catalyst slice) a macOS slice of them. A
-  // probe that does not compile is named; it, or no slice to probe, fails a production build.
+  // The roster the artifact serves (its tags, and which join the first frame) is read from its table: for iOS from a Mac
+  // Catalyst executable of the same sources (their iOS code, run here), else a macOS slice; for tvOS the macOS slice, and no
+  // tag joins the first frame. A probe that does not compile or run is named; it, or no slice, fails a production build.
   const sliced = (forIos, variant) => (modules.frameworks ?? []).every(fw => { try { frameworkSlice(fw, forIos, variant, macArch); return true; } catch { return false; } });
-  const via = !ios ? 'macOS' : sliced(true, 'maccatalyst') ? 'Mac Catalyst' : sliced(false, false) ? 'macOS' : null, probeable = via !== null;
+  const via = !ios ? 'macOS' : !tv && sliced(true, 'maccatalyst') ? 'Mac Catalyst' : sliced(false, false) ? 'macOS' : null, probeable = via !== null;
   let probed = modulesBuilt && modules.tags.length && typeof Bun !== 'undefined' && probeable, probeFailure = null, rosterKeys = {};
   const probe = !ios ? modulesBuilt : resolve(webBuildDir, via === 'macOS' ? 'probe-' + modulesLoadName : 'probe-roster'), probeMain = resolve(linkRoot, 'ExactRosterProbe.swift'), catalyst = probed && via === 'Mac Catalyst' && resolve(read('xcrun', ['--sdk', 'macosx', '--show-sdk-path']).stdout.trim(), 'System/iOSSupport');
-  if (probed && ios && via === 'macOS') { const placed = arm(moduleArgs('macosx', macTarget, probe), moduleSources, probe, frameworkStamp(false, false, macArch), true, true); arms.push(async () => { const placedOk = await placed(); if (placedOk !== true) { probed = false; probeFailure = placedOk; } }); }
-  if (probed && catalyst) { writeFileSync(probeMain, '@main enum ExactRosterProbe { static func main() { print(String(cString: exactNativeAbi().load(fromByteOffset: 8, as: UnsafePointer<CChar>.self))) } }\n'); const placed = arm(moduleArgs('macosx', ['-target', `${macArch}-apple-ios17.0-macabi`, '-Fsystem', `${catalyst}/System/Library/Frameworks`, '-I', `${catalyst}/usr/lib/swift`, '-L', `${catalyst}/usr/lib/swift`, probeMain], probe, true, 'maccatalyst', macArch).filter(a => a !== '-emit-library'), [...moduleSources, probeMain], probe, frameworkStamp(true, 'maccatalyst', macArch), true, true); arms.push(async () => { const placedOk = await placed(); if (placedOk !== true) { probed = false; probeFailure = placedOk; } }); }
+  if (catalyst) writeFileSync(probeMain, '@main enum ExactRosterProbe { static func main() { print(String(cString: exactNativeAbi().load(fromByteOffset: 8, as: UnsafePointer<CChar>.self))) } }\n');
+  const probing = !(probed && ios) ? null : catalyst ? [moduleArgs('macosx', ['-target', `${macArch}-apple-ios17.0-macabi`, '-Fsystem', `${catalyst}/System/Library/Frameworks`, '-I', `${catalyst}/usr/lib/swift`, '-L', `${catalyst}/usr/lib/swift`, probeMain], probe, true, 'maccatalyst', macArch).filter(a => a !== '-emit-library'), [...moduleSources, probeMain], frameworkStamp(true, 'maccatalyst', macArch)] : [moduleArgs('macosx', macTarget, probe), moduleSources, frameworkStamp(false, false, macArch)];
+  if (probing) { const placed = arm(probing[0], probing[1], probe, probing[2], true, true); arms.push(async () => { const log = await placed(); if (log !== true) { probed = false; const at = resolve(linkRoot, 'roster-probe.log'); copyFileSync(log, at); probeFailure = { did: 'compile', text: readFileSync(at, 'utf8'), at }; } }); }
   await hostCompile?.done({ repeated: true });
   // The early build stands when it succeeded and the bake came out as it was expected to.
   const linkedEarly = early ? await early.step.done({ repeated: true }) && expected.capture === libDir && expected.composition === composition && expected.scratch === paths.scratch : false;
@@ -1141,22 +1141,21 @@ async function main(args) {
   for (const placed of arms) await placed();
   if (modules.tags.length) {
     let provided = [];
-    if (modulesBuilt && typeof Bun !== 'undefined' && !probeable) {
-      const why = `host/apple: an xcframework has neither a Mac Catalyst nor a macOS slice, so the iOS module roster cannot be read`;
-      if (cargoEnv.EXACT_UPDATE_TRUST === 'production') throw new Error(why);
-      console.warn(`${why}; the manifest's roster stands`);
-    }
+    const blind = modulesBuilt && typeof Bun !== 'undefined' && !probeable && 'host/apple: an xcframework has neither a Mac Catalyst nor a macOS slice, so the iOS module roster cannot be read';
+    if (blind) { if (cargoEnv.EXACT_UPDATE_TRUST === 'production') throw new Error(blind); console.warn(`${blind}; the manifest's roster stands`); }
+    const ran = probed && catalyst ? read(probe, []) : null;
+    if (ran && ran.status !== 0) { probed = false; probeFailure = { did: 'run', text: `${ran.stderr ?? ''}${ran.error?.message ?? ''}` || `exit ${ran.status}`, at: `exit status ${ran.status ?? ran.error?.message}` }; }
     if (probeFailure) {
-      const why = `host/apple: the module's Swift does not compile for ${via}, where an iOS build reads its roster:\n${probeFailure.split('\n').filter(l => / error: /.test(l)).slice(0, 3).join('\n')}`;
-      if (cargoEnv.EXACT_UPDATE_TRUST === 'production') throw new Error(why);
-      console.warn(`${why}\nThe manifest's roster stands, and no tag joins the first frame (docs/recipes/native-views.md)`);
+      const lines = probeFailure.text.trim().split('\n'), named = lines.filter(l => / error: |^ld: |[Uu]ndefined symbol/.test(l));
+      const why = `host/apple: the module's Swift does not ${probeFailure.did} for ${via}, where an iOS build reads its roster (${probeFailure.at}):\n${(named.length ? named : lines.slice(-5)).slice(0, 5).join('\n')}`;
+      if (cargoEnv.EXACT_UPDATE_TRUST === 'production') throw new Error(why); else console.warn(`${why}\nThe manifest's roster stands, and no tag joins the first frame (docs/recipes/native-views.md)`);
     } else if (probed) {
       const { dlopen, read: at, CString } = import.meta.require('bun:ffi');
-      const roster = JSON.parse(catalyst ? read(probe, []).stdout : new CString(at.ptr(dlopen(probe, { exact_native_abi: { args: [], returns: 'ptr' } }).symbols.exact_native_abi(), 8)).toString());
+      const roster = JSON.parse(ran ? ran.stdout : new CString(at.ptr(dlopen(probe, { exact_native_abi: { args: [], returns: 'ptr' } }).symbols.exact_native_abi(), 8)).toString());
       provided = Object.keys(roster);
       // LLP 1024 D3's first-frame tags, which the host reads before it loads the module.
       const firstFrame = provided.filter(tag => roster[tag].firstFrame === true);
-      if (firstFrame.length) rosterKeys = { ExactFirstFrameModules: firstFrame };
+      if (firstFrame.length && !tv) rosterKeys = { ExactFirstFrameModules: firstFrame };
     } else if (modulesBuilt) console.warn('host/apple: the module roster check needs Bun (bun:ffi); skipped');
     checkModuleRoster(app, modulesBuilt && (typeof Bun === 'undefined' || !probeable || probeFailure) ? modules.tags : provided, `host/apple ${ios ? 'iOS' : 'macOS'}`, cargoEnv.EXACT_UPDATE_TRUST === 'production');
   }
