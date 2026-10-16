@@ -1,11 +1,11 @@
 // LLP 1116.008 D8: a window capture of the app with the software keyboard put in from the simulator's display.
 // A fake `xcrun` stands for `simctl io <udid> screenshot`: it copies a prepared display picture to the path it is given.
 import { test, expect } from 'bun:test';
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { decodePng, encodePng } from '../../scripts/png.mjs';
-import { withKeyboard, phoneBridge } from './devices.mjs';
+import { crashReports, crashSummary, withKeyboard, phoneBridge } from './devices.mjs';
 import { createConnection } from 'node:net';
 import { once } from 'node:events';
 
@@ -82,4 +82,36 @@ test('a display of another size leaves the picture as it was, and says why', () 
 test('a capture that says no keyboard top is left alone', () => {
   const r = withKeyboard({ scale: 2, keyboard: { visible: true, top: 2 } }, '/nonexistent.png', 'UDID');
   expect(r.note).toContain('no keyboard top');
+});
+
+// The euxy port (friction item 13): every simulator's copy of an app writes `<name>-<time>.ips`, so the name alone
+// read other simulators' crashes as this one's. A report is this app's on this simulator by its header's bundle id
+// and its process path; `logs` answers the newest one since the build, once.
+test("crash reports are this app's on this simulator, newest first, summarized by the crashing thread", () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-crash-'));
+  try {
+    const report = (file, bundleID, udid, seconds) => {
+      const body = { procPath: `/Users/USER/Library/Developer/CoreSimulator/Devices/${udid}/data/Containers/Bundle/Application/X/euxy.app/euxy`,
+        exception: { type: 'EXC_BREAKPOINT', signal: 'SIGTRAP' }, termination: { indicator: 'Trace/BPT trap: 5' },
+        asi: { 'libswiftCore.dylib': ['Fatal error: no engine'] }, faultingThread: 0, usedImages: [{ name: 'libexact_modules.dylib' }],
+        threads: [{ triggered: true, queue: 'com.apple.main-thread', frames: [{ symbol: 'Engine.start()', symbolLocation: 12, imageIndex: 0 }, { imageOffset: 255, imageIndex: 0 }] }] };
+      writeFileSync(resolve(dir, file), JSON.stringify({ bundleID, timestamp: `t${seconds}` }) + '\n' + JSON.stringify(body));
+      utimesSync(resolve(dir, file), new Date(seconds * 1000), new Date(seconds * 1000));
+    };
+    report('euxy-1.ips', 'dev.brent.euxy', 'MINE', 100);
+    report('euxy-2.ips', 'dev.brent.euxy', 'MINE', 200);
+    report('euxy-3.ips', 'dev.brent.euxy', 'OTHER', 300);
+    report('euxy-4.ips', 'dev.other.euxy', 'MINE', 400);
+    const scope = { bundleId: 'dev.brent.euxy', udid: 'MINE', dir };
+    expect(crashReports('euxy', 0, scope).map((f) => f.slice(dir.length + 1))).toEqual(['euxy-2.ips', 'euxy-1.ips']);
+    expect(crashReports('euxy', 150_000, scope).map((f) => f.slice(dir.length + 1))).toEqual(['euxy-2.ips']);
+    expect(crashSummary(resolve(dir, 'euxy-2.ips'))).toEqual([
+      `crash report: ${resolve(dir, 'euxy-2.ips')} (t200)`,
+      '  EXC_BREAKPOINT (SIGTRAP), Trace/BPT trap: 5; thread 0 (com.apple.main-thread) crashed:',
+      '  Fatal error: no engine',
+      '   0 Engine.start() + 12 (libexact_modules.dylib)',
+      '   1 0xff (libexact_modules.dylib)',
+    ]);
+    expect(crashSummary(resolve(dir, 'missing.ips'))).toEqual([`crash report: ${resolve(dir, 'missing.ips')}`]);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

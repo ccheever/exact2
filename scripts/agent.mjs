@@ -44,7 +44,7 @@ import { driveNotes, runTests, nodeNamed, targetsIn, refuseDisabled } from './ag
 import { MalformedOperation, operationReply, inputJSON, keyArguments, validateKey, pinchArguments, intoArguments, pointerArguments, resizeArguments, cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, withHeldModifiers, pasteChord, deliverClipboard, tapWords, pointerGap, chordModifiers, withChordModifiers, heldForClick } from './agent-keys.mjs';
 export { MalformedOperation, resizeArguments, cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, pasteChord, deliverClipboard, tapWords, pointerGap } from './agent-keys.mjs';
 import { appleRunBinary, appleArtifacts, assertAppleIdentity, bundleId, install } from '../host/apple/build.mjs';
-import { crashReports, developmentLaunchEnvironment, phone, phoneBridge, showSimulator, simulator, withKeyboard } from '../host/apple/devices.mjs';
+import { crashReports, crashSummary, crashWatch, developmentLaunchEnvironment, phone, phoneBridge, showSimulator, simulator, withKeyboard } from '../host/apple/devices.mjs';
 import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs';
 import { bakeOutput, bakeTarget, executableName, linuxBinary, linuxBuild, resolveApp, webDist as defaultWebDist } from './app.mjs'; import { androidBinary, androidBuild, androidDeploy } from './agent-android.mjs';
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -551,7 +551,7 @@ export function jsonLines(readable, writable, hostLines) {
 export function hangup({ what, pid = null, exit = null, reports = [], hostLines = [] }) {
   const alive = pid == null ? null : (() => { try { process.kill(pid, 0); return true; } catch { return false; } })();
   const status = exit ? (exit.signal ? `killed by ${exit.signal}` : `exit code ${exit.code}`) : alive == null ? 'no pid known' : `pid ${pid} ${alive ? 'still running' : 'gone'}`;
-  return [`${what} (${status})`, ...reports.map((f) => `crash report: ${f}`), ...hostLines.slice(-20)].join('\n');
+  return [`${what} (${status})`, ...reports.slice(0, 1).flatMap((f) => crashSummary(f)), ...reports.slice(1).map((f) => `crash report: ${f}`), ...hostLines.slice(-20)].join('\n');
 }
 /** A native reply's deadline: past `clock settle`'s own 20 s bound, so only a wedged app reaches it (a phone has 45 s). */
 const REPLY_MS = 120000;
@@ -707,7 +707,8 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
   const env = { EXACT_ASSETS: appleArtifacts(a,{destination:'ios-simulator',host:hostFixture}).capture, EXACT_AGENT: '1', EXACT_AGENT_SOCKET: sock, ...(plan ? { EXACT_PLAN: plan } : {}), ...(size ? {EXACT_WINDOW_WIDTH:String(size[0]), EXACT_WINDOW_HEIGHT:String(size[1])} : {}), ...extra };
   const childEnv = { ...process.env };
   for (const [k, v] of Object.entries(env)) childEnv[`SIMCTL_CHILD_${k}`] = v;
-  const launched = Date.now(); let closing = false;
+  const launched = Date.now(), crashName = hostFixture ? 'ExactHostIOS' : executableName(a); let closing = false;
+  const crashes = crashWatch(crashName, bundle, { bundleId: id, udid: dev.udid }); // for `logs`: a crash of this build here, by hand or in a drive
   const console_ = spawn('xcrun', ['simctl', 'launch', '--console', '--terminate-running-process', dev.udid, id ?? bundleId(a.crate('apple'))], { env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] });
   onProcess?.(console_);
   const hostLines = [];
@@ -734,7 +735,7 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
   const lines = jsonLines(socket, socket, hostLines);
   const exited = new Promise((r) => socket.on('close', async () => {
     const exit = closing ? null : await waitAtMost(consoleExited, 1000);
-    lines.fail(closing ? 'the app was closed' : hangup({ what: 'the app hung up', pid, exit, hostLines, reports: crashReports(hostFixture ? 'ExactHostIOS' : executableName(a), launched) })); r();
+    lines.fail(closing ? 'the app was closed' : hangup({ what: 'the app hung up', pid, exit, hostLines, reports: crashReports(crashName, launched, { bundleId: id, udid: dev.udid }) })); r();
   }));
   const close = async () => {
     closing = true;
@@ -764,7 +765,7 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
     let canvasContact = false;
     return {
       host: hostFixture ? 'host-ios' : 'ios', boot: ready.boot, hostLines, gpuMs: () => null, sessions: ready.sessions ?? null, state, plan,
-      touches, touch,
+      touches, touch, crashes,
       ask, reveal: (id) => ask({ op: 'reveal', id }),
       async input(id, kind, opts) {
         if (kind === 'key') {
@@ -935,7 +936,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       s.logCursor = r.next;
       // What the driver did that the journal could not keep (a test's `reload` waiting for storage, LLP 1097 D9).
       const notes = s.notes?.splice(0) ?? [];
-      return { lines: [...notes, ...r.lines], host: carrier.hostLines.splice(0), from: r.from, next: r.next, dropped, ...(r.world ? { world: r.world } : {}) };
+      const crash = carrier.crashes?.() ?? []; return { lines: [...notes, ...r.lines], host: carrier.hostLines.splice(0), ...(crash.length ? { crash } : {}), from: r.from, next: r.next, dropped, ...(r.world ? { world: r.world } : {}) };
     },
     /** `perf [<target>]` (LLP 1079 D2): the plan sites under a view (every root's without one), each with its work across its instances' lifetimes and its source line; `{frames:true}` is the host's presented frames (D4). */
     async perf(target, frames) {

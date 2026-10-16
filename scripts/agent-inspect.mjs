@@ -179,7 +179,9 @@ export function identifyInspectedNode(reply, target) {
  *   layout  viewport W×H [· safe-area T R B L · keyboard K, when any is not 0] [· status bar light-content|dark-content (#id), iOS] · clock C ms
  *           #{id} [{testId}] {Type} {x},{y} {w}×{h} scroll {sx},{sy} [overscroll {ox},{oy}]
  *   logs    "(N earlier lines dropped by the journal ring)" when dropped > 0; the journal lines as they are;
- *           the host's lines indented two spaces; "(nothing new)" when there is nothing
+ *           the host's lines indented two spaces; on an iOS simulator, the newest crash report of the build
+ *           on that simulator since the last `logs` (its path, how it ended, the crashing thread's top
+ *           frames); "(nothing new)" when there is nothing
  *   state   [epoch E · incarnation I · clock C ms], then one line per other section: `{name} {JSON on one line}`;
  *           an app's state (a reply with `slots`) without its empty sections (`emptySection`), a world's whole
  *   tap, type  [ERROR {error} · ]tapped|typed #{id} "{target}" [· at X,Y, a contact's phase or a drag] · delivery D · epoch E
@@ -233,7 +235,7 @@ export function render(op, r) {
       return lines.join('\n');
     }
     case 'logs':
-      return [...(r.dropped > 0 ? [`(${r.dropped} earlier lines dropped by the journal ring)`] : []), ...r.lines, ...(r.world ?? []).flatMap((w) => w.lines.map((line) => 'world ' + line)), ...(r.host ?? []).map((l) => '  ' + l)].join('\n') || '(nothing new)';
+      return [...(r.dropped > 0 ? [`(${r.dropped} earlier lines dropped by the journal ring)`] : []), ...r.lines, ...(r.world ?? []).flatMap((w) => w.lines.map((line) => 'world ' + line)), ...(r.host ?? []).map((l) => '  ' + l), ...(r.crash ?? [])].join('\n') || '(nothing new)';
     case 'state': {
       if (!r || typeof r !== 'object' || Array.isArray(r)) return q(r);
       // One line a section: pretty-printing cost an app's state more than half again its JSON (Caltrain, 2026-10-09).

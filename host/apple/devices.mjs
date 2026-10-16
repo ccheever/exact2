@@ -110,13 +110,58 @@ export function showSimulator(dev, background = false) {
 }
 
 /** Crash reports macOS wrote since `since` (ms) for an executable named
- *  `name` — a simulator app crashes as a Mac process, reported here. */
-export function crashReports(name, since) {
-  const dir = resolve(homedir(), 'Library/Logs/DiagnosticReports');
+ *  `name`, newest first — a simulator app crashes as a Mac process, reported
+ *  here. The name is all the file names carry, and every simulator's copy of
+ *  an app shares it: `bundleId` keeps the reports whose header names that
+ *  bundle, and `udid` those whose process ran in that simulator (its path is
+ *  under `CoreSimulator/Devices/<udid>/`). */
+export function crashReports(name, since, { bundleId, udid, dir = resolve(homedir(), 'Library/Logs/DiagnosticReports') } = {}) {
   let names = [];
   try { names = readdirSync(dir); } catch { return []; }
+  const at = (f) => { try { return statSync(f).mtimeMs; } catch { return -1; } };
+  const ours = (f) => {
+    if (!bundleId && !udid) return true;
+    const report = parseReport(f);
+    return !!report && (!bundleId || report.head.bundleID === bundleId) && (!udid || [report.body.procPath, report.body.coalitionName].some((p) => String(p ?? '').includes(udid)));
+  };
   return names.filter((f) => f.startsWith(name + '-') && /\.(ips|crash)$/.test(f))
-    .map((f) => resolve(dir, f)).filter((f) => { try { return statSync(f).mtimeMs >= since; } catch { return false; } });
+    .map((f) => resolve(dir, f)).filter((f) => at(f) >= since && ours(f)).sort((a, b) => at(b) - at(a));
+}
+/** An `.ips` report: a JSON header line, then the JSON body. Null for any other. */
+function parseReport(file) {
+  try {
+    const text = readFileSync(file, 'utf8'), cut = text.indexOf('\n');
+    return { head: JSON.parse(text.slice(0, cut)), body: JSON.parse(text.slice(cut + 1)) };
+  } catch { return null; }
+}
+/** A crash report as a few lines: its path and time, how the process ended
+ *  and why (the exception, the termination, the app-specific message, such as
+ *  a Swift `fatalError`'s), and the crashing thread's top `frames` frames. */
+export function crashSummary(file, frames = 8) {
+  const report = parseReport(file);
+  if (!report) return [`crash report: ${file}`];
+  const { head, body } = report, e = body.exception ?? {}, images = body.usedImages ?? [];
+  const thread = body.threads?.[body.faultingThread] ?? body.threads?.find((t) => t.triggered);
+  const why = Object.values(body.asi ?? {}).flat().map(String).slice(0, 3);
+  return [
+    `crash report: ${file} (${head.timestamp ?? 'no time'})`,
+    `  ${[[e.type, e.signal && `(${e.signal})`].filter(Boolean).join(' '), body.termination?.indicator].filter(Boolean).join(', ')}${thread ? `; thread ${body.faultingThread ?? thread.id}${thread.queue ? ` (${thread.queue})` : ''} crashed:` : ''}`,
+    ...why.map((line) => `  ${line.trim()}`),
+    ...(thread?.frames ?? []).slice(0, frames).map((f, i) => `  ${String(i).padStart(2)} ${f.symbol ? `${f.symbol} + ${f.symbolLocation ?? 0}` : `0x${(f.imageOffset ?? 0).toString(16)}`} (${images[f.imageIndex]?.name ?? '?'})`),
+  ];
+}
+/** The newest crash report the scope admits since `bundle` was built (its
+ *  `receipt.json`), summarized once: each call answers only a report newer
+ *  than the last it answered (`agent ios logs`). */
+export function crashWatch(name, bundle, scope) {
+  let after = Date.now();
+  try { after = statSync(resolve(bundle, 'receipt.json')).mtimeMs; } catch {}
+  return () => {
+    const [latest] = crashReports(name, after, scope);
+    if (!latest) return [];
+    after = statSync(latest).mtimeMs + 1;
+    return crashSummary(latest);
+  };
 }
 
 

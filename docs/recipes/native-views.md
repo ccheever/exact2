@@ -60,6 +60,7 @@ final class Strip: ExactNativeInstance {
 - **Accessibility:** [native views](../contract-for-agents.md#native-views-accessibility).
 - **Data:** `app.ts` asks: `native!.watch('state'); return native!.call({op: 'state'});`. The
   build has no module, so the resource shows its `else` row until launch: write no bake code.
+- **A crash:** `agent ios logs` shows this build's newest crash report on this simulator.
 - **First frame:** views attach after first paint. Only a cheap one it shows (a splash)
   says `ExactNativeFactory(firstFrame: true)`, never an engine's. The module is made with
   it, on main: make an `AVAudioEngine` on first use, not in `init`.
