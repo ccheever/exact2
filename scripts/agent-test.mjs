@@ -701,12 +701,17 @@ export function testMutationClock() {
   return {
     reset() { cursor=0; },
     async advance(s) {
-      const requests=(await s.state()).mutationRequests;
-      if (!Number.isSafeInteger(requests) || requests<cursor) throw new Error('test clock: driver did not return a monotonic mutation request count');
-      const mutations=requests-cursor;
-      cursor=requests;
-      if (mutations) await s.clock('+'+mutations);
-      return mutations;
+      let total=0;
+      for(let round=0;round<16;round++) {
+        const requests=(await s.state()).mutationRequests;
+        if (!Number.isSafeInteger(requests) || requests<cursor) throw new Error('test clock: driver did not return a monotonic mutation request count');
+        const mutations=requests-cursor;
+        cursor=requests;
+        if (!mutations) return total;
+        total+=mutations;
+        await s.clock('+'+mutations);
+      }
+      throw new Error('test clock: mutations kept issuing requests across 16 automatic clock steps');
     },
   };
 }

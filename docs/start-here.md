@@ -255,6 +255,11 @@ or position (`each t, i in tasks key=t.id`, ``testId=`task-${i}` ``).
 Interactive web drives also accept `reload` (keeps storage and fetch faults) and
 `pick <input-id> <path>`. `agent web --help` lists driver capabilities.
 
+Each mutation source request adds one millisecond of UI virtual time after the
+step, including timer mutations issued during that advance. Reads and
+continuations add none; arguments within an atomic action keep its clock
+snapshot. The backend’s clock stays its own.
+
 | To assert | Write | Not |
 | --- | --- | --- |
 | A node is there, or not | `expect tree has "<testId>"`, `expect tree missing "<testId>"` | `lacks`, `contains`, `not has`. It matches a `testId` only, never a label or text, unlike `tap` |

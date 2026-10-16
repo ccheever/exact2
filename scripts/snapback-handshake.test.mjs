@@ -303,6 +303,11 @@ test('test web advances time only for mutation requests and preserves action tim
   try {
     createApp(app);
     writeFileSync(join(app,'app.contract'),`component App
+  state automatic = false
+  task auto when automatic
+    after(1, save)
+  action enable
+    automatic = true
   mutation saved as shape number queue
   action save
     send saved = save(performanceNow())
@@ -312,6 +317,7 @@ test('test web advances time only for mutation requests and preserves action tim
     column
       button "Save" press=save testId="save"
       button "Idle" press=idle testId="idle"
+      button "Enable timer" press=enable testId="enable"
       text (match saved { case some(n) => toString(n), case none => "-" }) testId="reply"
       text toString(performanceNow()) testId="time"
 `);
@@ -337,9 +343,16 @@ export const answer:Answer=(_source,[now])=>now;
   tap "save"
   clock data
   expect text "reply" == "0"
+
+test "a timer mutation gets its own automatic millisecond"
+  tap "enable"
+  tap "save"
+  tap "save"
+  clock data
+  expect text "reply" == "2"
 `);
     run(['contract','types','app.contract','-o','app.contract.d.ts']);
-    assert.match(run(['test','web']).stdout,/1 passed, 0 failed/);
+    assert.match(run(['test','web']).stdout,/2 passed, 0 failed/);
   } finally {rmSync(project,{recursive:true,force:true});}
 },600_000);
 

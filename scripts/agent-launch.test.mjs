@@ -437,3 +437,12 @@ test('a reused captured stage restores the authored backend after an override is
     configure(stage,true,parseSync);expect(readFileSync(join(stage,'app.ts'),'utf8')).toBe(edited);
   } finally {if(env!==undefined) process.env.EXACT_BACKEND_ORIGIN=env;rmSync(root,{recursive:true,force:true});}
 });
+
+test('mutation requests issued by an automatic clock step receive their own millisecond',async()=>{
+  const {testMutationClock}=await import('./agent-test.mjs');
+  let requests=1,now=0;
+  const clock=testMutationClock();
+  const session={state:async()=>({mutationRequests:requests}),clock:async spec=>{now+=Number(spec.slice(1));if(requests===1)requests++;}};
+  expect(await clock.advance(session)).toBe(2);expect(now).toBe(2);
+  expect(await clock.advance(session)).toBe(0);expect(now).toBe(2);
+});
