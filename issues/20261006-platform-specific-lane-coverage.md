@@ -100,20 +100,49 @@ A deliberate type error in `host/windows/src/window.rs` and in
 `host/linux/src/input.rs` is caught by tier 2's two cross-checks, each naming
 its file and line, while the macOS check of the same crates passes.
 
+**GMKtec M8** (Ubuntu 24.04, kernel 7.0, amdgpu Radeon, a USB keyboard; the
+user is in `video`, `input` and `render`). It has no C toolchain, so a private
+Zig 0.17 served as `cc` and `c++`; Bun 1.4.2 was installed privately.
+
+- At origin/main (a15f44bdc): `caltrain-linux` builds in 2 min 22 s.
+- KMS cannot take the card. `caltrain-linux` opens `/dev/dri/card0` and reads
+  its resources, then says `exact: no display: no connected connector with a
+  mode`: all ten connectors (DP-1 to DP-8, HDMI-A-1, Writeback-1) are
+  disconnected, so no monitor is attached. gdm's greeter (gnome-shell on tty1,
+  seat0, idle ten days) also holds DRM master: `DRM_IOCTL_SET_MASTER` from
+  this user returns `EACCES`. The SSH sessions have no seat, so switching to a
+  free VT needs root. `EXACT_VNC=1` stops at the same message: the VNC server
+  starts only after the display opens.
+- evdev: the host's `exact_linux::input::Input::open()` (a scratch example,
+  not committed) opened 2 devices, the keyboard's two interfaces. It decoded
+  `KEY_LEFTSHIFT` down and up as `Key { code: 42, shift: true, down: true }`
+  and `{ shift: false, down: false }`; the probe wrote those events to
+  `/dev/input/event2`, which evdev feeds to every reader of that device.
+  Nobody was at the keyboard, so no physical keypress was observed. Without a
+  display, the app does not open its input.
+- `cargo test -p exact-linux --lib --tests` at 07fdd0ff4: two tests fail on
+  this machine's fonts, which make sans-serif Noto Sans (521 faces) where
+  450b had DejaVu only: `shelfs_library_is_read_bar_then_page_then_navigation_bar`
+  and the neutral look's `gray tabs have no fill`. Both pass with a
+  `FONTCONFIG_FILE` that names DejaVu only. `smoke.mjs linux` passes (39.8 s).
+- At a15f44bdc two more tests fail, on this machine and on the Mac alike:
+  `timer_demand_empty_receipts_do_not_repaint_but_explicit_clock_does` and
+  `a_held_press_multiplies_scale_about_the_origin_even_under_reduced_motion`.
+  Bisection names 793907f4f ("Present Windows game canvases directly on the
+  GPU"). The smoke fails its motion checks there (`at 250 ms the linear box
+  is 75 wide, not 100`), probably for the same cause.
+
 **Remains unqualified:**
 
-- Linux KMS/DRM presentation, page flips at the display's refresh, evdev
-  input and the VNC server. The box has a card (`/dev/dri/card0`, ASPEED `ast`,
-  VGA-1 connected through the BMC), but it is `root:video`, the event devices
-  are `root:input`, `/dev/uinput` is root's, and the SSH user has neither group
-  nor sudo. `vkms` exists as a module, but loading it needs root.
-  `caltrain-linux` without the agent says `exact: no display: /dev/dri/card0:
-  Permission denied (os error 13)`. A run needs someone with root to add the
-  user to `video` and `input` (or run from a VT). `EXACT_VNC=1` then shows the
-  output and gives remote input.
-- Windows: input from a real person's devices (the drives inject through the
+- Linux KMS/DRM presentation, page flips at the display's refresh, the VNC
+  server, and evdev input reaching a running app. Neither fleet Linux box can
+  run them: 450b's SSH user lacks `video` and `input`; the M8 has the groups
+  but no monitor, and gdm holds master. A run needs a monitor (or an HDMI/DP
+  dummy plug) on the M8 and gdm stopped, or the run started from the M8's VT
+  as a local login, both of which need someone at the machine or root.
+- Windows: input from a person's real devices (the drives inject through the
   presenter or the agent), DPI changes across monitors, and the Grey box proof
   failures above.
 - Linux app crates beyond Caltrain natively: only tier 2's cross-check
-  compiles them. Natively they need the pinned Linux Hermes bundle, which the
-  box has not installed.
+  compiles them. Natively they need the pinned Linux Hermes bundle, which
+  450b has not installed.
