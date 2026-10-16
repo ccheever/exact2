@@ -1,0 +1,73 @@
+// The page's module realm (module-glue.js) over the real prelude, in a vm
+// context standing in for its iframe, with a scripted file store.
+import { expect, test } from 'bun:test';
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { resolve } from 'node:path';
+import vm from 'node:vm';
+
+const ROOT = resolve(import.meta.dir, '../..');
+// The runner's normalized set for `net.fetch https://api.castle.test` (as tests/it/request.rs's batch carries it).
+const GRANTS = {version:1,entries:[[1,'net.fetch https://api.castle.test',['fetch','https','api.castle.test',443],null]],error:null,seal:'825ec7a8503217b3'};
+
+// An answer's storage operation queued behind another answer's parks; when
+// that answer delivers its own (after its fetch came back), the parked one's
+// operation is in flight and it is asked again (prelude.js `settle`, LLP 1097
+// D3). Before, only a background delivery asked parked answers again, and the
+// Bluesky clone's device settings never answered on the web.
+test('a parked answer is asked again after another answer delivers its storage', async () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-module-storage-'));
+  const saved = Object.fromEntries(['fetch', 'document', 'location'].map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
+  try {
+    for (const name of ['module-glue.js', 'storage.js', 'grant-admission.js', 'faults.js', 'navigation.js']) cpSync(resolve(ROOT, 'host/web', name), resolve(dir, name));
+    writeFileSync(resolve(dir, 'storage-environment.js'), `export const directories = Object.freeze({ data: 'app:/data', cache: 'app:/cache', temporary: 'app:/tmp' });
+export const storageKey = () => 'k'; export const agentStorageRefusal = 'no store'; export const agentSeed = () => null;
+export const agentStream = () => null; export const keyStore = () => ({}); export const now = () => 0;`);
+    // Each read lands when the test says, in the order issued.
+    writeFileSync(resolve(dir, 'storage-fs.js'), `export const createFileSystem = () => ({
+  readFile: path => new Promise(ok => globalThis.reads.push(() => ok(new TextEncoder().encode(path)))), dispose() {} });`);
+    const prelude = readFileSync(resolve(ROOT, 'js/src/prelude.js'), 'utf8');
+    const script = new TextEncoder().encode(`exact = { abi: 1, appId: 'test.storage', grants: 'net.fetch https://api.castle.test', answer(source, args, store, storage) {
+  const read = path => storage.fs.readFile(path).then(bytes => new TextDecoder().decode(bytes));
+  if (source === 'feed') { const file = read('app:/data/feed'); return fetch('https://api.castle.test/feed').then(r => r.text()).then(async text => text + ' ' + await file); }
+  return read('app:/data/device');
+} };`);
+    const sha = new Bun.CryptoHasher('sha256').update(script).digest('hex');
+    globalThis.reads = [];
+    const win = vm.createContext({ console: { log() {}, info() {}, warn() {}, error() {}, debug() {} }, TextEncoder, TextDecoder, structuredClone, setTimeout, clearTimeout,
+      queueMicrotask, URL, Headers, crypto, indexedDB: null, MessageChannel, Uint8Array, ArrayBuffer, addEventListener() {} });
+    win.window = win;
+    for (const name of ['Promise', 'Error', 'Object', 'Array', 'JSON', 'Symbol']) win[name] = vm.runInContext(name, win); // what storage.js builds in the realm
+    win.document = { createElement: () => ({}), head: { append: el => vm.runInContext(el.textContent, win) } };
+    const frame = { contentWindow: win, setAttribute() {}, remove() {} };
+    Object.defineProperties(globalThis, {
+      fetch: { configurable: true, writable: true, value: async url => { const r = new Response(String(url).endsWith('module-prelude.js') ? prelude : 'never'); Object.defineProperty(r, 'url', { value: 'http://127.0.0.1/x' }); return r; } },
+      document: { configurable: true, value: { createElement: () => frame, body: { append() {} } } },
+      location: { configurable: true, value: { href: 'http://127.0.0.1/', origin: 'http://127.0.0.1' } },
+    });
+    globalThis.exact = {};
+    const { createGrantSet } = await import(resolve(dir, 'grant-admission.js'));
+    const glue = await import(resolve(dir, 'module-glue.js'));
+    const grants = 'net.fetch https://api.castle.test';
+    const receipt = new TextEncoder().encode(JSON.stringify({ version: 1, abi: 1, appId: 'test.storage', grants, web: { file: 'app.js', bytes: script.length, sha256: sha }, module: { sha256: 'b'.repeat(64) } }));
+    const realm = await glue.prepare({ receipt, script }, { appId: 'test.storage', grants, grantSet: createGrantSet(GRANTS), placement: 'main' });
+    const ask = (source, extra = {}) => glue.run(glue.call({ op: 'answer', id: realm.id, target: source, source, args: [], store: [], grants: [], ...extra }).continuation);
+    const feed = ask('feed');
+    const fetched = await feed; // the fetch: the turn goes, its read in flight
+    expect(fetched.tag).toBe(1);
+    const device = ask('device');
+    await new Promise(r => setTimeout(r, 20)); // its read queued behind feed's: it parks
+    const resumed = glue.run(glue.call({ op: 'resume', id: realm.id, target: 'feed', source: 'feed', args: [], store: [], grants: [], outcome: { response: { status: 200, headers: [], body: 'fresh' } } }).continuation);
+    globalThis.reads.shift()();
+    expect((await resumed).value).toBe('fresh app:/data/feed');
+    await new Promise(r => setTimeout(r, 20));
+    globalThis.reads.shift()?.();
+    const answered = await Promise.race([device, new Promise(r => setTimeout(() => r('still parked'), 500))]);
+    expect(answered.value).toBe('app:/data/device');
+    realm.dispose();
+  } finally {
+    for (const [name, descriptor] of Object.entries(saved)) { if (descriptor) Object.defineProperty(globalThis, name, descriptor); else delete globalThis[name]; }
+    delete globalThis.exact; delete globalThis.reads;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
