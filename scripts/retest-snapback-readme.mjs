@@ -64,8 +64,8 @@ async function startServer(binary,port,cwd,env) {
     return server;
   } catch(error) {if(server.exitCode===null)server.kill('SIGTERM');throw error;}
 }
-async function stopServer(server) {
-  if(!server || server.exitCode!==null)return;
+export async function stopServer(server) {
+  if(!server || server.exitCode!==null || server.signalCode!=null)return;
   await new Promise(ok=>{server.once('exit',ok);server.kill('SIGTERM');});
 }
 async function executeExample(example,base,version,registry,env,bun) {

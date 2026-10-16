@@ -3,7 +3,7 @@ import {mkdtempSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {checkReadmeVersion,checkReceipt,checkRepository,digest,testedFiles} from './check-snapback-readme.mjs';
-import {commitFiles,extractExamples,refreshClaims} from './retest-snapback-readme.mjs';
+import {commitFiles,extractExamples,refreshClaims,stopServer} from './retest-snapback-readme.mjs';
 
 test('qualification refuses stale version claims and a different wave pin',()=>{
   expect(checkReadmeVersion('tested as written against 0.4.29\ntested as written against\n0.4.29','0.4.29')).toEqual({version:'0.4.29',claims:2});
@@ -48,4 +48,11 @@ test('the retest extracts every complete authored app including its exact test c
 
 test('the committed pins, authored sources and claims have a complete execution receipt',()=>{
   expect(checkRepository(new URL('..',import.meta.url).pathname).examples).toBe(5);
+});
+
+test('cleanup returns after a backend already died by signal and still stops a live one',async()=>{
+  await stopServer({exitCode:null,signalCode:'SIGABRT',once:()=>{throw new Error('exit already happened');},kill:()=>{throw new Error('backend is dead');}});
+  let exited,signal;
+  await stopServer({exitCode:null,signalCode:null,once:(event,done)=>{expect(event).toBe('exit');exited=done;},kill:value=>{signal=value;exited();}});
+  expect(signal).toBe('SIGTERM');
 });
