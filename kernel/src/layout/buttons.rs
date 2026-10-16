@@ -181,6 +181,27 @@ pub(super) fn measure(
     record.answer(request, measurer)
 }
 
+impl crate::style::wide::Colors for ButtonRecord {
+    fn colors(&self, m: &mut crate::style::wide::WideMark) {
+        self.inputs.colors(m);
+        let style = &self.request.style;
+        style.title.colors(m);
+        style.subtitle.colors(m);
+        style.symbol.colors(m);
+        style.button.colors(m);
+    }
+}
+
+impl LayoutTree {
+    /// Mark the colours its button records hold.
+    pub(crate) fn wide_colors(&self, m: &mut crate::style::wide::WideMark) {
+        use crate::style::wide::Colors;
+        for record in self.button_records.values() {
+            record.colors(m);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

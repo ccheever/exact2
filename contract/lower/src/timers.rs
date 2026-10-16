@@ -32,10 +32,18 @@ impl Lowerer<'_> {
                     ));
                 };
                 if !(ms.is_finite() && ms.fract() == 0.0 && *ms >= 1.0 && *ms <= u32::MAX as f64) {
+                    // A timer is due when the clock passes it, so 0 would be due
+                    // in the commit that armed it; the web's `setTimeout(f, 0)`
+                    // runs after the current task, as 1 does here.
+                    let soonest = match t.kind {
+                        TaskKind::After if *ms < 1.0 => ": the soonest is `after(1, …)`, a commit after the one that armed it, as the web's `setTimeout(f, 0)` runs after the current task",
+                        TaskKind::Every if *ms < 1.0 => ": a tick each display frame is `every(frame, …)`",
+                        _ => "",
+                    };
                     return Err(err_one(
                         "lower-timer-interval",
                         format!(
-                            "`{word}` needs a whole number of milliseconds, at least 1; given {ms}"
+                            "`{word}` needs a whole number of milliseconds, at least 1; given {ms}{soonest}"
                         ),
                         t.timer.2,
                     ));

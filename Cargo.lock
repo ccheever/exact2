@@ -1128,6 +1128,7 @@ dependencies = [
  "exact-textflow",
  "ibex2",
  "serde_json",
+ "url",
 ]
 
 [[package]]
@@ -1356,6 +1357,7 @@ dependencies = [
  "exact-data",
  "exact-grants",
  "exact-kernel",
+ "exact-linux",
  "exact-markdown",
  "exact-motion",
  "exact-plan",
@@ -1383,6 +1385,7 @@ dependencies = [
  "skrifa",
  "swash",
  "tiny-skia",
+ "url",
  "vello",
  "wgpu 29.0.4",
  "windows-sys 0.61.2",
@@ -1543,6 +1546,7 @@ dependencies = [
  "libc",
  "serde_json",
  "sha2",
+ "url",
  "windows-sys 0.61.2",
 ]
 
@@ -1569,6 +1573,7 @@ dependencies = [
  "exact-num",
  "exact-plan",
  "exact-route",
+ "serde_json",
  "sha2",
 ]
 

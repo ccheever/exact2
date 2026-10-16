@@ -236,8 +236,9 @@ extension NodeView {
     }
 
     /// `wheel` at this node and its ancestors, once per event however many
-    /// of the views on the way pass it up; true when a handler prevented
-    /// its default, and the scroll stops here.
+    /// of the views on the way pass it up, until a handler stops its
+    /// propagation; true when a handler prevented its default, and the
+    /// scroll stops here (a stop alone does not stop the scroll).
     func wheel(_ event: NSEvent) -> Bool {
         guard let presenter else { return false }
         if let (seen, prevented) = presenter.lastWheel, seen === event { return prevented }
@@ -250,10 +251,13 @@ extension NodeView {
             next = view.superview
         }
         var prevented = false
-        for node in path where presenter.views[node.id] === node {
-            presenter.defaultPrevented = false
-            presenter.mouseEvent(node.id, 37, node.wheelLine(event))
-            prevented = prevented || presenter.defaultPrevented
+        presenter.propagating {
+            for node in path where presenter.views[node.id] === node {
+                presenter.defaultPrevented = false
+                presenter.mouseEvent(node.id, 37, node.wheelLine(event))
+                prevented = prevented || presenter.defaultPrevented
+                if presenter.propagationStopped { break }
+            }
         }
         presenter.defaultPrevented = false
         presenter.lastWheel = (event, prevented)

@@ -56,10 +56,13 @@ impl<D: DataSource> Presenter<D> {
         self.brush.placements = self.surfaces.placements(&self.host);
         self.host
             .sync_canvases(self.brush.scale as f64, true, &self.assets);
-        self.brush.canvases = self.host.canvas_snapshots();
-        self.brush
-            .canvases
-            .extend(self.surfaces.pixels(&mut self.host, self.brush.scale));
+        let previous = std::mem::replace(&mut self.brush.canvases, self.host.canvas_snapshots());
+        self.brush.canvases.extend(self.surfaces.pixels(
+            &mut self.host,
+            self.brush.scale,
+            previous,
+            self.brush.window_canvas,
+        ));
         // The hatches' overlays as published (LLP 1075.003.000.001 §2.2.1):
         // read here, at the start of the paint; the walk calls no hatch.
         self.brush.overlays = (self.hatches.overlays.iter())

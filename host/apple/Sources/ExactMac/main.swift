@@ -381,6 +381,15 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
                 if let next = windows.last { DevMenu.select(session: next.session) }
                 else { DevMenu.session = nil }
             }
+            // A window closed while the quit is held, or the last window of
+            // an app that quits with it: the session stays for the quit, which
+            // asks its module for its quit work, waits for it and destroys the
+            // session after the hold (`applicationWillTerminate`).
+            if delegate.quitting?.holding == true
+                || windows.isEmpty && delegate.applicationShouldTerminateAfterLastWindowClosed(app) {
+                closedForQuit.append(self)
+                return
+            }
             session.destroy()
         }
     }
@@ -394,6 +403,8 @@ let launchRefusal = ExactEnv.environment["EXACT_PLAN"].flatMap { path in
 let firstWindow = DocumentWindow(label: "main", first: true)
 /// Every open window, oldest first.
 var windows = [firstWindow]
+/// Windows closed whose sessions wait for the quit (`windowWillClose`).
+var closedForQuit: [DocumentWindow] = []
 var windowCount = 1
 let session = firstWindow.session
 let view = firstWindow.view
@@ -517,19 +528,24 @@ final class Delegate: NSObject, NSApplicationDelegate {
     /// the first that keeps itself open comes forward with whatever it asks
     /// and the quit stops there; once answered, its `close()` closes it, and
     /// the last window closing ends the app. Nothing is held while the app
-    /// asks (LLP 1069.010 D7); a quit with storage still landing that an
-    /// answer started is held until it lands, five seconds at most (LLP
-    /// 1097 D10).
+    /// asks (LLP 1069.010 D7). Once the quit is decided, each native module
+    /// starts its quit work (`ExactModule.willQuit`), and the quit is held
+    /// while that work runs or storage an answer started is still landing:
+    /// one hold, five seconds at most for all of it (LLP 1097 D10, LLP
+    /// 1069.010 Q4). AppKit's modal loop keeps the main thread running.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         // A repeated quit joins the existing hold: it neither asks the app
-        // again nor starts a fresh five-second deadline.
+        // again, nor the modules, nor starts a fresh five-second deadline.
         if quitting?.holding == true { return .terminateLater }
         for w in windows where !w.closing && !w.session.beforeUnload() {
             relaunching = false
             w.front()
             return .terminateCancel
         }
-        let hold = StorageHold(bound: 5, pending: { windows.contains { $0.session.storageOperations > 0 } },
+        // The open windows' sessions, and the last window's if its closing started the quit.
+        let sessions = (windows + closedForQuit).map(\.session)
+        for session in sessions { session.willQuit() }
+        let hold = StorageHold(bound: 5, pending: { sessions.contains { $0.storageOperations > 0 || $0.quitWorkPending } },
                                begin: { _ in }, end: { NSApp.reply(toApplicationShouldTerminate: true) })
         guard hold.hold() else { return .terminateNow }
         quitting = hold
@@ -540,10 +556,9 @@ final class Delegate: NSObject, NSApplicationDelegate {
     /// The quit is decided, however it came (⌘Q, the app menu, an Apple
     /// Event, SIGTERM, the last window closing): every session still live goes now,
     /// synchronously, so each native module's `destroy()` runs before the
-    /// process ends ("destroyed with the session", LLP 1067.000 D3). A closed
-    /// window's own teardown (`windowWillClose`) waits for the next turn of
-    /// the run loop, which the last window's never gets; `destroy()` runs
-    /// once whichever comes first. Nothing is held (LLP 1069.010 Q4).
+    /// process ends ("destroyed with the session", LLP 1067.000 D3). The
+    /// last window's session, closed, is left for this (`windowWillClose`);
+    /// `destroy()` runs once in any case. The hold, if any, has ended.
     func applicationWillTerminate(_ notification: Notification) {
         for session in exact.sessions { session.destroy() }
         if relaunching {
@@ -601,7 +616,7 @@ quitSignal.setEventHandler {
     // first, so the main queue can deliver storage completions in that loop.
     RunLoop.main.perform(inModes: [.common]) {
         // AppKit may force a repeated terminate without asking the delegate.
-        // The first request already owns the storage hold and its deadline.
+        // The first request already owns the quit hold and its deadline.
         if delegate.quitting?.holding == true { return }
         app.terminate(nil)
     }

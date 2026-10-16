@@ -467,7 +467,8 @@ impl DataSource for Markdown {
                 Outcome::Response(_)
                 | Outcome::Storage(_)
                 | Outcome::Surface(_)
-                | Outcome::Message(_),
+                | Outcome::Message(_)
+                | Outcome::Closed { .. },
             ) => Err(format!("{asked} was not read")),
         };
         Ok(Answer::Now(self.opened(&asked, result)))

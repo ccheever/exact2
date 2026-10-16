@@ -43,6 +43,7 @@ pub(crate) fn request_from_json(text: &str) -> Result<Request, String> {
             None => field("body").unwrap_or_default().into_bytes(),
         },
         stream: j.get("stream").and_then(Json::as_bool).unwrap_or(false),
+        socket: j.get("socket").and_then(Json::as_bool).unwrap_or(false),
         timeout_ms: match j.get("timeout_ms") {
             None | Some(Json::Null) => None,
             Some(value) => Some(
@@ -82,8 +83,20 @@ pub(crate) fn outcome_to_json(outcome: &Outcome) -> Json {
         Outcome::Failed { kind, message } => json!({
             "failed": { "kind": format!("{kind:?}"), "message": message }
         }),
-        Outcome::Message(m) => json!({
-            "message": { "event": m.event, "id": m.id, "data": m.data, "coalesced": m.coalesced }
+        Outcome::Message(m) => match &m.binary {
+            Some(bytes) => json!({
+                "message": { "event": m.event, "id": m.id, "data": "", "coalesced": m.coalesced, "binary": base64(bytes) }
+            }),
+            None => json!({
+                "message": { "event": m.event, "id": m.id, "data": m.data, "coalesced": m.coalesced }
+            }),
+        },
+        Outcome::Closed {
+            code,
+            reason,
+            was_clean,
+        } => json!({
+            "closed": { "code": code, "reason": reason, "wasClean": was_clean }
         }),
     }
 }

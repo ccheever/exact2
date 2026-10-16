@@ -234,7 +234,7 @@ public final class ExactApp {
             if let old = self.devProgram { return old == program }
             self.devProgram = program
             return true
-        }, current: { [weak self] in self?.devGeneration }, waiting: { [weak self] in self?.generationPending == true }, apply: { [weak self] candidate, label in
+        }, current: { [weak self] in self?.devGeneration }, waiting: { [weak self] in self?.generationPending == true }, design: { [weak self] in self?.design($0) ?? "closed" }, channel: { [weak self] in self?.channel($0) }, apply: { [weak self] candidate, label in
             guard let self else { return false }
             let resolver = candidate.assets
             return self.applyTogether(candidate.plan, label: label, resolver: resolver, token: 0, identity: candidate.identity, module: candidate.module, commit: { true })
@@ -457,7 +457,7 @@ public final class ExactSession {
     private var pendingSurfaceRecords: [(String, String?)] = []
     private var pendingSurfaceWork: [([String: Any], Int)] = []
     /// Authentication sessions this session opened (`Auth.swift`, LLP 1069.006).
-    lazy var authSessions: AuthSessions = { let s = AuthSessions(); s.owner = self; return s }()
+    let authSessions = AuthSessions()
 
     /// Live sessions by handle: what a wake looks up (a stranger's is dropped).
     nonisolated(unsafe) private static var live: [ExactRuntime: WeakSession] = [:]
@@ -833,7 +833,7 @@ public final class ExactSession {
             routerOp = nil
             generation += 1
             if booted { awaitingTree = true; presenter.reset(); forgetAppearances(); presenter.launchAutofocusReleased = false } // a fresh boot's autofocus waits again
-            booted = true
+            booted = true; app.liveBooted(self)
             text.commitFonts()
             appFileRoots = AppFiles.learn(runtime) // before the first frame's `app:/` images load (LLP 1069.002 D7)
         }
@@ -922,7 +922,7 @@ public final class ExactSession {
         awaitingTree = true // the tint a reset gives back is reported with the new tree
         presenter.reset()
         forgetAppearances()
-        booted = true
+        booted = true; app.liveBooted(self)
         app.lifecycle?.generationStarted(app, token: updateToken)
         autofocusHeld = restart
         sampler?.reset() // a new runner numbers its transactions afresh (LLP 1079 D3)
@@ -1031,8 +1031,8 @@ public final class ExactSession {
         // What applying it cost, with its transactions, for the next sampled frame (LLP 1079 D3).
         let began = sampler == nil ? 0 : CACurrentMediaTime()
         defer { sampler?.batch(batch.seq, ms: outermost ? (CACurrentMediaTime() - began) * 1000 : 0); if let q = batch.seq { natives.hatchClock.seq = q.1 } }
-        // Each batch says what its turn left owed; batches apply in the
-        // owner's order, so the last one applied is the runner's now.
+        if batch.facts { app.scheduleStatus() } // the app's own `setMode` or `setRootFontSize` (LLP 1122 D4)
+        // Each batch says what its turn left owed; batches apply in the owner's order, so the last one applied is the runner's now.
         canvasOwed = batch.canvasOwed
         if canvasOwed { askCanvasDraw() }
         for op in batch.ops where op.op == .router { routerOp = op.payload }
@@ -1276,8 +1276,8 @@ public final class ExactSession {
     func tellPreferences() {
         guard booted, state != .destroyed else { return }
         apply(runtime.setPreferences(preferenceBits()))
-        // Increased Contrast changes what every platform colour resolves to.
-        reportColors()
+        // Increased Contrast changes what every platform colour resolves to; the build channel reports it (LLP 1122 D4).
+        reportColors(); app.scheduleStatus()
         #if os(macOS)
         controlTextChanged()
         #endif

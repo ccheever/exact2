@@ -39,10 +39,10 @@ import { fileURLToPath } from 'node:url';
 import { cargoEnvironment, executableName, HERMES_INSTALLER, hermesBundle, hermesTarget, resolveApp, WEB_TOOLCHAIN, webToolchainEnv } from './app.mjs';
 import { applyPattern, createApp, createGame, patternList } from '../game/new.mjs';
 import { sdkFetch } from '../game/app/shells.mjs';
-import { appleArtifacts, assertAppleIdentity, macReleaseEntitlements, stripForDistribution } from '../host/apple/build.mjs';
+import { appleArtifacts, assertAppleIdentity, stripForDistribution } from '../host/apple/build.mjs';
 import { closeFilesystemReader } from './filesystem.mjs';
 import { builtAppMatches, jsTargetBuild } from '../host/web/serve.mjs';
-import { signingOrder } from '../host/apple/assets.mjs';
+import { signRelease } from '../host/apple/assets.mjs';
 import { chromium } from './agent-launch.mjs';
 import { guardFlags, helpText } from './help.mjs';
 
@@ -266,17 +266,12 @@ function release(app) {
 
   // Sign inside out, with the hardened runtime and a timestamp. Both are
   // notarisation's requirements, not preferences: a build without them is
-  // rejected at submission rather than at launch. The app itself carries the
-  // entitlements its `device.*` grants derive (LLP 1069.008 D4), read from the
-  // bake receipt inside the bundle; the code nested inside carries none.
+  // rejected at submission rather than at launch. The entitlements come from
+  // the bake receipt inside the bundle: the app carries those its `device.*`
+  // and `runtime.* app` grants derive (LLP 1069.008 D4, D9), a helper a
+  // `runtime.* <path>` grant names carries its own, and other nested code none.
   const built = JSON.parse(readFileSync(resolve(bundle, 'Contents/Resources/receipt.json'), 'utf8'));
-  const entitled = macReleaseEntitlements(built.build?.compat);
-  const entitlements = resolve(out, 'entitlements.plist');
-  if (entitled) writeFileSync(entitlements, entitled);
-  for (const path of signingOrder(staged, built.build?.compat, identity)) {
-    sh('codesign', ['--force', '--sign', identity, '--options', 'runtime', '--timestamp',
-      ...(path === staged ? ['--identifier', app.id, ...(entitled ? ['--entitlements', entitlements] : [])] : []), path]);
-  }
+  signRelease(staged, { compat: built.build?.compat, manifest: app.manifest, identity, id: app.id, scratch: out });
   sh('codesign', ['--verify', '--deep', '--strict', '--verbose=1', staged]);
 
   // A zip is what notarytool takes for an app; ditto and not zip, which
@@ -514,14 +509,30 @@ export function printReport(rows, {onlyMissing = false} = {}) {
  * Debug, as the guides use it; the pinned toolchain whatever rustup would pick
  * from the caller's directory; exact2's own target/, never an inherited one
  * (an app's, or another checkout's). */
-export function contract(args, env = process.env) {
+/** Cargo with the pinned toolchain, in this checkout's own target, on the Contract compiler: `run` or `build`. */
+function compilerCargo(verb, env = process.env) {
   const pin = Bun.TOML.parse(readFileSync(resolve(ROOT, 'rust-toolchain.toml'), 'utf8')).toolchain.channel;
   const clean = cargoEnvironment(env);
   delete clean.RUSTUP_TOOLCHAIN;
   delete clean.CARGO_TARGET_DIR;
-  const binary = resolve(ROOT, 'target/debug', process.platform === 'win32' ? 'contract.exe' : 'contract');
-  if (!existsSync(binary)) console.error('exact contract: building the Contract compiler once (a few minutes on a cold checkout)…');
-  const result = spawnSync('cargo', [`+${pin}`, 'run', '-q', '--manifest-path', resolve(ROOT, 'Cargo.toml'), '-p', 'contract', '--', ...args], {stdio: 'inherit', env: clean});
+  return { args: [`+${pin}`, verb, '-q', '--manifest-path', resolve(ROOT, 'Cargo.toml'), '-p', 'contract'], env: clean };
+}
+const COMPILER = resolve(ROOT, 'target/debug', process.platform === 'win32' ? 'contract.exe' : 'contract');
+
+/** `exact new` starts the compiler's build apart from this shell, so the builder's first `contract vocab` or
+ * `contract build` does not wait the minute a cold one takes (a port's first lookup, 67 s). A fresh one is a no-op. */
+function prebuildCompiler() {
+  const { args, env } = compilerCargo('build');
+  const child = spawn('cargo', args, { detached: true, stdio: 'ignore', env });
+  child.on('error', () => {});
+  child.unref();
+  if (!existsSync(COMPILER)) console.log(`\nBuilding the Contract compiler in the background (pid ${child.pid}), so \`contract\` answers at once when you need it.`);
+}
+
+export function contract(args, env = process.env) {
+  const cargo = compilerCargo('run', env), binary = COMPILER;
+  if (!existsSync(binary)) console.error('exact contract: building the Contract compiler once (about a minute on a cold checkout; `exact new` starts it in the background)…');
+  const result = spawnSync('cargo', [...cargo.args, '--', ...args], {stdio: 'inherit', env: cargo.env});
   if (result.error) throw new Error(`cargo: ${result.error.message} (install rustup from https://rustup.rs)`);
   // A build of an app's `app.contract` refreshes the types its `app.ts` imports (LLP 1116.001 D4.5).
   const input = args[0] === 'build' ? args.slice(1).find((arg, i, rest) => !arg.startsWith('-') && rest[i - 1] !== '-o') : null;
@@ -567,6 +578,7 @@ function newApp(path, {update = false, game = false, assets = false} = {}) {
   }
   // A game is a path here, as an app is: `game/new.mjs` alone takes a bare name for game/games.
   console.log(game ? createGame(resolve(path), undefined, {assets}) : createApp(path));
+  prebuildCompiler();
   if (report.some(row => !row.ok)) {
     // Builders read a bare "still needs" list as the reason a later command failed (bench diaries,
     // 2026-10-07/08): say when nothing on it blocks the app.

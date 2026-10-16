@@ -67,6 +67,7 @@ pub fn outcome_from(kind: u32, status: u32, headers: &str, body: Vec<u8>) -> Out
                 id: field("id"),
                 coalesced: field("coalesced").parse().unwrap_or(0),
                 data: String::from_utf8_lossy(&body).into_owned(),
+                binary: None,
             })
         }
         5 => Outcome::Storage(body),
@@ -112,8 +113,7 @@ pub enum HostError {
     Plan(exact_plan::PlanError),
     Runner(RunnerError),
     RuntimeIdExhausted,
-    /// The plan uses these capabilities, which this artifact doesn't link
-    /// (LLP 1047 D6).
+    /// The plan uses these capabilities, which this artifact doesn't link (LLP 1047 D6).
     Unlinked(String),
 }
 
@@ -444,6 +444,7 @@ impl<D: DataSource> Host<D> {
         )
         .map_err(HostError::Runner)?;
         runner.measure_unless_production(compat, false); // LLP 1079 D1: the browser lays out
+        runner.admit_live(compat);
         Host::open(links, runner, launch, Batch::new(), Default::default())
     }
 

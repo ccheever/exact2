@@ -16,25 +16,40 @@ impl<D: DataSource> Runner<D> {
         value: &str,
         slices: &[&str],
     ) -> Result<(CommitReceipt, usize), RunnerError> {
-        let refused = |reason: &str| RunnerError::InvalidValue {
-            event: "setToken",
-            reason: format!("`{name}`: {reason}"),
-        };
-        let token = self
-            .plan
-            .theme
-            .iter()
-            .find(|t| self.plan.str(t.name) == name)
-            .ok_or_else(|| refused("is no token this plan keeps"))?;
-        // A role's value also crosses to the hosts and the kernel's own
-        // defaults (LLP 1095 D4's reach), which an edit does not reach yet.
-        if !self.plan.str(token.role).is_empty() {
-            return Err(refused(
-                "overrides a role, which an edit does not reach yet",
-            ));
+        self.set_tokens(&[(name, value, slices)])
+    }
+
+    /// Edit several tokens as [`set_token`](Self::set_token) does one, in
+    /// one commit (a live batch, LLP 1121 stage 4). Nothing is set when any
+    /// is refused.
+    pub fn set_tokens(
+        &mut self,
+        edits: &[(&str, &str, &[&str])],
+    ) -> Result<(CommitReceipt, usize), RunnerError> {
+        let mut bits = 0;
+        for &(name, _, _) in edits {
+            let refused = |reason: &str| RunnerError::InvalidValue {
+                event: "setToken",
+                reason: format!("`{name}`: {reason}"),
+            };
+            let token = self
+                .plan
+                .theme
+                .iter()
+                .find(|t| self.plan.str(t.name) == name)
+                .ok_or_else(|| refused("is no token this plan keeps"))?;
+            // A role's value also crosses to the hosts and the kernel's own
+            // defaults (LLP 1095 D4's reach), which an edit does not reach yet.
+            if !self.plan.str(token.role).is_empty() {
+                return Err(refused(
+                    "overrides a role, which an edit does not reach yet",
+                ));
+            }
+            bits |= exact_kernel::style::theme::name_bit(name);
         }
-        crate::bridge::edit_token(&self.plan, name, value, slices);
-        let bits = exact_kernel::style::theme::name_bit(name);
+        for &(name, value, slices) in edits {
+            crate::bridge::edit_token(&self.plan, name, value, slices);
+        }
         let mut patches: Vec<(exact_kernel::ViewId, Box<StyleProps>)> = Vec::new();
         let mut set = 0;
         // A retired view is not set: the index forgets it with the rest.

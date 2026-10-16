@@ -1,5 +1,5 @@
 //! Size-dependent stop fix-up and repetition (LLP 1066, 2026-10-12).
-use super::{fix_up, Color, ColorValue, Geometry, Gradient, Stop, StopUnit};
+use super::{fix_up, Color, ColorValue, Geometry, Gradient, Lookup, Stop, StopUnit};
 
 impl Gradient {
     /// Whether painting needs the box before the stops can be resolved.
@@ -10,6 +10,18 @@ impl Gradient {
     /// A nonrepeating, percentage-only ramp and its placement for a native
     /// painter. The authored row is unchanged, so resizing resolves anew.
     pub fn placed(&self, width: f32, height: f32, dark: bool) -> (Self, Geometry) {
+        self.placed_with(width, height, dark, &crate::style::wide::wide)
+    }
+
+    /// [`placed`](Self::placed), each wide stop's colour read through
+    /// `wide` ([`Gradient::resolved_with`]).
+    pub fn placed_with(
+        &self,
+        width: f32,
+        height: f32,
+        dark: bool,
+        wide: Lookup<'_>,
+    ) -> (Self, Geometry) {
         let mut geometry = self.geometry(width, height);
         let mut ramp = self.clone();
         if !self.needs_box() {
@@ -42,7 +54,7 @@ impl Gradient {
             // CSS Images 3 §3.3: unresolved repetitions are the average
             // colour. Bound the expanded native ramp for microscopic periods.
             if period * length / 100.0 < 0.01 || 100.0 / period > 8192.0 {
-                return (ramp.average(dark), geometry);
+                return (ramp.average(dark, wide), geometry);
             }
             let begin = (-first / period).floor() as i32;
             let end = ((100.0 - last) / period).ceil() as i32;
@@ -87,13 +99,13 @@ impl Gradient {
         (ramp, geometry)
     }
 
-    fn average(mut self, dark: bool) -> Self {
+    fn average(mut self, dark: bool, wide: Lookup<'_>) -> Self {
         let first = self.stops[0].at;
         let span = self.stops.last().unwrap().at - first;
         for s in &mut self.stops {
             s.at = (s.at - first) / span * 100.0;
         }
-        let ramp = self.resolved(dark);
+        let ramp = self.resolved_with(dark, wide);
         let mut sums = [0.0; 4];
         for pair in ramp.windows(2) {
             let weight = (pair[1].0 - pair[0].0) / 2.0;

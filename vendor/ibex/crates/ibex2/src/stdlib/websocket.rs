@@ -65,6 +65,14 @@ pub trait MessageSender: Send + Sync {
     fn send_binary(&self, bytes: &[u8]) -> Result<(), HostError>;
     fn close(&self, code: Option<u16>, reason: &str) -> Result<(), HostError>;
     fn buffered_amount(&self) -> usize;
+    /// Messages admitted and not yet handed to the network. A transport
+    /// whose outbound queue also bounds messages closes the connection when
+    /// a send would pass that bound (WHATWG's "full"); a caller that must
+    /// refuse instead checks this first. Zero for a transport with no such
+    /// bound.
+    fn buffered_messages(&self) -> usize {
+        0
+    }
 }
 
 /// An open socket. Dropping it closes the connection.

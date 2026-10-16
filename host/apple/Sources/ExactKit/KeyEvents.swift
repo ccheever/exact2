@@ -95,6 +95,15 @@ extension Presenter {
     func keyUp(at target: NodeView?, _ name: String, held: String = "", code: String = "") -> Bool {
         keyEvent("keyup", at: target, KeyPress(held + name, code: code, up: true))
     }
+    /// One bubbling dispatch (the pointer's down or up, a wheel): a handler
+    /// it runs that calls `stopPropagation()` sets `propagationStopped` for
+    /// this dispatch alone, as the DOM's stop ends one event's propagation.
+    func propagating(_ walk: () -> Void) {
+        let enclosing = propagationStopped
+        defer { propagationStopped = enclosing }
+        propagationStopped = false
+        walk()
+    }
     /// What an event (a key, a clipboard edit) bubbles to from `view`: its
     /// authored parent. A subtree a container shows in a view of its own
     /// bubbles to the node it is declared under: on the Mac a block's root to

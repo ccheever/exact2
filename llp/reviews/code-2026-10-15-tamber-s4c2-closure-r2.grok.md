@@ -1,0 +1,23 @@
+# Code review: stage 4 commit 2: the closure, round 2, 2026-10-15 (grok)
+
+- **Family:** xAI. `grok-4.7` via the Grok CLI, reasoning effort xhigh, no subagents, the landing worktree, read-only by instruction.
+- **Method:** one brief (sha256 `fbf6c3998a579e5c53e8b3f23d645bbeeee934726b49a543265788bddea710cd`), shared by both reviewers, blind to the other review. The author (Claude) is not a reviewer.
+- **Transcription:** the final message, unedited.
+- **Verdict:** changes requested (stale candidates after an early stop; profile filter before recording; strictness).
+- **Disposition:** fixed in the second-round commit
+
+---
+
+I'll review the last two commits against the stage 4 brief, read-only, and start by reading the review guidance and the commit range.This is a read-only review of the last two commits against the stage 4 brief. I'll inspect the diffs and the surrounding compiler paths those changes depend on.The profile-colour hole is blocking. One later value edit is classified `live` and omits a synthetic token the compiler now keeps.
+
+[P1] Profile colours are removed from the candidate list, and the cache key never notices — `contract/lower/src/theme.rs:164`
+
+`declare_theme` drops any synthetic token that names a profile colour (`color(--…)`, or a token whose default is one) and only then stores `CANDIDATES`. The server caches that list until a Contract digest or a design token name changes (`contract/cli/src/tamber_serve.rs:346`). A profile colour becoming an ordinary colour changes neither, so the mix stays out of the list. `foldable` also never rewrites profile colours the way `profiles` does: `color(--…)` fails `check_design`, the whole file comes back as not folding (`tamber/src/session.rs:220`), and that first edit is `rebuild` only for that reason. After it is committed, the next value edit folds on both sides without the mix, answers `live`, and leaves the mix's new value out of `synthetic`. The rebuild of the first edit put the mix in the running plan. Host colours do not have this hole, because those mixes are recorded before the fold-drop. While a profile colour remains, every value edit is `rebuild` as well, because the file never folds here and the compiler still lowers it (the profile token is rewritten to `transparent` before the check).
+
+[P2] A compile that never lowers the design reuses the previous candidate list — `contract/cli/src/tamber_serve.rs:363`
+
+`CANDIDATES` is cleared only at the start of `declare_theme` (`contract/lower/src/theme.rs:157`). `compile_path_all` can fail earlier, in load, `native::check`, `picker::check`, or `strings::load`. `synthetic()` then treats a non-empty leftover as "the design was reached" and caches it under the new key, so that compile is not tried again. Inline theme, `app.tamber`, and no design are fine when `declare_theme` actually runs: it clears first, no design leaves the list empty, and the other two overwrite it. A strict mix that fails inside `declare_theme` is also fine: the list is stored before the refusal, which is what the new server test covers.
+
+The role rule holds. A changed token whose `Checked.role` is `Some` on either side forces `rebuild` (`tamber/src/session.rs:119`). A role that names a token through a chain is in that set because the role's folded values change with the token, including across tuples. A token becoming or ceasing to be a role changes `shape`. A live answer does not carry a role override. A synthetic token cannot fold to a host role. Colour functions refuse host inputs, so the gain and loss of a mix over a host colour is `rebuild`. A normal token whose new value is a host role is still a value edit. `set_token` accepts that and does not write the hosts' role table.
+
+`foldable` matches the compiler for everything else that was asked. It uses the same vocabulary, the same `~i` lines (`1 << 30`), and the same one-pass drop of synthetics that fail to fold. Indices stay the original candidate indexes, so the expression mapping does not depend on the compiler's reindexing. Sibling `.tamber` files are separate designs in both places. The compiler folds one design file, and synthetics are appended only to that file, so a synthetic token cannot name a token that exists only in another file. The per-request cost is unchanged and was left that way on purpose: every request walks and hashes the Contract sources, and a compile runs only when the key changes. The new tests cover the host-colour gain and loss, a one-step role chain (`Canvas = ink`), and the server keeping candidates across the refused build. They do not cover a profile colour.

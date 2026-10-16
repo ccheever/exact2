@@ -91,6 +91,23 @@ impl<D: DataSource> Presenter<D> {
         self.after_commit()
     }
 
+    /// A live design batch or snapshot frame (LLP 1121 stage 4), in place;
+    /// a colour the full wide table refused is reported on the build
+    /// channel (LLP 1122 D4), or to stderr with none.
+    pub fn apply_live(&mut self, frame: &str) -> Option<String> {
+        let (error, full) = self.host.apply_live(frame);
+        if full {
+            self.report_unsupported(
+                "batch",
+                Some("a colour was refused (the wide colour table is full)"),
+            );
+        }
+        if error.is_some() {
+            return error;
+        }
+        self.after_commit()
+    }
+
     /// App modes (LLP 1121 D5): `setMode` from the agent's `prefer mode`.
     pub fn set_modes(&mut self, pins: &[(&str, &str)]) -> Option<String> {
         let error = self.host.set_modes(pins);

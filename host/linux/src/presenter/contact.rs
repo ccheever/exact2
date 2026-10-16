@@ -176,6 +176,9 @@ impl<D: DataSource> Presenter<D> {
     }
     /// Retire after commits even when the target itself was untouched.
     pub(super) fn retire_pointer(&mut self) {
+        if self.pointer_walking {
+            return;
+        }
         if self.contact.as_ref().is_some_and(|c| !self.contact_live(c)) {
             if self.contact.as_ref().is_some_and(|c| c.retained.is_some()) {
                 // Cancel only our token, at the already accepted Host time. An

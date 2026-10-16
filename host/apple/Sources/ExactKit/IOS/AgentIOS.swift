@@ -294,6 +294,7 @@ extension Agent {
         // `env()` names.
         let i = presenter.insets
         let env: [String: Any] = ["safe-area-inset-top": Agent.r2(i.top), "safe-area-inset-right": Agent.r2(i.right), "safe-area-inset-bottom": Agent.r2(i.bottom), "safe-area-inset-left": Agent.r2(i.left), "keyboard-inset-height": Agent.r2(presenter.keyboardInset)].merging(presenter.fold.env) { a, _ in a }
+            .merging(LayoutRegions.env(presenter.regions, safe: (i.top, i.right, i.bottom, i.left), round: Agent.r2)) { a, _ in a }
         var reply: [String: Any] = ["clock": session.now(), "viewport": ["w": Agent.r2(vp.bounds.width), "h": Agent.r2(vp.bounds.height)], "env": env, "nodes": nodes]
         #if os(iOS)
         // The status bar's style Exact asks for (LLP 1105 D7), and the node that decided it.
@@ -827,7 +828,21 @@ extension Agent {
             return "its middle is under the software keyboard; dismiss it or scroll the target above it first (state shows keyboard.top)"
         }
         if hit === v || hit.isDescendant(of: v) || (hit is NodeView && v.isDescendant(of: hit)) { return nil }
-        return "\((hit as? NodeView).map { "node #\($0.id)" } ?? String(describing: Swift.type(of: hit))) covers its middle"
+        return Agent.covers(hit)
+    }
+
+    /// What is over a target, named: a node by its id; another view by its
+    /// class and the node holding it. The app's own native view (a module's
+    /// splash) may be animating away on the wall clock, which the agent's
+    /// clock does not move.
+    static func covers(_ hit: UIView) -> String {
+        if let node = hit as? NodeView { return "node #\(node.id) covers its middle" }
+        var up = hit.superview
+        while let u = up, !(u is NodeView) { up = u.superview }
+        let cls: AnyClass = Swift.type(of: hit), name = String(describing: cls)
+        let held = (up as? NodeView).map { "\(name), in node #\($0.id)," } ?? name
+        // build.mjs compiles an app's native modules as one Swift module of this name.
+        return "\(held) covers its middle" + (String(reflecting: cls).hasPrefix("ExactAppModules.") ?"; it is the app's own view: one animating away on real time (UIView.animate, a display link) goes only with `clock +N real`, while one drawn from the module's `frames` or `after` follows `clock +N`" : "")
     }
 
     /// The web's rule for a phase-less wheel tick (LLP 1070 G2, Chrome's,

@@ -344,12 +344,14 @@ final class PopoverMacTests: XCTestCase {
         row.mouseUp(with: mouse(p, .leftMouseUp, row))
         XCTAssertEqual(log, ["down 1", "up 1"])
         XCTAssertFalse(p.menus.isOpen(pop), "the row's own press still ran")
-        pop.handlers = ["pointermove"]
+        // A popover hearing a pointer event holds the moves; the down and up
+        // bubble past it to its authored ancestors (Charlie, 2026-10-15).
+        pop.handlers = ["pointermove", "pointerdown"]
         p.press(2)
         row.mouseDown(with: mouse(p, .leftMouseDown, row))
-        XCTAssertEqual(p.pointerHeld, 3, "the popover hears the pointer and keeps the press")
+        XCTAssertEqual(p.pointerHeld, 3, "the popover hears the pointer and holds the moves")
         row.mouseUp(with: mouse(p, .leftMouseUp, row))
-        XCTAssertEqual(log, ["down 1", "up 1"])
+        XCTAssertEqual(log, ["down 1", "up 1", "down 3", "down 1", "up 1"])
     }
     func testManualPopoverKeepsItsLayerAfterAnOutsideClick() throws {
         let p = fixture(), pop = try XCTUnwrap(p.views[3])

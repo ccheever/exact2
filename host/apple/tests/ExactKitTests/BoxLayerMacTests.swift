@@ -163,10 +163,12 @@ final class BoxLayerMacTests: XCTestCase {
             style["border_radius_" + corner] = ["pct": 50]
         }
         n.applyStyle(style)
+        n.applyContentBox(padding: [10, 10, 10, 10])
         XCTAssertEqual(media.frame, CGRect(x: 10, y: 10, width: 140, height: 60))
         let mask = try XCTUnwrap(media.layer?.mask as? CAShapeLayer)
         XCTAssertFalse(try XCTUnwrap(mask.path).contains(CGPoint(x: 10, y: 5)))
         n.applyStyle([:])
+        n.applyFieldContent(["rect": NSNull()])
         XCTAssertEqual(media.frame, n.bounds)
         XCTAssertNil(media.layer?.mask)
         n.applyStyle(style)
@@ -237,7 +239,7 @@ final class BoxLayerMacTests: XCTestCase {
         let handle = bytes.withUnsafeBufferPointer { exact_calc_parse($0.baseAddress, $0.count) }
         let padding = try XCTUnwrap(CalculatedLength([
             "calc": .number(Double(handle)),
-            "env": [0, 0, 0, 0, 300, 600, 1, 1]
+            "env": [0, 0, 0, 0, 300, 600, 1, 1, 0]
         ]))
         let knots: NodeStyle = ["padding_top": .calculation(padding)]
         var style = knots

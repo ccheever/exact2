@@ -15,6 +15,9 @@ const CH = ["color", "caret-color", "fill", "stroke", "accent-color", "text-shad
 // A value that sets no row: the row is the one around (`StyleValue::text_unsets`).
 const UNSETS = /^\s*(unset|inherit)\s*$/i;
 let Axes = [], Classes = {}, Texts = [], Vars = {}, Accent = [], Names = {}, Win = [], Pending = false;
+// A development build's design digest (LLP 1121 stage 4): the base a live
+// batch applies to. Null in a release build, which takes none.
+let Design = null, Structure = null, Rules = null, AccentRules = null;
 const key = d => Axes.map(([a, values], i) => `${a}=${values[d[i]]}`).join(",");
 const rendering = () => typeof document === "undefined" || !!globalThis.__exactRender;
 
@@ -65,7 +68,10 @@ function apply() {
       for (const p of e.getAttribute("data-x-accent") == null ? Vars[c] : [...Vars[c], "--exact-accent"]) { const v = e.style.getPropertyValue(p); if (v && !v.includes("var(--x-")) e.style.removeProperty(p); }
     }
   }
-  if (Axes.length) set(document.documentElement, key(Win));
+  // Every token is a property in a development build: its boundaries take
+  // the empty tuple too, so one naming the accent resolves there.
+  const tuples = Axes.length > 0 || Design != null;
+  if (tuples) set(document.documentElement, key(Win));
   // Document order: a boundary's tuple is known before those inside it.
   for (const b of boundaries(document.getElementById("exact-root") ?? document)) {
     const base = around(b), pin = b.getAttribute("data-x-pin");
@@ -73,7 +79,7 @@ function apply() {
     if (!d) { if (b.$xbad !== pin) say(`invalid -exact-mode value ${JSON.stringify(pin)}: an axis of the app's design and one of its values, each axis once; unset`); b.$xbad = pin; d = base; }
     else b.$xbad = undefined;
     b.$xd = d;
-    if (Axes.length) set(b, key(d));
+    if (tuples) set(b, key(d));
     const own = Number(b.getAttribute("data-x-b")), was = b.$xs ??= [];
     for (let j = 0; j < CH.length; j++) {
       // Its own row stands, from its CSS or a binding that sets it now.
@@ -159,13 +165,62 @@ const refused = pins => {
   return null;
 };
 
+/** The page's rule for each full tuple, by its key, and its accent
+ * companions (`[data-x-accent]`, modes.rs `rules`), by key and property. */
+function tupleRules() {
+  if (Rules) return Rules;
+  Rules = new Map(); AccentRules = new Map();
+  for (const sheet of document.styleSheets ?? []) {
+    let rules;
+    try { rules = sheet.cssRules; } catch { continue; }
+    for (const r of rules) {
+      const m = /\[data-x-modes="([^"]*)"\]/.exec(r.selectorText ?? "");
+      if (!m) continue;
+      const a = /\[data-x-accent="([^"]*)"\]/.exec(r.selectorText);
+      if (a) AccentRules.set(`${m[1]}|${a[1]}`, r); else Rules.set(m[1], r);
+    }
+  }
+  return Rules;
+}
+/** Full tuple `t`'s key (mixed radix over the axes, the first most
+ * significant), as modes.rs `key` writes it. */
+const tupleKey = t => {
+  const pins = [];
+  for (let i = Axes.length - 1; i >= 0; i--) { const [a, values] = Axes[i]; pins.unshift(`${a}=${values[t % values.length]}`); t = Math.floor(t / values.length); }
+  return pins.join(",");
+};
+/** A live batch or snapshot (LLP 1121 stage 4): each changed token's
+ * property set again in every tuple's rule, in one style update. Stale when
+ * its base is not this page's design. */
+function design(frame) {
+  if (frame.structure !== Structure) return { live: "structure" };
+  if (frame.base != null && frame.base !== Design) return { live: "stale" };
+  if (frame.design === Design || !frame.tokens?.length) return { live: "applied" };
+  const rules = tupleRules();
+  for (const t of frame.tokens) {
+    if (!t.prop || !Array.isArray(t.css)) continue;
+    t.css.forEach((css, i) => {
+      rules.get(tupleKey(i))?.style.setProperty(t.prop, css);
+      // Its accent companion: the token's colour where it is one, else the
+      // accent around (no companion, as the build writes none).
+      const companion = AccentRules.get(`${tupleKey(i)}|${t.prop}`)?.style;
+      if (companion) { if (css.includes("--exact-accent")) companion.removeProperty("--exact-accent"); else companion.setProperty("--exact-accent", css); }
+    });
+  }
+  Design = (globalThis.exact ??= {}).designDigest = frame.design;
+  return { live: "applied" };
+}
+
 /** `axes`: [name, values] as declared, the first value the default;
  * `classes`: each class's rows by bit, the text's index or -1; `texts`,
  * each `property:value`; `vars`: each class's properties that name a
  * varying token; `accent`: the properties of those that name the accent;
- * `names`: each varying token's name by its property. */
-export function modes(axes, classes, texts, vars, accent, names) {
+ * `names`: each varying token's name by its property; `devDesign` and
+ * `devStructure`: a development build's design and structure digests, which
+ * install `exact.design`. */
+export function modes(axes, classes, texts, vars, accent, names, devDesign, devStructure) {
   Axes = axes; Classes = classes; Texts = texts; Vars = vars; Accent = accent; Names = names ?? {}; Win = axes.map(() => 0);
+  if (devDesign != null && typeof document !== "undefined") { Design = devDesign; Structure = devStructure; Rules = null; Object.assign(globalThis.exact ??= {}, { design, designDigest: devDesign }); }
   After.push(() => rendering() ? typeof document !== "undefined" && apply() : schedule());
   PropHooks["data-x-pin"] = (e, v) => { if (v == null) e.removeAttribute("data-x-pin"); else e.setAttribute("data-x-pin", v); schedule(); return true; };
   (globalThis.exact ??= {}).modes = {

@@ -5,6 +5,7 @@
 **Author:** Codex (GPT-6), for Charlie Cheever
 **Date:** 2026-10-13
 **Related:** LLP 1027.006; LLP 1120
+**Resolution:** fixed by `b195e96dc`: a platform-neutral linger seam (Unix keeps `UnixStream` and `poll`; Windows uses a loopback TCP wake pair and `WSAPoll`), and `a_fetch_runs_through_the_native_executor` passes on native Windows
 
 The Ibex adoption requalification ran Exact's storage, chosen-document and
 Hermes-backed TypeScript paths natively on Windows. The focused actual HTTP

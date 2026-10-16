@@ -27,16 +27,24 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
         modalPresentationStyle = .overFullScreen
         #else
         modalPresentationStyle = fullscreen ? .overFullScreen : .pageSheet
-        if !fullscreen { updateDetent(detent) }
+        if !fullscreen { updateSheet(detent: detent, cornerRadius: ModalController.cornerRadius(of: route)) }
         #endif
     }
-    private var detentValue: String?
-    func updateDetent(_ value: String?) {
+    /// A sheet route's authored `border-radius`, its top-left corner's: the
+    /// sheet's corner radius. Nil leaves UIKit's, which on iOS 26 and later
+    /// follows the display's corners and insets a large sheet from the bottom edge.
+    static func cornerRadius(of route: NodeView) -> CGFloat? {
+        guard route.wrote("border_radius_top_left") else { return nil }
+        return BorderPaint.radii(route.style, in: route.bounds)[0].width
+    }
+    private var detentValue: String?, cornerRadius: CGFloat?
+    func updateSheet(detent value: String?, cornerRadius radius: CGFloat?) {
         #if !os(tvOS)
         guard modalPresentationStyle == .pageSheet,
               let sheet = sheetPresentationController,
-              detentValue != value || sheet.detents.isEmpty else { return }
+              detentValue != value || cornerRadius != radius || sheet.detents.isEmpty else { return }
         detentValue = value
+        cornerRadius = radius
         let content = { [weak self] () -> CGFloat? in
             guard let route = self?.route else { return nil }
             // A scroller's extent counts its padding, and a container's
@@ -56,6 +64,7 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
             sheet.detents = detents.isEmpty ? [.large()] : detents
             sheet.selectedDetentIdentifier = sheet.detents.first?.identifier
             sheet.prefersGrabberVisible = detents.count > 1
+            sheet.preferredCornerRadius = radius
             // Several: scrolling at the content's top grows the sheet, as
             // UIKit's own sheets do (LLP 1115 wave 1).
             sheet.prefersScrollingExpandsWhenScrolledToEdge = sheet.detents.count > 1
@@ -362,7 +371,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     func updatePermissions() {
         for layer in layers {
             layer.controller.isModalInPresentation = refusesDismissal(of: layer.route)
-            layer.controller.updateDetent(layer.route.props["navigationDetent"])
+            layer.controller.updateSheet(detent: layer.route.props["navigationDetent"], cornerRadius: ModalController.cornerRadius(of: layer.route))
         }
     }
 

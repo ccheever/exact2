@@ -7,8 +7,11 @@ use std::io::{Read, Write};
 use std::os::unix::io::{AsRawFd, RawFd};
 #[path = "../../apple/src/executor_core.rs"]
 mod core;
-/// A new executor waits for a native-worker slot only under test (the core's `reserve`).
-const WAIT_FOR_SLOT: bool = cfg!(test);
+/// A new executor waits for a native-worker slot under test: the crate's own
+/// tests, and the integration binaries, whose every test's presenters share
+/// one process's bound (`test-wait`, which only the dev-dependency on this
+/// crate turns on). A presenter's executor is refused at the bound instead.
+const WAIT_FOR_SLOT: bool = cfg!(any(test, feature = "test-wait"));
 
 /// Ordered native work plus explicitly independent HTTP, with a poll wake.
 pub struct Executor {
@@ -132,5 +135,13 @@ impl Executor {
     /// A wake another thread may keep: a native module's announcements.
     pub fn waker(&self) -> std::sync::Arc<dyn Fn() + Send + Sync> {
         self.core.waker()
+    }
+    /// Send a mutation's socket batch whose commit stood (LLP 1016.000 D7).
+    pub fn socket(&self, batch: &exact_runner::SocketSend) -> Result<Vec<(u64, u64, u64)>, String> {
+        self.core.socket(batch)
+    }
+    /// Each open socket's buffered bytes, by its stream ticket, live.
+    pub fn socket_reader(&self) -> exact_runner::SocketReader {
+        self.core.socket_reader()
     }
 }

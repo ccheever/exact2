@@ -46,6 +46,7 @@ import { acceptsHTML, webRequestURL } from '../../scripts/origin.mjs';
 import { guardFlags } from '../../scripts/help.mjs';
 import { localInstaller } from './local-install.mjs';
 import { designPath, tamberServer } from '../../scripts/tamber-server.mjs';
+import { relayChannel, serveCommands, serveReport } from '../../scripts/tamber-builds.mjs';
 import { applyShaderTreeChange, sendStaticBody, watchLauncher, applyStaticChange, applyStaticTreeChange, builtAppMatches, developmentOpenPage, readDevGenerationAsync, readStaticFileAsync, readWebRequest, reflectShaderFiles, saveTrace, retainDevGeneration, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope, MODULE_FILES, moduleCards } from './serve.mjs';
 
 const argv = guardFlags('web', process.argv.slice(2)); // --help, or a flag it does not take, before anything starts
@@ -236,13 +237,49 @@ const clients = new Set();
 let seq = 0;
 const pending = new Map(); // seq -> { saved, ready }
 const push = (data) => { for (const res of clients) res.write(`data: ${JSON.stringify(data)}\n\n`); };
+// The live table (LLP 1121 stage 4): a value-only design edit publishes no
+// plan; its batch goes to every build, and its snapshot is kept for a build
+// that connects (or missed a batch) until the next plan.
+let designSnapshot = null;
+// A frame larger than this, in UTF-8 bytes, goes as a notice instead: a
+// native host's event frames are bounded (PlanURL.swift's 64 KiB).
+const DESIGN_FRAME = 32 * 1024;
+const designNotice = (s) => ({ kind: 'tamber-batch', structure: s.structure, base: s.design, design: s.design, tokens: [] });
+// The TypeScript producer's last design (`{structure, digest, tokens}`).
+let moduleDesign = null;
+/** The batch and snapshot from design `from` to `to`, or null when the
+ * structure differs (a token's name included). */
+function designBatch(from, to) {
+  if (from.structure !== to.structure || from.tokens.length !== to.tokens.length
+    || from.tokens.some((t, i) => t.name !== to.tokens[i].name)) return null;
+  const same = (a, b) => a.value === b.value && a.slices.length === b.slices.length && a.slices.every((s, i) => s === b.slices[i]);
+  return {
+    batch: { kind: 'tamber-batch', structure: to.shape, base: from.digest, design: to.digest, tokens: to.tokens.filter((t, i) => !same(t, from.tokens[i])) },
+    snapshot: { kind: 'tamber-snapshot', structure: to.shape, base: null, design: to.digest, tokens: to.tokens },
+  };
+}
+function pushDesign({ batch, snapshot }) {
+  // Serving as another loop's producers, that loop is the one source of
+  // batches (relayed onto these streams), so a resident loop sends none.
+  if (servedAs != null) return;
+  designSnapshot = snapshot;
+  let frame = JSON.stringify(batch);
+  if (Buffer.byteLength(frame) > DESIGN_FRAME) frame = JSON.stringify(designNotice(snapshot));
+  for (const res of clients) res.write(`data: ${frame}\n\n`);
+  tamber?.channel.broadcast(JSON.parse(frame));
+}
 // A revision owns its plan and complete asset namespace. Its process epoch
 // makes a restarted server's seq=1 newer than the previous server's seq=N.
 const epoch = randomBytes(16).toString('hex');
 const installer = localInstaller({ app: () => app, origins, port: servedAs ?? port, gate, listener: { host, port } });
 // The design server's wire (LLP 1121 D13) when the app has a design; under
 // the JS loop (--serve-as) that loop mounts it.
-const tamber = servedAs == null && designPath(app.dir) ? tamberServer({ appDir: app.dir }) : null;
+// Live while a value-only edit has its path here: the resident compiler's or
+// the TypeScript producer's. A Rust-data app's own producer publishes every
+// plan, so its design edits reload.
+const tamber = servedAs == null && designPath(app.dir) ? tamberServer({ appDir: app.dir, live: () => typescript || !portableRust }) : null;
+// A polled stream (Linux) is told the design to run when it opens.
+tamber?.channel.greet(() => designSnapshot && designNotice(designSnapshot));
 const generationCache = resolve(root, 'target/dev-generations', createHash('sha256').update(canonicalBytes({ app: app.id, path: app.dir, dist })).digest('hex'));
 let current = null;
 let currentModule = null;
@@ -265,7 +302,7 @@ const announcement = () => current ? {
   epoch, program, seq: current.seq, generation: current.generation,
   digest: current.envelope.plan.sha256, envelope: current.url,
 } : { epoch, ready: false };
-const hello = () => JSON.stringify({ hello: true, ...announcement() });
+const hello = (nonce) => JSON.stringify({ hello: true, ...announcement(), ...(nonce ? { nonce } : {}) });
 let retentionToken = null;
 function captureGeneration(reuseCurrentAssets = false) {
   // A mixed app publishes one complete candidate. A producer may finish
@@ -372,8 +409,15 @@ function startCompiler() {
     buffered = lines.pop();
     for (const line of lines) {
       const [kind, ...rest] = line.split(' ');
-      if (kind === 'plan') {
+      if (kind === 'design') {
+        const [saved, compile, bake, ready] = rest.slice(0, 4).map(Number);
+        let live;
+        try { live = JSON.parse(rest.slice(4).join(' ')); } catch { console.error('dev compiler: unreadable design line'); continue; }
+        console.log(`edit → batch ready ${(ready - saved).toFixed(0)} ms (compile ${compile.toFixed(2)} ms, bake ${bake.toFixed(2)} ms) · ${live.batch.tokens.length} token${live.batch.tokens.length === 1 ? '' : 's'} to ${clients.size} build${clients.size === 1 ? '' : 's'}, no plan`);
+        pushDesign(live);
+      } else if (kind === 'plan') {
         if (assetsNeedRebuild) continue;
+        designSnapshot = null;
         const [bytes, saved, compile, bake, ready] = rest.map(Number);
         seq += 1;
         if (!first) pending.set(seq, { saved, ready });
@@ -551,6 +595,20 @@ function startModuleCompiler() {
         if (request.id !== moduleRun) continue;
         if (!reply.ok) throw new Error(reply.error || 'module producer refused the candidate');
         const candidate = new Map(['app.plan', 'app.plan.map.json', ...Object.values(MODULE_FILES)].map(name => [name, readFileSync(resolve(request.output, name))]));
+        // A value-only design edit (LLP 1121 stage 4): the same structure and
+        // the same module, so no generation; its tokens go out as a batch.
+        // The executables, not the receipt, which names the plan's digest.
+        const sameModule = currentModule && [MODULE_FILES.native, MODULE_FILES.web].every(name => currentModule.get(name)?.equals(candidate.get(name)));
+        const live = sameModule && moduleDesign && reply.design && designBatch(moduleDesign, reply.design);
+        if (reply.design) moduleDesign = reply.design;
+        if (live) {
+          if (live.batch.tokens.length) {
+            console.log(`edit → batch ready ${Date.now() - request.saved} ms · ${live.batch.tokens.length} token${live.batch.tokens.length === 1 ? '' : 's'} to ${clients.size} build${clients.size === 1 ? '' : 's'}, no generation`);
+            pushDesign(live);
+          }
+          continue;
+        }
+        designSnapshot = null;
         moduleCards(candidate, app.id);
         const previous = currentModule;
         currentModule = candidate;
@@ -1087,6 +1145,18 @@ const server = createServer(async (req, res) => {
   if (!url) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
   if (tamber && await tamber.handle(req, res, url, access)) return;
   const devBeacon = url.pathname === '/__dev/reloaded' || url.pathname === '/__dev/painted' || url.pathname === '/__dev/gpu';
+  // The build channel (LLP 1122 D4): a build's reports up, with its stream's
+  // nonce; a build that holds no stream (Linux) opens a polled one.
+  if (url.pathname === '/__dev/report' && req.method === 'POST') {
+    if (!tamber) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
+    await serveReport(tamber.channel, req, res);
+    return;
+  }
+  if ((url.pathname === '/__dev/hello' || url.pathname === '/__dev/commands') && req.method === 'GET') {
+    if (!tamber) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
+    serveCommands(tamber.channel, url, res, url.pathname === '/__dev/hello' ? announcement() : {});
+    return;
+  }
   const localInstall = url.pathname === LOCAL_IOS_INSTALL_ENDPOINT;
   const trace = url.pathname === '/__exact/trace';
   if (req.method !== 'GET' && req.method !== 'HEAD' && !(req.method === 'POST' && (devBeacon || localInstall || trace))) { res.writeHead(405); res.end(); return; }
@@ -1129,11 +1199,30 @@ const server = createServer(async (req, res) => {
     res.end(req.method === 'HEAD' ? undefined : body);
     return;
   }
+  if (url.pathname === '/__dev/design') {
+    // The design builds should run: the last value-only edit's, or (204) the
+    // published plan's own.
+    if (!designSnapshot) { res.writeHead(204, { 'cache-control': 'no-store' }); res.end(); return; }
+    res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    res.end(req.method === 'HEAD' ? undefined : JSON.stringify(designSnapshot));
+    return;
+  }
   if (url.pathname === '/__dev') {
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
     res.write(':\n\n');
-    res.write(`data: ${hello()}\n\n`);
+    // A build's nonce for the build channel: this loop's own, or, serving as
+    // another loop's producers, that loop's, whose commands are relayed.
+    const write = frame => res.write(`data: ${JSON.stringify(frame)}\n\n`);
+    // Listening for its close before the relay's hello, which takes a while.
+    let gone = false, opened = null;
+    req.on('close', () => { gone = true; opened?.close(); });
+    opened = tamber?.channel.open(write) ?? (servedAs != null ? await relayChannel(`http://127.0.0.1:${servedAs}`, write, 250, () => res.end()) : null);
+    if (gone) { opened?.close(); return; }
+    res.write(`data: ${hello(opened?.nonce)}\n\n`);
     for (const [stem, version] of gpuSides) res.write(`data: ${JSON.stringify({gpu:version, ...(stem === 'gpu' ? {} : {module:stem.slice(4)})})}\n\n`);
+    // A build that connects learns the design to run; one that runs another
+    // fetches the snapshot (/__dev/design).
+    if (designSnapshot) res.write(`data: ${JSON.stringify(designNotice(designSnapshot))}\n\n`);
     clients.add(res);
     console.log(`page connected (${clients.size})`);
     req.on('close', () => clients.delete(res));
