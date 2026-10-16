@@ -1289,6 +1289,12 @@ route under the platform bar, that control's text becomes the bar's back button 
 beside the bar's own chevron (no text shows the chevron alone), so label it `Recipes`,
 not `‹ Recipes`.
 
+Inside a route's `header`, wrap related bar buttons in a `row role="group"`.
+iOS 26 keeps each explicit group's buttons on one shared glass background and
+separates adjacent groups with UIKit's fixed-space item. Ungrouped buttons keep
+the existing platform default. The wrappers remain ordinary layout on the web;
+this adds no spacing value or custom button face.
+
 The bar shows a header's heading, the first text after it (its subtitle), one search
 field, one tablist and its buttons; anything else in the header is not shown on iOS.
 The agent paints the authored header by default, but marks such a node in `tree` and
