@@ -380,6 +380,7 @@ public final class ExactSession {
     lazy var picker = Picker(session: self)
     /// The voice table's output (LLP 1096 D8); settable for tests.
     lazy var sound = SoundOutput(self)
+    lazy var midi = MIDIOutput(self)
     package let frames: Frames
     /// A development session's presented frames (LLP 1079 D3); a production bake has none.
     var sampler: FrameSampler?
@@ -1054,7 +1055,7 @@ public final class ExactSession {
         regions.prepare(batch)
         #endif
         for op in batch.ops where op.op == .surfaceWork { pendingSurfaceWork.append((op.payload, generation)) }
-        if !ExactEnv.agentMode { for op in batch.ops where op.op == .sound { sound.apply(op.payload) } } // LLP 1096 D8: the voice table's ops, never under the agent's clock
+        if !ExactEnv.agentMode { for op in batch.ops where op.op == .sound || op.op == .midi { if op.op == .sound { sound.apply(op.payload) } else { midi.apply(op.payload) } } } // LLP 1096 D8, LLP 1125 D7: the voice table's and the MIDI queue's ops, never under the agent's clock
         // Opened once the batch is applied, off this session's window (LLP 1069.006 D3).
         for op in batch.ops where op.op == .auth {
             let payload = op.payload
@@ -1180,7 +1181,7 @@ public final class ExactSession {
                     app.deliver { [weak self] in self?.presenter.formatElement(args) }
                     continue
                 }
-                if ["playSound", "playSounds", "stopSounds", "setRootFontSize"].contains(name) { continue } // the runner's own: its voice table's `sound` op plays them (LLP 1096 D8); the root font size is laid out already (LLP 1069.000 D3)
+                if ["playSound", "playSounds", "stopSounds", "sendMIDI", "requestMIDIAccess", "setRootFontSize"].contains(name) { continue } // the runner's own: its voice table's `sound` op plays them (LLP 1096 D8), its MIDI queue's `midi` op sends (LLP 1125 D7); the root font size is laid out already (LLP 1069.000 D3)
                 if app.handleCommand(name) { continue }
                 app.deliver { [weak self] in guard let self else { return }; delegate?.exactSession(self, command: name, args: args) }
             }
@@ -1462,7 +1463,7 @@ public final class ExactSession {
         presenter.reset()
         ExactSession.live.removeValue(forKey: runtime.rt)
         forgetDocuments()
-        rasters.shutdown(); sound.shutdown() // the sound arm stopped and let go, its session claim given back (LLP 1096 D8)
+        rasters.shutdown(); sound.shutdown(); midi.shutdown() // the sound arm stopped and let go, its session claim given back (LLP 1096 D8)
         textPressure?.cancel(); textPressure = nil
         runtime.destroy()
         natives.destroyModule()

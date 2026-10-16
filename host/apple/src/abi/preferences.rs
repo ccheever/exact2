@@ -169,6 +169,21 @@ impl<D: DataSource> Bridge<D> {
     }
 }
 
+impl<D: DataSource> Bridge<D> {
+    /// A MIDI message in the input buffer (LLP 1125 D6–D8): the arm's
+    /// report of the ports or the inputs, or the agent's (`Host::midi`).
+    pub fn midi(&mut self, len: usize) -> u32 {
+        let text = std::str::from_utf8(&self.input[..len.min(self.input.len())])
+            .unwrap_or("")
+            .to_owned();
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.midi(&text));
+        self.emit(out)
+    }
+}
+
 /// The presenter's clock in the runner's milliseconds (`ExactEnv.wall`).
 pub type LiveClockFn = extern "C" fn() -> f64;
 

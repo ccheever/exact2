@@ -577,6 +577,8 @@ fn artifact_graph(
         ("video", makes(exact_kernel::NodeType::Video)),
         ("web", makes(exact_kernel::NodeType::WebView)),
         ("sound", !plan.sounds.is_empty()),
+        // LLP 1125 D6: the MIDI arm for a plan that asks for ports or hears an input.
+        ("midi", exact_runner::uses::uses_midi(plan)),
     ]
     .into_iter()
     .filter_map(|(module, reached)| reached.then_some(module))

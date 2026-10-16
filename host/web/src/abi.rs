@@ -52,6 +52,7 @@ pub struct Bridge<D: DataSource> {
 }
 
 mod clock;
+mod midi;
 mod mode;
 
 #[cfg(test)]
@@ -1289,6 +1290,7 @@ macro_rules! host {
         }
 
         $crate::mode_exports!();
+        $crate::midi_exports!();
 
         /// The locale and time zone: `locale NUL timeZone` in the input buffer.
         #[no_mangle]

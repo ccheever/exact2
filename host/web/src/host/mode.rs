@@ -6,6 +6,9 @@ use super::*;
 // The live table (LLP 1121 stage 4), beside the modes it sets rows as.
 #[path = "live.rs"]
 mod live;
+// MIDI's messages from the page (LLP 1125 D6–D8), told as a fact is.
+#[path = "midi.rs"]
+mod midi;
 
 impl<D: DataSource> Host<D> {
     /// App modes (LLP 1121 D5, the agent's `prefer mode`): the window's

@@ -265,6 +265,9 @@ public final class Agent {
         case "reveal": Agent.reply(tagged(settling(reveal(req)))) // before a tap or a type: a target out of view, scrolled into it
         case "clock": let r = clock(req); session.tellAgentOffset(); Agent.reply(tagged(r))
         // A fetch fault (LLP 1103) is the runner's, below; the device facts are this host's.
+        // @ref LLP 1125 §4 — the MIDI ports the agent names, and a message from one: the runner's.
+        case "prefer" where req["midi"] != nil: Agent.reply(tagged(midi(req)))
+        case "midi": Agent.reply(tagged(midi(req)))
         case "prefer" where req["faults"] == nil: Agent.reply(tagged(prefer(req)))
         case "screenshot": Agent.reply(tagged(screenshot(req)))
         // What is wrong with the presented screen, as observations the driver judges (LLP 1116.003 D8).
@@ -411,6 +414,18 @@ public final class Agent {
         guard let d = session.agent("{\"op\":\"settle\"}").data(using: .utf8),
               let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return nil }
         return o["settle"] as? Double
+    }
+
+    /// `prefer midi.*` and `tap midi` (LLP 1125 §4), as the runner answers
+    /// them: no arm loads under the agent.
+    func midi(_ req: [String: Any]) -> [String: Any] {
+        var forward = req
+        forward.removeValue(forKey: "session")
+        guard let data = try? JSONSerialization.data(withJSONObject: forward) else { return ["malformed": true, "error": "midi: the request is not JSON"] }
+        let batch = session.runtime.midi(String(decoding: data, as: UTF8.self))
+        session.apply(batch)
+        if let error = batch.error { return ["error": error] }
+        return ["midi": true]
     }
 
     /// Move both clocks to one instant: the runner's (timers, each fired at

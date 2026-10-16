@@ -64,6 +64,8 @@ mod height_tests;
 mod holds;
 #[path = "live.rs"]
 mod live;
+#[path = "midi.rs"]
+mod midi;
 #[path = "paint.rs"]
 mod paint;
 #[path = "paragraph.rs"]
@@ -569,7 +571,7 @@ impl<D: DataSource> Host<D> {
         for c in host.runner.take_commands() {
             batch.command(&c.name, &c.args, c.source);
         }
-        batch.sound(host.runner.take_sounds(), Some(host.runner.plan()));
+        batch.timed(&mut host.runner, true);
         // The engine hears the whole tree once: values, no transitions; an
         // `animation` starts now, as a browser starts one on a new element.
         let mut sync = MotionSync::default();
@@ -1360,7 +1362,7 @@ impl<D: DataSource> Host<D> {
         for c in self.runner.take_commands() {
             batch.command(&c.name, &c.args, c.source);
         }
-        batch.sound(self.runner.take_sounds(), None);
+        batch.timed(&mut self.runner, false);
         (batch, error.or(layout_error))
     }
 

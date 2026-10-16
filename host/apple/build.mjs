@@ -950,7 +950,7 @@ async function main(args) {
   const reaches = buildReceipt.graph.loads;
   const settled = production && level === '0' && Array.isArray(reaches);
   const carries = (module) => !settled || reaches.includes(module);
-  const leftOut = settled ? ['canvas', 'svg', 'video', 'web', 'sound'].filter((module) => !reaches.includes(module)) : [];
+  const leftOut = settled ? ['canvas', 'svg', 'video', 'web', 'sound', 'midi'].filter((module) => !reaches.includes(module)) : [];
   if (leftOut.length) console.log(`host/apple: the plan cannot change (production, store level 0) and reaches no ${leftOut.join(', ')} module: left out of this build`);
   const canvasGpu = metal && carries('canvas');
   const lateCrates = fixedPlan && !embedOnly ? [...(carries('svg') ? ['exact-svg-raster'] : []), ...(canvasGpu ? ['exact-canvas-vello'] : [])] : [];
@@ -1029,8 +1029,11 @@ async function main(args) {
     const soundArgs = [...webArgs.map(value => value === 'ExactWebArm' ? 'ExactSoundArm' : value === resolve(root, 'host/apple/webarm/WebArm.swift') ? sound('SoundArm.swift') : value === webBuilt ? soundBuilt : value === 'WebKit' ? 'AVFoundation' : value), '-import-objc-header', sound('sound_render.h'), ...objects];
     arms.push(arm(soundArgs, [sound('SoundArm.swift'), sound('sound_render.c'), sound('sound_engine.m'), sound('sound_render.h')], soundBuilt));
   }
+  // The MIDI arm (LLP 1125 D6): CoreMIDI on a thread of its own; tvOS has none.
+  const hasMidi = !tv && carries('midi'), midiBuilt = resolve(webBuildDir, 'libexact_midi.dylib'), midiSource = resolve(root, 'host/apple/midiarm/MIDIArm.swift');
+  if (hasMidi) arms.push(arm(webArgs.map(value => value === 'ExactWebArm' ? 'ExactMIDIArm' : value === resolve(root, 'host/apple/webarm/WebArm.swift') ? midiSource : value === webBuilt ? midiBuilt : value === 'WebKit' ? 'CoreMIDI' : value), midiSource, midiBuilt));
   // The loose arms, each where the build carries it: [carried, built, load name, its framework on iOS].
-  const looseArms = [[hasWeb, webBuilt, webLoadName, 'ExactWeb'], [hasVideo, videoBuilt, videoLoadName, 'ExactVideo'], [hasSound, soundBuilt, soundLoadName, 'ExactSound']];
+  const looseArms = [[hasWeb, webBuilt, webLoadName, 'ExactWeb'], [hasVideo, videoBuilt, videoLoadName, 'ExactVideo'], [hasSound, soundBuilt, soundLoadName, 'ExactSound'], [hasMidi, midiBuilt, 'libexact_midi.dylib', 'ExactMIDI']];
   // @ref LLP 1024 D3/D8.4 — the app's one module artifact, only when the app
   // has modules (the GPU gate): the host's table glue and the app's own
   // `modules/apple/*.swift`, one dylib under one load name. A release build
@@ -1435,6 +1438,7 @@ async function test(args) {
       '-module-cache-path', resolve(armDir, 'cache'), ...sources, ...frameworks.flatMap(f => ['-framework', f]), '-target', ios ? iosTriple : `${macTriple}14.0`, '-o', out]), out);
     const named = ios ? 'TEST_RUNNER_' : '';
     env[`${named}EXACT_VIDEO_DYLIB`] = arm('ExactVideoArm', ['VideoArm.swift', 'NowPlaying.swift'].map(f => resolve(root, 'host/apple/videoarm', f)), ['AVKit', 'MediaPlayer']);
+    if (!ios) env.EXACT_MIDI_DYLIB = arm('ExactMIDIArm', [resolve(root, 'host/apple/midiarm/MIDIArm.swift')], ['CoreMIDI']); // MIDITests' loopback
     env[`${named}EXACT_TEST_WEB_MODULE`] = arm('ExactWebArm', [resolve(root, 'host/apple/webarm/WebArm.swift'), '-D', 'EXACT_DEVELOPMENT'], ['WebKit']);
     // The GPU module goes to its own tests alone: loaded, every canvas draws on the GPU (xctest.mjs).
     const modules = resolve(process.env.CARGO_TARGET_DIR ?? resolve(root, 'target'), 'apple-modules');

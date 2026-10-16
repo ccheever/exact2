@@ -194,4 +194,29 @@ impl<D: DataSource> Presenter<D> {
     pub fn dark(&self) -> bool {
         self.brush.dark
     }
+
+    /// A request for MIDI on the display's clock: this host has none (LLP
+    /// 1125 D6). Under the agent's clock the runner answered it already.
+    pub(super) fn midi_unavailable(&mut self) {
+        if self.live_clock.is_none() {
+            return;
+        }
+        let error = self
+            .host
+            .midi_host(r#"{"ports":{"state":"unavailable"}}"#)
+            .or_else(|| self.after_commit());
+        if let Some(e) = error {
+            self.host.log(format!("midi: {e}"));
+        }
+    }
+
+    /// The agent's `prefer midi.*` and `tap midi` (LLP 1125 §4): `None` for
+    /// another request, else the reply or the refusal.
+    pub fn midi_agent(&mut self, request: &str) -> Option<Result<String, String>> {
+        let reply = self.host.midi_agent(request)?;
+        Some(match self.after_commit() {
+            Some(e) => Err(e),
+            None => reply,
+        })
+    }
 }

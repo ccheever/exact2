@@ -19,7 +19,7 @@ const pieces = afterPaintPieces(loadAfterPaint, { root, views, applyBatch, agent
   wasm(name, bytes) { if (!wasm) return null; new Uint8Array(memory.buffer, wasm.exact_in(bytes.length), bytes.length).set(bytes); return JSON.parse(readOut(wasm[name](bytes.length))); } });
 const { collections, motion, arrange } = pieces, retiredViews = new WeakSet(); // committed removals must not dispatch teardown events
 const presence = presenceLoader(loadAfterPaint, root, batch => applyBatch(batch), log); // -exact-exit-animation and -exact-layout-transition, after paint at first use (LLP 1063)
-let mediaModule, mediaAttaching = new Set(), soundModule, soundOut, imageHold, geometry = null, resizes = null, intersects = null; // the voice table's output (sound-glue.js, LLP 1096 D7); animated images held to the agent's clock (image-glue.js, LLP 1011.000); geometry reads (geometry-glue.js, LLP 1051.000 D4); the element resize event (resize-glue.js)
+let mediaModule, mediaAttaching = new Set(), soundModule, soundOut, midiModule, midiOut, imageHold, geometry = null, resizes = null, intersects = null; // the voice table's output (sound-glue.js, LLP 1096 D7); animated images held to the agent's clock (image-glue.js, LLP 1011.000); geometry reads (geometry-glue.js, LLP 1051.000 D4); the element resize event (resize-glue.js)
 let wakeLock = null; const holdWake = () => (wakeLock ??= loadAfterPaint('./wakelock-glue.js', 'wakeLockGlue')).then(w => w.hold(w.holders(root).length > 0, log)); // LLP 1125 D11: loaded at the first `wakelock`, then asked after each batch
 function syncMedia(el, set = {}, clear = []) {
   if (!(el instanceof HTMLMediaElement)) return;
@@ -617,6 +617,7 @@ function apply(batch) {
       case "head": pageTitle(op.title ?? null); (headGlue ??= loadAfterPaint('./document-glue.js', 'documentHead')).then(head => head(op)); break; // the title at once: the head's, else the route's (LLP 1115.000 D4.1)
       case "router": navigation.apply(op); break;
       case "sound": if (!agentMode) (soundModule ??= new Promise(r => requestAnimationFrame(r)).then(() => loadAfterPaint('./sound-glue.js', 'installSound')).then(install => install({ files: op.files ?? [], log, origin: () => t0 }))).then(s => { soundOut = s; if (op.files && op.files !== s.files) s.reset(op.files); s.ops(op.ops); }).catch(console.error); break; // LLP 1096 D7: the voice table's ops, after first paint; never under the agent, whose clock is virtual (D10)
+      case "midi": if (!agentMode) (midiModule ??= new Promise(r => requestAnimationFrame(r)).then(() => loadAfterPaint('./midi-glue.js', 'installMidi')).then(install => install({ log, origin: () => t0, deliver: m => { if (wasm?.exact_midi) applyBatch(JSON.parse(readOut(wasm.exact_midi(writeIn(JSON.stringify(m)))))); } }))).then(m => { midiOut = m; m.ops(op.ops, op.boot); }).catch(console.error); break; // LLP 1125 D7: the MIDI queue's ops and the ports, after first paint; never under the agent, whose runner answers a request itself
       case "create": {
         // Canvas overlays use a div; data-surface is the host-owned drawing leaf.
         const el = page?.adopting?.get(op.id) ?? (op.ns ? document.createElementNS(op.ns, op.tag) : document.createElement(op.tag === "canvas" ? "div" : op.tag)); // an adopted document's element (LLP 1048.000 D6); SVG in its namespace (LLP 1055 D4)
@@ -817,7 +818,7 @@ function apply(batch) {
         else if (op.name === "showNotification" || op.name === "closeNotification") { // the runner rules (refused, or listed for the agent: runner/src/notify.rs); notify-glue.js posts
           const [title, body, tag, showTrigger, navigateTo] = op.args ?? [], close = op.name === "closeNotification", ruling = JSON.parse(readOut(wasm.exact_command(writeIn(JSON.stringify(close ? { command: op.name, tag: title, agent: agentMode } : { command: op.name, title, body, tag, showTrigger, navigate: navigateTo, agent: agentMode })))));
           if (ruling.present) (notifyModule ??= loadAfterPaint('./notify-glue.js', 'notifications')).then(n => close ? n.close(title) : n.show({ title, body, tag, showTrigger, navigate: navigateTo }, log, href => navigate(readOut(wasm.exact_location_of(writeIn(href)))))); }
-        else if (!/^(playSound|playSounds|stopSounds)$/.test(op.name)) console.warn(`exact: unknown command ${op.name}`); // the voice table's are the runner's own, played from its `sound` op (LLP 1096 D7)
+        else if (!/^(playSound|playSounds|stopSounds|sendMIDI|requestMIDIAccess)$/.test(op.name)) console.warn(`exact: unknown command ${op.name}`); // the voice table's and the MIDI queue's are the runner's own, played from its `sound` and `midi` ops (LLP 1096 D7, LLP 1125 D7)
         break;
       }
       case "destroy": {
@@ -1125,7 +1126,7 @@ function agentReply(request) {
         const overlap = Math.max(0, innerHeight - (globalThis.visualViewport?.height ?? innerHeight));
         const policy = document.querySelector("[interactiveWidget]")?.getAttribute("interactiveWidget") ?? "resizes-visual";
         st.keyboard = { visible: overlap > 0, overlap: r2(overlap), policy, interactive: false };
-        st.navigation = navigation.observation(root); st.window = { title: document.title }; if (page) st.adopted = page.adopted === true; if (st.sounds && soundOut) st.sounds.output = soundOut.state(); // LLP 1048.000 D6; LLP 1096 D10 (a page that plays)
+        st.navigation = navigation.observation(root); st.window = { title: document.title }; if (page) st.adopted = page.adopted === true; if (st.sounds && soundOut) st.sounds.output = soundOut.state(); if (st.midi && midiOut) st.midi.output = midiOut.state(); // LLP 1048.000 D6; LLP 1096 D10 (a page that plays)
         const wake = globalThis.exact.wakeLockGlue; if (wake) { const by = wake.holders(root).map(idOf); st.wakelock = { held: by.length > 0, by }; } // LLP 1125 D11: what this page shows holds it (a split's list beside its detail, the routes under a sheet), which the runner cannot see; the JS target's agent.js reads the same
         // The drive's app storage (trivia F7): none unless it names a scratch store, as storage-environment.js's `storageKey`.
         const store = new URL(performance.getEntriesByType?.("navigation")[0]?.name ?? location.href).searchParams.get("storage");
@@ -1143,7 +1144,7 @@ function agentReply(request) {
         if (request.agree) return tagged({ clock: reply.clock, viewport: reply.viewport, agreement: { unavailable: "not implemented: app drives run the JS target" } }); else if (request.native && reply.node) { delete reply.nodes; reply.node.native.subviews = { unavailable: "the DOM is the tree; layout <target> names the element" }; } // @ref LLP 1080.001 D1, D2
         return tagged(reply);
       }
-      case "prefer": { if (request.faults) return loadAfterPaint('./faults.js', 'faults').then(m => tagged(m.faultOp(request.faults))); // LLP 1103 D3: a fetch fault, a form of `prefer`
+      case "midi": case "prefer": { if (request.faults) return loadAfterPaint('./faults.js', 'faults').then(m => tagged(m.faultOp(request.faults))); /* LLP 1103 D3: a fetch fault, a form of `prefer` */ if (request.op === "midi" || request.midi) { if (!wasm.exact_midi) return { error: "midi: this build has no MIDI export" }; const { batch } = applyBatch(JSON.parse(readOut(wasm.exact_midi(writeIn(JSON.stringify(request)))))); return batch.error != null ? { error: batch.error } : tagged({ midi: true }); } // @ref LLP 1125 §4: the agent's MIDI ports and a message from one are the runner's
         // @ref LLP 1069.000 D6 — the page group; the driver sets media through CDP. @ref LLP 1078 D7 — the fold group: an empty one re-reads the browser (the driver's CDP override), a filled one is the substitute.
         if (Object.entries(request.mode ?? {}).some(p => p.some(x => /[,=]/.test(String(x))))) return { malformed: true, error: 'prefer mode: an axis or value holds no `,` or `=`' }; const pins = Object.entries(request.mode ?? {}).map(([a, v]) => `${a}=${v}`).join(","), checked = request.mode ? JSON.parse(readOut(wasm.exact_set_mode(writeIn(`?${pins}`)))) : null; if (checked?.error) return { error: `prefer mode: ${checked.error}` }; try { if (request.page) pageFacts.prefer(request.page); if (request.fold) preferFold(Object.keys(request.fold).length ? request.fold : null); } catch (e) { return { error: e.message, ...(e.malformed === true ? { malformed: true } : {}) }; }
         pageChanged(); foldChanged(); const modes = request.mode ? JSON.parse(readOut(wasm.exact_set_mode(writeIn(pins || "?")))) : null; if (pins) applyBatch(modes); if (modes?.error) return { error: `prefer mode: ${modes.error}` }; // @ref LLP 1121 D13 — the mode group: checked before any fact is set, the runner's `setMode`s in one commit after the rest

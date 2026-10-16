@@ -588,6 +588,21 @@ impl Batch {
         self.ops.push(s);
     }
 
+    /// The runner's timed outputs since the last take (LLP 1096 D7, LLP
+    /// 1125 D7): the voice table's `sound` op and the MIDI queue's `midi`
+    /// op; at a `boot`, the files to decode and whether MIDI's arm loads.
+    pub fn timed<D: exact_runner::DataSource>(
+        &mut self,
+        runner: &mut exact_runner::Runner<D>,
+        boot: bool,
+    ) {
+        self.sound(runner.take_sounds(), boot.then(|| runner.plan()));
+        let uses = boot && exact_runner::uses::uses_midi(runner.plan());
+        if let Some(op) = exact_runner::midi::batch_op(&runner.take_midi(), uses) {
+            self.ops.push(op);
+        }
+    }
+
     /// `{"op":"destroy","id":…}`.
     pub fn destroy(&mut self, id: u32) {
         self.ops.push(format!("{{\"op\":\"destroy\",\"id\":{id}}}"));

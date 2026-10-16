@@ -57,7 +57,9 @@ impl<D: DataSource> Presenter<D> {
                     self.haptic(kind.unwrap_or_default());
                 }
                 // The runner's own (LLP 1096 D9): its table is the record; no output here.
-                "playSound" | "playSounds" | "stopSounds" => {}
+                "playSound" | "playSounds" | "stopSounds" | "sendMIDI" => {}
+                // No MIDI here (LLP 1125 D6); under the agent the runner answered.
+                "requestMIDIAccess" => self.midi_unavailable(),
                 // The runner's own too: it laid out at the app's root font size (LLP 1069.000 D3).
                 "setRootFontSize" => {}
                 // Outside a bubbling event (a key's, focus's, the pointer's

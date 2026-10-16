@@ -630,6 +630,13 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.reads_on_line(), |_| 1)
         }
 
+        /// A MIDI message in the input buffer (LLP 1125 D6–D8): the arm's
+        /// ports or inputs, or the agent's `prefer midi` and `tap midi`.
+        #[no_mangle]
+        pub extern "C" fn exact_midi(rt: u32, len: usize) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.midi(len), |n| n)
+        }
+
         /// App modes, `axis=value` pins in the input buffer (LLP 1121 D5).
         #[no_mangle]
         pub extern "C" fn exact_set_mode(rt: u32, len: usize) -> u32 {
