@@ -69,21 +69,36 @@ extension Agent {
         return true
     }
 
-    /// A tap waits, for at most `bound` seconds, while such an overlay is
-    /// over `v`'s middle, as a person waits for a splash to go: it goes on
-    /// the wall's time (a `UIView.animate`, a display link), which the
-    /// agent's clock does not move. The tap's own check then refuses what
-    /// still covers it.
-    func awaitAppOverlay(over v: NodeView, bound: TimeInterval = 3) {
-        guard let win = v.window else { return }
-        let p = v.convert(CGPoint(x: v.bounds.midX, y: v.bounds.midY), to: nil)
-        let deadline = Date(timeIntervalSinceNow: bound)
-        // One fading out is no longer hit-tested (its alpha is already 0)
-        // but still takes a touch's place until its animation ends.
-        let fading = { win.subviews.contains { Agent.appOverlay($0) && Agent.wallMotion(under: $0.layer) } }
-        while Date() < deadline, win.hitTest(p, with: nil).map(Agent.appOverlay) == true || fading() {
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.016))
+    /// A tap at `p` (in the window) waits while such an overlay covers that
+    /// point and is still moving, as a person waits for a splash to go: it
+    /// goes on the wall's time (a `UIView.animate`, a display link), which
+    /// the agent's clock does not move. It stops when the overlay has gone,
+    /// has held still for half a second (a view that stays is refused at
+    /// once by the tap's own check), or after `bound` seconds. One fading
+    /// out covers the point though it is no longer hit-tested (its model
+    /// alpha is already 0). Whether it waited.
+    @discardableResult func awaitAppOverlay(at p: CGPoint, in win: UIWindow, bound: TimeInterval = 3) -> Bool {
+        func covering() -> UIView? {
+            if let hit = win.hitTest(p, with: nil), Agent.appOverlay(hit) {
+                var top = hit
+                while let up = top.superview, up !== win { top = up }
+                return top
+            }
+            return win.subviews.last { sub in
+                let shown = sub.layer.presentation() ?? sub.layer
+                return Agent.appOverlay(sub) && shown.opacity > 0.01 && shown.frame.contains(p) && Agent.wallMotion(under: sub.layer)
+            }
         }
+        guard covering() != nil else { return false }
+        let deadline = Date(timeIntervalSinceNow: bound)
+        var print = covering().map { Agent.restingPrint(under: $0.layer) }, still = Date()
+        while Date() < deadline, let cover = covering() {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.016))
+            let now = Agent.restingPrint(under: cover.layer)
+            if now != print || Agent.wallMotion(under: cover.layer) { print = now; still = Date() }
+            else if Date().timeIntervalSince(still) >= 0.5 { break }
+        }
+        return true
     }
 
     static func wallMotion(under root: CALayer) -> Bool {

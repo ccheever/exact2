@@ -78,6 +78,7 @@ extension Agent {
         else { return nil }
         guard let win = target.window else { return nil }
         let p = target.convert(CGPoint(x: region.midX, y: region.midY), to: nil)
+        awaitAppOverlay(at: p, in: win)
         guard let hit = win.hitTest(p, with: nil) else { return "its middle is off the window" }
         return obscured(target, at: p, hit: hit)
     }

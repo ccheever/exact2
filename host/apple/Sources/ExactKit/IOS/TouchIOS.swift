@@ -144,7 +144,6 @@ extension Agent {
     func aim(_ req: [String: Any]) -> [String: Any] {
         settleForPress()
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
-        awaitAppOverlay(over: v)
         if v.placedAncestor?.placementHidden == true { return ["error": "tap #\(v.id): placed child is hidden"] }
         // Said before where it sits: until a swipe reveals it, its node is
         // past the row's edge (splitter rough 12).
@@ -226,6 +225,7 @@ extension Agent {
         }
         let vp = presenter.viewport
         var p = vp.convert(CGPoint(x: local.x + vp.contentOffset.x, y: local.y + vp.contentOffset.y), to: nil)
+        awaitAppOverlay(at: p, in: win)
         var seen = win.hitTest(p, with: nil)
         if !presenter.reach(of: v).contains(local) || seen == nil {
             return ["error": "tap #\(v.id): the point is outside the viewport; scroll it into view first"]

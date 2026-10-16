@@ -94,14 +94,37 @@ final class AgentMotionIOSTests: XCTestCase {
         XCTAssertTrue(agent.awaitWallMotion(until: Date(timeIntervalSinceNow: 1.5)), "it ends within the bound")
         XCTAssertTrue(finished, "and its completion has run")
         XCTAssertNil(overlay.superview)
-        // An overlay still up when a tap comes: the tap waits for it to go.
+        // One longer than the bound is still running when it passes: `clock settle` says so.
+        let slow = UIView(frame: CGRect(x: 0, y: 0, width: 40, height: 40))
+        window.addSubview(slow)
+        UIView.animate(withDuration: 2) { slow.alpha = 0 }
+        XCTAssertFalse(agent.awaitWallMotion(until: Date(timeIntervalSinceNow: 0.2)), "still running at the bound")
+        slow.layer.removeAllAnimations()
+        slow.removeFromSuperview()
+        // A moving overlay over the tap's point: the tap waits for it to go.
+        let middle = CGPoint(x: 200, y: 400)
         let cover = UIView(frame: window.bounds)
         window.addSubview(cover)
+        UIView.animate(withDuration: 0.3) { cover.backgroundColor = .red }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { cover.removeFromSuperview() }
-        let tapped = Date()
-        agent.awaitAppOverlay(over: node)
+        var tapped = Date()
+        XCTAssertTrue(agent.awaitAppOverlay(at: middle, in: window))
         XCTAssertNil(cover.superview)
         XCTAssertLessThan(Date().timeIntervalSince(tapped), 1, "no longer than the overlay stayed")
+        // One fading at another point delays nothing; one holding still over
+        // the point is waited for only half a second (the tap then refuses it).
+        let corner = UIView(frame: CGRect(x: 0, y: 0, width: 60, height: 60))
+        window.addSubview(corner)
+        UIView.animate(withDuration: 1) { corner.alpha = 0 }
+        XCTAssertFalse(agent.awaitAppOverlay(at: middle, in: window), "not over the point")
+        corner.layer.removeAllAnimations()
+        corner.removeFromSuperview()
+        let still = UIView(frame: window.bounds)
+        window.addSubview(still)
+        tapped = Date()
+        XCTAssertTrue(agent.awaitAppOverlay(at: middle, in: window))
+        XCTAssertLessThan(Date().timeIntervalSince(tapped), 1.2, "a still overlay ends the wait")
+        still.removeFromSuperview()
     }
 
     /// Contract motion held at speed 0 (a lowered `@keyframes`, filled both

@@ -490,7 +490,6 @@ extension Agent {
             return ["error": "a contact is already down; use `tap up` or `tap cancel` first"]
         }
         settleForPress()
-        if req["phase"] == nil, req["wheel"] == nil, let v = view(req) { awaitAppOverlay(over: v) }
         if req["scrollDrag"] != nil { return scrollDrag(req) }
         if view(req)?.placedAncestor?.placementHidden == true { return ["error": "placed child is hidden"] }
         if req["phase"] == nil, req["wheel"] == nil,
@@ -609,6 +608,7 @@ extension Agent {
         let window = { (q: CGPoint) in vp.convert(CGPoint(x: q.x + vp.contentOffset.x, y: q.y + vp.contentOffset.y), to: nil) }
         var p = window(CGPoint(x: b.midX, y: b.midY))
         var at = [Agent.r2(b.midX), Agent.r2(b.midY)]
+        if req["wheel"] == nil, req["hover"] == nil { awaitAppOverlay(at: p, in: win) }
         let seen = win.hitTest(p, with: nil)
         // A finger lands only where the target is seen (LLP 1035.003: action
         // dispatch is never substituted for a contact), so a press, a menu or
@@ -826,7 +826,7 @@ extension Agent {
         let held = (up as? NodeView).map { "\(name), in node #\($0.id)," } ?? name
         // build.mjs compiles an app's native modules as one Swift module of this name.
         let own = String(reflecting: cls).hasPrefix("ExactAppModules.") || appOverlay(hit)
-        return "\(held) covers its middle" + (own ? "; it is the app's own view, on the wall's time: the tap waited 3 s for an overlay over the screen to go, `clock settle` waits out its UIView.animate, `clock +N real` lets a display link's motion run, and one drawn from the module's `frames` or `after` follows `clock +N`" : "")
+        return "\(held) covers its middle" + (own ? "; it is the app's own view, on the wall's time: a tap waits up to 3 s while one over its point moves, `clock settle` up to 1.5 s for its UIView.animate, `clock +N real` lets a display link's motion run, and one drawn from the module's `frames` or `after` follows `clock +N`" : "")
     }
 
     /// Why the agent's press would not do what a finger on `hit` does, or
