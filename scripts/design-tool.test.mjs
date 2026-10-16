@@ -4,15 +4,32 @@
 // --url`). The tool shows the server's hello, and an agent's write arrives
 // on its long poll attributed. Its stub-server tests are
 // apps/design-tool/app.test.contract.
-import { expect, test } from 'bun:test';
+import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { spawn, spawnSync } from 'node:child_process';
 import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { TOOL_DIST, TOOL_ORIGIN } from './tamber-server.mjs';
+import { takePort } from './port-lock.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
+
+// The tool's port, in turn with other runs (the contract tests' stub, other
+// checkouts'): each test takes it, and a tool that took no turn there (one
+// run by hand) is said by its pid.
+let givePort = () => {};
+beforeEach(async () => {
+  const port = Number(new URL(TOOL_ORIGIN).port);
+  givePort = await takePort(port, { label: `scripts/design-tool.test.mjs in ${ROOT}` });
+  const pid = spawnSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'], { encoding: 'utf8' }).stdout.trim().split('\n')[0];
+  if (pid) {
+    givePort();
+    const command = spawnSync('ps', ['-o', 'command=', '-p', pid], { encoding: 'utf8' }).stdout.trim().slice(0, 80);
+    throw new Error(`${TOOL_ORIGIN} already answers (pid ${pid}: ${command}), and took no turn (a design tool run by hand?): stop it (kill ${pid}) and run these again`);
+  }
+}, 25 * 60_000); // as long as the turn may take (its wait is 20 minutes)
+afterEach(() => givePort());
 
 /** Lines of `child`'s stdout as they come; `until(pass)` waits for one. */
 function lines(child) {
