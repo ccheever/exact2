@@ -35,9 +35,8 @@ use R6ScriptRow from "./r6-polish.contract"
 use ThreadAutomationsSection from "./thread-automations.contract"
 use KmItem from "./menu-keys.contract"
 use KeyMenu from "./menu-keys.contract"
-use kmKeyEnd from "./menu-keys.contract"
-use kmArrow from "./menu-keys.contract"
-use kmEndKeyed from "./menu-keys.contract"
+use kmTriggerKey from "./menu-keys.contract"
+use kmTriggerTarget from "./menu-keys.contract"
 
 // The popover presentation, with its click-away backdrop: drawn in the chat column (app-main.contract ChatColumn),
 // under the floating player, which closes it on its own press; a press beside the column closes it too
@@ -51,7 +50,6 @@ component ThreadDetailsPanel
     // How far the click-away backdrop reaches below its holder: the terminal drawer under the chat column.
     below: number
     maxHeight: number
-    editorsOpen: bool
     act: action
     // chatLocal: the card's Git popups take keystrokes without the command gate.
     local: action
@@ -59,11 +57,12 @@ component ThreadDetailsPanel
     still: bool
   view
     box position="absolute" left=0 top=0 right=0 bottom=(0 - below) z-index=35 testId="thread-details-layer"
-      // A git dialog, the Merge confirmation or the "Open in" menu the card opened stands over it and takes Escape (Base UI
-      // closes the topmost popup); the first declared Escape would otherwise close the card under it.
-      button press=act("toggle", "", "") aria-label="Close thread details" aria-keyshortcuts=(details.git.dialog != "" or details.prRows.merge.open or editorsOpen ? "" : "Escape") testId="thread-details-backdrop" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" title=""
+      // A git dialog or the Merge confirmation the card opened stands over it and takes Escape (Base UI closes the
+      // topmost popup); the first declared Escape would otherwise close the card under it. The card's menus are modal
+      // popovers, which take Escape themselves.
+      button press=act("toggle", "", "") aria-label="Close thread details" aria-keyshortcuts=(details.git.dialog != "" or details.prRows.merge.open ? "" : "Escape") testId="thread-details-backdrop" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" title=""
       column position="absolute" top="3.75rem" right=right width="16.5rem" max-height=maxHeight box-sizing="border-box" border-radius="1.375rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" overflow="hidden" role="dialog" aria-label="Thread details" testId="thread-details"
-        DetailsBody(details=details, density=density, inline=false, maxHeight=maxHeight, editorsOpen=editorsOpen, act=act, local=local, still=still)
+        DetailsBody(details=details, density=density, inline=false, maxHeight=maxHeight, act=act, local=local, still=still)
 
 // The inline presentation: an aside pinned 12pt from the canvas's top right, as tall as its content.
 component ThreadDetailsInline
@@ -71,7 +70,6 @@ component ThreadDetailsInline
     details: ShellDetails
     density: string
     maxHeight: number
-    editorsOpen: bool
     act: action
     // chatLocal: the card's Git popups take keystrokes without the command gate.
     local: action
@@ -79,7 +77,7 @@ component ThreadDetailsInline
     still: bool
   view
     column position="absolute" top="4rem" right="0.75rem" width="17.5rem" max-height=maxHeight z-index=20 box-sizing="border-box" border-radius="1.375rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" overflow="hidden" role="complementary" aria-label="Thread details" testId="thread-details-inline"
-      DetailsBody(details=details, density=density, inline=true, maxHeight=maxHeight, editorsOpen=editorsOpen, act=act, local=local, still=still)
+      DetailsBody(details=details, density=density, inline=true, maxHeight=maxHeight, act=act, local=local, still=still)
 
 // ThreadDetailsPanel's rows by density: `full` everything; `compact` without the Run on and workspace rows,
 // Automations and Lineage, Version Control unseparated and the Git action group only while an action runs or just
@@ -94,7 +92,6 @@ component DetailsBody
     // The docked card (280pt) or the popover (264pt): the Git and Run on menus take its inner width.
     inline: bool
     maxHeight: number
-    editorsOpen: bool
     act: action
     // chatLocal: the card's Git popups take keystrokes without the command gate.
     local: action
@@ -103,34 +100,6 @@ component DetailsBody
   state hovered = ""
   action hover(id: string, over: bool)
     hovered = over ? id : (hovered == id ? "" : hovered)
-  // The editor menu takes the focus as it opens: the popup, its first item
-  // when Enter, Space or ↓ opened it, its last from ↑ (menu-keys.contract).
-  state menuEnd = ""
-  // The "Open in" menu mounts from the data module: the trigger lets go of the focus so the popup's
-  // `autofocus` takes it, and the menu reads the end the last key on the trigger asked for (the trigger
-  // taking the focus, as a pointer press gives it, clears it).
-  action editorsKey(k: string, e: KeyboardEvent)
-    menuEnd = kmKeyEnd(k)
-    if kmArrow(k) and not e.metaKey and not e.ctrlKey and not e.altKey and not editorsOpen
-      preventDefault()
-      blur()
-      act("editors", "", "")
-  action clearEditorsEnd
-    menuEnd = ""
-  action toggleEditors
-    if not editorsOpen
-      blur()
-    act("editors", "", "")
-  // Escape closes the menu wherever the focus is (Base UI Menu's dismiss listens on the document), and gives the
-  // focus back to the chevron when the menu held it (its finalFocus); one held elsewhere stays there.
-  state editorsFocused = false
-  action editorsFocus(on: bool)
-    editorsFocused = on
-  action closeEditors
-    if editorsFocused
-      editorsFocused = false
-      focus("details-choose-editor")
-    act("editors", "", "")
   view
     scroll width="100%" min-height=0 max-height=(maxHeight - 2)
       // The content's full height, scrolled or not: the canvas keeps a floating player below it and folds the rows by it
@@ -182,16 +151,7 @@ component DetailsBody
           // OpenInPicker (panel form): shown for this machine, and for other machines unless they open locally (remote-open.ts);
           // not in the essential rows.
           if details.editorShow and density != "essential"
-            row height="2rem" align-items="center" border-radius="0.625rem" background-color=(hovered == "editor" or hovered == "editor-menu" or editorsOpen ? "light-dark(#0000000e, #ffffff13)" : "#00000000")
-              button press=act("shell:open-editor", details.cwd, details.editorId) hover=hover("editor") testId="details-open-editor" flex=1 min-width=0 height="2rem" padding-left="0.6875rem" padding-right="0.625rem" box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.625rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" disabled=(details.cwd == "" or details.editorId == "" or details.editorUnavailable != "") opacity=(details.cwd == "" or details.editorId == "" or details.editorUnavailable != "" ? 0.64 : 1)
-                if details.editorId != ""
-                  ShellEditorIcon(editor=details.editorId, size=16)
-                else
-                  box width="1rem" height="1rem" flex-shrink=0
-                text details.editorLabel flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color="light-dark(#27272acc, #f5f5f5cc)"
-              box width=1 height="1rem" flex-shrink=0 background-color="light-dark(#e4e4e7a6, #ffffff10)"
-              button press=toggleEditors key=editorsKey focus=clearEditorsEnd hover=hover("editor-menu") aria-label="Choose editor" aria-expanded=editorsOpen id="details-choose-editor" testId="details-choose-editor" width="2rem" height="2rem" padding=0 border-width=0 border-radius="0.625rem" background-color=(editorsOpen or hovered == "editor-menu" ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
-                ShellIcon(name="chevron-down", size=16, color="light-dark(#71717b, #818181)")
+            OpenInRow(details=details, menuWidth=((inline ? 262 : 246) * rem / 16), act=act)
           // A project with scripts shows its primary script as a split row (r6-polish.contract).
           if details.scriptName != ""
             R6ScriptRow(details=details, menuWidth=((inline ? 262 : 246) * rem / 16), run=act("terminallocal:run-script", "", ""), act=act)
@@ -216,20 +176,6 @@ component DetailsBody
             if details.showLineage
               DetailsSection(title=details.lineageTitle, separated=true, heading=true)
                 LineageGroups(details=details, act=act)
-        // OpenInPicker's menu, 4pt under its row and as wide: drawn over the card (it paints last) with a
-        // click-away layer under it, since a popover would anchor at the chevron rather than the row.
-        if editorsOpen and density != "essential"
-          button press=closeEditors aria-label="Close editor menu" aria-keyshortcuts="Escape" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="details-editors-backdrop" title=""
-          column focusin=editorsFocus(true) focusout=editorsFocus(false) position="absolute" left="0.5rem" right="0.5rem" top=(density != "full" ? "2.75rem" : details.envShow ? "6.75rem" : "4.75rem") padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Open in" testId="details-editors"
-            if details.editorUnavailable != ""
-              DisabledEditorItem(label=details.editorUnavailable, testId="details-editor-no-route")
-            if details.editorEmpty
-              DisabledEditorItem(label="No installed editors found", testId="details-editor-none")
-            KeyMenu(menuId="details-editors-keys", items=details.editors.map((editor) => KmItem(id=`details-editor-${editor.id}`, label=editor.label)), keyed=kmEndKeyed(menuEnd), gap="0px", modal=false)
-              for editor in details.editors key=editor.id
-                EditorOption(keysId="details-editors-keys", editor=editor, cwd=details.cwd, shortcut=details.editorShortcut, act=act)
-            if details.editorHint != ""
-              DisabledEditorItem(label=details.editorHint, testId="details-editor-remote-hint")
 
 // ThreadDetailsSection: px-2 pt-2 pb-2.5, a hairline above all but the first; the
 // heading row is hidden for Workspace and Version Control (upstream 429c625a85).
@@ -390,6 +336,71 @@ component ActionIcon
     else
       ShellIcon(name=name, size=16, color="light-dark(#71717b, #818181)")
 
+// OpenInPicker (panel form): the preferred editor's button, a hairline and the chevron that opens the Menu of editors,
+// as the project scripts row (r6-polish.contract).
+component OpenInRow
+  props
+    details: ShellDetails
+    // The row's width, which the menu takes (MenuPopup's w-(--anchor-width)).
+    menuWidth: number
+    act: action
+  state hovered = ""
+  state open = false
+  action hover(id: string, over: bool)
+    hovered = over ? id : (hovered == id ? "" : hovered)
+  derive menuItems = details.editors.map((editor) => KmItem(id=`details-editor-${editor.id}`, label=editor.label))
+  // Base UI's MenuTrigger: Enter, Space, ↓ open the menu at its first item, ↑ at its last; with no editor listed the
+  // popup itself takes the focus (KeyMenu's autofocus).
+  action triggerKey(k: string, e: KeyboardEvent)
+    if not e.metaKey and not e.ctrlKey and not e.altKey and not e.shiftKey and kmTriggerKey(k)
+      preventDefault()
+      stopPropagation()
+      if not e.repeat
+        showPopover("details-editors-menu", source="details-choose-editor")
+        let target = kmTriggerTarget(menuItems, k)
+        if target != ""
+          focus(target)
+  action toggled(e: ToggleEvent)
+    open = e.newState == "open"
+  view
+    row height="2rem" align-items="center" border-radius="0.625rem" role="group" aria-label="Open in editor" testId="details-open-in" background-color=(hovered != "" or open ? "light-dark(#0000000e, #ffffff13)" : "#00000000")
+      button press=act("shell:open-editor", details.cwd, details.editorId) hover=hover("editor") testId="details-open-editor" flex=1 min-width=0 height="2rem" padding-left="0.6875rem" padding-right="0.625rem" box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.625rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" disabled=(details.cwd == "" or details.editorId == "" or details.editorUnavailable != "") opacity=(details.cwd == "" or details.editorId == "" or details.editorUnavailable != "" ? 0.64 : 1)
+        if details.editorId != ""
+          ShellEditorIcon(editor=details.editorId, size=16)
+        else
+          box width="1rem" height="1rem" flex-shrink=0
+        text details.editorLabel flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color="light-dark(#27272acc, #f5f5f5cc)"
+      box width=1 height="1rem" flex-shrink=0 background-color="light-dark(#e4e4e7a6, #ffffff10)"
+      box position="relative" flex-shrink=0
+        button id="details-choose-editor" popovertarget="details-editors-menu" key=triggerKey hover=hover("editor-menu") aria-label="Choose editor" aria-haspopup="menu" aria-expanded=open testId="details-choose-editor" width="2rem" height="2rem" padding=0 border-width=0 border-radius="0.625rem" background-color=(open or hovered == "editor-menu" ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+          ShellIcon(name="chevron-down", size=16, color="light-dark(#71717b, #818181)")
+        OpenInMenu(details=details, items=menuItems, width=menuWidth, act=act, toggled=toggled)
+
+// OpenInPicker's MenuPopup (align="end", anchored at the row, as wide): 4pt under the row, its right edge on the
+// chevron's, which ends the row. A popover, so a press anywhere outside it or Escape closes it, as Base UI's Menu
+// does; it is modal while it shows, so its Escape is not the details popover's backdrop's.
+component OpenInMenu
+  inject
+    dialogMenuEntered: action
+  props
+    details: ShellDetails
+    items: KmItem[]
+    width: number
+    act: action
+    toggled: action
+  view
+    column id="details-editors-menu" data-dialog-return="menu" focusin=dialogMenuEntered("details-editors-menu", "details-choose-editor") toggle=toggled popover="auto" position-area="bottom span-left" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.25rem" width=width testId="details-editors-layer"
+      column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Open in" testId="details-editors"
+        if details.editorUnavailable != ""
+          DisabledEditorItem(label=details.editorUnavailable, testId="details-editor-no-route")
+        if details.editorEmpty
+          DisabledEditorItem(label="No installed editors found", testId="details-editor-none")
+        KeyMenu(menuId="details-editors-keys", items=items, keyed=0, gap="0px", modal=true)
+          for editor in details.editors key=editor.id
+            EditorOption(keysId="details-editors-keys", editor=editor, cwd=details.cwd, shortcut=details.editorShortcut, act=act)
+        if details.editorHint != ""
+          DisabledEditorItem(label=details.editorHint, testId="details-editor-remote-hint")
+
 component EditorOption
   props
     // The KeyMenu popup the row hands the focus to as the pointer leaves it holding the focus (menu-keys.contract).
@@ -407,7 +418,7 @@ component EditorOption
   action focused(on: bool)
     lit = on
   view
-    button id=`details-editor-${editor.id}` press=act("ui:editor", cwd, editor.id) hover=hover focus=focused(true) blur=focused(false) role="menuitem" testId=`details-editor-${editor.id}` width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.5rem" border-width=0 border-radius="0.375rem" background-color=(lit ? "light-dark(#27272a14, #f5f5f514)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+    button id=`details-editor-${editor.id}` press=act("ui:editor", cwd, editor.id) popovertarget="details-editors-menu" popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) role="menuitem" testId=`details-editor-${editor.id}` width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.5rem" border-width=0 border-radius="0.375rem" background-color=(lit ? "light-dark(#27272a14, #f5f5f514)" : "#00000000") display="flex" flex-direction="row" align-items="center"
       box margin-left="-0.125rem" margin-right="-0.125rem" display="flex" flex-shrink=0
         ShellEditorIcon(editor=editor.id, size=16)
       text editor.label flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"

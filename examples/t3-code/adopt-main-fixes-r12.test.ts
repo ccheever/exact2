@@ -18,7 +18,7 @@ describe('the Mac\'s own presentations main gives what the clone writes stay the
 
   test('every popover keeps the painted layer (LLP 1115.002 D7.3): `popover="auto"` and an authored fallback row', async () => {
     const popovers = (await contracts()).flatMap(({ lines }) => lines.filter(line => code(line) && /\bpopover="/.test(line)));
-    expect(popovers.length).toBe(65); // the archived row's and the pull request number's context popovers, the project scripts menu
+    expect(popovers.length).toBe(73); // the archived row's and the pull request number's context popovers, the project scripts and Open in menus, the file subheader's two, a linked pull request's, an approval's, the diff scope's and its Turn submenu, the device rail's
     for (const line of popovers) {
       expect(line).toContain('popover="auto"');
       expect(line).toMatch(/\sposition-try-fallbacks=/);
@@ -43,7 +43,11 @@ const reviewed: Record<string, Site[]> = {
     ['BrowserAddItem', 'id="r4-browser-profiles"', q('right span-bottom'), q('flip-inline'), 'RightPanelTabs.tsx:1275 MenuSubPopup'],
     ['BrowserLauncherProfiles', 'id="launcher-browser-profiles"', q('bottom span-left'), FLIP, 'RightPanelTabs.tsx:539 end, offset 6'],
   ],
-  'diff.contract': [['DiffBasePicker', 'id="diff-base-menu"', q('bottom span-right'), FLIP, 'DiffPanel.tsx:753 Combobox start']],
+  'diff.contract': [
+    ['DiffScopeMenu', 'id="diff-scope-menu"', q('bottom span-right'), FLIP, 'DiffPanel.tsx:676 DropdownMenuContent start'],
+    ['DiffTurnsItem', 'id="diff-turns-menu"', q('right span-bottom'), q('flip-inline'), 'DiffPanel.tsx:690 DropdownMenuSubContent'],
+    ['DiffBasePicker', 'id="diff-base-menu"', q('bottom span-right'), FLIP, 'DiffPanel.tsx:753 Combobox start'],
+  ],
   'legacy-sidebar.contract': [['LegacyOptions', 'id="legacy-sidebar-options"', q('bottom span-left'), FLIP, 'LegacySidebar.tsx:2761 end']],
   'markdown.contract': [['TerminalContextChip', 'id=popupId', q('top'), q('flip-block'), 'contextChipParts.tsx:88 top/center']],
   'pages-hero.contract': [['HeroPicker', 'id="hero-project-menu"', q('bottom'), q('flip-block'), 'chat/DraftHeroHeadline.tsx:252 center']],
@@ -88,8 +92,16 @@ const reviewed: Record<string, Site[]> = {
   'r4-surfaces.contract': [
     ['R4HeaderBar', 'id="r4-tab-menu"', '', q('none'), 'RightPanelTabs.tsx handleTabContextMenu (native menu)'],
     ['R4AddSurface', 'id="r4-add-surface"', q('bottom span-right'), FLIP, 'RightPanelTabs.tsx:1231 start, offset 6'],
+    ['R4LinkedRowView', 'id=`linked-pr-menu-${row.key}`', q('bottom span-left'), FLIP, 'pullRequest/ThreadPullRequestsPanel.tsx:237 end'],
   ],
+  'r4-surfaces-files.contract': [
+    ['R4CrumbView', 'id=`crumb-menu-${crumb.id}`', q('bottom span-right'), FLIP, 'files/FileBreadcrumbs.tsx:104 start'],
+    ['R4FileEditorsMenu', 'id="file-editors-menu"', q('bottom span-left'), FLIP, 'chat/OpenInPicker.tsx:429 end (compact, anchored at the chevron)'],
+  ],
+  // R6RailMenuButton: each caller names its area (DeviceControlsRail.tsx:102, 151 centred; 211 end).
+  'r6-device.contract': [['R6RailMenuButton', 'id=menuId', 'area', q('flip-inline, flip-block, flip-block flip-inline'), 'device/DeviceControlsRail.tsx MenuPopup side left']],
   'r6-polish.contract': [['R6ScriptMenu', 'id="details-scripts-menu"', q('bottom span-left'), FLIP, 'ProjectScriptsControl.tsx:346 end, anchor the row']],
+  'requests.contract': [['ApprovalActions', 'id=`approval-menu-${approval.id}`', q('top span-left'), FLIP, 'chat/ComposerPendingApprovalActions.tsx:78 top/end']],
   'r6-pr.contract': [['R6ChecksPopover', 'id=row.r6.popId', q('bottom span-right'), FLIP, 'pullRequest/PullRequestChecksPopover.tsx:197 start']],
   'settings-a-fonts.contract': [['FontFamilyPicker', 'id=`font-picker-${rowId}`', q('bottom span-left'), FLIP, 'settings/FontFamilyPicker.tsx:219 end']],
   'settings-a-hosts.contract': [['HostRowView', 'id=`device-host-tools-${host.id}`', q('bottom span-left'), FLIP, 'device/DeviceToolVersions.tsx:48 end']],
@@ -116,7 +128,10 @@ const reviewed: Record<string, Site[]> = {
     ['Inheritance', 'id=`inherit-${row.key}`', q('bottom span-right'), FLIP, 'settings/SettingInheritance.tsx:226 start'],
     ['DeviceVersions', 'id=`device-versions-${tool.kind}`', q('bottom span-left'), FLIP, 'device/DeviceToolVersions.tsx:48 end'],
   ],
-  'shell-details.contract': [['WorkspaceMenu', 'id="details-workspace-menu"', q('bottom span-right'), FLIP, 'BranchToolbarEnvModeSelector.tsx:230 Select start']],
+  'shell-details.contract': [
+    ['WorkspaceMenu', 'id="details-workspace-menu"', q('bottom span-right'), FLIP, 'BranchToolbarEnvModeSelector.tsx:230 Select start'],
+    ['OpenInMenu', 'id="details-editors-menu"', q('bottom span-left'), FLIP, 'chat/OpenInPicker.tsx:429 end, anchor the row'],
+  ],
   // The thread and draft menus are the system's context menu in the reference, at the pointer: no area. Their painted
   // submenus (agent, web) sit beside the row and flip to its start side, as the Appearance submenu does.
   'sidebar-row.contract': [

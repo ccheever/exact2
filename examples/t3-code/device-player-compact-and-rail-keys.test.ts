@@ -135,7 +135,7 @@ describe('the card becomes the header\'s popover where no placement is left', ()
     expect(root).toContain('detailsOpen = op == "toggle" ? (not detailsShown and detailsPopover) :');
     expect(root).toContain('detailsEpoch = op == "toggle" ? canvas.popoverEpoch : detailsEpoch');
     // Only the inline mode's toggle remembers the thread's docked card; the window's popover is the shown one.
-    expect(root).toContain('if (op != "toggle" or not detailsPopover) and op != "editors"');
+    expect(root).toContain('if (op != "toggle" or not detailsPopover) and op != "dismiss"');
     expect(root).toContain('narrowDiff=narrowDiff, detailsOpen=detailsShown, details=details,');
     expect(root).toContain('shell.panel.deviceMini.show or shell.panel.browserMini.show, conversationWidth >= 984, detailsOpen) as shape ChatCanvasView');
     // The popover lies in the chat column under the floating player (the reference's popover sits below the player;
@@ -161,7 +161,7 @@ describe('the card becomes the header\'s popover where no placement is left', ()
     // backdrop, so the window's rule stands aside.
     expect(root).toContain('    canvasGestureValue = value\n    detailsOpen = detailsOpen and value == ""');
     const press = under(window, 'action outsidePressDown(e: PointerEvent)').join('\n');
-    expect(press).toContain('    if detailsOpen and not detailsSheet and e.buttons == 1 and (e.clientX < (data.sidebarOpen ? sidebarWidth : 0) or e.clientX >= (data.sidebarOpen ? sidebarWidth : 0) + conversationWidth)\n      detailsEditors = false\n      titleMenuOpen = false\n      detailsActRoot("dismiss", "", "")');
+    expect(press).toContain('    if detailsOpen and not detailsSheet and e.buttons == 1 and (e.clientX < (data.sidebarOpen ? sidebarWidth : 0) or e.clientX >= (data.sidebarOpen ? sidebarWidth : 0) + conversationWidth)\n      titleMenuOpen = false\n      detailsActRoot("dismiss", "", "")');
     // The right panel's details button is drawn only on a sheet, under the window's backdrop: no exception names it.
     expect(press).not.toContain('panel-toggle-details');
     for (const file of ['r4-surfaces.contract', 'shell-panels.contract']) expect(await source(file)).not.toContain('id="panel-toggle-details"');
@@ -248,17 +248,16 @@ describe('the rows each density shows (ThreadDetailsPanel)', () => {
     expect(top[0]).toContain('column width="100%" hatch="t3-frame" data-frame="details-full-top"');
     const topText = top.join('\n');
     for (const row of ['R4EnvRow(', 'testId="details-workspace"', 'testId="details-folder"']) expect(topText).toContain(row);
-    expect(under(body, 'if details.editorShow and density != "essential"').join('\n')).toContain('testId="details-open-editor"');
+    expect(under(body, 'if details.editorShow and density != "essential"').join('\n')).toContain('OpenInRow(details=details, menuWidth=((inline ? 262 : 246) * rem / 16), act=act)');
     const tail = under(body, 'data-frame="details-full-tail"').join('\n');
     expect(tail).toContain('ThreadAutomationsSection(');
     expect(tail).toContain('LineageGroups(');
     expect(under(body, 'if details.cwd != ""').join('\n')).toContain('DetailsSection(title="Version Control", separated=(density == "full"), heading=false)');
     expect(body).toContain('R4GitRows(details=details, compact=(density != "full"), inline=inline, act=act, local=local)');
     expect(under(body, 'if density == "compact"')[0]).toContain('data-frame="details-density-compact"');
-    // The scripts row stays in every density, its menu a popover anchored at its chevron (r6-polish.contract); Open in's
-    // menu hangs under the rows each density shows.
+    // The scripts and Open in rows' menus are popovers anchored at their chevrons, as wide as the row.
     expect(body).toContain('R6ScriptRow(details=details, menuWidth=((inline ? 262 : 246) * rem / 16)');
-    expect(body).toContain('top=(density != "full" ? "2.75rem" : details.envShow ? "6.75rem" : "4.75rem")');
+    expect(body).not.toContain('details-editors');
   });
 
   test('compact: the Git action group shows only while an action runs or just finished; Changes always', async () => {
@@ -282,16 +281,20 @@ describe('found while driving: Float device over chat closes the right panel (De
 });
 
 describe('the device rail menus hear the keys at a focused row (Base UI Menu)', () => {
-  test('each rail menu draws its rows inside its KeyMenu', async () => {
+  test('each rail menu is a popover beside its trigger, its rows inside its KeyMenu', async () => {
     const workspace = await component('r6-device.contract', 'R6DeviceWorkspaceView');
-    for (const [menu, rows] of [['text', ['device-text-small', 'device-text-default', 'device-text-large', 'device-text-extra-large']],
-      ['rotate', ['device-rotate-portrait', 'device-rotate-landscape']], ['more', ['device-float', 'device-close-panel', 'device-power-off']]] as const) {
-      const popup = under(workspace, `if ws.rail.menu == "${menu}"`);
-      expect(popup[0]).toContain(`role="menu"`);
-      const keyMenu = under(workspace, `KeyMenu(menuId="device-${menu}-keys"`).join('\n');
-      for (const row of rows) expect(keyMenu).toMatch(new RegExp(`R6MenuItem\\(keysId="device-${menu}-keys".*testId="${row}"\\)`));
-      // The KeyMenu sits inside the popup, the rows inside the KeyMenu (its `slot`).
-      expect(popup[1]).toContain(`KeyMenu(menuId="device-${menu}-keys"`);
+    const button = await component('r6-device.contract', 'R6RailMenuButton');
+    // The KeyMenu sits inside the popup, the rows inside the KeyMenu (the button's `slot`).
+    expect(button).toContain('        column width="100%" padding="0.25rem"');
+    expect(button).toContain('role="menu" aria-label=menuLabel testId=menuTestId\n          KeyMenu(menuId=keysId, items=items, keyed=0, gap="0px", modal=true)\n            children');
+    // DeviceControlsRail's MenuPopups: side left, the text size and rotate menus centred, More end-aligned.
+    for (const [menu, area, rows] of [['text', 'left', ['device-text-small', 'device-text-default', 'device-text-large', 'device-text-extra-large']],
+      ['rotate', 'left', ['device-rotate-portrait', 'device-rotate-landscape']], ['more', 'left span-top', ['device-float', 'device-close-panel', 'device-power-off']]] as const) {
+      const call = workspace.split('\n').find(line => line.includes(`menuId="device-${menu}-popup"`) && line.includes('R6RailMenuButton('))!;
+      expect(call).toContain(`area="${area}", keysId="device-${menu}-keys"`);
+      const rowsUnder = under(workspace, call.trim()).join('\n');
+      for (const row of rows) expect(rowsUnder).toMatch(new RegExp(`R6MenuItem\\(keysId="device-${menu}-keys", menuId="device-${menu}-popup".*testId="${row}"\\)`));
     }
   });
 });
+

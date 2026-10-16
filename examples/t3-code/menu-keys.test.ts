@@ -117,7 +117,7 @@ describe('the shared menu keyboard (Base UI Menu)', () => {
     ['pages-hero.contract', 'hero-project-keys'], ['r4-git.contract', 'details-git-options-keys'], ['r4-surfaces.contract', 'r4-add-surface-keys'], ['r4-surfaces.contract', 'linked-pr-menu-keys'],
     ['shell-panels.contract', 'title-menu-keys'], ['shell-panels.contract', 'title-submenu-keys'], ['requests.contract', 'approval-menu-${approval.id}-keys'],
     ['shell-details.contract', 'details-editors-keys'], ['r6-polish.contract', 'details-scripts-keys'], ['diff.contract', 'diff-scope-keys'], ['diff.contract', 'diff-turns-keys'],
-    ['r6-device.contract', 'device-text-keys'], ['r6-device.contract', 'device-rotate-keys'], ['r6-device.contract', 'device-more-keys'], ['r4-surfaces-files.contract', 'crumb-menu-keys'],
+    ['r4-surfaces-files.contract', 'crumb-menu-keys'],
     ['r4-surfaces-files.contract', 'file-editors-keys'], ['r8-keys-table-menu.contract', 'table-copy-keys'],
     ['pages-pr-code.contract', 'pull-request-code-scope-keys'],
   ];
@@ -129,19 +129,14 @@ describe('the shared menu keyboard (Base UI Menu)', () => {
 
   test('a popover menu is modal while it shows, so Escape closes it before a page\'s own Escape shortcut (Usage\'s Back, Settings\')', async () => {
     for (const [file, line] of [['pages-usage.contract', 'KeyMenu(menuId="usage-environment-keys"'], ['pages-pr-actions.contract', 'KeyMenu(menuId="pr-more-keys"'],
-      ['settings-kit.contract', 'KeyMenu(menuId=`${menuId}-keys`'], ['settings-b-kit.contract', 'KeyMenu(menuId=`${menuId}-keys`'], ['sidebar-row.contract', 'KeyMenu(menuId=`snooze-${t.id}-keys`']] as const)
+      ['settings-kit.contract', 'KeyMenu(menuId=`${menuId}-keys`'], ['settings-b-kit.contract', 'KeyMenu(menuId=`${menuId}-keys`'], ['sidebar-row.contract', 'KeyMenu(menuId=`snooze-${t.id}-keys`'],
+      ['diff.contract', 'KeyMenu(menuId="diff-scope-keys"'], ['diff.contract', 'KeyMenu(menuId="diff-turns-keys"'], ['shell-details.contract', 'KeyMenu(menuId="details-editors-keys"'],
+      ['r4-surfaces-files.contract', 'KeyMenu(menuId="file-editors-keys"'], ['r4-surfaces-files.contract', 'KeyMenu(menuId="crumb-menu-keys"'],
+      ['r4-surfaces.contract', 'KeyMenu(menuId="linked-pr-menu-keys"'], ['requests.contract', 'KeyMenu(menuId=`approval-menu-${approval.id}-keys`']] as const)
       expect((await source(file)).split('\n').find(l => l.includes(line))).toContain('modal=true)');
     // A menu its owner mounts from state keeps its backdrop's Escape (outside the menu): not modal.
-    for (const [file, line] of [['shell-panels.contract', 'KeyMenu(menuId="title-menu-keys"'], ['diff.contract', 'KeyMenu(menuId="diff-scope-keys"']] as const)
+    for (const [file, line] of [['shell-panels.contract', 'KeyMenu(menuId="title-menu-keys"']] as const)
       expect((await source(file)).split('\n').find(l => l.includes(line))).toContain('modal=false)');
-    // The diff scope menu: the right panel's toggle declares Escape too (and wins among non-modal shortcuts), so the
-    // menus' box scopes the shortcuts while it shows and closes the menus on Escape itself (the base closed the panel).
-    const scope = await component('diff.contract', 'DiffScopeMenu');
-    expect(scope).toContain('column aria-modal=true position="absolute"');
-    // Its own Escape is a shortcut inside that scope, so it closes the menus even when nothing inside holds the focus.
-    expect(scope).toContain('button press=closeMenus aria-keyshortcuts="Escape" aria-label="Close diff scope menu" tabindex=-1 aria-hidden=true');
-    expect(scope).toContain('  action closeMenus\n    dismiss()');
-    expect(await component('diff.contract', 'DiffPanelBody')).toContain('  action closeScope\n    scopeOpenedAt = -1\n    command("diff-view", "menu", "", 0)\n    focus("diff-scope")');
   });
 
   test('a row the keys move to has an id: every menuitem in a file with a keyboard menu', async () => {
@@ -166,9 +161,7 @@ describe('the shared menu keyboard (Base UI Menu)', () => {
 
   test('a menu opened by the data module: its trigger lets go of the focus, so the popup can take it', async () => {
     // Diff scope no longer waits for this: its panel shows the menu for the opening turn and focuses it.
-    for (const [file, comp, call] of [['r6-device.contract', 'R6DeviceWorkspaceView', 'local("surface-r6dev-menu", "", menu)'],
-      ['r4-surfaces-files.contract', 'R4CrumbView', 'local("surface-files-crumb", crumb.path, "")'], ['r4-surfaces.contract', 'R4LinkedRowView', 'local("surface-pr-menu", row.key, "")'],
-      ['markdown.contract', 'TableCopyButton', 'press()']] as const)
+    for (const [file, comp, call] of [['markdown.contract', 'TableCopyButton', 'press()']] as const)
       expect(await component(file, comp)).toContain(`    blur()\n    ${call}`);
   });
 });
@@ -196,6 +189,8 @@ describe('public popover triggers execute one ordered command sequence', () => {
     ['settings-scheduled.contract', 'TaskRow', 'triggerKey'], ['settings-scheduled.contract', 'ScheduledEditor', 'environmentKey'],
     ['providers-setup.contract', 'ProviderAccountRow', 'triggerKey'], ['r4-git.contract', 'R4GitRows', 'gitMenuKey'],
     ['pages-usage-prices.contract', 'UsagePricesApply', 'triggerKey'], ['r6-polish.contract', 'R6ScriptRow', 'triggerKey'],
+    ['shell-details.contract', 'OpenInRow', 'triggerKey'], ['r4-surfaces-files.contract', 'R4FileHeader', 'editorsKey'],
+    ['requests.contract', 'ApprovalActions', 'menuKey'], ['diff.contract', 'DiffToolbar', 'scopeKey'], ['r6-device.contract', 'R6RailMenuButton', 'triggerKey'],
   ];
   test('the inventory includes every opener and no retired invoker, focus redirect, watcher or counter remains', async () => {
     const found: string[] = [];
@@ -219,7 +214,7 @@ describe('public popover triggers execute one ordered command sequence', () => {
     const scope: Env = { ...await helpers, ...effects(calls), [itemName]: items, section: 'models', rowId: 'model', rowRef: 'repo:42',
       selectId: 'select', menuId: 'popup', popId: 'row-popup', idPrefix: 'account-', t: { id: 'thread' }, row: { id: 'row' },
       environment: { environmentId: 'env' }, account: { instanceId: 'instance' }, message: { id: 'message' },
-      host: { id: 'host', menuId: 'host-popup' }, item: { id: 'task', environmentId: 'task-env' } };
+      host: { id: 'host', menuId: 'host-popup' }, item: { id: 'task', environmentId: 'task-env' }, approval: { id: 'approval' }, testId: 'rail-trigger' };
     const popup = value(command[1]!, scope), sourceId = value(command[2]!, scope);
     expect(sourceId).not.toBe(popup);
     const triggerOwner = name === 'ThreadRow' ? await component(file, 'SidebarCardActions') : body;
@@ -289,27 +284,10 @@ describe('↓ and ↑ on a closed trigger open its menu at the first or the last
     // An action reads the state as it began, so the end comes from the key itself, not from the state it just set.
     const title = await component('chat.contract', 'ChatHeader');
     expect(title).toContain('action titleKey(k: string, e: KeyboardEvent)\n    titleEnd = kmKeyEnd(k)\n    if kmArrow(k) and not e.metaKey and not e.ctrlKey and not e.altKey\n      preventDefault()\n      title("open", "")\n      focus(kmOpenTarget("title-menu-keys", kmKeyEnd(k)))');
-    expect(await source('requests.contract')).toContain('      menuOpen = true\n      focus(kmOpenTarget(`approval-menu-${approval.id}-keys`, kmKeyEnd(k)))');
-    const details = await source('shell-details.contract');
-    expect(details).toContain('press=toggleEditors key=editorsKey focus=clearEditorsEnd ');
-    expect(details.split('\n').find(l => l.includes('KeyMenu(menuId="details-editors-keys"'))).toContain('keyed=kmEndKeyed(menuEnd)');
-    // A press that toggles reads the state as it began: the focus moves in only when the menu opens.
-    expect(await source('requests.contract')).toContain('    menuOpen = not menuOpen\n    // An action reads the state as it began: `not menuOpen` is the menu opening.\n    if not menuOpen\n');
-    // Menus the data module mounts: the trigger's keys ask for the end, its taking the focus clears it (no `pointerdown`: that would
-    // keep the press from the window's light-dismiss count), and the menu reads it as it mounts.
-    const rail = await component('r6-device.contract', 'R6RailButton');
-    expect(rail).toContain('button id=testId press=press key=keyed focus=menuEnd("")');
-    expect(rail).toContain('    if menu and kmArrow(k) and not e.metaKey and not e.ctrlKey and not e.altKey\n      preventDefault()\n      press()');
-    expect((await source('r6-device.contract')).split('keyed=kmEndKeyed(railEnd)').length - 1).toBe(3);
     const files = await source('r4-surfaces-files.contract');
-    for (const id of ['crumb-menu-keys', 'file-editors-keys']) expect(files.split('\n').find(l => l.includes(`KeyMenu(menuId="${id}"`))).toContain('keyed=kmEndKeyed(menuEnd)');
-    expect(files).toContain('key=crumbKey focus=menuEnd("")');
-    expect(files).toContain('key=editorsKey focus=menuEnd("")');
-    expect(await source('r4-surfaces.contract')).toContain('R4LinkedMenu(row=row, local=local, command=command, keyed=kmEndKeyed(menuEnd))');
-    const diff = await source('diff.contract');
-    expect(diff).toContain('DiffScopeMenu(data=data, command=command, dismiss=closeScope, keyed=kmEndKeyed(scopeEnd))');
-    expect(diff).toContain('button id="diff-scope" press=openScope key=scopeKey focus=scopeEnd("") ');
-    expect(await component('diff.contract', 'DiffToolbar')).not.toContain('blur()');
+    // The folder menu is a popover whose rows mount once the data module lists the folder: they read the end then.
+    expect(files.split('\n').find(l => l.includes('KeyMenu(menuId="crumb-menu-keys"'))).toContain('keyed=kmEndKeyed(menuEnd)');
+    expect(await source('r4-surfaces.contract')).toContain('R4LinkedMenu(row=row, menuId=`linked-pr-menu-${row.key}`, local=local, command=command, keyed=kmEndKeyed(menuEnd))');
     // The table's Copy menu mounts at the window: the request itself carries the end, and the menu reads it as `menu.keyed`.
     const copy = await component('markdown.contract', 'TableCopyButton');
     expect(copy).toContain('button press=openMenu key=menuKey ');
@@ -585,6 +563,9 @@ describe('one highlight: the pointer and the keys move one focus (Base UI highli
     const popupOf = (line: string): string | null => {
       const own = line.match(/^\s*KeyMenu\(menuId=(`[^`]*`|"[^"]*"|[\w.]+)/);
       if (own) return own[1]!;
+      // R6RailMenuButton names its KeyMenu's popup itself (`keysId`).
+      const rail = line.match(/^\s*R6RailMenuButton\(.*\bkeysId=("[^"]*")/)?.[1];
+      if (rail) return rail;
       const wrapped = line.match(/^\s*(?:SkPopup|CnMenu)\(menuId=(`[^`]*`|"[^"]*"|[\w.]+)/)?.[1];
       if (!wrapped) return null;
       return /^[`"]/.test(wrapped) ? `${wrapped.slice(0, -1)}-keys${wrapped.slice(-1)}` : `\`\${${wrapped}}-keys\``;
@@ -638,7 +619,7 @@ describe('one highlight: the pointer and the keys move one focus (Base UI highli
       ['settings-rows.contract', 'ScopeMenu', ['    if over\n      focus(rowId)\n    else if lit == id\n      focus(`${menuId}-keys`)', 'background-color=(lit == choice.id or choice.selected ?']],
       ['settings-rows.contract', 'CoreMenu', ['    if over and not disabled\n      focus(rowId)\n    else if lit == id\n      focus(`${menuId}-keys`)', 'background-color=(lit == option.id or option.selected ?']],
       ['settings-rows.contract', 'TraitsMenu', ['    if over\n      focus(rowId)\n    else if lit == id\n      focus(`${menuId}-keys`)', 'background-color=(option.selected or lit == option.id ?']],
-      ['r4-surfaces-files.contract', 'R4FilesSurface', ['  action editorHover(id: string, over: bool)\n    if over\n      focus(`file-editor-${id}`)\n    else if editorLit == id\n      focus("file-editors-keys")', 'background-color=(editorLit == editor.id ?']],
+      ['r4-surfaces-files.contract', 'R4FileEditorsMenu', ['  action hover(id: string, over: bool)\n    if over\n      focus(`file-editor-${id}`)\n    else if lit == id\n      focus("file-editors-keys")', 'background-color=(lit == editor.id ?']],
       ['snapshot.contract', 'SnapshotPanel', ['  action soundHover(id: string, over: bool)\n    if over\n      focus(id)\n    else if soundLit == id\n      focus("snapshot-sound-keys")', 'background-color=(soundLit == "snapshot-sound-off" ?']],
       ['r4-surfaces.contract', 'R4LinkedMenu', ['    if on\n      focus("linked-pr-menu-open")\n    else if openLit\n      focus("linked-pr-menu-keys")', 'background-color=(openLit ?']],
       ['pages-pr-actions.contract', 'PrdActionsMenu', ['    if on\n      focus("pr-more-open-host")\n    else if hostLit\n      focus("pr-more-keys")', 'background-color=(hostLit ?']],
