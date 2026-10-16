@@ -119,12 +119,16 @@ component Groceries
 - **Syntax.** Indent with spaces. Quote units (`width="50%"`); a bare number is pixels.
   Subtract with spaces (`a - b`): names hold hyphens. A view chooses with `if`/`else`, as
   an action does, and repeats with `for x in xs key=…`; no `form` (a field's Enter is its `submit`).
-- **Expressions.** No truthiness. A function the web has as a string or array method is
-  called as one (`s.trim()`, `xs.filter(x => …)`, `xs.length`); the rest are functions
-  (`first(xs)`, `round(n)`). A list type is `Item[]`. A record copy is
-  `Shape(old, field=value)`. An event passes its captured arguments, then the payload
-  (`toggle(i.id)` gets the bool). An action's writes land when it ends, so a later line
-  reads the old value: bind the new one (`let n = go(nav, url)`, `nav = n`, then read `n`).
+- **Expressions** are TypeScript's: what compiles means what it means in TypeScript, and
+  what does not is refused with what to write. The web's string and array methods are
+  methods (`s.trim()`, `xs.filter(x => …)`, `xs.length`); the rest are functions
+  (`first(xs)`, `round(n)`). What differs: no truthiness; absence is an option (`none`,
+  `some(x)`, `match`), not `null`; a value never changes (`xs.concat([x])`, a record copy
+  `Shape(old, field=value)`); `==` compares lists and records by value; a stored number is
+  finite (a `NaN` refuses the commit); sorting, grouping and joining are the data module's.
+  Nothing runs because a value changed: an event runs an action, which passes its captured
+  arguments, then the payload (`toggle(i.id)` gets the bool). Its writes land when it ends, so a
+  later line reads the old value: bind the new one (`let n = go(nav, url)`, `nav = n`, read `n`).
 - **Data.** A `resource` is a reactive read (`pending(x)`, `failed(x)`); a `mutation` a
   write (`queue` keeps them in order, `refreshes` re-reads, `then` runs an action: clear
   the field only on an ok reply, as `afterAdd` does). Only the root declares them;

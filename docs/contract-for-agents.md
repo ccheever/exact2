@@ -272,6 +272,25 @@ an example too: `contract vocab formatDate`), or says what to write instead
 
 ## Values, expressions, and functions
 
+An expression Contract accepts means what the same TypeScript means, except as
+this table says (LLP 1116.016 D1; `semantics/corpus/typescript/` checks each
+against JavaScript), and a TypeScript form Contract refuses is refused with
+what to write. Nothing runs because a value changed (no `useEffect` or watch).
+
+| Contract | Because |
+| --- | --- |
+| No truthiness: a condition is a `bool` (`if name != ""`) | every condition says what it tests |
+| Absence is an option (`none`, `some(x)`, `match`), not `undefined` or `null`; no `??` or `?.` | a value whose type has no absence is never absent |
+| A value never changes: no `push`, `sort`, `xs[i] = …`; `concat`, a record copy | an action is one transaction |
+| `==` compares lists and records by value; no `===` | values have no identity |
+| A string is well-formed: a lone surrogate becomes U+FFFD (`"😀".slice(0, 1)`) | every host holds Unicode scalar values |
+| A stored number is finite: a commit that would put `NaN` or `Infinity` in a state or derive is refused, and the write that caused it does not land | every host can carry it |
+| `toFixed` and the format functions print `""` for a non-finite number | one rule for every format |
+| `min`/`max` drop a `NaN` operand (`max(NaN, 1)` is `1`) | today's roster; a debt |
+| Names hold hyphens, so subtraction takes spaces (`a - b`) | CSS's names |
+| A binding's list work is bounded (65,536 steps); a row's own binding has its own bound, so a row that searches another table costs rows × items (`lower-row-lookup`) | determinism on every host |
+| Sorting, grouping, joining and aggregates are the data module's | a view computes what it shows |
+
 - Types are `number`, `string`, `bool`, declared shapes, `option<T>`, `T[]`,
   and `action` for behavior interfaces. Do not emit authored `any` or object types.
 - `[a, b, c]` is a list of its items, which may span lines and keep a trailing
