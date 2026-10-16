@@ -106,6 +106,7 @@ internal class Bounds {
                 18 -> i += 2
                 19 -> { add(out, f(b, i + 2), f(b, i + 3), f(b, i + 2) + f(b, i + 4), f(b, i + 3) + f(b, i + 5)); i += 26 }
                 25 -> i += 3 + b.get(i + 2)
+                43 -> i += 2 + b.get(i + 1)
                 26 -> i += 3 + (b.get(i + 2) + 3) / 4
                 27 -> { add(out, f(b, i + 2), f(b, i + 3), f(b, i + 2) + f(b, i + 4), f(b, i + 3) + f(b, i + 5)); i += 14 }
                 42 -> { val p = i + 2 + 2 * b.get(i + 1); add(out, f(b, p), f(b, p + 1), f(b, p) + f(b, p + 2), f(b, p + 1) + f(b, p + 3)); i = p + 12 }

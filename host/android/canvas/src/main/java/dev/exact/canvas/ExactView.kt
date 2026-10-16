@@ -995,6 +995,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
                 13 -> i = skipPath(b, i + 5)
                 14 -> i += 18
                 25 -> i += 3 + b.get(i + 2)
+                43 -> i += 2 + b.get(i + 1)
                 27 -> i += 14
                 42 -> i += 14 + 2 * b.get(i + 1)
                 40 -> i += 27

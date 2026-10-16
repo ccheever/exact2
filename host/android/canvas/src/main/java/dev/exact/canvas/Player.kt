@@ -238,6 +238,8 @@ internal class Player(private val fonts: Map<Int, Font>) {
 
     /** The last DASH: its intervals (path units) and phase; null when solid. */
     private var dash: FloatArray? = null
+    /** The last SHADER, for the next shape op; null when it paints its colour. */
+    private var shader: android.graphics.Shader? = null
     private var dashPeriod = 0f
     private var dashPhase = 0f
     private val measure = android.graphics.PathMeasure()
@@ -685,19 +687,23 @@ internal class Player(private val fonts: Map<Int, Font>) {
                 2 -> {
                     fill.color = b.get(i + 1)
                     if (tint < 1f) fill.alpha = Math.round(fill.alpha * tint)
+                    fill.shader = shader
                     if (readRRect(b, i + 2)) c.drawRect(rect, fill)
                     else if (uniform()) c.drawRoundRect(rect, radii[0], radii[1], fill)
                     else { path.rewind(); path.addRoundRect(rect, radii, Path.Direction.CW); c.drawPath(path, fill) }
+                    fill.shader = null; shader = null
                     i += 14
                 }
                 3 -> {
                     fill.color = b.get(i + 1)
+                    fill.shader = shader
                     val pathAt3 = i + 2
                     i = readPath(b, i + 3, b.get(i + 2) == 1)
                     if (circle) {
                         oval.set(circleX - circleR, circleY - circleR, circleX + circleR, circleY + circleR)
                         c.drawOval(oval, fill)
-                    } else if (!icon(c, b, pathAt3, i, fill)) c.drawPath(path, fill)
+                    } else if (shader != null || !icon(c, b, pathAt3, i, fill)) c.drawPath(path, fill)
+                    fill.shader = null; shader = null
                 }
                 4 -> {
                     c.save()
@@ -783,6 +789,7 @@ internal class Player(private val fonts: Map<Int, Font>) {
                 }
                 13 -> {
                     stroke.color = b.get(i + 1)
+                    stroke.shader = shader
                     stroke.strokeWidth = f(b, i + 2)
                     stroke.strokeCap = when (b.get(i + 3)) { 1 -> Paint.Cap.ROUND; 2 -> Paint.Cap.SQUARE; else -> Paint.Cap.BUTT }
                     stroke.strokeJoin = when (b.get(i + 4)) { 1 -> Paint.Join.ROUND; 2 -> Paint.Join.BEVEL; else -> Paint.Join.MITER }
@@ -795,9 +802,10 @@ internal class Player(private val fonts: Map<Int, Font>) {
                     else if (circle && (circleClosed || stroke.strokeCap != Paint.Cap.SQUARE)) {
                         oval.set(circleX - circleR, circleY - circleR, circleX + circleR, circleY + circleR)
                         c.drawOval(oval, stroke)
-                    } else if (!strokePolyline(c, b, pathAt) && !icon(c, b, pathAt, i, stroke)) c.drawPath(path, stroke)
-                    dash = null
+                    } else if (!strokePolyline(c, b, pathAt) && (shader != null || !icon(c, b, pathAt, i, stroke))) c.drawPath(path, stroke)
+                    dash = null; stroke.shader = null; shader = null
                 }
+                43 -> { shader = Shaders.read(b, i); i += 2 + b.get(i + 1) }
                 25 -> {
                     val n = b.get(i + 2)
                     val d = FloatArray(n) { f(b, i + 3 + it) }
