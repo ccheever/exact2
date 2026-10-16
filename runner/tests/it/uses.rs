@@ -306,6 +306,30 @@ fn the_picker_is_a_file_input_or_show_picker() {
     assert!(input.has(Capability::Picker));
 }
 
+/// LLP 1047.001.000 E: iOS's photo picker is a file input whose `accept` is
+/// only images and videos (the compiler takes only a literal); a document
+/// input links the picker without it.
+#[test]
+fn the_media_picker_is_a_file_input_that_accepts_only_media() {
+    let input = |attrs: &str| {
+        used(&format!("component A\n  view\n    column\n      input type=\"file\" id=\"f\"{attrs}\n      text \"a\"\n"))
+    };
+    for media in [" accept=\"image/*\"", " accept=\"image/png, video/mp4\""] {
+        let uses = input(media);
+        assert!(
+            uses.has(Capability::Picker) && uses.has(Capability::MediaPicker),
+            "{media}"
+        );
+    }
+    for document in ["", " accept=\"image/*, */*\"", " accept=\"*/*\""] {
+        let uses = input(document);
+        assert!(
+            uses.has(Capability::Picker) && !uses.has(Capability::MediaPicker),
+            "{document}"
+        );
+    }
+}
+
 #[test]
 fn svg_islands_are_a_mask_a_filter_element_or_a_filter_on_an_svg_element() {
     // @ref LLP 1055.000 D10, D14 — what makes a native host open its island module.
