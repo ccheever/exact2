@@ -1,6 +1,86 @@
 // Same file in both isolated adapter mounts; neither mount can import its sibling.
-import type { ReleaseSnapshot, ServedRelease } from 'snapback4/contract';
-export type { ReleaseSnapshot } from 'snapback4/contract';
+// Structural public wire types: no npm dependency is resolved from the adapter mount.
+/** The public Quarry wire type shared by column and argument descriptions. */
+export type ServedType = "Id" | "Principal" | "Int" | "Bool" | "Time" | "Cursor" | "Scalar" | {
+    readonly Ref: {
+        readonly table: string;
+    };
+} | {
+    readonly Text: {
+        readonly max: number;
+        readonly min?: number;
+        readonly format?: string | null;
+    };
+} | {
+    readonly Bytes: {
+        readonly max: number;
+    };
+} | {
+    readonly Image: {
+        readonly max: number;
+        readonly once?: boolean;
+    };
+} | {
+    readonly Video: {
+        readonly max: number;
+    };
+} | {
+    readonly File: {
+        readonly max: number;
+        readonly types?: readonly string[];
+    };
+} | {
+    readonly Json: {
+        readonly max_bytes: number;
+    };
+} | {
+    readonly IntRange: {
+        readonly min?: number;
+        readonly max?: number;
+    };
+} | {
+    readonly Enum: {
+        readonly variants: readonly string[];
+    };
+} | {
+    readonly Decimal: {
+        readonly scale: number;
+    };
+} | {
+    readonly Money: {
+        readonly currency: string;
+        readonly scale: number;
+    };
+} | {
+    readonly Optional: ServedType;
+} | {
+    readonly List: {
+        readonly of?: ServedType | null;
+        readonly max: number;
+    };
+} | {
+    readonly ListRange: {
+        readonly of?: ServedType | null;
+        readonly min: number;
+        readonly max: number;
+    };
+};
+export interface ServedOperation {
+    readonly kind: "query" | "mutation" | "action";
+    readonly args: Readonly<Record<string, ServedType>>;
+}
+export interface ServedRelease {
+    readonly generation: number;
+    readonly operations: Readonly<Record<string, ServedOperation>>;
+    readonly tables: Readonly<Record<string, {
+        readonly fields: Readonly<Record<string, ServedType>>;
+    }>>;
+}
+export type ReleaseSnapshot = ServedRelease | {
+    readonly loading: true;
+} | {
+    readonly denied: {readonly code: string; readonly family: string; readonly message: string; readonly retryable?: boolean};
+};
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 /** No timers: Contract refreshes release() even while every operation gate is closed. */
 export class ReleaseTracker {
