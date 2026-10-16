@@ -39,8 +39,9 @@ other bad lines. The table is `runner/src/hardened.rs`, and
 `reach.helperEntitlements` (path → keys), never `reach.entitlements`.
 `exact release` signs through `signRelease`
 (`host/apple/assets.mjs`): each named helper takes exactly its own keys, the app
-only its device entitlements, and other nested code none. A target that is not a regular, unlinked
-Mach-O executable the walk signs inside a resources destination is refused,
+only its device entitlements, and other nested code none. A target that is not a regular Mach-O executable the walk signs inside a
+resources destination, reached through no symbolic link and with no other hard
+link, is refused,
 every one in one error, at `mac --bundle` and again at release. The lines are
 grant-ceiling lines, so adding one classifies as a binary release with no new
 classifier row. Pre-seal: a staging file goes in a `host.macos.resources` tree
@@ -58,7 +59,10 @@ sibling executable and a dylib with none. Run under the hardened runtime, the
 granted helper maps `MAP_JIT` memory (exit 0) and its undeclared sibling and
 the app are refused (exit 1). `codesign --verify --deep --strict` passes, then
 fails once the staged stamp under `Resources/` is edited. With no runtime grant,
-every path is signed with no entitlements. A receipt naming `app`, or a path
+every path is signed with no entitlements. A nested bundle's grant follows the
+executable `NSBundle` resolves for it: an `Info-macos.plist` or commented decoy
+is refused, and an executable named with an XML entity keeps its grant. A
+receipt naming `app`, a hard-linked target, or a path
 outside the resources destinations, is refused before anything is signed. Bake
 and runner unit tests cover the grammar, the derivation and the refusal of
 `app`.

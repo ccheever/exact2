@@ -297,33 +297,49 @@ export const macReleaseEntitlements = (compat) => {
     ...(domains.length ? { 'com.apple.developer.associated-domains': domains } : {}) });
 };
 
+/** The executable a bundle runs, as Foundation resolves it (`NSBundle`
+ *  `executablePath`, the resolver `codesign` shares): it honours
+ *  `Info-macos.plist`, XML comments and entities, which `bundleExecutable`'s
+ *  quick read does not. Real path, or null. */
+function resolvedExecutable(bundle) {
+  const read = spawnSync('osascript', ['-l', 'JavaScript', '-e',
+    'ObjC.import("Foundation"); function run(argv) { const b = $.NSBundle.bundleWithPath(argv[0]); return b.isNil() ? "" : (ObjC.unwrap(b.executablePath) || ""); }',
+    bundle], { encoding: 'utf8' });
+  const path = read.status === 0 ? read.stdout.replace(/\n$/, '') : '';
+  return path && existsSync(path) ? realpathSync(path) : null;
+}
+
 /** Each helper a `runtime.<exception> <path>` grant names (LLP 1069.008 D9),
- *  keyed by the path `signingOrder` signs it as (a nested bundle, for that
- *  bundle's main executable), mapped to its entitlements plist. A target must
- *  be a regular Mach-O executable inside a `host.macos.resources` destination,
- *  reached through no link and signed by the walk; every target that is not
- *  is refused, all in one error. No grant: an empty map. */
+ *  keyed by the path `signingOrder` signs it as (a nested bundle, for the
+ *  executable that bundle runs), mapped to its entitlements plist. A target
+ *  must be a regular Mach-O executable inside a `host.macos.resources`
+ *  destination, reached through no symbolic link, with no other hard link
+ *  (a signature written to it is every link's), and signed by the walk;
+ *  every target that is not is refused, all in one error. No grant: an
+ *  empty map. */
 export function helperEntitlements(bundle, manifest, compat, order) {
   const declared = Object.entries(compat?.reach?.helperEntitlements ?? {});
   const signed = new Map(), errors = [];
   if (!declared.length) return signed;
   const roots = macResourceMappings(manifest).map(({ to }) => to);
   const contents = resolve(bundle, 'Contents');
+  // Signing a nested bundle signs the executable Foundation resolves for it,
+  // whichever file the walk took for its main one; so a target that is that
+  // executable takes its grant through the bundle, which the walk signs after
+  // anything it signed the file as on its own.
+  const runs = new Map();
+  for (const p of order) if (p !== bundle && NESTED_BUNDLE.test(p)) {
+    const executable = resolvedExecutable(p);
+    if (executable) runs.set(executable, p);
+  }
   for (const [path, keys] of declared) {
     const file = resolve(contents, path), info = lstatSync(file, { throwIfNoEntry: false });
-    // A nested bundle takes its executable's grant only when Apple's own
-    // parser names that file: `bundleExecutable`'s quick read of the XML can be
-    // misled by a comment or an entity, which would grant another executable.
-    const named = (p) => {
-      const plist = dirname(file) === resolve(p, 'Contents/MacOS') ? resolve(p, 'Contents/Info.plist') : resolve(p, 'Info.plist');
-      const read = spawnSync('plutil', ['-extract', 'CFBundleExecutable', 'raw', '-o', '-', plist], { encoding: 'utf8' });
-      return read.status === 0 && read.stdout.replace(/\n$/, '') === basename(file);
-    };
-    const at = order.includes(file) ? file
-      : order.find((p) => p !== bundle && NESTED_BUNDLE.test(p) && bundleExecutable(p) === file && named(p));
+    const real = info?.isFile() ? realpathSync(file) : null;
+    const at = runs.get(real) ?? (order.includes(file) ? file : null);
     const why = !roots.some((to) => path.startsWith(to + '/')) ? `is not inside a host.macos.resources destination (${roots.join(', ') || 'none declared'})`
       : !info?.isFile() ? 'is not a file in the bundle'
-      : realpathSync(file) !== resolve(realpathSync(contents), path) ? 'is reached through a link'
+      : real !== resolve(realpathSync(contents), path) ? 'is reached through a link'
+      : info.nlink !== 1 ? 'has another hard link, which its signature would reach'
       : machOType(file) !== 2 ? 'is not a Mach-O executable'
       : !at ? 'is not code the release signs' : null;
     if (why) errors.push(`runtime grant: Contents/${path} ${why}`);

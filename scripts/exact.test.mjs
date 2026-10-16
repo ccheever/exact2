@@ -5,7 +5,7 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, relative, resolve } from 'node:path';
 import { signingOrder, signRelease, signedGpuProduct, assertArchiveFrameworks } from '../host/apple/assets.mjs';
@@ -232,14 +232,21 @@ test.skipIf(!tools)('release signs each helper a runtime grant names with exactl
   cc('Contents/Helpers/node/lib/addon.dylib', '-dynamiclib', '-Wl,-no_adhoc_codesign');
   cc('Contents/Helpers/Tool.app/Contents/MacOS/Tool', '-Wl,-no_adhoc_codesign');
   writeFileSync(resolve(app, 'Contents/Helpers/Tool.app/Contents/Info.plist'), plist('Tool'));
+  cc('Contents/Helpers/Tool.app/Contents/MacOS/sub', '-Wl,-no_adhoc_codesign'); // a second executable in a granted bundle
+  // A name the plist spells with an entity: the walk's quick read takes `A&amp;B`, Foundation and codesign `A&B`.
+  cc('Contents/Helpers/Amp.app/Contents/MacOS/A&B', '-Wl,-no_adhoc_codesign');
+  writeFileSync(resolve(app, 'Contents/Helpers/Amp.app/Contents/Info.plist'), plist('A&amp;B'));
   // A staging file the resources tree carries; codesign takes only code under Helpers/, so data goes under Resources/.
   mkdirSync(resolve(app, 'Contents/Resources/stamp'), { recursive: true });
   writeFileSync(resolve(app, 'Contents/Resources/stamp/channel'), 'beta\n');
-  const manifest = { host: { macos: { resources: [{ from: 'node', to: 'Helpers/node' }, { from: 'tool', to: 'Helpers/Tool.app' }, { from: 'stamp', to: 'Resources/stamp' }, { from: 'trick', to: 'Helpers/Trick.app' }] } } };
+  const manifest = { host: { macos: { resources: [{ from: 'node', to: 'Helpers/node' }, { from: 'tool', to: 'Helpers/Tool.app' }, { from: 'stamp', to: 'Resources/stamp' }, { from: 'trick', to: 'Helpers/Trick.app' },
+    { from: 'amp', to: 'Helpers/Amp.app' }, { from: 'plat', to: 'Helpers/Plat.app' }] } } };
+  const outside = `is not inside a host.macos.resources destination (${manifest.host.macos.resources.map(({ to }) => to).join(', ')})`;
   const [jit, memory, library] = ['allow-jit', 'allow-unsigned-executable-memory', 'disable-library-validation'].map((name) => `com.apple.security.cs.${name}`);
   const microphone = 'com.apple.security.device.audio-input'; // the app's own, from a device grant
   const compat = { reach: { entitlements: [microphone], helperEntitlements: {
-    'Helpers/node/bin/node': [jit, memory], 'Helpers/Tool.app/Contents/MacOS/Tool': [jit, library] } } };
+    'Helpers/node/bin/node': [jit, memory], 'Helpers/Tool.app/Contents/MacOS/Tool': [jit, library],
+    'Helpers/Amp.app/Contents/MacOS/A&B': [jit] } } };
   const sign = (c) => signRelease(app, { compat: c, manifest, identity: '-', id: 'dev.exact.fixture', scratch: dir, timestamp: ['--timestamp=none'] });
   const keys = (path) => {
     const r = spawnSync('codesign', ['-d', '--entitlements', '-', '--xml', resolve(app, path)], { encoding: 'utf8' });
@@ -253,14 +260,17 @@ test.skipIf(!tools)('release signs each helper a runtime grant names with exactl
   assert.equal(verify.status, 0, verify.stderr);
   assert.deepEqual(keys('Contents/Helpers/node/bin/node'), [jit, memory]);
   assert.deepEqual(keys('Contents/Helpers/Tool.app'), [jit, library], 'a nested app carries its executable\'s grant');
+  assert.deepEqual(keys('Contents/Helpers/Amp.app'), [jit], 'the bundle signed after its executable keeps the grant');
   assert.deepEqual(keys('.'), [microphone], 'no runtime exception reaches the app');
-  for (const path of ['Contents/Helpers/node/bin/npx', 'Contents/Helpers/node/lib/addon.dylib']) assert.deepEqual(keys(path), [], path);
+  for (const path of ['Contents/Helpers/node/bin/npx', 'Contents/Helpers/node/lib/addon.dylib', 'Contents/Helpers/Tool.app/Contents/MacOS/sub']) assert.deepEqual(keys(path), [], path);
   for (const path of ['Contents/Helpers/node/bin/node', 'Contents/Helpers/node/bin/npx', 'Contents/Helpers/Tool.app'])
     assert.match(spawnSync('codesign', ['-dv', resolve(app, path)], { encoding: 'utf8' }).stderr, /flags=0x10002\(adhoc,runtime\)/, path);
   // The hardened runtime itself: JIT for the granted helper and refused to its undeclared sibling.
   assert.equal(runs('Contents/Helpers/node/bin/node'), 0);
   assert.equal(runs('Contents/Helpers/Tool.app/Contents/MacOS/Tool'), 0);
+  assert.equal(runs('Contents/Helpers/Amp.app/Contents/MacOS/A&B'), 0);
   assert.equal(runs('Contents/Helpers/node/bin/npx'), 1);
+  assert.equal(runs('Contents/Helpers/Tool.app/Contents/MacOS/sub'), 1, 'a bundle\'s grant stays on the executable it runs');
   assert.equal(runs('Contents/MacOS/Fixture'), 1, 'the app carries no runtime exception');
   writeFileSync(resolve(app, 'Contents/Resources/stamp/channel'), 'stable\n');
   assert.notEqual(spawnSync('codesign', ['--verify', '--deep', '--strict', app]).status, 0, 'the stamp is inside the seal');
@@ -277,13 +287,20 @@ test.skipIf(!tools)('release signs each helper a runtime grant names with exactl
   cc('Contents/Helpers/Trick.app/Contents/MacOS/Granted', '-Wl,-no_adhoc_codesign');
   cc('Contents/Helpers/Trick.app/Contents/MacOS/Other', '-Wl,-no_adhoc_codesign');
   writeFileSync(resolve(app, 'Contents/Helpers/Trick.app/Contents/Info.plist'), plist('Other').replace('<dict>', '<dict><!-- <key>CFBundleExecutable</key><string>Granted</string> -->'));
-  const bad = Object.fromEntries(['Helpers/node/lib/addon.dylib', 'Helpers/node/bin/missing', 'Helpers/node/bin/link', 'Frameworks/node/bin/node', 'Helpers/Trick.app/Contents/MacOS/Granted', 'app'].map((path) => [path, [jit]]));
+  // Foundation prefers Info-macos.plist, so this bundle runs `Other` whatever Info.plist names.
+  cc('Contents/Helpers/Plat.app/Contents/MacOS/Granted', '-Wl,-no_adhoc_codesign');
+  cc('Contents/Helpers/Plat.app/Contents/MacOS/Other', '-Wl,-no_adhoc_codesign');
+  writeFileSync(resolve(app, 'Contents/Helpers/Plat.app/Contents/Info.plist'), plist('Granted'));
+  writeFileSync(resolve(app, 'Contents/Helpers/Plat.app/Contents/Info-macos.plist'), plist('Other'));
+  // A signature written to one hard link is every link's.
+  linkSync(resolve(app, 'Contents/Helpers/node/bin/npx'), resolve(app, 'Contents/Helpers/node/bin/npx-twin'));
+  const bad = Object.fromEntries(['Helpers/node/lib/addon.dylib', 'Helpers/node/bin/missing', 'Helpers/node/bin/link', 'Frameworks/node/bin/node',
+    'Helpers/Trick.app/Contents/MacOS/Granted', 'app', 'Helpers/Plat.app/Contents/MacOS/Granted', 'Helpers/node/bin/npx'].map((path) => [path, [jit]]));
   assert.throws(() => sign({ reach: { helperEntitlements: bad } }), (error) => {
     assert.deepEqual(error.message.split('\n').map((line) => line.replace(/^runtime grant: Contents\/\S+ /, '')), [
       'is not a Mach-O executable', 'is not a file in the bundle', 'is not a file in the bundle',
-      'is not inside a host.macos.resources destination (Helpers/node, Helpers/Tool.app, Resources/stamp, Helpers/Trick.app)',
-      'is not code the release signs',
-      'is not inside a host.macos.resources destination (Helpers/node, Helpers/Tool.app, Resources/stamp, Helpers/Trick.app)']);
+      outside, 'is not code the release signs', outside, 'is not code the release signs',
+      'has another hard link, which its signature would reach']);
     return true;
   });
   assert.deepEqual(keys('Contents/Helpers/node/bin/node'), [], 'a refusal signs nothing');
