@@ -266,7 +266,10 @@ final class FieldCell: NSTextFieldCell {
     }
     /// The session's editor, which tells the field's node what the window's does not (`FieldEditor`).
     override func fieldEditor(for controlView: NSView) -> NSTextView? {
-        (controlView.superview as? NodeView)?.presenter?.fieldEditor ?? super.fieldEditor(for: controlView)
+        // Through its delegate, the node, wherever the field is: a prompt's
+        // alert holds it in its accessory view (AlertsMac.swift).
+        let node = (controlView as? NSTextField)?.delegate as? NodeView ?? controlView.superview as? NodeView
+        return node?.presenter?.fieldEditor ?? super.fieldEditor(for: controlView)
     }
     override func drawingRect(forBounds rect: NSRect) -> NSRect {
         (controlView?.superview as? NodeView)?.nativeEditorRect(in: rect) ?? super.drawingRect(forBounds: rect)

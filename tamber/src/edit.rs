@@ -761,7 +761,8 @@ impl Doc {
                         _ => 0,
                     };
                     let (kept, body) = body.split_at(keep);
-                    // A token line's metadata (`scheme=fixed`) is no use.
+                    // A token line's metadata is no value, but `pair=` names
+                    // tokens (LLP 1121 D3), so those names are renamed.
                     let words = lex::words(body.trim_end());
                     let meta_from = (1..words.len())
                         .rev()
@@ -775,8 +776,9 @@ impl Doc {
                         .map_or(body.len(), |i| words[i].0);
                     let (body, meta) = body.split_at(meta_from);
                     let renamed = rename_words(body, from, to);
-                    if renamed != body {
-                        self.lines[n] = format!("{kept}{renamed}{meta}{}", comment.unwrap_or(""));
+                    let paired = rename_pairs(meta, from, to);
+                    if renamed != body || paired != meta {
+                        self.lines[n] = format!("{kept}{renamed}{paired}{}", comment.unwrap_or(""));
                     }
                 }
                 Ok(vec![Op::RenameToken {
@@ -998,6 +1000,46 @@ pub(crate) fn meta_word(k: &str, v: &str) -> String {
         true => format!("{k}={v}"),
         false => format!("{k}=\"{}\"", v.replace('\\', "\\\\").replace('"', "\\\"")),
     }
+}
+
+/// A token line's metadata with each `pair=` list's `from` as `to`, the
+/// list written back as `meta_word` writes one (quoted when it must be).
+fn rename_pairs(meta: &str, from: &str, to: &str) -> String {
+    let mut out = String::new();
+    let mut at = 0;
+    for (start, word) in lex::words(meta) {
+        let Some(value) = word.strip_prefix("pair=") else {
+            continue;
+        };
+        let bare = value
+            .strip_prefix('"')
+            .and_then(|v| v.strip_suffix('"'))
+            .map_or_else(
+                || value.to_string(),
+                |v| v.replace("\\\"", "\"").replace("\\\\", "\\"),
+            );
+        let names: Vec<&str> = bare
+            .split(',')
+            .map(|n| if n.trim() == from { to } else { n })
+            .collect();
+        if !bare.split(',').any(|n| n.trim() == from) {
+            continue;
+        }
+        out.push_str(&meta[at..start]);
+        // Names joined by commas, bare as written when every name is plain.
+        let list = names.join(",");
+        let plain = list
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "-_.,".contains(c));
+        out.push_str(&if plain {
+            format!("pair={list}")
+        } else {
+            meta_word("pair", &list)
+        });
+        at = start + word.len();
+    }
+    out.push_str(&meta[at..]);
+    out
 }
 
 /// `text` with each whole use of the name `from` as `to`: a name is whole

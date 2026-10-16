@@ -72,7 +72,7 @@ statuses:
 |---|---|
 | 400 | malformed; refused by the checker; an unknown inverse; a `commit` refused |
 | 404 | an unknown proposal or commit |
-| 409 | a conflict (`conflict: true`); a revert refused; a commit while a write is in flight (no `conflict` field) |
+| 409 | a conflict (`conflict: true`); a revert refused; a commit while a write is in flight (no `conflict` field); a commit whose `scope` is stale (`stale: true`) |
 | 413 | too large |
 | 500 | reading git failed (`history`, `revert`, a write's baseline) |
 | 503 | the design server is down |
@@ -124,6 +124,7 @@ Each request is `POST /__tamber` with `{"method": "…", …}`.
 - `live` (*1.2*): true when a dev loop serves the wire, whose running builds take a value-only edit in
   place, with no reload (LLP 1121 stage 4; see [The live table](#the-live-table-llp-1121-stage-4)).
   False from a server no dev loop runs.
+- `design`: the app's design file, the one an operation with no `file` edits (*1.1*).
 
 A `client` given in a hello is not a write's attribution (see `transaction`).
 
@@ -140,6 +141,11 @@ A `client` given in a hello is not a write's attribution (see `transaction`).
 - `meta`: `{dials: {name: [[key, value], …]}, tokens: {…}}`, the `key=value` metadata words as
   written (`control`, `step`, `label`, `help`, `options`, `group`, `priority`, `pair`, …). It is
   keyed by IR names, so a role is keyed by its row spelling.
+- `pairs`: `{token: [{name, token, fallback}]}`, what each token says it is drawn on (`pair=`,
+  LLP 1121 D3): `token` is whether `name` is a token of the design; a role no token overrides
+  has its `fallback` `{light, dark}` (*1.1*).
+- `warnings`: `[{file, line, col, id, message}]`, the design's `tamber-contrast` warnings, a pair
+  below 4.5:1 at its lowest tuple and scheme. They never refuse the design (*1.1*).
 
 **`resolve`** `{token, file?}` gives the token's value **as the build stores it**, per app-mode
 tuple:
@@ -235,16 +241,20 @@ A digest it carries is checked as a transaction's is, and a stale one is 409 (wi
   landed. If it can't judge the record (a partial landing it can't account for, a temporary
   file with the wrong digest, an unreadable record), it keeps it and refuses to start. The wire
   then reports the server down.
-- **The reply** is `{files, changed, class, diff, synthetic, client, written, before, inverse}`
+- **The reply** is `{files, changed, class, diff, synthetic, client, written, before, inverse, write}`
   (`class` and `synthetic` as `propose` answers them):
   - `files` gives every design file's digest after the write;
+  - `write` numbers the write (rising, per run), the same number its `changed` event and the
+    session's edits carry, so a client can tell its own write's event from another's that left
+    the same bytes (*1.1*);
   - `written` lists the files it wrote, and `before` their digests as it read them;
   - `inverse` is an id, or null when nothing changed on disk.
 - **A conflict** is 409, `{conflict: true, message, files, stale: [path], by: {path: who}}`. `by`
   names who last changed each stale file: a client, or `"changed on disk"` for a hand edit or a
   checkout.
 - **Refused by the checker:** `{message: "refused", diagnostics: [{file, line, col, id,
-  message}]}`.
+  message}]}`. A write (or a propose) that would make a role override vary by an app axis is
+  refused the same way, `tamber-role-axis`, since the build would refuse it (*1.1*).
 - **An editor that ignores the lock** and saves between the server's last read and its rename is
   overwritten. The digests narrow that window but don't close it.
 
@@ -263,7 +273,17 @@ that write left it. Otherwise it is a conflict, with `by`.
 
 ### `commit` (LLP 1122 D9)
 
-`{client, message?}` commits to git the design files this session wrote. It never pushes.
+`{client, message?, dry?, scope?}` commits to git the design files this session wrote. It never
+pushes.
+- **`dry: true`** runs the same checks and writes nothing. It answers `{files, edits, scope}`:
+  what a commit would take, so a client can compose the message from the commit's own scope
+  (writes from before it connected among them). Files that are HEAD's again (an edit and its
+  undo) answer "nothing to commit" (*1.1*).
+- **`scope`**, a dry run's given back, refuses the commit (409, `stale: true`) if the session has
+  written since, so a write that lands in between is never committed under a message that leaves
+  it out (*1.1*).
+- **`edits`** (on a dry run and a commit) is `[{file, client, tokens, write?}]`, each session edit
+  with its author, the tokens it changed and its write's number (*1.1*).
 - **Refused (400), naming each file and why** (`refused: [{file, why}]`), when any of these holds:
   - the file was dirty or staged when the session first wrote it;
   - HEAD has moved since;
@@ -276,7 +296,7 @@ that write left it. Otherwise it is a conflict, with `by`.
   the real index's entries for those paths only, so other staging is untouched. HEAD moves only
   from the HEAD the guard checked. If it can't move, those index entries are put back.
 - **The message** is the one given, or a composed one, followed by each edit and its author.
-- **The reply** is `{commit, files: [path]}`, announced as a `committed` event.
+- **The reply** is `{commit, files: [path], edits}`, announced as a `committed` event.
 
 ### Held proposals (LLP 1122 D10)
 
@@ -349,7 +369,8 @@ with.
 
 `{kind, source, name?, prefix?, client}`, or `{kind, sources: [{name, text}], prefix?, client}`.
 - **The source.** `source` is the file's text. `name` is its file name; a Figma export's
-  `<Collection>.<Mode>.json` names its modes. `sources` takes 1 to 256 files.
+  `<Collection>.<Mode>.json` names its modes. `sources` takes 1 to 256 files, and only for
+  `dtcg`: a stylesheet's importer reads one sheet, and several are refused (400, *1.1*).
 - **`kind`** is `shadcn`, `tailwind` or `dtcg`. `prefix` is the token prefix, by default
   `shadcn`, `tw` or `dtcg`.
 - **Astryx is refused here** and keeps its CLI (`bun exact.mjs tamber import astryx …`), since
@@ -362,7 +383,9 @@ with.
   - the first `tokens` operations are the importer's own (tokens and any `add-axis`). Each
     offer's `items` are its role overrides, which a person leaves out unless ticked (see
     `accept`).
-- **A source that doesn't parse** is refused with string `diagnostics`.
+- **A source that doesn't parse** is refused, `{message: "the source is refused", diagnostics:
+  [{file, line, col, id, message}]}` as a checker's refusal is. With several files a
+  diagnostic is `{id, message}`, its message naming the file (*1.1*).
 - **An import with nothing new** answers 200, `{proposal: null, review, message}`.
 
 ## The change stream
@@ -377,8 +400,8 @@ Every event carries `seq` (rising, per run) and `epoch` (this run). The server k
 
 | `event` | Fields |
 |---|---|
-| `changed` | `files` (every digest now), `edited` (paths whose digest moved, and paths gone, which `files` no longer lists), `changed: [{file, token}]` (null for a hand edit), `client`, `acceptedBy?`, `proposal?` |
-| `committed` | `client`, `commit`, `files: [path]` |
+| `changed` | `files` (every digest now), `edited` (paths whose digest moved, and paths gone, which `files` no longer lists), `changed: [{file, token}]` (null for a hand edit), `client`, `write?` (the write's number, *1.1*), `acceptedBy?`, `proposal?` |
+| `committed` | `client`, `commit`, `files: [path]`, `edits` (the commit's reply's, *1.1*) |
 | `proposal` | the held proposal: `proposal`, `client`, `diff`, `changed`, `class`, `expires`, `ops`, `replaces?`, `review?` |
 | `proposal-dropped` | `proposal`, `client` (null when it `expired`, went `stale` or was one `too many held`), `reason`: `accepted`, `dropped`, `replaced` (with `replacedBy`), `stale`, `expired` or `too many held` |
 | `down` | `message`: the design server stopped or never started |

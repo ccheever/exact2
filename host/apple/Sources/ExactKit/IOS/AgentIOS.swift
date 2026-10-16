@@ -936,7 +936,7 @@ extension Agent {
         }
         if v.isSurfaceControl, let key = req["key"] as? String, let code = KeyCodes.device(key)?.code, ["Space", "Enter", "NumpadEnter"].contains(code) {
             let phase = req["phase"] as? String
-            guard phase == nil || phase == "down" || phase == "up" else { return ["error":"key: not a phase: \(phase!)"] }
+            guard phase == nil || phase == "down" || phase == "up" else { return ["malformed": true, "error":"key: not a phase: \(phase!)"] }
             guard v.focusSurfacePointer() else { return ["error":"control cannot take focus"] }
             for step in phase.map({ [$0] }) ?? ["down", "up"] {
                 guard v.controlKey(code, down: step == "down") else { return ["error":"control \(v.props["action"] ?? "") refused input"] }
@@ -962,7 +962,7 @@ extension Agent {
             guard v.becomeFirstResponder() else { return ["error": "view takes no focus"] }
             if let routed = canvasRouted(v, req) { return routed }
             let phase = req["phase"] as? String
-            guard phase == nil || phase == "down" || phase == "up" else { return ["error":"key: not a phase: \(phase!)"] }
+            guard phase == nil || phase == "down" || phase == "up" else { return ["malformed": true, "error":"key: not a phase: \(phase!)"] }
             for step in phase.map({ [$0] }) ?? ["down", "up"] {
                 guard session.canvases.input(canvas, ["t": "key", "code": device.code, "key": device.key, "down": step == "down", "repeat": false]) else { return ["error":"surface refused key"] }
             }
@@ -984,8 +984,8 @@ extension Agent {
             // held a key types nothing, as a keyboard's shortcut does not.
             let (held, bare) = KeyCodes.split(key)
             // The same names as the web. A letter keeps the case the driver
-            // named (`P` is "P"); an unknown name is refused, not inserted.
-            guard let device = KeyCodes.device(bare) else { return ["error": "key: unsupported key \(bare)"] }
+            // named (`P` is "P"); an unknown name is never inserted as text.
+            guard let device = KeyCodes.device(bare) else { return ["malformed": true, "error": "key: unsupported key \(bare)"] }
             let name = bare.count == 1 && bare != " " ? bare : device.key
             let types = name.count == 1 && !held.contains("Control+") && !held.contains("Meta+")
             // A release focuses nothing: a Tab's down has already moved the
@@ -1061,7 +1061,9 @@ extension Agent {
             pendingTextReveal = f as? TextArea
             return ["typed": Int(v.id), "value": f.text ?? ""]
         }
-        guard let f = v.field else { return ["error": "view \(v.id) is not an input"] }
+        // A prompt's field is UIKit's in the alert while it shows (`PromptField`).
+        let prompted = presenter.menus.nativeConfirmation.map { v.isDescendant(of: $0) } == true
+        guard let f = prompted ? v.selectionField : v.field else { return ["error": "view \(v.id) is not an input"] }
         let text = TextInputLimit.prefix(req["text"] as? String ?? "", props: v.props)
         f.becomeFirstResponder()
         f.selectAll(nil)
@@ -1101,7 +1103,7 @@ extension Agent {
         if let now = session.clock, session.canvases.waitUntilReady() { session.canvases.settle(now: now) }
         presenter.canvas2d.waitForReplays()
         SvgFilterLive.waitForDraws()
-        guard let path = req["path"] as? String else { return ["error": "screenshot needs a path"] }
+        guard let path = req["path"] as? String else { return ["malformed": true, "error": "screenshot needs a path"] }
         let vp = presenter.viewport
         let scale = vp.window?.screen.scale ?? vp.traitCollection.displayScale
         let format = UIGraphicsImageRendererFormat()

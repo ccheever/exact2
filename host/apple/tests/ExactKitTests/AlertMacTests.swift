@@ -20,13 +20,14 @@ final class AlertMacTests: XCTestCase {
     /// `lines` (texts from 40), its `actions` by title (buttons from 10,
     /// their labels from 20) and a cancel (30, label 31). `popover` makes it
     /// a popover its opener invokes instead of a `dialog`; `extra` adds a
-    /// row that is none of those (an input, id 50). A dialog's `closedby` is
+    /// row that is none of those (a checkbox, id 50), `field` a prompt's
+    /// text field (id 51, "Untitled"). A dialog's `closedby` is
     /// what lowering implies for the alert's shape, `closerequest` (LLP
     /// 1115.000 D13.4), unless the test says another.
     private func fixture(label: String? = "Remove Book?", lines: [String] = ["“Piranesi” will be removed from your library."],
                          actions: [String] = ["Remove"], props: [Int: [String: String]] = [10: ["destructive": "true"]],
                          filled: Set<UInt32> = [], cancel: Bool = true, popover: Bool = false, extra: Bool = false,
-                         closedby: String = "closerequest") -> Presenter {
+                         field: Bool = false, closedby: String = "closerequest") -> Presenter {
         _ = NSApplication.shared
         let p = Presenter()
         p.buttonFace = { id in var face = ButtonFace(); if filled.contains(id) { face.style = "filled" }; return face }
@@ -56,7 +57,12 @@ final class AlertMacTests: XCTestCase {
                     ["op": "frame", "id": 30, "x": 0, "y": 0, "w": 100, "h": 30], ["op": "children", "id": 30, "ids": [31]]]
             rows.append(30)
         }
-        if extra { ops += [["op": "create", "id": 50, "kind": "input", "props": ["value": ""]], ["op": "frame", "id": 50, "x": 0, "y": 0, "w": 100, "h": 30]]; rows.append(50) }
+        if extra { ops += [["op": "create", "id": 50, "kind": "input", "props": ["type": "checkbox"]], ["op": "frame", "id": 50, "x": 0, "y": 0, "w": 100, "h": 30]]; rows.append(50) }
+        if field {
+            ops += [["op": "create", "id": 51, "kind": "input", "handlers": ["input", "change", "submit"], "props": ["value": "Untitled", "placeholder": "Name"]],
+                    ["op": "frame", "id": 51, "x": 0, "y": 0, "w": 100, "h": 30]]
+            rows.insert(51, at: 0)
+        }
         ops += [["op": "children", "id": 3, "ids": rows], ["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]],
                 ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 500, "h": 400], ["op": "frame", "id": 2, "x": 10, "y": 10, "w": 100, "h": 30],
                 ["op": "frame", "id": 3, "x": 0, "y": 0, "w": 240, "h": 160]]
@@ -299,6 +305,128 @@ final class AlertMacTests: XCTestCase {
         XCTAssertEqual(safe.rows.map(\.cancel), [false, true])
     }
 
+    /// A prompt (`kernel/src/confirmation.rs`): a text field among an
+    /// alert's rows is the accessory view's field, which takes the keyboard
+    /// first; its edits are the input's `input`, the alert's end its
+    /// `change`, and Return presses the first action that is not destructive.
+    func testAPromptIsTheAlertWithItsFieldAsTheAccessoryView() throws {
+        let p = fixture(label: "Rename", lines: [], actions: ["Save"], props: [:], field: true)
+        var events: [String] = []
+        p.onInput = { id, value in events.append("input \(id) \(value)") }
+        p.onChange = { id, value in events.append("change \(id) \(value)") }
+        p.press(2)
+        let owner = try XCTUnwrap(p.alerts.presented, "a field and its buttons are an alert's")
+        let field = try XCTUnwrap((owner.alert.accessoryView as? NSStackView)?.arrangedSubviews.first as? NSTextField)
+        XCTAssertEqual(field.stringValue, "Untitled")
+        XCTAssertEqual(field.placeholderString, "Name")
+        XCTAssertTrue(owner.alert.window.initialFirstResponder === field)
+        XCTAssertEqual(owner.defaultRow, 0, "Return: Save")
+        XCTAssertEqual(p.alerts.type(try XCTUnwrap(p.views[51]), "Kick"), "Kick")
+        XCTAssertEqual(events, ["input 51 Kick"])
+        p.alerts.reset()
+        XCTAssertEqual(events, ["input 51 Kick", "change 51 Kick"])
+        window.close()
+    }
+
+    /// A prompt opens with Save disabled until a name is typed and stays
+    /// open when the name is cleared again; its field follows the authored
+    /// input after each batch (the value the page holds, `readonly`).
+    /// The accessory field is the input's own, lent as the toolbar's search
+    /// field is: the node its delegate, its value the input's. Return is the
+    /// input's `change` and its `submit`, and that is all; with no `submit`
+    /// it is the default button's press. A batch writing nothing to the input
+    /// leaves what was typed; an input the page swaps for another withdraws
+    /// the alert.
+    func testAPromptsFieldIsTheInputsOwnAndItsReturnSubmitsFirst() throws {
+        let p = fixture(label: "Rename", lines: [], actions: ["Save"], props: [:], field: true)
+        var events: [String] = []
+        p.onChange = { id, value in events.append("change \(id) \(value)") }
+        p.onSubmit = { events.append("submit \($0)") }
+        p.onPress = { events.append("press \($0)") }
+        p.press(2)
+        let owner = try XCTUnwrap(p.alerts.presented)
+        let field = try XCTUnwrap(p.views[51]?.field)
+        XCTAssertTrue((owner.alert.accessoryView as? NSStackView)?.arrangedSubviews.first === field, "the input's field, lent")
+        XCTAssertTrue(field.delegate === p.views[51], "the node is its delegate")
+        XCTAssertEqual(p.alerts.type(try XCTUnwrap(p.views[51]), "Kick"), "Kick")
+        p.apply(wireBatch([["op": "props", "id": 10, "set": ["accessibilityLabel": "unrelated"]]]))
+        p.alerts.sync()
+        XCTAssertEqual(field.stringValue, "Kick", "a batch that writes nothing to the input leaves what was typed")
+        XCTAssertTrue(p.alerts.key("Enter"))
+        turn(); turn()
+        XCTAssertEqual(events, ["change 51 Kick", "submit 51"], "a field with a submit keeps Return")
+        XCTAssertTrue(p.alerts.presented === owner, "and nothing is pressed")
+        try XCTUnwrap(p.views[51]).handlers.remove("submit")
+        XCTAssertTrue(p.alerts.key("Enter"))
+        turn(); turn()
+        XCTAssertTrue(events.contains("press 10"), "with none, the default button: \(events)")
+        XCTAssertFalse(p.views[51]?.field === field, "the page has its field again")
+        window.close()
+
+        let q = fixture(label: "Rename", lines: [], actions: ["Save"], props: [:], field: true)
+        q.press(2)
+        XCTAssertNotNil(q.alerts.presented)
+        q.apply(wireBatch([["op": "create", "id": 52, "kind": "input", "props": ["value": ""]], ["op": "frame", "id": 52, "x": 0, "y": 0, "w": 100, "h": 30],
+                           ["op": "children", "id": 3, "ids": [52, 10, 30]], ["op": "destroy", "id": 51]]))
+        q.alerts.sync()
+        XCTAssertNil(q.alerts.presented, "the field shown is no longer the input's: withdrawn")
+        window.close()
+    }
+
+    /// The lent field edits in the session's editor (`beforeinput`); `focus`
+    /// reaches it in the alert; and Return with Save disabled still goes
+    /// through the field, its `change` enabling Save, which is then pressed.
+    func testAPromptsReturnGoesThroughTheFieldWhileSaveIsDisabled() throws {
+        let p = fixture(label: "Rename", lines: [], actions: ["Save"], props: [10: ["disabled": "true"]], field: true)
+        let node = try XCTUnwrap(p.views[51])
+        node.handlers.remove("submit")
+        node.props["id"] = "name"
+        var events: [String] = []
+        p.onPress = { events.append("press \($0)") }
+        p.onChange = { id, value in
+            events.append("change \(id) \(value)")
+            p.apply(wireBatch([["op": "props", "id": 10, "clear": ["disabled"]]]))
+        }
+        p.press(2)
+        XCTAssertNotNil(p.alerts.presented)
+        let field = try XCTUnwrap(node.field)
+        XCTAssertTrue(field.cell?.fieldEditor(for: field) === p.fieldEditor, "the session's editor, as in the page")
+        p.focusElement(["name"])
+        XCTAssertNotNil(field.currentEditor(), "focus(id) reaches the field in the alert")
+        XCTAssertEqual(p.alerts.type(node, "Kick"), "Kick")
+        XCTAssertTrue(p.alerts.key("Enter"), "Return is taken while Save is disabled")
+        turn(); turn()
+        XCTAssertEqual(events.first, "change 51 Kick")
+        XCTAssertTrue(events.contains("press 10"), "the change enabled Save, which Return then pressed: \(events)")
+        window.close()
+    }
+
+    func testAPromptOpensWithSaveDisabledAndItsFieldFollowsTheInput() throws {
+        let p = fixture(label: "Rename", lines: [], actions: ["Save"], props: [10: ["disabled": "true"]], field: true)
+        p.press(2)
+        let owner = try XCTUnwrap(p.alerts.presented, "a prompt opens with every action disabled")
+        XCTAssertEqual(owner.alert.buttons.map(\.isEnabled), [false, true], "the field and Cancel remain")
+        let field = try XCTUnwrap((owner.alert.accessoryView as? NSStackView)?.arrangedSubviews.first as? NSTextField)
+        p.apply(wireBatch([["op": "props", "id": 10, "clear": ["disabled"]], ["op": "props", "id": 51, "set": ["value": "KICK"]]]))
+        p.alerts.sync()
+        XCTAssertTrue(p.alerts.presented === owner)
+        XCTAssertEqual(field.stringValue, "KICK", "the value the page now holds")
+        XCTAssertTrue(owner.alert.buttons[0].isEnabled)
+        p.apply(wireBatch([["op": "props", "id": 10, "set": ["disabled": "true"]], ["op": "props", "id": 51, "set": ["value": "", "editable": "false"]]]))
+        p.alerts.sync()
+        XCTAssertTrue(p.alerts.presented === owner, "clearing the name dims Save and keeps the alert")
+        XCTAssertFalse(owner.alert.buttons[0].isEnabled)
+        XCTAssertFalse(field.isEditable, "readonly")
+        XCTAssertNil(p.alerts.type(try XCTUnwrap(p.views[51]), "x"), "a readonly field takes no typing")
+        p.alerts.reset()
+        window.close()
+        // Return is the first action that is not destructive, as on iOS and
+        // the web: the author's emphasis does not move it in a prompt.
+        let choice = fixture(label: "Save?", lines: [], actions: ["Don't Save", "Save"], props: [:], filled: [11], field: true)
+        XCTAssertEqual(try XCTUnwrap(choice.alerts.plan(of: try XCTUnwrap(choice.views[3]), popover: false)).defaultRow, 0)
+        window.close()
+    }
+
     /// Any other shape is no alert: more than three buttons or no cancel is
     /// the chooser's menu (ChooserMacTests), and a `dialog` holding anything
     /// but text and buttons, or with no text, is a sheet that holds the
@@ -307,7 +435,7 @@ final class AlertMacTests: XCTestCase {
         let form = fixture(extra: true)
         form.press(2)
         XCTAssertNil(form.alerts.presented)
-        XCTAssertTrue(form.dialogs.active === form.views[3], "a dialog with a field is the dialog itself")
+        XCTAssertTrue(form.dialogs.active === form.views[3], "a dialog with a checkbox is the dialog itself")
         XCTAssertTrue(window.attachedSheet === form.views[3]?.window, "in a sheet of its own, not the alert's")
         XCTAssertFalse(window.attachedSheet is NSPanel, "AppKit's alert is a panel; this is the dialog's window")
         form.dialogs.reset()

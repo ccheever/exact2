@@ -9,6 +9,10 @@ extension NodeView {
     /// the projected resting offset and owns the resulting deceleration.
     package func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint, targetContentOffset: UnsafeMutablePointer<CGPoint>) {
         guard scrollView === self.scrollView else { return }
+        #if os(iOS)
+        // A painted swipe row's full swipe decides where it rests (PaintedSwipesIOS.swift).
+        defer { if swipeOwner { presenter?.swipeActions.painted.willEnd(self, scrollView, target: targetContentOffset) } }
+        #endif
         guard (style["scroll_snap_type"]?.string) == "x mandatory" else { return }
         let maximum = max(0, scrollView.contentSize.width - scrollView.bounds.width)
         var positions: [CGFloat] = []

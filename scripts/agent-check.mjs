@@ -4,6 +4,7 @@
 // whose fill is what lies behind it. The host observes (host/web-js/check.js, AgentCheckIOS.swift: its presented
 // boxes, ink, fills, clips and hit tests, and the fill painted under each text, LLP 1116.006 D5); where no fill is
 // known, the background a text stands on is read from a capture's pixels; this file only judges. `check dark` (or `light`) runs it under that `prefers-color-scheme`, `check both` under each.
+import { MalformedOperation } from './agent-keys.mjs';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
@@ -205,7 +206,7 @@ export function report(runs, nodes, host) {
  *  `shots(viewport, scheme)` names a file to keep each capture in (verify's), else they go with the check. */
 export async function checkOp(s, args = [], { shots } = {}) {
   const word = args[0] ?? 'current';
-  if (!['current', 'light', 'dark', 'both'].includes(word) || args.length > 1) throw new Error('check [light|dark|both]: the presented screen, judged in text; `check dark` under prefers-color-scheme dark, `check both` under each');
+  if (!['current', 'light', 'dark', 'both'].includes(word) || args.length > 1) throw new MalformedOperation('check [light|dark|both]: the presented screen, judged in text; `check dark` under prefers-color-scheme dark, `check both` under each');
   if (!['web', 'ios', 'host-ios'].includes(s.host)) throw new Error(`check: the web and iOS hosts carry it, not ${s.host}`);
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-check-'));
   const first = await s.op({ op: 'check' });

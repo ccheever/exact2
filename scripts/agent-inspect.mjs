@@ -1,3 +1,4 @@
+import { MalformedOperation, inputJSON } from './agent-keys.mjs';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
@@ -146,7 +147,7 @@ export function identifyLayoutNodes(layout, tree, maps) {
  * [<depth>]`, `layout agree [<limit>]` — the keyword wins over a testId of
  * that name, which a numeric id still reaches. Returns `layout`'s arguments. */
 export function layoutArgs(args) {
-  const count = (word) => { const n = Number(word); if (!Number.isInteger(n)) throw new Error(`layout: ${word} is not an integer`); return n; };
+  const count = (word) => { const n = Number(word); if (!Number.isInteger(n)) throw new MalformedOperation(`layout: ${word} is not an integer`); return n; };
   if (args[0] === 'agree') return [undefined, undefined, { agree: true, ...(args[1] != null ? { limit: count(args[1]) } : {}) }];
   if (args[1] === 'native') return [args[0], undefined, { native: args[2] != null ? { depth: count(args[2]) } : {} }];
   if (args[1] === 'at') return [args[0], [Number(args[2]), Number(args[3])]];
@@ -359,7 +360,7 @@ export async function perfOp(s, args, line, step) {
   if (args[0] === 'frames') {
     const at = word => { const i = args.indexOf(word); return i < 0 ? undefined : Number(args[i + 1]); };
     const live = at('live'), late = at('late');
-    if (live !== undefined && !(Number.isInteger(live) && live > 0 && live <= 120000)) throw Error('perf frames live <ms>: a whole number of milliseconds, 1–120000');
+    if (live !== undefined && !(Number.isInteger(live) && live > 0 && live <= 120000)) throw new MalformedOperation('perf frames live <ms>: a whole number of milliseconds, 1–120000');
     return s.perf(null, { frames: true, late, ...(live !== undefined ? { live } : {}) });
   }
   // `perf hatches` (LLP 1075.003.000.001 §3.3): the hatches' calls and what their code counted.
@@ -367,8 +368,8 @@ export async function perfOp(s, args, line, step) {
     const read = () => s.op({ op: 'perf', hatches: true });
     const at = line.search(/\sduring\s/);
     if (at < 0) return read();
-    const ops = [...line.slice(at).matchAll(/"((?:[^"\\]|\\.)*)"/g)].map(m => JSON.parse(`"${m[1]}"`));
-    if (!ops.length) throw Error('perf hatches during: quote each op, as perf hatches during "tap start" "clock +1000"');
+    const ops = [...line.slice(at).matchAll(/"((?:[^"\\]|\\.)*)"/g)].map(m => inputJSON(`"${m[1]}"`));
+    if (!ops.length) throw new MalformedOperation('perf hatches during: quote each op, as perf hatches during "tap start" "clock +1000"');
     const before = await read();
     for (const op of ops) await step(op);
     return hatchDelta(before, await read());
@@ -376,8 +377,8 @@ export async function perfOp(s, args, line, step) {
   const target = args[0] && args[0] !== 'during' ? args[0] : undefined;
   const at = line.search(/\sduring\s/);
   if (at < 0) return s.perf(target);
-  const ops = [...line.slice(at).matchAll(/"((?:[^"\\]|\\.)*)"/g)].map(m => JSON.parse(`"${m[1]}"`));
-  if (!ops.length) throw Error('perf … during: quote each op, as perf feed during "tap start" "clock +1000"');
+  const ops = [...line.slice(at).matchAll(/"((?:[^"\\]|\\.)*)"/g)].map(m => inputJSON(`"${m[1]}"`));
+  if (!ops.length) throw new MalformedOperation('perf … during: quote each op, as perf feed during "tap start" "clock +1000"');
   const before = await s.perf(target);
   for (const op of ops) await step(op);
   return perfDelta(before, await s.perf(target));
@@ -612,7 +613,7 @@ export async function stateOp(s, args) {
 
 /** Explain a refused placed-child tap using the world's own visibility. */
 export async function tapRefusal(session, target, error) {
-  if (error.transport) return error; // the carrier failed: no diagnostic read can answer
+  if (error.transport || error.malformed) return error; // App state cannot explain malformed input or a failed transport.
   try {
     for (const canvas of (await session.tree()).nodes.filter(n => n.world)) {
       const canvasName = canvas.props?.testId ?? canvas.id;
@@ -650,7 +651,7 @@ export function worldView(session, name) {
     state: entity => session.state(`${name}:${entity}`),
     save: path => session.screenshot(path, name, 'save'),
     run: ms => {
-      if (!Number.isFinite(ms) || ms < 0) throw new Error('run duration must be finite and nonnegative');
+      if (!Number.isFinite(ms) || ms < 0) throw new MalformedOperation('run duration must be finite and nonnegative');
       // Like Sim::run, establish the current epoch after deferred assets settle
       // before moving time. Otherwise a newly ready world can eat the first seek.
       return session.clock('+0').then(() => session.clock(`+${ms}`));

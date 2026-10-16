@@ -2336,7 +2336,7 @@ everywhere.
   generated JS and CSS (`.gen/app.css`, `.gen/app.js`, `paint.js`, `names.js`, `pages.json`) are
   identical, and the plans differ only in string pool order, so the plan digest moves. The one
   code difference is `.gen/modes.js`: it carries the live-table runtime, inert in release because
-  no development design is passed. A follow-up leaves it out of release builds.
+  no development design is passed. `8a4f25b53` leaves it out of release builds.
 - **The server:** `hello.live`, writes held until answered (never a 504 and then applied), and a
   held propose checks the `requires` its client names.
 
@@ -2377,5 +2377,20 @@ everywhere.
   `unsupported`, since a page can't override the browser's `prefers-contrast`.
 - **Release builds.** The native hosts run no channel under a production compat; that is a runtime
   gate, not compiled out. The release JS target's `modes.js` still carried the inert live-table
-  runtime here; a follow-up removes it.
+  runtime here; `8a4f25b53` strips it (`// dev-only` regions, dropped from a build without `--dev`), with a test.
 - **`tamber/1.2`**, with `docs/tamber-protocol.md` listing what 1.2 added.
+
+### D3's `pair=` (`ae6dc3d78`, `cca68e081`; built by LLP 1122's implementer)
+
+- `pair=<token>[,…]` names colour tokens or roles a token is drawn on. Naming itself, nothing of
+  the design, or an empty name is refused (`tamber-pair`).
+- **`tamber-contrast`** warns once per pair, at its lowest tuple and scheme below 4.5:1, naming the
+  tuple, the scheme and the ratio.
+  - The ratio is cut to two places, never rounded up past 4.5.
+  - A residual side is read at its fallback, and the warning says so.
+  - A background that isn't opaque is passed over, since it has no single ratio.
+  - It is a warning, never a refusal.
+- **A rename** rewrites the name inside `pair=` lists, and undo restores the bytes.
+- `describe` gives each token's `pairs` and the design's `warnings`, and the design tool badges
+  each declared pair's ratio per cell.
+- **Importers** proposing pairs (shadcn's `x-foreground`, Astryx's `on-`) are left for later.

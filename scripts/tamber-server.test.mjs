@@ -379,11 +379,24 @@ test("commit takes the session's files only, keeps other staging, and never push
   const stream = await subscribe();
   await stream.until(e => e[0]?.event === 'subscribed');
   const before = head();
+  const first = await post({ method: 'transaction', client: 'agent', files: { 'app.tamber': disk('app.tamber') }, ops: [{ op: 'set-token', name: 'edge', value: '#161616' }] });
+  expect(first.status).toBe(200);
+  // A scope read before a further write no longer holds.
+  const early = await post({ method: 'commit', client: 'person', dry: true });
   const done = await post({ method: 'transaction', client: 'agent', files: { 'app.tamber': disk('app.tamber') }, ops: [{ op: 'set-token', name: 'edge', value: '#171717' }] });
   expect(done.status).toBe(200);
-  const committed = await post({ method: 'commit', client: 'person', message: 'design: a darker edge' });
+  const stale = await post({ method: 'commit', client: 'person', scope: early.ok.scope });
+  expect([stale.status, stale.error.stale]).toEqual([409, true]);
+  // A dry run: what the commit would take, each edit with its write's
+  // number, and nothing written.
+  const dry = await post({ method: 'commit', client: 'person', dry: true });
+  expect(dry.status, JSON.stringify(dry)).toBe(200);
+  expect(dry.ok).toMatchObject({ files: ['app.tamber'], edits: [{ file: 'app.tamber', client: 'agent', tokens: ['edge'], write: first.ok.write }, { file: 'app.tamber', client: 'agent', tokens: ['edge'], write: done.ok.write }] });
+  expect(head()).toBe(before);
+  const committed = await post({ method: 'commit', client: 'person', message: 'design: a darker edge', scope: dry.ok.scope });
   expect(committed.status, JSON.stringify(committed)).toBe(200);
   expect(committed.ok.files).toEqual(['app.tamber']);
+  expect(committed.ok.edits).toEqual(dry.ok.edits);
   expect(gitIn('rev-parse', 'HEAD~1').stdout.trim()).toBe(before);
   const message = gitIn('log', '-1', '--format=%B').stdout;
   expect(message).toContain('design: a darker edge');
@@ -696,6 +709,10 @@ test('history reads three design commits as token edits; a revert applies, is re
     expect(imported.ok.review).toMatchObject({ importer: 'shadcn', counted: { source: 47, mapped: 46, reported: 1 }, tokens: 23 });
     expect(imported.ok.review.offers.map(o => o.role)).toEqual(['-exact-background', '-exact-label', '-exact-secondary-background', '-exact-separator', 'AccentColor']);
     expect(readFileSync(join(repo, 'app.tamber'), 'utf8')).toBe(V1.replace('#000000', '#121212'));
+    // A stylesheet's importer takes one sheet, never silently the first of two.
+    const two = await call({ method: 'import', client: 'design-tool:ada', kind: 'shadcn', sources: [{ name: 'a.css', text: css }, { name: 'b.css', text: css }] });
+    expect(two.status).toBe(400);
+    expect(two.error.message).toContain('imports one stylesheet');
     // Several DTCG files at once: a Figma export's modes, named as picked.
     const figma = resolve(ROOT, 'tamber/tests/import/figma');
     const sources = readdirSync(figma).map(name => ({ name, text: readFileSync(join(figma, name), 'utf8') }));

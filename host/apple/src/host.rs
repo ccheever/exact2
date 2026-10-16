@@ -228,6 +228,7 @@ pub struct Host<D: DataSource> {
     colors_seen: Option<u64>,
     /// The root font size and the window's modes as a batch last said them (`Host::facts_moved`).
     facts_told: Option<(f64, Vec<(String, String)>)>,
+    unopened: layout::unopened::Unopened,
 }
 
 /// A plan's bytes at boot: copied from while decoding, or linked into the
@@ -528,9 +529,11 @@ impl<D: DataSource> Host<D> {
             delivery,
             colors_seen: None,
             facts_told: None,
+            unopened: Default::default(),
         };
         let mut batch = Batch::new();
         host.native_prepare_candidate().map_err(HostError::Layout)?;
+        host.close_unopened_tabs();
         let order = host.preorder();
         let handlers = host.runner.handlers();
         for id in &order {
@@ -545,9 +548,7 @@ impl<D: DataSource> Host<D> {
         host.emit_title(&mut batch);
         host.emit_language(&mut batch);
         colors::emit_roles(&mut batch);
-        for s in host.runner.take_surface_updates() {
-            batch.surface(&s);
-        }
+        host.emit_surfaces(&mut batch);
         // @ref LLP 1038 D7 — drain once, after all commits in this batch.
         if let Some(change) = host.runner.take_router_change() {
             batch.router(&change);
@@ -1216,6 +1217,7 @@ impl<D: DataSource> Host<D> {
             .sum::<usize>()
             > 1)
         .then(|| self.runner.handlers());
+        self.close_new_tabs(receipts);
         for t in receipts {
             let r = &t.receipt;
             // Flights capture their leavers before an exit takes them
@@ -1267,6 +1269,7 @@ impl<D: DataSource> Host<D> {
                 }
             }
         }
+        self.open_selected_tabs(&mut batch);
         self.emit_paragraphs(&mut batch);
         let roots = self.runner.roots();
         if roots != self.roots {
@@ -1327,9 +1330,7 @@ impl<D: DataSource> Host<D> {
             self.emit_ranks(&mut batch);
         }
         self.canvas_turn(&mut batch);
-        for s in self.runner.take_surface_updates() {
-            batch.surface(&s);
-        }
+        self.emit_surfaces(&mut batch);
         // The capabilities the actions called, after their commits, in order.
         // @ref LLP 1038 D7 — drain once, after all commits in this batch.
         if let Some(change) = self.runner.take_router_change() {
@@ -1349,21 +1350,6 @@ impl<D: DataSource> Host<D> {
         self.emit_transform_drags(&mut batch);
         self.present(&mut batch, false);
         self.finish(batch, error)
-    }
-
-    fn preorder(&self) -> Vec<ViewId> {
-        let kernel = self.runner.kernel();
-        let mut stack: Vec<ViewId> = self.runner.roots().into_iter().rev().collect();
-        let mut order = Vec::new();
-        while let Some(id) = stack.pop() {
-            order.push(id);
-            if let Some(node) = kernel.node(id) {
-                let mut children = node.children();
-                children.reverse();
-                stack.extend(children);
-            }
-        }
-        order
     }
 }
 
