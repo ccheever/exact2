@@ -5,8 +5,8 @@ use super::{lines, DataError, DataSource, Runner, RunnerError};
 use crate::request::Answer;
 use exact_plan::Value;
 
-/// Asks of one resource, each with arguments unlike the last, within a
-/// second, that say an argument moves on every answer.
+/// Asks of one resource made by answers' commits, each with arguments unlike
+/// the last, within a second, that say an argument moves on every answer.
 const CHURN_ASKS: u32 = 50;
 
 /// What a development build counts to say once that a resource is asked
@@ -14,6 +14,9 @@ const CHURN_ASKS: u32 = 50;
 /// changes with every commit, so each answer's commit asks again.
 #[derive(Default)]
 pub(super) struct Churn {
+    /// An answer's commit is running: only its asks count, so a person or a
+    /// drive typing into a search field is not churn, under a frozen clock too.
+    pub(super) answering: bool,
     /// Per resource: the arguments last asked, when its second began, the
     /// asks in it with new arguments, and whether it was said.
     rows: std::collections::HashMap<usize, (Vec<Value>, f64, u32, bool)>,
@@ -83,7 +86,7 @@ impl<D: DataSource> Runner<D> {
     /// Say once, in a development build, that resource `i` is asked again
     /// and again, its arguments new each time: [`CHURN_ASKS`] in a second.
     fn count_churn(&mut self, i: usize, args: &[Value], resource: &str) {
-        let now = self.now_ms;
+        let (now, answering) = (self.now_ms, self.churn.answering);
         let row = self
             .churn
             .rows
@@ -94,15 +97,18 @@ impl<D: DataSource> Runner<D> {
             .iter()
             .zip(args)
             .position(|(a, b)| a != b)
-            .or((row.0.len() != args.len()).then_some(0))
+            .or((row.0.len() != args.len()).then_some(row.0.len().min(args.len())))
         else {
             return;
         };
+        row.0 = args.to_vec();
+        if !answering {
+            return;
+        }
         if now - row.1 > 1000.0 {
             row.1 = now;
             row.2 = 0;
         }
-        row.0 = args.to_vec();
         row.2 += 1;
         if row.2 < CHURN_ASKS || std::mem::replace(&mut row.3, true) {
             return;
@@ -164,6 +170,7 @@ mod tests {
     fn a_resource_asked_again_and_again_with_new_arguments_is_said_once_in_development() {
         let mut r = runner();
         r.admit_live(None);
+        r.churn.answering = true;
         for n in 0..(2 * CHURN_ASKS) {
             r.query(0, &[Value::Number(f64::from(n) + 1.)]).unwrap();
         }
@@ -176,9 +183,16 @@ mod tests {
             "{}",
             lines[0]
         );
-        // The same arguments again, or new ones a second apart, are not churn.
+        // Asks an event's commit makes (typing into a search field, the
+        // clock frozen) are not churn; nor the same arguments again, or new
+        // ones a second apart.
         let mut r = runner();
         r.admit_live(None);
+        for n in 0..(2 * CHURN_ASKS) {
+            r.query(0, &[Value::Number(f64::from(n) + 1.)]).unwrap();
+        }
+        assert!(said(&r).is_empty());
+        r.churn.answering = true;
         for n in 0..(2 * CHURN_ASKS) {
             r.query(0, &[Value::Number(1.)]).unwrap();
             r.now_ms = 1001. * f64::from(n);
@@ -187,6 +201,7 @@ mod tests {
         assert!(said(&r).is_empty());
         // A production build says nothing.
         let mut r = runner();
+        r.churn.answering = true;
         for n in 0..(2 * CHURN_ASKS) {
             r.query(0, &[Value::Number(f64::from(n) + 1.)]).unwrap();
         }

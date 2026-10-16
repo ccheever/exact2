@@ -530,8 +530,7 @@ impl<D: DataSource> Presenter<D> {
         Ok((p, error.or(e)))
     }
 
-    /// The dev loop's restart: boot the new plan with state carried; every picture
-    /// and offset goes, and focus stays at its place (`restore_focus`, LLP 1007 §6).
+    /// The dev loop's restart, state carried; pictures and offsets go, focus stays (LLP 1007 §6).
     pub fn reload(&mut self, plan: &[u8], data: D) -> Result<Option<String>, HostError> {
         self.reload_module(plan, data, self.module.clone(), false)
     }

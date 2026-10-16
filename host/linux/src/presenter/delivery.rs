@@ -34,6 +34,9 @@ impl<D: DataSource> Presenter<D> {
             return;
         }
         match self.dev.as_mut().map(|dev| dev.poll()) {
+            // A poll that began before the generation installed brings it again: not twice.
+            Some(Ok(Some(generation)))
+                if self.dev.as_ref().unwrap().identity.as_ref() == Some(&generation.identity) => {}
             Some(Ok(Some(generation))) => {
                 // A newer generation waits its own second; the poll fetching
                 // the held one again does not restart it.
