@@ -203,7 +203,6 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
       let next;
       try { next = existsSync(file) ? await designOf(readFileSync(file, 'utf8')) : { error: 'no design' }; } catch (e) { next = { error: e.message }; } finally { designing = false; }
       if (!next.error && sameShape(design, next)) {
-        error = null;
         const from = scrubbed ?? design;
         design = next;
         const committed = { kind: 'tamber-snapshot', structure: design.shape, base: null, design: design.digest, tokens: design.tokens };
@@ -237,6 +236,13 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     // the pages, so it changes nothing and builds again.
     if (fast && fastSeq !== seqAtStart) {
       watchPackages(built.packages);
+      // What it put in dist is published, though: new module code reloads
+      // the pages, which take the design from the snapshot.
+      if (!built.error && !built.kept) {
+        logicRevision = built.logic;
+        pending.set(++seq, at);
+        push({ reload: seq, revision: logicRevision });
+      }
       edited.add(file);
       again = false;
       rebuild();
@@ -559,7 +565,7 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
   process.on('SIGHUP', stop);
   watchLauncher(stop);
   await new Promise((ok, fail) => { server.on('error', fail); server.listen(port, host, ok); })
-    .catch((e) => { console.error(`cannot listen on ${host}:${port}: ${e.code ?? e.message}${e.code === 'EADDRINUSE' ? ' (another dev loop? --port <n> picks another)' : ''}`); process.exit(1); });
+    .catch((e) => { console.error(`cannot listen on ${host}:${port}: ${e.code ?? e.message}${e.code === 'EADDRINUSE' ? ' (another dev loop? --port <n> picks another)' : ''}`); stopGroup(tool.child); process.exit(1); });
   const urls = origins.map((o) => `${o.origin}/`);
   console.log(urls.join('\n'));
   console.log(urls.map(url => `  Open in native: ${url}__dev/open`).join('\n'));
