@@ -1287,7 +1287,9 @@ still needs the handler. A declared but disabled
 control refuses them, as does `closedby="none"` on a sheet. On a pushed iOS
 route under the platform bar, that control's text becomes the bar's back button title
 beside the bar's own chevron (no text shows the chevron alone), so label it `Recipes`,
-not `‹ Recipes`.
+not `‹ Recipes`. With no such control the back button is UIKit's default, which since
+iOS 26 is the chevron alone, the previous title unshown, as in a hand-built app; a title
+there is the control's text, said.
 
 Inside a route's `header`, wrap related bar buttons in a `row role="group"`.
 iOS 26 keeps each explicit group's buttons on one shared glass background and
