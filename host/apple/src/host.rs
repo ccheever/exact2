@@ -1186,21 +1186,6 @@ impl<D: DataSource> Host<D> {
         self.write(batch, error.as_deref())
     }
 
-    /// An empty batch, which has no geometry to hold: a refusal's.
-    fn refused(&self, error: Option<String>) -> String {
-        let mut batch = Batch::new();
-        self.state_onto(&mut batch);
-        let (timers, motion) = (self.runner.timer_due_ms(), !self.engine.quiescent());
-        batch.finish(timers, motion, self.runner.now_ms(), error.as_deref())
-    }
-
-    fn state_onto(&self, batch: &mut Batch) {
-        batch.spatial = self.engine.spatial();
-        batch.frames = self.runner.wants_frames();
-        batch.seq = self.runner.seq_range();
-        batch.canvas_frames(self.runner.canvas_wants_frame());
-    }
-
     fn commit(&mut self, receipts: &[Timed], error: Option<String>) -> String {
         self.commit_into(receipts, error, Batch::new())
     }

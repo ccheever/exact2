@@ -363,11 +363,9 @@ pub struct Runner<D: DataSource> {
     reorder_ops: Vec<exact_kernel::Op>,
     /// The wide colours the queued patches hold, kept from the table's sweep.
     reorder_kept: exact_kernel::style::wide::Keep,
-    /// The design digest a live batch last left it at (LLP 1121 stage 4);
-    /// `None` while it runs its plan's own.
+    /// The design digest a live batch left (LLP 1121 stage 4); `None`: its plan's own.
     design: Option<String>,
-    /// A development build, which admits live batches (a host says so at
-    /// boot from its compat, [`Runner::admit_live`]).
+    /// A development build, admitting live batches ([`Runner::admit_live`], from its compat).
     live: bool,
     /// The session the owner's token names (LLP 1094 D4).
     reorder_session: Option<Box<reorder_group::Session>>,

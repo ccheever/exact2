@@ -113,8 +113,7 @@ pub enum HostError {
     Plan(exact_plan::PlanError),
     Runner(RunnerError),
     RuntimeIdExhausted,
-    /// The plan uses these capabilities, which this artifact doesn't link
-    /// (LLP 1047 D6).
+    /// The plan uses these capabilities, which this artifact doesn't link (LLP 1047 D6).
     Unlinked(String),
 }
 
