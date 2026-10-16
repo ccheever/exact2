@@ -1936,6 +1936,29 @@ closes on the web, a sheet a click on the window behind it closes on the Mac, a
 Material dialog a tap outside cancels on Android.
 `close("<id>")` from an action closes it as its Cancel does.
 
+A prompt (a rename's, `Alert.prompt`) is the alert with a text field: an
+`input` among its rows, which counts as its message when it has no `text`:
+
+```
+dialog id="rename" role="alertdialog" aria-label="Rename Pattern"
+  input value=draft input=editDraft placeholder="Name"
+  button commandfor="rename" command="close"
+    text "Cancel"
+  button press=rename disabled=(draft == "") commandfor="rename" command="close"
+    text "Save"
+```
+
+iOS shows `UIAlertController` with the field (`addTextField`), macOS `NSAlert`
+with it as the accessory view, the web the `dialog` with the field on a line of
+its own. The field stands in for the authored `input`: its `value`, placeholder
+and keyboard (`type`, `inputmode`, `autocomplete`) are UIKit's and AppKit's
+field's, each keystroke is the input's `input` and the end of editing its
+`change`, so the action's `press` reads what was typed. Return presses the
+first action that is not destructive (bold on iOS), and an action whose
+`disabled` follows the draft dims as it is typed. Only the alert's shape takes
+a field: with one, a cancel and at most three buttons, no `for`
+(`lower-alertdialog` says which row breaks it).
+
 A submenu is a row whose `popovertarget` names another menu popover (`Copy ▸
 path / link`): a submenu `NSMenuItem` on macOS, a nested `UIMenu` on iOS, and
 on the web and under the agent the nested popover, opened by `tap <row>`. Place

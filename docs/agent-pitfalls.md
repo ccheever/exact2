@@ -387,9 +387,10 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   `lower-alertdialog: … a `column` row is not text, an action or the cancel`.
   Cause: an `alertdialog` popover or `dialog` is a native confirmation (LLP
   1021, LLP 1115 D6: iOS's alert or sheet, macOS's menu), whose rows can only be text, buttons that
-  close it, and one cancel. Fix: a modal you lay out yourself is a sheet, a route
+  close it, one cancel, and, in the alert's shape, text fields (a rename prompt's `input`).
+  Fix: a modal you lay out yourself is a sheet, a route
   with `navigationPresentation="modal"` (recipes/navigation-stack.md); keep
-  `alertdialog` for a flat list of text and buttons. (x2apps onboarding's Delete
+  `alertdialog` for a flat list of text, fields and buttons. (x2apps onboarding's Delete
   account?, 2026-10-04.)
 - **`tabIndex` on a module tag is refused.** `` `paint-surface` has no attribute
   `tabIndex`; `tabIndex` is spelled `tabindex` here ``. Cause: HTML's

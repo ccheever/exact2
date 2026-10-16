@@ -800,7 +800,11 @@ extension Agent {
         // An alert's sheet holds the keys while it is up (LLP 1115.000 D7.6):
         // Return is its default button's, Escape its cancel's, whatever is named.
         if presenter.alerts.presented != nil {
-            guard let key = req["key"] as? String else { return ["error": "an alert is up: only a key reaches it"] }
+            // A prompt's field is the alert's own (`AlertHost.prompt`), typed as a person types it.
+            if req["key"] == nil, let v = view(req), let value = presenter.alerts.type(v, req["text"] as? String ?? "") {
+                return ["typed": Int(v.id), "value": value, "delivery": "host-activation", "native": "NSAlert"]
+            }
+            guard let key = req["key"] as? String else { return ["error": "an alert is up: only a key or its prompt's field reaches it"] }
             let typed = req["id"] ?? NSNull()
             if req["phase"] as? String == "up" { return ["typed": typed, "key": key, "phase": "up", "delivery": "unhandled", "native": "NSAlert"] }
             return ["typed": typed, "key": key, "delivery": presenter.alerts.key(key) ? "host-activation" : "unhandled", "native": "NSAlert"]

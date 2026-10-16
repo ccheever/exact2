@@ -20,13 +20,14 @@ final class AlertMacTests: XCTestCase {
     /// `lines` (texts from 40), its `actions` by title (buttons from 10,
     /// their labels from 20) and a cancel (30, label 31). `popover` makes it
     /// a popover its opener invokes instead of a `dialog`; `extra` adds a
-    /// row that is none of those (an input, id 50). A dialog's `closedby` is
+    /// row that is none of those (a checkbox, id 50), `field` a prompt's
+    /// text field (id 51, "Untitled"). A dialog's `closedby` is
     /// what lowering implies for the alert's shape, `closerequest` (LLP
     /// 1115.000 D13.4), unless the test says another.
     private func fixture(label: String? = "Remove Book?", lines: [String] = ["“Piranesi” will be removed from your library."],
                          actions: [String] = ["Remove"], props: [Int: [String: String]] = [10: ["destructive": "true"]],
                          filled: Set<UInt32> = [], cancel: Bool = true, popover: Bool = false, extra: Bool = false,
-                         closedby: String = "closerequest") -> Presenter {
+                         field: Bool = false, closedby: String = "closerequest") -> Presenter {
         _ = NSApplication.shared
         let p = Presenter()
         p.buttonFace = { id in var face = ButtonFace(); if filled.contains(id) { face.style = "filled" }; return face }
@@ -56,7 +57,12 @@ final class AlertMacTests: XCTestCase {
                     ["op": "frame", "id": 30, "x": 0, "y": 0, "w": 100, "h": 30], ["op": "children", "id": 30, "ids": [31]]]
             rows.append(30)
         }
-        if extra { ops += [["op": "create", "id": 50, "kind": "input", "props": ["value": ""]], ["op": "frame", "id": 50, "x": 0, "y": 0, "w": 100, "h": 30]]; rows.append(50) }
+        if extra { ops += [["op": "create", "id": 50, "kind": "input", "props": ["type": "checkbox"]], ["op": "frame", "id": 50, "x": 0, "y": 0, "w": 100, "h": 30]]; rows.append(50) }
+        if field {
+            ops += [["op": "create", "id": 51, "kind": "input", "handlers": ["input", "change"], "props": ["value": "Untitled", "placeholder": "Name"]],
+                    ["op": "frame", "id": 51, "x": 0, "y": 0, "w": 100, "h": 30]]
+            rows.insert(51, at: 0)
+        }
         ops += [["op": "children", "id": 3, "ids": rows], ["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]],
                 ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 500, "h": 400], ["op": "frame", "id": 2, "x": 10, "y": 10, "w": 100, "h": 30],
                 ["op": "frame", "id": 3, "x": 0, "y": 0, "w": 240, "h": 160]]
@@ -299,6 +305,29 @@ final class AlertMacTests: XCTestCase {
         XCTAssertEqual(safe.rows.map(\.cancel), [false, true])
     }
 
+    /// A prompt (`kernel/src/confirmation.rs`): a text field among an
+    /// alert's rows is the accessory view's field, which takes the keyboard
+    /// first; its edits are the input's `input`, the alert's end its
+    /// `change`, and Return presses the first action that is not destructive.
+    func testAPromptIsTheAlertWithItsFieldAsTheAccessoryView() throws {
+        let p = fixture(label: "Rename", lines: [], actions: ["Save"], props: [:], field: true)
+        var events: [String] = []
+        p.onInput = { id, value in events.append("input \(id) \(value)") }
+        p.onChange = { id, value in events.append("change \(id) \(value)") }
+        p.press(2)
+        let owner = try XCTUnwrap(p.alerts.presented, "a field and its buttons are an alert's")
+        let field = try XCTUnwrap((owner.alert.accessoryView as? NSStackView)?.arrangedSubviews.first as? NSTextField)
+        XCTAssertEqual(field.stringValue, "Untitled")
+        XCTAssertEqual(field.placeholderString, "Name")
+        XCTAssertTrue(owner.alert.window.initialFirstResponder === field)
+        XCTAssertEqual(owner.defaultRow, 0, "Return: Save")
+        XCTAssertEqual(p.alerts.type(try XCTUnwrap(p.views[51]), "Kick"), "Kick")
+        XCTAssertEqual(events, ["input 51 Kick"])
+        p.alerts.reset()
+        XCTAssertEqual(events, ["input 51 Kick", "change 51 Kick"])
+        window.close()
+    }
+
     /// Any other shape is no alert: more than three buttons or no cancel is
     /// the chooser's menu (ChooserMacTests), and a `dialog` holding anything
     /// but text and buttons, or with no text, is a sheet that holds the
@@ -307,7 +336,7 @@ final class AlertMacTests: XCTestCase {
         let form = fixture(extra: true)
         form.press(2)
         XCTAssertNil(form.alerts.presented)
-        XCTAssertTrue(form.dialogs.active === form.views[3], "a dialog with a field is the dialog itself")
+        XCTAssertTrue(form.dialogs.active === form.views[3], "a dialog with a checkbox is the dialog itself")
         XCTAssertTrue(window.attachedSheet === form.views[3]?.window, "in a sheet of its own, not the alert's")
         XCTAssertFalse(window.attachedSheet is NSPanel, "AppKit's alert is a panel; this is the dialog's window")
         form.dialogs.reset()

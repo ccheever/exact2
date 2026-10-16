@@ -143,6 +143,13 @@ the schema changes (LLP 1030 D3a). Agreed in advance: "it's ok if things break a
   > action sheet or popover on iOS, a light-dismiss dialog on the web, the painted dialog on
   > the Mac, a Material dialog cancelled by a touch outside on Android. The shape rule is one
   > function in the kernel (`kernel/src/confirmation.rs`), which lowering and each host read.
+  >
+  > **Extended (2026-10-15, the euxy port's rename prompt).** A prompt is the alert with text
+  > fields: an `input` row of an alert-shaped `alertdialog` counts with its text and is
+  > `UIAlertController`'s text field on iOS, `NSAlert`'s accessory field on the Mac, and the
+  > `dialog`'s field on a line of its own on the web, standing in for the authored `input`.
+  > Return presses its first action that is not destructive. Lowering refuses a field in any
+  > other shape; Linux paints it as authored.
 - **D7. Docs say less.** The agent guide, `exact new` and the recipe apps omit colours, fonts and
   control metrics; where colour is needed they name roles. A short starter guide is the only
   required reading.

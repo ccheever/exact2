@@ -3,7 +3,7 @@
 // `command="show-modal"`, or a popover opened by its invoker — whose rows are
 // text, one hide-only cancel and at most three buttons with it
 // (`ConfirmationShape`, the rule iOS's alert follows) is `NSAlert`, a sheet
-// on its window. Its title is the `aria-label`, else its first line, and its
+// on its window; a prompt's text fields are its accessory view. Its title is the `aria-label`, else its first line, and its
 // message the rest. Each authored button is an alert button: a destructive
 // one says so (`hasDestructiveAction`), the cancel answers Escape, and the
 // default (`defaultRow`: exactly one `filled`, non-destructive button)
@@ -36,7 +36,9 @@ final class AlertHost {
     /// title and enablement it showed, and whether it is the cancel.
     final class Row {
         weak var node: NodeView?
-        let title: String, enabled: Bool, cancel: Bool
+        let title: String, cancel: Bool
+        /// A prompt's follows its button as the fields are typed in (`sync`).
+        var enabled: Bool
         init(_ node: NodeView, title: String, enabled: Bool, cancel: Bool) { self.node = node; self.title = title; self.enabled = enabled; self.cancel = cancel }
     }
     /// An alert while its sheet is up, kept until the sheet has ended.
@@ -51,6 +53,10 @@ final class AlertHost {
         let popover: Bool
         weak var window: NSWindow?
         let rows: [Row]
+        /// A prompt's text fields: each authored `input` and AppKit's field
+        /// for it in the accessory view.
+        var fields: [(node: NodeView, field: NSTextField)] = []
+        var observers: [NSObjectProtocol] = []
         /// Which row Return presses, when one does.
         let defaultRow: Int?
         /// Ended by this host (a batch changed what it shows, `close(id)`, a
@@ -94,6 +100,8 @@ final class AlertHost {
     struct Plan {
         let title: String, message: String
         let rows: [Row]
+        /// A prompt's text fields, in order.
+        let fields: [NodeView]
         let destructive: [Bool]
         let defaultRow: Int?
     }
@@ -107,19 +115,24 @@ final class AlertHost {
         let actions = children.filter { $0.isButton && $0.handlers.contains("press") }
         let cancels = children.filter { $0.isButton && !$0.handlers.contains("press") && closes($0, pop, popover: popover) }
         let texts = children.filter { $0.kind == "text" }
-        guard children.count == actions.count + cancels.count + texts.count, let cancel = cancels.first,
+        let fields = children.filter(\.isPromptField)
+        guard children.count == actions.count + cancels.count + texts.count + fields.count, let cancel = cancels.first,
               actions.allSatisfy({ closes($0, pop, popover: popover) }), actions.contains(where: { choosable($0, in: pop) }) else { return nil }
         let lines = texts.map(menus.title(of:)).filter { !$0.isEmpty }
-        guard ConfirmationShape.isAlert(texts: lines.count, actions: actions.count, cancels: cancels.count) else { return nil }
+        // A prompt's fields count with its text: what it asks explains it.
+        guard ConfirmationShape.isAlert(texts: lines.count + fields.count, actions: actions.count, cancels: cancels.count) else { return nil }
         let nodes = actions + [cancel]
         let rows = nodes.map { Row($0, title: menus.title(of: $0), enabled: $0 === cancel ? !$0.disabled : choosable($0, in: pop), cancel: $0 === cancel) }
         let destructive = nodes.map { $0.props["destructive"] == "true" }
         // Where the one filled button is the cancel the alert has no Return
         // default: AppKit gives a cancel Escape and never Return (its own
         // "Cancel", added first, has Escape alone), and a button has one key.
+        // A prompt's Return is its first action that is not destructive
+        // unless the author emphasized one, as a hand-built rename's Save.
         let emphasized = Self.defaultRow(filled: nodes.map { $0.face?.style == "filled" }, destructive: destructive)
+            ?? (fields.isEmpty ? nil : actions.indices.first { !destructive[$0] })
         let words = ConfirmationShape.alertText(label: pop.props["accessibilityLabel"].flatMap { $0.isEmpty ? nil : $0 }, lines: lines)
-        return Plan(title: words.title ?? "", message: words.message ?? "", rows: rows, destructive: destructive,
+        return Plan(title: words.title ?? "", message: words.message ?? "", rows: rows, fields: fields, destructive: destructive,
                     defaultRow: emphasized.flatMap { rows[$0].cancel ? nil : $0 })
     }
 
@@ -157,6 +170,7 @@ final class AlertHost {
             button.keyEquivalent = row.cancel ? (pop.props["closedby"] == "none" ? "" : "\u{1b}") : index == owner.defaultRow ? "\r" : ""
             button.setAccessibilityIdentifier(row.node?.props["testId"])
         }
+        prompt(owner, plan.fields)
         // Other popovers end as they do under a dialog.
         if source == nil { menus.reset() }
         presented = owner
@@ -175,6 +189,8 @@ final class AlertHost {
     /// next turn, once, if the alert still showed what is there; the cancel
     /// has nothing to press.
     private func ended(_ owner: Presented, _ response: NSApplication.ModalResponse) {
+        // A field's `change` before the action's press, as a blur's before a click.
+        endPrompt(owner)
         if presented === owner { presented = nil; if let pop = owner.node { presenter?.popoverEvents.changed(pop, open: false) } }
         presenter?.shortcuts.sync()
         let index = response.rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
@@ -211,6 +227,7 @@ final class AlertHost {
     /// End the sheet with nothing pressed.
     private func withdraw(_ owner: Presented) {
         owner.withdrawn = true
+        endPrompt(owner)
         if presented === owner { presented = nil; if let pop = owner.node { presenter?.popoverEvents.changed(pop, open: false) } }
         if let window = owner.window, window.attachedSheet === owner.alert.window { window.endSheet(owner.alert.window, returnCode: .abort) }
         owner.alert.window.orderOut(nil)
@@ -228,7 +245,68 @@ final class AlertHost {
     /// After a batch: an alert that no longer shows what is there ends, and
     /// nothing it showed is pressed.
     func sync() {
+        if let owner = presented, !owner.fields.isEmpty { followPrompt(owner) }
         if let owner = presented, !valid(owner) { withdraw(owner) }
+    }
+
+    /// A prompt (`kernel/src/confirmation.rs`): the alert's accessory view
+    /// holds a field for each authored `input`, as a hand-built rename's
+    /// `NSAlert` does, the first taking the keyboard. A keystroke is the
+    /// input's `input` and the end of the alert its `change`, so the
+    /// action's press reads what was typed.
+    private func prompt(_ owner: Presented, _ fields: [NodeView]) {
+        guard let presenter, !fields.isEmpty else { return }
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.spacing = 8
+        for node in fields {
+            let field: NSTextField = node.props["type"] == "password" ? NSSecureTextField() : NSTextField()
+            field.stringValue = node.fieldText.isEmpty ? node.props["value"] ?? "" : node.fieldText
+            field.placeholderString = node.props["placeholder"]
+            field.setAccessibilityLabel(node.props["accessibilityLabel"])
+            field.setAccessibilityIdentifier(node.props["testId"])
+            field.isEnabled = !node.disabled
+            field.translatesAutoresizingMaskIntoConstraints = false
+            field.widthAnchor.constraint(equalToConstant: 228).isActive = true
+            stack.addArrangedSubview(field)
+            owner.fields.append((node, field))
+            owner.observers.append(NotificationCenter.default.addObserver(forName: NSControl.textDidChangeNotification, object: field, queue: nil) { [weak presenter, weak node, weak field] _ in
+                guard let presenter, let node, let field, presenter.views[node.id] === node else { return }
+                presenter.typed(node.id, field.stringValue, input: node.handlers.contains("input"))
+            })
+        }
+        stack.setFrameSize(stack.fittingSize)
+        owner.alert.accessoryView = stack
+        owner.alert.window.initialFirstResponder = owner.fields.first?.field
+    }
+    /// The driver's typing into an authored field the prompt shows: AppKit's
+    /// field takes the text, and the input hears it. nil when `node` is no
+    /// field of an alert that is up.
+    func type(_ node: NodeView, _ text: String) -> String? {
+        guard let owner = presented, let field = owner.fields.first(where: { $0.node === node })?.field, field.isEnabled else { return nil }
+        field.stringValue = text
+        NotificationCenter.default.post(name: NSControl.textDidChangeNotification, object: field)
+        return field.stringValue
+    }
+    private func endPrompt(_ owner: Presented) {
+        owner.observers.forEach(NotificationCenter.default.removeObserver)
+        owner.observers = []
+        guard let presenter else { return }
+        for (node, field) in owner.fields where presenter.views[node.id] === node {
+            presenter.commitEdit(node.id, field.stringValue, change: node.handlers.contains("change"))
+        }
+        owner.fields = []
+    }
+    /// A prompt's buttons follow the page as its fields are typed in: one
+    /// its author disables while the name is empty is dimmed, rather than a
+    /// change that withdraws the alert.
+    private func followPrompt(_ owner: Presented) {
+        guard let pop = owner.node else { return }
+        for (index, row) in owner.rows.enumerated() where !row.cancel && owner.alert.buttons.indices.contains(index) {
+            guard let node = row.node, presenter?.menus.live(node) == true else { continue }
+            row.enabled = choosable(node, in: pop)
+            owner.alert.buttons[index].isEnabled = row.enabled
+        }
     }
     func reset() {
         if let owner = presented { withdraw(owner) }

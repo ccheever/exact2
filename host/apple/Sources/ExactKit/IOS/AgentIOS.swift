@@ -1061,7 +1061,9 @@ extension Agent {
             pendingTextReveal = f as? TextArea
             return ["typed": Int(v.id), "value": f.text ?? ""]
         }
-        guard let f = v.field else { return ["error": "view \(v.id) is not an input"] }
+        // A prompt's field is UIKit's in the alert while it shows (`PromptField`).
+        let prompted = presenter.menus.nativeConfirmation.map { v.isDescendant(of: $0) } == true
+        guard let f = prompted ? v.selectionField : v.field else { return ["error": "view \(v.id) is not an input"] }
         let text = TextInputLimit.prefix(req["text"] as? String ?? "", props: v.props)
         f.becomeFirstResponder()
         f.selectAll(nil)

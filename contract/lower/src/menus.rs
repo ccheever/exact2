@@ -118,11 +118,23 @@ fn most(rows: &[&Row], depth: usize) -> usize {
 /// that is not an alert's, the host that meets it presents what it finds.
 fn alert_shaped(rows: &[Row]) -> bool {
     let of = |keep: &dyn Fn(&Row) -> bool| rows.iter().filter(|r| keep(r)).collect::<Vec<_>>();
-    let texts = of(&|r| r.tag == "text");
+    // A prompt's text field is what it asks, as explanatory text is.
+    let texts = of(&|r| r.tag == "text" || text_field(r));
     let actions = of(&|r| r.tag == "button" && has(&r.attrs, "press"));
     let cancels = of(&|r| r.tag == "button" && !has(&r.attrs, "press"));
     !actions.iter().chain(&cancels).any(|r| r.repeats)
         && exact_kernel::confirmation::is_alert(texts.len(), most(&actions, 0), most(&cancels, 0))
+}
+
+/// HTML's one-line text fields, what a prompt asks with
+/// (`UIAlertController.addTextField`, `NSAlert.accessoryView`): an `input`
+/// whose `type` edits a line of text. A `type` known only at run time is
+/// the host's to read.
+fn text_field(row: &Row) -> bool {
+    const TYPES: &[&str] = &[
+        "text", "password", "email", "url", "search", "tel", "number",
+    ];
+    row.tag == "input" && literal(&row.attrs, "type").is_none_or(|t| TYPES.contains(&t))
 }
 
 fn literal<'a>(attrs: &'a [Attr], name: &str) -> Option<&'a str> {
@@ -169,9 +181,10 @@ impl Row<'_> {
 impl Lowerer<'_> {
     /// `hr` is void; a popover or `dialog` whose role is `alertdialog` is a
     /// confirmation, which an Apple host presents as the platform's sheet.
-    /// Its rows are text, actions (a `button` with `press` that hides it)
-    /// and at most one cancel (a `button` without `press` that hides it),
-    /// with at least one action. What a literal shows breaks that is refused;
+    /// Its rows are text, text fields when it is an alert (a prompt),
+    /// actions (a `button` with `press` that hides it) and at most one
+    /// cancel (a `button` without `press` that hides it), with at least one
+    /// action. What a literal shows breaks that is refused;
     /// a value known only at run time is left to the host. Returns whether
     /// it is a confirmation whose rows are an alert's ([`alert_shaped`]),
     /// which decides the `closedby` a `dialog` implies and may take.
@@ -249,15 +262,24 @@ impl Lowerer<'_> {
         let refuse = |row: &Row, why: String| {
             err(
                 "lower-alertdialog",
-                format!("alertdialog `{id}` cannot be presented as a native confirmation: {why}. Its rows are text, actions (a `button` with `press` and {how}) and at most one cancel (a `button` without `press`, with {how})"),
+                format!("alertdialog `{id}` cannot be presented as a native confirmation: {why}. Its rows are text, text fields (`input`), actions (a `button` with `press` and {how}) and at most one cancel (a `button` without `press`, with {how})"),
                 row.span,
             )
         };
         let mut actions = 0;
+        let mut fields: Option<&Row> = None;
         let mut cancels: Vec<&Row> = Vec::new();
         for row in &rows {
             match row.tag {
                 "text" => {}
+                // A prompt (a rename's): the alert with a text field, whose
+                // edits are the field's `input` as typing in place is.
+                "input" if text_field(row) => {
+                    if row.repeats {
+                        return refuse(row, "a text field inside `for` can repeat; a prompt's fields are written one by one".into());
+                    }
+                    fields = fields.or(Some(row));
+                }
                 // The hosts present buttons only; a `link` is refused as
                 // any other element row is.
                 "button" if has(&row.attrs, "press") => {
@@ -284,6 +306,9 @@ impl Lowerer<'_> {
             if cancels[..i].iter().any(|earlier| !earlier.exclusive(later)) {
                 return refuse(later, "a second cancel; there is at most one".into());
             }
+        }
+        if let Some(field) = fields.filter(|_| !alert) {
+            return refuse(field, "a text field belongs to the alert's shape, a prompt: with it one cancel and at most three buttons in all, none under `for`".into());
         }
         if actions == 0 {
             return err(

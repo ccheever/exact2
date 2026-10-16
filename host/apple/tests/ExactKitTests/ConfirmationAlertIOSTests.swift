@@ -284,6 +284,50 @@ final class ConfirmationAlertIOSTests: XCTestCase {
         XCTAssertFalse(inherited[0] > 0.9 && inherited[2] < 0.4, "the same red, only inherited, leaves UIKit's tint: \(inherited)")
     }
 
+    /// A prompt (`kernel/src/confirmation.rs`): an alert-shaped alertdialog
+    /// with an `input` is the alert with UIKit's text field, which stands in
+    /// for the authored field: its value and placeholder, a keystroke the
+    /// input's `input`, Return its first action that is not destructive, and
+    /// its `change` before the chosen action's press. An action its author
+    /// disables while it is typed in is dimmed, not a reason to withdraw it.
+    func testAPromptIsTheAlertWithAFieldStandingInForTheAuthoredOne() throws {
+        let (p, controller, scene) = confirmation(label: "Rename", texts: [], actions: ["Delete", "Save"], cancel: true)
+        defer { dismiss(p, controller) }
+        p.apply(wireBatch([["op": "create", "id": 20, "kind": "input", "handlers": ["input", "change"],
+                            "props": ["value": "Untitled", "placeholder": "Name", "testId": "name"], "style": ["text_color": [0, 0, 0, 255]]],
+                           ["op": "frame", "id": 20, "x": 0.0, "y": 0.0, "w": 200.0, "h": 30.0],
+                           ["op": "children", "id": 2, "ids": [20, 3, 4, 9]]]))
+        var events: [String] = []
+        p.onInput = { id, value in events.append("input \(id) \(value)") }
+        p.onChange = { id, value in events.append("change \(id) \(value)") }
+        p.onPress = { events.append("press \($0)") }
+        XCTAssertEqual(p.menus.activate(try XCTUnwrap(p.views[1])), true)
+        let alert = try XCTUnwrap(controller.presentedViewController as? UIAlertController)
+        XCTAssertEqual(alert.preferredStyle, .alert)
+        XCTAssertEqual(alert.title, "Rename")
+        let field = try XCTUnwrap(alert.textFields?.first)
+        XCTAssertEqual(alert.textFields?.count, 1)
+        XCTAssertEqual(field.text, "Untitled")
+        XCTAssertEqual(field.placeholder, "Name")
+        XCTAssertEqual(field.accessibilityIdentifier, "name")
+        XCTAssertEqual(alert.preferredAction?.title, "Save", "Return: the first action that is not destructive")
+
+        field.text = "Kick"
+        field.sendActions(for: .editingChanged)
+        XCTAssertEqual(events, ["input 20 Kick"])
+        p.apply(wireBatch([["op": "props", "id": 4, "set": ["disabled": "true"]]]))
+        XCTAssertNotNil(p.menus.observation(), "still presented")
+        XCTAssertFalse(alert.actions[1].isEnabled, "Save follows its author's disabled")
+        p.apply(wireBatch([["op": "props", "id": 4, "clear": ["disabled"]]]))
+        XCTAssertTrue(alert.actions[1].isEnabled)
+        guard scene else { throw missing("scene", "a presentation completes only in a scene's window") }
+        settle { !p.menus.inTransition }
+        try choose(alert.actions[1])
+        settle { events.contains("press 4") }
+        XCTAssertEqual(events, ["input 20 Kick", "change 20 Kick", "press 4"])
+        XCTAssertNil(try XCTUnwrap(p.views[20]).headerField, "the authored field is its own again")
+    }
+
     /// Without a label, the first line titles the alert and the rest is
     /// its message; an alert always has a title.
     func testAnUnlabelledConfirmationIsTitledByItsFirstLine() throws {
