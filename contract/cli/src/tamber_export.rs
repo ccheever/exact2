@@ -2,8 +2,8 @@
 //! <file>]` (LLP 1121 D14, stage 5): the design as DTCG Format 2025.10 with
 //! the Resolver Module (`exact_tamber::export`), printed or written to `-o`.
 //! Each export keeps what it wrote as the baseline a re-import compares with,
-//! in the design's `.exact/` (beside it), whose own `.gitignore` keeps it out
-//! of a commit wherever the app's ignore file does not.
+//! by the design's digest, in `.exact/tamber-dtcg/` beside the design, whose
+//! own `.gitignore` keeps it out of every commit.
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -62,17 +62,17 @@ pub fn run(args: &[String]) -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    if let Err(e) = keep(&path, &exported) {
-        eprintln!("contract tamber export: the baseline: {e}");
-        return ExitCode::from(2);
-    }
+    let kept = match keep(&path, &exported) {
+        Ok(k) => k,
+        Err(e) => {
+            eprintln!("contract tamber export: the baseline: {e}");
+            return ExitCode::from(2);
+        }
+    };
     match out {
         Some(out) => match std::fs::write(&out, &exported) {
             Ok(()) => {
-                eprintln!(
-                    "{out}: written; its baseline in {}",
-                    baseline(&path).display()
-                );
+                eprintln!("{out}: written; its baseline {}", kept.display());
                 ExitCode::SUCCESS
             }
             Err(e) => {
@@ -94,23 +94,76 @@ pub fn export(text: &str) -> Result<String, Vec<exact_tamber::Diagnostic>> {
     exact_tamber::export::dtcg(&folding, &vocab)
 }
 
-/// Where the baseline of the design at `design` is kept.
-pub fn baseline(design: &Path) -> PathBuf {
+/// How many exports' baselines are kept, the newest.
+const KEPT: usize = 16;
+
+/// Where the baselines of the design at `design` are kept: `.exact/` beside
+/// it, a directory of its own.
+pub fn baselines(design: &Path) -> PathBuf {
     design
         .parent()
         .unwrap_or(Path::new("."))
         .join(".exact")
-        .join(exact_tamber::export::BASELINE)
+        .join(exact_tamber::export::BASELINES)
 }
 
-/// Keep `exported` as the baseline, `.exact/` ignored by its own file.
-pub fn keep(design: &Path, exported: &str) -> std::io::Result<()> {
-    let file = baseline(design);
-    let dir = file.parent().expect("in .exact");
-    std::fs::create_dir_all(dir)?;
-    let ignore = dir.join(".gitignore");
-    if !ignore.exists() {
-        std::fs::write(&ignore, "*\n")?;
+/// A directory, refused when it is a symbolic link: an export never writes
+/// through one.
+fn plain_dir(dir: &Path) -> std::io::Result<()> {
+    match std::fs::symlink_metadata(dir) {
+        Ok(m) if m.file_type().is_symlink() || !m.is_dir() => Err(std::io::Error::other(format!(
+            "{} is not a plain directory",
+            dir.display()
+        ))),
+        Ok(_) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => std::fs::create_dir(dir),
+        Err(e) => Err(e),
     }
-    std::fs::write(file, exported)
+}
+
+/// Keep `exported` as the baseline of its design's digest, in a directory
+/// whose own `.gitignore` (`*`) keeps it out of every commit, written by a
+/// rename so a link in its place is replaced, never followed; the oldest
+/// past [`KEPT`] go. Its path.
+pub fn keep(design: &Path, exported: &str) -> std::io::Result<PathBuf> {
+    let dir = baselines(design);
+    plain_dir(dir.parent().expect("in .exact"))?;
+    plain_dir(&dir)?;
+    let digest = exact_tamber::export::digest(exported)
+        .filter(|d| !d.is_empty() && d.chars().all(|c| c.is_ascii_hexdigit()))
+        .ok_or_else(|| std::io::Error::other("the export names no digest"))?;
+    let write = |name: &str, text: &str| {
+        let tmp = dir.join(format!(".{name}.{}", std::process::id()));
+        std::fs::write(&tmp, text)?;
+        std::fs::rename(&tmp, dir.join(name))
+    };
+    write(".gitignore", "*\n")?;
+    let file = format!("{digest}.json");
+    write(&file, exported)?;
+    let mut all = kept_files(&dir);
+    for (path, _) in all.drain(KEPT.min(all.len())..) {
+        let _ = std::fs::remove_file(path);
+    }
+    Ok(dir.join(file))
+}
+
+/// The baselines kept for the design at `design`, the newest first.
+pub fn kept(design: &Path) -> Vec<String> {
+    kept_files(&baselines(design))
+        .into_iter()
+        .filter_map(|(p, _)| std::fs::read_to_string(p).ok())
+        .collect()
+}
+
+fn kept_files(dir: &Path) -> Vec<(PathBuf, std::time::SystemTime)> {
+    let mut all: Vec<(PathBuf, std::time::SystemTime)> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
+        .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
+        .filter_map(|e| Some((e.path(), e.metadata().ok()?.modified().ok()?)))
+        .collect();
+    all.sort_by_key(|(_, at)| std::cmp::Reverse(*at));
+    all
 }

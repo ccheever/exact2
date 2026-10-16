@@ -57,7 +57,7 @@ export function validate(root, value) {
       for (const r of s.required ?? []) if (!(r in v)) out.push(`${at}: no ${r}`);
       for (const [k, x] of Object.entries(v)) {
         let matched = false;
-        if (s.properties && k in s.properties) { matched = true; check(s.properties[k], x, `${at}/${k}`, base, out); }
+        if (s.properties && Object.hasOwn(s.properties, k)) { matched = true; check(s.properties[k], x, `${at}/${k}`, base, out); }
         for (const [p, ps] of Object.entries(s.patternProperties ?? {})) if (new RegExp(p, 'u').test(k)) { matched = true; check(ps, x, `${at}/${k}`, base, out); }
         if (!matched && s.additionalProperties !== undefined) check(s.additionalProperties, x, `${at}/${k}`, base, out);
       }
@@ -80,8 +80,9 @@ function exported(design) {
     const r = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'tamber', 'export', 'dtcg', resolve(dir, 'app.tamber')], { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 << 20 });
     if (r.status !== 0) throw new Error(r.stderr);
     // Each export keeps its baseline beside the design, ignored by its own file.
-    expect(readFileSync(resolve(dir, '.exact/.gitignore'), 'utf8')).toBe('*\n');
-    expect(readFileSync(resolve(dir, '.exact/tamber-dtcg.json'), 'utf8')).toBe(r.stdout);
+    const kept = resolve(dir, '.exact/tamber-dtcg');
+    expect(readFileSync(resolve(kept, '.gitignore'), 'utf8')).toBe('*\n');
+    expect(readFileSync(resolve(kept, `${JSON.parse(r.stdout).sets.exact.sources[0].$extensions.exact.digest}.json`), 'utf8')).toBe(r.stdout);
     return JSON.parse(r.stdout);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }
@@ -95,6 +96,8 @@ test('the validator refuses what the schemas refuse', () => {
   expect(validate(resolver, token({ colorSpace: 'srgb', components: [0, 0.5, 1.2] })).length).toBeGreaterThan(0);
   expect(validate(resolver, token({ colorSpace: 'srgb', components: [0, 0.5, 1], hex: '#0080ff80' })).length).toBeGreaterThan(0);
   expect(validate(schema('format.json'), { 'a.b': { $type: 'color', $value: '#fff' } }).length).toBeGreaterThan(0);
+  // A name the schema does not list, even one every object inherits.
+  expect(validate(resolver, JSON.parse('{"version": "2025.10", "resolutionOrder": [{"$ref": "#/sets/a"}], "constructor": 42}')).length).toBeGreaterThan(0);
 });
 
 test('the export of the theme fixture and of the clone validates against DTCG 2025.10', () => {

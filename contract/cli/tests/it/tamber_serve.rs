@@ -861,15 +861,22 @@ fn export_gives_the_dtcg_text_and_keeps_its_baseline_for_import() {
         .contains("no exporter"));
     let (exported, _) = s.ask(json!({"method": "export", "kind": "dtcg"}));
     let text = exported["ok"]["text"].as_str().unwrap();
-    assert_eq!(exported["ok"]["baseline"], ".exact/tamber-dtcg.json");
+    let digest = exact_tamber::export::digest(text).unwrap();
+    let kept = format!(".exact/tamber-dtcg/{digest}.json");
+    assert_eq!(exported["ok"]["baseline"], kept.as_str());
+    assert_eq!(std::fs::read_to_string(dir.join(&kept)).unwrap(), text);
     assert_eq!(
-        std::fs::read_to_string(dir.join(".exact/tamber-dtcg.json")).unwrap(),
-        text
-    );
-    assert_eq!(
-        std::fs::read_to_string(dir.join(".exact/.gitignore")).unwrap(),
+        std::fs::read_to_string(dir.join(".exact/tamber-dtcg/.gitignore")).unwrap(),
         "*\n"
     );
+    // A link in the baseline's place is replaced, never written through.
+    let design = dir.join("app.tamber");
+    let before = std::fs::read_to_string(&design).unwrap();
+    std::fs::remove_file(dir.join(&kept)).unwrap();
+    std::os::unix::fs::symlink(&design, dir.join(&kept)).unwrap();
+    let (again, _) = s.ask(json!({"method": "export", "kind": "dtcg"}));
+    assert!(again["ok"]["text"].is_string(), "{again}");
+    assert_eq!(std::fs::read_to_string(&design).unwrap(), before);
     // The unedited export, imported, plans nothing against its baseline.
     let (planned, _) = s.ask(
         json!({"method": "import-plan", "kind": "dtcg", "source": text, "name": "app.tokens.json"}),

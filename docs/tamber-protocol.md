@@ -486,27 +486,39 @@ with.
 `{kind: "dtcg"}`, read-only for the design: the app's design as DTCG Format 2025.10 with the Resolver
 Module 2025.10, as `bun exact.mjs tamber export dtcg <app>` writes it, from the same serializer.
 - **The reply** is `{kind, text, baseline}`: `text` is the file, `baseline` where it is kept, by
-  path from the app (`.exact/tamber-dtcg.json`). Each export keeps what it wrote there, and writes
-  `.exact/.gitignore` (`*`) when that is missing, so a baseline is never committed.
+  path from the app (`.exact/tamber-dtcg/<digest>.json`, the design's digest). Each export keeps
+  what it wrote there, the newest 16, in a directory whose own `.gitignore` (`*`) keeps them out of
+  every commit. A link in a baseline's place is replaced, never written through.
 - **The document.** One modifier, `mode`, whose contexts are the full tuples (every app-axis tuple,
   then `light` and `dark`, named `axis=value, …, light`), each a complete set of the colour tokens,
-  checked against the folded table before it is written. The header is the root
+  checked to read back as the colour a host renders before it is written. The header is the root
   `$extensions["exact"]` of the one token document of a set `exact`, first in `resolutionOrder`
   (the resolver's own root takes no `$extensions`): `export` (`"tamber-dtcg/1"`), `design`,
   `digest`, `conversions`, `axes`, `contexts` (each context's `modes` and `scheme`) and `dials`.
   The root `description` names the conversions too.
-- **Each token** is `$type: color` with its folded value as a 2025.10 colour object (`hex` the 8-bit
-  sRGB fallback), and in `$extensions["exact"]`: `source`, the line the context takes when it is
-  not a plain colour; `role` or `platform`, for a value at that role's or platform colour's
-  fallback; `overrides`, for a role override, exported as a token named for the role's row
-  (`AccentColor`); `lossy`, the CSS of a colour past Oklab's range (an HDR one), clipped.
+- **Each token** is `$type: color` with its value as a 2025.10 colour object (`hex` the 8-bit sRGB
+  fallback), and in `$extensions["exact"]`: `source`, the line the context takes when it is not a
+  plain colour; `role` or `platform`, for a value at that role's or platform colour's fallback;
+  `overrides`, for a role override, exported as a token named for the role's row (`AccentColor`);
+  `lossy`, the CSS of a colour past Oklab's range (an HDR one), clipped.
 - **A design that does not check** is refused as a read is.
-- **Importing it back** (`import` with `kind: "dtcg"` and the export as its one source): each
-  context's `$value` is compared with the baseline, or with a fresh export of the design when there
-  is none. An unchanged token proposes nothing, its source kept (an expression, a role). A tuple
-  whose light or dark value changed proposes one `set-token`, its `when` naming every axis (the
-  default line when the design has none) and its value the tuple's two incoming sides. A token the
-  export did not have is reported in `unmapped`, not added.
+- **Importing it back** (`import` with `kind: "dtcg"` and the export as its one source). The file is
+  read as the export when it has the header, or the export's shape (a set `exact`, then the one
+  modifier `mode` with its contexts named for their tuples) where a tool dropped `$extensions`.
+  - **The baseline** is the kept one the header's digest names, or a fresh export of the design
+    when the file came from the design as it is. With no header, it is the design's or the newest
+    kept one with the file's contexts. With none of these the import is refused: comparing with
+    another export would propose reverting what nobody edited.
+  - **Each token's values** are compared with the baseline's, as colours: a tool that drops `hex`
+    or reprints the numbers changes nothing. An unchanged token proposes nothing, its source kept
+    (an expression, a role); so does one the design has already.
+  - **A changed tuple** proposes one `set-token`, its `when` naming every axis of the tuple and its
+    value the tuple's light and dark. An axis `under scheme=dark` is named only on a tuple off its
+    default, since the light side is the line without it; a light value edited only in such a
+    tuple is reported. Each token's operations are checked as the design would take them, and one
+    it would refuse (a role's value varying by such an axis) is reported with the checker's id.
+  - **Reported in `unmapped`, not added or removed:** a token the export did not have, one the file
+    drops, one missing from a context, and a value no colour is read from.
 
 ## The change stream
 

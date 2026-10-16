@@ -613,15 +613,8 @@ impl Server {
             }
             Some("import-plan") => vec![reply(self.texts().and_then(|now| {
                 let design = now.iter().find(|(f, _)| *f == self.design).map(|(_, t)| t);
-                let baseline = std::fs::read_to_string(crate::tamber_export::baseline(
-                    &self.dir.join(&self.design),
-                ))
-                .ok();
-                crate::tamber_import::plan(
-                    &request,
-                    design.map_or("tamber app\n", |t| t),
-                    baseline.as_deref(),
-                )
+                let kept = crate::tamber_export::kept(&self.dir.join(&self.design));
+                crate::tamber_import::plan(&request, design.map_or("tamber app\n", |t| t), &kept)
             }))],
             Some("export") => vec![reply(self.export(&request))],
             other => vec![reply(Err(
@@ -698,10 +691,8 @@ impl Server {
         let (_, folding) = self.design(&json!({}))?;
         let text = exact_tamber::export::dtcg(&folding, &self.vocab)
             .map_err(|all| refused(&self.design, all))?;
-        let path = self.dir.join(&self.design);
-        crate::tamber_export::keep(&path, &text)
+        let kept = crate::tamber_export::keep(&self.dir.join(&self.design), &text)
             .map_err(|e| json!({"message": format!("the baseline: {e}")}))?;
-        let kept = crate::tamber_export::baseline(&path);
         Ok(json!({
             "kind": "dtcg",
             "text": text,

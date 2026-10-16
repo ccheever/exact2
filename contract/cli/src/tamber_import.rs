@@ -78,19 +78,13 @@ pub fn run(args: &[String]) -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    // A Tamber export's own baseline: kept by the last export beside the design.
-    let baseline = app
+    // A Tamber export's baselines: kept by each export beside the design.
+    let kept = app
         .as_deref()
         .and_then(|a| crate::tamber::design(Path::new(a)))
-        .and_then(|p| std::fs::read_to_string(crate::tamber_export::baseline(&p)).ok());
-    let imported = match import_with(
-        &kind,
-        &files,
-        prefix.as_deref(),
-        &design,
-        &current,
-        baseline.as_deref(),
-    ) {
+        .map(|p| crate::tamber_export::kept(&p))
+        .unwrap_or_default();
+    let imported = match import_with(&kind, &files, prefix.as_deref(), &design, &current, &kept) {
         Some(i) => i,
         None => {
             eprintln!(
@@ -115,24 +109,20 @@ pub fn run(args: &[String]) -> ExitCode {
 
 /// The importer `kind` over the source's files, planned against `design`
 /// (`current`'s text); `None` when there is no such importer. A Tamber DTCG
-/// export of its own is compared with `baseline`, what the last export
-/// wrote, or else a fresh export of the design as it is (LLP 1121 D14).
+/// export of its own is compared with the baseline it came from, one of
+/// `kept` or a fresh export of the design as it is (LLP 1121 D14).
 fn import_with(
     kind: &str,
     files: &[(String, String)],
     prefix: Option<&str>,
     design: &exact_tamber::Design,
     current: &str,
-    baseline: Option<&str>,
+    kept: &[String],
 ) -> Option<Result<Import, Vec<exact_tamber::Diagnostic>>> {
     let text = files.first().map(|(_, t)| t.as_str()).unwrap_or_default();
     let vocab = contract_lower::tamber_vocab();
     if kind == "dtcg" && files.len() == 1 && exact_tamber::export::is_own(text) {
-        let base = match baseline {
-            Some(b) => Ok(b.to_string()),
-            None => crate::tamber_export::export(current),
-        };
-        return Some(base.and_then(|b| exact_tamber::export::reimport(text, &b, design)));
+        return Some(exact_tamber::export::reimport(text, kept, current, &vocab));
     }
     Some(match kind {
         "shadcn" => shadcn::import(text, prefix.unwrap_or("shadcn"), design, &vocab),
@@ -150,7 +140,7 @@ fn import_with(
 /// `name` is the file's (a Figma export's `<Collection>.<Mode>.json` names
 /// its modes). Astryx is not taken here: resolving its package needs a Bun
 /// install, which its CLI does.
-pub fn plan(request: &Value, current: &str, baseline: Option<&str>) -> Result<Value, Value> {
+pub fn plan(request: &Value, current: &str, kept: &[String]) -> Result<Value, Value> {
     let bad = |m: &str| json!({"message": m});
     let field = |k: &str| match &request[k] {
         Value::Null => Ok(None),
@@ -198,7 +188,7 @@ pub fn plan(request: &Value, current: &str, baseline: Option<&str>) -> Result<Va
         field("prefix")?.as_deref(),
         &design,
         current,
-        baseline,
+        kept,
     ) {
         None => Err(bad(&format!(
             "no importer `{kind}` (shadcn, tailwind, dtcg; astryx through its CLI)"

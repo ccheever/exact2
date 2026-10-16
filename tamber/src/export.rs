@@ -10,8 +10,8 @@
 //! document of a set `exact`, first in the resolution order.
 //!
 //! Re-importing the export ([`reimport`]) compares each context's incoming
-//! `$value` with the baseline, what the last export wrote (kept in the app's
-//! `.exact/`, [`BASELINE`]): an unchanged value keeps its source, an
+//! `$value` with the baseline, what the export it came from wrote (kept in
+//! the app's `.exact/`, [`BASELINES`]): an unchanged value keeps its source, an
 //! expression or a role included, and a changed one is proposed as a
 //! `set-token` for its tuple.
 
@@ -24,8 +24,9 @@ use serde_json::{json, Map, Value};
 /// The header's `export`: what the document is, for the importer.
 pub const MARK: &str = "tamber-dtcg/1";
 
-/// The baseline's file in the app's `.exact/`.
-pub const BASELINE: &str = "tamber-dtcg.json";
+/// The directory in the app's `.exact/` that keeps each export's baseline,
+/// as `<digest>.json` by the design's digest.
+pub const BASELINES: &str = "tamber-dtcg";
 
 /// What the export says it converted, in its header and its description.
 const CONVERSIONS: &[&str] = &[
@@ -166,7 +167,7 @@ fn in_range(w: &Wide) -> bool {
 /// lightness clipped past 1 (an HDR colour).
 fn colour_json(h: Half) -> (Value, bool) {
     let hex = h.clip()[..7].to_string();
-    let mut w = h.wide();
+    let mut w = rendered(h);
     let mut lossy = false;
     if !in_range(&w) {
         let [l, a, b] = exact_color::linear_to_oklab(w.linear_srgb());
@@ -190,8 +191,21 @@ fn colour_json(h: Half) -> (Value, bool) {
     (Value::Object(obj), lossy)
 }
 
-/// Whether a colour object reads back as `h` (DTCG's numbers are f64, so to
-/// a rounding).
+/// The colour a host renders for `h`: a wide one as the kernel reads its
+/// CSS back, which clamps what an unclamped relative colour carries (a
+/// negative chroma), as `Half::clip` does.
+fn rendered(h: Half) -> Wide {
+    match h {
+        Half::Wide(w) => match exact_color::parse(&w.css()) {
+            Some(Parsed::Wide(read)) => read,
+            _ => w,
+        },
+        Half::Legacy(..) => h.wide(),
+    }
+}
+
+/// Whether a colour object reads back as the colour a host renders for `h`
+/// (DTCG's numbers are f64, so to a rounding).
 fn reads_as(value: &Value, h: Half) -> bool {
     let Some(read) = colour(value).and_then(|c| exact_color::parse(&c)) else {
         return false;
@@ -201,9 +215,9 @@ fn reads_as(value: &Value, h: Half) -> bool {
         Parsed::Wide(w) => w,
         _ => return false,
     };
-    let (a, b) = (read.linear_srgb(), h.wide().linear_srgb());
-    a.iter().zip(&b).all(|(x, y)| (x - y).abs() < 1e-6)
-        && (read.alpha - h.wide().alpha).abs() < 1e-3
+    let want = rendered(h);
+    let (a, b) = (read.linear_srgb(), want.linear_srgb());
+    a.iter().zip(&b).all(|(x, y)| (x - y).abs() < 1e-6) && (read.alpha - want.alpha).abs() < 1e-3
 }
 
 /// Put `token` at `name` in a token tree: dotted segments as groups, and a
@@ -357,15 +371,74 @@ pub fn dtcg(f: &Folding, vocab: &Vocab) -> Result<String, Vec<Diagnostic>> {
     Ok(serde_json::to_string_pretty(&doc).expect("JSON") + "\n")
 }
 
-/// The export's header, when `doc` is a Tamber export.
+/// The export's header, when `doc` carries it.
 fn header(doc: &Value) -> Option<&Value> {
     let h = &doc["sets"]["exact"]["sources"][0]["$extensions"]["exact"];
     (h["export"] == MARK).then_some(h)
 }
 
-/// Whether `text` is a Tamber DTCG export, which [`reimport`] reads.
+/// A context's tuple and side, read from its name (`axis=value, …, dark`),
+/// for an export a tool stripped of its `$extensions`.
+fn named(context: &str) -> Option<(Modes, bool)> {
+    let mut parts: Vec<&str> = context.split(", ").collect();
+    let dark = match parts.pop()? {
+        "light" => false,
+        "dark" => true,
+        _ => return None,
+    };
+    let modes = parts
+        .iter()
+        .map(|p| {
+            p.split_once('=')
+                .map(|(a, v)| (a.to_string(), v.to_string()))
+        })
+        .collect::<Option<Modes>>()?;
+    Some((modes, dark))
+}
+
+/// Each context of an export, its tuple and side: from the header, or from
+/// the names of the `mode` modifier's contexts when a tool dropped it.
+fn context_map(doc: &Value) -> Option<Vec<(String, Modes, bool)>> {
+    if let Some(h) = header(doc) {
+        return h["contexts"].as_object().map(|all| {
+            all.iter()
+                .map(|(name, c)| {
+                    let modes = c["modes"]
+                        .as_object()
+                        .into_iter()
+                        .flatten()
+                        .map(|(a, v)| (a.clone(), v.as_str().unwrap_or_default().to_string()))
+                        .collect();
+                    (name.clone(), modes, c["scheme"] == "dark")
+                })
+                .collect()
+        });
+    }
+    // Without the header, the export's shape: a set `exact` and the one
+    // modifier `mode`, in that order, its contexts named for their tuples.
+    let order = doc["resolutionOrder"].as_array()?;
+    let refs: Vec<&str> = order.iter().filter_map(|r| r["$ref"].as_str()).collect();
+    let modifiers = doc["modifiers"].as_object()?;
+    if refs != ["#/sets/exact", "#/modifiers/mode"] || modifiers.len() != 1 {
+        return None;
+    }
+    modifiers["mode"]["contexts"]
+        .as_object()?
+        .keys()
+        .map(|name| named(name).map(|(m, d)| (name.clone(), m, d)))
+        .collect()
+}
+
+/// Whether `text` is a Tamber DTCG export, which [`reimport`] reads: one
+/// with its header, or a tool's copy with the export's shape.
 pub fn is_own(text: &str) -> bool {
-    serde_json::from_str::<Value>(text).is_ok_and(|doc| header(&doc).is_some())
+    serde_json::from_str::<Value>(text).is_ok_and(|doc| context_map(&doc).is_some())
+}
+
+/// The design digest an export names in its header.
+pub fn digest(text: &str) -> Option<String> {
+    let doc: Value = serde_json::from_str(text).ok()?;
+    header(&doc)?["digest"].as_str().map(str::to_string)
 }
 
 /// A context's tokens: each name (a group's `$root` the group's) and its
@@ -387,39 +460,57 @@ fn flatten(tree: &Value, prefix: &str, out: &mut Vec<(String, Value)>) {
     }
 }
 
-/// A context's tokens by name, from a document's `mode` modifier.
-fn context_tokens(doc: &Value, context: &str) -> Vec<(String, Value)> {
-    let mut out = Vec::new();
-    for src in doc["modifiers"]["mode"]["contexts"][context]
-        .as_array()
+/// Each context's tokens by name, from a document's `mode` modifier.
+fn tokens_by_context(doc: &Value) -> std::collections::BTreeMap<String, Vec<(String, Value)>> {
+    let mut out = std::collections::BTreeMap::new();
+    for (context, srcs) in doc["modifiers"]["mode"]["contexts"]
+        .as_object()
         .into_iter()
         .flatten()
     {
-        flatten(src, "", &mut out);
+        let mut all = Vec::new();
+        for src in srcs.as_array().into_iter().flatten() {
+            flatten(src, "", &mut all);
+        }
+        out.insert(context.clone(), all);
     }
     out
 }
 
-/// A colour object as Tamber writes it: its `hex` where that is exactly
-/// what its sRGB components say (an 8-bit colour, as a design writes one),
-/// else what the DTCG importer reads.
+/// A colour object as Tamber writes it: its `hex` where that, and its alpha
+/// in eighths of 255, are exactly what its sRGB components say (an 8-bit
+/// colour, as a design writes one), else what the DTCG importer reads.
 fn written_colour(value: &Value) -> Option<String> {
-    let hex = value["hex"].as_str().filter(|h| h.len() == 7)?;
-    let parts = value["components"].as_array()?;
-    let exact = value["colorSpace"] == "srgb"
-        && parts.len() == 3
-        && parts.iter().enumerate().all(|(i, c)| {
-            let byte = u8::from_str_radix(&hex[1 + 2 * i..3 + 2 * i], 16).ok();
-            matches!((c.as_f64(), byte), (Some(c), Some(b)) if (c * 255.0 - f64::from(b)).abs() < 1e-6)
-        });
-    if !exact {
-        return colour(value);
-    }
-    match value["alpha"].as_f64() {
-        Some(a) if a < 1.0 => Some(format!("{hex}{:02x}", (a * 255.0).round() as u8)),
-        _ => Some(hex.to_ascii_lowercase()),
-    }
-    .or_else(|| colour(value))
+    let byte = |hex: &str, i: usize| {
+        hex.get(1 + 2 * i..3 + 2 * i)
+            .and_then(|h| u8::from_str_radix(h, 16).ok())
+    };
+    let short = (|| {
+        let hex = value["hex"]
+            .as_str()
+            .filter(|h| h.len() == 7 && h.is_ascii() && h.starts_with('#'))?;
+        let parts = value["components"].as_array().filter(|p| p.len() == 3)?;
+        let exact = value["colorSpace"] == "srgb"
+            && parts.iter().enumerate().all(|(i, c)| {
+                matches!((c.as_f64(), byte(hex, i)), (Some(c), Some(b)) if (c * 255.0 - f64::from(b)).abs() < 1e-6)
+            });
+        if !exact {
+            return None;
+        }
+        match value.get("alpha").map(Value::as_f64) {
+            None => Some(hex.to_ascii_lowercase()),
+            Some(Some(a)) if a >= 1.0 => Some(hex.to_ascii_lowercase()),
+            Some(Some(a)) if (a * 255.0 - (a * 255.0).round()).abs() < 1e-9 && a >= 0.0 => {
+                Some(format!(
+                    "{}{:02x}",
+                    hex.to_ascii_lowercase(),
+                    (a * 255.0).round() as u8
+                ))
+            }
+            _ => None,
+        }
+    })();
+    short.or_else(|| colour(value))
 }
 
 /// Two JSON values the same, numbers to a rounding (a tool may reprint
@@ -440,131 +531,308 @@ fn close(a: &Value, b: &Value) -> bool {
     }
 }
 
+/// Two colour values the same: as written, to a rounding, or as the colours
+/// they read as (a tool that drops `hex`, or writes the components again).
+fn same(a: &Value, b: &Value) -> bool {
+    if close(a, b) {
+        return true;
+    }
+    let read = |v: &Value| match colour(v).and_then(|c| exact_color::parse(&c))? {
+        Parsed::Legacy(c) => Some(Half::legacy(c).wide()),
+        Parsed::Wide(w) => Some(w),
+        _ => None,
+    };
+    match (read(a), read(b)) {
+        (Some(x), Some(y)) => {
+            let (p, q) = (x.linear_srgb(), y.linear_srgb());
+            p.iter().zip(&q).all(|(m, n)| (m - n).abs() < 1e-9) && (x.alpha - y.alpha).abs() < 1e-9
+        }
+        _ => false,
+    }
+}
+
 /// A tuple: every axis and its value.
 type Modes = Vec<(String, String)>;
 
-/// Re-import a Tamber export (`incoming`) against `baseline`, what the last
-/// export wrote (or a fresh export of the design as it is): each token whose
-/// `$value` is unchanged in every context proposes nothing, its source kept;
-/// a tuple whose light or dark value changed proposes one `set-token`, its
-/// `when` naming every axis (the default line when the design has none) and
-/// its value the tuple's two incoming sides. A token the baseline lacks, or
-/// a value this importer does not read, is reported.
+/// The baseline an incoming export is compared with: the kept one its
+/// header's digest names; else the design's own export when the incoming
+/// file came from the design as it is (its digest, or with no header its
+/// contexts); else, with no header, the newest kept one with its contexts.
+fn baseline_for(incoming: &Value, kept: &[String], fresh: &str) -> Result<String, String> {
+    let wanted = header(incoming).and_then(|h| h["digest"].as_str());
+    if let Some(d) = wanted {
+        if let Some(b) = kept.iter().find(|b| digest(b).as_deref() == Some(d)) {
+            return Ok(b.clone());
+        }
+        if digest(fresh).as_deref() == Some(d) {
+            return Ok(fresh.to_string());
+        }
+        return Err(format!("no baseline for this export: it came from the design at digest {d}, which no kept export here and not the design as it is has; export again, and make the edits in that file"));
+    }
+    let contexts = |text: &str| {
+        serde_json::from_str::<Value>(text).ok().and_then(|d| {
+            d["modifiers"]["mode"]["contexts"]
+                .as_object()
+                .map(|c| c.keys().cloned().collect::<Vec<_>>())
+        })
+    };
+    let theirs = incoming["modifiers"]["mode"]["contexts"]
+        .as_object()
+        .map(|c| c.keys().cloned().collect::<Vec<_>>());
+    if contexts(fresh) == theirs {
+        return Ok(fresh.to_string());
+    }
+    kept.iter()
+        .find(|b| contexts(b) == theirs)
+        .cloned()
+        .ok_or_else(|| "no baseline for this export: its header is gone and no kept export has its contexts; export again".to_string())
+}
+
+/// Re-import a Tamber export (`incoming`) against the baseline it came from
+/// (one of `kept`, newest first, by its header's digest; or a fresh export of
+/// `current`, the design as it is). A token whose `$value` is unchanged in
+/// every context proposes nothing, its source kept. A changed one proposes
+/// a `set-token` per tuple whose value changed, its `when` naming every axis
+/// of that tuple; an axis `under scheme=dark` only on a tuple off its
+/// default, since its light side is the line without it. Each token's
+/// operations are checked as the design would take them, and a token they
+/// do not apply to, one the baseline lacks or the file removes, one missing
+/// from a context, or a value this importer reads no colour from, is
+/// reported.
 pub fn reimport(
     incoming: &str,
-    baseline: &str,
-    design: &crate::Design,
+    kept: &[String],
+    current: &str,
+    vocab: &Vocab,
 ) -> Result<Import, Vec<Diagnostic>> {
     let refuse = |m: String| vec![Diagnostic::new("tamber-export-import", m, 1, 1)];
     let doc: Value =
         serde_json::from_str(incoming).map_err(|e| refuse(format!("not JSON: {e}")))?;
-    let base: Value = serde_json::from_str(baseline)
+    let design = crate::parse(current)?;
+    let fresh = crate::check(current, vocab).and_then(|f| dtcg(&f, vocab))?;
+    let baseline = baseline_for(&doc, kept, &fresh).map_err(refuse)?;
+    let base: Value = serde_json::from_str(&baseline)
         .map_err(|e| refuse(format!("the baseline: not JSON: {e}")))?;
-    let head = header(&base).ok_or_else(|| refuse("the baseline is no Tamber export".into()))?;
-    header(&doc).ok_or_else(|| refuse("not a Tamber export".into()))?;
-    let contexts: Vec<(&String, &Value)> = head["contexts"]
-        .as_object()
-        .ok_or_else(|| refuse("the baseline's header names no contexts".into()))?
-        .iter()
+    let contexts =
+        context_map(&base).ok_or_else(|| refuse("the baseline is no Tamber export".into()))?;
+    let under: Vec<String> = header(&base)
+        .and_then(|h| h["axes"].as_array())
+        .into_iter()
+        .flatten()
+        .filter(|a| a["under"] == "dark")
+        .filter_map(|a| a["name"].as_str().map(str::to_string))
         .collect();
-    let axes = head["axes"].as_array().map_or(0, Vec::len);
-    let first = contexts.first().map(|(n, _)| n.as_str()).unwrap_or("light");
-    let baseline_tokens = context_tokens(&base, first);
-    let mut unmapped = Vec::new();
-    let mut ops = Vec::new();
-    let mut mapped = 0;
-    // The tuples, each its light and dark context, in the baseline's order.
-    let mut tuples: Vec<(Modes, [&str; 2])> = Vec::new();
-    for (name, c) in &contexts {
-        let modes: Vec<(String, String)> = c["modes"]
-            .as_object()
-            .into_iter()
-            .flatten()
-            .map(|(a, v)| (a.clone(), v.as_str().unwrap_or_default().to_string()))
-            .collect();
-        let dark = c["scheme"] == "dark";
-        match tuples.iter_mut().find(|(m, _)| *m == modes) {
-            Some((_, sides)) => sides[usize::from(dark)] = name,
+    let defaults: Vec<(String, String)> = header(&base)
+        .and_then(|h| h["axes"].as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|a| {
+            Some((
+                a["name"].as_str()?.to_string(),
+                a["values"][0].as_str()?.to_string(),
+            ))
+        })
+        .collect();
+    let theirs = tokens_by_context(&doc);
+    let ours = tokens_by_context(&base);
+    let value = |tokens: &std::collections::BTreeMap<String, Vec<(String, Value)>>,
+                 context: &str,
+                 name: &str| {
+        tokens
+            .get(context)
+            .and_then(|all| all.iter().find(|(n, _)| n == name))
+            .map(|(_, t)| t["$value"].clone())
+    };
+    // The tuples: each one's light and dark context, and its base, the
+    // tuple with every axis under scheme=dark at its default, whose light
+    // side it shows.
+    let mut tuples: Vec<(Modes, [String; 2])> = Vec::new();
+    for (name, modes, dark) in &contexts {
+        match tuples.iter_mut().find(|(m, _)| m == modes) {
+            Some((_, sides)) => sides[usize::from(*dark)] = name.clone(),
             None => {
-                let mut sides = [name.as_str(); 2];
-                sides[usize::from(dark)] = name;
-                tuples.push((modes, sides));
+                let mut sides = [name.clone(), name.clone()];
+                sides[usize::from(*dark)] = name.clone();
+                tuples.push((modes.clone(), sides));
             }
         }
     }
-    let lookup = |doc: &Value, context: &str, name: &str| {
-        context_tokens(doc, context)
-            .into_iter()
-            .find(|(n, _)| n == name)
-            .map(|(_, t)| t["$value"].clone())
+    let base_of = |modes: &Modes| -> Modes {
+        modes
+            .iter()
+            .map(|(a, v)| match under.contains(a) {
+                true => (
+                    a.clone(),
+                    defaults
+                        .iter()
+                        .find(|(d, _)| d == a)
+                        .map_or(v.clone(), |(_, dv)| dv.clone()),
+                ),
+                false => (a.clone(), v.clone()),
+            })
+            .collect()
     };
-    let incoming_names: Vec<String> = context_tokens(&doc, first)
-        .into_iter()
-        .map(|(n, _)| n)
-        .collect();
-    for name in &incoming_names {
-        if !baseline_tokens.iter().any(|(n, _)| n == name) {
-            unmapped.push(Unmapped {
-                block: first.to_string(),
-                name: name.clone(),
-                value: String::new(),
-                why: "not in the export it came from: a new token is added to the design, not by re-import".into(),
-                token: Some(name.clone()),
-            });
+    let light_of = |modes: &Modes| -> Option<&String> {
+        let b = base_of(modes);
+        tuples.iter().find(|(m, _)| *m == b).map(|(_, s)| &s[0])
+    };
+    let mut names: Vec<String> = Vec::new();
+    for all in theirs.values().chain(ours.values()) {
+        for (n, _) in all {
+            if !names.contains(n) {
+                names.push(n.clone());
+            }
         }
     }
-    for (name, _) in &baseline_tokens {
-        if !incoming_names.contains(name) {
+    let first = contexts
+        .first()
+        .map(|(n, ..)| n.clone())
+        .unwrap_or_default();
+    let in_base = |n: &str| {
+        ours.get(&first)
+            .is_some_and(|all| all.iter().any(|(m, _)| m == n))
+    };
+    let (mut ops, mut unmapped, mut mapped) = (Vec::new(), Vec::new(), 0);
+    let report = |unmapped: &mut Vec<Unmapped>, name: &str, block: &str, why: String| {
+        unmapped.push(Unmapped {
+            block: block.to_string(),
+            name: name.to_string(),
+            value: String::new(),
+            why,
+            token: Some(name.to_string()),
+        });
+    };
+    for name in &names {
+        if !in_base(name) {
+            report(&mut unmapped, name, "", "not in the export it came from: a new token is added to the design, not by re-import".into());
             continue;
         }
+        let missing: Vec<&str> = contexts
+            .iter()
+            .filter(|(c, ..)| value(&theirs, c, name).is_none())
+            .map(|(c, ..)| c.as_str())
+            .collect();
+        if missing.len() == contexts.len() {
+            report(
+                &mut unmapped,
+                name,
+                "",
+                "not in the incoming file: a token is removed in the design, not by re-import"
+                    .into(),
+            );
+            continue;
+        }
+        if let Some(c) = missing.first() {
+            report(
+                &mut unmapped,
+                name,
+                c,
+                "missing from this context: each context of the export is a complete set".into(),
+            );
+            continue;
+        }
+        // The design's own spelling: exactly, or a role's row in any case.
+        let overrides = ours[&first]
+            .iter()
+            .find(|(n, _)| n == name)
+            .is_some_and(|(_, t)| t["$extensions"]["exact"]["overrides"].is_string());
         let written = design
             .tokens
             .iter()
-            .find(|t| t.name.value.eq_ignore_ascii_case(name))
+            .find(|t| t.name.value == *name)
+            .or_else(|| {
+                overrides
+                    .then(|| {
+                        design
+                            .tokens
+                            .iter()
+                            .find(|t| t.name.value.eq_ignore_ascii_case(name))
+                    })
+                    .flatten()
+            })
             .map_or(name.clone(), |t| t.name.value.clone());
+        let changed = |context: &str| !matches!((value(&theirs, context, name), value(&ours, context, name)), (Some(a), Some(b)) if same(&a, &b));
         let mut token_ops = Vec::new();
-        let mut unread = None;
+        let mut why = None;
         for (modes, sides) in &tuples {
-            let changed = sides.iter().any(|s| {
-                let (a, b) = (lookup(&doc, s, name), lookup(&base, s, name));
-                !matches!((&a, &b), (Some(a), Some(b)) if close(a, b))
-            });
-            if !changed {
+            let Some(light) = light_of(modes) else {
+                continue;
+            };
+            // A light side under an axis under scheme=dark shows its base's:
+            // an edit there alone is no value of the design.
+            if light != &sides[0] && changed(&sides[0]) && !changed(light) {
+                why = Some((sides[0].clone(), format!("the light side here is `{light}`'s: an axis under scheme=dark varies the dark side only")));
+                break;
+            }
+            if !changed(light) && !changed(&sides[1]) {
                 continue;
             }
-            let read = sides.map(|s| lookup(&doc, s, name).as_ref().and_then(written_colour));
-            let [Some(light), Some(dark)] = read else {
-                unread = Some(sides.join(" / "));
+            // A tuple off an axis under scheme=dark whose dark side follows
+            // its base's, before and after, takes the base's new line.
+            let base_dark = tuples
+                .iter()
+                .find(|(m, _)| *m == base_of(modes))
+                .map(|(_, s)| &s[1]);
+            if let Some(bd) = base_dark.filter(|bd| *bd != &sides[1]) {
+                let follows = |tokens| matches!((value(tokens, &sides[1], name), value(tokens, bd, name)), (Some(a), Some(b)) if same(&a, &b));
+                if follows(&theirs) && follows(&ours) {
+                    continue;
+                }
+            }
+            let read = [light, &sides[1]]
+                .map(|c| value(&theirs, c, name).as_ref().and_then(written_colour));
+            let [Some(l), Some(d)] = read else {
+                why = Some((
+                    sides.join(" / "),
+                    "a value this importer reads no colour from".into(),
+                ));
                 break;
             };
-            let value = if light == dark {
-                light
-            } else {
-                format!("light-dark({light}, {dark})")
-            };
+            let off: bool = modes.iter().any(|(a, v)| {
+                under.contains(a) && base_of(modes).iter().any(|(b, w)| b == a && w != v)
+            });
+            let when: Modes = modes
+                .iter()
+                .filter(|(a, _)| off || !under.contains(a))
+                .cloned()
+                .collect();
             token_ops.push(Op::SetToken {
                 name: written.clone(),
-                when: if axes == 0 { Vec::new() } else { modes.clone() },
-                value,
+                when,
+                value: if l == d {
+                    l
+                } else {
+                    format!("light-dark({l}, {d})")
+                },
                 at: None,
                 comment: None,
             });
         }
-        match unread {
-            Some(at) => unmapped.push(Unmapped {
-                block: at,
-                name: name.clone(),
-                value: String::new(),
-                why: "a value this importer reads no colour from, or a context it lacks".into(),
-                token: Some(written),
-            }),
+        if why.is_none() && !token_ops.is_empty() {
+            match crate::apply_all(current, &token_ops, vocab) {
+                // The design has it already (this file accepted before).
+                Ok(edited) if edited.text == current => token_ops.clear(),
+                Ok(_) => {}
+                Err(all) => {
+                    let first = all
+                        .first()
+                        .map_or(String::new(), |d| format!("{}: {}", d.id, d.message));
+                    why = Some((
+                        String::new(),
+                        format!("the design would refuse it ({first})"),
+                    ));
+                }
+            }
+        }
+        match why {
+            Some((block, w)) => report(&mut unmapped, name, &block, w),
             None => {
                 mapped += 1;
                 ops.extend(token_ops);
             }
         }
     }
-    let counted = counted(incoming_names.len(), mapped, unmapped.len())?;
+    let counted = counted(names.len(), mapped, unmapped.len())?;
     Ok(Import {
         ops,
         offers: Vec::new(),
