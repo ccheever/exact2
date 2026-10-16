@@ -50,14 +50,14 @@ function devDesign(stage) {
  * errors (what the JS target refused, or a compile error). `keep(design,
  * logic)`, when it says so, keeps the build in `dist` (a value-only design
  * edit, LLP 1121 stage 4: the page takes a batch instead). */
-function build(app, dist, keep = () => false) {
+function build(app, dist, keep = () => false, compiler = null) {
   const stage = resolve(app.target, 'web-js-dev-stage');
   rmSync(stage, { recursive: true, force: true });
   return new Promise((done) => {
     // The JS target's build itself, rendering no pages (every route is the
     // shell), with the completion marker host/web/build.mjs writes.
     const child = building = spawn(process.execPath, [resolve(root, 'host/web-js/build.mjs'), app.name, '--out', stage, '--render', 'none', '--dev'],
-      { cwd: root, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+      { cwd: root, env: compiler ? { ...process.env, EXACT_WEB_COMPILER: compiler } : process.env, stdio: ['ignore', 'pipe', 'pipe'] });
     let log = '';
     child.stdout.on('data', (d) => { log += d; });
     child.stderr.on('data', (d) => { log += d; });
@@ -239,6 +239,9 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
       }
     }
     if (building) { for (const p of pendingEdits) edited.add(p); for (const p of pendingAppeared) appeared.add(p); again = true; return; }
+    // The design reader, done and fresh, is this build's compiler too: taken
+    // before it builds again, which leaves an unchanged binary as it was.
+    const compiler = tool.ready && fresh(tool.path, `${tool.path}.d`) ? tool.path : null;
     // Anything else may move the compiler: the design tool is built again.
     if (!designOnly) buildTool();
     // What a full build reads from disk is what changed since it began.
@@ -248,7 +251,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     const keep = (next, logic) => designOnly && design && next && logic === logicRevision
       && next.structure === design.structure && next.tokens.length === design.tokens.length
       && next.tokens.every((t, i) => t.name === design.tokens[i].name && String(t.accent) === String(design.tokens[i].accent));
-    built = await build(app, dist, keep);
+    built = await build(app, dist, keep, compiler);
     verifying = false;
     // A value-only edit was sent while this built: what it built is behind
     // the pages, so it changes nothing and builds again.
