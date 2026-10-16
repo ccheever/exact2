@@ -110,8 +110,8 @@ describe('Escape belongs to its owner, then to Settings\' Back', () => {
     expect(line(settings, 'derive dialogShown =')).toContain('connectionsPage.environments.filter(environment => environment.key == connectionRemove).length > 0');
     expect(line(await source('app-window.contract'), '          SettingsWindow(')).toContain('connecting=connecting, connectionRemove=connectionRemove,');
     // The Connections confirmations are aria-modal, which keeps Escape inside them.
-    expect(line(await source('connections.contract'), 'testId="environment-remove-dialog"')).toContain('aria-modal=true');
-    expect(line(await source('connections-routes.contract'), 'testId="route-remove-dialog"')).toContain('aria-modal=true');
+    expect(line(await source('connections.contract'), 'testId="environment-remove-dialog"')).toContain('aria-modal=dialogSeated.includes("environment-remove-dialog")');
+    expect(line(await source('connections-routes.contract'), 'testId="route-remove-dialog"')).toContain('aria-modal=dialogSeated.includes("route-remove-dialog")');
     expect(line(await source('this-machine.contract'), 'role="alertdialog"')).toContain('aria-modal=true');
   });
 

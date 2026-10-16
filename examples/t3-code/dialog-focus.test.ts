@@ -26,7 +26,7 @@ const stops = (lines: string[]) => lines.filter(line => /^\s*(button|input|selec
 describe('dialog focus lifecycle uses the actual previous focus', () => {
   const window = contractComponent('app-window.contract', 'T3Window');
   function fixture() {
-    const state: Env = { dialogFocusId: '', dialogFocusOwner: '', dialogFocusPopup: '', dialogFocusInvoker: '', dialogFrames: [] };
+    const state: Env = { dialogFocusId: '', dialogFocusOwner: '', dialogFocusPopup: '', dialogFocusInvoker: '', dialogFrames: [], dialogSeated: [] };
     const live = new Set<string>(), menus = new Set<string>(), inert = new Set<string>(), focused: string[] = [];
     const scope = {
       none: null,

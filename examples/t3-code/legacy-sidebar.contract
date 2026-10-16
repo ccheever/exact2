@@ -596,6 +596,7 @@ component LegacyDialogs
 
 component LegacyDialogFrame
   inject
+    dialogSeated: string[]
     dialogEntered: action
     dialogFallback: action
   props
@@ -611,7 +612,7 @@ component LegacyDialogFrame
   derive dialogTargets = [first, `${label}-close`]
   view
     column position="absolute" left=0 right=0 top=0 bottom=0 z-index=40 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #090909a3)" testId=`${label}-overlay`
-      column position="relative" width="100%" max-width="32rem" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="dialog" aria-modal=true aria-label=title testId=label id=label tabindex=-1 data-dialog-focus="open" focusin=dialogEntered(label) key=dialogFallback(label, dialogTargets)
+      column position="relative" width="100%" max-width="32rem" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="dialog" aria-modal=dialogSeated.includes(label) aria-label=title testId=label id=label tabindex=-1 data-dialog-focus="open" focusin=dialogEntered(label) key=dialogFallback(label, dialogTargets)
         // The focus trap (dialog-trap.contract): the field, Cancel, Save, then the X.
         FocusGuard(guardId="legacy-dialog-guard-start", targets=dialogTargets, popup=label)
         DialogOpenFocus(target=first)

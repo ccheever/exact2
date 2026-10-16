@@ -225,7 +225,7 @@ describe('the contract wiring (browser-profiles.contract, app.contract)', () => 
   });
   test('the popup takes the focus and tells the root; from it Tab reaches the first stop and Shift+Tab the guard before it', async () => {
     const profiles = await source('browser-profiles.contract');
-    expect(profiles).toContain('      column id="browser-import-popup" tabindex=-1 focus=track("browser-import-popup", true) blur=track("browser-import-popup", false) class=BpPopup role="dialog" aria-modal=true');
+    expect(profiles).toContain('      column id="browser-import-popup" tabindex=-1 focus=track("browser-import-popup", true) blur=track("browser-import-popup", false) class=BpPopup role="dialog" aria-modal=dialogSeated.includes("browser-import-popup")');
     // The popup's own `popupKeys` (the workaround for issues/closed/20261010-macos-tab-from-a-focused-box.md) is gone; main #490 carries Tab on from it,
     // and the trap's guards lie before and after it (dialog-trap.test.ts), as Base UI's do.
     expect(profiles).not.toContain('popupKeys');

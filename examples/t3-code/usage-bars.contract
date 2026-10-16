@@ -230,6 +230,7 @@ component UsageLimitsColumn
 // the confirm and redeems once. The focus stays inside while it shows.
 component ResetCreditDialog
   inject
+    dialogSeated: string[]
     dialogEntered: action
     dialogFallback: action
   props
@@ -252,7 +253,7 @@ component ResetCreditDialog
   derive dialogTargets = ["reset-credit-cancel", "reset-credit-confirm"]
   view
     column position="absolute" left=0 right=0 top=0 bottom=0 z-index=40 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" testId="reset-credit-overlay"
-      column width="100%" max-width="32rem" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfc, #0a0a0a)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="alertdialog" aria-describedby="reset-credit-description" aria-modal=true aria-label="Use a reset credit?" testId="reset-credit-dialog" id="reset-credit-dialog" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("reset-credit-dialog") key=dialogFallback("reset-credit-dialog", dialogTargets)
+      column width="100%" max-width="32rem" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfc, #0a0a0a)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="alertdialog" aria-describedby="reset-credit-description" aria-modal=dialogSeated.includes("reset-credit-dialog") aria-label="Use a reset credit?" testId="reset-credit-dialog" id="reset-credit-dialog" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("reset-credit-dialog") key=dialogFallback("reset-credit-dialog", dialogTargets)
         DialogOpenFocus(target="reset-credit-cancel")
         column gap="0.5rem" padding="1.5rem" box-sizing="border-box"
           text "Use a reset credit?" font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2

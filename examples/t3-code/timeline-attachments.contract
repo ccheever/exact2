@@ -123,6 +123,7 @@ component ImagePreviewHost
 
 component ImagePreviewDialog
   inject
+    dialogSeated: string[]
     dialogEntered: action
     dialogFallback: action
     rem: number
@@ -154,7 +155,7 @@ component ImagePreviewDialog
     failedUrl = url
   derive dialogTargets = [(previous ? "image-preview-previous" : ""), "image-preview-actions", "image-preview-close", (next ? "image-preview-next" : "")]
   view
-    column position="absolute" left=0 right=0 top=0 bottom=0 z-index=45 align-items="center" justify-content="center" background-color="#000000bf" role="dialog" aria-label=(video ? "Expanded video preview" : "Expanded image preview") testId="image-preview" id="image-preview" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("image-preview") key=dialogFallback("image-preview", dialogTargets)
+    column position="absolute" left=0 right=0 top=0 bottom=0 z-index=45 align-items="center" justify-content="center" background-color="#000000bf" role="dialog" aria-modal=dialogSeated.includes("image-preview") aria-label=(video ? "Expanded video preview" : "Expanded image preview") testId="image-preview" id="image-preview" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("image-preview") key=dialogFallback("image-preview", dialogTargets)
       // The focus trap (dialog-trap.contract): Previous, the media's actions, the X, Next. The backdrop is no Tab stop (the reference's popup takes its clicks).
       FocusGuard(guardId="image-preview-guard-start", targets=dialogTargets, popup="image-preview")
       DialogOpenFocus(target="image-preview-close")
