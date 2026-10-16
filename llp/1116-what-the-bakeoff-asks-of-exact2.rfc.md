@@ -275,7 +275,10 @@ to what the author writes.
      a column do (the laid-out frames say so: the host is not sent the flex direction),
      and nothing (a padding, border or margin) is under it. In a row or a grid a sibling
      beside the scroller (a column with Save at its foot) reaches the edge too, so the
-     cover stays (Astra's review). A sheet whose component's root `column` holds
+     cover stays (Astra's review). The route's own child must reach the foot of the
+     content box its cover shortens: one sized to its content, 200 points into a
+     600-point route, keeps the cover, where UIKit's bottom inset would land far above
+     the home indicator (Grok's review). A sheet whose component's root `column` holds
      its header and then its `scroll` reached the edge in no app, where a hand-built
      sheet's scroll view pinned to its view's bottom does at any depth (the euxy port's
      sheets stopped their content a home indicator's height above the sheet's foot).

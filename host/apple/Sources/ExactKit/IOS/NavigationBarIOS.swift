@@ -982,10 +982,12 @@ extension NavigationHost {
         while true {
             let children = parent.container.subviews.compactMap { $0 as? NodeView }.filter(flowing)
             guard let last = children.last, alone(last, among: children) else { return nil }
-            // The route's own child stands at its foot whatever the cover
-            // pads under it; a deeper one must reach its parent's bottom.
-            if parent !== route, parent.contentBox().maxY < parent.bounds.maxY - 0.5
-                || parent.convert(last.bounds, from: last).maxY < parent.bounds.maxY - 0.5 { return nil }
+            // Each reaches the foot of its parent's content box: the route's
+            // child the box its cover already shortens, a deeper one its
+            // parent's bottom, with nothing (a padding, a border) under it.
+            let foot = parent === route ? parent.contentBox().maxY : parent.bounds.maxY
+            if parent !== route, parent.contentBox().maxY < foot - 0.5 { return nil }
+            if parent.convert(last.bounds, from: last).maxY < foot - 0.5 { return nil }
             if last.scrollView != nil { return ["scroll", "auto"].contains(last.style["overflow_y"]?.string ?? "") ? last : nil }
             parent = last
         }

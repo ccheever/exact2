@@ -430,8 +430,10 @@ final class NavigationBasicsIOSTests: XCTestCase {
             parent?.container.addSubview(n)
             return n
         }
-        // The route's cover pads 34 under its child, which stands at its foot.
+        // The route's cover pads 34 under its child, which stands at the foot
+        // of the content box the cover shortens.
         let route = box(nil, y: 0, height: 600)
+        route.applyKernelContentBox(CGRect(x: 0, y: 0, width: 400, height: 566), padding: [0, 0, 34, 0])
         let sheet = box(route, y: 0, height: 566)
         _ = box(sheet, y: 0, height: 60)
         let scroller = box(sheet, y: 60, height: 506, overflow: "y")
@@ -448,6 +450,24 @@ final class NavigationBasicsIOSTests: XCTestCase {
         scroller.style["overflow_y"] = nil
         scroller.style["overflow_x"] = .string("scroll")
         XCTAssertNil(NavigationHost.bottomScroller(in: route), "a sideways scroller takes no bottom inset")
+        scroller.style["overflow_x"] = nil
+        scroller.style["overflow_y"] = .string("scroll")
+        // The route's child sized to its content, 200 points of a 600-point
+        // route: its scroller ends far above the home indicator.
+        sheet.frame.size.height = 200
+        scroller.frame.size.height = 140
+        XCTAssertNil(NavigationHost.bottomScroller(in: route), "a route's child short of its content box keeps the cover")
+        sheet.frame.size.height = 566
+        scroller.frame.size.height = 506
+        XCTAssertTrue(NavigationHost.bottomScroller(in: route) === scroller)
+        // The component's column ends in a row filling it: a side column
+        // beside the scroller reaches the edge too.
+        scroller.removeFromSuperview()
+        let split = box(sheet, y: 60, height: 506)
+        _ = box(split, y: 0, height: 506)
+        let right = box(split, y: 0, height: 506, overflow: "y")
+        right.frame.origin.x = 200
+        XCTAssertNil(NavigationHost.bottomScroller(in: route), "a row's scroller beside a column keeps the cover")
         // A full-height row: a column with Save at its foot, and a scroller
         // beside it. The Save button reaches the edge too: the cover stays.
         sheet.removeFromSuperview()
