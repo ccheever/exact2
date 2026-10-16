@@ -110,6 +110,34 @@ final class ComposerChipActionTests: XCTestCase {
         XCTAssertEqual(fixture.press.state["act"] as? String, "thread")
     }
 
+    /// ContextChipPopover is a Base UI Popover: its popup takes the focus as it opens (initialFocus), so VoiceOver reads the
+    /// dialog, and Escape gives it back to the chip, the trigger (finalFocus): here the prompt, with the chip selected. An
+    /// outside press leaves the focus where it put it. Measured on T3 Code's Settings prompt sample under VoiceOver: VO-Space
+    /// or a click on 'Skill Frontend Design. Show details' focuses 'Skill Frontend Design, dialog'; Escape returns to the chip;
+    /// a press on the Typography heading leaves the focus on the page.
+    func testOpenDetailsTakeTheFocusAndEscapeGivesItBackWithTheChipSelected() {
+        for kind in ["review-comment", "preview-annotation"] {
+            let fixture = ActionFixture("\(review) and \(annotation) now ")
+            let chip = fixture.chip(kind)
+            XCTAssertTrue(fixture.mouseDown(fixture.center(chip)), kind)
+            XCTAssertTrue(fixture.press.isOpen)
+            XCTAssertFalse(fixture.base.window.firstResponder === fixture.view, "the popover's autofocus can land: \(kind)")
+            XCTAssertEqual(fixture.view.selectedRange(), chip.range)
+            fixture.press.close(seq: fixture.press.seq, escape: true)
+            XCTAssertFalse(fixture.press.isOpen)
+            XCTAssertTrue(fixture.base.window.firstResponder === fixture.view, "Escape: the prompt again, \(kind)")
+            XCTAssertEqual(fixture.view.selectedRange(), chip.range, "with the chip selected")
+            // VoiceOver's press opens them the same way; an outside press closes them and leaves the focus alone.
+            XCTAssertTrue(axPress(fixture.press.accessibilityElements[kind == "review-comment" ? 0 : 1]))
+            fixture.base.tick()
+            XCTAssertTrue(fixture.press.isOpen, kind)
+            XCTAssertFalse(fixture.base.window.firstResponder === fixture.view, "VoiceOver's press too: \(kind)")
+            fixture.press.close(seq: fixture.press.seq)
+            XCTAssertFalse(fixture.press.isOpen)
+            XCTAssertFalse(fixture.base.window.firstResponder === fixture.view)
+        }
+    }
+
     /// FileContextChip: a button "File attachment, <name>, <size>" whose press is `openFile`, by pointer and by VoiceOver.
     func testAFileChipOpensItsPreviewByPointerAndVoiceOver() {
         let fixture = ActionFixture("\(file) now ")

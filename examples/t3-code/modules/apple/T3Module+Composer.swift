@@ -11,7 +11,7 @@ extension T3Module {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return reply.send(["ok": false, "generation": 0]) }
                 let presses = [self.composer.editor.styler.press, self.promptPreview.styler.press]
-                if op == "editorChipClose" { presses.forEach { $0.close(seq: request["seq"] as? Int ?? -1) } }
+                if op == "editorChipClose" { presses.forEach { $0.close(seq: request["seq"] as? Int ?? -1, escape: request["escape"] as? Bool == true) } }
                 reply.send(["ok": true, "generation": request["generation"] as? Int ?? 0, "value": T3ComposerChipPress.latest(presses)])
             }
             return
