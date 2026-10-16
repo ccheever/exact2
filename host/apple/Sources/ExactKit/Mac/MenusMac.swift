@@ -479,7 +479,8 @@ final class MenuHost: NSObject {
     }
     /// Shared by the local event monitor and direct agent event delivery.
     func key(_ event: NSEvent) -> Bool {
-        guard event.keyCode == 53, let window = event.window, presenter?.hosts(window) == true else { return false }
+        guard event.keyCode == 53, let window = event.window, window !== presenter?.alerts.sheet,
+              presenter?.hosts(window) == true else { return false }
         if escapeHeld {
             if event.type == .keyUp { escapeHeld = false }
             return true
@@ -509,7 +510,7 @@ final class MenuHost: NSObject {
     func pointer(_ event: NSEvent) {
         guard !entries.isEmpty, presenter?.hosts(event.window) == true,
               [.leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp].contains(event.type),
-              let window = event.window else { return }
+              let window = event.window, window !== presenter?.alerts.sheet else { return }
         let (ancestor, hit) = clickedPopover(at: event.locationInWindow, in: window)
         if event.type == .leftMouseUp || event.type == .rightMouseUp { return release(event.buttonNumber, at: ancestor) }
         pressCount += 1

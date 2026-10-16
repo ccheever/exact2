@@ -472,6 +472,49 @@ final class AlertMacTests: XCTestCase {
         XCTAssertTrue(field.currentEditor() === editor, "Return commits without ending editing")
     }
 
+    func testAPromptFromAPopoverKeepsItsAncestorThroughClicksAndEscape() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession()
+        defer { session.destroy() }
+        let p = fixture(label: "Rename", lines: [], actions: ["Save"], props: [:], popover: true, field: true, session: session)
+        p.apply(wireBatch([
+            ["op": "create", "id": 60, "kind": "view", "props": ["id": "ancestor", "popover": "auto"]],
+            ["op": "style", "id": 60, "style": ["position_try_fallbacks": "flip-block"]],
+            ["op": "frame", "id": 60, "x": 0, "y": 0, "w": 240, "h": 160],
+            ["op": "children", "id": 60, "ids": [2]],
+            ["op": "children", "id": 1, "ids": [60, 3]],
+        ]))
+        let ancestor = try XCTUnwrap(p.views[60])
+        window.makeKeyAndOrderFront(nil)
+        defer { p.alerts.reset(); p.menus.reset() }
+        for kind in ["left", "right", "Escape"] {
+            p.menus.show(ancestor, from: nil)
+            p.press(2)
+            let sheet = try XCTUnwrap(p.alerts.sheet)
+            let field = try XCTUnwrap(p.views[51]?.field)
+            XCTAssertTrue(p.menus.isOpen(ancestor))
+            XCTAssertTrue(sheet.makeFirstResponder(field))
+            if kind == "Escape" {
+                NSApp.sendEvent(key("\u{1b}", 53, in: sheet))
+                XCTAssertNil(p.alerts.presented, "Escape reaches the alert's cancel")
+            } else {
+                let point = field.convert(NSPoint(x: field.bounds.midX, y: field.bounds.midY), to: nil)
+                let types: [NSEvent.EventType] = kind == "left" ? [.leftMouseDown, .leftMouseUp] : [.rightMouseDown, .rightMouseUp]
+                // These are the monitor's pointer deliveries; AppKit's field
+                // editor may take the release inside its own tracking loop.
+                for type in types {
+                    p.menus.pointer(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: 0,
+                        windowNumber: sheet.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 0)!)
+                }
+                p.apply(wireBatch([]))
+                XCTAssertTrue(p.alerts.sheet === sheet, "a click in the prompt keeps its invoker live")
+            }
+            XCTAssertTrue(p.menus.isOpen(ancestor), "\(kind) belongs to the alert, not its ancestor")
+            p.alerts.reset(); p.menus.reset()
+            turn()
+        }
+    }
+
     func testAPromptOpensWithSaveDisabledAndItsFieldFollowsTheInput() throws {
         let p = fixture(label: "Rename", lines: [], actions: ["Save"], props: [10: ["disabled": "true"]], field: true)
         p.press(2)
