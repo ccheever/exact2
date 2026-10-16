@@ -55,8 +55,8 @@ test "each tab keeps its own stack"
 - The root `tablist` (each tab a symbol over a label, naming its panel with `aria-controls`)
   is the iOS tab bar. For a segmented value picker, use a `radiogroup`
   ([persisted-setting](persisted-setting.md)).
-- Stacks stay mounted: pushed screens, drafts and scroll offsets survive tab switches.
-  Selecting the shown tab again pops it to its root.
+- A tab is built when first selected, then stays: its stack, drafts and scroll survive
+  switches; a test taps a tab before reading inside it. Reselecting the shown tab pops it.
 - A `link` uses the root's `navigate` handler to push onto the selected stack; browser
   Back, Forward and deep links arrive there too.
 - Hide the bar with `display="none"`, never `if`: removing the tablist loses the panels' routes.

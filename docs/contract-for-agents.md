@@ -1746,6 +1746,12 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
     button position="absolute" … // a root overlay: after the tablist, over everything
 ```
 
+- A tab is built the first time it is selected, as UIKit and SwiftUI load a tab: until
+  then its panel is empty (`unopened` in `tree`), and the components in it have no
+  state yet. Once built it stays, with its stack, drafts and scroll. Resources and tasks
+  are the root component's and run whichever tab shows. A drive or a test taps a tab
+  before it reads or presses anything inside it; a target in an unopened tab is
+  refused with the tap that opens it (LLP 1075.003 §9.14).
 - Each route starts with a `header` (its heading, and on a pushed route the
   `id="back"` control), which iOS makes the navigation bar. Leave the tablist's and the
   routes' backgrounds, heights and colours unsaid: the platform draws the bars and the

@@ -112,15 +112,6 @@ The schema metadata changes its digest, so producers and hosts re-bake together.
 > (`kernel/src/style/cells.rs`), where CSS's `ch` is the `0` advance of the element's
 > font and `lh` its line height.
 >
-> A layout deviation on iOS and tvOS (LLP 1075.003 §9.12, 2026-10-15): an
-> absolutely positioned tabpanel the navigation root has never selected is laid
-> out as `display: none` (a host cover), as `UITabBarController` loads a tab only
-> when it is first selected; the browser lays it out under `visibility: hidden`.
-> Out of flow, it moves no other box; what differs is the panel's own box and
-> everything in it, which no person can see and no read answers for (they are
-> inactive), and its part in its scroll container's scrollable overflow. A
-> panel in flow is laid out as authored.
->
 > A structural-read deviation (Charlie, 2026-10-11; LLP 1094 D10): when an
 > id-less child is hit outside its named ancestor's own box, Exact's
 > `elementsFromPoint` includes that ancestor at the child's place, once. Chrome's

@@ -32,10 +32,10 @@ test "a repeat is refused and keeps its text; the list survives a relaunch"
 | `size 390x844`, `epoch`, `time-zone`, `locale`, `seed`, `before data` | Launch lines: before a test's steps, or atop the file. |
 
 Every other form (`screenshot`, `resize`, drags): [the grammar](../contract-grammar.md#authored-tests).
-An `expect` has no `<` or `contains`: compare a derive with `==`. `clock data` after an
+`expect` has no `<` or `contains`: compare a derive with `==`. `clock data` after an
 input whose reply the next `expect` reads (iOS needs it); `clock settle` after a sheet, an
-alert or a push. Test the refusal as well as the success; never wait in real time in a
-test (pin `epoch` and `time-zone`); give every screen its own ids.
+alert or a push. Test the refusal too; never wait in real time (pin `epoch`, `time-zone`); give
+every screen its own ids; tap a tab before reading in it.
 
 ## Before you call it done
 

@@ -208,7 +208,13 @@ size})`), and what the CLI runs one per argument. A target is a `testId`
 (first in preorder on a selected route of a selected tab; a covered screen's or
 an unselected tab's copy only when no active one carries it, flagged `inactive`
 in `tree`) or a view id; the driver resolves it through `tree`, so a
-host input path only ever sees a view id. LLP 1038 D5/D11: on native, `--url` with an
+host input path only ever sees a view id. A tab never selected has no views
+to address: the runner builds it at its first selection (LLP 1075.003
+§9.14), and `tree` marks its empty panel `unopened`. Nothing is opened for
+a drive or a test, which select the tab as a person would (`tap
+tab-patterns`); a target no view carries while a tab is unopened is refused
+naming each unopened panel and the tap that selects it, and so is an
+`expect text` or `expect tree has` that finds nothing. LLP 1038 D5/D11: on native, `--url` with an
 app scheme or path supplies the cold launch location; HTTP(S) retains the
 development-plan locator form only and never supplies a launch location. Apple uses the
 same pre-boot fact as the OS callbacks; Linux receives the URL as argv.

@@ -125,7 +125,10 @@ wasm target, the JS target and the native hosts comparable.
 The counters survive node retirement until the runner ends. They live beside
 the instance ids (`runner/src/instance.rs`, `Ids`), because every instance is
 realized there, and the runner's half is `runner/src/perf.rs` and
-`runner/src/runner/perf.rs`.
+`runner/src/runner/perf.rs`. A site in a tab never selected has realized
+nothing: the tab is built at its first selection (LLP 1075.003 §9.14), so
+`perf` over that tab reads after `tap` on its tab, as LLP 1012 §1 addresses
+anything in it.
 
 | counter | unit | source |
 |---|---|---|
