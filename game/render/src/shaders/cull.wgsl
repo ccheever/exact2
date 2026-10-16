@@ -18,17 +18,21 @@ struct Cull {
     // followed by `sort_chunks`'s histograms: word offsets into `scratch`;
     // items start at zero
     scratch_sections: vec4<u32>,
+    // Nonzero: the camera's occlusion pyramid is this frame's (`occluded`).
+    occlusion: vec4<u32>,
 }
 @group(0) @binding(6) var<uniform> cull: Cull;
 @group(0) @binding(7) var<storage, read> setup: array<u32>;
 @group(0) @binding(8) var<storage, read> palette: array<mat4x4<f32>>;
 @group(0) @binding(9) var<storage, read_write> scratch: array<u32>;
+@group(0) @binding(12) var pyramid: texture_2d<f32>;
 @group(0) @binding(10) var<storage, read_write> compacted: array<u32>;
 @group(0) @binding(11) var<storage, read_write> indirect: array<u32>;
 
 const KEEP_ALL: u32 = 16u;   // group flag: GPU deformation, never culled
 const CAPSULE: u32 = 64u;    // group flag: some vertices use the capsule scale
 const PLAIN: u32 = 128u;     // group flag: some vertices use per-axis dimensions
+const EXEMPT: u32 = 32u;     // group flag: never occluded (a view model's own depth range)
 const GROUP_WORDS: u32 = 16u;
 var<workgroup> lanes: array<u32, 64>;
 var<workgroup> sums: array<vec4<u32>, 64>;
@@ -122,6 +126,56 @@ fn world_sphere(value: u32, g: u32) -> vec4<f32> {
     return vec4(centre, radius);
 }
 
+// Whether `sphere` lies behind the occlusion pyramid wherever it can cover the
+// screen: its nearest depth beyond the farthest depth in every texel under its
+// bounds, read at the level where those bounds span at most two texels a side.
+fn occluded(sphere: vec4<f32>) -> bool {
+    let m = frame.view_proj;
+    let row0 = vec4(m[0].x, m[1].x, m[2].x, m[3].x);
+    let row1 = vec4(m[0].y, m[1].y, m[2].y, m[3].y);
+    let row2 = vec4(m[0].z, m[1].z, m[2].z, m[3].z);
+    let row3 = vec4(m[0].w, m[1].w, m[2].w, m[3].w);
+    let c = vec4(sphere.xyz, 1.0);
+    let r = sphere.w * 1.0001 + 1e-4;
+    // Each clip coordinate ranges over its value at the centre plus or minus the
+    // radius times its row's length; w stays positive or nothing is claimed.
+    let x = dot(row0, c);
+    let y = dot(row1, c);
+    let w = dot(row3, c);
+    let ex = r * length(row0.xyz);
+    let ey = r * length(row1.xyz);
+    let ew = r * length(row3.xyz);
+    let w0 = w - ew;
+    if w0 <= 1e-5 { return false; }
+    let w1 = w + ew;
+    let lo = vec2(min((x - ex) / w0, (x - ex) / w1), min((y - ey) / w0, (y - ey) / w1));
+    let hi = vec2(max((x + ex) / w0, (x + ex) / w1), max((y + ey) / w0, (y + ey) / w1));
+    // Depth follows w alone: the sphere's nearest is at w0.
+    let near = dot(row2, c - vec4(row3.xyz / max(length(row3.xyz), 1e-30) * r, 0.0)) / w0;
+    let size = vec2<f32>(textureDimensions(pyramid, 0));
+    let a = clamp(vec2(lo.x * 0.5 + 0.5, 0.5 - hi.y * 0.5), vec2(0.0), vec2(1.0)) * size;
+    let b = clamp(vec2(hi.x * 0.5 + 0.5, 0.5 - lo.y * 0.5), vec2(0.0), vec2(1.0)) * size;
+    var t0 = min(vec2<u32>(a), vec2<u32>(size) - 1u);
+    var t1 = min(vec2<u32>(b), vec2<u32>(size) - 1u);
+    let levels = textureNumLevels(pyramid);
+    var level = 0u;
+    while level + 1u < levels && any((t1 >> vec2(level)) - (t0 >> vec2(level)) > vec2(1u)) {
+        level++;
+    }
+    if any((t1 >> vec2(level)) - (t0 >> vec2(level)) > vec2(1u)) { return false; }
+    // A level's last texel also holds its source's odd row and column.
+    let top = textureDimensions(pyramid, level) - 1u;
+    t0 = min(t0 >> vec2(level), top);
+    t1 = min(t1 >> vec2(level), top);
+    var far = 0.0;
+    for (var ty = t0.y; ty <= t1.y; ty++) {
+        for (var tx = t0.x; tx <= t1.x; tx++) {
+            far = max(far, textureLoad(pyramid, vec2(tx, ty), level).r);
+        }
+    }
+    return near > far;
+}
+
 fn visible(view: u32, sphere: vec4<f32>) -> bool {
     // Rounding margin: vertices are transformed in f32 relative to large coordinates.
     let r = sphere.w * 1.0001 + 1e-4 + 1e-6 * max3(abs(sphere.xyz));
@@ -149,6 +203,9 @@ fn test(@builtin(workgroup_id) id: vec3<u32>, @builtin(local_invocation_index) l
             let sphere = world_sphere(slots[setup[g] + local], g);
             for (var v = 0u; v < cull.counts.x; v++) {
                 if (mask & (1u << v)) != 0u && !visible(v, sphere) { mask &= ~(1u << v); }
+            }
+            if (mask & 1u) != 0u && cull.occlusion.x != 0u && (flags & EXEMPT) == 0u && occluded(sphere) {
+                mask &= ~1u;
             }
             let near = max(dot(cull.planes[4].xyz, sphere.xyz) + cull.planes[4].w - sphere.w, 0.0);
             let far = max(dot(cull.planes[5].xyz, sphere.xyz) + cull.planes[5].w + sphere.w, 0.0);

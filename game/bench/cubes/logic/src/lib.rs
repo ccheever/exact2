@@ -89,11 +89,11 @@ impl Game for Cubes {
         });
     }
     fn tick(w: &mut World, _: &Input, _: &CubesArgs) {
-        for (spin, mut t) in w.query::<(&Spin, &mut Transform)>() {
+        for (_, (spin, t)) in w.query::<(&Spin, &mut Transform)>().iter() {
             t.rotation = (spin.step * t.rotation).normalize();
         }
         let seconds = (w.tick() + 1) as f32 / 60.0;
-        for (orbit, mut t) in w.query::<(&Orbit, &mut Transform)>() {
+        for (_, (orbit, t)) in w.query::<(&Orbit, &mut Transform)>().iter() {
             let angle = seconds * std::f32::consts::TAU / orbit.period;
             if orbit.radius == 0.0 {
                 t.rotation = Quat::from_rotation_y(angle);

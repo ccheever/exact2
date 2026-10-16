@@ -25,6 +25,7 @@ mod local_shadows;
 mod lod;
 mod model_pipeline;
 mod models;
+mod occlusion;
 mod perf;
 mod pipeline;
 mod placed;

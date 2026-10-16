@@ -131,6 +131,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 &self.slots.raw,
                 &self.attachment_matrices.raw,
                 self.models.skinning.as_ref().map(|s| &s.palette.raw),
+                None,
             );
             let key = (local.cull.compacted.raw.clone(), local.cull.window);
             if local.binds.as_ref().is_none_or(|(_, old)| *old != key) {
@@ -148,7 +149,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 local.binds = Some((binds, key));
             }
             let views = &self.local_plan.views[i * 4..(i * 4 + 4).min(self.local_plan.views.len())];
-            local.cull.write_views(&self.queue, views, items);
+            local.cull.write_views(&self.queue, views, items, false);
         }
     }
     /// The scene groups changed buffers: rebuild every local cull's on next use.

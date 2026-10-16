@@ -98,6 +98,8 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
     private var seq = 0
     private var steps = 0
     private var turnPosted = false
+    /** The last turn took longer than a display frame: the next one is run at once, not at the next one. */
+    private var late = false
     private var choreographer: Choreographer? = null
     private val prefetch = true
 
@@ -224,6 +226,7 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
             running = on
             if (on) { produce(); return@post }
             choreographer?.removeFrameCallback(turn); turnPosted = false
+            handler.removeCallbacks(again)
             handler.removeCallbacks(timer); handler.removeCallbacks(refiner); handler.removeCallbacks(settle)
         }
     }
@@ -362,7 +365,9 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
     private fun produce() {
         if (!running) { requests(); return }
         android.os.Trace.beginSection("exact native frame")
+        val started = System.nanoTime()
         val fresh = Native.frame()
+        late = System.nanoTime() - started > frameNanos
         android.os.Trace.endSection()
         val told = Native.scrollers()
         val fields = Native.fields()
@@ -393,7 +398,18 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
         schedule()
     }
 
-    private val turn = Choreographer.FrameCallback { turnPosted = false; produce() }
+    private val turn = Choreographer.FrameCallback { t ->
+        // The display's frame: the shortest gap between consecutive vsyncs seen.
+        if (vsync > 0 && t - vsync > 2_000_000) frameNanos = minOf(frameNanos, t - vsync)
+        vsync = t
+        turnPosted = false; produce()
+    }
+    private var vsync = 0L
+    private var frameNanos = 1_000_000_000L / 60
+    /** A turn that overran its display frame (a GPU canvas whose world ran two ticks in it, 256,000 cubes on a
+     * Pixel 5) waits for no vsync: Choreographer would skip the one it missed, and every frame after would take
+     * two. The canvas's buffers hold at most three frames on the GPU, and while they do a turn only runs its ticks. */
+    private val again = Runnable { produce() }
     /** Timers, and the paint a scroll owes once it pauses (only then the collection pass it left behind). */
     private val timer = Runnable {
         if (prefetch && Native.owed() && Native.refine(-1, if (led) velocity else 0f) and 2 != 0) handler.post(refiner)
@@ -402,7 +418,8 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
 
     private fun schedule() {
         if (!running) return
-        if (Native.animating() && !turnPosted) { turnPosted = true; choreographer?.postFrameCallback(turn) }
+        if (Native.animating() && late) { late = false; handler.post(again) }
+        else if (Native.animating() && !turnPosted) { turnPosted = true; choreographer?.postFrameCallback(turn) }
         var due = Native.nextDue()
         // A moved paint is owed a paint once scrolling pauses: each step pushes this back.
         if (Native.owed() && (due < 0 || due > 16)) due = 16.0

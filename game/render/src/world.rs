@@ -11,6 +11,12 @@ pub(crate) use scene::snap as trace_snap;
 use scene::Scene;
 
 // The same feed algorithm runs against the GPU and the recording test backend.
+/// Pages in one transform write: 2 MiB, so the queue's staging buffer fits a
+/// block its allocator keeps. A larger one is allocated alone and freed after
+/// the frame, its pages faulted in and zeroed by the kernel each tick (Android's
+/// `MemoryHints::MemoryUsage` keeps 4 MiB host blocks).
+const RUN_PAGES: usize = 2 * 1024 * 1024 / (PAGE * 40);
+
 pub(crate) trait Writes {
     fn attachments(
         &mut self,
@@ -774,6 +780,7 @@ impl Feed {
             while start < self.changed.len() {
                 let mut end = start + 1;
                 while end < self.changed.len()
+                    && end - start < RUN_PAGES
                     && self.changed[end - 1].0 + (self.changed[end - 1].1 / 10) as u32
                         == self.changed[end].0
                 {

@@ -31,6 +31,10 @@ pub(crate) struct Mesh {
     cap: f32,
     capsule: bool,
     plain: bool,
+    /// The largest ball about the origin inside it, or zero: occludes nothing
+    /// (occlusion.rs `inscribed`); and whether it is a box (`boxed`).
+    pub(crate) inscribed: f32,
+    pub(crate) boxed: bool,
 }
 
 /// Persistent GPU arenas, tick history and draw lists; model pipelines prepare on arrival.
@@ -59,6 +63,13 @@ pub struct RendererWithAssets<const ASSETS: bool> {
     /// The same scene group over the culled lists: binding 4 is a dynamic window.
     culled_binds: [wgpu::BindGroup; 2],
     culled_key: (wgpu::Buffer, u64),
+    /// The camera's occlusion culling (occlusion.rs), made on first use.
+    occlusion: Option<crate::occlusion::Occlusion>,
+    /// This frame draws last frame's camera lists as occluders.
+    occluding: bool,
+    occlusion_items: usize,
+    /// The last frame's cull wrote the camera lists the next frame may occlude with.
+    cull_drew: bool,
     pub(crate) cull: crate::cull::Cull,
     pub(crate) environment: crate::ibl::EnvironmentLight,
     pub(crate) lights: crate::lights::Lights,
@@ -167,6 +178,12 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     /// draws tonemapped straight into the target: the default on Android and iOS.
     pub fn set_direct(&mut self, allow: bool) {
         self.allow_direct = allow;
+    }
+
+    /// Cull the camera's draws by occlusion (occlusion.rs) on frames whose lists
+    /// hold at least `items` slots: 32,768 by default, `usize::MAX` never.
+    pub fn set_occlusion_items(&mut self, items: usize) {
+        self.occlusion_items = items;
     }
 
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, format: wgpu::TextureFormat) -> Self {
@@ -284,6 +301,10 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             scene_binds: retained_binds,
             culled_binds,
             culled_key,
+            occlusion: None,
+            occluding: false,
+            occlusion_items: crate::occlusion::ITEMS,
+            cull_drew: false,
             cull,
             environment,
             lights,
@@ -583,6 +604,12 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             cap,
             capsule,
             plain,
+            inscribed: if capsule {
+                0.0
+            } else {
+                crate::occlusion::inscribed(vertices, indices)
+            },
+            boxed: crate::occlusion::boxed(vertices, indices),
         };
         self.cull.epoch += 1;
         if id.0 == self.meshes.len() {

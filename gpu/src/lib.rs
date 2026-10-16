@@ -258,6 +258,11 @@ pub trait Surface {
     /// The commands the last `render` recorded were submitted: map what it
     /// copied for reading (a map cannot precede the submit of the copy).
     fn submitted(&mut self) {}
+    /// A display frame the module does not render, the GPU holding as many as
+    /// it may: bring the surface's state up to `frame`, so the next `render`
+    /// has less to do in its display frame. Writes through `queue` land before
+    /// the next rendered frame's commands.
+    fn advance(&mut self, _frame: &Frame, _device: &wgpu::Device, _queue: &wgpu::Queue) {}
     /// A presentation target acquired a device, before its first draw. Its
     /// granted features (e.g. block-compressed textures) choose what to fetch.
     fn device_ready(&mut self, _features: wgpu::Features) {}

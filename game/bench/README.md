@@ -293,6 +293,34 @@ offers no lazily allocated memory and no `VK_EXT_multisampled_render_to_single_s
 so the 4× MSAA targets take memory whatever they are flagged; a ring of five buffers
 saves 10 MB and collapses 80,000 cubes to 26 frames a second.
 
+**256,000 cubes**, the same evening: three.js in the WebView 16.9 frames a second by
+gfxinfo (14.1 by its page's own clock), Exact 26.8 before this work and 30.6
+after it (2.2 times the page's own rate, 1.8 times gfxinfo's); at 64,000, 59.8,
+and at 80,000, 57.0. GPU timestamps at 256,000 had put two thirds of the forward
+pass (27.4 ms) on cubes nothing showed, and a frame's CPU work (two 60 Hz ticks
+of 256,000 moving entities and their uploads, 20 ms) past one display frame, so
+frames never came closer than two apart. What changed:
+
+- Occlusion culling (`render/README.md`, "Occlusion"): the camera draws 42,000
+  cubes of the 140,000 in view; forward 17.2 ms, occluder pass 4.7, cull 9.1.
+  Drawn without shrinking its occluders it draws 18,000 and reaches 35.0 frames
+  a second, but drops far cubes seen through cracks narrower than its texels
+  (269 of 632,000 pixels in `effects::occlusion_leaves_a_turned_grid_as_it_was`).
+- A transform upload is written in runs of 2 MiB (`world.rs` `RUN_PAGES`): a
+  10 MB staging buffer was allocated alone each tick, its pages faulted in and
+  zeroed by the kernel (15% of the render thread) and freed after the frame (11%).
+- A turn that overran its display frame is followed at once, not at the next
+  vsync (`Owner.kt`), and a display frame the GPU holds no room for runs its
+  ticks (`Surface::advance`): 30 to 33.4 frames a second.
+- The bench's tick iterates `query().iter()`, the engine's borrowed form.
+
+Tried and left: posing each instance once in the cull for the vertex shader (the
+forward pass stayed 27 ms: its vertex work overlaps its pixels on this GPU, and
+the cull grew 3.5 ms), a compact dimensions buffer for the cull (no measurable
+change), dropping the chunk sort on occluding frames (31 to 29 frames a second),
+and reading the pyramid at 4 × 4 texels (34,000 cubes drawn, the cull 2.2 ms
+slower).
+
 ### Tablet — cubes on an iPad Pro 12.9" (M1), 2026-10-16
 
 Exact's native game (`bun host/apple/build.mjs --device`, a development build:

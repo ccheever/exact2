@@ -265,6 +265,54 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
             || self.hooks.needs().contains(crate::Needs::PENDING)
     }
 
+    /// A display frame the module does not render: run the ticks due by
+    /// `frame` and feed them, as the next `render_frame` would. At 256,000
+    /// moving cubes on a Pixel 5 a tick and its upload take 8 ms, so a frame
+    /// that waited for the GPU and then ran two missed its display frame too.
+    /// Only for a plain live frame with nothing pending first: a frame to
+    /// seed, assets, hooks.
+    pub(super) fn advance_frame(&mut self, frame: &Frame) {
+        if H::ENABLED
+            || self.dirty
+            || self.error.is_some()
+            || frame.seekable
+            || self.render.is_none()
+        {
+            return;
+        }
+        let Some(sim) = &mut self.sim else {
+            return;
+        };
+        if !frame.now_ms.is_finite()
+            || sim.is_loading()
+            || (ASSETS && !sim.device_assets_ready())
+            || self.generation != sim.world().presentation_generation()
+        {
+            return;
+        }
+        let due = sim.ticks_due(frame.now_ms, Clock::Live);
+        if due == 0 {
+            return;
+        }
+        sim.frame_period(frame.period_ms);
+        sim.advance_with(
+            frame.now_ms,
+            Clock::Live,
+            observer(
+                &mut self.render,
+                &mut self.placed,
+                &mut self.perf,
+                &mut self.trace,
+                &mut self.error,
+                &mut self.hook_poses,
+                true,
+                due,
+            ),
+        );
+        self.presentation
+            .sync(sim.world(), sim.generation(), !G::paused(sim.args()), false);
+    }
+
     /// The module submitted the frame `render_frame` encoded: map its
     /// readbacks and start its pass timings.
     pub(super) fn frame_submitted(&mut self) {

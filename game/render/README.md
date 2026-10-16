@@ -131,6 +131,22 @@ before the resolve (`effects::a_direct_frame_draws_what_the_tone_pass_draws`).
 On a Pixel 5 (Adreno 620) these took 64,000 cubes from 4 to 60 frames a second
 ([bench/README.md](../bench/README.md#phone--cubes-on-a-pixel-5-2026-10-16)).
 
+## Occlusion
+
+A frame whose lists hold 32,768 slots or more (`Renderer::set_occlusion_items`)
+first draws what the camera drew last frame, depth only at this frame's poses,
+into a texture a quarter of the frame's size, builds a pyramid of the farthest
+depth under each texel, and the cull drops from the camera's lists what lies
+behind it wherever it can cover (occlusion.rs, cull.wgsl `occluded`). Only
+closed convex meshes occlude (`occlusion::inscribed`), each shrunk and pushed
+back by a texel (occluder.wgsl), so no crack narrower than a texel between two
+occluders hides what shows through it: the frame is the frame drawn without
+occlusion, sample for sample (`effects::occlusion_*`). It is off for a frame
+after a new setup, a level-of-detail change or with anything fading. At 256,000
+cubes on a Pixel 5 the camera then draws 42,000 of the 140,000 the frustum
+keeps; drawn unshrunk, 18,000, at the cost of the far cubes seen through a
+crack narrower than a texel.
+
 ## Effects
 
 `FrameInput::default()` supplies a shadowed sun, gradient sky, [environment
