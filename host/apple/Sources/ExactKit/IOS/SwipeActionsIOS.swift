@@ -21,6 +21,10 @@ package final class SwipeActionsHost {
     unowned let presenter: Presenter
     private var rows: [UInt32: Row] = [:]
     private var refusals: [UInt32: String] = [:]
+    #if os(iOS)
+    /// Rows whose actions keep their paint (PaintedSwipesIOS.swift).
+    private(set) lazy var painted = PaintedSwipes(presenter)
+    #endif
     private var observers: [NSObjectProtocol] = []
     init(_ presenter: Presenter) {
         self.presenter = presenter
@@ -50,6 +54,9 @@ package final class SwipeActionsHost {
     func reset() {
         for row in rows.values { row.discard() }
         rows.removeAll(); refusals.removeAll()
+        #if os(iOS)
+        painted.reset()
+        #endif
     }
     #if os(iOS)
     /// A grouped list row's actions on one side, as its list cell offers
@@ -85,7 +92,7 @@ package final class SwipeActionsHost {
     func sync(changed: Set<UInt32>? = nil) {
         let named = presenter.chrome.named
         let renamed = presenter.takeChangedNames()
-        var wanted = Set<UInt32>()
+        var wanted = Set<UInt32>(), paintedOwners = Set<UInt32>()
         var claimed = Set<UInt32>()
         for owner in presenter.carrying("swipeContent") {
             guard let content = owner.props["swipeContent"] else { continue }
@@ -141,6 +148,17 @@ package final class SwipeActionsHost {
                 continue
             }
             refusals.removeValue(forKey: owner.id)
+            #if os(iOS)
+            // Actions that say `appearance="none"` keep their paint: the row
+            // swipes by its scroll, with UIKit's swipe's behaviours.
+            if !grouped, PaintedSwipes.keepsPaint(controls) {
+                rows.removeValue(forKey: owner.id)?.discard()
+                painted.adopt(owner, body: body, leading: Array(controls.prefix(leadingNames.count)),
+                              trailing: Array(controls.dropFirst(leadingNames.count)), label: label)
+                paintedOwners.insert(owner.id)
+                continue
+            }
+            #endif
             if let old = rows[owner.id], old.body !== body || old.grouped != grouped { old.discard(); rows.removeValue(forKey: owner.id) }
             let row = rows[owner.id] ?? Row(owner: owner, body: body, host: self, grouped: grouped)
             rows[owner.id] = row
@@ -151,6 +169,9 @@ package final class SwipeActionsHost {
             wanted.insert(owner.id)
         }
         for id in Array(rows.keys) where !wanted.contains(id) { rows.removeValue(forKey: id)?.discard() }
+        #if os(iOS)
+        painted.retain(paintedOwners)
+        #endif
         refusals = refusals.filter { presenter.views[$0.key] != nil }
     }
 

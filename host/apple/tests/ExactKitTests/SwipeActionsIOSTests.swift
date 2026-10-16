@@ -121,6 +121,35 @@ final class SwipeActionsIOSTests: XCTestCase {
         XCTAssertTrue(p.swipeActions.refusal(of: owner)?.contains("\"delete\" names no one descendant of it") == true, p.swipeActions.refusal(of: owner) ?? "none")
     }
 
+    /// Actions that say `appearance="none"` keep their paint
+    /// (PaintedSwipesIOS.swift): no cell, the row's own scroll, its actions
+    /// VoiceOver's custom actions on the content and hidden from it; its
+    /// own drag leaves it open (another painted row's closes it).
+    func testAPaintedRowSwipesByItsScrollWithTheSwipesBehaviours() throws {
+        let p = fixture()
+        let owner = try XCTUnwrap(p.views[1]), body = try XCTUnwrap(p.views[3]), delete = try XCTUnwrap(p.views[4])
+        var paint = BatchOp(op: .style, nodeID: 4)
+        paint.style = ["appearance": "none", "written": ["appearance"]]
+        apply(p, [paint])
+        XCTAssertFalse(p.swipeActions.ownsAction(4), "no native action")
+        p.swipeActions.touch(owner)
+        XCTAssertNil(p.swipeActions.cell(of: owner), "no cell: the row paints its actions")
+        let scroll = try XCTUnwrap(owner.scroll, "the row's own scroll")
+        XCTAssertEqual(scroll.contentSize.width, 390)
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        let action = try XCTUnwrap(body.accessibilityCustomActions?.first)
+        XCTAssertEqual(action.name, "Delete")
+        _ = action.actionHandler?(action)
+        XCTAssertEqual(pressed, [4], "VoiceOver's custom action presses it")
+        XCTAssertTrue(delete.accessibilityElementsHidden, "the painted control, behind the content, is not read twice")
+
+        // Open, then a drag begins on it.
+        scroll.contentOffset.x = 90
+        p.swipeActions.painted.began(try XCTUnwrap(p.views[1]))
+        XCTAssertEqual(scroll.contentOffset.x, 90, "its own drag leaves it open")
+    }
+
     /// The agent's tap on an action no swipe revealed (an authored test's
     /// `tap delete-…`, splitter rough 12) presses its control as UIKit's
     /// action would, and leaves the row at rest again; a disabled control's

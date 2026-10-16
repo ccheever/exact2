@@ -417,6 +417,12 @@ component App
 - In a grouped list (`list appearance="auto"`), the scroll is a section's row: leave its
   `width` unsaid and give it `padding-right=0`. To ask first, the action's `press` opens a
   confirmation (`contract vocab confirm`). In tests, `tap "delete-Milk"` presses it.
+- UIKit draws its swipe actions itself (rounded on iOS 26 and later), whatever you paint.
+  To keep painted actions (flush 76-point rectangles of your own colours), write
+  `appearance="none"` on every control the row names: on iOS the row then swipes by its own
+  scroll, as on the web, and keeps the swipe's behaviours: one row open at a time, a full
+  swipe (past half the row) presses the outermost action, and VoiceOver reads each action as
+  a custom action of the row's content.
 
 More: docs/recipes/list-rows.md (search, filter, the long-press menu)
 

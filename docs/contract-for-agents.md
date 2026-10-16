@@ -1328,7 +1328,13 @@ from two to five (a preset, units, a period, a filter) is a `row role="radiogrou
 `button role="radio" aria-checked=…`, each pressing its value (the web gives it the
 arrow keys and one Tab stop); switching panels, a `row role="tablist"` of text tabs
 outside the header. iOS needs a swipe row's content exactly the scroll's size
-([pitfalls](agent-pitfalls.md), "There is no `swipeleft`").
+([pitfalls](agent-pitfalls.md), "There is no `swipeleft`"). Its swipe actions
+are UIKit's, drawn by UIKit (rounded on iOS 26 and later) whatever the buttons
+paint; when every control the row names says `appearance="none"`, the paint is
+kept instead: the row swipes by its own scroll, as on the web, with one row
+open at a time, a full swipe past half the row pressing the outermost action
+(a haptic as it arms), and each action a VoiceOver custom action of the row's
+content.
 
 An `image` source is the same string on every host: a path under the app's
 `assets/`, an `http(s)` URL, `symbol:<role>` (the roles are
