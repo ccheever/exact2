@@ -246,8 +246,9 @@ Ports    none. Runs to completion.`,
     usage: 'bun exact.mjs android',
     flags: [],
     // The app on the Canvas reader, as an APK (host/android/README.md): for an app with an `android/` crate,
-    // which `exact new` does not write yet.
-    internal: ['--apk'],
+    // which `exact new` does not write yet, or a game (its shell generates one). --release builds the
+    // release profile, for measuring.
+    internal: ['--apk', '--release'],
     body: `Builds for aarch64-linux-android and prints the binary's path; the drive runs it under
 adb shell on the first device or emulator (ANDROID_SERIAL picks one). Needs the NDK
 (ANDROID_NDK_HOME, else the newest under the SDK's ndk/) and, once in this directory,

@@ -9,6 +9,11 @@ A run records the machine's load; this machine is shared, so compare runs taken 
 Each twin is given its best idiomatic effort and its best optimized one — a strawman
 twin measures nothing. Here there is one mode: you spawn entities.
 
+On an Android phone, `bun game/bench/phone.mjs <exact|webview|chrome> <n>…` runs `cubes`
+full screen at the device's pixels: Exact's native game on the Canvas reader, and the
+three.js twin (`fit=screen`) in the system WebView (`game/twins/three/android`) and in
+Chrome. Its header says how each is measured; results go to `results/phone.jsonl`.
+
 ## Current method and limits
 
 Steady frame rings exclude seekable proofs. Asset preparation, first-emitter

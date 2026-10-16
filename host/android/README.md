@@ -39,16 +39,21 @@ It needs the Android SDK (`ANDROID_HOME`, else `~/Library/Android/sdk` or `~/And
 NDK (`ANDROID_NDK_HOME`, else the newest under the SDK), a JDK (17 or newer) and the Rust target
 (`rustup target add aarch64-linux-android`). It:
 
-1. builds the app's `android/` crate for `aarch64-linux-android` at `host-dev`. The crate is a cdylib whose source is
-   `exact_linux::canvas_jni!(<the data source>)`, with a build script that bakes the plan; `apps/caltrain/android` is
-   the one to copy for an app whose data is Rust and `apps/shelf/android` for one whose data is TypeScript (three
-   files each, and a line in the root `Cargo.toml`'s `members`);
-2. copies the library to `app/build/<app>/rust/jniLibs/arm64-v8a/libexactcanvas.so` and the app's `assets/` to
-   `app/build/<app>/rust/assets/app/assets/`;
-3. runs `./gradlew :app:assembleRelease -Papp=<app> -PappDir=<the app's directory>` here,
+1. builds the app's `android/` crate for `aarch64-linux-android` at `host-dev` (`--release`: at `release`, for
+   measuring). The crate is a cdylib whose source is `exact_linux::canvas_jni!(<the data source>)`, with a build
+   script that bakes the plan; `apps/caltrain/android` is the one to copy for an app whose data is Rust and
+   `apps/shelf/android` for one whose data is TypeScript (three files each, and a line in the root `Cargo.toml`'s
+   `members`). A game's is generated in its `.shells/` (`game/app/shells.mjs`). An app with a GPU module (LLP 1009;
+   every game) is built as a Linux bake is (`buildBake`): the module first, then the crate, whose bake records the
+   module's SHA-256;
+2. copies the library to `app/build/<app>/rust/jniLibs/arm64-v8a/libexactcanvas.so`, the GPU module beside it under
+   its own name, and the app's `assets/` to `app/build/<app>/rust/assets/app/assets/`;
+3. runs `./gradlew :app:assembleRelease -Papp=<app> -PappDir=<the app's directory>` here (a game's `.shells/`, whose
+   `app.json` is resolved), with `-PgpuModule=<file>` for a module: the APK then extracts its libraries and leaves
+   the module unstripped, since the host opens it by path and checks its digest,
 
 and prints `app/build/<app>/outputs/apk/release/app-release.apk`. The package id and the label are the app's
-`app.json` (`app.id`, `app.name`). `ORG_GRADLE_PROJECT_idSuffix=.dev` in the environment builds a side-by-side package
+`app.json` (`app.id`, with `-` as `_`, which a package name cannot hold; `app.name`). `ORG_GRADLE_PROJECT_idSuffix=.dev` in the environment builds a side-by-side package
 (`<app id>.dev`). `./gradlew :canvas:assembleRelease` builds the reader alone.
 
 Then `adb install -r <apk>` and `adb shell am start -n <app id>/dev.exact.app.MainActivity`, or drive it:
@@ -1008,8 +1013,8 @@ The cut was the smallest one. Left in the reader:
 - **The shell is a development build**: signed with the debug key, with no icon. Its one activity turns keys on for
   every app, and gives none a native module (LLP 1024) or a video player, which the benchmark's apps passed from an
   activity of their own.
-- **An app's GPU module** (LLP 1009) is not built or packaged, as the benchmark's `build.sh` did for its apps.
-  Caltrain's sky was not tried.
+- **A GPU canvas over children draws nothing**: Caltrain's sky (`glass`, which refracts the content inside it) is
+  blank with its module packaged, where a canvas without children (a game's world) draws (QUEUE.md).
 - **No update store** and no replaced Rust module: the Canvas host has neither, though an app's compatibility
   record is computed as its Linux crate's is, and Caltrain's names both (`store.L` is `A`, `rustMode` is `native`).
 - **No picture from a URL.** The Linux host's pictures are files under the asset root (`host/linux/src/image`), on

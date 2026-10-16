@@ -1,17 +1,19 @@
 // The three.js twin of game/bench (its README defines the scenes): the same cubes,
 // the same camera, the same measurement, reported to the runner that opened the page.
 //   bench.html?scene=cubes&n=10000&mode=instanced&renderer=webgl&seconds=10
+// `fit=screen` fills the viewport at the device's pixel ratio (a phone, as Exact's full-screen canvas draws).
 // Modes of `cubes`: `meshes` (a Mesh each — what a first three.js project does),
 // `instanced` (one InstancedMesh, matrices set from JS every frame).
 const q = new URLSearchParams(location.search);
 const n = Number(q.get('n') ?? 10000), mode = q.get('mode') ?? 'instanced';
 const seconds = Number(q.get('seconds') ?? 10), warmup = Number(q.get('warmup') ?? 2);
 const which = q.get('renderer') ?? 'webgl';
+const fit = q.get('fit') === 'screen', W = fit ? innerWidth : 1280, H = fit ? innerHeight : 720;
 const THREE = await import(which === 'webgpu' ? 'three/webgpu' : 'three');
 
 const renderer = which === 'webgpu' ? new THREE.WebGPURenderer({ antialias: true }) : new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(2);
-renderer.setSize(1280, 720, false);
+renderer.setPixelRatio(fit ? devicePixelRatio : 2);
+renderer.setSize(W, H, fit);
 document.body.append(renderer.domElement);
 if (renderer.init) await renderer.init();
 
@@ -23,7 +25,7 @@ scene.add(new THREE.AmbientLight(new THREE.Color(0.35, 0.38, 0.45), Math.PI));
 const sun = new THREE.DirectionalLight(0xffffff, Math.PI);
 sun.position.set(0.38, 0.77, 0.51);
 scene.add(sun);
-const camera = new THREE.PerspectiveCamera(60, 1280 / 720, 0.1, radius * 4);
+const camera = new THREE.PerspectiveCamera(60, W / H, 0.1, radius * 4);
 
 const positions = [], axes = [], speeds = [];
 for (let i = 0; i < n; i++) {
@@ -75,6 +77,12 @@ function frame() {
   if (elapsed >= warmup + seconds) { done = true; report(); return; }
   requestAnimationFrame(frame);
 }
+// What the page draws with: WebGL's unmasked renderer (ANGLE's backend shows here), or WebGPU's adapter.
+function adapter() {
+  const gl = renderer.getContext?.();
+  const info = gl?.getExtension?.('WEBGL_debug_renderer_info');
+  return info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : which;
+}
 function report() {
   const sorted = [...frames].sort((a, b) => a - b), pct = (p) => sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))] ?? 0;
   const avg = (a) => a.reduce((s, v) => s + v, 0) / Math.max(a.length, 1), r2 = (x) => Math.round(x * 100) / 100;
@@ -82,7 +90,7 @@ function report() {
     engine: 'three', version: THREE.REVISION, renderer: which, scene: 'cubes', n, mode,
     pixels: [renderer.domElement.width, renderer.domElement.height], frames: frames.length,
     fps_avg: Math.round(10000 / avg(frames)) / 10, ms_p50: r2(pct(0.5)), ms_p95: r2(pct(0.95)), ms_p99: r2(pct(0.99)),
-    ms_max: r2(sorted[sorted.length - 1] ?? 0), script_ms_avg: r2(avg(script)), draws: renderer.info?.render?.calls ?? renderer.info?.render?.drawCalls ?? null,
+    ms_max: r2(sorted[sorted.length - 1] ?? 0), gpu: adapter(), script_ms_avg: r2(avg(script)), draws: renderer.info?.render?.calls ?? renderer.info?.render?.drawCalls ?? null,
   };
   document.title = 'BENCH ' + JSON.stringify(out);
   navigator.sendBeacon('/__bench', JSON.stringify(out));

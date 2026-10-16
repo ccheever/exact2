@@ -98,7 +98,7 @@ export function renderGraph(metadata, game) {
   const find = name => metadata.packages.find(pkg => pkg.name === name && members.has(pkg.id))?.id;
   const forbidden = find(game.render.crate), name = game.crate.slice(0, -'-logic'.length);
   if (!forbidden) throw new Error(`game.render package ${game.render.crate} is absent from Cargo metadata`);
-  const roots = [game.crate, game.data?.crate, ...['web','apple','linux','windows'].map(kind => `${name}-${kind}`)].filter(Boolean).map(find);
+  const roots = [game.crate, game.data?.crate, ...['web','apple','linux','windows','android'].map(kind => `${name}-${kind}`)].filter(Boolean).map(find);
   const gpu = nodes.get(find(`${name}-gpu`));
   if (!gpu) throw new Error('game.render isolation requires complete Cargo GPU metadata');
   for (const dependency of gpu.deps) if (dependency.dep_kinds.some(kind => kind.kind === 'build')) roots.push(dependency.pkg);
@@ -138,7 +138,7 @@ export function gameShells(dir, game, workspace) {
     cargo.workspace.dependencies['exact-gpu-reflect'] ??= {path:relative(source, resolve(gameRoot, '../gpu/reflect'))};
   }
   const authoredLogic = existsSync(resolve(dir, 'logic/Cargo.toml'));
-  cargo.workspace.members = ['gpu','web','apple','linux','windows', authoredLogic ? '../logic' : 'logic', ...(data ? ['../data'] : []), ...(render ? ['../render'] : [])];
+  cargo.workspace.members = ['gpu','web','apple','linux','windows','android', authoredLogic ? '../logic' : 'logic', ...(data ? ['../data'] : []), ...(render ? ['../render'] : [])];
   delete cargo.workspace.exclude;
   // Engine crates are dependencies here: the wildcard already optimizes them.
   // Retain member overrides and any settings distinct from that wildcard.
@@ -226,7 +226,7 @@ export function gameShells(dir, game, workspace) {
   const bakeArt = hasArt(appDir);
   // The snapshot excludes this entire generated root, including its gitignore.
   if (!existsSync(resolve(root, '.gitignore'))) writeFileSync(resolve(root, '.gitignore'), '*\n!.gitignore\n');
-  for (const kind of ['gpu', 'web', 'apple', 'linux', 'windows']) {
+  for (const kind of ['gpu', 'web', 'apple', 'linux', 'windows', 'android']) {
     const shell = resolve(root, kind);
     const levelBake = relative(shell, resolve(source, 'bake/src/files.rs'));
     // These adapters contain entry points only; tests live in authored crates.
@@ -239,6 +239,8 @@ export function gameShells(dir, game, workspace) {
     const renderDependency = render ? `game-render = { package = "${render.crate}", path = ${JSON.stringify(relative(shell, renderDir))} }\n` : '';
     const dependencies = kind === 'gpu'
       ? `exact-game-render.workspace = true\n${app.game.audio === true ? "exact-game-audio.workspace = true\n" : ""}${renderDependency}game-logic = { package = "${crate}", path = ${JSON.stringify(relative(shell, logicDir))} }\n\n[target.'cfg(target_arch = "wasm32")'.dependencies]\nwasm-bindgen.workspace = true\nwasm-bindgen-futures.workspace = true\nweb-sys.workspace = true\n\n[build-dependencies]\nexact-game.workspace = true\nserde_json = "1"\ngame-logic = { package = "${crate}", path = ${JSON.stringify(relative(shell, logicDir))} }\n${bakeArt ? 'exact-game-bake.workspace = true\n' : ''}`
+      // Android's Canvas host is the Linux host's (exact_linux::canvas_jni!), linked only on Android.
+      : kind === 'android' ? `\n[target.'cfg(target_os = "android")'.dependencies]\nexact-runner.workspace = true\nexact-linux.workspace = true\n${dataDependency}\n[build-dependencies]\nexact-game-app.workspace = true\n${dataBuildDependency}`
       : `exact-runner.workspace = true\nexact-${kind}.workspace = true\n${kind === 'web' ? 'exact-web-capabilities.workspace = true\n' : ''}${dataDependency}\n[build-dependencies]\nexact-game-app.workspace = true\n${dataBuildDependency}`;
     const files = {
       'Cargo.toml': header + dependencies,
@@ -470,7 +472,7 @@ function lockedMetadata(root, flags, env) {
   if (result.status === 0) writeFileSync(cache, JSON.stringify({key:key(JSON.parse(result.stdout)), text:result.stdout}));
   return result;
 }
-const shellMembers = (game, name) => new Set([game.crate, game.data?.crate, game.render?.crate, ...['gpu','web','apple','linux','windows'].map(kind => `${name}-${kind}`)].filter(Boolean));
+const shellMembers = (game, name) => new Set([game.crate, game.data?.crate, game.render?.crate, ...['gpu','web','apple','linux','windows','android'].map(kind => `${name}-${kind}`)].filter(Boolean));
 
 // Every ordinary bake is locked; dependency edits require an explicit update,
 // never a publisher's cache choice.

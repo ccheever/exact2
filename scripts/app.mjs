@@ -1262,9 +1262,11 @@ export function bakeSelection(graph, part) {
 /** One actual target build, including the optional GPU artifact. Consumers
  * classify its completed receipt; compatibility is never recomputed in JS.
  * `check` runs `cargo check`: the build scripts (the bake) and the receipt,
- * with no linked product (delivery's web bake, host/web/build.mjs --bake). */
+ * with no linked product (delivery's web bake, host/web/build.mjs --bake).
+ * `options.kind` overrides the crate kind the platform implies. */
 export function buildBake(app, platform, target, options = {}) {
-  const kind=platformCrateKind(app.dir,platform), apple=['apple','ios','macos','tvos'].includes(kind);
+  // `kind` names another crate for the platform's cohort: Android's Canvas host bakes as Linux from `<app>-android`.
+  const kind=options.kind??platformCrateKind(app.dir,platform), apple=['apple','ios','macos','tvos'].includes(kind);
   let env={...process.env,...options.env};env.CARGO_TARGET_DIR=app.target;env.EXACT_BAKE_OUTPUT=options.output??bakeOutput(app,env);
   if(platform==='web')env=webToolchainEnv(env);
   if(options.analysis && env.EXACT_UPDATE_TRUST==='production')env.EXACT_BAKE_ANALYSIS='1';else delete env.EXACT_BAKE_ANALYSIS;
