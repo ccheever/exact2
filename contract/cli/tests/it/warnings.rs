@@ -1430,6 +1430,14 @@ fn a_header_a_box_below_its_route_is_named_with_the_repair() {
     ] {
         assert_eq!(warned(&src(root, route)), [], "{root}{route}");
     }
-    let hidden = nested.replace("      header\n", "      header display=\"none\"\n");
-    assert_eq!(warned(&hidden), []);
+    // Hidden, or drawing itself (`appearance="none"`: no bar wherever it
+    // sits), said or computed: moving it would project nothing.
+    for attr in [
+        "display=\"none\"",
+        "appearance=\"none\"",
+        "appearance=(1 > 0 ? \"none\" : \"auto\")",
+    ] {
+        let kept = nested.replace("      header\n", &format!("      header {attr}\n"));
+        assert_eq!(warned(&kept), [], "{attr}");
+    }
 }

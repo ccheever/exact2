@@ -4,6 +4,7 @@
 //! uses the component is in the root file. iOS makes the bar only of the
 //! route's own first child (`exact_kernel::bars::header_shape`), so this
 //! header is drawn in the page as written. The euxy port's tabs did this.
+//! A header that draws itself (`appearance="none"`) is not warned.
 
 use super::{computed, literal, NOT_THE_BAR, OR_NO_BAR};
 use crate::LowerError;
@@ -43,6 +44,12 @@ pub(super) fn nested_header(children: &[Node], out: &mut Vec<LowerError>) {
             return;
         }
         if tag == "header" {
+            // A header that keeps its authored bar (`appearance="none"`,
+            // LLP 1075.003 §9.10) is no bar wherever it sits: moving it
+            // would project nothing. A computed one has the benefit.
+            if literal(attrs, "appearance") == Some("none") || computed(attrs, "appearance") {
+                return;
+            }
             out.push(LowerError {
                 id: "lower-header-nested",
                 message: format!("this `header` is not its route's first child (it is inside the `{outer}` that is), so on iOS it is not the navigation bar: {NOT_THE_BAR} Make it the route's first child: move the route's `navigationKey`, with its `navigationPresentation`, `navigationScroll` and the rest, onto the box that holds the header (a screen component's root), or move the header up{OR_NO_BAR} (docs/recipes/navigation-stack.md)"),
