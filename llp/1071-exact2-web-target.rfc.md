@@ -1810,6 +1810,10 @@ Two levers, in order:
    runtime up (no DevTools attached, five runs): 1.67–1.94 s → 0.48–0.53 s,
    ~23 MB more JS heap (44 → 67 MB). Caltrain and RealWorld: no difference
    past noise (60–110 ms either way). Other browsers ignore the comment.
+   The heap it costs, after `gc()` with the runtime up: Caltrain 2.93 →
+   3.20 MB, RealWorld 2.43 → 2.81 MB; the clone 27.9 → 54.5 MB before the
+   constants below, 14.9 → 33.7 MB (+18.8) with them: the price of its
+   1.8 s → 0.5 s.
 2. *Per-plan constants hoisted* to module scope (emit.rs, after `wait`):
    the colour map once (`$cm`), its inner maps built once; each distinct
    metric map, corner validator and string literal of 64+ JSON bytes once
@@ -1822,6 +1826,15 @@ machine): ~15–18 s with the debug compiler (a 12–15 s build, a ~3 s
 reload); 5.7 s with the design reader's optimised one (host-dev, dev.mjs);
 ~3.1 s with the hint; 2.4–2.6 s with the constants (plan ready ~2.1 s,
 runtime up ~0.35 s).
+
+The dev loop's compiler is a copy of the design reader's host-dev binary
+(dev.mjs `copyCompiler`), taken only from the loop's own finished build and
+used while `freshCompiler` holds (its dep-info, the lockfile and every
+manifest). A copy is published only while the binary keeps the date that
+build gave it and its dep-info keeps its own and ends whole; any failure
+keeps the previous copy. Left: an in-place dep-info rewrite inside one
+millisecond passes the date check, and the newline check is then the only
+guard.
 
 Measuring note: a CDP client that enables the Network domain (Playwright
 does) captures each request's initiator stack, which makes V8 collect source
