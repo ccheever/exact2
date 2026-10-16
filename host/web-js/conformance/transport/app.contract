@@ -6,7 +6,8 @@
 // tempo change, a key restart, the gate's stop, `stopSounds` while it plays,
 // a finite take whose `ended=` action reads the time it ended, a `from` past
 // exact counting, a take whose end is already past at its arming, and a
-// take whose `ended=` starts a second, finite sequence with no `ended=`. The
+// take whose `ended=` starts a second, finite sequence with no `ended=`, and
+// tracks dropped once a beat kept across an edit is past exact counting. The
 // journal's `sound`, `sequence` and `haptic` lines, `state.sounds`,
 // `state.transport` and `exactTransport()`'s answer compare on every
 // target. (No slot shares a name with Caltrain's: the wasm page carries its
@@ -53,8 +54,9 @@ component Seq
   state seqFrom = -4
   state seqHandoff = false
   state seqCoda = false
+  state seqWide = false
   resource transport = exactTransport() as shape Transport
-  derive seqTracks = [Track(beats=3, loops=seqLoops, offset=0, output="", steps=[hit(0, "assets/kick.wav", seqAccent), buzz(1)]), Track(beats=4, loops=seqLoops, offset=0, output="", steps=[hit(0, "assets/hat.wav", 0.5), hit(2, "assets/hat.wav", 0.5), hit(5, "assets/hat.wav", 1)])]
+  derive seqTracks = seqWide ? [Track(beats=100000000000000, loops=0, offset=0, output="", steps=[hit(0, "", 1)])] : [Track(beats=3, loops=seqLoops, offset=0, output="", steps=[hit(0, "assets/kick.wav", seqAccent), buzz(1)]), Track(beats=4, loops=seqLoops, offset=0, output="", steps=[hit(0, "assets/hat.wav", 0.5), hit(2, "assets/hat.wav", 0.5), hit(5, "assets/hat.wav", 1)])]
   action seqStart
     seqPlaying = true
   action seqStop
@@ -83,6 +85,16 @@ component Seq
     seqHandoff = true
     seqCoda = false
     seqPlaying = true
+  action seqGoWide
+    seqWide = true
+    seqBpm = 6000000000000000000
+    seqFrom = 0
+    seqLoops = 0
+    seqHandoff = false
+    seqPlaying = true
+  action seqNarrow
+    seqWide = false
+    seqBpm = 60
   action seqEnded
     seqEndedAt = performanceNow()
     seqPlaying = false
@@ -105,3 +117,5 @@ component Seq
       button "far" press=seqFar testId="far"
       button "late" press=seqLate testId="late"
       button "handoff" press=seqHandoffStart testId="handoff"
+      button "wide" press=seqGoWide testId="wide"
+      button "narrow" press=seqNarrow testId="narrow"

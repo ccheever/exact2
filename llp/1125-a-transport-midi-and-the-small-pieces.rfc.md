@@ -700,7 +700,7 @@ otherwise.
   answer a pseudo-mutation kept last in `Mutations`. `rt.js` changed three
   lines and gained none. The module is imported only by a plan that
   declares a sequence or reads `exactTransport`.
-- **Hosts.** Apple's mixer has 320 slots and a 1,024-op ring and frees a
+- **Hosts.** Apple's mixer has 288 slots and a 1,024-op ring and frees a
   voice retracted before it starts at once; `SoundOutput` plays a haptic on
   the main queue at its time without opening the output, and counts those
   more than 10 ms late (`hapticsLate`). The web glue lets a retracted node go
@@ -722,7 +722,7 @@ otherwise.
   the waiting cap; the 33rd voice; `ended=` at its exact time; the answer
   commit; a refused commit; a second sequence; `stopSounds`; the wake; the
   background latch. A Linux agent test: `clock settle` does not wait for a
-  fill. `SoundMixerTests` (320 slots, a retraction frees its slot, a
+  fill. `SoundMixerTests` (288 slots, a retraction frees its slot, a
   1,024-op ring); `sound-glue.test.mjs` (a retraction is silent and lets
   its node go; haptics timed, cancelled and counted late).
 - **Measured.** Conformance `transport` (a count-in, polymeter, a haptic,
@@ -754,10 +754,15 @@ otherwise.
   whichever commit of the `set_page` call stands (a recovery commit after
   owed reads included); the JS twin gives each arming its own end entry,
   so an `ended=` that starts another sequence is still counted as a timer.
-  On Apple the mixer has 320 slots, the 32 beyond the runner's bounds for
-  the voices a stop ends partway into a buffer; a voice stopped before its
-  first render gives its slot up; a boot's stop-all waits its turn in the
-  backlog.
+  On Apple a voice stopped before its first render gives its slot up, and a
+  boot's stop-all waits its turn in the backlog.
+- **After review round 3:** the 2^52 check drops only a track that loops
+  forever (or as many times as that) and would pass it, journaled, and the
+  rest play on, so a finite track's `ended=` still runs. On Apple a Play
+  that finds no free slot takes one whose voice ends inside the buffer,
+  mixing that voice's remaining frames first (a sum, so it sounds as it
+  would have): retriggers cut within one buffer, however many rounds, fit
+  the runner's bounds, 288 slots.
 - **Not done here.** The device check (onsets on the grid with the main
   thread blocked for 300 ms) was not run; nothing in this lane played to a
   speaker. MIDI steps, `offset` and clock out are stage 3; `waiting` and

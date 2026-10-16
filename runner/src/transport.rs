@@ -68,10 +68,11 @@ pub const LOOPS_PER_SECOND: f64 = 1000.0;
 pub const FROM_LIMIT: f64 = 2147483648.0;
 /// See [`FROM_LIMIT`]: 2^-20 of a beat.
 pub const SHORTEST: f64 = 1.0 / 1048576.0;
-/// A loop index past which a fill stops the sequence (2^52): a beat kept
-/// across an edit (a long track at a high tempo, then a short one) can
-/// reach it where `from` and the length alone cannot, and past 2^53 a loop
-/// index no longer steps by 1.
+/// A loop index past which a fill drops a track that loops forever (or as
+/// many times): a beat kept across an edit (a long track at a high tempo,
+/// then a short one) can reach it where `from` and the length alone
+/// cannot, and past 2^53 a loop index no longer steps by 1. A finite track
+/// with fewer loops is never iterated there (its last loop is behind).
 pub const EXACT: f64 = 4503599627370496.0;
 /// A step's `haptic` kinds: `haptic()`'s (LLP 1077 D14).
 pub const HAPTIC_KINDS: [&str; 10] = [
@@ -828,19 +829,25 @@ impl Transport {
             return;
         };
         let end = seg.beat_at(at + LOOKAHEAD);
-        let far = self.play.as_ref().is_some_and(|p| {
-            p.tracks.iter().any(|t| {
+        let name = plan.str(plan.sequences[i].name);
+        let mut dropped = false;
+        if let Some(play) = self.play.as_mut() {
+            play.tracks.retain(|t| {
                 let k = (end / t.length).abs();
-                k.is_nan() || k >= EXACT
-            })
-        });
-        if far {
-            let name = plan.str(plan.sequences[i].name);
-            log.push(format!(
-                "sequence {name}: beat {} is past exact loop counting",
-                num(end)
-            ));
-            return self.stop(plan, sounds, at, "bpm", log);
+                let far = (t.loops == 0.0 || t.loops - 1.0 >= EXACT) && (k.is_nan() || k >= EXACT);
+                if far {
+                    log.push(format!(
+                        "sequence {name}: a track dropped: beat {} is past exact loop counting",
+                        num(end)
+                    ));
+                    dropped = true;
+                }
+                !far
+            });
+        }
+        // What is left may now end: every track finite, or none.
+        if dropped {
+            self.timing(at);
         }
         let Some(play) = self.play.take() else {
             return;

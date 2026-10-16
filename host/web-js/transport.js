@@ -97,9 +97,15 @@ function timing(t) {
 // Issue the hits in [IssuedTo, at + LOOKAHEAD); off the agent a hit already past is skipped and said once.
 function fill(at) {
   if (!Play || Owner == null) return;
-  // A loop index past 2^52 (a beat kept across an edit can reach it) stops the sequence: past 2^53 it no longer steps by 1.
-  const end = beatAt(seg(), at + LOOKAHEAD);
-  if (Play.tracks.some(t => !(Math.abs(end / t.length) < EXACT))) { say(`sequence ${Seqs[Owner].name}: beat ${num(end)} is past exact loop counting`); return stop(at, 'bpm'); }
+  // A track that loops forever (or as many times) whose loop index would pass 2^52 (a beat kept across an edit can reach
+  // it) is dropped: past 2^53 an index no longer steps by 1. What is left may now end.
+  const end = beatAt(seg(), at + LOOKAHEAD), n = Play.tracks.length;
+  Play.tracks = Play.tracks.filter(t => {
+    const far = (t.loops === 0 || t.loops - 1 >= EXACT) && !(Math.abs(end / t.length) < EXACT);
+    if (far) say(`sequence ${Seqs[Owner].name}: a track dropped: beat ${num(end)} is past exact loop counting`);
+    return !far;
+  });
+  if (Play.tracks.length !== n) timing(at);
   const from = IssuedTo, to = at + LOOKAHEAD, list = hits(Play, seg(), from, to), live = !clock.agent;
   let skipped = 0; while (skipped < Skip && skipped < list.length && list[skipped].at === from) skipped++;
   list.splice(0, skipped); Skip = 0;

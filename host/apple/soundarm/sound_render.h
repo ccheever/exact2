@@ -16,11 +16,12 @@
 #include <stdbool.h>
 #include <CoreAudioTypes/CoreAudioTypes.h>
 
-/// Voices in slots at once. The runner bounds the voices sounding at any
-/// start to 32 and those waiting to 256 (LLP 1125 D3); a voice stopped
-/// partway into a buffer keeps its slot until that buffer renders, so the
-/// 32 it replaces need 32 more: 32 + 256 + 32.
-#define EXACT_SOUND_SLOTS 320
+/// Voices in slots at once: the runner bounds the voices sounding at any
+/// start to 32 and those waiting to 256 (LLP 1125 D3). A Play that finds
+/// no free slot takes one whose voice ends inside the buffer, that voice's
+/// remaining frames mixed first, so retriggers cut within one buffer need
+/// no more.
+#define EXACT_SOUND_SLOTS 288
 /// Ops the ring holds: a second's lookahead of plays, and their ends.
 #define EXACT_SOUND_RING 1024
 

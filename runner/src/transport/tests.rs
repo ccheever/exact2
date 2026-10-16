@@ -695,32 +695,36 @@ fn a_stop_retracts_every_haptic_still_to_come() {
     assert!(r.sounds().haptics().all(|h| h.by == Some("cancelled")));
 }
 
-/// Review round 2, A2: a beat kept across an edit (a long track at a high
-/// tempo, then a short one) past exact loop counting stops the sequence
-/// rather than hang a fill.
+/// Review rounds 2 and 3, A2: a beat kept across an edit (a long track at
+/// a high tempo, then short ones) past exact loop counting drops the track
+/// that loops forever, journaled, rather than hang a fill; a finite sibling,
+/// never iterated there, plays on and its `ended=` runs.
 #[test]
-fn a_beat_past_exact_counting_stops_the_sequence() {
+fn a_beat_past_exact_counting_drops_only_the_endless_track() {
     let source = SOURCE
-        .replace("  state stray = 0\n", "  state stray = 0\n  state huge = false\n")
+        .replace("  state stray = 0\n", "  state stray = 0\n  state huge = false\n  state split = false\n")
         .replace(
             "  derive tracks = dense > 0 ?",
-            "  derive tracks = huge ? [Track(beats=100000000000000, loops=0, offset=0, output=\"\", steps=[hit(0, \"assets/kick.wav\")])] : dense > 0 ?",
+            "  derive tracks = huge ? [Track(beats=100000000000000, loops=0, offset=0, output=\"\", steps=[hit(0, \"assets/kick.wav\")])] : split ? [Track(beats=1, loops=0, offset=0, output=\"\", steps=[hit(0, \"assets/kick.wav\")]), Track(beats=4, loops=1, offset=0, output=\"\", steps=[hit(0, \"assets/hat.wav\")])] : dense > 0 ?",
         )
-        .replace("  action noop\n", "  action goHuge\n    huge = true\n    bpm = 6000000000000000000\n  action small\n    huge = false\n    bpm = 60\n  action noop\n");
+        .replace("  action noop\n", "  action goHuge\n    huge = true\n    bpm = 6000000000000000000\n  action small\n    huge = false\n    split = true\n    bpm = 60\n  action noop\n");
     let mut r = boot_with(&source);
     r.act("noCountIn", vec![]).unwrap();
     r.act("goHuge", vec![]).unwrap();
     r.act("start", vec![]).unwrap();
     r.advance(1000.0).unwrap();
     r.act("small", vec![]).unwrap();
-    assert!(!r.transport().playing());
-    assert!(
-        said(&r)
-            .iter()
-            .any(|l| l.ends_with("is past exact loop counting")),
-        "{:?}",
-        said(&r)
-    );
+    let dropped: Vec<String> = said(&r)
+        .into_iter()
+        .filter(|l| l.ends_with("is past exact loop counting"))
+        .collect();
+    assert_eq!(dropped.len(), 1, "the endless track only: {:?}", said(&r));
+    assert!(dropped[0].starts_with("sequence groove: a track dropped: beat "));
+    // The finite track's last loop is long behind: it ends at the edit's time.
+    assert_eq!(r.transport().ended_due(), 1000.0);
+    r.advance(1000.0).unwrap();
+    assert_eq!(slot(&r, "endedAt"), 1000.0);
+    assert_eq!(answered(&r)[1], Value::str("ended"));
 }
 
 /// Review round 2, A3 on a live clock: a hit the waiting cap held is
