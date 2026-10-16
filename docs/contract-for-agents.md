@@ -2047,9 +2047,12 @@ every `translate`, `rotate` and `scale` on it and above it (the bounding box of 
 turned box), with every scroll offset above it (the page's too) applied, so a drop
 target needs no scroll bookkeeping and a dragged card is where it shows. Natively a
 transform in flight counts at its end value; the web reads it mid-flight. `measure`
-reads an auto-height hypothetical layout at the same origin: the box's content's
-height, not its own, so a box whose children are all absolutely positioned (a
-navigation root, a route) measures 0 however tall it is laid out. Read a laid-out
+reads the border box as if its `height` were `auto`, at the same origin, with every
+other style kept: its in-flow content, plus its padding and border, within its
+`min-height` and `max-height`, and the height opposing `top` and `bottom` insets
+give an absolutely positioned box. So a navigation root whose children are all
+absolutely positioned, with no padding, border or `min-height` of its own,
+measures 0 however tall it is laid out. Read a laid-out
 size, the screen's included, with `frame`, and size a sheet as a share of the
 screen with `navigationDetent="45%"`. Before the first layout both answer
 `unavailable` with zeros, as on the web until the page's geometry code loads after
