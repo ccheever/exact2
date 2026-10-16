@@ -31,6 +31,21 @@ private:
   std::vector<uint8_t> bytes_;
 };
 
+// Bytecode its caller keeps until the runtime is destroyed (engine.rs: the
+// binary's own, or the module's, which the engine holds), read in place.
+// Hermes refuses a buffer that is not aligned for its file header; such a
+// buffer is copied (`OwnedBytes`).
+class BorrowedBytes : public jsi::Buffer {
+public:
+  BorrowedBytes(const uint8_t *data, size_t size) : data_(data), size_(size) {}
+  size_t size() const override { return size_; }
+  const uint8_t *data() const override { return data_; }
+
+private:
+  const uint8_t *data_;
+  size_t size_;
+};
+
 // (ctx, op, a, b, out) -> 0 with `out` null (undefined) or a malloc'd string.
 typedef int (*HostFn)(void *ctx, uint32_t op, const char *a, const char *b, char **out);
 // (ctx, op, a, bytes, len, out): the host door for byte input (LLP 1069.005:
@@ -231,7 +246,11 @@ void *exact_js_create(uint32_t max_heap_bytes, HostFn host, BytesFn bytes, void 
 int exact_js_load(void *h, const uint8_t *data, size_t len, char **out) {
   auto *state = static_cast<State *>(h);
   try {
-    auto buffer = std::make_shared<OwnedBytes>(std::vector<uint8_t>(data, data + len));
+    std::shared_ptr<jsi::Buffer> buffer;
+    if (reinterpret_cast<uintptr_t>(data) % 16 == 0)
+      buffer = std::make_shared<BorrowedBytes>(data, len);
+    else
+      buffer = std::make_shared<OwnedBytes>(std::vector<uint8_t>(data, data + len));
     state->rt->evaluateJavaScript(buffer, "app.hbc");
     return 0;
   } catch (const jsi::JSError &e) {
