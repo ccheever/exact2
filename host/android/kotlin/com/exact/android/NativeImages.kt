@@ -11,7 +11,7 @@ import java.util.concurrent.Executors
 
 /** Asset images decoded off the owner thread at their displayed pixel size.
  * Two pixel decodes and cancellable shared waiting demands bound fling work.
- * The byte-bounded cache keeps no invisible portion of a center-cover image.
+ * A byte-bounded cache crops cover decodes and shares compatible full-source pixels.
  */
 internal class NativeImages(private val context: Context, private val hardware: () -> Boolean = { false }) : AutoCloseable {
     class Image(val bitmap: Bitmap, val width: Int, val height: Int) {
@@ -49,11 +49,25 @@ internal class NativeImages(private val context: Context, private val hardware: 
     private var closed = false
 
     private fun Request.key() = Key(source, width, height, fit, hardware)
+    private fun covering(key: Key): Image? {
+        val match = cache.snapshot().entries.filter { (old, image) ->
+            if (old.source != key.source || old.fit != key.fit || old.hardware != key.hardware ||
+                image.bitmap.density != context.resources.displayMetrics.densityDpi) false
+            else {
+                val prior = ImageDecodePlan.create(image.width, image.height, old.width, old.height, old.fit)
+                val wanted = ImageDecodePlan.create(image.width, image.height, key.width, key.height, key.fit)
+                !prior.cropped && image.bitmap.width == prior.width && image.bitmap.height == prior.height &&
+                    image.bitmap.width.toLong() * image.height == image.bitmap.height.toLong() * image.width &&
+                    image.bitmap.width >= wanted.width && image.bitmap.height >= wanted.height
+            }
+        }.minByOrNull { it.value.bitmap.allocationByteCount } ?: return null
+        return cache.get(match.key)
+    }
     fun request(source: String, width: Int, height: Int, fit: String, deliver: (Image) -> Unit): Request {
         check(!closed && Looper.myLooper() == Looper.getMainLooper())
         val request = Request(source, width.coerceAtLeast(1), height.coerceAtLeast(1), fit, deliver, hardware())
         val key = request.key()
-        val cached = cache.get(key)
+        val cached = cache.get(key) ?: covering(key)
         if (cached != null) {
             cached.retain()
             handler.post { try { deliverImage(request, cached) } finally { cached.release() } }

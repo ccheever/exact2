@@ -32,6 +32,12 @@ class C9Activity : Activity() {
             "Cross-renderer Heavy List starts at index zero; keyed jump is a separate test"
         }
         HeavyWindow.configure(this)
+        val verifyMode = intent.getStringExtra("BENCH_VERIFY_MODE")
+        if (verifyMode != null) {
+            check(verifyMode == "image-reuse") { "Unknown Heavy verification mode: $verifyMode" }
+            com.exact.android.NativeImageReuseTest.runAsync(this) { Log.i("HeavyBench", it) }
+            return
+        }
         C9Config.setLive(HeavyOptions.boolean(intent, "BENCH_LIVE"))
         if (HeavyOptions.boolean(intent, "BENCH_VERIFY")) {
             Log.i("HeavyBench", com.exact.android.NativeTextLayoutTest.run())
