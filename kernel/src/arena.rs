@@ -83,12 +83,15 @@ pub struct NodeArena {
     /// Scrollable overflow from the last layout: the content's extent in the
     /// node's own space (width, height), Taffy's `content_size`.
     contents: Vec<(f32, f32)>,
-    /// Padding and border published by the document or content-region layout.
-    insets: Vec<Option<BoxInset>>,
+    /// Padding and border published by the document or content-region
+    /// layout: the slots it published for, and of those the few whose inset
+    /// is not all zero (most boxes have neither padding nor border).
+    insets: SlotSet,
+    nonzero_insets: IdMap<u32, BoxInset>,
     /// Host intrinsic size: a replaced element's natural size or a projected
-    /// tablist's or radio group's native control size; `None` before
-    /// measurement or after removal.
-    intrinsic: Vec<Option<(f32, f32)>>,
+    /// tablist's or radio group's native control size; absent before
+    /// measurement or after removal. A few nodes have one.
+    intrinsic: IdMap<u32, (f32, f32)>,
     /// What a host container covers of a box (LLP 1075.003 §3.5): a few
     /// route nodes at most, so a list by slot rather than a column (and not a
     /// map, whose code every web core would carry).
@@ -157,6 +160,7 @@ impl Clone for NodeArena {
             display_scale_next: self.display_scale_next,
             contents: self.contents.clone(),
             insets: self.insets.clone(),
+            nonzero_insets: self.nonzero_insets.clone(),
             intrinsic: self.intrinsic.clone(),
             covers: self.covers.clone(),
             alert_prefixes: self.alert_prefixes.clone(),
@@ -241,11 +245,12 @@ impl NodeArena {
             self.type_counts.clear();
             self.frames[slot] = Frame::default();
             self.contents[slot] = (0.0, 0.0);
-            self.insets[slot] = None;
-            self.intrinsic[slot] = None;
             self.taffy[slot] = None;
             self.is_root[slot] = false;
         }
+        self.insets.clear();
+        self.nonzero_insets.clear();
+        self.intrinsic.clear();
         self.covers.clear();
         self.alert_prefixes.clear();
         self.blocks = Default::default();
@@ -296,8 +301,6 @@ impl NodeArena {
             geometry_passes,
             frames,
             contents,
-            insets,
-            intrinsic,
             taffy,
             is_root,
             text_revisions
@@ -752,8 +755,6 @@ impl NodeArena {
                 self.geometry_passes.push((0, 0));
                 self.frames.push(Frame::default());
                 self.contents.push((0.0, 0.0));
-                self.insets.push(None);
-                self.intrinsic.push(None);
                 self.taffy.push(None);
                 self.is_root.push(false);
                 self.text_revisions.push(TextRevisions::default());
@@ -776,8 +777,8 @@ impl NodeArena {
         self.layout_dirty.insert(slot);
         self.frames[s] = Frame::default();
         self.contents[s] = (0.0, 0.0);
-        self.insets[s] = None;
-        self.intrinsic[s] = None;
+        self.set_inset(slot, None);
+        self.intrinsic.remove(&slot);
         self.taffy[s] = None;
         self.is_root[s] = false;
         self.by_local.insert(id, slot);
@@ -812,8 +813,8 @@ impl NodeArena {
         self.flags[s] = NodeFlags::default();
         self.frames[s] = Frame::default();
         self.contents[s] = (0.0, 0.0);
-        self.insets[s] = None;
-        self.intrinsic[s] = None;
+        self.set_inset(slot, None);
+        self.intrinsic.remove(&slot);
         self.covers.retain(|(s, _)| *s != slot);
         self.alert_prefixes.remove(slot);
         self.blocks.set(slot, None);
@@ -997,11 +998,14 @@ impl NodeArena {
 
     /// An intrinsic size, when the host has reported it.
     pub fn intrinsic(&self, slot: u32) -> Option<(f32, f32)> {
-        self.intrinsic[slot as usize]
+        self.intrinsic.get(&slot).copied()
     }
 
     pub(crate) fn set_intrinsic(&mut self, slot: u32, size: Option<(f32, f32)>) {
-        self.intrinsic[slot as usize] = size;
+        match size {
+            Some(size) => self.intrinsic.insert(slot, size),
+            None => self.intrinsic.remove(&slot),
+        };
     }
 
     /// What a host container covers of a box, when it has said.
@@ -1024,11 +1028,27 @@ impl NodeArena {
     }
 
     pub(crate) fn set_inset(&mut self, slot: u32, inset: Option<BoxInset>) {
-        self.insets[slot as usize] = inset;
+        match inset {
+            None => {
+                self.insets.remove(slot);
+                self.nonzero_insets.remove(&slot);
+            }
+            Some(inset) => {
+                self.insets.insert(slot);
+                // Bitwise, so a -0 comes back as it went in.
+                let zero = |v: &[f32; 4]| v.iter().all(|x| x.to_bits() == 0);
+                if zero(&inset.padding) && zero(&inset.border) && zero(&inset.cover) {
+                    self.nonzero_insets.remove(&slot);
+                } else {
+                    self.nonzero_insets.insert(slot, inset);
+                }
+            }
+        }
     }
 
     pub(crate) fn inset(&self, slot: u32) -> Option<BoxInset> {
-        self.insets[slot as usize]
+        let published = self.insets.contains(slot);
+        published.then(|| (self.nonzero_insets.get(&slot).copied()).unwrap_or_default())
     }
 
     pub(crate) fn set_frame(&mut self, slot: u32, frame: Frame) {
