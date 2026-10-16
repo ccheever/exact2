@@ -1,7 +1,8 @@
 // A press outside an open `popover="auto"` light-dismisses it at the
 // release (HTML, "popover light dismiss"), also when the view pressed is
 // one that tracks the press in its own loop and takes the release from the
-// queue: NSTextView, a field's editor, NSSearchField.
+// queue: a field's editor, NSSearchField, an NSTextView whose subclass
+// overrides `mouseDown(with:)`.
 #if os(macOS)
 import AppKit
 import XCTest
@@ -9,8 +10,15 @@ import XCTest
 
 /// The test's window is never key; in a key window an NSTextView hears
 /// every click, as `clicksArriveAsInTheKeyWindow` makes a node's view.
-private final class KeyWindowTextView: NSTextView {
+private class KeyWindowTextView: NSTextView {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+/// An NSTextView that tracks a press in its own loop. On macOS 27 a stock
+/// NSTextView takes the press through the gesture recognizers it installs
+/// and leaves the release in the queue for the application; a subclass
+/// that overrides `mouseDown(with:)` gets no recognizers, and the loop.
+private final class TrackingTextView: KeyWindowTextView {
+    override func mouseDown(with event: NSEvent) { super.mouseDown(with: event) }
 }
 
 final class PopoverLightDismissMacTests: XCTestCase {
@@ -23,8 +31,10 @@ final class PopoverLightDismissMacTests: XCTestCase {
     }
 
     /// A page (1) with the popover's invoker (2), a search field (6) and a
-    /// plain NSTextView, as an app module's; the popover (3) holds a field (4).
-    private func fixture() throws -> (Presenter, NSTextView) {
+    /// an NSTextView, as an app module's: one that tracks a press in its own
+    /// loop, or a stock one when `tracking` is false. The popover (3) holds
+    /// a field (4).
+    private func fixture(tracking: Bool = true) throws -> (Presenter, NSTextView) {
         _ = NSApplication.shared
         let p = Presenter()
         p.menus.painted = true
@@ -48,7 +58,8 @@ final class PopoverLightDismissMacTests: XCTestCase {
             ["op": "frame", "id": 4, "x": 10, "y": 10, "w": 200, "h": 30],
             ["op": "frame", "id": 6, "x": 260, "y": 300, "w": 200, "h": 30],
         ]))
-        let text = KeyWindowTextView(frame: NSRect(x: 260, y: 10, width: 200, height: 60))
+        let frame = NSRect(x: 260, y: 10, width: 200, height: 60)
+        let text = tracking ? TrackingTextView(frame: frame) : KeyWindowTextView(frame: frame)
         text.string = "An app module's text view"
         try XCTUnwrap(p.views[1]).addSubview(text)
         window.orderFrontRegardless()
@@ -88,6 +99,16 @@ final class PopoverLightDismissMacTests: XCTestCase {
         XCTAssertTrue(click(text), "the text view's loop took the release")
         XCTAssertTrue(window.firstResponder === text, "the text view took the press")
         XCTAssertFalse(p.menus.isOpen(pop), "light dismiss though the text view's loop took the release")
+    }
+
+    func testAPressInAnOutsideStockTextViewClosesThePopover() throws {
+        let (p, text) = try fixture(tracking: false)
+        let pop = try XCTUnwrap(p.views[3])
+        p.press(2)
+        XCTAssertTrue(p.menus.isOpen(pop))
+        click(text)
+        XCTAssertTrue(window.firstResponder === text, "the text view took the press")
+        XCTAssertFalse(p.menus.isOpen(pop), "light dismiss whichever way the text view took the press")
     }
 
     func testAPressInAnOutsideSearchFieldClosesThePopover() throws {
