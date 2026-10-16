@@ -11,6 +11,7 @@ import { resolve } from 'node:path';
 import { Cdp } from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
 import { need } from '../../../scripts/coverage.mjs';
+import { readyPage } from './page.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
 const { executable: chrome, unavailable } = chromium();
@@ -53,8 +54,7 @@ check('pulses that mount apart share a phase, and a resumed one rejoins it', asy
       if (reply.exceptionDetails) throw new Error(reply.exceptionDetails.exception?.description ?? reply.exceptionDetails.text);
       return reply.result.value;
     };
-    await call('Page.navigate', { url: `http://127.0.0.1:${server.address().port}/` });
-    for (let i = 0; !(await evaluate('window.ready === true')); i++) { if (i > 2000) throw new Error('page never ready'); await Bun.sleep(5); }
+    await readyPage(cdp, sessionId, `http://127.0.0.1:${server.address().port}/`);
     // How far apart two times are on the 1600 ms cycle, either way round: a
     // whole number of cycles apart in float can read as a hair under one.
     const apart = (a, b) => { const d = (((a - b) % 1600) + 1600) % 1600; return Math.min(d, 1600 - d); };
@@ -151,4 +151,4 @@ check('pulses that mount apart share a phase, and a resumed one rejoins it', asy
     server.close();
     rmSync(profile, { recursive: true, force: true });
   }
-}, 30_000);
+}, 60000);

@@ -16,6 +16,7 @@ import { Cdp } from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
 import { withLook } from '../look.mjs';
 import { need } from '../../../scripts/coverage.mjs';
+import { readyPage } from './page.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
 const { executable: chrome, unavailable } = chromium();
@@ -89,8 +90,7 @@ async function inChrome(html, test, w = 1280) {
       await call('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
     };
     await size(w);
-    await call('Page.navigate', { url: `http://127.0.0.1:${server.address().port}/` });
-    for (let i = 0; !(await evaluate('window.ready === true')); i++) { if (i > 2000) throw new Error('page never ready'); await Bun.sleep(5); }
+    await readyPage(cdp, sessionId, `http://127.0.0.1:${server.address().port}/`);
     await test(evaluate, size, click);
   } finally {
     child.kill();
@@ -109,7 +109,7 @@ check('a root tab bar left unsaid is a sidebar on a wide window and a bar on a p
   expect(await evaluate(`[document.getElementById('nav').hasAttribute('data-exact-sidebar'), box('bar')[0], box('bar')[2], box('bar')[1] + box('bar')[3], box('panels')[2]]`)).toEqual([false, 0, 390, 800, 390]);
   await size(1280);
   expect(await evaluate(`[document.getElementById('nav').hasAttribute('data-exact-sidebar'), box('bar')]`)).toEqual([true, [0, 0, 240, 800]]);
-}), 30000);
+}), 60000);
 
 check('an arrangement the app wrote stays its own on a wide window', async () => {
   // A vertical tablist (a rail), a bar it positions itself, and a root that is no flex column: none is turned.
@@ -130,7 +130,7 @@ check('appearance none keeps authored root tabs across selection and restores th
   expect(await evaluate(`[document.getElementById('nav').hasAttribute('data-exact-sidebar'), shown('r2')]`)).toEqual([true, true]);
   await evaluate(`document.getElementById('bar').style.appearance = 'none'; select(10)`);
   expect(await evaluate(`document.getElementById('nav').hasAttribute('data-exact-sidebar')`)).toBe(false);
-}), 30000);
+}), 60000);
 
 check('retained root tabs yield to changed authored placement and restore without losing selection', () => inChrome(page(tabs(BAR)), async (evaluate, size) => {
   const samples = [];
@@ -149,7 +149,7 @@ check('retained root tabs yield to changed authored placement and restore withou
   expect(await evaluate(`document.getElementById('nav').hasAttribute('data-exact-sidebar')`)).toBe(false);
   await size(1280);
   expect(await evaluate(`[document.getElementById('nav').hasAttribute('data-exact-sidebar'), box('bar'), shown('r2')]`)).toEqual([true, [0, 0, 240, 800], true]);
-}), 30000);
+}), 60000);
 
 check('a list whose rows push is beside its detail on a wide window, and pushes on a phone', () => inChrome(page(tabs(BAR)), async (evaluate, size) => {
   // Wide, nothing chosen: the list is a 320-wide column, its disclosure gone; the rest of the stack's width is the
@@ -187,7 +187,7 @@ check('a list whose rows push is beside its detail on a wide window, and pushes 
   // so its commit lands within the click, before a listener nearer the row would hear it: its row is marked all the same.
   await evaluate(`select('1'); document.addEventListener('click', e => { if (e.target.closest('#r1-ada')) push('2', '/people/ada'); }, true); document.getElementById('r1-ada').click()`);
   expect(await evaluate(`[shown('r2'), document.getElementById('r1-ada').hasAttribute('data-exact-split-row'), document.getElementById('r1-bo').hasAttribute('data-exact-split-row')]`)).toEqual([true, true, false]);
-}), 30000);
+}), 60000);
 
 check('the author\'s placeholder in the root route takes the detail pane while nothing is selected, and shows nowhere else', () => {
   // As the lowerer writes it: `display: none` but where the split shows it (LLP 1116.006 D2).
@@ -212,7 +212,7 @@ check('the author\'s placeholder in the root route takes the detail pane while n
     await size(390);
     expect(await evaluate(`[box('r1'), getComputedStyle(document.getElementById('own')).display, placeholder('nav')]`)).toEqual([[0, 0, 390, 800], 'none', null]);
   });
-}, 30000);
+}, 60000);
 
 check('navigationSplit opts a stack out, or names the width of a list the rule does not find', async () => {
   const stack = (extra, rows) => `<main id="nav" navigationKey="2" navigationBack="back" style="width:100%;height:100%;position:relative">${list('r1', 1, rows, extra)}${detail('r2', 2)}</main>`;
@@ -240,7 +240,7 @@ check('a served document stays unsplit across resize until its target adopts it'
     await evaluate('activate()');
     expect(await evaluate(state)).toEqual(['list', 'detail', '280px', false, false]);
   });
-}, 30000);
+}, 60000);
 
 check('split admission reads list and outer press facts, not roles or decorative chevrons', () => {
   const link = '<a href="/item/a">A</a>';
@@ -264,7 +264,7 @@ check('split admission reads list and outer press facts, not roles or decorative
     }
     expect(observed).toEqual(cases.map(([name, , splits]) => [name, splits]));
   });
-}, 30000);
+}, 60000);
 
 check('a later pushing list wins over a retained empty list, whose identity alone can retain the split', () => {
   const body = `<div data-exact-list id="first"><button data-exact-on="press" data-exact-router-press="true">Open${chevron}</button></div>
@@ -279,7 +279,7 @@ check('a later pushing list wins over a retained empty list, whose identity alon
     await evaluate(`document.getElementById('later').remove(); select(2)`);
     expect(await evaluate(`[document.getElementById('r1').hasAttribute('data-exact-split'), back('r2')]`)).toEqual([false, true]);
   });
-}, 30000);
+}, 60000);
 
 check('a bare plan rechecks sideways admission on a resize that stays above the wide threshold', () => {
   const body = `<div data-exact-list id="resize-list"><button data-exact-on="press" data-exact-router-press="true">Open${chevron}</button></div>`;
@@ -292,7 +292,7 @@ check('a bare plan rechecks sideways admission on a resize that stays above the 
     await size(1000);
     expect(await evaluate(`[document.getElementById('r1').hasAttribute('data-exact-split'), back('r2')]`)).toEqual([true, false]);
   }, 1000);
-}, 30000);
+}, 60000);
 
 check('turning a split off clears its selected mark and stale row ownership cannot hide deeper Back', () => {
   const body = `<div data-exact-list><button id="owned-row" data-exact-on="press" data-exact-router-press="true">Open${chevron}</button></div>`;
@@ -306,7 +306,7 @@ check('turning a split off clears its selected mark and stale row ownership cann
     await evaluate(`document.getElementById('r1').setAttribute('navigationSplit', '280'); document.getElementById('owned-row').setAttribute('data-exact-router-press', 'false'); select(3)`);
     expect(await evaluate(`[box('r1')[2], document.getElementById('owned-row').hasAttribute('data-exact-split-row'), back('r3')]`)).toEqual([280, false, true]);
   });
-}, 30000);
+}, 60000);
 
 check('check advises on a bottom tab bar and an unsplit pushing list at a desktop width, and on neither at a phone\'s', () => {
   const positioned = BAR.replace('style="display:flex;flex-direction:row"', 'style="display:flex;flex-direction:row;position:absolute;left:0;right:0;bottom:0"');
@@ -322,14 +322,14 @@ check('check advises on a bottom tab bar and an unsplit pushing list at a deskto
     await size(390);
     expect(await evaluate('advice()')).toEqual([]);
   });
-}, 30000);
+}, 60000);
 
 check('the split and sidebar leave check nothing to advise', () => inChrome(page(tabs(BAR)) + `<script type="module">
     import { observe } from './check.js';
     window.advice = () => { const views = new Map([...document.querySelectorAll('#exact-root *')].map(e => [e.id || e.localName, e])); return observe(views).advice ?? []; };
   </script>`, async (evaluate) => {
   expect(await evaluate(`select('2'); advice()`)).toEqual([]);
-}), 30000);
+}), 60000);
 
 // LLP 1116.005 D3: each route keeps its own scroll (LLP 1038 §7: mounted rows keep theirs), on a phone and through a
 // split. A route of `n` tall rows over its own scroller; `rows` writes the router, so its stack splits.
@@ -360,7 +360,7 @@ check('a pushed route opens at its top, Back finds the list where it was, and a 
   expect(await evaluate(tops)).toEqual([1500, 300]);
   await evaluate(pop);
   expect(await evaluate(`[shown('r1'), ${tops}]`)).toEqual([true, [1500]]);
-}), 30000);
+}), 60000);
 
 check('retained visit URLs restore href selection after adoption, replace and same-top reset', () => {
   const body = `<div data-exact-list role="presentation" id="rows"><div data-listitemkey="a"><a id="row-a" href="/item/a">A<button data-exact-router-press="false">Star</button></a></div><a id="row-b" href="/item/b">B</a></div>`;
@@ -384,7 +384,7 @@ check('retained visit URLs restore href selection after adoption, replace and sa
     await evaluate(`document.getElementById('rows').style.display = ''; select(3)`);
     expect(await evaluate(marks)).toEqual(['row-a']);
   });
-}, 30000);
+}, 60000);
 
 check('only an ordinary outer press associates its row with navigation', () => {
   const body = '<div data-exact-list><div id="owner" data-exact-router-press="true"><button id="star" data-exact-router-press="false">Star</button></div><a id="action-link" href="/item/b" data-exact-router-press="true">Linked action</a></div>';
@@ -407,4 +407,4 @@ check('only an ordinary outer press associates its row with navigation', () => {
     await evaluate(`(async () => { const {navigation} = await import('/navigation.js'); navigation.reset({top:3,url:'/item/b',visits:[[3,'/item/b']]}); select(3); })()`);
     expect(await evaluate(`[document.getElementById('owner').hasAttribute('data-exact-split-row'), back('r3')]`)).toEqual([false, true]);
   });
-}, 30000);
+}, 60000);

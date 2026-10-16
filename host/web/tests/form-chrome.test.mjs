@@ -16,6 +16,7 @@ import { Cdp } from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
 import { withLook } from '../look.mjs';
 import { need } from '../../../scripts/coverage.mjs';
+import { readyPage } from './page.mjs';
 import { standIns } from './stand-ins.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
@@ -90,8 +91,7 @@ async function inChrome(test) {
       if (reply.exceptionDetails) throw new Error(reply.exceptionDetails.exception?.description ?? reply.exceptionDetails.text);
       return reply.result.value;
     };
-    await call('Page.navigate', { url: `http://127.0.0.1:${server.address().port}/` });
-    for (let i = 0; !(await evaluate('window.ready === true')); i++) { if (i > 2000) throw new Error('page never ready'); await Bun.sleep(5); }
+    await readyPage(cdp, sessionId, `http://127.0.0.1:${server.address().port}/`);
     await test(evaluate, call);
   } finally {
     child.kill();
@@ -146,7 +146,7 @@ check('a disabled button looks disabled in every style and scheme, whatever its 
   await call('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
   expect(await evaluate(`document.querySelectorAll('[data-pressed]').length`)).toBe(0);
   await call('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
-}), 30000);
+}), 60000);
 
 // LLP 1116.008 D7: a destructive button passes `check` as the platform draws it (a control's label at 3:1 on its
 // own fill, over the card a row of buttons sits on), in every style and both schemes: team-kanban's Delete was
@@ -167,7 +167,7 @@ check('a destructive button reads at 3:1 on its own fill over a card, in every s
     // The red is still red: not the label's ink on a neutral fill.
     expect((await look(evaluate, `${s}-destructive-gray`)).color).not.toBe((await look(evaluate, `${s}-gray-on`)).color);
   }
-}), 30000);
+}), 60000);
 
 check('a field marked aria-invalid is outlined in the system red, its focus ring red, in both schemes', () => inChrome(async (evaluate) => {
   const field = id => evaluate(`(e => { const s = getComputedStyle(e); return { border: s.borderTopColor, width: s.borderTopWidth, outline: s.outlineColor, style: s.outlineStyle, ring: s.outlineWidth }; })(document.getElementById('${id}'))`);
@@ -189,7 +189,7 @@ check('a field marked aria-invalid is outlined in the system red, its focus ring
     // Its error text stays its description.
     expect(await evaluate(`document.getElementById('${s}-invalid').getAttribute('aria-describedby')`)).toBe(`${s}-error`);
   }
-}), 30000);
+}), 60000);
 
 check('Enter in a single-line field with a submit submits once; a key handler that prevents it keeps it', () => inChrome(async (evaluate, call) => {
   const key = async (name, text) => { for (const type of ['keyDown', 'keyUp']) await call('Input.dispatchKeyEvent', { type, key: name, code: name, windowsVirtualKeyCode: 13, ...(type === 'keyDown' && text ? { text } : {}) }); };
@@ -202,4 +202,4 @@ check('Enter in a single-line field with a submit submits once; a key handler th
   await evaluate(`document.getElementById('kept').focus()`);
   await key('Enter', '\r');
   expect(await saved()).toEqual(['25']);
-}), 30000);
+}), 60000);

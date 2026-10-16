@@ -838,6 +838,7 @@ export class Cdp {
     this.next = 1;
     this.pending = new Map();
     this.listeners = [];
+    this.closeListeners = new Set();
     this.closed = null;
     let buf = '';
     output.setEncoding('utf8');
@@ -862,6 +863,8 @@ export class Cdp {
   fail(why) {
     this.closed ??= why;
     for (const [id, p] of this.pending) { this.pending.delete(id); p.reject(new Error(`${why} (${p.method})`), 'transport'); }
+    for (const listener of this.closeListeners) listener(this.closed);
+    this.closeListeners.clear();
   }
   send(method, params = {}, sessionId, timeoutMs = 15000) {
     if (this.closed) return Promise.reject(finishCdpFailure(new Error(`${this.closed} (${method})`),

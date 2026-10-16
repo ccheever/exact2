@@ -15,6 +15,7 @@ import { Cdp, open } from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
 import { timelineEasing } from '../motion-glue.js';
 import { need } from '../../../scripts/coverage.mjs';
+import { readyPage } from './page.mjs';
 
 const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
 const WEB = resolve(new URL('..', import.meta.url).pathname);
@@ -224,8 +225,7 @@ check('in Chrome, followers match timeline progress and stop when a consumer res
       if (reply.exceptionDetails) throw new Error(reply.exceptionDetails.exception?.description ?? reply.exceptionDetails.text);
       return reply.result.value;
     };
-    await cdp.send('Page.navigate', { url: `http://127.0.0.1:${server.address().port}/` }, sessionId);
-    for (let i = 0; !(await evaluate('window.ready === true')); i++) { if (i > 2000) throw new Error('page never ready'); await Bun.sleep(5); }
+    await readyPage(cdp, sessionId, `http://127.0.0.1:${server.address().port}/`);
     const compare = (animation, p) => evaluate(`compare(${JSON.stringify(animation)}, ${JSON.stringify(p)})`);
     for (const [animation, p] of [
       ['fade 1s linear both', [0.3, 0.1, -0.05, 0.02, -0.005, 0]],

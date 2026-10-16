@@ -4,7 +4,27 @@ import { test, expect } from 'bun:test';
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
-import { chromium, launchFacts, launchEnvironment, parseFlags, launchLog, launchFailure, webPort } from './agent-launch.mjs';
+import { Cdp, chromium, launchFacts, launchEnvironment, parseFlags, launchLog, launchFailure, webPort } from './agent-launch.mjs';
+import { PassThrough } from 'node:stream';
+
+test('CDP reports transport closure once to event waiters without a pending request', () => {
+  for (const [stream, event, reason] of [
+    ['output', 'end', 'the DevTools pipe closed'],
+    ['output', 'error', 'the DevTools pipe failed: read failed'],
+    ['input', 'error', 'the DevTools pipe failed: write failed'],
+  ]) {
+    const input = new PassThrough(), output = new PassThrough(), cdp = new Cdp(input, output), observed = [];
+    try {
+      cdp.closeListeners.add(why => observed.push(why));
+      ({ input, output })[stream].emit(event, new Error(stream === 'output' ? 'read failed' : 'write failed'));
+      cdp.fail('later failure');
+      expect(cdp.pending.size).toBe(0);
+      expect(cdp.closed).toBe(reason);
+      expect(observed).toEqual([reason]);
+      expect(cdp.closeListeners.size).toBe(0);
+    } finally { input.destroy(); output.destroy(); }
+  }
+});
 const engineVersion = () => '1.2.3';
 function stampedWasm(stamp = {format: 1, version: engineVersion(), capabilities: ['sync-generation-v1']}) {
   const leb = n => { const out = []; do { const b = n & 127; n >>>= 7; out.push(b | (n ? 128 : 0)); } while (n); return Buffer.from(out); };

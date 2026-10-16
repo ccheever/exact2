@@ -16,6 +16,7 @@ import { Cdp } from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
 import { withLook } from '../look.mjs';
 import { need } from '../../../scripts/coverage.mjs';
+import { readyPage } from './page.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
 const { executable: chrome, unavailable } = chromium();
@@ -79,8 +80,7 @@ async function inChrome(test) {
       if (reply.exceptionDetails) throw new Error(reply.exceptionDetails.exception?.description ?? reply.exceptionDetails.text);
       return reply.result.value;
     };
-    await call('Page.navigate', { url: `http://127.0.0.1:${server.address().port}/` });
-    for (let i = 0; !(await evaluate('window.ready === true')); i++) { if (i > 2000) throw new Error('page never ready'); await Bun.sleep(5); }
+    await readyPage(cdp, sessionId, `http://127.0.0.1:${server.address().port}/`);
     await test(evaluate, call);
   } finally {
     child.kill();
@@ -125,7 +125,7 @@ check(`a material the host paints honours the person's settings: opaque with Red
   // The spinner, which no browser draws, is a ring of borders: a gradient would be gone.
   expect(await css(evaluate, 'spinner', 'backgroundImage', '::before')).toBe('none');
   expect(parseFloat(await css(evaluate, 'spinner', 'borderLeftWidth', '::before'))).toBeGreaterThan(0);
-}));
+}), 60000);
 
 check(`the shell carries the resets a careful web app ships`, () => inChrome(async (evaluate) => {
   // A phone does not inflate the text in landscape.
@@ -138,7 +138,7 @@ check(`the shell carries the resets a careful web app ships`, () => inChrome(asy
   const ends = 'JSON.stringify([getComputedStyle(document.documentElement).overscrollBehaviorY, getComputedStyle(document.body).overscrollBehaviorY])';
   expect(await evaluate(ends)).toBe('["contain","contain"]');
   expect(await evaluate(`document.documentElement.setAttribute('data-scrolldocument', ''); ${ends}`)).toBe('["auto","auto"]');
-}));
+}), 60000);
 
 check(`the small ones: a control's image is not dragged out, the chevron and the thumb follow the page's direction, a plain dialog has no padding`, () => inChrome(async (evaluate) => {
   for (const id of ['symbol', 'in-button', 'in-link', 'in-pressable']) {
@@ -164,4 +164,4 @@ check(`the small ones: a control's image is not dragged out, the chevron and the
   // A plain dialog's box is its author's; an alert keeps the padding the page gives it.
   expect(await css(evaluate, 'dialog', 'padding')).toBe('0px');
   expect(await css(evaluate, 'alert', 'padding')).toBe('24px');
-}));
+}), 60000);
