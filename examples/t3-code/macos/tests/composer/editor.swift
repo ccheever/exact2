@@ -580,9 +580,15 @@ final class ComposerEditorTests: XCTestCase {
         fixture.window.makeFirstResponder(nil)
         let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: fixture.window.windowNumber,
             context: nil, characters: "x", charactersIgnoringModifiers: "x", isARepeat: false, keyCode: 7)!
-        XCTAssertNil(fixture.composer.handle(event))
-        XCTAssertEqual(fixture.editor.string, "hix")
+        // The composer takes the focus with the caret at the end, and the key goes on to it (the window delivers it
+        // there), so an input method composes it as it would any key typed in the prompt.
+        fixture.editor.setSelectedRange(NSRange(location: 0, length: 0))
+        XCTAssertTrue(fixture.composer.handle(event) === event)
         XCTAssertTrue(fixture.window.firstResponder === fixture.editor)
+        XCTAssertEqual(fixture.editor.selectedRange(), NSRange(location: 2, length: 0))
+        XCTAssertEqual(fixture.editor.string, "hi", "not inserted as text by the monitor")
+        fixture.editor.keyDown(with: event)
+        XCTAssertEqual(fixture.editor.string, "hix")
         let field = NSTextField(frame: NSRect(x: 0, y: 150, width: 100, height: 20))
         fixture.window.contentView?.addSubview(field)
         fixture.window.makeFirstResponder(field)

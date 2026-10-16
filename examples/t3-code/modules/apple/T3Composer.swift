@@ -162,7 +162,8 @@ final class T3Composer {
     struct Routed { let event: NSEvent? }
 
     /// ⇧⌘V pastes inline; a printable key or ⌘V with nothing editable
-    /// focused goes to the composer, which takes focus. Nil passes the event on.
+    /// focused goes to the composer, which takes focus. Nil leaves the event to
+    /// the others; `Routed` holds what goes on (nil: the key is taken).
     func editorKey(_ event: NSEvent) -> Routed? {
         guard event.type == .keyDown, let composer, composer.isLive, let view = composer.textView, view.isEditable,
               let window = view.window, event.window === window, window.attachedSheet == nil,
@@ -198,10 +199,12 @@ final class T3Composer {
         }
         guard flags.subtracting(.shift).isEmpty, let characters = event.characters, !characters.isEmpty,
               characters.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) && ($0.value < 0xF700 || $0.value > 0xF8FF) }) else { return nil }
+        // The key itself goes on to the prompt, now the first responder, rather than its characters: an input method
+        // composes it there. Inserted as text, the first jamo of Korean 2-Set's 한 stood alone and the input method
+        // went on from the next key (ㅎㅏㄴ).
         window.makeFirstResponder(view)
         view.setSelectedRange(NSRange(location: (view.string as NSString).length, length: 0))
-        view.insertText(characters, replacementRange: view.selectedRange())
-        return Routed(event: nil)
+        return Routed(event: event)
     }
 
     /// A plain letter (no ⌘, ⌃ or ⌥) the live launcher lists (`data-surface-launcher-keys`, its available rows' letters).
