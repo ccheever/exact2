@@ -164,6 +164,29 @@ final class SwipeActionsIOSTests: XCTestCase {
         XCTAssertEqual(pressed, [], "the stale action presses nothing")
     }
 
+    /// A painted row's full swipe presses the action at the edge the drag
+    /// went past: the trailing one at the right, unless the row is laid out
+    /// right to left, when the trailing actions are at the left.
+    func testAPaintedFullSwipeFollowsTheRowsLayoutDirection() throws {
+        for rtl in [false, true] {
+            let p = fixture()
+            let owner = try XCTUnwrap(p.views[1])
+            var paint = BatchOp(op: .style, nodeID: 4)
+            paint.style = ["appearance": "none", "written": ["appearance"]]
+            // Right to left, the content is at the right and Delete at the left.
+            apply(p, [paint] + (rtl ? [frame(3, 90, 300, 80), frame(4, 0, 90, 80)] : []))
+            owner.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
+            let scroll = try XCTUnwrap(owner.scroll)
+            var pressed: [UInt32] = []
+            p.onPress = { pressed.append($0) }
+            // Held by the rubber band 60 points (20% of the row) past the edge.
+            scroll.contentOffset.x = rtl ? -60 : 150
+            var target = scroll.contentOffset
+            p.swipeActions.painted.willEnd(owner, scroll, target: &target)
+            XCTAssertEqual(pressed, [4], rtl ? "rightward, past the left edge: trailing" : "leftward, past the right edge: trailing")
+        }
+    }
+
     /// The agent's tap on an action no swipe revealed (an authored test's
     /// `tap delete-…`, splitter rough 12) presses its control as UIKit's
     /// action would, and leaves the row at rest again; a disabled control's

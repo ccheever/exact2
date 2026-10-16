@@ -100,13 +100,19 @@ final class PaintedSwipes {
     }
     /// The action at the edge a full swipe reaches, when the drag is past it.
     private func full(_ row: Row, _ sv: UIScrollView) -> NodeView? {
-        let travel = sv.panGestureRecognizer.translation(in: sv).x, maximum = max(0, sv.contentSize.width - sv.bounds.width)
-        guard abs(travel) > sv.bounds.width / 2 else { return nil }
-        if travel < 0, sv.contentOffset.x > maximum {
-            return row.trailing.compactMap(\.node).max { $0.convert($0.bounds, to: sv).maxX < $1.convert($1.bounds, to: sv).maxX }
+        // Dragged on past its actions: the scroll's rubber band holds the row
+        // 15% of its width past the edge when the finger has gone about half
+        // the row beyond it.
+        let maximum = max(0, sv.contentSize.width - sv.bounds.width), far = sv.bounds.width * 0.15
+        // The actions at the right edge are the trailing ones, unless the row
+        // is laid out right to left, as UIKit's swipe sides follow it.
+        let rtl = row.owner?.effectiveUserInterfaceLayoutDirection == .rightToLeft
+        let (right, left) = rtl ? (row.leading, row.trailing) : (row.trailing, row.leading)
+        if sv.contentOffset.x > maximum + far {
+            return right.compactMap(\.node).max { $0.convert($0.bounds, to: sv).maxX < $1.convert($1.bounds, to: sv).maxX }
         }
-        if travel > 0, sv.contentOffset.x < 0 {
-            return row.leading.compactMap(\.node).min { $0.convert($0.bounds, to: sv).minX < $1.convert($1.bounds, to: sv).minX }
+        if sv.contentOffset.x < -far {
+            return left.compactMap(\.node).min { $0.convert($0.bounds, to: sv).minX < $1.convert($1.bounds, to: sv).minX }
         }
         return nil
     }

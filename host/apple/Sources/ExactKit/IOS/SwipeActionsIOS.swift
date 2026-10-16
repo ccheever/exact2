@@ -71,7 +71,11 @@ package final class SwipeActionsHost {
     /// is no grouped list's swipe row.
     package func configuration(row id: UInt32, leading: Bool) -> UISwipeActionsConfiguration? {
         guard let row = rows[id], row.grouped else { return nil }
-        return row.configuration(leading ? row.leading : row.trailing)
+        let offered = row.configuration(leading ? row.leading : row.trailing)
+        // The list asks as its row's swipe begins: a painted row that is
+        // open closes, one row of either kind open at a time.
+        if offered != nil { painted.closeAll() }
+        return offered
     }
     #endif
 
