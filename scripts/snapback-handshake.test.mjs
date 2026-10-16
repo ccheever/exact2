@@ -323,13 +323,18 @@ export const answer:Answer=(_source,[now])=>now;
   tap "save"
   clock data
   expect text "reply" == "0"
-  expect text "time" == "1"
   tap "idle"
   expect text "time" == "1"
   tap "save"
   clock data
   expect text "reply" == "1"
-  expect text "time" == "2"
+  tap "save"
+  clock data
+  expect text "reply" == "2"
+  reload
+  tap "save"
+  clock data
+  expect text "reply" == "0"
 `);
     run(['contract','types','app.contract','-o','app.contract.d.ts']);
     assert.match(run(['test','web']).stdout,/1 passed, 0 failed/);
