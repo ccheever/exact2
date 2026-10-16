@@ -79,6 +79,8 @@ function build(app, dist, keep = () => false, compiler = null) {
   });
 }
 
+const mtimeMs = (path) => { try { return statSync(path).mtimeMs; } catch { return null; } };
+
 /** Copy the compiler at `path`, and its dep-info, to `copy`, dated as it
  * is, so `freshCompiler` reads the copy as it read the original: each file
  * written whole, dated, then renamed, and only when `path` was not built
@@ -170,7 +172,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
       tool.ready = code === 0 && existsSync(tool.path);
       // Dated to the build's start, as Cargo dates its fingerprints: a
       // source saved while it compiled makes it stale (`fresh`).
-      if (tool.ready) { try { utimesSync(tool.path, started, started); } catch { tool.ready = false; } }
+      if (tool.ready) { try { utimesSync(tool.path, started, started); tool.built = statSync(tool.path).mtimeMs; } catch { tool.ready = false; } }
       if (!tool.ready && !signal) console.log(`the design reader did not build (design edits take the full build):\n${readerFailure(err)}`);
     });
   };
@@ -262,7 +264,9 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     // it does below, after every edit) takes it as well.
     // The app's own (apps in the tree share a target/).
     const copy = resolve(app.target, `web-js-dev-compiler-${app.name.replace(/[^\w.-]/g, '_')}`);
-    if (tool.ready && freshCompiler(tool.path)) copyCompiler(tool.path, copy);
+    // Only the binary this loop's own build left (another loop on this
+    // target/ may have linked one since, not yet dated to its start).
+    if (tool.ready && mtimeMs(tool.path) === tool.built && freshCompiler(tool.path)) copyCompiler(tool.path, copy);
     const compiler = freshCompiler(copy) ? copy : null;
     // Anything else may move the compiler: the design tool is built again.
     if (!designOnly) buildTool();
