@@ -495,6 +495,11 @@ const BOXES: &str = r##"component App
       column id="menu" popover="auto" role="menu" testId="menu"
         button testId="row"
           text "Row"
+        canvas surface=spark(1) width=10 height=10 testId="spark"
+      dialog id="outer" testId="outer"
+        text "Outer"
+        dialog id="inner" testId="inner"
+          text "Inner" testId="inner-text"
       if more
         dialog id="later" testId="later"
           text "Later" testId="later-text"
@@ -549,4 +554,62 @@ fn elsewhere_a_closed_top_layer_box_is_laid_out() {
     for test_id in ["field", "row"] {
         assert_ne!(size(&host, test_id), (0.0, 0.0), "{test_id}");
     }
+}
+
+/// A canvas in a box given back is laid out and drawn in the batch that
+/// gives it back, or owed there where draws are deferred.
+#[test]
+fn a_canvas_in_a_box_given_back_draws_in_that_batch() {
+    closed::CLOSED_WAIT.set(true);
+    for deferred in [false, true] {
+        let (mut host, made) = boot_app(BOXES, false);
+        host.set_canvas_deferred(deferred);
+        assert!(!named(&host, &made, "create", "spark").is_empty());
+        let menu = id(&host, "menu");
+        let batch = host.set_covers(&[(menu, None)]);
+        let opened = ops(&batch);
+        if deferred {
+            let owed = serde_json::from_str::<Json>(&batch).unwrap()["canvasOwed"] == true;
+            assert!(owed, "{batch}");
+            let drawn = ops(&host.canvas_draw());
+            assert!(
+                !named(&host, &drawn, "canvas2d", "spark").is_empty(),
+                "{drawn:?}"
+            );
+        } else {
+            assert!(
+                !named(&host, &opened, "canvas2d", "spark").is_empty(),
+                "{opened:?}"
+            );
+        }
+    }
+    closed::CLOSED_WAIT.set(false);
+}
+
+/// A box given back inside a closed one is laid out: the closed one is
+/// given back with it while it is open, even when asked closed meanwhile,
+/// and both are covered again when it closes.
+#[test]
+fn a_box_given_back_inside_a_closed_one_is_laid_out() {
+    closed::CLOSED_WAIT.set(true);
+    let (mut host, _) = boot_app(BOXES, false);
+    let (inner, outer) = (id(&host, "inner"), id(&host, "outer"));
+    host.set_covers(&[(inner, None)]);
+    assert_ne!(size(&host, "inner-text"), (0.0, 0.0));
+    host.set_covers(&[(outer, Some(exact_kernel::HostCover::Whole))]);
+    assert_ne!(
+        size(&host, "inner-text"),
+        (0.0, 0.0),
+        "the open box keeps it"
+    );
+    host.set_covers(&[(inner, Some(exact_kernel::HostCover::Whole))]);
+    assert_eq!(size(&host, "inner-text"), (0.0, 0.0));
+    assert_eq!(size(&host, "outer"), (0.0, 0.0), "covered again");
+    // Opened itself, the outer box stays laid out when the inner closes.
+    host.set_covers(&[(outer, None)]);
+    host.set_covers(&[(inner, None)]);
+    host.set_covers(&[(inner, Some(exact_kernel::HostCover::Whole))]);
+    assert_ne!(size(&host, "outer"), (0.0, 0.0));
+    assert_eq!(size(&host, "inner-text"), (0.0, 0.0));
+    closed::CLOSED_WAIT.set(false);
 }

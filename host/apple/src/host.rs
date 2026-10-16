@@ -231,7 +231,7 @@ pub struct Host<D: DataSource> {
     facts_told: Option<(f64, Vec<(String, String)>)>,
     unopened: layout::unopened::Unopened,
     /// The top-layer boxes covered while closed (`closed.rs`).
-    closed: IdSet<NodeKey>,
+    closed: layout::closed::Closed,
 }
 
 /// A plan's bytes at boot: copied from while decoding, or linked into the
@@ -533,7 +533,7 @@ impl<D: DataSource> Host<D> {
             colors_seen: None,
             facts_told: None,
             unopened: Default::default(),
-            closed: IdSet::default(),
+            closed: Default::default(),
         };
         let mut batch = Batch::new();
         host.native_prepare_candidate().map_err(HostError::Layout)?;
