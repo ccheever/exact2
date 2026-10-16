@@ -26,6 +26,7 @@ final class RouteController: UIViewController {
     weak var collapseScroll: NodeView?
     /// The physical scroller bound to UIKit; a node can replace its backend.
     var collapseScrollView: UIScrollView?
+    var topUnderlapInset: CGFloat = 0
     /// The scroller that is the route's last in-flow child, which reaches
     /// the screen's bottom edge (LLP 1116 D2).
     weak var edgeScroll: NodeView?
@@ -78,6 +79,29 @@ final class RouteController: UIViewController {
         view = UIView()
         paintBackdrop()
         view.addSubview(node)
+    }
+
+    var underlapsTop: Bool {
+        #if os(iOS)
+        node.props["navigationScrollInsetTop"] == "none"
+        #else
+        false
+        #endif
+    }
+
+    /// Cancel only UIKit's top contribution; bottom and keyboard insets stay native.
+    func syncTopUnderlap() {
+        guard let scroll = collapseScrollView else { return }
+        let automatic = scroll.adjustedContentInset.top - scroll.contentInset.top
+        let next = underlapsTop ? -automatic : 0
+        guard abs(next - topUnderlapInset) > 0.01 else { return }
+        let offset = scroll.contentOffset.y + scroll.adjustedContentInset.top
+        let delta = next - topUnderlapInset
+        topUnderlapInset = next
+        scroll.contentInset.top += delta
+        collapseScroll?.scrollOrigin = scroll.adjustedContentInset.top
+        collapseScroll?.scrollCollapsed = scroll.adjustedContentInset.top
+        scroll.contentOffset.y = offset - scroll.adjustedContentInset.top
     }
 
     /// The backdrop's colours last written, light and dark.

@@ -795,6 +795,8 @@ extension NavigationHost {
         guard c.collapseScroll !== target || c.collapseScrollView !== physical else { return }
         if let old = c.collapseScroll, let sv = c.collapseScrollView {
             old.retainScrollPosition(from: sv)
+            sv.contentInset.top -= c.topUnderlapInset
+            c.topUnderlapInset = 0
             let top = sv.contentOffset.y + old.scrollTopInset(sv)
             // The bottom edge's scroller stays UIKit's to inset (`reachBottom`).
             if old !== c.edgeScroll || sv !== old.scrollView { sv.contentInsetAdjustmentBehavior = .never }
@@ -810,6 +812,7 @@ extension NavigationHost {
         let shown = shownScroll(target)
         let atStart = shown.map { $0.contentOffset.y <= 0.5 - $0.adjustedContentInset.top } ?? false
         shown?.contentInsetAdjustmentBehavior = .always
+        c.syncTopUnderlap()
         // …and is there before UIKit is handed it: a bar handed a
         // scroller that far from its top closes an open large title.
         if atStart, let sv = shown, sv.contentOffset.y != -sv.adjustedContentInset.top { sv.contentOffset.y = -sv.adjustedContentInset.top }
@@ -875,7 +878,7 @@ extension NavigationHost {
         if sv.contentOffset.y != -sv.adjustedContentInset.top { sv.contentOffset.y = -sv.adjustedContentInset.top }
         // tvOS has no large titles.
         #if !os(tvOS)
-        guard c.navigationItem.largeTitleDisplayMode == .always, c.viewIfLoaded?.window != nil,
+        guard !c.underlapsTop, c.navigationItem.largeTitleDisplayMode == .always, c.viewIfLoaded?.window != nil,
               let nav = c.navigationController, nav.topViewController === c, nav.transitionCoordinator == nil,
               !nav.isNavigationBarHidden else { return }
         UIView.performWithoutAnimation {
@@ -1102,6 +1105,7 @@ extension NavigationHost {
             let presented = presentedNavigations.contains { $0 === nav }
             let whole = presented || (wantsWholeView && presenter.viewportFit != "cover")
             let shows = barShows(nav)
+            c.syncTopUnderlap()
             guard shows || whole else { continue }
             let edges: HostCover.Edges
             // A collapsing title's scroller goes under the bar, which insets it;
@@ -1136,7 +1140,7 @@ extension NavigationHost {
             // widest, at rest (CSS scrollTop 0).
             for node in [c.collapseScroll, c.edgeScroll].compactMap({ $0 }) where node.scrollView != nil {
                 if settled, c.viewIfLoaded?.window != nil, let safe = node.scrollView?.safeAreaInsets {
-                    let top = max(safe.top, node === c.collapseScroll ? node.scrollOrigin : 0)
+                    let top = node === c.collapseScroll && c.underlapsTop ? 0 : max(safe.top, node === c.collapseScroll ? node.scrollOrigin : 0)
                     if top > 0 || safe.bottom > 0 { wanted[node.id] = .inset(top: top, bottom: safe.bottom) }
                 } else if case .inset? = covers[node.id] { wanted[node.id] = covers[node.id] }
             }

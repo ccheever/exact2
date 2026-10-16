@@ -336,6 +336,14 @@ impl NavPlace {
                     .map_or(span, |a| a.span),
             );
         }
+        if has("navigationScrollInsetTop") && (!has("navigationKey") || has("navigationBack")) {
+            return err("lower-route-bar", "`navigationScrollInsetTop` belongs to a route with `navigationKey`, not the navigation root or content inside a route", span);
+        }
+        if let Some(a) = attrs.iter().find(|a| a.name == "navigationScrollInsetTop") {
+            if matches!(&a.value, Expr::Str(s, _) if !matches!(s.as_str(), "none" | "auto")) {
+                return err("lower-attr-value", "`navigationScrollInsetTop` takes \"none\" (content starts under the iOS navigation bar) or \"auto\" (the platform's top inset)", a.span);
+            }
+        }
         // @ref LLP 1116.006 D2 — the split's placeholder is a box in the root route; a route
         // marked so would never show.
         if let Some(a) = split_placeholder(attrs).filter(|_| has("navigationKey")) {

@@ -1230,6 +1230,12 @@ lists any literal colour, font size or weight an app's `.contract` files still w
 | a route with `navigationBar="none"` | no navigation bar: a full-bleed screen that draws its own way back; the edge swipe still goes back |
 | a route with `navigationPresentation="modal"` | a sheet |
 
+On an iOS route, `navigationScrollInsetTop="none"` lets its navigation content
+scroll start at the top edge behind the native bar, including the status area.
+The bar, its controls and the bottom safe-area inset stay native. The default,
+`"auto"`, keeps the platform's top inset. This is route presentation, not CSS
+padding or `viewport-fit`; other hosts retain their normal content layout.
+
 On macOS, date, time, datetime-local and select controls are default Tab stops,
 independent of the system's Keyboard navigation setting. Their native control
 owns focus and editing keys; `focus`/`blur` and cancellable `key` handlers still

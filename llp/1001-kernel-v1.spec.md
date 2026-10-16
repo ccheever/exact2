@@ -1528,3 +1528,7 @@ Font-family's other CSS generics (cursive/fantasy/math/emoji/fangsong) have no
 native mapping in the current catalog, and CSS-wide values are not represented
 by plan stack ids. Contract diagnoses both limits; quoted names are local
 families even when their spelling is a CSS generic.
+
+`navigationScrollInsetTop` is native route presentation: iOS can cancel its
+automatic top scroll inset without hiding its navigation bar. It changes no CSS
+layout defaults; other hosts retain their normal navigation content layout.
