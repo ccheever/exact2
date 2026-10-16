@@ -289,3 +289,49 @@ test('registry online scaffold and complete password example work through test w
     rmSync(project, {recursive: true, force: true});
   }
 }, 600_000);
+
+test('test web advances time only for mutation requests and preserves action time snapshots', async()=>{
+  const {createApp}=await import('../game/new.mjs');
+  const project=mkdtempSync(join(sdk,'target/ex8-mutation-clock-')), app=join(project,'app');
+  const env={...process.env,CARGO_INCREMENTAL:'0',CARGO_PROFILE_DEV_DEBUG:'0',CARGO_PROFILE_TEST_DEBUG:'0'};
+  const run=args=>{
+    const result=spawnSync(process.execPath,['exact.mjs',...args],{cwd:app,env,encoding:'utf8',timeout:300_000});
+    assert.equal(result.status,0,`${result.stdout}\n${result.stderr}`); return result;
+  };
+  try {
+    createApp(app);
+    writeFileSync(join(app,'app.contract'),`component App
+  mutation saved as shape number queue
+  action save
+    send saved = save(performanceNow())
+  action idle
+    let value = 1
+  view
+    column
+      button "Save" press=save testId="save"
+      button "Idle" press=idle testId="idle"
+      text (match saved { case some(n) => toString(n), case none => "-" }) testId="reply"
+      text toString(performanceNow()) testId="time"
+`);
+    writeFileSync(join(app,'app.ts'),`import type {Answer} from './app.contract.d.ts';
+export const appId='com.example.app'; export const grants='';
+export const answer:Answer=(_source,[now])=>now;
+`);
+    writeFileSync(join(app,'app.test.contract'),`test "only mutations move the test clock"
+  tap "idle"
+  expect text "time" == "0"
+  tap "save"
+  clock data
+  expect text "reply" == "0"
+  expect text "time" == "1"
+  tap "idle"
+  expect text "time" == "1"
+  tap "save"
+  clock data
+  expect text "reply" == "1"
+  expect text "time" == "2"
+`);
+    run(['contract','types','app.contract','-o','app.contract.d.ts']);
+    assert.match(run(['test','web']).stdout,/1 passed, 0 failed/);
+  } finally {rmSync(project,{recursive:true,force:true});}
+},600_000);

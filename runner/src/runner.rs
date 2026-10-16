@@ -4,7 +4,6 @@
 //! Each event settles derives and changed resource arguments, evaluates all
 //! sites, and applies one atomic kernel batch; hosts then lay out and paint.
 //! Kernel validation precedes every write; a refusal leaves the kernel untouched.
-
 mod admission;
 mod advance;
 mod background;
@@ -96,8 +95,11 @@ use crate::instance::{Ids, InstanceError, InstanceStep, SurfaceUpdate, Tree, Upd
 use crate::request::{Answer, Dispatch, Outcome, Request, RequestOut};
 use crate::store::{Store, StoreWrite};
 use crate::vm::{self, Env, Frame, RowSlots, Trap};
+pub use carry::Carried;
+pub use checkpoint::Checkpoint;
 use exact_kernel::{CommitReceipt, Kernel, KernelError, ViewId};
 use exact_plan::{ActionsId, Code, EventKind, MutationsId, NodesId, Plan, PlanError, Value};
+pub use router::{routing, RouterChange, Routing};
 
 /// A host-facing effect an action asked for; executed after commit, in order.
 #[derive(Debug, Clone, PartialEq)]
@@ -431,6 +433,7 @@ pub struct Runner<D: DataSource> {
     sockets: Vec<crate::SocketSend>,
     /// The host's live count of a socket's buffered bytes (D7), if it has one.
     socket_reader: Option<sockets::SocketReader>,
+    mutation_requests: u64,
     /// Resources an action asked to re-request; consumed by the next settle
     /// that can ask them (LLP 1054.000.000 D2).
     refresh_next: Vec<usize>,
@@ -867,6 +870,7 @@ impl<D: DataSource> Runner<D> {
             requests: Vec::new(),
             sockets: Vec::new(),
             socket_reader: None,
+            mutation_requests: 0,
             refresh_next: Vec::new(),
             writes: writes::Writes::default(),
             overlays: Vec::new(),

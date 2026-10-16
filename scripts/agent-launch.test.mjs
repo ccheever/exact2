@@ -399,3 +399,17 @@ test('interactive faults resolve backend, warn on impossible prefixes, and reloa
   expect(session.now).toBe(0);
   expect(driverCapabilities()).toContain('reload (interactive)');
 });
+
+test('authored-test clock advances once per mutation request, not per input reply or resource', async()=>{
+  const {testMutationClock}=await import('./agent-test.mjs');
+  let requests=2;
+  const calls=[], clock=testMutationClock();
+  const session={state:async()=>({mutationRequests:requests}),clock:async value=>{calls.push(value);}};
+  expect(await clock.advance(session)).toBe(2);
+  expect(await clock.advance(session)).toBe(0);
+  requests++;
+  expect(await clock.advance(session)).toBe(1);
+  expect(calls).toEqual(['+2','+1']);
+  clock.reset(); requests=1;
+  expect(await clock.advance(session)).toBe(1);
+});

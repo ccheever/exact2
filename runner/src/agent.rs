@@ -788,6 +788,7 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     }
     // Why each failed resource failed (app farm round 1: a shape refusal
     // showed only in the journal while the view kept its placeholder).
+    let _ = write!(s, ",\"mutationRequests\":{}", runner.mutation_requests());
     let failed = runner.failed_resources();
     if !failed.is_empty() {
         s.push_str(",\"failed\":{");

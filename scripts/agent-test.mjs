@@ -398,6 +398,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     const reached = async () => { const { clock } = await s.op({ op: 'tags' }).catch(() => ({})); return facts.epoch + Math.floor(Number.isFinite(clock) ? clock : s.now); };
     const launch = (environment) => open({ host, browser, plan, ...facts, env: { ...environment, EXACT_AGENT_EPHEMERAL_PORT: '1' }, app, webDist, device, phone, url, storage: store, touch: fingers, chrome: bars, scale, port });
     let s = await launch(fresh);
+    const mutationClock = testMutationClock();
     // The app's data lands before the first step, as `clock data` lands it: activation and every request in flight,
     // the clock unmoved and no timer fired (habits, pomodoro, kanban: a store opened at launch raced the first step).
     // `before data` does not wait (what has landed then is the host's: a native app ran on real time before the
@@ -409,6 +410,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     // It asks what persists, so storage the app started and did not await finishes first, as `clock data` lands it
     // (LLP 1097 D9): a write lost at `reload` is what a crash does. The next `logs` begins with what it waited for.
     const reload = async () => {
+      mutationClock.reset();
       const b = (await s.state().catch(() => ({}))).background, waiting = b ? b.queued + b.inFlight : 0;
       if (waiting) {
         const r = await s.clock('data');
@@ -608,6 +610,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
             }
             default: failures.push(`${at}: unknown step ${st.op}`);
           }
+          if (closedAt == null) await mutationClock.advance(s);
         } catch (e) {
           failures.push(`${at}: ${e.message}`);
           break;
@@ -687,4 +690,21 @@ export function driverCapabilities() {
  screenshot                     yes   yes    yes   yes   yes
  platform touch                 yes   yes    yes*  yes   yes
  * iOS platform touch requires --touch platform; unsupported forms refuse.`;
+}
+
+/** One millisecond per source mutation request, counted once across data continuations.
+ * Action arguments retain their atomic snapshot; the next action sees the advanced clock. */
+export function testMutationClock() {
+  let cursor=0;
+  return {
+    reset() { cursor=0; },
+    async advance(s) {
+      const requests=(await s.state()).mutationRequests;
+      if (!Number.isSafeInteger(requests) || requests<cursor) throw new Error('test clock: driver did not return a monotonic mutation request count');
+      const mutations=requests-cursor;
+      cursor=requests;
+      if (mutations) await s.clock('+'+mutations);
+      return mutations;
+    },
+  };
 }

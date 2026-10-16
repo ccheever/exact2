@@ -552,7 +552,7 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
 export const Mutations = [];
 export function mut(name, slot, refreshes, type, queue) {
   const pend = sig(false), fail = sig(null);
-  const m = { name, ticket: null, then: null, due: Infinity, next: Infinity, queue: !!queue, pend, refreshes: refreshes.map(x => x.r) };
+  const m = { name, requests: 0, ticket: null, then: null, due: Infinity, next: Infinity, queue: !!queue, pend, refreshes: refreshes.map(x => x.r) };
   const shown = (re, undo) => { for (const r of m.refreshes) r.touch(undo); for (const r of re ?? []) r.reconcile(undo); }; // a write began or ended (overlay.js)
   Mutations.push(m);
   slot.n.m = m;
@@ -579,6 +579,7 @@ export function mut(name, slot, refreshes, type, queue) {
       if (m.wait && !own && Sched.hold(m, source, args, undo)) return;
       undo.push([fail.n, fail.n.v]); write(fail.n, null);
       let a;
+      m.requests++;
       try {
         a = ask(source, args, name, true);
         if (!a || !("v" in a || a.req || a.promise || a.stream)) throw new Refusal(`${name}: its source is not ready`);
