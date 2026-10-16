@@ -36,6 +36,7 @@ struct HeaderShape: Equatable {
         /// The button's `testId`: the item's `accessibilityIdentifier`, so
         /// XCUITest and Maestro address it as any other node (LLP 1116 D2).
         let testId: String?
+        let toolbarGroup: UInt32?
         /// A face drawn from the button's one filled box (an avatar or a
         /// badge: a shape holding a text or a symbol), when the button has
         /// one: the item's image, in the box's own colours and corners.
@@ -80,6 +81,16 @@ struct HeaderShape: Equatable {
             } else {
                 walk(button)
             }
+            var parent = button.superview
+            var grouped: UInt32?
+            while let view = parent {
+                if let node = view as? NodeView {
+                    if node.props["semanticTag"] == "header" { break }
+                    if node.props["accessibilityRole"] == "group" { grouped = node.id; break }
+                }
+                parent = view.superview
+            }
+            toolbarGroup = grouped
             id = button.id
             testId = button.props["testId"]
             badge = button.isNativeButton ? nil : BadgeFace(button)
@@ -107,7 +118,7 @@ struct HeaderShape: Equatable {
             }
         }
         /// Everything a bar item is made from.
-        var source: String { "\(id):\(title):\(symbol ?? ""):\(label ?? ""):\(disabled):\(accessibilityDisabled):\(prominent):\(ownGlass):\(badge?.source ?? ""):\(chip?.source ?? ""):\(menu):\(menuTitle):\(tint ?? []):\(testId ?? "")" }
+        var source: String { "\(toolbarGroup.map(String.init) ?? ""):\(id):\(title):\(symbol ?? ""):\(label ?? ""):\(disabled):\(accessibilityDisabled):\(prominent):\(ownGlass):\(badge?.source ?? ""):\(chip?.source ?? ""):\(menu):\(menuTitle):\(tint ?? []):\(testId ?? "")" }
     }
     let header: NodeView
     let title: String
@@ -290,6 +301,8 @@ final class NavigationDelegateProxy: NSObject, UINavigationControllerDelegate {
 final class HeaderSearch: NSObject, UISearchResultsUpdating, UISearchBarDelegate, UISearchControllerDelegate, UITextFieldDelegate {
     let controller = UISearchController(searchResultsController: nil)
     weak var host: NavigationHost?
+    /// The field's placeholder is drawn in an authored colour, not UIKit's.
+    var paintsPlaceholder = false
     weak var field: NodeView? {
         didSet {
             if oldValue !== field { oldValue?.headerField = nil }
@@ -469,6 +482,11 @@ extension NavigationHost {
         guard shown.contains(where: { c in
             c.barPresses.contains { $0.id == node.id } || c.lifted.map { node === $0 || node.isDescendant(of: $0) } == true
         }) else { return nil }
+        // An item whose button only opens a menu is UIKit's pull-down, which
+        // no public API opens and the agent does not paint over the bar.
+        if !node.handlers.contains("press"), !node.disabled, presenter.invocation(of: node)?.opensPopover == true {
+            return ["error": "unsupported: bar item #\(id) opens its menu as UIKit's pull-down from the bar, which the agent cannot open; under --chrome agent the header is painted and `tap` opens the menu painted (LLP 1021 D4)"]
+        }
         guard node.handlers.contains("press"), !node.disabled else { return ["error": "bar item #\(id) is disabled or presses nothing"] }
         presenter.press(node.id)
         return ["tapped": id, "pressed": id, "delivery": "host-activation", "native": "bar-button-item"]
@@ -640,8 +658,8 @@ extension NavigationHost {
         item.leftItemsSupplementBackButton = true
         #endif
         c.barPresses = []
-        item.leftBarButtonItems = shape?.leading.map { barItem($0, c) }
-        item.rightBarButtonItems = shape?.trailing.reversed().map { barItem($0, c) }
+        item.leftBarButtonItems = shape.map { barItems($0.leading, c) }
+        item.rightBarButtonItems = shape.map { barItems(Array($0.trailing.reversed()), c) }
         if let shape {
             if shape.authored.isEmpty {
                 shape.header.isHidden = true
@@ -732,9 +750,17 @@ extension NavigationHost {
         search.field = field
         let bar = search.controller.searchBar
         let placeholder = field.props["placeholder"] ?? ""
-        if bar.placeholder != placeholder { bar.placeholder = placeholder }
-        // The same font, colour and clearing rules as an ordinary field (LLP 1104 D3).
-        field.applyPlaceholder(bar.searchTextField)
+        // Unsaid, the placeholder is the search field's own, which UIKit
+        // draws darker than an ordinary field's `placeholderText`; an
+        // authored `::placeholder` colour or theme role wins (LLP 1104 D3).
+        if field.placeholderColor != nil || ThemeRoles.color("placeholder") != nil {
+            field.applyPlaceholder(bar.searchTextField)
+            search.paintsPlaceholder = true
+        } else if search.paintsPlaceholder || bar.placeholder != placeholder {
+            search.paintsPlaceholder = false
+            bar.searchTextField.attributedPlaceholder = nil
+            bar.placeholder = placeholder
+        }
         // The Contract's value wins unless the reader is typing it.
         let value = field.props["value"] ?? ""
         if !bar.isFirstResponder, bar.text != value { bar.text = value }
@@ -916,14 +942,7 @@ extension NavigationHost {
     /// the scroller keeps the cover; so does a page under `viewport-fit=cover`,
     /// whose own `env()` insets would be added to UIKit's.
     private func reachBottom(_ c: RouteController) {
-        let flowing = { (v: NodeView) in
-            v.style["display"]?.string != "none" && !["absolute", "fixed"].contains(v.style["position_type"]?.string ?? "")
-        }
-        let last = c.node.container.subviews.last { ($0 as? NodeView).map(flowing) == true } as? NodeView
-        // One that scrolls vertically: UIKit's bottom inset would let a
-        // sideways carousel scroll up and down.
-        let vertical = ["scroll", "auto"].contains(last?.style["overflow_y"]?.string ?? "")
-        let target = presenter.viewportFit != "cover" && last?.scrollView != nil && vertical ? last : nil
+        let target = presenter.viewportFit != "cover" ? Self.bottomScroller(in: c.node) : nil
         guard c.edgeScroll !== target || c.contentScrollView(for: .bottom) !== target?.scrollView else { return }
         if let old = c.edgeScroll, let sv = old.scrollView, old !== c.collapseScroll { sv.contentInsetAdjustmentBehavior = .never }
         if let previous = c.contentScrollView(for: .bottom), previous !== target?.scrollView,
@@ -938,6 +957,42 @@ extension NavigationHost {
         presenter.session?.log("navigation: route \(c.key) \(target == nil ? "keeps its content above the bottom edge" : "scrolls its content to the bottom edge")")
     }
 
+    /// The scroller at a route's bottom edge: its last in-flow child, or
+    /// that child's last, down through boxes that alone span their parent's
+    /// bottom edge (a sheet's component whose root column holds its header
+    /// and then its `scroll`), as a hand-built screen's scroll view pinned to
+    /// its view's bottom is at the edge however deep it sits. A box that ends
+    /// short of its parent's bottom (a padding, a border or a margin under
+    /// it), or has a sibling beside it in a row or a grid, keeps the route's
+    /// cover. One that scrolls vertically only: UIKit's bottom inset would
+    /// let a sideways carousel scroll up and down.
+    static func bottomScroller(in route: NodeView) -> NodeView? {
+        let flowing = { (v: NodeView) in
+            v.style["display"]?.string != "none" && !["absolute", "fixed"].contains(v.style["position_type"]?.string ?? "")
+        }
+        // The last in-flow child spans the bottom edge alone when every other
+        // ends above its top, as children stacked down a block or a column
+        // do. Beside it in a row or a grid, a sibling reaches the edge too
+        // (a column with a Save button at its foot) and keeps the cover. The
+        // laid-out frames say so; the host is not sent the flex direction.
+        func alone(_ last: NodeView, among children: [NodeView]) -> Bool {
+            children.allSatisfy { $0 === last || $0.frame.maxY <= last.frame.minY + 0.5 }
+        }
+        var parent = route
+        while true {
+            let children = parent.container.subviews.compactMap { $0 as? NodeView }.filter(flowing)
+            guard let last = children.last, alone(last, among: children) else { return nil }
+            // Each reaches the foot of its parent's content box: the route's
+            // child the box its cover already shortens, a deeper one its
+            // parent's bottom, with nothing (a padding, a border) under it.
+            let foot = parent === route ? parent.contentBox().maxY : parent.bounds.maxY
+            if parent !== route, parent.contentBox().maxY < foot - 0.5 { return nil }
+            if parent.convert(last.bounds, from: last).maxY < foot - 0.5 { return nil }
+            if last.scrollView != nil { return ["scroll", "auto"].contains(last.style["overflow_y"]?.string ?? "") ? last : nil }
+            parent = last
+        }
+    }
+
     /// The physical backend owned by a content node.
     func shownScroll(_ node: NodeView?) -> UIScrollView? { node?.scrollView }
 
@@ -945,6 +1000,22 @@ extension NavigationHost {
     /// bottom-edge scroller.
     func insetByUIKit(_ node: NodeView) -> Bool {
         controllers.values.contains { $0.collapseScroll === node || $0.edgeScroll === node }
+    }
+
+    /// UIKit's zero-width fixed space splits shared glass without authored metrics.
+    func barItems(_ items: [HeaderShape.Item], _ route: RouteController) -> [UIBarButtonItem] {
+        var result: [UIBarButtonItem] = []
+        var previous: UInt32?
+        for (index, item) in items.enumerated() {
+            #if !os(tvOS)
+            if #available(iOS 26.0, *), index > 0, previous != item.toolbarGroup {
+                result.append(UIBarButtonItem(barButtonSystemItem: .fixedSpace, target: nil, action: nil))
+            }
+            #endif
+            result.append(barItem(item, route))
+            previous = item.toolbarGroup
+        }
+        return result
     }
 
     /// Whether the page hides `view` only because a bar shows it: a lifted

@@ -7,7 +7,8 @@ import { pieces, pageHistory, Head, navigateRoot, Tasks, journal } from './rt.js
 import * as perf from './perf.js';
 import { observe } from './check.js';
 import { faultOp, faultsJson, setFaultLog } from '../web/faults.js';
-import { displayMode, environment, navigation, unselected, guestOutline, guestTap, guestType, viewBox, foldEnv, preferFold, typedControl, typeControl, reveal, animationClocks, pageReporter } from './navigation.js';
+import { displayMode, environment, navigation, unselected, foldEnv, preferFold, typedControl, typeControl, animationClocks, pageReporter } from './navigation.js';
+import { guestOutline, guestTap, guestType, viewBox, reveal } from './input-glue.js';
 // A runtime value as the runner's typed JSON: records by field name.
 const typed = (v, t) => v == null || typeof t === 'string' ? v : Array.isArray(t) ? (t[0] === '?' ? typed(v, t[1]) : v.map(x => typed(x, t[1]))) : Object.fromEntries(Object.keys(t).map((k, i) => [k, typed(v[i], t[k])]));
 const PROPS = [['aria-live', 'accessibilityLive'], ['role', 'accessibilityRole'], ['aria-description', 'accessibilityHint'], ['aria-keyshortcuts', 'accessibilityKeyShortcuts'], ['aria-orientation', 'accessibilityOrientation'], ['aria-pressed', 'accessibilityPressed'], ['aria-level', 'accessibilityHeadingLevel', 1], ['aria-posinset', 'accessibilityPosInSet', 1], ['aria-setsize', 'accessibilitySetSize', 1], ['aria-valuenow', 'accessibilityValueNow'], ['aria-valuemin', 'accessibilityValueMin'], ['aria-valuemax', 'accessibilityValueMax'], ['aria-valuetext', 'accessibilityValueText'], ['placeholder', 'placeholder'], ['autocomplete', 'autocomplete'], ['viewportFit', 'viewportFit'], ['interactiveWidget', 'interactiveWidget'], ['data-hatch', 'hatch'], ['data-nativeviewmodulename', 'nativeViewModuleName'], ['data-nativeviewprops', 'nativeViewProps']];
@@ -289,6 +290,7 @@ export function install(exact) {
         if (req.part != null) return partTap(req);
         // A virtualized list's row brought into view by key (LLP 1070.000 §5; list.js).
         if (req.into) {
+          for (const a of [req.into.block === undefined ? 'start' : req.into.block, req.into.inline === undefined ? 'nearest' : req.into.inline]) if (!['start', 'center', 'end', 'nearest'].includes(a)) return { error: `no alignment ${typeof a === 'string' ? a : JSON.stringify(a)}: start, center, end or nearest`, malformed: true };
           if (!exact.lists) return { error: `view ${req.id} is not a mounted virtualized list` };
           try { exact.lists.into(req.id, String(req.into.key ?? ''), req.into.block, req.into.inline); } catch (e) { return { error: e.message, ...(e.malformed === true ? { malformed: true } : {}) }; }
           return { tapped: req.id, into: req.into };

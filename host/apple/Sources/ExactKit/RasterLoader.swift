@@ -100,10 +100,13 @@ private final class RasterBackend: @unchecked Sendable {
         guard !stopped, name.utf8.count <= (name.hasPrefix("data:") ? RasterInput.dataLimit : 4096) else { return .refused }
         pruneLocked()
         let key = RasterSourceKey(name: name, resolver: ObjectIdentifier(resolver))
-        if let id = byName[key], let source = sources[id]?.value, source.resolver === resolver,
+        if let known = byName[key], let source = sources[known]?.value, source.resolver === resolver,
            !source.cancellation.isCancelled {
             cold.removeAll { $0 === source }
-            source.users += 1; return .source(source)
+            source.users += 1
+            // Released before its header was read: a worker reads it now.
+            if source.users == 1 && source.metadata == nil && source.failure == nil { exact_raster_session_control(self.id, 5) }
+            return .source(source)
         }
         var live = sources.values.compactMap(\.value)
         // Cold metadata is a cache, never what keeps a shown image out at the
@@ -336,10 +339,16 @@ final class RasterWorkers: @unchecked Sendable {
                 // Each decode earns a metadata turn, even under continuous
                 // ready-metadata traffic from another session.
                 if metadataFirst { metadataFirst = false; if metadataTurn() { return } }
-                let work = exact_raster_next_decode(0)
+                let work = exact_raster_next_decode(0, 0)
                 if work.permit != 0 { metadataFirst = true; deliver(work); return }
+                // Read before looking: a source acquired while this worker
+                // looks wakes the gate after it, and the wait returns at once.
+                let since = exact_raster_wake_sequence()
                 if metadataTurn() { return }
-                let waited = exact_raster_next_decode(50)
+                // Work wakes the gate: a decode admitted or freed, a source
+                // acquired, a session resumed. The timeout is a backstop, long
+                // enough not to be a poll, so an idle app's workers sleep.
+                let waited = exact_raster_next_decode(1000, since)
                 if waited.permit != 0 { metadataFirst = true; deliver(waited) }
             }
         }

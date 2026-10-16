@@ -130,6 +130,19 @@ are copied to the web manifest and baked into Apple `Info.plist` as both URL
 schemes and handler templates. They are host metadata, not deploy policy;
 the native session applies LLP 1038 D8's template before delivery.
 
+**Amended 2026-10-16: a launch picture.** `host.ios.launchImage`
+(`src`, a PNG in the app's directory, and `width` in points) is baked
+into the asset catalog as an image set at 1x, 2x and 3x and named by
+`UILaunchScreen`'s `UIImageName`, which iOS centres on the launch
+colour (`background_color`). An app whose first frame draws a picture
+on its background (the euxy port's unlit LED grid, Expo's splash
+`image` and `imageWidth`) launches showing it, where a colour alone
+flashed the bare background first. It is host metadata, part of the
+binary's identity: the receipt names its bytes among the binary's inputs
+(and its SHA-256 in the metadata), so a replaced picture is a new binary,
+and packaging draws the bytes the bake recorded, refusing a picture
+replaced since (Astra's review).
+
 The panel's correction: the manifest is not one blob whose digest is
 the binary's identity. It has typed sections, and only some are
 identity:
@@ -163,6 +176,16 @@ The standalone adapter reads its title from the baked display name and restores
 a configured app's frame under its bundle identity. Bare development executables
 read the existing adjacent Info.plist. Agent/smoke runs skip restoration and use
 the existing viewport unless `EXACT_WINDOW_WIDTH`/`EXACT_WINDOW_HEIGHT` overrides it.
+
+**Icon Composer (2026-10-16, issue #467):** `host.ios.icon` and `host.macos.icon`
+explicitly select one app-owned `.icon` directory relative to `app.json`.
+Its stem is the primary icon's name in the single `actool` pass alongside
+the app's catalogs. A selected project conflicts with an `AppIcon.appiconset`,
+or a set of its own name, in those catalogs (any other set is an alternate icon); missing paths and non-`.icon` directories
+are refused by name. The project and every layer are native binary inputs:
+their hashes enter the bake receipt and asset cache, and packaging refuses
+changed sources. tvOS keeps asset catalogs and never inherits this selection.
+The web keeps `icons`, also the Apple raster fallback without a selection.
 
 **App Transport Security (2026-10-06, issue #106):** `host.macos.appTransportSecurity`
 and `host.ios.appTransportSecurity` are typed, not a pass-through: one key,

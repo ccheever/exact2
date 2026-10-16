@@ -168,7 +168,7 @@ private let hatchHostTable: UnsafeRawPointer = {
     t.storeBytes(of: unsafeBitCast(hatchLog, to: UnsafeRawPointer.self), toByteOffset: 24, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(hatchDelegate, to: UnsafeRawPointer.self), toByteOffset: 32, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(hatchToolbarItem, to: UnsafeRawPointer.self), toByteOffset: 40, as: UnsafeRawPointer.self)
-    if HatchDiagnostics.measuring { t.storeBytes(of: hatchDiagnosticsTable, toByteOffset: 48, as: UnsafeRawPointer.self) }
+    if HatchDiagnostics.available { t.storeBytes(of: hatchDiagnosticsTable, toByteOffset: 48, as: UnsafeRawPointer.self) }
     t.storeBytes(of: unsafeBitCast(hatchInputText, to: UnsafeRawPointer.self), toByteOffset: 56, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(hatchFrames, to: UnsafeRawPointer.self), toByteOffset: 64, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(hatchAfter, to: UnsafeRawPointer.self), toByteOffset: 72, as: UnsafeRawPointer.self)

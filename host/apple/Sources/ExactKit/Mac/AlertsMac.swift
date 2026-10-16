@@ -135,7 +135,7 @@ final class AlertHost {
         // default: AppKit gives a cancel Escape and never Return (its own
         // "Cancel", added first, has Escape alone), and a button has one key.
         // A prompt's Return is its first action that is not destructive, on
-        // every host (as iOS's `preferredAction` and the web's Enter), even
+        // every host (iOS's field delegate, the web's Enter), even
         // while it is disabled: Return then does nothing until it enables.
         let emphasized = fields.isEmpty ? Self.defaultRow(filled: nodes.map { $0.face?.style == "filled" }, destructive: destructive)
             : actions.indices.first { !destructive[$0] }

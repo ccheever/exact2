@@ -321,6 +321,21 @@ refused (studio diary R14; notes diary). When nothing takes the path, the
 host says why — no `open-file` field, or the `change` the app refused, and the
 refusal — on stderr and in the journal. `exact uninstall <app>` takes both halves away.
 
+App icons come from `app.json`'s Web App Manifest `icons` array: Apple uses
+the first square raster of at least 512 px. To select an
+[Icon Composer project](https://developer.apple.com/documentation/xcode/creating-your-app-icon-using-icon-composer),
+set `host.ios.icon` or `host.macos.icon` to its app-relative `.icon` directory,
+for example `"host": { "ios": { "icon": "art/Primary.icon" }, "macos": { "icon": "art/Primary.icon" } }`.
+Each platform selects independently; tvOS keeps its asset catalogs and does
+not inherit the iOS selection. There is no `.icon` discovery. The selected
+project must be inside the app and cannot coexist with a primary
+`AppIcon.appiconset`, or a set with the project's name, in that platform's
+catalogs; other sets stay alternate icons. Missing paths
+and paths that are not `.icon` directories fail by name. The project and its
+layers compile in the same `actool` pass as the app's catalogs; changing them
+requires a new native build. `icons` still supplies the web and the native
+raster fallback when the platform has no `icon` selection.
+
 Apple products live under the resolved app's target directory, scoped by
 canonical source directory, manifest id, destination, composition and trust
 policy. The Swift host is compiled once per destination for every app, in
@@ -854,6 +869,32 @@ paused podcast resumes, once no player is left. WebKit's Audio Session API takes
 the Mac has no session. A development run with `EXACT_SOUND_CHECK=1` taps the
 engine's main mixer and journals (and prints) how far each onset after a
 silence reached the speaker from its time.
+
+**When the Apple output opens.** At the app's first voice, never at boot, so
+declaring a `sound` costs a launch nothing. As a hand-built app starts its
+engine on first use, that voice's commit activates the audio session (iOS and
+tvOS), opens the output, reads every declared sound and starts the engine on
+the main thread: the voice starts as late as that took (from its first frame,
+never cut), about 100 to 200 ms on a Mac. An app that never plays never
+touches the audio session.
+
+**When it cannot open** (no output device, a session that does not activate,
+an engine that does not start or raises), the app keeps running silent: the
+line `sound: the output did not open: <why>` is journaled (and printed),
+`state.sounds.output` is `{state: "failed", error, skipped}`, the voices
+are skipped, and the first voice a second or more later tries again. A
+failed output gives the audio session back, so a `"playback"` app does not
+leave other apps' audio paused. An interruption that ends with
+`shouldResume` restarts the engine (a failure fails the same way); one
+without it (the person started other audio) is left to the next voice. An
+engine the system stopped (a route or format change, a media services reset)
+is opened again by the next voice; one that stops again within a second of
+opening is a failure. Outside the driver `state.sounds.output.state` is
+`closed` before the first open, then `running` or `stopped`. One failure is
+beyond any app's catch: when CoreAudio's own RPC to the audio server times
+out (`_ReportRPCTimeout`, seen on iOS simulators whose audio is wedged), it
+aborts the process inside `AVAudioEngine`; opening at the first voice keeps
+that from launch and from an app that plays nothing.
 
 ### Media session
 

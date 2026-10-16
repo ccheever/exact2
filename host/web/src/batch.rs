@@ -194,6 +194,17 @@ impl Batch {
             }
             id.push_to(&mut s);
         }
+        s.push_str("],\"visits\":[");
+        for (i, (id, url)) in change.visits.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            s.push('[');
+            id.push_to(&mut s);
+            s.push(',');
+            quote(url, &mut s);
+            s.push(']');
+        }
         s.push_str("]}");
         self.ops.push(s);
     }

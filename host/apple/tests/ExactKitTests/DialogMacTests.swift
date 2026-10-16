@@ -45,8 +45,8 @@ class DialogMacTests: XCTestCase {
         ]))
         return p
     }
-    private func key(_ code: UInt16, modifiers: NSEvent.ModifierFlags = [], character: String = "") -> NSEvent {
-        NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: 0,
+    private func key(_ code: UInt16, modifiers: NSEvent.ModifierFlags = [], character: String = "", up: Bool = false) -> NSEvent {
+        NSEvent.keyEvent(with: up ? .keyUp : .keyDown, location: .zero, modifierFlags: modifiers, timestamp: 0,
             windowNumber: front.windowNumber, context: nil, characters: character, charactersIgnoringModifiers: character, isARepeat: false, keyCode: code)!
     }
     private func click(_ node: NodeView, clicks: Int = 1) {
@@ -196,6 +196,155 @@ class DialogMacTests: XCTestCase {
         front.makeFirstResponder(field)
         XCTAssertTrue(p.routeKey(key(48, character: "\t"), focused: true))
         XCTAssertEqual(heard, ["4 Tab", "4 Tab", "3 Tab"])
+    }
+
+    /// A key in the open dialog reaches its ancestors' `keycapture`, `key`
+    /// and `keyup`, though the modal makes them inert: as in DOM, that keeps
+    /// them from being targets, not from hearing what bubbles. An `inert`
+    /// attribute or a route behind a presentation still silences them.
+    func testKeysInTheDialogReachItsAuthoredAncestors() throws {
+        let p = fixture(), root = try XCTUnwrap(p.views[1]), node = try XCTUnwrap(p.views[4])
+        root.handlers = ["keycapture", "key", "keyup"]
+        node.handlers.formUnion(["key", "keyup"])
+        var heard: [String] = []
+        p.onKey = { id, press in heard.append("\(id) \(press.capture ? "capture" : press.up ? "up" : "down") \(press)") }
+        p.press(2)
+        XCTAssertTrue(try XCTUnwrap(node.field).currentEditor() === front.firstResponder)
+        XCTAssertTrue(root.inert)
+        XCTAssertFalse(root.authoredInert)
+        XCTAssertFalse(p.routeKey(key(0, character: "a"), focused: true))
+        XCTAssertFalse(p.routeKey(key(0, character: "a", up: true), focused: true))
+        XCTAssertEqual(heard, ["1 capture a", "4 down a", "1 down a", "4 up a", "1 up a"])
+        for routed in [false, true] {
+            heard = []
+            root.props["inert"] = routed ? nil : "true"
+            root.routeInert = routed
+            XCTAssertFalse(p.routeKey(key(0, character: "a"), focused: true))
+            XCTAssertFalse(p.routeKey(key(0, character: "a", up: true), focused: true))
+            XCTAssertEqual(heard, ["4 down a", "4 up a"])
+        }
+    }
+
+    private func assertContextPoint(_ line: String, from source: NodeView, on target: NodeView,
+                                    file: StaticString = #filePath, lineNumber: UInt = #line) throws {
+        let sourceWindow = try XCTUnwrap(source.window), targetWindow = try XCTUnwrap(target.window)
+        let middle = source.convert(NSPoint(x: source.bounds.midX, y: source.bounds.midY), to: nil)
+        let point = targetWindow.convertPoint(fromScreen: sourceWindow.convertPoint(toScreen: middle))
+        let local = target.convert(point, from: nil)
+        let clip = try XCTUnwrap(target.presenter?.viewport.contentView), client = clip.convert(point, from: nil)
+        let sample = line.components(separatedBy: ",")
+        XCTAssertEqual(sample.prefix(2).compactMap(Double.init), [Double(local.x), Double(local.y)], file: file, line: lineNumber)
+        XCTAssertEqual(sample.dropFirst(6).prefix(2).compactMap(Double.init),
+                       [Double(client.x - clip.bounds.minX), Double(client.y - clip.bounds.minY)], file: file, line: lineNumber)
+    }
+
+    /// A right click and a Control-click in the dialog bubble out of the
+    /// top layer to its authored ancestor's `contextmenu`, once, at the
+    /// point in the ancestor's window.
+    func testSecondaryClicksInTheDialogReachItsAuthoredAncestorsOnce() throws {
+        let p = fixture(), root = try XCTUnwrap(p.views[1]), button = try XCTUnwrap(p.views[5])
+        root.handlers = ["contextmenu", "pointerdown", "pointerup"]
+        var heard: [String] = [], samples: [String] = []
+        p.onPointer = { id, kind, _ in heard.append("\(kind == .down ? "down" : "up") \(id)") }
+        p.onClipboard = { id, kind, line in XCTAssertEqual(kind, 10); heard.append("context \(id)"); samples.append(line) }
+        p.press(2)
+        XCTAssertEqual(button.window === window, painted)
+        let point = button.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), to: nil)
+        let hit = try XCTUnwrap(front.contentView?.hitTest(point))
+        XCTAssertTrue(hit === button || hit.isDescendant(of: button))
+        for control in [false, true] {
+            heard = []; samples = []
+            let down = try XCTUnwrap(NSEvent.mouseEvent(with: control ? .leftMouseDown : .rightMouseDown,
+                location: point, modifierFlags: control ? .control : [], timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: front.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+            let up = try XCTUnwrap(NSEvent.mouseEvent(with: control ? .leftMouseUp : .rightMouseUp,
+                location: point, modifierFlags: control ? .control : [], timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: front.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 0))
+            if control { hit.mouseDown(with: down); hit.mouseUp(with: up) }
+            else { hit.rightMouseDown(with: down); hit.rightMouseUp(with: up) }
+            XCTAssertEqual(heard, ["down 1", "context 1", "up 1"])
+            try assertContextPoint(try XCTUnwrap(samples.first), from: button, on: root)
+            XCTAssertTrue(p.dialogs.active === p.views[3], "Control-click must not press Close")
+        }
+    }
+
+    /// The ContextMenu key and VoiceOver's show menu at a focus in the
+    /// dialog reach its ancestor's `contextmenu`, in the dialog's sheet
+    /// window too; `inert` refuses, while `disabled` on the container does not.
+    func testContextMenuKeyAndShowMenuInTheDialogReachItsAuthoredAncestors() throws {
+        let p = fixture(), root = try XCTUnwrap(p.views[1]), button = try XCTUnwrap(p.views[5])
+        root.handlers = ["contextmenu"]
+        var heard: [UInt32] = [], samples: [String] = []
+        p.onClipboard = { id, kind, line in XCTAssertEqual(kind, 10); heard.append(id); samples.append(line) }
+        p.press(2)
+        XCTAssertEqual(button.window === window, painted)
+        XCTAssertTrue(front.makeFirstResponder(button))
+        XCTAssertTrue(p.routeKey(key(110), focused: true))
+        XCTAssertEqual(heard, [1])
+        try assertContextPoint(try XCTUnwrap(samples.first), from: button, on: root)
+        heard = []; samples = []
+        let showMenu = #selector(NodeView.accessibilityPerformShowMenu)
+        XCTAssertTrue(button.isAccessibilitySelectorAllowed(showMenu))
+        XCTAssertTrue(button.accessibilityPerformShowMenu())
+        XCTAssertEqual(heard, [1])
+        try assertContextPoint(try XCTUnwrap(samples.first), from: button, on: root)
+        heard = []
+        XCTAssertFalse(p.contextMenu(root, at: .zero), "the inert ancestor cannot itself be the target")
+        XCTAssertFalse(root.accessibilityPerformShowMenu())
+        for gate in ["inert", "route", "disabled"] {
+            root.props["inert"] = gate == "inert" ? "true" : nil
+            root.routeInert = gate == "route"
+            root.props["disabled"] = gate == "disabled" ? "true" : nil
+            let eligible = gate == "disabled"
+            XCTAssertEqual(button.isAccessibilitySelectorAllowed(showMenu), eligible, gate)
+            XCTAssertEqual(button.accessibilityPerformShowMenu(), eligible, gate)
+            XCTAssertEqual(p.routeKey(key(110), focused: true), eligible, gate)
+        }
+        XCTAssertEqual(heard, [1, 1], "disabled on the ancestor container does not block either request")
+        root.props.removeValue(forKey: "disabled")
+        button.props["inert"] = "true"
+        XCTAssertFalse(button.isAccessibilitySelectorAllowed(showMenu))
+        XCTAssertFalse(button.accessibilityPerformShowMenu())
+        XCTAssertFalse(p.contextMenuKey(key(110)))
+        if !painted {
+            XCTAssertTrue(front.makeFirstResponder(nil))
+            XCTAssertFalse(p.contextMenuKey(key(110)), "a sheet with no focus node keeps the key")
+        }
+    }
+
+    /// An ancestor behind the modal hears the request but opens no
+    /// `contextPopover`: in the browser that popover would be inert.
+    func testContextPopoverOnAnAncestorBehindTheModalOpensNoMenu() throws {
+        let p = fixture(), root = try XCTUnwrap(p.views[1]), button = try XCTUnwrap(p.views[5])
+        p.apply(wireBatch([
+            ["op": "props", "id": 1, "set": ["contextPopover": "menu"]],
+            ["op": "create", "id": 6, "kind": "view", "props": ["popover": "auto", "id": "menu"]],
+            ["op": "create", "id": 7, "kind": "button", "handlers": ["press"]],
+            ["op": "children", "id": 6, "ids": [7]],
+            ["op": "children", "id": 1, "ids": [2, 3, 6]],
+            ["op": "frame", "id": 6, "x": 0, "y": 0, "w": 120, "h": 40],
+            ["op": "frame", "id": 7, "x": 0, "y": 0, "w": 120, "h": 40],
+        ]))
+        var tracked = false
+        let observer = NotificationCenter.default.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
+            guard let menu = note.object as? NSMenu else { return }
+            tracked = true
+            RunLoop.current.perform(inModes: [.eventTracking, .default]) { menu.cancelTracking() }
+        }
+        defer { NotificationCenter.default.removeObserver(observer); p.menus.reset() }
+        p.press(2)
+        XCTAssertTrue(root.inert)
+        XCTAssertFalse(root.handlers.contains("contextmenu"))
+        XCTAssertTrue(front.makeFirstResponder(button))
+        XCTAssertTrue(p.routeKey(key(110), focused: true))
+        XCTAssertTrue(button.accessibilityPerformShowMenu())
+        // Closing before the menu's turn must not revive a request made behind the modal.
+        p.dialogs.close(try XCTUnwrap(p.views[3]))
+        let drained = expectation(description: "context menu requests drained")
+        RunLoop.main.perform(inModes: [.common]) { drained.fulfill() }
+        wait(for: [drained], timeout: 5)
+        XCTAssertFalse(tracked)
+        XCTAssertFalse(p.menus.isOpen(try XCTUnwrap(p.views[6])))
     }
     func testDismissalPoliciesAndBackgroundPointerBlocking() {
         let p = fixture()

@@ -1,7 +1,8 @@
 // What Exact measures of each hatch call, and what hatch code says of itself
 // (@ref LLP 1075.003.000.001 §3.1–3.3). One store a session, owned by the
 // main thread. Development only, as `perf` is (LLP 1079 D1): a production
-// bake hands the module no entry to call and times nothing.
+// bake hands the module no entry to call and times nothing, and a release
+// build times calls only once something reads them (`measurePerf`).
 //
 // The module records through one entry of the host's table (NativeHatches.swift):
 //
@@ -21,7 +22,11 @@ import QuartzCore
 
 final class HatchDiagnostics {
     weak var session: ExactSession?
-    static let measuring = !ExactEnv.productionBake
+    /// Whether this binary keeps diagnostics: not a production bake.
+    static let available = !ExactEnv.productionBake
+    /// Whether hatch calls are timed now (main thread): from boot where
+    /// frames are sampled from boot, else from `measurePerf`.
+    nonisolated(unsafe) static var measuring = available && FrameSampler.atBoot
     private let mediaTime: () -> Double
 
     init(mediaTime: @escaping () -> Double = CACurrentMediaTime) { self.mediaTime = mediaTime }
@@ -126,7 +131,7 @@ final class HatchDiagnostics {
 
     /// The module's call, on any thread. A span's id for `begin`, else 0.
     func record(kind: UInt32, node: UInt32, scope: String, name: String, value: Double, text: Data) -> UInt64 {
-        guard Self.measuring else { return 0 }
+        guard Self.available else { return 0 }
         var id: UInt64 = 0
         if kind == 3 { lock.lock(); id = nextSpan; nextSpan += 1; lock.unlock() }
         let record = Record(kind: kind, node: node, scope: scope, name: name, value: kind == 3 ? Double(id) : value, text: text)
@@ -280,7 +285,7 @@ final class HatchDiagnostics {
 
     /// A node ended: its open spans are closed as abandoned, counted, not timed.
     func ended(node: UInt32) {
-        guard Self.measuring, !spans.isEmpty else { return }
+        guard Self.available, !spans.isEmpty else { return }
         for (id, span) in spans where span.node == node && node != 0 {
             spans.removeValue(forKey: id)
             abandoned += 1

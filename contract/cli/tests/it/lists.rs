@@ -464,12 +464,12 @@ fn the_webs_list_idioms_are_refused_with_their_fix() {
         refused(
             &format!("text ({f}(xs, x => x.n)).toString()"),
             "type-refused-idiom",
-            "compute it in the data source",
+            "in the data source",
         );
         refused(
             &format!("text (xs.{f}(x => x.n)).toString()"),
             "syntax-method-call",
-            "compute it in the data source",
+            "in the data source",
         );
     }
     // The four with a composition in the roster name it.

@@ -480,6 +480,11 @@ extension Agent {
             return ["error": "tap #\(id)\(node.props["testId"].map { " [\($0)]" } ?? ""): \(why)"]
         }
         if let reply = touchForm(req) { return reply }
+        // One finger at a time: a press while the held contact is down would
+        // nest a second gesture on its pointer, as a second `down` would.
+        if req["phase"] == nil, req["wheel"] == nil, req["hover"] == nil, panContact != nil {
+            return ["error": "a contact is already down; use `tap up` or `tap cancel` first"]
+        }
         settleForPress()
         if req["scrollDrag"] != nil { return scrollDrag(req) }
         if view(req)?.placedAncestor?.placementHidden == true { return ["error": "placed child is hidden"] }
@@ -498,7 +503,7 @@ extension Agent {
         if let reply = canvasTap(req) { return reply }
         if req["phase"] == nil, req["wheel"] == nil, req["x"] == nil, req["y"] == nil, req["at"] == nil,
            let id = req["id"] as? UInt32, let run = presenter.inlineText(id), let node = presenter.textHost(id) {
-            guard node.window != nil, !node.inert, !node.disabled, !run.hidden else { return ["error": "inline node #\(id) is unavailable"] }
+            guard node.window != nil, !node.inert, !(req["contextmenu"] as? Bool == true ? node.formDisabled : node.disabled), !run.hidden else { return ["error": "inline node #\(id) is unavailable"] }
             if req["hover"] as? Bool == true {
                 presenter.hoverInline(run.handlers.contains("hover") ? id : nil)
                 return ["tapped": Int(id), "hover": true]
@@ -641,19 +646,19 @@ extension Agent {
             while let node = next {
                 // A context menu's popover (LLP 1021 §5.1) answers it too: the
                 // node's own action first, then the popover opens painted.
-                if let target = node as? NodeView, !target.disabled, target.handlers.contains(event)
+                if let target = node as? NodeView, !(event == "contextmenu" ? target.formDisabled : target.disabled), target.handlers.contains(event)
                     || (event == "contextmenu" && target.props["contextPopover"]?.isEmpty == false) {
                     if event == "contextmenu" {
                         let handled = target.handlers.contains(event)
                         if handled { presenter.contextmenu(target.id) }
                         // A node with only a popover that cannot open it is not the target.
-                        if !presenter.menus.agentContext(target) && !handled { next = presenter.touchParent(of: node); continue }
+                        // One behind a modal hears it, but its popover would open inert.
+                        if target.inert || !presenter.menus.agentContext(target), !handled { next = presenter.listenerParent(of: node); continue }
                     } else { presenter.dblclick(target.id) }
                     return ["tapped": Int(target.id), "event": event, "injected": true, "at": at].merging(selection.map { ["selection": $0] } ?? [:]) { a, _ in a }
                 }
-                // What a finger reaches, out of a route's or a dialog's
-                // sheet too (`MountRelay`)
-                next = (node as? NodeView).flatMap { presenter.menus.sheets.authoredParent(of: $0) } ?? presenter.touchParent(of: node)
+                // What a finger reaches, out of a sheet or a lifted popover too (`MountRelay`)
+                next = presenter.listenerParent(of: node)
             }
             if let selection { return ["tapped": Int((hit as? NodeView)?.id ?? v.id), "event": event, "delivery": "recognized", "selection": selection, "at": at] }
             return ["error": "no \(event) handler at view \(v.id)"]
@@ -694,49 +699,20 @@ extension Agent {
         // A finger on a number input's stepper steps it (LLP 1116.007 D4).
         if plain, req["at"] != nil, let stepped = steppedTap(v, hit: hit, at: p, tapped: at) { return stepped }
         #endif
-        var n: UIView? = hit
-        while let cur = n, !(cur is NodeView) { n = cur.superview }
-        // What a touch up does first (`NodeView.touchesEnded`, up the
-        // responder chain): the nearest node that takes the focus takes it
-        // — an input's field, a node with a focus/blur/key handler — and
-        // whatever had it (a field, and the keyboard with it) lets go.
-        // An SVG element under the finger takes the press (LLP 1055.000 D17).
-        let element = (n as? NodeView).flatMap { $0.kind == "svg" && !$0.inert ? presenter.svg.target($0.id, at: $0.local(p)) : nil }
-        // An inline run with its own press under the finger takes it, as
-        // `touchesEnded` presses it (`tap <paragraph> at <x> <y>` on a run).
-        if element == nil, let node = n as? NodeView, !node.disabled, !node.inert, let run = node.inlineActivationTarget(at: node.local(p)),
-           node.activateInline(run.id) {
-            return ["tapped": Int(v.id), "at": at, "pressed": Int(run.id)]
-        }
-        // A Markdown run's link under the finger is the press, as `touchesEnded` follows it.
-        if element == nil, let node = n as? NodeView, node.inlineActivationTarget(at: node.local(p)) == nil,
-           let href = node.inlineLink(at: node.local(p)) {
-            presenter.session?.follow(href)
-            return ["tapped": Int(v.id), "at": at, "followed": href]
-        }
-        let action = element == nil ? (n as? NodeView)?.activationTarget(at: p) : nil
-        var f: UIView? = n
-        var took = false
-        while let cur = f {
-            if let node = cur as? NodeView, let field = (node.textArea as UIView?) ?? node.field { if !field.isFirstResponder { _ = field.becomeFirstResponder() }; took = true; break }
-            // A node settles the press's focus as a finger's does
-            if let node = cur as? NodeView { node.focusForPress(target: action); took = true; break }
-            // A native module's responder takes it, unless under `retainFocus`
-            if cur.canBecomeFirstResponder {
-                if !presenter.contextRetainsFocus(cur) { if !cur.isFirstResponder { _ = cur.becomeFirstResponder() }; took = true }
-                break
-            }
-            f = cur.superview
-        }
-        // Nothing settled the focus, as in `focusForPress`: the text being
-        // edited loses it, and any other focus stays.
-        if !took && presenter.hasKeyboardEditor && !presenter.contextRetainsFocus(n ?? v) { presenter.endEditing() }
-        var pressed: Any = NSNull()
+        // What the finger reaches, taken where it lands (`fingerReach`):
+        // what the pointer events below do to the tree never sends the press
+        // elsewhere, as a real contact keeps its target.
+        let reach = fingerReach(hit, at: p)
         // An iPad's hardware keys held through the tap (gallery F20).
-        let held = (req["modifiers"] as? String).map { $0.hasSuffix("+") || $0.isEmpty ? $0 : $0 + "+" } ?? ""
-        if let element { presenter.press(element, held: held); pressed = Int(element) }
-        if let action, presenter.views[action.id] === action { presenter.press(action.id, held: held); pressed = Int(action.id) }
-        var reply: [String: Any] = ["tapped": Int(v.id), "at": at, "pressed": pressed]
+        let held = Agent.heldPrefix(req)
+        // A finger's `pointerdown` as it lands and `pointerup` as it lifts,
+        // before what the lift does (DOM's order), as `PointerRecognizer`
+        // hears a real touch before the node does; a held contact's lift
+        // sends its own (`fingerPhase`).
+        let fingers = Agent.fingerPath(from: hit)
+        fingerPointer(.down, fingers, at: p, held: held)
+        fingerPointer(.up, fingers, at: p, held: held)
+        var reply: [String: Any] = ["tapped": Int(v.id), "at": at].merging(lift(reach, at: p, held: held)) { a, _ in a }
         // Its middle reaches a control inside it: the tap landed beside it.
         if let avoided { reply["avoided"] = ["middle": [Agent.r2(b.midX), Agent.r2(b.midY)], "pressing": avoided.pressing ?? NSNull(), "what": avoided.described] as [String: Any] }
         return reply
@@ -1042,6 +1018,9 @@ extension Agent {
                     if name == "Enter" { f.insertText("\n") } else if name == "Backspace" { f.deleteBackward() }
                     else if Agent.caretKey(name, in: f) {} else if types { f.insertText(name) }
                     pendingTextReveal = f as? TextArea
+                } else if name == "Enter", let prompt = focus.headerField, let field = prompt.delegate as? PromptField {
+                    // A prompt's field is UIKit's, standing in for this one: its Return.
+                    _ = field.returnHeard(prompt)
                 } else if let f = focus.field as? TextField {
                     f.heard = name
                     if name == "Backspace" { f.deleteBackward() } else if name == "Enter" { _ = focus.textFieldShouldReturn(f) }
@@ -1177,6 +1156,18 @@ extension Agent {
         if !unshown.isEmpty {
             r["unshown"] = unshown.map { n -> [String: Any] in ["id": Int(n.id), "testId": n.props["testId"] ?? NSNull()] }
             r["unshownNote"] = "struck through in red: \(NavigationHost.unshownReason)"
+        }
+        // What the picture shows in the page that the app presents as UIKit's
+        // own, said where the image cannot (euxy port, FRICTION §2).
+        let painted = presenter.menus.presented.filter { $0.window != nil && !$0.isHidden }
+        if !painted.isEmpty {
+            r["painted"] = painted.map { n -> [String: Any] in ["id": Int(n.id), "testId": n.props["testId"] ?? NSNull()] }
+            r["paintedNote"] = "an open popover is painted in the page under the agent, as the web draws it (LLP 1021 D4): the app shows a menu as UIKit's menu at its invoker, a context menu's with its preview"
+        }
+        let bars = presenter.navigation.paintedForBars()
+        if !bars.isEmpty {
+            r["chrome"] = bars.map { n -> [String: Any] in ["id": Int(n.id), "testId": n.props["testId"] ?? NSNull()] }
+            r["chromeNote"] = "--chrome agent paints the authored header and tablist: the app shows UIKit's navigation bar and tab bar for them, which --chrome platform (exact.mjs's default) shows and `screenshot <png> window` draws"
         }
         // The software keyboard is not in the capture, which UIKit draws in a process of its own, and the app may
         // stand above it (LLP 1102 §3.17): say so, where the image alone reads as a shortened screen. The simulator

@@ -483,7 +483,7 @@ pub struct Frame {
     pub boxes: Vec<PaintedBox>,
 }
 
-pub use backend::Backend;
+pub use backend::{Backend, WindowLayer};
 
 /// The painter: the walk over one backend.
 pub struct Painter {
@@ -647,17 +647,29 @@ impl Painter {
         self.backend.name()
     }
 
-    pub(crate) fn recycle_window_layers(&mut self, below: Pixmap, above: Arc<Pixmap>) {
+    #[cfg(windows)]
+    pub(crate) fn recycle_window_layers(
+        &mut self,
+        below: Pixmap,
+        above: Arc<Pixmap>,
+        rows: (u32, u32),
+    ) {
         // Damage snapshots contain only the overlay after a split, not a
         // complete CPU picture. A window repaint rebuilds both layers.
         self.damage.pixels = None;
         self.damage.next.clear();
         self.backend
-            .recycle_window_layers(below, Arc::try_unwrap(above).ok());
+            .recycle_window_layers(below, Arc::try_unwrap(above).ok(), Some(rows));
     }
 
-    pub(crate) fn take_window_underlay(&mut self) -> Option<Pixmap> {
+    #[cfg(windows)]
+    pub(crate) fn take_window_underlay(&mut self) -> Option<WindowLayer> {
         self.backend.take_window_underlay()
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn window_overlay_rows(&self) -> Option<(u32, u32)> {
+        self.backend.window_overlay_rows()
     }
 
     /// Another backend from here on (the CPU's, once the GPU's failed a

@@ -336,3 +336,43 @@ component A
     assert!(host.engine.node_sampled(node));
     assert!(svg_lower::glass_sampling(host.runner.kernel(), &mut host.engine).is_empty());
 }
+
+/// LLP 1115.003 D4: a box's `translate` given as a percentage of itself
+/// lowers too, resolved against its border box when its specs are made, and
+/// its specs are made again when it resizes.
+#[test]
+fn a_percentage_translate_lowers_against_the_box_and_follows_a_resize() {
+    let app = "keyframes lift\n  from translate=\"0px 100%\"\n  to translate=\"0px 0px\"\ncomponent A\n  state on = false\n  state tall = false\n  action go\n    on = true\n  action grow\n    tall = true\n  view\n    column\n      button press=go testId=\"go\"\n        text \"Go\"\n      button press=grow testId=\"grow\"\n        text \"Grow\"\n      box testId=\"lane\" width=40 height=(tall ? 120 : 90) animation=(on ? \"lift 500ms ease-out both\" : \"none\")\n";
+    let plan = contract::compile(app).unwrap().encode();
+    let (mut host, _) = Host::boot(
+        &plan,
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+    )
+    .unwrap();
+    ios(&mut host);
+    let lane = id(&host, "lane");
+    let on = host.dispatch_at(id(&host, "go"), Event::Press, 100.0);
+    let y = |batch: &str| -> Vec<f64> {
+        specs(batch, lane)
+            .unwrap_or_default()
+            .iter()
+            .find(|s| s["k"] == "transform.translation.y")
+            .map(|s| {
+                s["v"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|v| v.as_f64().unwrap())
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    assert_eq!(y(&on), [90.0, 0.0], "{on}");
+    let v: serde_json::Value = serde_json::from_str(&on).unwrap();
+    assert_eq!(v["motion"], false, "Core Animation plays it: {on}");
+    let grown = host.dispatch_at(id(&host, "grow"), Event::Press, 200.0);
+    assert_eq!(y(&grown), [120.0, 0.0], "{grown}");
+}

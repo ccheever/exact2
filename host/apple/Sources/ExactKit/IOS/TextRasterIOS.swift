@@ -227,7 +227,14 @@ extension NodeView {
         // is made again from the range it broke at (`LineGeometry.clamped`).
         guard isParagraph && flowShapes.isEmpty && columnRecord == nil && !Capture.capturing && window != nil && backgroundClip != "text"
             && bounds.width > 0 && bounds.height > 0 else { return false }
-        return canvasAbove == nil && !paintsVisibleInlineRun
+        return canvasAbove == nil && !paintsVisibleInlineRun && !rollsNumerals
+    }
+    /// LLP 1077 D15: the paragraph's numerals roll per glyph, drawn by the
+    /// Numerals capability rather than as a raster (`NumeralLink`). Not in a
+    /// capture, which draws the paragraph as a picture.
+    var rollsNumerals: Bool {
+        NumeralLink.installed != nil && !Capture.capturing
+            && (style["content_transition"]?.string ?? "none") != "none"
     }
     /// The whole paragraph's pixels are up for its current text and box: a
     /// refresh has nothing to do for it until a change clears its key

@@ -28,6 +28,12 @@ export function pinchArguments(scale) {
   if (!(scale > 0 && Number.isFinite(scale))) throw new MalformedOperation('pinch: expected a positive finite scale');
 }
 
+export function intoArguments({ block = 'start', inline = 'nearest' }) {
+  for (const alignment of [block, inline]) {
+    if (!['start', 'center', 'end', 'nearest'].includes(alignment)) throw new MalformedOperation(`no alignment ${typeof alignment === "string" ? alignment : JSON.stringify(alignment)}: start, center, end or nearest`);
+  }
+}
+
 export function inputJSON(text) {
   try { return JSON.parse(text); } catch (e) { throw new MalformedOperation(e.message); }
 }
@@ -425,6 +431,7 @@ export function tapWords(args, held = false) {
         if (!['block', 'inline'].includes(rest[i]) || rest[i + 1] === undefined || rest[i] in into) refuse(`into: unknown option ${rest[i]}; block <start|center|end|nearest> and inline <…>, each once`);
         into[rest[i]] = rest[i + 1];
       }
+      try { intoArguments(into); } catch (e) { refuse(e.message); }
       return [first, { into }];
     }
     // A wheel at the target's middle or `at` in it, the modifiers held (a pinch is a Control-held wheel; studio diary R3).

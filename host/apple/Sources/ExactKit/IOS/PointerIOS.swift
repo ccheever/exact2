@@ -87,7 +87,7 @@ final class PointerRecognizer: UIGestureRecognizer {
         }
     }
     /// Up the authored tree (`Presenter.pointerParent`).
-    private static func bubbling(from node: NodeView) -> [NodeView] {
+    static func bubbling(from node: NodeView) -> [NodeView] {
         var nodes: [NodeView] = []
         var view: UIView? = node
         let presenter = node.presenter

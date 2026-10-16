@@ -572,7 +572,7 @@ test('a batch that wants frames presents every animation frame and keeps timer t
 // A real DOM is needed here: document capture runs before the clone forwards
 // its event to the detached original. A mock dispatch misses the double route.
 // Run an in-page fixture (a function) in headless Chrome over these glue modules; its result by value.
-async function inChrome(fixture, modules = ['/textflow-glue.js', '/timer-glue.js', '/input-glue.js'], files = {}, runtime = false) {
+async function inChrome(fixture, modules = ['/textflow-glue.js', '/timer-glue.js', '/input-glue.js', '/prompt-glue.js'], files = {}, runtime = false) {
   const { spawn } = await import('node:child_process');
   const { mkdtempSync, rmSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');

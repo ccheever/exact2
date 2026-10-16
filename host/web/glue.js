@@ -1,5 +1,6 @@
 // @ref LLP 1007 §3: the app is the wasm; this is its DOM host.
-import { textField, popoverCommand, contextAt, grantOrigins, createGrantSet, grantError, rawGrantText, scopedGrantSet, deferredFulfill, refusal, guestOutline, guestTap, commitGuestOrigin, guestMessageAuthorized, guestType, focusController, runFocusCommands, controlEvent, environment, preferences, onPreferences, inertAncestor, editMenu, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, frameURL, dataURL, devFirst, reportPlace, reportTime, launchLocation, pageReporter, appRootFontSize, valuedControl, typedControl, settleValue, typeControl, reveal, viewBox, foldBits, foldEnv, onFold, preferFold, fold, animationClocks, onSelection, noteFit, refitTexts, pageTitle } from "./navigation.js";
+import { textField, popoverCommand, contextAt, grantOrigins, createGrantSet, grantError, rawGrantText, scopedGrantSet, deferredFulfill, refusal, commitGuestOrigin, guestMessageAuthorized, focusController, runFocusCommands, controlEvent, environment, preferences, onPreferences, inertAncestor, editMenu, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, frameURL, dataURL, devFirst, reportPlace, reportTime, launchLocation, pageReporter, appRootFontSize, valuedControl, typedControl, typeControl, settleValue, foldBits, foldEnv, onFold, preferFold, fold, animationClocks, onSelection, noteFit, refitTexts, pageTitle, storeInPage } from "./navigation.js";
+let guestOutline, guestTap, guestType, reveal, viewBox, layoutBoxes, agentInputLoading;
 const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line (LLP 1069.007 D2)
 let httpModule, pickerModule, documentsModule, notifyModule; // the file picker (LLP 1069.002), documents (LLP 1069.010) and notifications, loaded on first use
 const picker = () => pickerModule ??= loadAfterPaint('./picker-glue.js', 'picker').then(install => install({ appId: globalThis.exact.compat?.inputs?.app, dispatch: (id, kind, payload) => { if (views.has(id)) send(wasm.exact_dispatch(id, kind, writeIn(payload), now())); }, pickedPath: (name) => loadStage('inspection').then(() => ask({ op: "pickedPath", name }).path), log }));
@@ -18,14 +19,14 @@ const pieces = afterPaintPieces(loadAfterPaint, { root, views, applyBatch, agent
   wasm(name, bytes) { if (!wasm) return null; new Uint8Array(memory.buffer, wasm.exact_in(bytes.length), bytes.length).set(bytes); return JSON.parse(readOut(wasm[name](bytes.length))); } });
 const { collections, motion, arrange } = pieces, retiredViews = new WeakSet(); // committed removals must not dispatch teardown events
 const presence = presenceLoader(loadAfterPaint, root, batch => applyBatch(batch), log); // -exact-exit-animation and -exact-layout-transition, after paint at first use (LLP 1063)
-let mediaModule, soundModule, soundOut, imageHold, geometry = null, resizes = null, intersects = null; // the voice table's output (sound-glue.js, LLP 1096 D7); animated images held to the agent's clock (image-glue.js, LLP 1011.000); geometry reads (geometry-glue.js, LLP 1051.000 D4); the element resize event (resize-glue.js)
+let mediaModule, mediaAttaching = new Set(), soundModule, soundOut, imageHold, geometry = null, resizes = null, intersects = null; // the voice table's output (sound-glue.js, LLP 1096 D7); animated images held to the agent's clock (image-glue.js, LLP 1011.000); geometry reads (geometry-glue.js, LLP 1051.000 D4); the element resize event (resize-glue.js)
 function syncMedia(el, set = {}, clear = []) {
   if (!(el instanceof HTMLMediaElement)) return;
   el.exactMedia ??= { props: {}, handlers: [] };
   Object.assign(el.exactMedia.props, set);
   for (const name of clear) delete el.exactMedia.props[name];
   mediaModule ??= new Promise(resolve => requestAnimationFrame(() => resolve(loadAfterPaint('./media-glue.js', 'installMedia'))));
-  mediaModule.then(install => { if (el.isConnected) install(el, payload => { if (views.get(Number(el.dataset.view)) === el && inputReady) send(wasm.exact_dispatch(Number(el.dataset.view), 19, writeIn(payload), now())); }); }).catch(console.error);
+  const attach = Promise.all([mediaModule, moduleReady]).then(([install]) => { if (el.isConnected) install(el, payload => { if (views.get(Number(el.dataset.view)) !== el || !inputReady) return false; send(wasm.exact_dispatch(Number(el.dataset.view), 19, writeIn(payload), now())); }); }).catch(console.error); mediaAttaching.add(attach); attach.finally(() => mediaAttaching.delete(attach)); // Attached once the data executor settles (a report before then is dropped), reporting what the element has then; `clock settle` waits for it, not `inflight`, which a module replacement drains during activation.
 }
 const iframeLoading = new WeakMap(); // iframe -> true until its latest src load
 const messageViews = new Set(), messageFrames = new Set(); // the latter: iframes whose node handles `message`
@@ -340,7 +341,7 @@ const pageFacts = pageReporter(agentMode), pageChanged = () => { if (wasm?.exact
 const mediaChanged = () => { if (wasm && root.childElementCount) applyBatch(presence.resize(JSON.parse(readOut(wasm.exact_resize(innerWidth, innerHeight, now(), preferences() | foldBits()))))); requestAnimationFrame(positionContexts); }; addEventListener("resize", mediaChanged); onPreferences(mediaChanged); const foldChanged = mediaChanged; onFold(foldChanged); // @ref LLP 1078 D6 — the posture and the segment counts ride the facts word beside the preferences; the browser resolves the `env(viewport-segment-*)` lengths itself
 visualViewport?.addEventListener("resize", () => requestAnimationFrame(positionContexts));
 const symbolStyle = document.createElement("style"); document.head.append(symbolStyle); // @ref LLP 1095 D8 — an untinted symbol is `AccentColor`: a zero-specificity default, so any authored tint wins. LLP 1116.003 D3.2: the nearest authored accent (`--exact-accent`), as the role is (LLP 1116.001 D2) and UIKit's inherited tint.
-symbolStyle.textContent = '@property --exact-tint{syntax:"<color>";inherits:false;initial-value:#000}:where(img[data-symbol-path]){--exact-tint:var(--exact-accent,AccentColor)}img[data-symbol-path]{background-color:var(--exact-tint)!important;mask-image:var(--exact-symbol-mask);mask-repeat:no-repeat;mask-position:center;mask-size:var(--exact-symbol-fit,100% 100%);mask-origin:content-box;mask-clip:content-box}';
+symbolStyle.textContent = '@property --exact-tint{syntax:"<color>";inherits:false;initial-value:#000}:where(img[data-symbol-path]){--exact-tint:var(--exact-accent,AccentColor)}img[data-symbol-path]{background-color:var(--exact-tint)!important;mask-image:var(--exact-symbol-mask);mask-repeat:no-repeat;mask-position:center;mask-size:var(--exact-symbol-fit,contain);mask-origin:content-box;mask-clip:content-box}';
 // A tinted raster's `scale-down` (element.rs `host_css`, LLP 1011 §3): `contain` unless its natural size fits the content box, known once it loads.
 function tintFit(el) {
   if (!el.style.getPropertyValue("mask-size").includes("--exact-tint-fit")) return;
@@ -389,7 +390,8 @@ function refreshSymbols() {
     el.style.setProperty("--exact-symbol-mask", el.symbolMask);
     const paddingX = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight), paddingY = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
     const fits = size <= el.clientWidth - paddingX && size <= el.clientHeight - paddingY;
-    const fit = cs.objectFit === "none" || (cs.objectFit === "scale-down" && fits) ? `${size}px ${size}px` : cs.objectFit === "scale-down" ? "contain" : cs.objectFit === "fill" ? "100% 100%" : cs.objectFit;
+    // `fill`, CSS's initial `object-fit`, keeps a symbol's aspect, as on the Apple hosts (LLP 1011 §4).
+    const fit = cs.objectFit === "none" || (cs.objectFit === "scale-down" && fits) ? `${size}px ${size}px` : cs.objectFit === "scale-down" || cs.objectFit === "fill" ? "contain" : cs.objectFit;
     el.style.setProperty("--exact-symbol-fit", fit);
   }
 }
@@ -686,11 +688,7 @@ function apply(batch) {
         // A secret the app kept or forgot (LLP 1018 D6): `localStorage`, origin-scoped, is the web's secret store; a persisted
         // state (LLP 1116 D5) is kept under its own name, as persist.js keeps it. A nameless agent drive
         // starts from nothing; a named `--storage` keeps this origin's keys.
-        if (!agentKeepsStore) break;
-        try {
-          const key = op.name.startsWith("exact.state.") ? op.name : "exact.secret." + op.name;
-          if (op.value == null) localStorage.removeItem(key); else localStorage.setItem(key, op.value);
-        } catch (e) { console.warn("exact: store", op.name, String(e)); }
+        if (agentKeepsStore) storeInPage(localStorage, op.name, op.value);
         break;
       }
       case "storage": {
@@ -900,7 +898,8 @@ function applyBatch(batch) {
   } finally { const outer = --globalThis.exact.applyDepth === 0; if (outer) { globalThis.exact.gpu?.drainRecords(); globalThis.exact.gpu?.layout?.(); globalThis.exact.committed?.(); } frameSampler?.batch(batch.seq, outer ? performance.now() - began : 0); }
 }
 let sending = 0; // batches being applied: a dispatch run while another's applies (a focus it moved) is one deeper
-function send(len) { sending++; try { return applyBatch(JSON.parse(readOut(len))).timers; } finally { sending--; } }
+function send(len) { return sendBatch(len).timers; }
+function sendBatch(len) { sending++; try { return applyBatch(JSON.parse(readOut(len))); } finally { sending--; } }
 // LLP 1019 D5: FontFace loading is part of host boot. The DOM remains empty until every local face loaded, or 100 ms elapsed. At the barrier, install
 // every face already ready unless its family has a failed sibling; faces that
 // finish later remain unused for this generation (no post-paint swap).
@@ -1074,6 +1073,7 @@ function tree(request) {
   return reply;
 }
 const SETTLE_DEADLINE_MS = 20_000;
+const mediaAttached = deadline => Promise.race([Promise.all(mediaAttaching).then(() => true), new Promise(resolve => setTimeout(() => resolve(false), Math.max(0, deadline - performance.now())))]); // the media glue's attaches (syncMedia), bounded as requests are
 async function waitForInflight(deadline) {
   if (!waiting().length) return true;
   let timer;
@@ -1083,7 +1083,18 @@ async function waitForInflight(deadline) {
 }
 async function settleGpu() { loadGpuIfNeeded(); await gpuLoading; return await globalThis.exact.gpu?.settled() ?? []; }
 function gpuPendingReply(request, pending) { const names = pending.map(item => item.name ?? "GPU work"); return request.op === "clock" ? {clock:agentClock, settled:false, reason:"gpu", pending:names} : {error:`GPU is not settled: ${names.join(", ")}`, pending:names}; }
-function agent(request) { if (!stageLoaded('inspection')) return loadStage('inspection').then(() => agent(request)); return agentMode && gpuInPlay() ? settleGpu().then(pending => pending.length ? gpuPendingReply(request, pending) : agentNow(request)) : agentNow(request); } // synchronous once inspection is in (LLP 1043.000 D7/D8)
+function agentInputReady() {
+  if (viewBox) return Promise.resolve();
+  return agentInputLoading ??= loadAfterPaint('./input-glue.js', 'agentInput').then(helpers => {
+    ({ guestOutline, guestTap, guestType, reveal, viewBox, layoutBoxes } = helpers);
+  });
+}
+// Synchronous once inspection and the agent's input helpers are ready (LLP 1043.000 D7/D8).
+function agent(request) {
+  if (!stageLoaded('inspection')) return loadStage('inspection').then(() => agent(request));
+  if (!viewBox) return agentInputReady().then(() => agent(request));
+  return agentMode && gpuInPlay() ? settleGpu().then(pending => pending.length ? gpuPendingReply(request, pending) : agentNow(request)) : agentNow(request);
+}
 function agentNow(request) { const r = agentReply(request), decorate = globalThis.exact.gpu?.decorate; return decorate ? decorate(request, r) : r; }
 function agentReply(request) {
   try {
@@ -1119,22 +1130,7 @@ function agentReply(request) {
         return st;
       }
       case "layout": {
-        // Every view in the document (attached, whether or not it lies in
-        // the viewport), by id, in the viewport's space with every scroll
-        // offset and transform folded in, to two decimals.
-        const r2 = (x) => Math.round(x * 100) / 100;
-        const nodes = [];
-        for (const [id, el] of [...views].sort((a, b) => a[0] - b[0])) {
-          if (!el.isConnected) continue;
-          const r = exact.gpu?.placementHidden(el) ? new DOMRect() : viewBox(el);
-          const n = { id, x: r2(r.x), y: r2(r.y), w: r2(r.width), h: r2(r.height) };
-          if (el instanceof HTMLIFrameElement) {
-            const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-            n.hit = hit === el;
-          }
-          if (el.dataset.scroll === "true") { n.sx = r2(el.scrollLeft); n.sy = r2(el.scrollTop); }
-          nodes.push(n);
-        }
+        const nodes = layoutBoxes(views, exact.gpu);
         const reply = { clock: now(), viewport: { w: innerWidth, h: innerHeight }, env: environment(), nodes };
         if (request.id != null) {
           const detail = nodeDetail(request.id, request.plan === true);
@@ -1159,7 +1155,7 @@ function agentReply(request) {
       }
       case "tap": {
         const i = request.into; // @ref LLP 1070.000 §5 — the runner's request, its batch applied now
-        if (i) { send(wasm.exact_into_view(request.id, writeIn(`${i.key ?? ''}\n${i.block ?? 'start'}\n${i.inline ?? 'nearest'}`))); return tagged({ tapped: request.id, into: i }); }
+        if (i) { for (const a of [i.block === undefined ? 'start' : i.block, i.inline === undefined ? 'nearest' : i.inline]) if (!['start', 'center', 'end', 'nearest'].includes(a)) return { error: `no alignment ${typeof a === "string" ? a : JSON.stringify(a)}: start, center, end or nearest`, malformed: true }; const { batch } = sendBatch(wasm.exact_into_view(request.id, writeIn(`${i.key ?? ''}\n${i.block ?? 'start'}\n${i.inline ?? 'nearest'}`))); return batch.error != null ? { error: batch.error } : tagged({ tapped: request.id, into: i }); }
         const frame = views.get(request.id);
         if (request.history !== undefined || request.back) return request.back ? navigation.back(root) : navigation.travel(frame, request.history); // the agent's `back` (LLP 1116.006 D4)
         if (frame && (frame.closest("[inert]") || ["hidden", "collapse"].includes(getComputedStyle(frame).visibility)))
@@ -1178,7 +1174,7 @@ function agentReply(request) {
         return clock(request).then((r) => { if (!r.error) followOffset(agentClock); return tagged(r); });
       case "tree": return tree(request);
       case "tags": return ask(request);
-      case "reveal": return tagged(reveal(views.get(request.id), request.id)); // before a tap or a type (navigation.js)
+      case "reveal": return tagged(reveal(views.get(request.id), request.id)); // before a tap or a type (input-glue.js)
       case "axStamp": // @ref LLP 1080.002 D4 — each live view's id where CDP's DOM snapshot reads it, and the document's nonce
         for (const [id, el] of views) if (el.isConnected && el.getAttribute("data-agent-view") !== String(id)) el.setAttribute("data-agent-view", id);
         return tagged({ nonce: performance.timeOrigin });
@@ -1224,13 +1220,13 @@ async function clock(request) {
   // land, the clock unmoved and no timer fired (Runner::land_then). `clock data` (web-js agent.js) first
   // waits for activation and every request in flight, landing until a landing sends nothing (a test's first step).
   if (request.land || request.data) { if (request.data) await moduleReady; const deadline = performance.now() + SETTLE_DEADLINE_MS, unsettled = { clock: agentClock, settled: false, reason: "requests" };
-    for (let round = 0; round < 16; round++) { if (request.data && !(await waitForInflight(deadline))) return unsettled; const { batch } = applyBatch(JSON.parse(readOut(wasm.exact_advance(agentClock, 2)))); if (batch.error) return { error: `clock: ${batch.error}`, clock: agentClock }; if (!request.data) return { clock: agentClock }; if (!waiting().length) return { clock: agentClock, settled: true }; } return unsettled; }
+    for (let round = 0; round < 16; round++) { if (request.data && !(await waitForInflight(deadline) && await mediaAttached(deadline))) return unsettled; const { batch } = applyBatch(JSON.parse(readOut(wasm.exact_advance(agentClock, 2)))); if (batch.error) return { error: `clock: ${batch.error}`, clock: agentClock }; if (!request.data) return { clock: agentClock }; if (!waiting().length && !mediaAttaching.size) return { clock: agentClock, settled: true }; } return unsettled; }
   const settle = !!request.settle; if (imageHold) await (await imageHold).ready(); // an animated image starts on the clock it lands at
   const deadline = performance.now() + SETTLE_DEADLINE_MS;
   let world = {};
   const reply = (settled, requests) => ({ clock: agentClock, ...(settled === undefined ? {} : { settled }), ...world.reply, ...(settled === false && world.pending ? { reason: "world" } : settled === false && requests ? { reason: "requests" } : {}) });
   for (let rounds = 0; ; rounds++) {
-    if (settle && !(await waitForInflight(deadline))) return reply(false, true); const pieceLoad = pieces.pending(); if (pieceLoad) await pieceLoad; if (settle) collections.settle(); // rows a list shows are built at this clock, before it moves (as the JS agent does): their animations start here
+    if (settle && !(await waitForInflight(deadline) && await mediaAttached(deadline))) return reply(false, true); const pieceLoad = pieces.pending(); if (pieceLoad) await pieceLoad; if (settle) collections.settle(); // rows a list shows are built at this clock, before it moves (as the JS agent does): their animations start here
     if (gpuInPlay()) { const pending = await settleGpu(); if (pending.length) return gpuPendingReply(request, pending); }
     const to = settle ? Math.max(settleCandidate(), world.settleAt ?? agentClock) : request.to;
     if (!(to >= agentClock)) return { error: `the clock cannot go backwards (${agentClock} → ${to})` };
@@ -1248,7 +1244,7 @@ async function clock(request) {
     world = globalThis.exact.gpu?.clock?.(settle) ?? {};
     if (!settle) { if (imageHold) await (await imageHold).ready(); const n = waiting().length, b = n ? ask({ op: "state" }).background : null, background = b ? b.queued + b.inFlight : 0; return { ...reply(), ...(n ? { inflight: n } : {}), ...(background ? { background } : {}) }; } // what a jump leaves in flight on real time, which the driver names (calendar F10), and the module's storage (LLP 1097 D9)
     collections.settle(); // every list built and measured where it shows (LLP 1070 G3)
-    if (waiting().length) { if (rounds >= 15) return reply(false, true); continue; }
+    if (waiting().length || mediaAttaching.size) { if (rounds >= 15) return reply(false, true); continue; }
     const next = Math.max(settleCandidate(), world.settleAt ?? agentClock);
     if (next <= agentClock && !world.pending) { if (imageHold) await (await imageHold).ready(); const held = ask({ op: "holds" }); return held.holds?.length ? { ...reply(false), reason: "device", tickets: held.tickets } : reply(true); } // a hold is never waited on (LLP 1069.007 D3)
     if (rounds >= 15) return reply(false);
@@ -1267,7 +1263,7 @@ function activateData() {
   const batch = JSON.parse(readOut(wasm.exact_data_ready()));
   if (batch.error) throw new Error(batch.error);
   let inputOpen; const inputOpened = new Promise(resolve => { inputOpen = resolve; });
-  page?.release(applyBatch, inputOpened); applyBatch(batch); // early presses replay once input is ready
+  page?.release(applyBatch, inputOpened, () => navigation.activate(root, log)); applyBatch(batch); // early presses replay once input is ready
   const ready = () => {
     setInputReady(true); collections.dataReady(); root.dataset.moduleReady = 'true'; inputOpen();
     if (pageNative) loadPageNative().then(native => native.drain()).catch(error => log(`native: ${error}`));
@@ -1350,8 +1346,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   if(storageRequests){storageRequests.then(s=>s.dispose()).catch(()=>{});storageRequests=null;}
   grants = []; grantSet = null; unparsed = "";
   for (const controller of controllers) controller.abort();
-  controllers.clear(); forgettable.clear();
-  inflight.clear();
+  controllers.clear(); forgettable.clear(); inflight.clear(); mediaAttaching.clear();
   if (!page?.holding) root.replaceChildren(); document.getElementById("exact-theme")?.remove(); // the last plan's theme (LLP 1095 D4): this boot's batch sets its own
   commitFonts(preparedFonts);
   focus.restart(kept, () => applyBatch(batch), () => ask({ op: "tree" }), id => views.get(id));
@@ -1412,7 +1407,7 @@ globalThis.exact = { ...globalThis.exact, mutate, devFirst: () => devFirst(),
   },
   message: (el, text) => { const id = Number(el?.dataset.view); if (inputReady && el && views.get(id) === el && messageViews.has(id)) send(wasm.exact_dispatch(id, 9, writeIn(text), now())); },
   get devAssets() { return devAssets; },
-  get ready() { return ready.then(async () => { await moduleReady; if (!inputReady) throw new Error(root.dataset.error || 'data executor not ready'); }); },
+  get ready() { return ready.then(async () => { await moduleReady; if (!inputReady) throw new Error(root.dataset.error || 'data executor not ready'); if (agentMode) await agentInputReady(); }); },
   ...(agentMode ? { agent, agentSettled, now, worldCarry: globalThis.exactWorldCarry } : {}), get wasm() { return wasm; }, assetURL: localAssetURL, stages: () => Object.fromEntries(Object.keys(stages).map(name => [name, stageLoaded(name) ? 'loaded' : 'staged'])), writeIn, readOut, send, views, root, generation: 0, pendingSurfaces: [], postBound: POST_BOUND,
 };
 // The GPU module, on demand: a script element after a rendering opportunity
@@ -1463,6 +1458,7 @@ async function main() {
     .then(async loader => { moduleLoader = loader; const payload = first?.module ?? await loader.baked(); const replaces = Boolean(first?.module) && JSON.parse(decoder.decode(payload.receipt)).module?.sha256 !== logicInfo.revision; return { ...payload, replaces, realm: await loader.prepare(payload, logicInfo, replaces ? undefined : 0) }; });
   const prepared = page ? realm() : null; prepared?.catch(() => {}); // awaited, and reported, at activation
   await boot(first?.plan ?? null, first ? assetNamespace(first.assets) : null, () => true, null, true); // @ref LLP 1007 §6
+  if (!page) navigation.activate(root, log); // A served document stays unsplit until release adopts it (LLP 1115.002 D4).
   root.dataset.bootMs = (performance.now() - t0).toFixed(1);
   const activate = async () => {
     loadGpuIfNeeded(); if (wasm.exact_motion) pieces.preload(); if (globalThis.launchQueue) documentsGlue().catch(console.error); // motion links its export (LLP 1047 D3); an installed app's launch files (LLP 1069.010)
@@ -1495,4 +1491,4 @@ ready = main();
 ready.catch((e) => { console.error(e); root.dataset.error = String(e); });
 function navigate(location) { const batch = globalThis.exact.navigate(location); return /^NoHandler|no navigation root/.test(batch?.error ?? "") ? false : batch; } // @ref LLP 1038 D7/D8/D11 — the mirror observes the handler's synchronous commit. false: unheard, so Back is the runner's own (LLP 1115 D5)
 const hostGo = location => { if (!inputReady) return null; const batch = JSON.parse(readOut(wasm.exact_host_go(writeIn(location), now()))); applyBatch(batch); return batch; }; // the runner's own `go` (LLP 1115.000 D4.3): Forward, and a link to a route (input-glue.js)
-navigation.connect(root, navigate, log, id => { if (inputReady) applyBatch(JSON.parse(readOut(wasm.exact_host_back(id, now())))); }, globalThis.exact.go = hostGo);
+navigation.connect(root, navigate, log, id => { if (inputReady) applyBatch(JSON.parse(readOut(wasm.exact_host_back(id, now())))); }, globalThis.exact.go = hostGo, href => !!wasm && wasm.exact_route_match(writeIn(href)) === 1, true);

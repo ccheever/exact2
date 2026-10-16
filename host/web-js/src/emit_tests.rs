@@ -459,3 +459,83 @@ exact.surfaceRecord('world',null); equal(read(),expected);
         String::from_utf8_lossy(&out.stderr)
     );
 }
+
+#[test]
+fn split_metadata_keeps_lists_and_handler_write_sets_distinct() {
+    let plan = contract::compile(r#"routes nav
+  home "/"
+    item "/item/:id"
+
+component App
+  state wide = false
+  action toggle
+    wide = !wide
+  action open
+    nav = push(nav, path("item", "a"))
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back"
+      for e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` position="absolute" inset=0
+          list testId="strip" virtualized=true display="flex" height=120 overflow-x="scroll" overflow-y="hidden" estimated-item-width=180
+            for n in ["a", "b"] key=n
+              text n width=180
+          list testId="rows" role=(wide ? "presentation" : "list")
+            link href="/item/a" testId="href"
+              text "A"
+            link href="/item/a" press=toggle testId="local"
+              text "Pick"
+            button "Open" press=open testId="push"
+          button "Toggle" press=toggle testId="toggle"
+"#).unwrap();
+    let sites = crate::emit::Sites::new(&plan).unwrap();
+    let parts = crate::style::project(&plan, &sites, &mut Vec::new()).unwrap();
+    let part = |name: &str| {
+        parts
+            .iter()
+            .flatten()
+            .find(|part| part.props.get("data-testid").is_some_and(|id| id == name))
+            .unwrap()
+    };
+    assert_eq!(
+        part("rows")
+            .props
+            .get("data-exact-list")
+            .map(String::as_str),
+        Some("")
+    );
+    assert!(!part("rows")
+        .props
+        .contains_key("data-exact-estimated-item-width"));
+    assert_eq!(
+        part("strip")
+            .props
+            .get("data-exact-list")
+            .map(String::as_str),
+        Some("")
+    );
+    assert_eq!(
+        part("strip")
+            .props
+            .get("data-exact-estimated-item-width")
+            .map(String::as_str),
+        Some("180")
+    );
+    for (name, fact) in [
+        ("href", None),
+        ("local", Some("false")),
+        ("push", Some("true")),
+    ] {
+        assert_eq!(
+            part(name)
+                .props
+                .get("data-exact-router-press")
+                .map(String::as_str),
+            fact,
+            "{name}"
+        );
+    }
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    assert!(js.contains("data-exact-estimated-item-width"), "{js}");
+    assert!(js.contains("data-exact-router-press"), "{js}");
+    assert!(js.contains("data-exact-list"), "{js}");
+}

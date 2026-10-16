@@ -64,7 +64,7 @@ function iosDrive(host, opts = { dx: 0, dy: -300 }) {
   };
   const carrier = {
     touches: null,
-    async input(id, phase) { return later({ phase, delivery: 'unsupported', reason: 'no held contact across requests on iOS (LLP 1080.000 P3)' }); },
+    async input(id, phase, opts) { asked.push([phase, opts]); return later({ phase, delivery: 'unsupported', reason: 'no held contact across requests on iOS (LLP 1080.000 P3)' }); },
     async ask(req) { asked.push(req); return later(host(req)); },
   };
   return { asked, run: () => dragTap({ s, carrier, node: { id: 9 }, target: 'content', host: 'ios', timing: 'agent', tapRefusal: async (_, __, e) => e }, opts) };
@@ -74,7 +74,8 @@ function iosDrive(host, opts = { dx: 0, dy: -300 }) {
 test('an iOS drag without real touches scrolls the scroller it starts on', async () => {
   const d = iosDrive(() => ({ tapped: 9, at: [200, 370], scrolledBy: [0, 300], delivery: 'recognized', native: 'scroll' }));
   const r = await d.run();
-  expect(d.asked).toEqual([{ op: 'tap', id: 9, scrollDrag: [0, -300] }]);
+  // Its contact is asked for a pan's alone (`pan`): a finger held elsewhere would drag nothing.
+  expect(d.asked).toEqual([['down', { x: 200, y: 370, pan: true }], { op: 'tap', id: 9, scrollDrag: [0, -300] }]);
   expect(r.delivery).toBe('recognized');
   expect(r.scrolledBy).toEqual([0, 300]);
   expect(r.drag).toEqual(expect.objectContaining({ dx: 0, dy: -300 }));
@@ -88,7 +89,7 @@ test('an iOS drag the host cannot recognize fails, naming --touch platform', asy
 test('an iOS drag with ops during it needs a held finger', async () => {
   const d = iosDrive(() => ({}), { dx: 0, dy: -300, hold: 100, during: [async () => ({})] });
   await expect(d.run()).rejects.toThrow('--touch platform');
-  expect(d.asked).toEqual([]);
+  expect(d.asked.filter((a) => !Array.isArray(a))).toEqual([]);
 });
 
 test('drag-to movement depends on layout and fails as a refusal', async () => {

@@ -87,7 +87,11 @@ mod preferences;
 mod requests;
 mod retained_action;
 mod reveal;
+mod scroll_end;
 mod scrollers;
+use scroll_end::Completion;
+#[cfg(all(test, not(windows)))]
+mod scroll_end_tests;
 mod shortcuts;
 #[cfg(target_os = "android")]
 pub(crate) mod still;
@@ -151,6 +155,7 @@ pub struct Presenter<D: DataSource> {
     pub(crate) brush: Painter,
     viewport: (f32, f32),
     scroll: BTreeMap<ViewId, (f32, f32)>,
+    scroll_end: scroll_end::State,
     page: (f32, f32),
     images: Images,
     pub(crate) assets: Assets,
@@ -457,6 +462,7 @@ impl<D: DataSource> Presenter<D> {
             ahead: None,
             viewport,
             scroll: BTreeMap::new(),
+            scroll_end: Default::default(),
             page: (0.0, 0.0),
             images,
             assets,
@@ -810,6 +816,8 @@ impl<D: DataSource> Presenter<D> {
                     .map(|reason| format!("selected asset refused: {reason}"))
             });
         }
+        // A focusout can synchronously reveal the route this commit hid.
+        self.retire_scroll_ends();
         let (focus_sent, focus_error) = self.clear_removed_focus();
         error = error.or(focus_error);
         if focus_sent {
@@ -877,6 +885,7 @@ impl<D: DataSource> Presenter<D> {
             return None;
         }
         for id in &renewed {
+            self.scroll_end.forget(*id);
             self.dirty |= self.scroll.remove(id).is_some();
         }
         self.hosted_renewed(&renewed);
@@ -1208,6 +1217,9 @@ impl<D: DataSource> Presenter<D> {
                         off.1
                     };
                     self.scroll.insert(id, (nx, ny));
+                    if (nx, ny) != off {
+                        self.scroll_end_moved(id, Completion::Instant);
+                    }
                     self.last_wheel = Some(id);
                     self.dirty = true;
                     self.collection_scrolled_or_deferred(id);
@@ -1328,11 +1340,13 @@ impl<D: DataSource> Presenter<D> {
             let refined = self.refine_collections();
             return region_error
                 .or(refined)
-                .or(self.refresh_transform_geometry());
+                .or(self.refresh_transform_geometry())
+                .or(self.deliver_scroll_ends());
         }
         let e = self.host.fulfill_all(outcomes, now_ms);
         let after = self.after_commit();
-        region_error.or(e).or(after)
+        let ends = self.deliver_scroll_ends();
+        region_error.or(e).or(after).or(ends)
     }
 
     /// The executor's wake: readable when a reply is queued (for `poll`).
@@ -1354,6 +1368,7 @@ impl<D: DataSource> Presenter<D> {
 
     /// Another host took over: it is measured as the last was, and counted.
     pub(crate) fn replaced(&mut self) {
+        self.scroll_end = Default::default();
         self.give_clock();
         // A new kernel may have the same epoch.
         self.brush.paint_epoch = None;
@@ -1400,7 +1415,8 @@ impl<D: DataSource> Presenter<D> {
         self.dirty |= paint;
         let after = self.finish_commit();
         self.hatch_timers(now_ms);
-        e.or(after)
+        let ends = self.deliver_scroll_ends();
+        e.or(after).or(ends)
     }
 
     /// A display frame for the frame tasks (LLP 1073 D5): timers due by
@@ -1410,7 +1426,8 @@ impl<D: DataSource> Presenter<D> {
         self.dirty |= paint;
         let after = self.finish_commit();
         self.hatch_presented(now_ms);
-        e.or(after)
+        let ends = self.deliver_scroll_ends();
+        e.or(after).or(ends)
     }
 
     /// A motion frame.
@@ -1429,6 +1446,9 @@ impl<D: DataSource> Presenter<D> {
             }
         }
         self.tick_arrange(self.host.now());
+        if let Some(error) = self.deliver_scroll_ends() {
+            self.host.log(error);
+        }
         self.dirty |= animating;
     }
 

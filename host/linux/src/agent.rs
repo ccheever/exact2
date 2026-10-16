@@ -13,6 +13,7 @@ pub(crate) mod contact;
 
 use crate::presenter::Presenter;
 use exact_runner::agent::{error, field_bool, field_num, field_str, num};
+use exact_runner::instance::collection::Align;
 use exact_runner::DataSource;
 use std::io::{BufRead, Write};
 
@@ -85,6 +86,7 @@ pub fn handle<D: DataSource + Default>(p: &mut Presenter<D>, line: &str) -> Stri
     p.sync_surfaces();
     let reply = p.surfaces.error.take().map_or(reply, |e| error(&e));
     p.run_commands(D::default);
+    let reply = p.settle_scroll_commands(line, reply);
     // The moments this command's commits caused, after them and before its picture.
     p.hatch_moments();
     // In the headless carrier a completed paint is presentation. A command
@@ -317,6 +319,24 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                     Some(Err(why)) => serde_json::json!({ "back": "route", "delivery": "platform", "refused": why }).to_string(),
                 };
             }
+            // An `into` is the runner's request, never a press: a bad alignment is refused before any delivery.
+            if let Some(into) = request.get("into") {
+                for name in ["block", "inline"] {
+                    if let Some(alignment) = into.get(name) {
+                        if !alignment
+                            .as_str()
+                            .is_some_and(|name| Align::parse(name).is_some())
+                        {
+                            let name = alignment
+                                .as_str()
+                                .map_or_else(|| alignment.to_string(), str::to_owned);
+                            return malformed(&format!(
+                                "no alignment {name}: start, center, end or nearest"
+                            ));
+                        }
+                    }
+                }
+            }
             if let Some(reply) = p.control_tap(&request) {
                 return reply.to_string();
             }
@@ -400,6 +420,9 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                 }
             }
             let r = match wheel {
+                Some((dx, dy)) if field_bool(line, "gesture") && p.tracks_scroll_end(id) => {
+                    p.reader_wheel(id, dx, dy)
+                }
                 Some((dx, dy)) => p.wheel(id, dx, dy),
                 None if field_bool(line, "hover") => p.hover(id),
                 // `at`: a point in the target, whatever a press there reaches (LLP 1012 §1).
@@ -840,6 +863,7 @@ fn settle<D: DataSource>(p: &Presenter<D>) -> Option<f64> {
     field_num(&p.host().agent("{\"op\":\"settle\"}"), "settle")
         .into_iter()
         .chain(p.group_settles_at())
+        .chain(p.scroll_end_due())
         .reduce(f64::max)
 }
 
@@ -1038,7 +1062,7 @@ fn clock_within<D: DataSource>(
             .filter(|w| w["quiescent"] == false)
             .filter_map(|w| w["settleAt"].as_f64())
             .fold(landed.max(settle(p).unwrap_or(landed)), f64::max);
-        if next <= landed {
+        if next <= landed && p.scroll_end_due().is_none() {
             // A held device request never settles on its own and is never
             // waited on: the fixed point is reached, and the agent is told
             // what still waits for it (LLP 1069.007 D3).

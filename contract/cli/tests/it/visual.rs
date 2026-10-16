@@ -140,3 +140,18 @@ fn a_vendor_prefixed_name_is_an_attribute_before_its_equals_and_a_negation_elsew
     assert!(a.text_stroke_color.is_some());
     assert_eq!(style_of(&r, "b").text_stroke_width, 3.0);
 }
+
+/// LLP 1115.003 D3: a plan that binds `-exact-content-transition` uses the
+/// numerals capability, which links SwiftUI's numeric text on Apple; one that
+/// does not, does not.
+#[test]
+fn a_rolling_number_uses_the_numerals_capability() {
+    use exact_runner::Capability;
+    let rolls = contract::compile(
+        "component A\n  view\n    text \"1,234\" -exact-content-transition=\"numeric\"\n",
+    )
+    .unwrap();
+    assert!(exact_runner::uses(&rolls).has(Capability::Numerals));
+    let still = contract::compile("component A\n  view\n    text \"1,234\"\n").unwrap();
+    assert!(!exact_runner::uses(&still).has(Capability::Numerals));
+}

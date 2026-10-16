@@ -8,9 +8,9 @@ import { homedir, tmpdir } from 'node:os';
 import { delimiter, resolve, toNamespacedPath } from 'node:path';
 import { HERMES_INSTALLER, hermesBundle, hermesLeanSysRoots } from './app.mjs';
 import { checkHermesBundles, hermesCrossTargets, hermesSetupTargets } from './exact.mjs';
-import { iosAssets, infoPlist, macInfoPlist, documentTypes, importedTypes, exportedTypes, writeUsageStrings, designCompatible, COMPATIBLE_SDK } from '../host/apple/build.mjs';
+import { iosAssets, infoPlist, macInfoPlist, documentTypes, importedTypes, exportedTypes, writeUsageStrings, designCompatible, COMPATIBLE_SDK, moduleTripleFor } from '../host/apple/build.mjs';
 import { useXcode } from '../host/apple/devices.mjs';
-import { macReleaseEntitlements } from '../host/apple/assets.mjs';
+import { macReleaseEntitlements, launchImageInventory } from '../host/apple/assets.mjs';
 
 // These cases run cargo (the filesystem tool, bakes, locks). A shell whose PATH
 // omits rustup's bin directory still finds it there; without cargo, say so.
@@ -19,6 +19,32 @@ if (!(process.env.PATH ?? '').split(delimiter).includes(cargoBin)) process.env.P
 if (!Bun.which('cargo', { PATH: process.env.PATH })) throw new Error(`these tests need cargo: put it on PATH or in ${cargoBin}`);
 // The fixtures name their apps; a caller's EXACT_APP_DIR would redirect every one.
 delete process.env.EXACT_APP_DIR;
+
+for (const [sdk, platform, ios, device, tv] of [
+  ['macosx', 'MACOS', false, false, false],
+  ['iphoneos', 'IOS', true, true, false],
+  ['iphonesimulator', 'IOSSIMULATOR', true, false, false],
+  ['appletvos', 'TVOS', true, true, true],
+  ['appletvsimulator', 'TVOSSIMULATOR', true, false, true],
+]) test(`app module deployment target follows minimumOS: ${sdk}`, () => {
+  if (process.platform !== 'darwin') return;
+  useXcode();
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-module-target-'));
+  try {
+    const source = resolve(dir, 'Module.swift'), dylib = resolve(dir, 'Module.dylib');
+    for (const raised of [false, true]) {
+      const minimum = raised ? '26.0' : ios ? '17.0' : '14.0';
+      const app = { manifest: raised ? { host: { macos: { minimumOS: '26.0' }, ios: { minimumOS: '26.0' } } } : {} };
+      writeFileSync(source, `@available(macOS ${minimum}, iOS ${minimum}, tvOS ${minimum}, *)\nfunc requiredAPI() -> Int { 26 }\npublic func moduleValue() -> Int { requiredAPI() }\n`);
+      const built = spawnSync('xcrun', ['--sdk', sdk, 'swiftc', '-parse-as-library', '-emit-library', '-target', moduleTripleFor(app, ios, device, tv), source, '-o', dylib], { encoding: 'utf8' });
+      assert.equal(built.status, 0, `${sdk} minimumOS ${minimum}: ${built.stderr}`);
+      const load = spawnSync('xcrun', ['vtool', '-show-build', dylib], { encoding: 'utf8' });
+      assert.equal(load.status, 0, load.stderr);
+      assert.match(load.stdout, new RegExp(`platform ${platform}\\s`));
+      assert.match(load.stdout, new RegExp(`minos ${minimum.replace('.', '\\.')}\\s`));
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}, 60_000);
 
 test('iOS Hermes preflight selects the pinned digest and exact installer command', () => {
   const home = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-hermes-home-')));
@@ -90,15 +116,30 @@ test.skipIf(process.platform !== 'darwin')('iOS distribution assets retain the i
     writeFileSync(resolve(dir, 'icon.png'), Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64'));
     const bundle = resolve(dir, 'Fixture.app');
     mkdirSync(bundle);
-    const app = { dir, name: 'fixture', manifest: { icons: [{ src: 'icon.png', sizes: '1024x1024' }], background_color: '#fff', background_color_dark: '#123456' } };
+    const app = { dir, name: 'fixture', manifest: { icons: [{ src: 'icon.png', sizes: '1024x1024' }], background_color: '#fff', background_color_dark: '#123456',
+      host: { ios: { launchImage: { src: 'icon.png', width: 40 } } } } };
     const keys = iosAssets(app, bundle, true, { catalog: true });
     assert.equal(keys.CFBundleIcons.CFBundlePrimaryIcon.CFBundleIconName, 'AppIcon');
     assert.equal(keys.UILaunchScreen.UIColorName, 'ExactLaunch');
+    assert.equal(keys.UILaunchScreen.UIImageName, 'ExactLaunchImage', 'the picture the launch screen centres on its colour');
     const result = spawnSync('xcrun', ['assetutil', '--info', resolve(bundle, 'Assets.car')], { encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
     const assets = JSON.parse(result.stdout);
     assert.ok(assets.some(asset => asset.Name === 'AppIcon'), 'Assets.car must retain AppIcon');
     assert.equal(assets.filter(asset => asset.Name === 'ExactLaunch').length, 2);
+    const launch = assets.filter(asset => asset.Name === 'ExactLaunchImage');
+    assert.ok(launch.length >= 1, 'Assets.car holds the launch image');
+    assert.ok(launch.every(asset => asset.PixelWidth === 40 * asset.Scale), `40 points wide at each scale: ${JSON.stringify(launch)}`);
+    // The launch image is a binary input: packaging draws the bytes the bake
+    // recorded, and refuses a picture replaced since, or one the receipt lacks.
+    const baked = launchImageInventory(app);
+    assert.equal(baked.sha256.length, 64);
+    const again = resolve(dir, 'Again.app'); mkdirSync(again);
+    assert.equal(iosAssets(app, again, true, { expectedLaunchImage: baked }).UILaunchScreen.UIImageName, 'ExactLaunchImage');
+    assert.throws(() => iosAssets(app, again, true, { expectedLaunchImage: null }), /launch image changed after the bake/);
+    writeFileSync(resolve(dir, 'icon.png'), Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64'));
+    assert.notEqual(launchImageInventory(app).sha256, baked.sha256);
+    assert.throws(() => iosAssets(app, again, true, { expectedLaunchImage: baked }), /launch image changed after the bake/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }, 60000);
 
@@ -209,6 +250,8 @@ test('the launch handler bakes `ExactLaunchMode` with or without documents (LLP 
     assert.throws(() => readManifest(dir, 'types'), /background_color: "white" does not match/);
     writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Types', app: { id: 'com.example.types', name: 'Types' }, background_color: '#fff', icons: [{ src: 'icon.png', sizes: '1024x1024' }] }));
     assert.throws(() => readManifest(dir, 'types'), /icons: icon\.png, the square icon the Apple bundles are drawn from, does not exist/);
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Types', app: { id: 'com.example.types', name: 'Types' }, host: { ios: { launchImage: { src: 'splash.png', width: 276 } } } }));
+    assert.throws(() => readManifest(dir, 'types'), /host\.ios\.launchImage: splash\.png, the launch screen's picture, does not exist/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 

@@ -480,7 +480,8 @@ browserCheck(`interaction documents stay readable, then replay edits and actions
       }));
       const page = exact.documentPage.connect({ views, log: line => __logs.push(line),
         dispatch: (id, kind, value) => __events.push([id, kind, value]) });
-      globalThis.__release = () => { page.hold({ops:[{op:'adopt',adopted:true}]}); page.release(() => {}); };`,
+      globalThis.__adopted = []; // what the caller's completion saw (glue.js activates navigation there)
+      globalThis.__release = () => { page.hold({ops:[{op:'adopt',adopted:true}]}); page.release(() => {}, undefined, () => __adopted.push([page.adopted, page.holding])); };`,
   };
   await withDocument('/', async tab => {
     const live = await tab(true);
@@ -498,6 +499,7 @@ browserCheck(`interaction documents stay readable, then replay edits and actions
     await live.until('globalThis.__loads === 1', 'interaction runtime');
     await live('__release()');
     expect(await live('exact.documentPage.holding')).toBe(true);
+    expect(await live('__adopted')).toEqual([]); // a composition defers the adoption and its completion
     await live(`(() => { const el = document.querySelector('input'); el.value = '東京';
       el.dispatchEvent(new CompositionEvent('compositionend',{bubbles:true}));
       el.dispatchEvent(new InputEvent('input',{bubbles:true})); el.setSelectionRange(1,1);
@@ -505,6 +507,7 @@ browserCheck(`interaction documents stay readable, then replay edits and actions
       document.querySelector('button').click(); })()`);
     await live.until('!exact.documentPage.holding && __events.length === 3', 'semantic replay');
     expect(await live('__events')).toEqual([[2,23,'東京'],[2,7,''],[3,0,'']]);
+    expect(await live('__adopted')).toEqual([[true, false]]); // once, after the held batches applied
     expect(await live('__logs')).toEqual([]);
     expect(await live("[document.querySelector('input').value,document.querySelector('input').selectionStart,document.activeElement.localName]")).toEqual(['東京',1,'input']);
     expect(await live('__loads')).toBe(1);

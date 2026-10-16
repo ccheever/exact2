@@ -425,7 +425,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             }
         }
         if let Some(bloom) = &self.bloom {
-            let draws = bloom.encode(
+            let passes = bloom.encode(
                 &self.queue,
                 encoder,
                 &self.pipelines,
@@ -434,7 +434,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             );
             if frame.timestamps.is_some() {
                 // Levels down from pair 4, then back up from pair 10.
-                let levels = draws.div_ceil(2);
+                let levels = passes.div_ceil(2);
                 for level in 0..levels {
                     self.mark(4 + level);
                     if level + 1 < levels {
@@ -442,7 +442,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                     }
                 }
             }
-            state.draws += draws;
+            state.draws += passes - 1; // The bright pass is a compute dispatch.
         }
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("game ACES"),

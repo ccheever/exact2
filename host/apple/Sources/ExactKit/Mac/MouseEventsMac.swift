@@ -26,7 +26,7 @@ extension Presenter {
     func contextMenuKey(_ event: NSEvent, in owner: NSWindow? = nil) -> Bool {
         guard event.type == .keyDown, NodeView.keyName(event) == "ContextMenu",
               event.modifierFlags.intersection([.shift, .control, .option, .command]).isEmpty,
-              let window = owner ?? event.window, window === viewport.window,
+              let window = owner ?? event.window, hosts(window),
               (window.firstResponder as? NSTextInputClient)?.hasMarkedText() != true else { return false }
         if let run = window.firstResponder as? InlineKeyView, run.owner?.inlineContextMenu(run.id) == true { return true }
         let point: NSPoint
@@ -36,6 +36,7 @@ extension Presenter {
             point = middle
             start = focus
         } else {
+            guard window === viewport.window else { return false }
             // A handler removed the focus: Chrome hits the page at (1,1).
             // An embedded view/editor still owns its keys, even when its
             // responder is not one of our focusable nodes.
@@ -48,7 +49,7 @@ extension Presenter {
             start = viewport.hitTest(viewport.superview?.convert(point, from: nil) ?? point)
         }
         guard let node = contextTarget(start) else { return false }
-        return contextMenu(node, at: point)
+        return contextMenu(node, at: point, from: start)
     }
 
     /// The node a request from the keyboard at `view` reaches (the
@@ -73,7 +74,7 @@ extension Presenter {
     /// space (its box when nil) as drawn, clipped by what clips it, in the
     /// window; nil when it takes no request or none of it is drawn.
     func contextPoint(_ node: NodeView, rect: NSRect? = nil) -> NSPoint? {
-        guard !node.disabled, !node.inert, !node.isHiddenOrHasHiddenAncestor,
+        guard !node.formDisabled, !node.inert, !node.isHiddenOrHasHiddenAncestor,
               !dialogs.blocks(node), node.field == nil, node.textArea == nil else { return nil }
         // AppKit's visibleRect clips the untransformed frame. Clip the
         // drawn anchor instead, including a frame translated into view.
@@ -93,14 +94,20 @@ extension Presenter {
         return drawn.isEmpty ? nil : NSPoint(x: drawn.midX, y: drawn.midY)
     }
 
-    /// `node`'s `contextmenu` and `contextPopover` at window point `point`,
-    /// as a request from the keyboard sends them: no button held.
-    func contextMenu(_ node: NodeView, at point: NSPoint) -> Bool {
-        let local = node.local(point), box = node.contentBox(), client = self.client(point)
+    /// `node`'s `contextmenu` and `contextPopover` at `point` in the source's
+    /// window (the node's when omitted), with no button held.
+    func contextMenu(_ node: NodeView, at point: NSPoint, from source: NSView? = nil) -> Bool {
+        func converted(to window: NSWindow?) -> NSPoint {
+            guard let from = source?.window ?? node.window, let window, from !== window else { return point }
+            return window.convertPoint(fromScreen: from.convertPoint(toScreen: point))
+        }
+        let windowPoint = converted(to: node.window)
+        let local = node.local(windowPoint), box = node.contentBox(), client = self.client(converted(to: viewport.window))
         let sample = PointerSample(x: Double(local.x - box.minX), y: Double(local.y - box.minY),
                                    buttons: 0, pressure: 0, type: "mouse", id: 1,
                                    clientX: Double(client.x), clientY: Double(client.y))
-        return node.dispatchContextMenu(at: node.convert(point, from: nil), sample: sample)
+        return node.dispatchContextMenu(at: node.convert(windowPoint, from: nil), sample: sample,
+                                        bubbled: source.map { $0 !== node } ?? false)
     }
 }
 
@@ -111,15 +118,30 @@ extension NodeView {
     /// The context action runs before the menu is read, for pointer and
     /// keyboard alike. A context action cannot leak its preventDefault to
     /// another input; keydown cancellation was handled before this default.
-    func dispatchContextMenu(at point: NSPoint, sample: PointerSample) -> Bool {
-        guard let presenter, presenter.views[id] === self, !disabled, !inert else { return false }
+    func dispatchContextMenu(at point: NSPoint, sample: PointerSample, bubbled: Bool = false) -> Bool {
+        guard let presenter, presenter.views[id] === self, !formDisabled, !(bubbled ? authoredInert : inert) else { return false }
         let action = handlers.contains("contextmenu"), menu = props["contextPopover"]?.isEmpty == false
         let outer = presenter.defaultPrevented
         presenter.defaultPrevented = false
         defer { presenter.defaultPrevented = outer }
         if action { presenter.mouseEvent(id, 10, sample.line) }
-        if menu { presenter.menus.context(self, at: point) }
+        // In the browser this ancestor's popover opens behind the modal, inert.
+        if menu, !inert { presenter.menus.context(self, at: point) }
         return action || menu
+    }
+
+    /// AppKit keeps the ordinary responder chain; only a lifted view's
+    /// step into the top layer goes through its authored ancestors instead.
+    func bubbleContextMenu(_ event: NSEvent) -> Bool {
+        guard let presenter, let parent = presenter.eventParent(of: self), parent !== superview else { return false }
+        var next: NSView? = parent
+        while let view = next {
+            if let node = view as? NodeView,
+               node.dispatchContextMenu(at: node.convert(Self.point(event, in: node.window), from: nil),
+                                        sample: node.pointerSample(event), bubbled: true) { return true }
+            next = presenter.eventParent(of: view)
+        }
+        return false
     }
 
     /// A Control-click is the Mac's secondary click (X85): Chrome sends it as
@@ -138,7 +160,7 @@ extension NodeView {
 
     /// Whether run `id`'s own `contextmenu` or `contextPopover` answers a context request.
     func inlineAnswersContextMenu(_ id: UInt32) -> Bool {
-        guard let presenter, presenter.inlineEnabled(id), let run = presenter.inlineText(id) else { return false }
+        guard let presenter, !presenter.inlineInert(id), let run = presenter.inlineText(id) else { return false }
         return run.handlers.contains("contextmenu") || run.props["contextPopover"]?.isEmpty == false
     }
 
@@ -184,10 +206,10 @@ extension NodeView {
     /// to the first node from this paragraph up that does, as Chrome's
     /// `contextmenu` at the run's element bubbles.
     func inlineContextMenu(_ id: UInt32) -> Bool {
-        guard let presenter, presenter.inlineEnabled(id), let run = presenter.inlineText(id),
+        guard let presenter, !presenter.inlineInert(id), let run = presenter.inlineText(id),
               let line = inlineRects(run).first, let point = presenter.contextPoint(self, rect: line) else { return false }
         guard let target = inlineContextTarget(from: run), let first = inlineRects(target).first else {
-            return presenter.contextTarget(self).map { presenter.contextMenu($0, at: point) } ?? false
+            return presenter.contextTarget(self).map { presenter.contextMenu($0, at: point, from: self) } ?? false
         }
         let local = self.local(point), client = presenter.client(point)
         let sample = PointerSample(x: Double(local.x - first.minX), y: Double(local.y - first.minY),
@@ -199,10 +221,10 @@ extension NodeView {
     /// Whether a request from the keyboard at run `id` reaches a run or
     /// node from it up whose `contextmenu` or `contextPopover` runs.
     func inlineOffersContextMenu(_ id: UInt32) -> Bool {
-        guard let presenter, presenter.views[self.id] === self, !disabled, !inert,
-              presenter.inlineEnabled(id), let run = presenter.inlineText(id) else { return false }
+        guard let presenter, presenter.views[self.id] === self, !formDisabled, !inert,
+              !presenter.inlineInert(id), let run = presenter.inlineText(id) else { return false }
         if inlineContextTarget(from: run) != nil { return true }
-        return presenter.contextTarget(self).map { !$0.disabled && !$0.inert } ?? false
+        return presenter.contextTarget(self).map { !$0.formDisabled && !$0.authoredInert } ?? false
     }
 
     /// `run`'s `contextmenu`, then its `contextPopover`'s menu at `point`

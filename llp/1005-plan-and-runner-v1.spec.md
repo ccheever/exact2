@@ -5,7 +5,7 @@
 **Systems:** Plan, Runner, Kernel (seam), Data seam
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-28
-**Amended:** 2026-10-13, Astra: scroll completion measurements, time ownership, shell-wake and agent-call limits, and regression reconciliation (§Scroll completion); implementation remains parked.
+**Amended:** 2026-10-13, Astra: scroll completion measurements, time ownership, shell-wake and agent-call limits, and regression reconciliation (§Scroll completion); full timing implementation remains parked; the Linux first step below preserves main’s time advancement.
 **Implementer:** Claude (Fable 5), landing 2026-08-28 (this document transcribes the landing)
 **Related:** LLP 1004 (the decisions this executes), LLP 1006 (the compiler that emits this format), LLP 1001 (the kernel the runner drives), LLP 1002 (the clock discipline the runner shares), LLP 0485 (the flat plan; research)
 
@@ -995,6 +995,41 @@ and [`scrollViewDidEndScrollingAnimation`](https://developer.apple.com/documenta
 Native scrolling's curve, duration and gesture recognition remain the
 platform's (LLP 1115). Existing Apple and web follow-up work is tracked in
 QUEUE's **scrollend gaps on the hosts that have it**, not in this Linux design.
+
+### Linux, first step
+
+**2026-10-15; owner: Charlie, implementation: Astra (`q1013/scrollend-lite`).**
+The Linux Presenter tracks only live scrollers with a `scrollend` handler.
+A moving wheel notch, keyboard scroll or instant API jump owes completion at
+the next delivery point. When collection turns are deferred, notches before that
+frame share one completion after main's single `scroll` at the final offset.
+Reader samples owe it 100 ms after their last actual move; owned edge scrolling
+waits for its owner to stop. Main's smooth requests still apply at once.
+Layout clamps, resize and inset adjustments start no scroll.
+A collection's end-follow or `scrollIntoView` owes one completion through its
+estimate corrections, after refinement and display acknowledgement finish.
+Removal, row renewal, bundle replacement, hidden routes or loss of a layout box
+retire the debt; inertness alone keeps it.
+
+Delivery follows pending `scroll` events at the existing advance, tick, pump,
+animation-frame and agent-clock service points. The Host's catch-up, timer budgets,
+frame mode and reply order are unchanged. **A completion is delivered at the next
+service point at or after its deadline, after runner work main already ran in that
+call.** A timer between the deadline and that wake may run first;
+`performanceNow()` reads the delivery time, not the deadline. The existing loop
+deadline includes eligible pending completion; a frame-blocked scroll waits for
+its frame. Agent settle includes completion-generated commands and their motion
+and request consequences with a bounded drain; it reports unsettled while a
+completion awaits display acknowledgement or a deferred scroll turn.
+Apps without a live handler create no completion tracking, events or wakes.
+On Linux, the agent's
+`tap <scroller> wheel <dx> <dy> gesture` supplies a reader sample for a scroller
+with this handler, so its quiet deadline can be driven on the seekable clock.
+
+The full timing rule below remains future work: known deadlines preceding later
+timers, complete snapshot/reentry ordering and the single per-call budget across
+all delivery paths. Android device qualification remains open. This first step
+does not adopt the time-owner design below or change Windows.
 
 ### Linux: one owner of time
 

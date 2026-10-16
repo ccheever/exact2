@@ -182,12 +182,12 @@
     },
     "link": {
       "type": "array",
-      "items": { "enum": ["markdown", "motion", "collections", "drag", "surfaces", "router", "format", "materials", "backdrop", "share", "documents", "picker", "timelines", "text_transform", "effects", "animations", "gradients", "grid", "geometry", "segments", "dataset", "tabs", "notifications", "grouped_lists", "io", "transitions", "media_picker", "auth_session"] },
+      "items": { "enum": ["markdown", "motion", "collections", "drag", "surfaces", "router", "format", "materials", "backdrop", "share", "documents", "picker", "timelines", "text_transform", "effects", "animations", "gradients", "grid", "geometry", "segments", "dataset", "tabs", "notifications", "grouped_lists", "io", "transitions", "media_picker", "auth_session", "numerals"] },
       "uniqueItems": true,
       "description": "Capabilities a native production build links before any plan uses them (LLP 1047 D8; LLP 1047.001), so a later bundle may: an archive otherwise links what its plan uses (and `auth_session` what its grants name) and nothing else, and a bundle that needs more is a new binary. Development links every capability but `media_picker` and `auth_session`, which it links as production would (LLP 1047.001.000 F). Names are the runner's (`exact_runner::Capability::name`)."
     },
     "icons": {
-      "description": "The app's icons, as the web manifest spells them (`src`, `sizes`, `type`, `purpose`). The native bakes derive their icon sets from these; a distribution build refuses an app without a square one.",
+      "description": "The app's raster icons, as the web manifest spells them (`src`, `sizes`, `type`, `purpose`). Apple bakes derive their icon sets from these unless host.ios.icon or host.macos.icon selects an Icon Composer project; an iOS distribution build requires either that project or a square raster of at least 512 px.",
       "type": "array",
       "items": {
         "type": "object",
@@ -305,9 +305,24 @@
           "description": "iOS: `minimumOS` (default 17.0), `deviceFamily` (iphone, ipad), and the keys below.",
           "type": "object",
           "properties": {
+            "icon": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Primary Icon Composer .icon directory, relative to app.json and inside the app. Compiled with the app's catalogs; conflicts with an .appiconset in those catalogs are refused. Absent: use icons. tvOS does not inherit this field."
+            },
             "minimumOS": {
               "description": "The oldest iOS the app runs on, as \"17.0\"; never below 17.0.",
               "type": "string"
+            },
+            "launchImage": {
+              "description": "A picture the launch screen centres on `background_color` (UILaunchScreen's UIImageName), drawn `width` points wide: the app's first frame drawn ahead of it, so the launch shows what the first frame shows (Expo's splash `image` and `imageWidth`). A PNG in the app's directory; light and dark alike.",
+              "type": "object",
+              "required": ["src", "width"],
+              "additionalProperties": false,
+              "properties": {
+                "src": { "type": "string", "pattern": "\\.png$", "description": "The PNG, relative to the app's directory." },
+                "width": { "type": "number", "minimum": 1, "description": "Its width on the launch screen, in points; its height follows its aspect." }
+              }
             },
             "optimize": {
               "enum": ["speed", "size"],
@@ -388,6 +403,11 @@
           "description": "macOS: `minimumOS` (default 14.0), the first window's size, and the keys below.",
           "type": "object",
           "properties": {
+            "icon": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Primary Icon Composer .icon directory, relative to app.json and inside the app. Compiled with the app's catalogs; conflicts with an .appiconset in those catalogs are refused. Absent: use icons."
+            },
             "resources": {
               "description": "Native-only resource trees, copied under Contents with modes and internal relative symlinks preserved, before the bundle is sealed (a build stamp placed here is inside the seal). Excluded from plan assets and TypeScript capture; changing them requires a new binary. Mach-O code is signed with the bundle; a helper executable needing a hardened-runtime exception names it in the source's grants, as `runtime.allow-jit Helpers/node/bin/node`; the app's own executable takes none (LLP 1069.008 D9).",
               "type": "array",

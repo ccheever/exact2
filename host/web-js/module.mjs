@@ -8,7 +8,7 @@
 //        machine, so no app's first build compiles them.
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 // Also for its PATH: the pinned binaryen (and Cargo) as every web build has
@@ -76,6 +76,19 @@ function run(cmd, args, options, capture = false) {
   });
 }
 const optimizeAsync = async (input, output, label) => optimized(await run('wasm-opt', [...OPT, input, '-o', output], {}, true), input, output, label);
+// Every build of this checkout that uses a module copies it from here, and
+// builds run at once (conformance's --jobs), while a module taken from the
+// machine's cache is copied here again at each build. So a module is written
+// beside its place by `write` and renamed onto it: a reader copies the old
+// bytes or the new, never a file still being written (a page got an empty
+// motion.wasm, had no motion engine, and its drags did nothing).
+function replace(path, write) {
+  const temp = `${path}.${process.pid}.tmp`, clean = () => rmSync(temp, { force: true });
+  const land = (value) => { try { renameSync(temp, path); return value; } finally { clean(); } };
+  let written;
+  try { written = write(temp); } catch (error) { clean(); throw error; }
+  return written instanceof Promise ? written.then(land, (error) => { clean(); throw error; }) : land(written);
+}
 const cargoWasmArgs = (manifest) => [`+${WEB}`, 'build', '--release', '--target', 'wasm32-unknown-unknown', '--manifest-path', manifest, ...WASM_FLAGS()];
 function cargoWasm(manifest) {
   return spawnSync('cargo', cargoWasmArgs(manifest), { stdio: ['ignore', 'inherit', 'inherit'], env: { ...process.env, CARGO_TARGET_DIR: TARGET } });
@@ -125,8 +138,8 @@ function module(manifest, name, out, label) {
   mkdirSync(out, { recursive: true });
   if (fresh(done, wasm.replace(/\.wasm$/, '.d'), [manifest])) return done;
   if (cargoWasm(manifest).status !== 0) throw new Error(`${label} did not build`);
-  cpSync(wasm, done);
-  return optimize(done, done, 'module');
+  replace(done, (temp) => optimize(wasm, temp, 'module'));
+  return done;
 }
 
 export function buildModule(app, out = resolve(MODULES, app), draw = false, dir = resolve(root, 'apps', app)) {
@@ -250,12 +263,13 @@ export async function buildFlow({ out = resolve(MODULES, 'flow'), keepFresh = fa
     rmSync(product, { force: true });
   }
   const leaf = at(), taken = leaf.find();
-  if (taken) { cpSync(taken, wasm); held.set(wasm.split('/').at(-1), true); return wasm; }
+  if (taken) { replace(wasm, (temp) => cpSync(taken, temp)); held.set(wasm.split('/').at(-1), true); return wasm; }
   const started = Date.now();
   const r = await run('cargo', [`+${WEB}`, 'build', '--profile', 'web', '--target', 'wasm32-unknown-unknown', '-p', 'exact-textflow', '--bin', 'textflow-web', ...WASM_FLAGS()],
     { cwd: root, env: { ...process.env, CARGO_TARGET_DIR: target } });
   if (r.status !== 0) throw new Error('textflow.wasm did not build');
-  held.set('textflow.wasm', !unoptimized.has(await optimizeAsync(product, wasm, 'textflow.wasm')) && leaf.keep(started));
+  const optimizedFlow = await replace(wasm, async (temp) => !unoptimized.has(await optimizeAsync(product, temp, 'textflow.wasm')));
+  held.set('textflow.wasm', optimizedFlow && leaf.keep(started));
   return wasm;
 }
 
@@ -301,12 +315,12 @@ ${patch}`;
     rmSync(product, { force: true });
   }
   const leaf = at(), taken = leaf.find();
-  if (taken) { cpSync(taken, wasm); held.set(wasm.split('/').at(-1), true); return wasm; }
+  if (taken) { replace(wasm, (temp) => cpSync(taken, temp)); held.set(wasm.split('/').at(-1), true); return wasm; }
   const started = Date.now();
   const r = await run('cargo', cargoWasmArgs(resolve(crate, 'Cargo.toml')), { env: { ...process.env, CARGO_TARGET_DIR: target } });
   if (r.status !== 0) throw new Error(`${name}.wasm did not build`);
-  cpSync(product, wasm);
-  held.set(`${name}.wasm`, !unoptimized.has(await optimizeAsync(wasm, wasm, `${name}.wasm`)) && leaf.keep(started));
+  const optimizedLeaf = await replace(wasm, async (temp) => !unoptimized.has(await optimizeAsync(product, temp, `${name}.wasm`)));
+  held.set(`${name}.wasm`, optimizedLeaf && leaf.keep(started));
   return wasm;
 }
 

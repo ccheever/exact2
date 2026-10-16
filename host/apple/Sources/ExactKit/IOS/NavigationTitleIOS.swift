@@ -323,6 +323,22 @@ extension NavigationHost {
         return out
     }
 
+    /// Under the agent's chrome, what is painted in the page that the app's
+    /// bars stand for: each route's header its navigation bar projects, and
+    /// the tablist its tab bar does. Empty under `--chrome platform`.
+    func paintedForBars() -> [NodeView] {
+        guard ExactEnv.authoredChrome else { return [] }
+        var out: [NodeView] = []
+        let back = container?.props["navigationBack"]
+        for nav in allNavigations where stacks[ObjectIdentifier(nav)]?.showsBar == true {
+            for (index, controller) in nav.viewControllers.enumerated() {
+                if let c = controller as? RouteController, let shape = HeaderShape.bar(of: c.node, back: back, backIsUIKits: index > 0) { out.append(shape.header) }
+            }
+        }
+        if let list = adoptedTablist.flatMap({ presenter.views[$0] }) ?? container.flatMap({ NavigationTabs.of($0, presenter)?.tablist }) { out.append(list) }
+        return out.filter { $0.window != nil && !$0.isHidden }
+    }
+
     /// Whether the platform's bar has a Back button for a pushed route to
     /// show alone: tvOS's has none (its Back is the remote's Menu).
     #if os(tvOS)

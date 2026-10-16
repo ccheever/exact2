@@ -230,6 +230,8 @@ pub struct Host<D: DataSource> {
     /// The root font size and the window's modes as a batch last said them (`Host::facts_moved`).
     facts_told: Option<(f64, Vec<(String, String)>)>,
     unopened: layout::unopened::Unopened,
+    /// The top-layer boxes covered while closed (`closed.rs`).
+    closed: layout::closed::Closed,
 }
 
 /// A plan's bytes at boot: copied from while decoding, or linked into the
@@ -408,8 +410,7 @@ impl<D: DataSource> Host<D> {
         if let Some(names) = crate::link::missing(&plan, crate::link::linked()) {
             return Err(HostError::Unlinked(names));
         }
-        // The grammars this archive links (LLP 1047.001 D3; every one for a
-        // public boot, LLP 1053.000 §2).
+        // This archive links its grammars; every public boot links all (LLP 1047.001 D3; 1053.000 §2).
         links.grammars.link();
         let kernel = scale::kernel(measurer);
         let facts = candidate_delivery.unwrap_or_else(|| {
@@ -532,11 +533,13 @@ impl<D: DataSource> Host<D> {
             colors_seen: None,
             facts_told: None,
             unopened: Default::default(),
+            closed: Default::default(),
         };
         let mut batch = Batch::new();
         host.native_prepare_candidate().map_err(HostError::Layout)?;
         host.close_unopened_tabs();
         let order = host.preorder();
+        host.close_top_layer(&order);
         let handlers = host.runner.handlers();
         for id in &order {
             host.create(*id, handlers.get(id).map_or(&[], Vec::as_slice), &mut batch);
@@ -577,6 +580,7 @@ impl<D: DataSource> Host<D> {
             host.svg.box_motion,
             &|v| !runner.handlers_of(v).is_empty(),
         );
+        svg_lower::hand_over_paths(runner.kernel(), &mut host.engine, host.svg.box_motion);
         for view in svg_lower::glass_sampling(host.runner.kernel(), &mut host.engine) {
             host.svg.element(host.runner.kernel(), view);
         }
@@ -1050,7 +1054,7 @@ impl<D: DataSource> Host<D> {
 
     /// that moved.
     pub fn resize(&mut self, width: f32, height: f32) -> String {
-        self.resize_inner(width, height)
+        self.resize_inner(width, height, Batch::new(), None)
     }
 
     /// The date (LLP 1027.000.000): re-answer `exactTime` in one commit.
@@ -1135,27 +1139,28 @@ impl<D: DataSource> Host<D> {
         self.commit(&receipts, error)
     }
 
-    fn resize_inner(&mut self, width: f32, height: f32) -> String {
+    /// The viewport's change into `batch`, after what it holds (`set_view`).
+    fn resize_inner(
+        &mut self,
+        width: f32,
+        height: f32,
+        mut batch: Batch,
+        error: Option<String>,
+    ) -> String {
         // @ref LLP 1039 D2 — merge re-answer and relayout, once.
         let receipt = match self.runner.set_viewport(width as f64, height as f64) {
             Ok(receipt) => receipt,
-            Err(e) => return self.finish(Batch::new(), Some(format!("viewport: {e:?}"))),
+            Err(e) => return self.finish(batch, error.or(Some(format!("viewport: {e:?}")))),
         };
         self.viewport = (width, height);
         self.height_targets_dirty = true;
         self.presence.snap = true;
         if let Some(receipt) = receipt {
-            return self.commit(
-                &[Timed {
-                    at_ms: self.now_ms,
-                    receipt,
-                }],
-                None,
-            );
+            let at_ms = self.now_ms;
+            return self.commit_into(&[Timed { at_ms, receipt }], error, batch);
         }
-        let mut batch = Batch::new();
-        let error = self.layout(&mut batch).err();
-        self.finish(batch, error)
+        let laid_out = self.layout(&mut batch).err();
+        self.finish(batch, error.or(laid_out))
     }
 
     /// Content has settled: the tree and the motion engine give back what
@@ -1165,9 +1170,8 @@ impl<D: DataSource> Host<D> {
         self.engine.trim();
     }
 
-    /// The active head's title and edited mark, when a plan with a head may
-    /// have moved them (LLP 1048.003 D1, LLP 1069.010 D6). The app owning
-    /// the window or scene shows them.
+    /// The active head's title and edited mark after it moves; the app owning
+    /// the window or scene shows them (LLP 1048.003 D1, LLP 1069.010 D6).
     fn emit_title(&mut self, batch: &mut Batch) {
         if !self.has_heads {
             return;
@@ -1223,6 +1227,7 @@ impl<D: DataSource> Host<D> {
             > 1)
         .then(|| self.runner.handlers());
         self.close_new_tabs(receipts);
+        self.close_new_top_layer(receipts);
         for t in receipts {
             let r = &t.receipt;
             // Flights capture their leavers before an exit takes them
@@ -1304,6 +1309,7 @@ impl<D: DataSource> Host<D> {
                 self.svg.box_motion,
                 &|v| !runner.handlers_of(v).is_empty(),
             );
+            svg_lower::hand_over_paths(runner.kernel(), &mut self.engine, self.svg.box_motion);
             for view in svg_lower::glass_sampling(self.runner.kernel(), &mut self.engine) {
                 self.svg.element(self.runner.kernel(), view);
             }
@@ -1417,8 +1423,7 @@ fn kind_for(node: &NodeRef<'_>) -> &'static str {
     }
 }
 
-/// @ref LLP 1116.001 D1.4 — the scale the kernel draws a fitted paragraph
-/// at, which Swift multiplies its runs' sizes by: none at full size.
+/// @ref LLP 1116.001 D1.4 — Swift's run-size multiplier for a fitted paragraph; none at full size.
 pub(super) fn fit_scale(node: &NodeRef<'_>) -> Option<String> {
     let scale = node.fit_scale();
     (node.node_type == NodeType::Text && scale != 1.0).then(|| style::num(scale))

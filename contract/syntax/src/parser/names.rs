@@ -229,3 +229,46 @@ impl Parser {
         }
     }
 }
+
+/// A `timer` (or `interval`) section, which Contract writes as a `task`
+/// (LLP 1092), rewritten with the builder's own interval, gate and action
+/// where the line names them (`timer t interval=1000 running=on tick=step`,
+/// `timer t every 1000 when on then step`), so the repair keeps the timer
+/// (LLP 1116.018: three repairs deleted it).
+pub(super) fn timer_hint(word: &str, line: &[Token]) -> String {
+    let (mut ms, mut gate, mut action) = (None, None, None);
+    let mut i = 0;
+    while i < line.len() {
+        // The value after a key, as `key=value` or `key value`, and where it ends.
+        let value = |at: usize| -> Option<(String, usize)> {
+            let at = match line.get(at).map(|t| &t.kind) {
+                Some(TokenKind::Punct("=")) => at + 1,
+                _ => at,
+            };
+            match line.get(at).map(|t| &t.kind) {
+                Some(TokenKind::Ident(v)) => Some((v.clone(), at)),
+                Some(TokenKind::Number(n)) => Some((n.to_string(), at)),
+                _ => None,
+            }
+        };
+        if let TokenKind::Ident(w) = &line[i].kind {
+            let slot = match w.as_str() {
+                "interval" | "every" | "ms" | "period" => Some(&mut ms),
+                "when" | "running" | "active" | "enabled" | "while" | "if" => Some(&mut gate),
+                "then" | "tick" | "action" | "run" | "do" | "call" | "onTick" => Some(&mut action),
+                _ => None,
+            };
+            if let (Some(slot), Some((v, end))) = (slot, value(i + 1)) {
+                *slot = Some(v);
+                i = end;
+            }
+        }
+        i += 1;
+    }
+    let ms = ms.unwrap_or_else(|| "1000".into());
+    let gate = gate.map_or(String::new(), |g| format!(" when {g}"));
+    let action = action.unwrap_or_else(|| "tick".into());
+    format!(
+        "a timer is a `task`: write `task {action}Timer{gate}` with `every({ms}, {action})` indented under it, and `{action}` an action; the task runs while its `when` holds, so start and stop are a state (docs/recipes/timers.md). There is no `{word}` section"
+    )
+}

@@ -1,7 +1,7 @@
-import { MalformedOperation, pointerArguments, pinchArguments, resizeArguments } from '../../scripts/agent-keys.mjs';
+import { MalformedOperation, pointerArguments, pinchArguments, intoArguments, resizeArguments } from '../../scripts/agent-keys.mjs';
 import { dragArguments } from '../../scripts/agent-drag.mjs';
 
-/** Consume the harness's words; validate touch input before a browser can skip it. */
+/** Consume the harness's words; reject malformed input before a browser can skip it. */
 export function parseStep(line) {
   const words = line.trim().split(/\s+/), mustRefuse = words[0] === 'refused';
   if (mustRefuse) words.shift();
@@ -14,6 +14,7 @@ export function parseStep(line) {
     if (method === 'pointer') check(() => pointerArguments(args[0], args[1] ?? {}));
     if (method === 'tap' && args[1]?.drag) check(() => dragArguments(args[1].drag));
     if (method === 'tap' && args[1]?.pinch !== undefined) check(() => pinchArguments(args[1].pinch));
+    if (method === 'tap' && args[1]?.into) check(() => intoArguments(args[1].into));
     calls.push([method, args]);
   };
   switch (op) {

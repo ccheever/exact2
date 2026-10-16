@@ -75,13 +75,10 @@ shape Change
 shape Tags
   session: number
   items: string[]
-// What the reader pressed, by article and by author (app.ts `favs`,
-// `follows`): every view of one reads its state through these, so a press
-// shows at once and asks only this (LLP 1058 P5).
-shape Fav
-  slug: string
-  favorited: bool
-  favoritesCount: number
+// What the reader pressed, by author (app.ts `follows`): every view of one
+// reads its state through this, so a press shows at once and asks only this
+// (LLP 1058 P5). A favourite is joined into the articles themselves (app.ts
+// `joined`).
 shape Follow
   username: string
   following: bool
@@ -124,12 +121,13 @@ component RealWorld
   state editorSession = 0
   state tagInput = ""
   state commentDraft = ""
-  mutation auth as shape Auth refreshes me, favs, follows then signedIn
+  mutation auth as shape Auth refreshes me, follows then signedIn
   // A mutation per kind of write, each refreshing what that write changes
-  // (LLP 1058 P5): a favorite or a follow its presses, a comment the
-  // thread, a publish or a delete the lists and the article.
+  // (LLP 1058 P5): a favorite the list and the article, which app.ts
+  // answers from what it has, a follow its presses, a comment the thread,
+  // a publish or a delete the lists and the article.
   mutation change as shape Change refreshes feed, post then changed
-  mutation faved as shape Change queue refreshes favs
+  mutation faved as shape Change queue refreshes feed, post
   mutation followed as shape Change queue refreshes follows
   mutation commented as shape Change refreshes thread
   mutation tagEdit as shape Tags
@@ -140,7 +138,6 @@ component RealWorld
   resource post = article(slug, me.username) as shape Article else empty(author=empty(found=true, image="/assets/default-avatar.svg"))
   resource thread = comments(slug, me.username) as shape Comment[]
   resource person = profile(listName, me.username) as shape Profile else empty(image="/assets/default-avatar.svg")
-  resource favs = favorites() as shape Fav[]
   resource follows = followings() as shape Follow[]
 
   action go(url: string)
@@ -268,7 +265,6 @@ component RealWorld
             page=page,
             go=go,
             showPage=showPage,
-            favs=favs,
             favorite=favorite
           )
           Footer(go=go)
@@ -311,8 +307,7 @@ component RealWorld
                 loading=pending(post),
                 thread=thread,
                 go=go,
-                favs=favs,
-                follows=follows,
+                    follows=follows,
                 favorite=favorite,
                 follow=follow,
                 remove=deleteArticle,
@@ -332,8 +327,7 @@ component RealWorld
                 page=page,
                 go=go,
                 showPage=showPage,
-                favs=favs,
-                follows=follows,
+                    follows=follows,
                 favorite=favorite,
                 follow=follow
               )
@@ -429,17 +423,13 @@ component Meta
           text author.username
         text date font-size=12.8 color="#bbbbbb" margin-top=2
 
-// A preview's ♥: its state as the reader last pressed it, else the feed's.
+// A preview's ♥.
 component Heart
   props
     slug: string
-    favorited: bool
-    count: number
-    favs: Fav[]
+    on: bool
+    n: number
     favorite: action
-  derive fav = first(favs.filter(f => f.slug == slug))
-  derive on = match fav { case some(f) => f.favorited, case none => favorited }
-  derive n = match fav { case some(f) => f.favoritesCount, case none => count }
   view
     button press=favorite(slug, not on, n)
       class=BtnSm
@@ -457,7 +447,6 @@ component Previews
     page: number
     go: action
     showPage: action
-    favs: Fav[]
     favorite: action
   view
     column
@@ -488,7 +477,7 @@ component Previews
             // Signed out, the ♥ goes to sign up: a link, so it works
             // before the runtime loads.
             if me.signedIn
-              Heart(slug=a.slug, favorited=a.favorited, count=a.favoritesCount, favs=favs, favorite=favorite)
+              Heart(slug=a.slug, on=a.favorited, n=a.favoritesCount, favorite=favorite)
             else
               link href="/register" press=go("/register")
                 class=BtnSm
@@ -546,7 +535,6 @@ component HomePage
     page: number
     go: action
     showPage: action
-    favs: Fav[]
     favorite: action
   view
     column
@@ -608,7 +596,6 @@ component HomePage
             page=page,
             go=go,
             showPage=showPage,
-            favs=favs,
             favorite=favorite
           )
         column flex=1 min-width=200
@@ -888,15 +875,11 @@ component ArticleActions
     me: User
     post: Article
     go: action
-    favs: Fav[]
     follows: Follow[]
     favorite: action
     follow: action
     remove: action
     light: bool
-  derive fav = first(favs.filter(f => f.slug == post.slug))
-  derive favorited = match fav { case some(f) => f.favorited, case none => post.favorited }
-  derive count = match fav { case some(f) => f.favoritesCount, case none => post.favoritesCount }
   derive pressed = first(follows.filter(f => f.username == post.author.username))
   derive following = match pressed { case some(f) => f.following, case none => post.author.following }
   view
@@ -928,13 +911,13 @@ component ArticleActions
             background-color=(following ? "#cccccc": "#ffffff")
             testId="follow"
             text(following ? `+ Unfollow ${post.author.username}`: `+ Follow ${post.author.username}`)
-          button press=favorite(post.slug, not favorited, count)
+          button press=favorite(post.slug, not post.favorited, post.favoritesCount)
             class=BtnSm
             border-color="#33aa44"
-            color=(favorited ? "#ffffff": "#33aa44")
-            background-color=(favorited ? "#33aa44": "#ffffff")
+            color=(post.favorited ? "#ffffff": "#33aa44")
+            background-color=(post.favorited ? "#33aa44": "#ffffff")
             testId="favorite"
-            text `♥ ${favorited ? "Unfavorite" : "Favorite"} Article (${count})`
+            text `♥ ${post.favorited ? "Unfavorite" : "Favorite"} Article (${post.favoritesCount})`
         else
           link href="/register" press=go("/register")
             class=BtnSm
@@ -958,7 +941,6 @@ component ArticlePage
     loading: bool
     thread: Comment[]
     go: action
-    favs: Fav[]
     follows: Follow[]
     favorite: action
     follow: action
@@ -985,8 +967,7 @@ component ArticlePage
               me=me,
               post=post,
               go=go,
-              favs=favs,
-              follows=follows,
+                follows=follows,
               favorite=favorite,
               follow=follow,
               remove=remove,
@@ -1017,8 +998,7 @@ component ArticlePage
                 me=me,
                 post=post,
                 go=go,
-                favs=favs,
-                follows=follows,
+                    follows=follows,
                 favorite=favorite,
                 follow=follow,
                 remove=remove,
@@ -1121,7 +1101,6 @@ component ProfilePage
     page: number
     go: action
     showPage: action
-    favs: Fav[]
     follows: Follow[]
     favorite: action
     follow: action
@@ -1215,6 +1194,5 @@ component ProfilePage
           page=page,
           go=go,
           showPage=showPage,
-          favs=favs,
           favorite=favorite
         )

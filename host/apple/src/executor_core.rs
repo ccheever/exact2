@@ -311,11 +311,11 @@ impl Core {
         // test thread: a test waits for a slot rather than being refused.
         // The including crate says when (`WAIT_FOR_SLOT`): its own tests,
         // and an integration test's build of it (render's, Linux's `test-wait`).
+        // Nothing announces a released slot, so it polls. The deadline is the
+        // clock's: under load each 1 ms sleep can last far longer.
         if super::WAIT_FOR_SLOT {
-            for _ in 0..5000 {
-                if reserved {
-                    break;
-                }
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            while !reserved && std::time::Instant::now() < deadline {
                 std::thread::sleep(std::time::Duration::from_millis(1));
                 reserved = reserve();
             }

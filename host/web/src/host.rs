@@ -1210,8 +1210,7 @@ impl<D: DataSource> Host<D> {
         self.springs.track_hold(serial, now_ms / 1000.0, shown)
     }
 
-    /// Release at the velocity the engine measured over the hold's values,
-    /// for input the platform gives no velocity (LLP 1057.001 §3).
+    /// Release at the engine-measured velocity when the platform supplies none (LLP 1057.001 §3).
     pub fn end_hold_measured(
         &mut self,
         serial: u64,
@@ -1369,7 +1368,7 @@ impl<D: DataSource> Host<D> {
             Some((view, ..)) if *view == id => self.computed.pop(),
             _ => None,
         };
-        let (props, css) = match kept {
+        let (mut props, css) = match kept {
             // The projection's, for this view of this tree: the same values.
             Some((_, kept, props, css)) if kept == tag => (props, self.paint_css(&node, css)),
             _ => {
@@ -1384,6 +1383,7 @@ impl<D: DataSource> Host<D> {
                 (props, self.paint_css(&node, css))
             }
         };
+        element::router_press(&mut props, self.runner.press_writes_router(id));
         let handlers: Vec<&str> = kinds
             .iter()
             .filter(|e| !matches!(e, EventKind::Reachstart | EventKind::Reachend))
@@ -1427,14 +1427,14 @@ impl<D: DataSource> Host<D> {
         let node = self.runner.kernel().node(id).expect("live");
         // An exit's rules too, while its node lives (LLP 1063 D7).
         crate::css::send_keyframes(&mut self.keyframes, node.style, batch);
-        // @ref LLP 1053.000 D4 — a computed name the table lacks draws
-        // ultra-thin, and says so once.
+        // @ref LLP 1053.000 D4 — a computed name absent from the table draws ultra-thin and logs once.
         let note = node
             .props
             .str(PropId::BackgroundMaterial)
             .zip(crate::link::linked().materials)
             .and_then(|(name, material)| (material.1)(name));
         let mut props = props_for(&node);
+        element::router_press(&mut props, self.runner.press_writes_router(id));
         svg_props(self.runner.kernel(), &node, &mut props);
         let css = self.view_css(&node);
         let m = self.mirror.entry(id).or_default();
@@ -1484,8 +1484,7 @@ impl<D: DataSource> Host<D> {
         roots
     }
 
-    /// The page's `<head>`, when a commit may have moved it (LLP 1048.003
-    /// D1): the runner's active head, sent only when it changed.
+    /// Sends the runner's active `<head>` only when it changes (LLP 1048.003 D1).
     fn emit_head(&mut self, batch: &mut Batch) {
         if !std::mem::take(&mut self.head_dirty) {
             return;

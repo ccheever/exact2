@@ -20,7 +20,9 @@ use exact_plan::Stdlib;
 use std::collections::BTreeSet;
 
 mod counts;
+mod launch;
 mod miswiring;
+mod nested_header;
 mod parts;
 mod roles;
 mod rows;
@@ -84,6 +86,7 @@ pub fn warnings(checked: &Checked<'_>) -> Vec<LowerError> {
                 let no_bar = literal(attrs, "navigationBar") == Some("none");
                 if route && !no_bar {
                     route_header(children, &[], &mut out);
+                    nested_header::nested_header(children, &mut out);
                 }
                 if let (true, Some(name)) = (route, back) {
                     drawn_back(attrs, children, name, &mut out);
@@ -115,6 +118,8 @@ pub fn warnings(checked: &Checked<'_>) -> Vec<LowerError> {
     // @ref LLP 1116.011 D2.1 — a RoundButton label of more than a word.
     out.extend(parts::round_button_label(checked));
     performance_now(root, &checked.file.fns, &mut out);
+    // @ref LLP 1027.005 D6 — an identifying argument of the launch's own.
+    launch::launch_identity(root, &checked.file.fns, &mut out);
     width::width_padding(&root.view, &checked.file.styles, &mut out);
     out.extend(
         contract_analyze::read_after_assign(checked)

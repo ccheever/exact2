@@ -48,8 +48,18 @@ impl<D: DataSource> Host<D> {
             return;
         }
         self.runner.layout_canvases(scale());
-        let held = &self.canvas_held;
-        batch.canvas_owed(self.runner.canvas_owed(&|v| !held.contains(&v)));
+        self.canvas_owed_onto(batch);
+    }
+
+    /// Where draws are deferred, whether one is owed now, on every batch:
+    /// the presenter takes the last batch's word for it, and a turn that
+    /// ran no canvas work (a list's report inside its window, a draw's own
+    /// turn, a tick) must not say "none" while a new canvas waits.
+    pub(crate) fn canvas_owed_onto(&self, batch: &mut Batch) {
+        if self.canvas_deferred {
+            let held = &self.canvas_held;
+            batch.canvas_owed(self.runner.canvas_owed(&|v| !held.contains(&v)));
+        }
     }
 
     /// Where draws are deferred, a turn of canvas work alone: geometry, due

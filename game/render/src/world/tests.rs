@@ -24,6 +24,7 @@ struct Recording {
     record: bool,
     models: Vec<crate::models::ModelNode>,
     instances: Vec<crate::DrawInstance>,
+    instance_writes: usize,
     custom: std::collections::BTreeSet<crate::MaterialId>,
 }
 impl Default for Recording {
@@ -40,6 +41,7 @@ impl Default for Recording {
             record: true,
             models: Vec::new(),
             instances: Vec::new(),
+            instance_writes: 0,
             custom: Default::default(),
         }
     }
@@ -75,6 +77,7 @@ impl Writes for Recording {
         })
     }
     fn instances(&mut self, records: &[crate::DrawInstance]) -> Result<(), RenderError> {
+        self.instance_writes += 1;
         self.instances = records.to_vec();
         Ok(())
     }
@@ -237,7 +240,9 @@ fn propagated_chain_overlays_page_and_fresh_teleport_writes_both() {
     r.calls.clear();
     w.teleport(b, Transform::at(10., 0., 0.));
     f.feed_to(&w, &mut r).unwrap();
-    assert!(r.calls.contains(&Call::Previous(b.index(), 10)));
+    assert!(r.calls.iter().any(|call| matches!(call,
+        Call::Previous(first, len) if *first <= b.index() && b.index() < *first + (*len / 10) as u32
+    )));
     assert_eq!(r.position(b, true), r.position(b, false));
     let e = w.spawn((Transform::at(50., 0., 0.), Mesh::cube(1.0)));
     f.feed_to(&w, &mut r).unwrap();
@@ -671,6 +676,79 @@ fn zero_quaternion_cpu_pose_is_finite_identity() {
     // Degenerate decomposition must not normalize zero/non-finite into NaN either.
     w.get_mut::<Transform>(e).unwrap().scale = Vec3::ZERO;
     assert_eq!(scene::pose(&w, e).unwrap().rotation, Quat::IDENTITY);
+}
+
+#[test]
+fn prepared_pose_preserves_offsets_and_rejects_invalid_or_recycled_rows() {
+    let mut w = World::new(60, 0);
+    let root = w.spawn(Transform {
+        rotation: Quat::from_rotation_y(0.7),
+        scale: Vec3::new(2., 3., 4.),
+        ..Transform::at(2., 3., 4.)
+    });
+    let child = w.spawn((
+        Transform {
+            scale: Vec3::new(-1., 2., 3.),
+            ..Transform::at(1., 2., 3.)
+        },
+        Parent(root),
+    ));
+    w.propagate();
+    let mut feed = Feed::default();
+    let mut recorder = Recording::default();
+    feed.feed_to(&w, &mut recorder).unwrap();
+    // The no-offset fast path must switch both ways within this same world,
+    // including inherited offsets under rotated, nonuniform ancestors.
+    for (entity, offset) in [
+        (root, Some(Transform::at(0.5, 0.25, -0.75))),
+        (child, Some(Transform::at(-1., 2., 0.))),
+        (root, None),
+        (child, None),
+    ] {
+        if let Some(offset) = offset {
+            w.insert(entity, exact_game::Offset(offset));
+        } else {
+            w.remove::<exact_game::Offset>(entity);
+        }
+        feed.feed_to(&w, &mut recorder).unwrap();
+        let row = feed.overrides.iter().find(|p| p.entity == child).unwrap();
+        assert_eq!(row.values, floats(scene::pose(&w, child).unwrap()));
+    }
+    let expected = scene::pose(&w, child).unwrap();
+    assert_eq!(prepared_pose(&w, child, &feed.overrides), Some(expected));
+    let stale = [PreparedPose::new(child, expected)];
+    w.insert(child, exact_game::Offset(Transform::at(3., -2., 1.)));
+    feed.feed_to(&w, &mut recorder).unwrap();
+    assert_ne!(scene::pose(&w, child), Some(expected));
+    assert_eq!(
+        prepared_pose(&w, child, &feed.overrides),
+        scene::pose(&w, child)
+    );
+    w.remove::<Transform>(child);
+    w.propagate();
+    feed.feed_to(&w, &mut recorder).unwrap();
+    assert!(feed.overrides.iter().all(|p| p.entity != child));
+    assert_eq!(
+        prepared_pose(&w, child, &feed.overrides),
+        scene::pose(&w, child)
+    );
+    w.despawn(child);
+    let replacement = w.spawn(Transform::at(37., 5., -2.));
+    assert_eq!(replacement.index(), child.index());
+    assert_ne!(replacement, child);
+    assert_eq!(
+        prepared_pose(&w, replacement, &stale),
+        scene::pose(&w, replacement)
+    );
+    let invalid = [PreparedPose {
+        entity: replacement,
+        values: stale[0].values,
+        valid: false,
+    }];
+    assert_eq!(
+        prepared_pose(&w, replacement, &invalid),
+        scene::pose(&w, replacement)
+    );
 }
 
 #[test]
@@ -1128,6 +1206,79 @@ fn a_slot_reoccupied_between_feeds_takes_its_current_pose_as_history() {
         -7.,
         "no frame interpolates from the old occupant"
     );
+}
+
+#[test]
+fn hierarchy_resets_coalesce_without_snapping_an_unrelated_moving_slot() {
+    const HALF: usize = 256;
+    struct Reparent;
+    impl Game for Reparent {
+        type Args = ();
+        const ID: &'static str = "feed-history-runs";
+        fn setup(w: &mut World, _: &()) {
+            let root = w.spawn_named("root", Transform::at(10., 0., 0.));
+            for i in 0..2 * HALF {
+                if i == HALF {
+                    w.spawn_named("moving", (Transform::default(), Mesh::cube(1.)));
+                }
+                w.spawn_named(
+                    format!("piece-{i}"),
+                    (
+                        Transform::at(i as f32, 1., 0.),
+                        Parent(root),
+                        Mesh::cube(1.),
+                    ),
+                );
+            }
+            w.spawn_named("other", Transform::at(-10., 0., 0.));
+        }
+        fn tick(w: &mut World, _: &Input, _: &()) {
+            w.get_mut::<Transform>("moving").unwrap().position.x += 1.;
+            if w.tick() == 3 {
+                let other = w.named("other").unwrap();
+                let child = w.named("piece-0").unwrap();
+                w.insert(child, Parent(other));
+            }
+        }
+    }
+    let mut sim = Sim::<Reparent>::new(()).unwrap();
+    let mut feed = Feed::default();
+    let mut r = Recording::default();
+    feed.feed_to(sim.world(), &mut r).unwrap();
+    let moving = sim.world().named("moving").unwrap();
+    let mut checked = false;
+    for _ in 0..8 {
+        let previous = r.position(moving, false);
+        sim.run(1000. / 60.);
+        r.calls.clear();
+        feed.feed_to(sim.world(), &mut r).unwrap();
+        let w = sim.world();
+        if w.get::<Parent>("piece-0").unwrap().0 != w.named("other").unwrap() {
+            continue;
+        }
+        assert_eq!(r.position(moving, true), previous);
+        assert_ne!(r.position(moving, false), previous);
+        for i in 0..2 * HALF {
+            let child = w.named(&format!("piece-{i}")).unwrap();
+            assert_eq!(r.position(child, true), r.position(child, false));
+        }
+        assert_eq!(r.position(w.named("piece-0").unwrap(), false).x, -10.);
+        let writes: Vec<_> = r
+            .calls
+            .iter()
+            .filter(|c| matches!(c, Call::Previous(..)))
+            .collect();
+        assert_eq!(
+            writes,
+            [
+                &Call::Previous(1, HALF * 10),
+                &Call::Previous(HALF as u32 + 2, HALF * 10)
+            ]
+        );
+        checked = true;
+        break;
+    }
+    assert!(checked, "the hierarchy edit reached the renderer");
 }
 
 #[test]

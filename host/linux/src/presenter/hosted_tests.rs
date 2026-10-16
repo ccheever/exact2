@@ -511,3 +511,75 @@ fn desktop_linux_hosts_nothing_and_paints_its_fields() {
     assert_eq!(log(&p), "hi|||[h 1-1][hi 2-2]");
     assert!(inked(&mut p, "name"), "the painter draws the field's text");
 }
+
+#[test]
+#[cfg(not(windows))]
+fn scroll_end_distinguishes_field_navigation_from_keyboard_insets() {
+    let (_shell, _hosting) = shell();
+    for displayed in [false, true] {
+        let mut p = boot(
+            r#"component App
+  state order = ""
+  action moved(x: number, y: number)
+    order = `${order}s`
+  action ended
+    order = `${order}e`
+  view
+    main viewport-fit="cover" width="100%" height="100%" display="flex" flex-direction="column"
+      scroll testId="port" flex=1 width="100%" scroll=moved scrollend=ended
+        input testId="first" height=40
+        box height=600
+        input testId="last" height=40
+"#,
+        );
+        let window = Window {
+            size: (320., 480.),
+            ..Window::default()
+        };
+        assert_eq!(p.set_window(window), None);
+        let acknowledge = |p: &mut Presenter<()>| {
+            if displayed {
+                let frame = p.display_frame().unwrap();
+                assert!(p.display_complete(&frame));
+            }
+        };
+        acknowledge(&mut p);
+        p.reader_fields(1.);
+        let (port, first, last) = (id(&p, "port"), id(&p, "first"), id(&p, "last"));
+        p.reader_field_focused(first, 0, true, 0.);
+        p.reader_field_action(first, 0, field_action::NEXT, 0.);
+        assert_eq!(p.focus(), Some(last));
+        assert!(p.scroll_of(port).1 > 0.);
+        acknowledge(&mut p);
+        p.pump(0.);
+        assert_eq!(
+            p.host.runner().slot("order"),
+            Some(&exact_runner::Value::str("se"))
+        );
+        let before = p.scroll_of(port);
+        let typing = Window {
+            keyboard: [0., 0., 200., 0.],
+            ..window
+        };
+        assert_eq!(p.set_window(typing), None);
+        acknowledge(&mut p);
+        acknowledge(&mut p);
+        assert!(p.scroll_of(port).1 > before.1);
+        p.pump(0.);
+        assert_eq!(
+            p.host.runner().slot("order"),
+            Some(&exact_runner::Value::str("ses"))
+        );
+        assert_eq!(p.timer_due_ms(), None);
+        p.reader_field_action(last, 0, field_action::PREVIOUS, 0.);
+        assert_eq!(p.focus(), Some(first));
+        assert_eq!(p.scroll_of(port).1, 0.);
+        acknowledge(&mut p);
+        p.pump(0.);
+        assert_eq!(
+            p.host.runner().slot("order"),
+            Some(&exact_runner::Value::str("sesse"))
+        );
+        assert_eq!(p.window(), Some(&typing));
+    }
+}

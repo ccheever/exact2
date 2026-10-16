@@ -252,6 +252,12 @@ pub fn project(
         let child_may_fold = matches!(tree[i].as_slice(), [c] if may_fold[*c as usize]);
         let mut parts = template::parts_with(&kernel, plan, view(i), may_fold[i], child_may_fold)
             .ok_or("a view the kernel lost")?;
+        if let Some(writes) = exact_runner::press_writes_router(plan, exact_plan::NodesId(i as u32))
+        {
+            parts
+                .props
+                .insert("data-exact-router-press".into(), writes.to_string());
+        }
         // A sampled prop decided the tag; its value is the effect's.
         for b in node.bindings.iter() {
             let row = plan.binding(b);

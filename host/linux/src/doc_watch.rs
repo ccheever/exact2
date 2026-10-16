@@ -136,7 +136,7 @@ impl DocWatch {
     }
 
     /// The watched topics.
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "linux"))]
     fn watched(&self) -> Vec<String> {
         self.shared
             .watches

@@ -44,6 +44,7 @@
 //! - `40 SHADOW color sigma x y w h radii×8 bx by bw bh bradii×8` — an outer
 //!   `box-shadow`: the rounded rect blurred by `sigma` (local units), drawn only
 //!   outside the border box `b…` (`canvas/shadow.rs`)
+//! - `43 SHADER len …` — the next RRECT, PATH or STROKE paints with a gradient shader (`canvas/gradient.rs`)
 //! - `25 DASH phase n d×n` — the next STROKE is dashed: `n` (even) on/off lengths and the
 //!   offset into them, in the stroke's own units (SVG `stroke-dasharray`, `stroke-dashoffset`)
 //!
@@ -146,6 +147,8 @@ pub use colors::colors;
 mod device;
 #[path = "canvas/field.rs"]
 pub mod field;
+#[path = "canvas/gradient.rs"]
+mod gradient;
 #[path = "canvas/input.rs"]
 mod input;
 pub use device::{configure, window, Told};
@@ -534,10 +537,7 @@ impl Backend for Recorder {
     }
 
     fn fill_gradient(&mut self, s: &Shape, g: &GradientPaint, ts: Transform) {
-        // Not in this benchmark's rows: the first stop stands in (a gap).
-        if let Some(&(_, c)) = g.stops.first() {
-            self.fill(s, crate::paint::rgba(c), ts);
-        }
+        self.gradient_rect(s, g, ts);
     }
 
     fn fill_border(&mut self, part: &BorderFill, ts: Transform) {
@@ -706,8 +706,6 @@ impl Backend for Recorder {
     }
 
     fn svg_path(&mut self, s: &crate::paint::SvgPaint<'_>, ts: Transform) {
-        // Solid inks only (symbols, plain SVG shapes); a gradient or pattern
-        // draws nothing here (a gap of this backend).
         let ops: Vec<PathOp> = s
             .path
             .0
@@ -724,12 +722,13 @@ impl Backend for Recorder {
             clip::map((x - grow, y - grow, w + 2.0 * grow, h + 2.0 * grow), ts)
         }));
         self.transform(ts);
-        if let Some(crate::paint::Ink::Solid(c)) = &s.fill {
-            self.ops
-                .extend([PATH, Self::color(*c), u32::from(s.even_odd)]);
+        if let Some(c) = s.fill.as_ref().and_then(|ink| self.ink(ink)) {
+            self.ops.extend([PATH, c, u32::from(s.even_odd)]);
             self.path(&ops);
         }
-        if let Some(crate::paint::Ink::Solid(c)) = &s.stroke {
+        // A gradient's SHADER goes before the DASH, which the reader keeps
+        // as it does a shader until the STROKE.
+        if let Some(c) = s.stroke.as_ref().and_then(|ink| self.ink(ink)) {
             if !s.dash.is_empty() {
                 self.ops.push(DASH);
                 // A layer playing the dash offset finds its phase here.
@@ -740,7 +739,7 @@ impl Backend for Recorder {
                     self.f(*d);
                 }
             }
-            self.ops.extend([STROKE, Self::color(*c)]);
+            self.ops.extend([STROKE, c]);
             self.f(s.width);
             self.ops.extend([u32::from(s.cap), u32::from(s.join)]);
             self.path(&ops);
@@ -1277,7 +1276,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
             if let Some(e) = p.animation_frame(now) {
                 eprintln!("exact: {e}");
             }
-        } else if p.host().timer_due_ms().is_some_and(|due| due <= now) {
+        } else if p.timer_or_scroll_due_ms().is_some_and(|due| due <= now) {
             if let Some(e) = p.advance(now) {
                 eprintln!("exact: {e}");
             }
@@ -1386,11 +1385,11 @@ impl<D: DataSource + Default> CanvasHost<D> {
         }
         self.animating()
     }
-
     /// Whether another frame is wanted at the next vsync.
     pub fn animating(&self) -> bool {
         // A moved paint owes a paint: the frame after scrolling stops.
         self.p.dirty()
+            || self.p.scroll_end_due().is_some_and(|due| due <= self.now())
             || self.p.needs_animation_frame()
             || self.p.host().wants_frames()
             || self.surfaces
@@ -1470,7 +1469,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
         if (self.painted_once && !self.lead) || self.owed_surfaces {
             return Some(0.0);
         }
-        let timer = (self.p.host().timer_due_ms()).map(|due| (due - self.now()).max(0.0));
+        let timer = (self.p.timer_or_scroll_due_ms()).map(|due| (due - self.now()).max(0.0));
         self.settle_due(timer)
     }
 

@@ -378,11 +378,11 @@ public final class ExactSession {
     let natives = NativeViews()
     /// The file picker (LLP 1069.002).
     lazy var picker = Picker(session: self)
-    /// The voice table's output (LLP 1096 D8), made at the first `sound` op.
+    /// The voice table's output (LLP 1096 D8); settable for tests.
     lazy var sound = SoundOutput(self)
     package let frames: Frames
     /// A development session's presented frames (LLP 1079 D3); a production bake has none.
-    private(set) var sampler: FrameSampler?
+    var sampler: FrameSampler?
     var clockTimer: Timer?
     /// The runner deadline `clockTimer` fires for.
     private(set) var clockDue: Double?
@@ -484,7 +484,7 @@ public final class ExactSession {
         webviews.session = self
         natives.session = self
         frames.session = self
-        sampler = FrameSampler.measured ? FrameSampler(session: self) : nil
+        sampler = FrameSampler.measured && FrameSampler.atBoot ? FrameSampler(session: self) : nil
         runtime.setMeasure(TextEngine.measureText, ctx: text.measuring.opaque)
         runtime.setFonts(TextEngine.installFonts, ctx: text.measuring.opaque)
         installControlText()
@@ -1315,8 +1315,8 @@ public final class ExactSession {
     }
     public func resize(_ size: CGSize) { guard booted, state != .destroyed else { return }; apply(runtime.resize(width: size.width, height: size.height)) }
     public func insets(top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat) { guard booted, state != .destroyed else { return }; apply(runtime.insets(top: top, right: right, bottom: bottom, left: left)) }
-    /// The window's size, whatever is presented in it, which every viewport unit resolves against everywhere; nil clears it (LLP 1075.003 §9.11).
-    func screen(_ size: CGSize?) { guard booted, state != .destroyed else { return }; screenSize = size; apply(runtime.screen(width: size?.width ?? 0, height: size?.height ?? 0)) }
+    /// What changed of the view (`Runtime.ViewChange`); the window's size is what every viewport unit resolves against everywhere (LLP 1075.003 §9.11).
+    func view(_ change: Runtime.ViewChange) { guard booted, state != .destroyed, !change.isEmpty else { return }; if let screen = change.screen { screenSize = screen }; apply(runtime.view(change)) }
     private(set) var screenSize: CGSize? // the screen last told, for the agent's synthetic segments
     /// The device's posture and the viewport segments a fold makes (LLP 1078 D4, D5): the view's reading,
     /// kept for the agent's `layout.env` and told to the kernel and the runner in one batch.
@@ -1490,7 +1490,7 @@ public final class ExactSession {
         presenter.reset()
         ExactSession.live.removeValue(forKey: runtime.rt)
         forgetDocuments()
-        rasters.shutdown()
+        rasters.shutdown(); sound.shutdown() // the sound arm stopped and let go, its session claim given back (LLP 1096 D8)
         textPressure?.cancel(); textPressure = nil
         runtime.destroy()
         natives.destroyModule()
