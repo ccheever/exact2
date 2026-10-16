@@ -646,7 +646,7 @@ extension Agent {
             while let node = next {
                 // A context menu's popover (LLP 1021 §5.1) answers it too: the
                 // node's own action first, then the popover opens painted.
-                if let target = node as? NodeView, !target.disabled, target.handlers.contains(event)
+                if let target = node as? NodeView, !(event == "contextmenu" ? target.formDisabled : target.disabled), target.handlers.contains(event)
                     || (event == "contextmenu" && target.props["contextPopover"]?.isEmpty == false) {
                     if event == "contextmenu" {
                         let handled = target.handlers.contains(event)

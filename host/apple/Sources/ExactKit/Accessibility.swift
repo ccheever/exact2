@@ -427,8 +427,8 @@ extension NodeView {
         return menu.focusedMenuRow === self
     }
     private var showMenuTarget: NodeView? {
-        guard let presenter, presenter.views[id] === self, !disabled, !inert, field == nil, textArea == nil,
-              let target = presenter.contextTarget(self), !target.disabled, !target.authoredInert else { return nil }
+        guard let presenter, presenter.views[id] === self, !formDisabled, !inert, field == nil, textArea == nil,
+              let target = presenter.contextTarget(self), !target.formDisabled, !target.authoredInert else { return nil }
         return target
     }
     /// The host's own record of the flag, for code that serves an

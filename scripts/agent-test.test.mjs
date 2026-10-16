@@ -52,8 +52,10 @@ test('present means shown in the app; missing is the tree\'s', () => {
 });
 
 // LLP 1116.010 D3 (chat-rooms and password-generator, round 12): a disabled control is asserted, and pressing one fails the step.
-test('expect disabled and enabled read the prop every host\'s tree carries; a press on a disabled control is refused, a hover is not', async () => {
-  const tree = [{ id: 1, props: { testId: 'send', disabled: true } }, { id: 2, props: { testId: 'arm' } }, { id: 3, props: { testId: 'native', disabled: 'true' } }, { id: 4, props: { testId: 'update', accessibilityDisabled: true } }];
+test('expect disabled and enabled read the prop every host\'s tree carries; a press is refused while context eligibility follows the element type', async () => {
+  const tree = [{ id: 1, type: 'Pressable', props: { testId: 'send', disabled: true } }, { id: 2, props: { testId: 'arm' } }, { id: 3, props: { testId: 'native', disabled: 'true' } }, { id: 4, props: { testId: 'update', accessibilityDisabled: true } },
+    { id: 5, type: 'View', props: { disabled: true } }, { id: 6, type: 'Pressable', props: { disabled: true, href: '/help' } },
+    { id: 7, type: 'TextInput', props: { disabled: true } }, { id: 8, type: 'Control', props: { disabled: true } }];
   expect(disabledExpectation(tree, 'send', true)).toBeNull();
   expect(disabledExpectation(tree, 'native', true)).toBeNull();
   // `aria-disabled` reads as disabled for the expectation…
@@ -70,6 +72,9 @@ test('expect disabled and enabled read the prop every host\'s tree carries; a pr
   // …but its press still dispatches, so the tap is not refused.
   await refuseDisabled(s, { id: 4 }, 'update', {});
   await refuseDisabled(s, { id: 1 }, 'send', { hover: true });
+  for (const id of [5, 6]) await refuseDisabled(s, { id }, String(id), { contextmenu: true });
+  for (const id of [1, 7, 8]) await expect(refuseDisabled(s, { id }, String(id), { contextmenu: true })).rejects.toThrow('is disabled');
+  await expect(refuseDisabled(s, { id: 5 }, 'container', { contextmenu: false })).rejects.toThrow('container is disabled');
   await refuseDisabled(s, { id: 1, entity: 'unit' }, 'send', {});
 });
 

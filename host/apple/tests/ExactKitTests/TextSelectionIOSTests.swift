@@ -255,7 +255,7 @@ final class TextSelectionIOSTests: XCTestCase {
         XCTAssertFalse(row.gestureRecognizer(longPress, shouldReceive: Touch(UITextField())))
     }
 
-    func testMenuPrecedenceFollowsChangedHandlersAndDisabledOrInertAncestry() throws {
+    func testMenuPrecedenceIgnoresDisabledContainersButHonorsInertAncestry() throws {
         let p = page(), row = try node(p, 6), paragraph = try node(p, 7)
         let at = paragraph.convert(try point(in: paragraph, of: "words"), to: nil)
         let held = try XCTUnwrap(p.textSelection.text(for: paragraph))
@@ -281,9 +281,9 @@ final class TextSelectionIOSTests: XCTestCase {
         for id in [6, 1] as [UInt32] {
             let ancestor = try node(p, id)
             ancestor.props["disabled"] = "true"
-            XCTAssertNil(paragraph.contextMenuSource)
-            XCTAssertFalse(row.gestureRecognizer(replaced, shouldReceive: Touch(paragraph)))
-            XCTAssertFalse(row.gestureRecognizer(replaced, shouldBeRequiredToFailBy: selectionGesture))
+            XCTAssertTrue(paragraph.contextMenuSource === row)
+            XCTAssertTrue(row.gestureRecognizer(replaced, shouldReceive: Touch(paragraph)))
+            XCTAssertTrue(row.gestureRecognizer(replaced, shouldBeRequiredToFailBy: selectionGesture))
             ancestor.props["disabled"] = nil
             ancestor.props["inert"] = "true"
             XCTAssertNil(paragraph.contextMenuSource)

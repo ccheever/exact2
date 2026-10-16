@@ -221,7 +221,7 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate {
     private func fire(_ owner: Open) {
         guard !owner.fired else { return }
         owner.fired = true
-        guard let presenter, let source = owner.source, live(source), source.handlers.contains("contextmenu"), !source.disabled else { return }
+        guard let presenter, let source = owner.source, live(source), source.handlers.contains("contextmenu"), !source.formDisabled else { return }
         let box = source.contentBox(), client = presenter.client(source.convert(owner.point, to: nil))
         let sample = PointerSample(x: Double(owner.point.x - box.minX), y: Double(owner.point.y - box.minY), buttons: 1, pressure: 0.5, type: "touch", id: 2,
                                    clientX: Double(client.x), clientY: Double(client.y))
@@ -262,7 +262,7 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate {
         let source: NodeView, point: CGPoint, hit: UIView?
         if let node = view as? NodeView {
             source = node; point = location; hit = node.hitTest(location, with: nil)
-        } else if let mount = view as? PresentationMount, let found = mount.relay?.listener(mount.hitTest(location, with: nil), { $0.props["contextPopover"]?.isEmpty == false }) {
+        } else if let mount = view as? PresentationMount, let found = mount.relay?.listener(mount.hitTest(location, with: nil), contextMenu: true, { $0.props["contextPopover"]?.isEmpty == false }) {
             // A sheet's mount: its route's nearest logical ancestor with a
             // menu, unless a node in the sheet is nearer (`MountRelay`)
             source = found; point = mount.convert(location, to: found); hit = mount.hitTest(location, with: nil)
@@ -412,7 +412,7 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate {
               !presenter.navigation.isInactiveRoute(containing: pop) else { return false }
         var view: UIView? = pop
         while let current = view {
-            if let node = current as? NodeView, node.disabled || node.props["inert"] == "true" { return false }
+            if let node = current as? NodeView, node.formDisabled || node.props["inert"] == "true" { return false }
             if current.isHidden, current !== pop { return false }
             if current === pop, pop.style["display"]?.string == "none" { return false }
             view = presenter.eventParent(of: current)

@@ -424,8 +424,8 @@ extension NodeView {
     /// for it.
     func touchedText() { presenter?.textSelection.touched(self) }
     /// A row's menu wins a long press over selectable text; an authored
-    /// menu on the paragraph itself is the nearest menu. Disabled or inert
-    /// ancestry admits neither one.
+    /// menu on the paragraph itself is the nearest menu. Disabled controls
+    /// or inert ancestry admit neither one.
     var contextMenuSource: NodeView? {
         guard let presenter, presenter.menus.eligible(self) else { return nil }
         var next: UIView? = self

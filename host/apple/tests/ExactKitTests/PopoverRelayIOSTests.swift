@@ -65,13 +65,15 @@ final class PopoverRelayIOSTests: XCTestCase {
         XCTAssertTrue(p.touchParent(of: popover) === relay.mount, "press bubbling stays in the top layer")
         XCTAssertTrue(relay.listener(row) { $0.wantsPointer } === root)
         XCTAssertTrue(relay.listener(row) { $0.handlers.contains("dblclick") } === root)
-        XCTAssertTrue(relay.listener(row) { $0.handlers.contains("contextmenu") } === root)
-        XCTAssertTrue(row.contextMenuSource === root, "selectable text in it leaves a long press to the ancestor's menu")
+        root.props["disabled"] = "true"
+        XCTAssertTrue(relay.listener(row, contextMenu: true) { $0.handlers.contains("contextmenu") } === root)
+        XCTAssertTrue(row.contextMenuSource === root, "disabled on the ancestor container leaves its menu available")
+        root.props.removeValue(forKey: "disabled")
 
         popover.handlers = ["pointerdown", "dblclick", "contextmenu"]
         XCTAssertNil(relay.listener(row) { $0.wantsPointer }, "the popover's own observer sends the bubbling pointer events")
         XCTAssertNil(relay.listener(row) { $0.handlers.contains("dblclick") })
-        XCTAssertNil(relay.listener(row) { $0.handlers.contains("contextmenu") })
+        XCTAssertNil(relay.listener(row, contextMenu: true) { $0.handlers.contains("contextmenu") })
         XCTAssertTrue(row.contextMenuSource === popover)
     }
 
@@ -87,10 +89,12 @@ final class PopoverRelayIOSTests: XCTestCase {
         for target in [root, popover] {
             if target === popover { popover.handlers = ["pointerdown", "pointerup", "dblclick", "contextmenu"] }
             for event in ["dblclick", "contextmenu"] {
+                target.props["disabled"] = event == "contextmenu" ? "true" : nil
                 let reply = agent.tap(["id": 3, event: true])
                 XCTAssertNil(reply["error"], "\(reply)")
                 XCTAssertEqual(reply["tapped"] as? Int, Int(target.id), "\(reply)")
             }
+            target.props.removeValue(forKey: "disabled")
             let down = try XCTUnwrap(agent.recognizedPan("down", ["id": 3]))
             XCTAssertNil(down["error"], "\(down)")
             XCTAssertTrue(agent.panContact?.pointer?.node === target)

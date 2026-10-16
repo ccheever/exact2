@@ -39,10 +39,10 @@ final class MountRelay: NSObject, UIGestureRecognizerDelegate {
     /// The nearest node above `touched`, through logical parents, that
     /// `listens`, when it is outside the mount: nil when none does or when
     /// one in the sheet is nearer, whose own recognizer takes the touch.
-    func listener(_ touched: UIView?, _ listens: (NodeView) -> Bool) -> NodeView? {
+    func listener(_ touched: UIView?, contextMenu: Bool = false, _ listens: (NodeView) -> Bool) -> NodeView? {
         var view = touched
         while let v = view {
-            if let n = v as? NodeView, listens(n), !n.disabled { return n.isDescendant(of: mount) ? nil : n }
+            if let n = v as? NodeView, listens(n), !(contextMenu ? n.formDisabled : n.disabled) { return n.isDescendant(of: mount) ? nil : n }
             view = presenter?.pointerParent(of: v) ?? v.superview
         }
         return nil
@@ -52,7 +52,7 @@ final class MountRelay: NSObject, UIGestureRecognizerDelegate {
         // What a node's own long press and double tap leave to native input
         // (`NodeView.gestureRecognizer(_:shouldReceive:)`)
         if g !== pointer, NodeView.nativeInputOwns(touch.view, below: mount) { return false }
-        if g === press { pressed = listener(touch.view) { $0.handlers.contains("contextmenu") }; return pressed != nil }
+        if g === press { pressed = listener(touch.view, contextMenu: true) { $0.handlers.contains("contextmenu") }; return pressed != nil }
         if g === double { doubled = listener(touch.view) { $0.handlers.contains("dblclick") }; return doubled != nil }
         return true
     }

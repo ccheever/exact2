@@ -74,7 +74,7 @@ extension Presenter {
     /// space (its box when nil) as drawn, clipped by what clips it, in the
     /// window; nil when it takes no request or none of it is drawn.
     func contextPoint(_ node: NodeView, rect: NSRect? = nil) -> NSPoint? {
-        guard !node.disabled, !node.inert, !node.isHiddenOrHasHiddenAncestor,
+        guard !node.formDisabled, !node.inert, !node.isHiddenOrHasHiddenAncestor,
               !dialogs.blocks(node), node.field == nil, node.textArea == nil else { return nil }
         // AppKit's visibleRect clips the untransformed frame. Clip the
         // drawn anchor instead, including a frame translated into view.
@@ -119,7 +119,7 @@ extension NodeView {
     /// keyboard alike. A context action cannot leak its preventDefault to
     /// another input; keydown cancellation was handled before this default.
     func dispatchContextMenu(at point: NSPoint, sample: PointerSample, bubbled: Bool = false) -> Bool {
-        guard let presenter, presenter.views[id] === self, !disabled, !(bubbled ? authoredInert : inert) else { return false }
+        guard let presenter, presenter.views[id] === self, !formDisabled, !(bubbled ? authoredInert : inert) else { return false }
         let action = handlers.contains("contextmenu"), menu = props["contextPopover"]?.isEmpty == false
         let outer = presenter.defaultPrevented
         presenter.defaultPrevented = false
@@ -160,7 +160,7 @@ extension NodeView {
 
     /// Whether run `id`'s own `contextmenu` or `contextPopover` answers a context request.
     func inlineAnswersContextMenu(_ id: UInt32) -> Bool {
-        guard let presenter, presenter.inlineEnabled(id), let run = presenter.inlineText(id) else { return false }
+        guard let presenter, !presenter.inlineInert(id), let run = presenter.inlineText(id) else { return false }
         return run.handlers.contains("contextmenu") || run.props["contextPopover"]?.isEmpty == false
     }
 
@@ -206,7 +206,7 @@ extension NodeView {
     /// to the first node from this paragraph up that does, as Chrome's
     /// `contextmenu` at the run's element bubbles.
     func inlineContextMenu(_ id: UInt32) -> Bool {
-        guard let presenter, presenter.inlineEnabled(id), let run = presenter.inlineText(id),
+        guard let presenter, !presenter.inlineInert(id), let run = presenter.inlineText(id),
               let line = inlineRects(run).first, let point = presenter.contextPoint(self, rect: line) else { return false }
         guard let target = inlineContextTarget(from: run), let first = inlineRects(target).first else {
             return presenter.contextTarget(self).map { presenter.contextMenu($0, at: point, from: self) } ?? false
@@ -221,10 +221,10 @@ extension NodeView {
     /// Whether a request from the keyboard at run `id` reaches a run or
     /// node from it up whose `contextmenu` or `contextPopover` runs.
     func inlineOffersContextMenu(_ id: UInt32) -> Bool {
-        guard let presenter, presenter.views[self.id] === self, !disabled, !inert,
-              presenter.inlineEnabled(id), let run = presenter.inlineText(id) else { return false }
+        guard let presenter, presenter.views[self.id] === self, !formDisabled, !inert,
+              !presenter.inlineInert(id), let run = presenter.inlineText(id) else { return false }
         if inlineContextTarget(from: run) != nil { return true }
-        return presenter.contextTarget(self).map { !$0.disabled && !$0.authoredInert } ?? false
+        return presenter.contextTarget(self).map { !$0.formDisabled && !$0.authoredInert } ?? false
     }
 
     /// `run`'s `contextmenu`, then its `contextPopover`'s menu at `point`

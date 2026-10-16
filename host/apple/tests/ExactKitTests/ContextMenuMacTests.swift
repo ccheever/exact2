@@ -14,7 +14,7 @@ final class ContextMenuMacTests: XCTestCase {
     /// A source (1) naming popover 2: a preview row (3) and two items (4, 5)
     /// with an `hr` (6) between them. `inSession`: a session's presenter,
     /// which lays out paragraphs.
-    private func presenter(inSession: Bool = false) -> Presenter {
+    private func presenter(inSession: Bool = false, kind: String = "button") -> Presenter {
         _ = NSApplication.shared
         let session = inSession ? ExactApp.shared.makeSession(label: "context-menu") : nil
         if let session { sessions.append(session) }
@@ -31,7 +31,7 @@ final class ContextMenuMacTests: XCTestCase {
              ["op": "frame", "id": id, "x": 0, "y": 0, "w": 200, "h": 40], ["op": "children", "id": id, "ids": [label]]]
         }
         let ops: [[String: Any]] = [
-            ["op": "create", "id": 1, "kind": "button", "handlers": ["press", "contextmenu"], "props": ["contextPopover": "m"]],
+            ["op": "create", "id": 1, "kind": kind, "handlers": ["press", "contextmenu"], "props": ["contextPopover": "m", "tabindex": "0"]],
             ["op": "create", "id": 2, "kind": "view", "props": ["popover": "auto", "id": "m", "accessibilityRole": "menu"]],
             ["op": "create", "id": 6, "kind": "view", "props": ["semanticTag": "hr"]],
             ["op": "create", "id": 9, "kind": "view"],
@@ -42,6 +42,52 @@ final class ContextMenuMacTests: XCTestCase {
                ["op": "frame", "id": 2, "x": 0, "y": 0, "w": 220, "h": 200]]
         p.apply(wireBatch(ops))
         return p
+    }
+
+    func testDisabledOnAContainerDoesNotSuppressItsContextMenu() throws {
+        let p = presenter(kind: "view"), window = try XCTUnwrap(windows.last)
+        let source = try XCTUnwrap(p.views[1]), pop = try XCTUnwrap(p.views[2])
+        defer { p.menus.reset() }
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["disabled": "true"]]]))
+        source.props.removeValue(forKey: "contextPopover")
+        var heard: [UInt32] = []
+        p.onClipboard = { id, kind, _ in if kind == 10 { heard.append(id) } }
+        let event = try XCTUnwrap(NSEvent.mouseEvent(with: .rightMouseDown, location: source.convert(.zero, to: nil),
+            modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
+            eventNumber: 1, clickCount: 1, pressure: 1))
+        source.rightMouseDown(with: event)
+        XCTAssertEqual(heard, [1], "a div's disabled attribute does not suppress a secondary click")
+        let control = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseDown, location: event.locationInWindow,
+            modifierFlags: .control, timestamp: 0, windowNumber: window.windowNumber, context: nil,
+            eventNumber: 2, clickCount: 1, pressure: 1))
+        source.mouseDown(with: control)
+        XCTAssertEqual(heard, [1, 1], "a Control-click takes the context-menu path too")
+        XCTAssertTrue(window.makeFirstResponder(source))
+        XCTAssertTrue(p.routeKey(contextKey(window), focused: true))
+        XCTAssertEqual(heard, [1, 1, 1], "the ContextMenu key follows the same rule")
+        XCTAssertTrue(try offered(source).contains("AXShowMenu"))
+        XCTAssertTrue(source.accessibilityPerformShowMenu())
+        XCTAssertEqual(heard, [1, 1, 1, 1])
+
+        source.props["contextPopover"] = "m"
+        window.orderFrontRegardless()
+        var tracked = false
+        let observer = NotificationCenter.default.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
+            guard let menu = note.object as? NSMenu else { return }
+            tracked = true
+            RunLoop.current.perform(inModes: [.eventTracking, .default]) { menu.cancelTracking() }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        p.menus.context(source, at: .zero)
+        turn()
+        XCTAssertEqual(tracked, !ExactEnv.agentMode)
+        XCTAssertEqual(p.menus.isOpen(pop), ExactEnv.agentMode, "the agent opens the painted popover")
+        p.menus.reset()
+
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["inert": "true"]]]))
+        XCTAssertFalse(p.routeKey(contextKey(window), focused: true))
+        XCTAssertFalse(source.accessibilityPerformShowMenu())
+        XCTAssertEqual(heard, [1, 1, 1, 1], "inert still suppresses the menu")
     }
 
     func testTheContextMenuIsItsPopoversItemsWithoutThePreview() throws {
@@ -298,7 +344,7 @@ final class ContextMenuMacTests: XCTestCase {
     /// run in a span run (which the key at that run now reaches too; the key
     /// at the paragraph's link run now runs at the run's middle). It is
     /// offered there and not where nothing above answers or the one that
-    /// answers is disabled. (issues/20261013-macos-show-menu-ancestor-contextmenu.md)
+    /// answers is a disabled control. (issues/20261013-macos-show-menu-ancestor-contextmenu.md)
     func testShowMenuReachesTheNearestAncestorThatAnswers() throws {
         let p = presenter(inSession: true), window = try XCTUnwrap(windows.last)
         func run(_ id: Int, _ text: String, parent: Int, _ props: [String: String] = [:], _ handlers: [String] = []) -> [String: Any] {
@@ -310,8 +356,8 @@ final class ContextMenuMacTests: XCTestCase {
             ["op": "create", "id": 21, "kind": "button", "handlers": ["press"]],
             ["op": "frame", "id": 21, "x": 10, "y": 5, "w": 100, "h": 30],
             ["op": "children", "id": 20, "ids": [21]],
-            ["op": "create", "id": 8, "kind": "text", "handlers": ["contextmenu"], "style": ["font_size": 18.0]],
-            ["op": "paragraph", "id": 8, "runs": [run(81, "Write to ", parent: 8), run(82, "the list", parent: 8, ["href": "mailto:list@example.test"], ["press"])]],
+            ["op": "create", "id": 8, "kind": "text", "handlers": ["contextmenu"], "props": ["disabled": "true"], "style": ["font_size": 18.0]],
+            ["op": "paragraph", "id": 8, "runs": [run(81, "Write to ", parent: 8), run(82, "the list", parent: 8, ["href": "mailto:list@example.test", "disabled": "true"], ["press"])]],
             ["op": "frame", "id": 8, "x": 20, "y": 80, "w": 400, "h": 28],
             ["op": "create", "id": 10, "kind": "text", "style": ["font_size": 18.0]],
             ["op": "paragraph", "id": 10, "runs": [run(101, "See ", parent: 10), run(102, "", parent: 10, [:], ["contextmenu"]),
@@ -371,12 +417,15 @@ final class ContextMenuMacTests: XCTestCase {
         XCTAssertEqual(heard, [8], "the paragraph's")
         XCTAssertEqual(Double(samples.first?[6] ?? "") ?? 0, Double(middle(list).x), accuracy: 1, "the run's middle")
         XCTAssertEqual(Double(samples.first?[7] ?? "") ?? 0, Double(middle(list).y), accuracy: 1)
-        // An ancestor that answers but is disabled: nothing, as for the key.
         heard = []
         p.apply(wireBatch([["op": "props", "id": 20, "set": ["disabled": "true"]]]))
+        XCTAssertEqual(try offered(button), ["AXPress", "AXShowMenu"])
+        XCTAssertTrue(button.accessibilityPerformShowMenu())
+        XCTAssertEqual(heard, [20], "disabled on the ancestor div means nothing")
+        p.apply(wireBatch([["op": "props", "id": 20, "set": ["inert": "true"]]]))
         XCTAssertEqual(try offered(button), ["AXPress"])
         XCTAssertFalse(button.accessibilityPerformShowMenu())
-        XCTAssertEqual(heard, [])
+        XCTAssertEqual(heard, [20])
     }
 
     /// X84: show menu on a node with a `contextPopover` runs its action and

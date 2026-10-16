@@ -295,11 +295,12 @@ class DialogMacTests: XCTestCase {
             root.props["inert"] = gate == "inert" ? "true" : nil
             root.routeInert = gate == "route"
             root.props["disabled"] = gate == "disabled" ? "true" : nil
-            XCTAssertFalse(button.isAccessibilitySelectorAllowed(showMenu), gate)
-            XCTAssertFalse(button.accessibilityPerformShowMenu(), gate)
-            XCTAssertFalse(p.routeKey(key(110), focused: true), gate)
+            let eligible = gate == "disabled"
+            XCTAssertEqual(button.isAccessibilitySelectorAllowed(showMenu), eligible, gate)
+            XCTAssertEqual(button.accessibilityPerformShowMenu(), eligible, gate)
+            XCTAssertEqual(p.routeKey(key(110), focused: true), eligible, gate)
         }
-        XCTAssertTrue(heard.isEmpty)
+        XCTAssertEqual(heard, [1, 1], "disabled on the ancestor container does not block either request")
         root.props.removeValue(forKey: "disabled")
         button.props["inert"] = "true"
         XCTAssertFalse(button.isAccessibilitySelectorAllowed(showMenu))

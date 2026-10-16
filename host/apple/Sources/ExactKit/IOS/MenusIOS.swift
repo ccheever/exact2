@@ -403,14 +403,14 @@ final class MenuHost {
         }
     }
     func eligible(_ node: NodeView, inertBoundary: UIView? = nil, inBar: Bool = false) -> Bool {
-        guard live(node), !node.disabled, presenter?.navigation.isInactiveRoute(containing: node) == false else { return false }
+        guard live(node), !node.formDisabled, presenter?.navigation.isInactiveRoute(containing: node) == false else { return false }
         var ancestor: UIView? = node
         var checksInert = true
         while let view = ancestor {
             // A modal dialog escapes inertness above itself. Its issued command
             // also survives the invoker subsequently becoming inert.
             if view === inertBoundary { checksInert = false }
-            if let n = view as? NodeView, n.disabled || (checksInert && n.props["inert"] == "true") { return false }
+            if let n = view as? NodeView, n.formDisabled || (checksInert && n.props["inert"] == "true") { return false }
             if view.isHidden, !(inBar && presenter?.navigation.hiddenForBar(view) == true) {
                 guard let pop = view as? NodeView, isConfirmation(pop),
                       pop.props["popover"] != nil || isDialog(pop) else { return false }

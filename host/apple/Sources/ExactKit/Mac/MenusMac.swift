@@ -257,7 +257,7 @@ final class MenuHost: NSObject {
     }
     func show(_ pop: NodeView, from source: NodeView?, run: UInt32? = nil) {
         guard let presenter, !isOpen(pop), live(pop), source.map(live) ?? true, pop.props["popover"] != nil,
-              connected(pop), source.map(connected) ?? true, !pop.inert, source.map({ !$0.inert && !$0.disabled }) ?? true,
+              connected(pop), source.map(connected) ?? true, !pop.inert, source.map({ !$0.inert && !$0.formDisabled }) ?? true,
               pop.style["display"]?.string != "none", let page = presenter.viewport.window,
               source.map({ !hidden($0) || presenter.toolbar.contains($0) }) ?? true else { return }
         let window = source?.window.flatMap { presenter.hosts($0) ? $0 : nil } ?? page
@@ -328,8 +328,8 @@ final class MenuHost: NSObject {
         guard let name = contextPopover(source, run: run) else { return }
         RunLoop.main.perform(inModes: [.common]) { [weak self, weak source] in
             guard let self, let presenter = self.presenter, let source, self.live(source), self.contextPopover(source, run: run) == name,
-                  !source.disabled, !source.inert, !self.hidden(source), presenter.hosts(source.window),
-                  run.map(presenter.inlineEnabled) ?? true else { return }
+                  !source.formDisabled, !source.inert, !self.hidden(source), presenter.hosts(source.window),
+                  run.map({ !presenter.inlineInert($0) }) ?? true else { return }
             guard let pop = presenter.carrying("popover").first(where: { $0.props["id"] == name && !self.isConfirmation($0) }) else {
                 presenter.session?.log("context menu \(name) refused: no popover has that id")
                 return

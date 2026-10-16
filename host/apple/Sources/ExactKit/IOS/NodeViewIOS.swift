@@ -238,7 +238,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         syncPointerRecognizer()
     }
     @objc func openContext(_ gesture: UILongPressGestureRecognizer) {
-        guard gesture.state == .began, !disabled else { return }
+        guard gesture.state == .began, !formDisabled else { return }
         // Where the press is, as a touch's `PointerEvent` (studio diary R22).
         let point = gesture.location(in: self), box = contentBox()
         let client = presenter?.client(gesture.location(in: nil)) ?? .zero
