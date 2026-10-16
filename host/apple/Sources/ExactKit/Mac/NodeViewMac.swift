@@ -364,9 +364,9 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// child as on the web (`controlAccessibilityChildren`). An image or a
     /// range is a leaf.
     package override func accessibilityChildren() -> [Any]? {
-        if props["accessibilityElementsHidden"] == "true" { return [] }
+        if props["accessibilityElementsHidden"] == "true" || accessibilityHiddenWritten { return [] }
         if actsAsButton { return controlAccessibilityChildren() }
-        return props["accessibilityRole"] == "img" || rangeRole != nil ? nil : textAccessibilityChildren() ?? super.accessibilityChildren()
+        return props["accessibilityRole"] == "img" || rangeRole != nil ? nil : textAccessibilityChildren() ?? exposed(super.accessibilityChildren())
     }
     /// The viewport's projected children must point back to it. Otherwise
     /// moving to a modal's authored container exposes the page behind it.
