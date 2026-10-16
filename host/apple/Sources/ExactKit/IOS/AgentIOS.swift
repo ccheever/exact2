@@ -162,6 +162,8 @@ extension Agent {
     func nativeGeometryInFlight() -> Bool {
         guard presenter.viewport.window != nil else { return false }
         func movesGeometry(_ animation: CAAnimation) -> Bool {
+            // Held at speed 0, it is Contract motion the agent's clock seeks (a lowered `@keyframes`).
+            guard animation.speed != 0 else { return false }
             if let group = animation as? CAAnimationGroup {
                 return group.animations?.contains(where: movesGeometry) == true
             }

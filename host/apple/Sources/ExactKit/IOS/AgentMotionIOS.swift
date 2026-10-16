@@ -41,7 +41,7 @@ extension Agent {
             let s = speed * layer.speed
             guard s != 0, !layer.isHidden else { continue }
             for key in layer.animationKeys() ?? [] {
-                guard let a = layer.animation(forKey: key), a.repeatCount < 1e6, a.repeatDuration < 1e6, a.duration < 60 else { continue }
+                guard let a = layer.animation(forKey: key), a.speed != 0, a.repeatCount < 1e6, a.repeatDuration < 1e6, a.duration < 60 else { continue }
                 let span = max(a.duration * Double(max(1, a.repeatCount)) * (a.autoreverses ? 2 : 1), a.repeatDuration)
                 if a.beginTime == 0 || layer.convertTime(now, from: nil) < a.beginTime + span { return true }
             }

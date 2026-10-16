@@ -788,3 +788,13 @@ bars stand for) with `chromeNote`. Under `--chrome platform`, `exact.mjs`'s
 default on iOS, the bars are UIKit's and `screenshot <png> window` draws
 them; a bar item that only opens a menu is refused as `unsupported`, by
 name, since UIKit's pull-down from the bar has no public way to open it.
+
+## Amended (2026-10-16: an app's own native motion and views on iOS)
+
+The euxy port (its FRICTION §9 and §10) drove the real app with AXe and
+`simctl io screenshot` because the agent could not finish its native work.
+
+- **Contract motion held at speed 0 is the clock's.** A lowered `@keyframes`
+  animation stays on its layer at speed 0 for the clock to seek; it had
+  counted as native geometry in flight, so every `clock settle` while one
+  was on screen (euxy's tip) waited 2 s and answered `settled: false`.

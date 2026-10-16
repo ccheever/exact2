@@ -72,5 +72,23 @@ final class AgentMotionIOSTests: XCTestCase {
         segments.removeFromSuperview()
         moving.removeFromSuperview()
     }
+
+    /// Contract motion held at speed 0 (a lowered `@keyframes`, filled both
+    /// ways and kept) is the agent clock's to seek: never motion in flight.
+    func testContractMotionHeldAtSpeedZeroIsNotInFlight() throws {
+        let agent = mounted([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 800.0],
+        ])
+        let window = try XCTUnwrap(self.window)
+        let node = try XCTUnwrap(agent.session.presenter.views[1])
+        let held = CABasicAnimation(keyPath: "transform.translation.x")
+        held.fromValue = 0; held.toValue = 10; held.duration = 0.2
+        held.speed = 0; held.fillMode = .both; held.isRemovedOnCompletion = false
+        node.layer.add(held, forKey: "held")
+        XCTAssertFalse(Agent.wallMotion(under: window.layer))
+        XCTAssertFalse(agent.nativeGeometryInFlight(), "`clock settle` does not wait on it")
+    }
 }
 #endif
