@@ -541,7 +541,7 @@ fn style(p: &mut Presenter<()>, id: ViewId, row: exact_kernel::StyleId, value: &
 }
 #[test]
 fn defaults_fonts_and_visibility() {
-    use exact_kernel::{Op, PropId, StyleId, StyleMask};
+    use exact_kernel::{Op, PropId, PropValue, StyleId, StyleMask};
     setup();
     let source = APP
         .replace(
@@ -739,6 +739,161 @@ fn escape_closes_after_a_handler_moves_focus_unless_prevented() {
             );
         }
     }
+}
+
+#[test]
+fn system_back_is_not_an_authored_escape_key() {
+    setup();
+    let source = APP
+        .replace(
+            "  action askClear\n",
+            "  state escapes = 0\n  action watchEscape(key: string, e: KeyboardEvent)\n    if key == \"Escape\"\n      escapes = escapes + 1\n      preventDefault()\n  action askClear\n",
+        )
+        .replace(
+            "button press=unbump destructive=true",
+            "button press=unbump key=watchEscape destructive=true",
+        )
+        .replace("Count ${count}", "Count ${count} escape ${escapes}");
+    let mut p = boot(&source, 640.);
+    let trigger = id(&p, "ask-clear");
+    let clear = id(&p, "clear-confirm-clear");
+    p.tap(trigger).unwrap();
+    p.run_commands(|| ());
+    let reply = key(&mut p, "Escape");
+    assert!(reply.get("error").is_none(), "{reply}");
+    assert!(p.rect_of(clear).is_some(), "preventDefault keeps it open");
+    assert_eq!(words(&p, "counts"), "Count 7 escape 1");
+    assert!(p.system_back(p.host().now()));
+    assert!(p.rect_of(clear).is_none(), "platform Back closes directly");
+    assert_eq!(
+        words(&p, "counts"),
+        "Count 7 escape 1",
+        "Back did not synthesize another Escape"
+    );
+
+    let source = APP.replace(
+        "role=\"alertdialog\"",
+        "role=\"alertdialog\" closedby=\"none\"",
+    );
+    let mut p = boot(&source, 640.);
+    p.tap(id(&p, "ask-clear")).unwrap();
+    p.run_commands(|| ());
+    let clear = id(&p, "clear-confirm-clear");
+    assert!(p.system_back(p.host().now()));
+    assert!(p.rect_of(clear).is_some(), "closedby none keeps it open");
+    let reply = key(&mut p, "Escape");
+    assert!(reply.get("error").is_none(), "{reply}");
+    assert!(p.rect_of(clear).is_some(), "Escape observes closedby too");
+}
+
+#[test]
+fn closing_cancels_a_contact_before_its_later_up() {
+    setup();
+    let mut p = boot(APP, 640.);
+    let trigger = id(&p, "ask-clear");
+    let clear = id(&p, "clear-confirm-clear");
+    p.tap(trigger).unwrap();
+    p.run_commands(|| ());
+    let rect = p.rect_of(clear).unwrap();
+    let at = (rect.0 + rect.2 / 2., rect.1 + rect.3 / 2.);
+    assert_eq!(p.hit(at.0, at.1), Some(clear));
+    assert!(p.pointer_down(at.0, at.1, p.host().now()).unwrap());
+    let reply = key(&mut p, "Escape");
+    assert!(reply.get("error").is_none(), "{reply}");
+    assert!(p.rect_of(clear).is_none());
+    assert!(!p.pointer_up(at.0, at.1, p.host().now()).unwrap());
+    p.run_commands(|| ());
+    assert_eq!(words(&p, "counts"), "Count 7");
+}
+
+const CONTACT_CLOSE_APP: &str = r#"component App
+  state count = 0
+  state ups = 0
+  state replaced = false
+  action act
+    count = count + 1
+  action reopen
+    ups = ups + 1
+    showModal("confirm")
+  action replace
+    ups = ups + 1
+    replaced = true
+    showModal("next")
+  action ask
+    showModal("confirm")
+  action shut
+    close("confirm")
+  view
+    column width="100%" height="100%" font-family="DejaVu Sans"
+      button press=ask testId="open"
+        text "Open"
+      button press=shut testId="shut"
+        text "Shut"
+      text `Count ${count} ups ${ups}` testId="status"
+      if not replaced
+        dialog id="confirm" role="alertdialog" aria-label="Proceed?"
+          text "Choose one."
+          button press=act pointerup=reopen destructive=true testId="same"
+            text "Same"
+          button press=act pointerup=replace testId="replacement"
+            text "Replacement"
+          button commandfor="confirm" command="close" testId="cancel"
+            text "Cancel"
+      if replaced
+        dialog id="next" role="alertdialog" aria-label="Again?"
+          text "A new dialog."
+          button press=act destructive=true testId="next-action"
+            text "Act"
+          button commandfor="next" command="close" testId="next-cancel"
+            text "Cancel"
+"#;
+
+#[test]
+fn programmatic_close_cancels_callbacks_before_same_node_reopen_or_replacement() {
+    setup();
+    let mut p = boot(CONTACT_CLOSE_APP, 640.);
+    let open = id(&p, "open");
+    let shut = id(&p, "shut");
+    p.tap(open).unwrap();
+    p.run_commands(|| ());
+    let same = id(&p, "same");
+    let rect = p.rect_of(same).unwrap();
+    let at = (rect.0 + rect.2 / 2., rect.1 + rect.3 / 2.);
+    assert!(p.pointer_down(at.0, at.1, p.host().now()).unwrap());
+    let now = p.host().now();
+    assert!(p
+        .host_mut()
+        .dispatch_at(shut, exact_runner::Event::Press, now)
+        .is_none());
+    p.run_commands(|| ());
+    assert!(p.rect_of(same).is_none(), "the old opening closed first");
+    p.run_commands(|| ());
+    assert!(p.rect_of(same).is_some(), "the callback reopened that node");
+    assert!(!p.pointer_up(at.0, at.1, p.host().now()).unwrap());
+    assert_eq!(words(&p, "status"), "Count 0 ups 1");
+    let reply = key(&mut p, "Escape");
+    assert!(reply.get("error").is_none(), "{reply}");
+
+    p.tap(open).unwrap();
+    p.run_commands(|| ());
+    let replacement = id(&p, "replacement");
+    let rect = p.rect_of(replacement).unwrap();
+    let at = (rect.0 + rect.2 / 2., rect.1 + rect.3 / 2.);
+    assert!(p.pointer_down(at.0, at.1, p.host().now()).unwrap());
+    let now = p.host().now();
+    assert!(p
+        .host_mut()
+        .dispatch_at(shut, exact_runner::Event::Press, now)
+        .is_none());
+    p.run_commands(|| ());
+    p.run_commands(|| ());
+    let next = id(&p, "next-action");
+    assert!(
+        p.rect_of(next).is_some(),
+        "the replacement opening survives"
+    );
+    assert!(!p.pointer_up(at.0, at.1, p.host().now()).unwrap());
+    assert_eq!(words(&p, "status"), "Count 0 ups 2");
 }
 
 fn coordinate_and_keyboard_modal_input(closedby: &str) {
