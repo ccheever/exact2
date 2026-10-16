@@ -29,6 +29,18 @@ export function textOf(nodes, node, live = false) {
   return runs.length ? runs.join('') : node.props.value;
 }
 
+/** For a target no view carries: the tab panels never opened, whose contents do not exist until their tab is first
+ * selected (LLP 1075.003 §3.7), each with the step that selects it. Nothing is opened for the drive. */
+export function unopenedHint(nodes) {
+  const panels = nodes.filter((n) => n.unopened);
+  if (!panels.length) return '';
+  const named = panels.map((p) => {
+    const tab = nodes.find((n) => n.props.accessibilityRole === 'tab' && p.props.id != null && n.props.accessibilityControls === p.props.id);
+    return `${p.props.testId ?? p.props.id ?? `#${p.id}`}${tab ? ` (\`tap ${tab.props.testId ?? tab.id}\`)` : ''}`;
+  });
+  return `; not yet opened: ${named.join(', ')}, a tab whose views exist once it is first selected`;
+}
+
 /** The node a test's target names in a tree: a covered screen's copy only when no active one carries it (shop F16). */
 const targetNode = (nodes, target) => { const matches = nodes.filter((n) => n.props.testId === target); return matches.find((m) => !m.inactive) ?? matches[0]; };
 
@@ -40,14 +52,14 @@ export function textExpectation(nodes, target, value) {
   const runs = [];
   if (n && n.props.text == null && got !== n.props.value) for (let i = nodes.indexOf(n) + 1; i < nodes.length && nodes[i].depth > n.depth; i++) if (nodes[i].props.text != null) runs.push(nodes[i].props.text);
   const parts = runs.length > 1 ? ` (joined from its descendants: ${runs.map((r) => JSON.stringify(r)).join(' + ')}; to assert one, give that text its own testId)` : '';
-  if (got !== value) return { message: `text of "${target}" is ${n ? JSON.stringify(got) : 'absent (no view carries that testId)'}, expected ${JSON.stringify(value)}${parts}` };
+  if (got !== value) return { message: `text of "${target}" is ${n ? JSON.stringify(got) : `absent (no view carries that testId${unopenedHint(nodes)})`}, expected ${JSON.stringify(value)}${parts}` };
   return n.unshown ? { message: `text of "${target}" is ${JSON.stringify(got)}, but ${n.unshown}`, unshown: true } : null;
 }
 
 /** `expect tree <present|missing> <target>`, as `textExpectation`: a node present in the tree that the shipped app does not show is not present. */
 export function treeExpectation(nodes, target, present) {
   const n = targetNode(nodes, target);
-  if (!!n !== present) return { message: `expected testId "${target}" ${present ? 'present' : 'absent'}, it was ${n ? 'present' : 'absent'}` };
+  if (!!n !== present) return { message: `expected testId "${target}" ${present ? 'present' : 'absent'}, it was ${n ? 'present' : `absent${unopenedHint(nodes)}`}` };
   return present && n.unshown ? { message: `testId "${target}" is in the tree, but ${n.unshown}`, unshown: true } : null;
 }
 
