@@ -273,9 +273,13 @@ to no file while the gesture lasts, and is written once, on release. The wire ru
   - **Updates that come while one previews** wait; only the latest is previewed, and the others
     are answered `{scrub, superseded: true}`. An update back to the committed value previews the
     committed design, and the scrub stays open.
-  - **A value-only build while one previews** (another write's, a hand edit's) leaves the builds
-    on the preview and changes what its end restores; a build that reloads the builds ends the
-    preview there.
+  - **The dev loop's builds and a preview.** Any write other than the scrub's own release, and
+    any hand edit, ends the scrub first (below); that write is never previewed over. What the
+    loop does with a value-only build that lands while a preview is still showing is only about
+    ordering: the build of such a write when it lands before the end's restore reaches the loop,
+    and a previous scrub's release build when it lands after the next scrub has opened. Both
+    leave the builds on the preview and change only what the end restores (the restore, or the
+    next scrub's end). A build that reloads the builds ends the preview there.
   - It answers `{scrub, class: "live", changed, synthetic, files}`.
   - **A rebuild-class edit has no scrub** (409): it applies on release, as a `transaction`.
 - **`scrub-release`** `{client, scrub}` writes once: one transaction checked against the digests
