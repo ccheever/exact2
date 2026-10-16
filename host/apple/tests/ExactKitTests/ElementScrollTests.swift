@@ -92,6 +92,51 @@ final class ElementScrollTests: XCTestCase {
     }
 
     #if os(macOS)
+    func testPageRevealTracksCompletionReplacementAndReset() throws {
+        _ = NSApplication.shared
+        let prior = DisplayPreferences.agent
+        DisplayPreferences.agent = (false, false)
+        defer { DisplayPreferences.agent = prior }
+        let p = Presenter()
+        p.viewport.frame = CGRect(x: 0, y: 0, width: 200, height: 200)
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view", "props": ["id": "home"]],
+            ["op": "create", "id": 2, "kind": "view", "props": ["id": "target"]],
+            ["op": "roots", "ids": [1, 2]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 50.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 600.0, "w": 200.0, "h": 400.0],
+        ]))
+        let window = NSWindow(contentRect: p.viewport.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = p.viewport
+        window.orderFront(nil)
+        defer { p.reset(); window.orderOut(nil); withExtendedLifetime(window) {} }
+        let clip = p.viewport.contentView
+        for arguments: [Any] in [["target", "start", "nearest"],
+                                 ["target", "start", "nearest", "auto"],
+                                 ["target", "start", "nearest", "smooth"]] {
+            p.scrollElementIntoView(["home", "start", "nearest", "instant"])
+            p.scrollElementIntoView(arguments)
+            if !ExactEnv.agentFreezes {
+                XCTAssertNotNil(p.pageElementAnimation)
+                XCTAssertLessThan(clip.bounds.minY, 600)
+            }
+            let deadline = Date().addingTimeInterval(10)
+            while p.pageElementAnimation != nil && Date() < deadline {
+                _ = RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
+            }
+            XCTAssertNil(p.pageElementAnimation)
+            XCTAssertEqual(clip.bounds.minY, 600, accuracy: 0.5)
+        }
+        p.scrollElementIntoView(["home", "start", "nearest", "instant"])
+        p.scrollElementIntoView(["target", "start", "nearest"])
+        p.scrollElementIntoView(["home", "start", "nearest", "instant"])
+        XCTAssertNil(p.pageElementAnimation, "an instant replacement retires the page reveal")
+        XCTAssertEqual(clip.bounds.minY, 0, accuracy: 0.5)
+        p.scrollElementIntoView(["target", "start", "nearest"])
+        p.reset()
+        XCTAssertNil(p.pageElementAnimation, "a new document cannot inherit the old reveal")
+    }
+
     func testUnsaidAndAutoRevealUseAppKitAnimation() throws {
         _ = NSApplication.shared
         let target = NSPoint(x: 0, y: 368)
