@@ -1417,3 +1417,9 @@ and the Linux headless CPU renderer without claiming display frame timing.
   Authored tests wait for activation and abort on that refusal, so their clock
   path is unaffected. Count only actual source asks if this counter becomes a
   general external metric; preserve the atomic-action refusal.
+
+- **Differential generator/oracle counterexample** (2026-10-16):
+  `difftest random --seed 842452934359494890 --count 1` diverges at line 2:
+  Rust observes `slot s0 []`, Lean ends with no oracle answer for `load1`;
+  Rust also reports `UnknownView(0)`. Reproduced on plain `3f384b0fd` and EX9;
+  inspect the generated fixture and oracle coverage before changing either VM.
