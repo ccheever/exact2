@@ -429,7 +429,27 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   and height (LLP 1116.005 D2), as `apps/shelf`'s add sheet shows. (Shelf recipe,
   2026-10-10; round 7, 2026-10-11.)
 
+- **A sheet's content stops above the home indicator, leaving a blank band.** Cause:
+  a route's content runs to the bottom edge only when the route's last in-flow child is
+  a vertical scroller, which UIKit then insets (LLP 1116 D2, `reachBottom` in
+  NavigationBarIOS.swift); a sheet component whose root is a `column` holding a header
+  and a `scroll` makes that `column` the last child. Fix: make the `scroll` the route's
+  own last child (the header its sibling), or make the component's root the `scroll`.
+  (euxy port, tempo and change-icon sheets, 2026-10-15.)
+
 ## Actions
+
+- **A name refused as reserved.** `none`, `some`, `true`, `false` and the expression
+  words (`if`, `for`, `match`, `and`, …) cannot name a state, a parameter or a `let`
+  (`syntax-expected-name`); a shape field cannot be `length` (`.length` is the
+  built-in), nor a function or action in a file that reads `.length`
+  (`syntax-method-shadowed`). Fix: another
+  word (`count`, `steps`, `empty`). (euxy port, 2026-10-15.)
+
+- **`nav` read after it is assigned in the same action is the old value.** State
+  writes land when the action ends (`analyze-read-after-assign`), so `nav = push(nav,
+  "/d")` then `top(nav)` still sees the route before it. Fix: `let next = push(nav,
+  "/d")`, `nav = next`, and read `next`. (euxy port, three times, 2026-10-15.)
 
 - **A scalar resource cannot use `empty("idle")`.** `empty()` takes named
   fields only for a record shape; a string's `empty()` is `""`. Use a pure
@@ -618,7 +638,11 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   the row whose leading or trailing actions a swipe reveals is a horizontal `scroll`
   with `scroll-snap-type="x mandatory"`, its content and action buttons as snap
   children, naming them with `swipeContent`, `swipeLeading` and `swipeTrailing` ids,
-  which the web scrolls and iOS turns into UIKit's own swipe actions. Fix: copy
+  which the web scrolls and iOS turns into UIKit's own swipe actions: UIKit's shape
+  and size (round on iOS 26 and later) with each button's background colour and a
+  snapshot of its content, never the painted box (euxy port's flush rectangles,
+  2026-10-15); a snap row without the three attributes keeps its paint and loses the
+  full swipe and the actions VoiceOver reads. Fix: copy
   `apps/shelf/app.contract`'s `BookRow` (`swipe-…`; `apps/messages` paints its own
   circles in hex and is no model for the rest). (Ledger2 DIARY, "Needed:
   swipe gesture", about 15 minutes, 2026-10-04.) iOS refuses a row whose content is
