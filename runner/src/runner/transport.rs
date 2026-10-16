@@ -161,6 +161,10 @@ impl<D: DataSource> Runner<D> {
     /// End every live voice before this runner is replaced (a dev reload,
     /// LLP 1096 D5); the host drains `take_sounds` before the restart.
     pub fn end_sounds(&mut self) {
+        // The host's time now, not the last commit's: what its output has
+        // handed since is handed here too, so no note-off it needs is taken
+        // back.
+        self.sample();
         let mut lines = Vec::new();
         if !self.plan.sounds.is_empty() {
             self.sounds.reload(self.now_ms, &mut lines);

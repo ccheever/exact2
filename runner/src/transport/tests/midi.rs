@@ -81,6 +81,13 @@ component M
     clockOut = "synth"
   action countIn
     from = -1
+  action laterOff
+    off = 100
+  action sendPair
+    sendMIDI("synth", [144, 61, 100], at=performanceNow() + 100)
+    sendMIDI("synth", [128, 61, 0], at=performanceNow() + 500)
+  action sendStart
+    sendMIDI("synth", [250], at=performanceNow() + 10000)
   action reloadIt
     reload()
   action floodOn
@@ -517,4 +524,69 @@ fn a_start_taken_back_is_sent_again() {
     assert!(s.contains(&("fa".into(), 500.0, Some("edit"))), "{s:?}");
     // At 240 the beat reached at 100 is -0.8: beat 0 falls at 300.
     assert!(s.contains(&("fa".into(), 300.0, None)), "{s:?}");
+}
+
+/// Review round 2: a full queue does not hang a note a track's positive
+/// offset keeps beyond the hold; its fill wakes when the note enters the
+/// hold, never again where it stood.
+#[test]
+fn a_full_queue_and_a_positive_offset_still_move_on() {
+    let mut r = granted(SOURCE);
+    r.act("floodOn", vec![]).unwrap();
+    r.act("flood", vec![]).unwrap();
+    r.act("laterOff", vec![]).unwrap();
+    r.act("start", vec![]).unwrap();
+    assert!(
+        r.transport().wake_due() > 0.0,
+        "{}",
+        r.transport().wake_due()
+    );
+    r.advance(2000.0).unwrap();
+    let ons: Vec<String> = said(&r)
+        .into_iter()
+        .filter(|l| l.contains("90 3c 64 at ") && !l.ends_with("at 10000"))
+        .collect();
+    assert!(ons.len() >= 3, "{ons:?}");
+    assert!(
+        ons[0].ends_with("90 3c 64 at 100") && ons[2].ends_with("90 3c 64 at 1100"),
+        "{ons:?}"
+    );
+}
+
+/// Review round 2: a runner ended on a live clock ends at the host's time,
+/// not its last commit's: a note-on the output handed since is not taken
+/// back, and its note-off comes after it.
+#[test]
+fn ending_a_runner_takes_the_host_s_time() {
+    let mut r = granted(SOURCE);
+    r.act("sendPair", vec![]).unwrap();
+    r.set_live_clock(Some(Box::new(|| 60.0)));
+    r.end_sounds();
+    let s = sent(&r);
+    assert!(
+        s.contains(&("90 3d 64".into(), 100.0, None)),
+        "the handed note-on stays: {s:?}"
+    );
+    assert!(
+        s.contains(&("80 3d 00".into(), 500.0, Some("cancelled"))),
+        "{s:?}"
+    );
+    assert!(
+        s.contains(&("80 3d 00".into(), 110.0, None)),
+        "after its note-on: {s:?}"
+    );
+}
+
+/// Review round 2: a Start the app sent itself, taken back at a stop, does
+/// not stand for the clock's: the clock still sends Stop.
+#[test]
+fn an_app_s_own_start_does_not_suppress_the_clock_s_stop() {
+    let mut r = granted(SOURCE);
+    r.act("withClock", vec![]).unwrap();
+    r.act("start", vec![]).unwrap();
+    r.act("sendStart", vec![]).unwrap();
+    r.advance(100.0).unwrap();
+    r.act("halt", vec![]).unwrap();
+    let s = sent(&r);
+    assert!(s.iter().any(|e| e.0 == "fc" && e.2.is_none()), "{s:?}");
 }

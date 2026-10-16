@@ -810,14 +810,14 @@ impl Midi {
         id
     }
 
-    /// Take back message `i` of the queue (`by`). Clock out's Start taken
-    /// back is sent again before its next tick.
+    /// Take back message `i` of the queue (`by`). Clock out's own Start
+    /// taken back is sent again before its next tick.
     fn retract(&mut self, i: usize, by: &'static str) {
         let s = &mut self.queue[i];
         s.by = Some(by);
         self.ops.push(MidiOp::Retract { id: s.id });
         if let Some(c) = self.clock.as_mut() {
-            if s.data == [0xFA] && s.output == c.output {
+            if s.seq && s.data == [0xFA] && s.output == c.output {
                 c.started = false;
             }
         }
@@ -847,6 +847,12 @@ impl Midi {
             };
             self.queue.remove(i);
         }
+    }
+
+    /// Whether a note-on at `on_at` would find no waiting place at `t`: it
+    /// is beyond the hold and [`QUEUED`] messages wait.
+    pub(crate) fn blocks(&self, on_at: f64, t: f64) -> bool {
+        on_at - HOLD > t && self.waiting(t) >= QUEUED
     }
 
     /// Whether a sequence's notes and clock can go to `output` now.
@@ -1005,7 +1011,8 @@ impl Midi {
         };
         for i in 0..self.queue.len() {
             let s = &self.queue[i];
-            if (s.tick.is_some() || (s.data == [0xFA] && s.output == output)) && s.waits(t) {
+            if (s.tick.is_some() || (s.seq && s.data == [0xFA] && s.output == output)) && s.waits(t)
+            {
                 self.retract(i, "cancelled");
             }
         }

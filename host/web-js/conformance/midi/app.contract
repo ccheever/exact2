@@ -5,7 +5,8 @@
 // the agent answers, `sendMIDI` (its `at=`, a late one, a malformed one), a
 // sequence's notes on two outputs (one not connected), a track's offset,
 // clock out, a tempo edit, a key restart, the gate's stop, a finite take's
-// `ended=`, `midimessage` heard by two elements with coalescing, and an
+// `ended=`, `midimessage` heard by two elements with coalescing, an app's
+// own Start taken back at a stop without silencing the clock's Stop, and an
 // output pulled. The journal's `midi` and `sequence` lines, `state.midi` and
 // `exactMIDI()`'s answer compare on every target. (No slot shares a name
 // with the metronome's.)
@@ -63,6 +64,8 @@ component MidiConf
     sendMIDI("synth", [176, 7, 100], at=performanceNow() - 25)
   action midiMalformed
     sendMIDI("synth", midiBad)
+  action midiOwnStart
+    sendMIDI("synth", [250], at=performanceNow() + 10000)
   action midiStart
     midiOn = true
   action midiStop
@@ -97,6 +100,7 @@ component MidiConf
       button "malformed" press=midiMalformed testId="malformed"
       button "start" press=midiStart testId="start"
       button "stop" press=midiStop testId="stop"
+      button "own start" press=midiOwnStart testId="ownstart"
       button "faster" press=midiFaster testId="faster"
       button "later" press=midiLater testId="later"
       button "restart" press=midiRestart testId="restart"

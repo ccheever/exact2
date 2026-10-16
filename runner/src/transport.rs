@@ -1035,6 +1035,20 @@ impl Transport {
                 let step = play.step(hit);
                 let when = hit.at + offset;
                 let mut counted = late;
+                // Where the note goes, decided first: a note the full queue
+                // blocks stops the fill before any of the hit's outputs is
+                // issued, so its refill issues none twice.
+                let skip = how == Fill::Edit && when - HOLD <= at;
+                let note_at = (step.note >= 0.0)
+                    .then(|| place(when, &mut counted))
+                    .flatten()
+                    .filter(|_| !skip);
+                if let Some(on) = note_at.filter(|on| midi.can_send(output) && midi.blocks(*on, at))
+                {
+                    // It takes a place once it is within the hold, or when
+                    // the first waiting message is handed.
+                    return Some((k, on - HOLD));
+                }
                 if !step.src.is_empty() {
                     if let Some(when) = place(when, &mut counted) {
                         let args = [
@@ -1046,28 +1060,25 @@ impl Transport {
                             Value::Number(step.pan),
                         ];
                         if s.issue(plan, at, &args, hit.at, log) == Added::Full {
-                            return Some(k);
+                            // A place frees when a waiting voice starts, or
+                            // this one would start (it then waits for none).
+                            return Some((k, when));
                         }
                     }
                 }
-                if step.note >= 0.0 {
-                    let off = seg.time(hit.beat + step.duration) + offset;
-                    // At an edit a note within the hold was handed already.
-                    let skip = how == Fill::Edit && when - HOLD <= at;
-                    match place(when, &mut counted).filter(|_| !skip) {
-                        Some(on) if midi.can_send(output) => {
-                            let status = 0x90 | step.channel as u8;
-                            let data = [status, step.note as u8, step.velocity as u8];
-                            let queued = midi.note(output, data, on, off.max(on), hit.at, at, log);
-                            if queued == Queued::Full {
-                                return Some(k);
-                            }
-                        }
-                        Some(_) => {
-                            unsent.get_or_insert(output.to_string());
-                        }
-                        None => {}
+                // At an edit a note within the hold was handed already.
+                match note_at {
+                    Some(on) if midi.can_send(output) => {
+                        let off = seg.time(hit.beat + step.duration) + offset;
+                        let status = 0x90 | step.channel as u8;
+                        let data = [status, step.note as u8, step.velocity as u8];
+                        let queued = midi.note(output, data, on, off.max(on), hit.at, at, log);
+                        debug_assert!(queued == Queued::Done, "checked above");
                     }
+                    Some(_) => {
+                        unsent.get_or_insert(output.to_string());
+                    }
+                    None => {}
                 }
                 if !step.haptic.is_empty() {
                     if let Some(when) = place(when, &mut counted) {
@@ -1093,17 +1104,20 @@ impl Transport {
             log.push(format!("sequence {name}: notes not sent: {why}"));
         }
         match full {
-            Some(k) => {
+            Some((k, admit)) => {
                 let t = hits[k].at;
                 let before = hits[..k].iter().rev().take_while(|h| h.at == t).count();
                 self.issued_to = t;
                 self.skip = before + if t == from { skipped } else { 0 };
                 // WAITING voices or QUEUED messages wait: the first to start
-                // or be handed frees a place, and the blocked hit is due no
-                // later than its own time (then it no longer waits: taps far
-                // ahead do not starve it).
+                // or be handed frees a place, and the blocked output takes
+                // one by itself no later than `admit` (its start, or its
+                // note's hold, its track's offset counted), always after
+                // `at`: taps far ahead do not starve it, and a wake is never
+                // due again where it stood.
                 let freed = [out.sounds.next_start(at), out.midi.next_handed(at)];
-                self.refill_due = freed.into_iter().flatten().fold(t, f64::min);
+                self.refill_due = freed.into_iter().flatten().fold(admit, f64::min);
+                debug_assert!(self.refill_due > at);
             }
             None => {
                 self.issued_to = to;

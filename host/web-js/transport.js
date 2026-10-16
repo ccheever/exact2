@@ -133,12 +133,13 @@ function fill(at, how) {
       let counted = late;
       // Played now at the arming, skipped at an edit, late only at a stalled live wake (more than REFILL past).
       const place = w => w >= at ? w : how === 'arm' ? at : how === 'edit' ? null : live && w < at - REFILL ? (counted++, null) : w;
-      if (s.src) { const w = place(when); if (w != null && T().issue(at, [s.src, w, s.gain, s.group, s.rate, s.pan], h.at) === 'full') return k; }
-      if (s.note >= 0) {
-        const off = time(g, h.beat + s.duration) + offset, skip = how === 'edit' && when - HOLD <= at, on = skip ? null : place(when);
-        if (on != null && Midi.canSend(output)) { if (Midi.note(output, [0x90 | s.channel, s.note, s.velocity], on, Math.max(off, on), h.at, at) === 'full') return k; }
-        else if (on != null) unsent ??= output;
-      }
+      // The note's place first: one the full queue blocks stops the fill before any of the hit's outputs is issued; it
+      // takes a place once within the hold. A blocked sample's frees when it would start. (The runner's `fill`.)
+      const skip = how === 'edit' && when - HOLD <= at, on = s.note >= 0 ? place(when) : null, note = skip ? null : on;
+      if (note != null && Midi.canSend(output) && Midi.blocks(note, at)) return [k, note - HOLD];
+      if (s.src) { const w = place(when); if (w != null && T().issue(at, [s.src, w, s.gain, s.group, s.rate, s.pan], h.at) === 'full') return [k, w]; }
+      if (note != null && Midi.canSend(output)) Midi.note(output, [0x90 | s.channel, s.note, s.velocity], note, Math.max(time(g, h.beat + s.duration) + offset, note), h.at, at);
+      else if (note != null) unsent ??= output;
       if (s.haptic) { const w = place(when); if (w != null) T().haptic(s.haptic, w, h.at, at); }
       if (counted > late) late++;
     }
@@ -147,9 +148,9 @@ function fill(at, how) {
   if (late) say(`sequence ${Seqs[Owner].name}: ${late} steps late, skipped`);
   if (unsent != null && !UnsentTold) { UnsentTold = true; say(`sequence ${Seqs[Owner].name}: notes not sent: ${Midi.access() !== 'granted' ? `access is ${Midi.access()}` : `${unsent} is not a connected output`}`); }
   if (full != null) {
-    const t = list[full].at;
-    let before = 0; while (before < full && list[full - 1 - before].at === t) before++;
-    IssuedTo = t; Skip = before + (t === from ? skipped : 0); RefillDue = Math.min(T().nextStart(at), Midi.nextHanded(at), t);
+    const [k, admit] = full, t = list[k].at;
+    let before = 0; while (before < k && list[k - 1 - before].at === t) before++;
+    IssuedTo = t; Skip = before + (t === from ? skipped : 0); RefillDue = Math.min(T().nextStart(at), Midi.nextHanded(at), admit);
   } else { IssuedTo = to; RefillDue = to - REFILL; }
 }
 function arm(i, t, args) {

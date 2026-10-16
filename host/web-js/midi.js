@@ -96,8 +96,8 @@ function push(m, t, note = '') {
   trim(t);
   return id;
 }
-// Clock out's Start taken back is sent again before its next tick.
-function retract(s, by) { s.by = by; Ops.push({ op: 'retract', id: s.id }); if (Clock && s.data.length === 1 && s.data[0] === 0xFA && s.output === Clock.output) Clock.started = false; }
+// Clock out's own Start taken back is sent again before its next tick.
+function retract(s, by) { s.by = by; Ops.push({ op: 'retract', id: s.id }); if (Clock && s.seq && s.data.length === 1 && s.data[0] === 0xFA && s.output === Clock.output) Clock.started = false; }
 function trim(t) {
   for (let i = 0; i < Queue.length;) {
     const s = Queue[i];
@@ -137,7 +137,7 @@ function placeAnswer() {
 function stopClock(t) {
   if (!Clock) return;
   const out = Clock.output;
-  for (const s of Queue) if ((s.tick != null || s.data.length === 1 && s.data[0] === 0xFA && s.output === out) && waits(s, t)) retract(s, 'cancelled');
+  for (const s of Queue) if ((s.tick != null || s.seq && s.data.length === 1 && s.data[0] === 0xFA && s.output === out) && waits(s, t)) retract(s, 'cancelled');
   const c = Clock; Clock = null;
   if (!c.started) return;
   let last = t;
@@ -159,6 +159,7 @@ function reload(t) {
 /** The sequence's side of the queue (transport.js), as midi.rs's `Midi` methods. */
 export const Midi = {
   canSend: connectedOutput, access: () => Ports.access,
+  blocks: (onAt, t) => onAt - HOLD > t && waiting(t) >= QUEUED,
   nextHanded: t => Queue.filter(s => waits(s, t) && !exempt(s)).reduce((m, s) => Math.min(m, s.at - HOLD), Infinity),
   note(output, on, onAt, offAt, stepAt, t) {
     if (onAt - HOLD > t && waiting(t) >= QUEUED) return 'full'; // a note due within the hold takes no waiting place

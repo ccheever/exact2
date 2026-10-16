@@ -20,6 +20,7 @@ tap later
 clock +900
 tap restart
 clock +800
+tap ownstart
 tap stop
 clock +400
 tap finite
