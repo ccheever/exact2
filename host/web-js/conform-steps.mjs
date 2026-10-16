@@ -57,6 +57,12 @@ export function parseStep(line) {
       call('tap', target, { mediaSession, ...(seconds != null ? { seconds: Number(seconds) } : {}) });
       break;
     }
+    // A MIDI input's message (LLP 1125 §4): `midi <input> <hex…>`.
+    case 'midi': {
+      const input = word(), data = words.splice(0).map(w => /^[0-9a-f]{2}$/i.test(w) ? parseInt(w, 16) : invalid(`${w} is not a byte (two hex digits)`));
+      if (!data.length) invalid('midi <input> <hex…>');
+      call('tap', null, { midi: { input, data } }); break;
+    }
     case 'prefer': {
       const facts = [[word(), word()]];
       while (words.length) facts.push([word(), word()]);

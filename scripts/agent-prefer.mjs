@@ -10,17 +10,20 @@ export const LAUNCH_MEDIA = { 'prefers-reduced-motion': 'no-preference', 'prefer
 export const PREFERENCES = { 'display-mode': ['standalone', 'browser', 'fullscreen', 'minimal-ui', 'window-controls-overlay', 'picture-in-picture', 'tabbed'], 'prefers-reduced-motion': ['reduce', 'no-preference'], 'prefers-reduced-transparency': ['reduce', 'no-preference'], 'prefers-contrast': ['more', 'less', 'custom', 'no-preference'], 'prefers-color-scheme': ['dark', 'light'], 'color-gamut': ['srgb', 'p3', 'rec2020'], 'dynamic-range': ['standard', 'high'] }; // `prefer`'s CSS media features and values (the display's two: LLP 1100 D9)
 export const PAGE_FACTS = { 'visibility-state': ['visible', 'hidden'], online: ['true', 'false'], 'can-share': ['true', 'false'], 'can-share-files': ['true', 'false'], 'can-share-pictures': ['true', 'false'], 'can-open-files': ['true', 'false'], 'has-focus': ['true', 'false'], 'keyboard-navigation': ['true', 'false'], 'root-font-size': ['<px>'], 'display-scale': ['<device pixels a px>'] }; // `prefer`'s page group (LLP 1069.000 D2, D3, D6; LLP 1069.007 D2; `has-focus`: #114; `keyboard-navigation`: the Mac's setting, whether Tab reaches every control, LLP 1115.000 D7.2, refused by name on the other hosts; `display-scale`: what a hairline is one device pixel of, LLP 1115.000 D10.3)
 export const FOLD_FACTS = { posture: ['folded', 'continuous'], segments: ['<cols>x<rows>'], gap: ['<points>'] }; // `prefer`'s fold group (LLP 1078 D7): a host without a fold splits its viewport evenly; one with a fold refuses
+export const MIDI_FACTS = { 'midi.state': ['prompt', 'granted', 'denied', 'unavailable'], 'midi.inputs': ['<name,…>'], 'midi.outputs': ['<name,…>'] }; // `prefer`'s midi group (LLP 1125 §4): what a request finds under the agent — its state (granted unless named) and the ports, by name; a port named no longer is disconnected
 export const MODE_FACT = { mode: ['<axis>=<value>'] }; // `prefer`'s mode group (LLP 1121 D5, D13): the app's own modes, `setMode` for each pin; `prefers-color-scheme` stays as it is
 
 /** The CLI's facts (`prefer <name> <value> …`) as the wire's three groups; an unknown fact or value is refused naming what is expected.
  * A fact answers to its near spellings (`color-scheme`, `colorScheme`, `reduced-motion` for the `prefers-` names): round 9, three builds. */
 export function preferGroups(facts) {
-  const media = {}, page = {}, fold = {}, mode = {};
-  const all = { ...PREFERENCES, ...PAGE_FACTS, ...FOLD_FACTS, ...MODE_FACT };
+  const media = {}, page = {}, fold = {}, mode = {}, midi = {};
+  const all = { ...PREFERENCES, ...PAGE_FACTS, ...FOLD_FACTS, ...MODE_FACT, ...MIDI_FACTS };
   const expected = () => Object.entries(all).map(([n, v]) => `${n} ${v.join('|')}`).join(', ');
   const norm = n => String(n).toLowerCase().replace(/[^a-z]/g, '').replace(/^prefers?/, '');
   for (const [given, value] of Object.entries(facts ?? {})) {
     const name = Object.keys(all).find(k => k === given || norm(k) === norm(given)) ?? given;
+    if (name === 'midi.state' && MIDI_FACTS['midi.state'].includes(value)) { midi.state = value; continue; }
+    if (name === 'midi.inputs' || name === 'midi.outputs') { midi[name.slice(5)] = (Array.isArray(value) ? value : String(value).split(',')).map(n => String(n).trim()).filter(Boolean); continue; }
     if ((Object.hasOwn(PREFERENCES, name) ? PREFERENCES[name] : []).includes(value)) media[name] = value;
     else if ((Object.hasOwn(PAGE_FACTS, name) ? PAGE_FACTS[name] : []).includes(String(value))) page[name] = PAGE_FACTS[name][0] === 'true' ? String(value) === 'true' : String(value);
     else if ((name === 'root-font-size' || name === 'display-scale') && Number(value) > 0 && Number(value) <= 3.4028234663852886e38) page[name] = Number(value); // a size the kernel stores, as an f32
@@ -35,7 +38,7 @@ export function preferGroups(facts) {
     else throw new MalformedOperation(`prefer: ${name} ${value}: expected ${expected()}`);
   }
   if (fold.gap != null && fold.cols == null) throw new MalformedOperation('prefer: gap needs segments <cols>x<rows>');
-  return { media, page, fold, mode };
+  return { media, page, fold, mode, midi };
 }
 
 /** The request a native host answers: `media` rides along when nothing else does (an empty request is refused there by name). */

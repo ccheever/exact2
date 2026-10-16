@@ -135,7 +135,12 @@ record_variants! {
         ExpectText { target, value, span }, ExpectState { name, value, span },
         ExpectSound { src, present, at, gain, ends, playback_rate, pan, by, span },
         ExpectMediaSession { field, value, span }, ExpectMediaSessionAction { action, present, span },
+        Midi { step, span },
     }
+}
+// MIDI's test steps carry no spans of their own.
+impl VisitSpans for crate::MidiStep {
+    fn visit_spans(&mut self, _: &mut impl FnMut(&mut Span)) {}
 }
 record_variants! {
     Stmt {

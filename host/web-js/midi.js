@@ -8,7 +8,8 @@
 // that uses MIDI; under the agent nothing is sent and a request is answered
 // from the drive's `prefer midi.*`.
 // - `sendMIDI` and `requestMIDIAccess` are the runtime's own (rt.js
-//   `Sounds.own`), applied once their commit stood, after the voice table's.
+//   `Sounds.own`), applied once their commit stood, after the voice table's
+//   (`Sounds.midiApply`).
 // - `midimessage` (rt.js `onMIDI`): every connected element whose
 //   `data-exact-midiinputs` lists the input hears each message, in document
 //   order, a commit each.
@@ -120,7 +121,7 @@ function send(args, t) {
   }
 }
 function request(t) {
-  if (!Granted) return say('midi refused: the grants name no device.midi (requestMIDIAccess)');
+  if (!Granted) return say('midi access: denied, the grants name no device.midi (requestMIDIAccess)');
   if (clock.agent) {
     say(`midi access: ${Preferred.access} (agent)`);
     if (setPorts(answered())) { Answer.due = Math.min(Answer.due, t); const k = Mutations.indexOf(Answer); if (k >= 0) Mutations.splice(k, 1); Mutations.push(Answer); }
@@ -301,8 +302,7 @@ export function midi(readers, uses) {
   Granted = granted();
   Ports = { access: Granted ? 'prompt' : 'denied', inputs: [], outputs: [] };
   if (data.grants == null) data.ready(() => { if (!Granted && granted()) { Granted = true; Ports = { access: 'prompt', inputs: [], outputs: [] }; again('midi'); } });
-  const prior = Sounds.apply;
-  Sounds.apply = cmds => { prior?.(cmds); apply(cmds); };
+  Sounds.midiApply = apply;
   (data.reserved ??= {}).exactMIDI = (_, a, name) => {
     const [fields, ports] = Readers[name];
     const port = (p, keys) => keys.map(k => k === 'state' ? (p.connected ? 'connected' : 'disconnected') : p[k]);

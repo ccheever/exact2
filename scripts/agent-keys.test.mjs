@@ -6,6 +6,12 @@ import { KEY_REPEAT, validateKey, typeFor, cdpKey, withHeldModifiers, browserKey
 import { open } from './agent.mjs';
 import { launchFacts } from './agent-launch.mjs';
 
+test('tap midi is a MIDI input\'s message, its bytes two hex digits each; a testId `midi` keeps the other forms (LLP 1125 §4)', () => {
+  expect(tapWords(['midi', 'keys', '90', '3c', '64'])).toEqual([null, { midi: { input: 'keys', data: [0x90, 0x3c, 0x64] } }]);
+  expect(tapWords(['midi', 'at', '1', '2'])).toEqual(['midi', { at: [1, 2] }]);
+  expect(tapWords(['midi'])).toEqual(['midi', {}]);
+});
+
 test('into accepts CSS alignments and labels invalid values in the shared check and CLI', () => {
   expect(() => intoArguments({ key: 'row' })).not.toThrow();
   expect(tapWords(['list', 'into', 'row'])).toEqual(['list', { into: { key: 'row' } }]);

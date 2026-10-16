@@ -397,6 +397,8 @@ export function tapWords(args, held = false) {
     }
     return opts;
   };
+  // A MIDI input's message (LLP 1125 §4): `tap midi "<input>" 90 3c 64`, each byte two hex digits.
+  if (first === 'midi' && form !== undefined && rest.length && rest.every((w) => /^[0-9a-f]{2}$/i.test(w))) return [null, { midi: { input: form, data: rest.map((w) => parseInt(w, 16)) } }];
   if (held && first === 'move') {
     const by = form === 'by', [a, b, ...more] = by ? rest : [form, ...rest];
     const point = by ? { dx: number(a, 'move by'), dy: number(b, 'move by') } : { x: number(a, 'move'), y: number(b, 'move') };

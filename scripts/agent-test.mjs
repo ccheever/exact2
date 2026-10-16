@@ -551,6 +551,9 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
                 : st.modifiers ? { modifiers: st.modifiers } : undefined;
               delivered(await s.tap(st.target, opts)); input = st.line; break;
             }
+            // MIDI (LLP 1125 §4): the ports a request finds, and a message from an input now.
+            case 'prefer-midi': { const r = await s.op({ op: 'prefer', midi: { ...(st.state ? { state: st.state } : {}), ...(st.inputs ? { inputs: st.inputs } : {}), ...(st.outputs ? { outputs: st.outputs } : {}) } }); if (r?.error) throw new Error(r.error); await s.clock('settle'); break; }
+            case 'tap-midi': delivered(await s.tap(null, { midi: { input: st.input, data: st.data } })); input = st.line; break;
             case 'drag': {
               const drag = { ...(st.to != null ? { to: st.to, ...(st.at ? { at: st.at } : {}) } : { dx: st.dx, dy: st.dy }), ...(st.from ? { from: st.from } : {}), ...(st.mouse ? { mouse: true } : {}), ...(st.press != null ? { press: st.press } : {}), ...(st.over != null ? { over: st.over } : {}), ...(st.hold != null ? { hold: st.hold } : {}) };
               if (st.during?.length) drag.during = st.during.map((op) => () => duringOp(s, op));
@@ -639,6 +642,18 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
                 const of = sounds.voices.filter((v) => v.src === st.src).slice(-8).map((v) => `#${v.id} at ${v.at} gain ${v.gain}${v.playbackRate != null ? ` playbackRate ${v.playbackRate}` : ''}${v.pan != null ? ` pan ${v.pan}` : ''} ends ${v.ends} by ${v.by}`);
                 // A voice is recorded by the commit that issued it: no clock hint applies.
                 failures.push(`${at}: expected ${st.present ? 'a' : 'no'} voice of "${st.src}"${said}; ${of.length ? `its voices: ${of.join('; ')}` : 'it has no voice'}`);
+              }
+              break;
+            }
+            // The MIDI queue's record (LLP 1125 D5): a message to that output, not taken back, at `at` when given.
+            case 'expect-midi': {
+              const midi = (await s.state(undefined, undefined, false, false, { midi: 'all' })).midi;
+              if (!midi) { failures.push(`${at}: the app keeps no MIDI queue (no sequence, no sendMIDI, exactMIDI or midimessage)`); break; }
+              const hex = st.data.map((b) => b.toString(16).padStart(2, '0')).join(' '), said = `"${st.output}" ${hex}${st.at != null ? ` at ${st.at}` : ''}`;
+              const found = midi.sent.some((m) => m.output === st.output && m.data === hex && m.state !== 'retracted' && (st.at == null || m.at === st.at));
+              if (found !== st.present) {
+                const of = midi.sent.filter((m) => m.output === st.output).slice(-8).map((m) => `#${m.id} ${m.data} at ${m.at} ${m.state}${m.by ? ` by ${m.by}` : ''}`);
+                failures.push(`${at}: expected ${st.present ? 'a' : 'no'} message to ${said}; ${of.length ? `its messages: ${of.join('; ')}` : `nothing was queued for it (access ${midi.state}, outputs ${midi.outputs.map((o) => o.id).join(', ') || 'none'})`}`);
               }
               break;
             }

@@ -119,10 +119,12 @@ fn malformed(bytes: &[f64]) -> Option<String> {
             0xF4 | 0xF5 | 0xF9 | 0xFD => {
                 return Some(format!("0x{status:02X} is an undefined status byte"))
             }
-            _ => return Some(format!(
+            _ => {
+                return Some(format!(
                 "byte {} is {status}, a data byte where a status byte belongs (no running status)",
                 i + 1
-            )),
+            ))
+            }
         };
         if i + length > bytes.len() {
             return Some(format!(

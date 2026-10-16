@@ -113,6 +113,7 @@ mod shadow_and_case;
 mod shape_cycles;
 mod share;
 mod sheet_page;
+mod midi;
 mod sound;
 mod source_locations;
 mod source_map;

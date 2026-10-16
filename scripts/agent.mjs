@@ -989,6 +989,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     async tap(target, opts = {}) {
       if (holdOf(target)) { if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`); return s.answer('tap', target, opts.choice); }
       const button = tapArguments(opts);
+      if (opts.midi) return s.landed({ ...await s.op({ op: 'midi', ...opts.midi }), delivery: 'substituted', carrier: host, mode: timing }); // a MIDI input's message (LLP 1125 §4): the runner's input, the arm absent
       if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`);
       let node, part = await partTap({ s, host, touch }, target, opts); if (part) return part; // `tap <node>/<part>` (agent-inspect.mjs)
       try { node = await s.target(target, true); }
@@ -1233,7 +1234,10 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     /** The device facts by their web names (LLP 1061 D5; LLP 1069.000 D6), grouped on the wire as LLP 1069.007 D2 groups them. `media`: `{"prefers-reduced-motion": "reduce"}`, `"prefers-reduced-transparency"` likewise, `"prefers-contrast": "more"|"less"|"custom"|"no-preference"`, `"prefers-color-scheme": "dark"|"light"` (the system's; an app's `setScheme` still wins). `page`: `"visibility-state": "visible"|"hidden"`, `online`, `can-share`, `can-share-files`, `can-share-pictures`, `can-open-files` and `has-focus` `"true"|"false"`, `"root-font-size"` in px (what `rem` follows). `fold` (LLP 1078 D7): `posture folded|continuous`, `segments <cols>x<rows>`, `gap <points>` — a host without a fold splits its viewport evenly with the gap centred on each divider; a host with a real fold refuses ("the device decides"). Unnamed facts stay. The reply is what the host now reports, by group. */
     async prefer(facts) {
       if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`);
-      const { media, page, fold, mode } = preferGroups(facts);
+      const { media, page, fold, mode, midi } = preferGroups(facts);
+      // The midi group is the runner's (LLP 1125 §4), asked on its own; alone, its reply is the answer.
+      const midiReply = Object.keys(midi).length ? await s.op({ op: 'prefer', midi }) : null;
+      if (midiReply && ![media, page, fold, mode].some(g => Object.keys(g).length)) return midiReply;
       if (carrier.prefer) return s.tagged(await carrier.prefer(media, page, fold, mode));
       return s.op(preferOp(media, page, fold, mode));
     },
@@ -1417,7 +1421,7 @@ export async function main(argv, injected = {}) {
           }
           // Every other form, strictly (#107): the contact's phases (LLP 1035.003 D1) read as `tap move …`, `tap hold`,
           // `tap up`, `tap cancel` only while a contact is down; with none down those words are targets like any other.
-          else { const [target, { phase, ...opts }] = tapWords(args, !!s.contact); r = target === null ? await s.pointer(phase, opts) : await s.tap(target, opts); }
+          else { const [target, { phase, ...opts }] = tapWords(args, !!s.contact); r = target === null && !opts.midi ? await s.pointer(phase, opts) : await s.tap(target, opts); }
           break;
         case 'clock': r = await s.clock(args.join(' ') || 'settle'); break; case 'sample': { const n = args.map(Number); if (!n.length || n.length % 2 || n.some(v => !Number.isFinite(v))) throw new MalformedOperation('sample <x> <y> [<x> <y> …]: view points; layout <target> gives a node\'s frame'); r = await s.op({ op: 'sample', points: n.flatMap((v, i) => i % 2 ? [] : [[v, n[i + 1]]]) }); break; }
         case 'resize': r = await s.resize(...resizeArguments(args.join(''))); break;

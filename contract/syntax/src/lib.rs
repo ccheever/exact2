@@ -25,6 +25,7 @@ pub mod fmt;
 pub mod idioms;
 pub mod inline;
 pub mod lexer;
+mod midi;
 mod notfound;
 pub mod parser;
 mod part;
@@ -40,6 +41,7 @@ pub use inline::{
     Instance, Owner,
 };
 pub use lexer::{Lexer, Token, TokenKind};
+pub use midi::MidiStep;
 pub use notfound::implicit_notfound;
 pub use parser::{is_launch, parse, parse_source, parse_source_all, same_launch, SyntaxError};
 pub use sequence::Sequence;

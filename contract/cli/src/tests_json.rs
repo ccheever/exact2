@@ -2,23 +2,25 @@
 
 use contract_syntax::{Expr, Step, TapForm, TestDecl};
 
+/// A JSON string.
+fn q(s: &str, out: &mut String) {
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+}
+
 /// The tests as JSON for the driver: `[{"name":…,"steps":[{"op":…}]}]`,
 /// written by hand — no serde anywhere in the runtime (LLP 1012).
 pub fn tests_json(tests: &[TestDecl]) -> String {
-    fn q(s: &str, out: &mut String) {
-        out.push('"');
-        for c in s.chars() {
-            match c {
-                '"' => out.push_str("\\\""),
-                '\\' => out.push_str("\\\\"),
-                '\n' => out.push_str("\\n"),
-                '\t' => out.push_str("\\t"),
-                c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
-                c => out.push(c),
-            }
-        }
-        out.push('"');
-    }
     let mut s = String::from("[");
     for (ti, t) in tests.iter().enumerate() {
         if ti > 0 {
@@ -319,6 +321,8 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                     q(action, &mut s);
                     s.push_str(&format!(",\"present\":{present}"));
                 }
+                // @ref LLP 1125 §4 — the driver's `prefer midi.*` and `tap midi`, and `state.midi.sent`.
+                Step::Midi { step, .. } => midi_step(step, &mut s),
                 Step::ExpectState { name, value, .. } => {
                     s.push_str("{\"op\":\"expect-state\",\"name\":");
                     q(name, &mut s);
@@ -338,4 +342,63 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
     }
     s.push(']');
     s
+}
+
+/// A MIDI step's JSON: `prefer` with its `midi` facts, `tap-midi`, or
+/// `expect-midi`, the bytes as numbers.
+fn midi_step(step: &contract_syntax::MidiStep, s: &mut String) {
+    use contract_syntax::MidiStep;
+    let bytes = |data: &[u8]| {
+        let b: Vec<String> = data.iter().map(|b| b.to_string()).collect();
+        format!("[{}]", b.join(","))
+    };
+    let names = |list: &[String], s: &mut String| {
+        s.push('[');
+        for (i, n) in list.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            q(n, s);
+        }
+        s.push(']');
+    };
+    match step {
+        MidiStep::Prefer {
+            state,
+            inputs,
+            outputs,
+        } => {
+            s.push_str("{\"op\":\"prefer-midi\"");
+            if let Some(state) = state {
+                s.push_str(",\"state\":");
+                q(state, s);
+            }
+            if let Some(inputs) = inputs {
+                s.push_str(",\"inputs\":");
+                names(inputs, s);
+            }
+            if let Some(outputs) = outputs {
+                s.push_str(",\"outputs\":");
+                names(outputs, s);
+            }
+        }
+        MidiStep::Tap { input, data } => {
+            s.push_str("{\"op\":\"tap-midi\",\"input\":");
+            q(input, s);
+            s.push_str(&format!(",\"data\":{}", bytes(data)));
+        }
+        MidiStep::Expect {
+            output,
+            data,
+            at,
+            present,
+        } => {
+            s.push_str("{\"op\":\"expect-midi\",\"output\":");
+            q(output, s);
+            s.push_str(&format!(",\"data\":{},\"present\":{present}", bytes(data)));
+            if let Some(at) = at {
+                s.push_str(&format!(",\"at\":{at}"));
+            }
+        }
+    }
 }
