@@ -1134,12 +1134,6 @@ sits on that list carries the trade it would take.
   the default paved path for substantial app logic) — LLP 1027 is that design; the
   `ibex2::host` half above stands as landed.
 
-- The dev menu on iOS is on in every build — EXACT_DEV_MENU=0 is the only off
-  switch. (The Mac's follows the build since LLP 1115.000 D7.8: a release build has
-  no Develop menu, `DevMenu.develops`.) A distributed iOS build's testers open it for
-  the build's info and release notes, so decide what a release build shows there
-  before one of weird-castle goes to someone who isn't testing it.
-
 - The serial runtime owner + env()/keyboard lane is parked on `parked/runtime-owner`
   (2583be3, base 17350d0 — pre-fonts) and the main worktree is clean of it. LLP 1022
   holds the measurements (fails the macOS smoke ~6 of 8; macOS boot +26 ms for a

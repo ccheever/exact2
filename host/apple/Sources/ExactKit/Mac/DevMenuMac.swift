@@ -11,8 +11,8 @@
 // AppKit's search field (LLP 1115 D8); Develop —
 // Reload ⌘R, Open Project… ⇧⌘O behind a document app, App Info… ⌘D —
 // in a development build only (LLP 1115.000 D7.8: a release build has no
-// such menu and takes none of its chords; EXACT_DEV_MENU=0 or =1 says
-// otherwise for either). Native AppKit above the presenter, so it is
+// such menu and takes none of its chords; EXACT_DEV_MENU=0 or =1, at build
+// or launch, says otherwise for either). Native AppKit above the presenter, so it is
 // alive even when the plan is broken; reload re-fetches a live connection,
 // else restarts from the dev loop's plan when one is named (the watcher's
 // own path, state carried), else from the baked plan, fresh. Host
@@ -99,14 +99,14 @@ public enum DevMenu {
     /// not record) or stamped `release` or `archive` by `build.mjs`
     /// (`ExactBuildKind`: production trust, or `--distribution`, what
     /// `exact release` signs). An unstamped host (a test's) is a
-    /// development one. `EXACT_DEV_MENU` says otherwise for either: `0` off,
-    /// anything else on.
-    static func develops(kind: String?, production: Bool, override: String?) -> Bool {
-        override.map { $0 != "0" } ?? (!production && (kind ?? "debug") == "debug")
+    /// development one. `EXACT_DEV_MENU`, at build or launch, says otherwise
+    /// for either (`ExactEnv.devMenu`).
+    static func develops(kind: String?, production: Bool, override: Bool?) -> Bool {
+        override ?? (!production && (kind ?? "debug") == "debug")
     }
     /// This build's answer, read once.
     public static let enabled = develops(kind: ExactEnv.appMetadata["ExactBuildKind"] as? String, production: ExactEnv.productionBake,
-                                         override: ExactEnv.environment["EXACT_DEV_MENU"])
+                                         override: ExactEnv.devMenu)
     /// The session the menu reloads, describes and opens into: the key
     /// window's, which the adapter that owns the windows keeps current.
     nonisolated(unsafe) public static weak var session: ExactSession?

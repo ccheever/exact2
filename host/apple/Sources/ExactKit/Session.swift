@@ -1106,8 +1106,8 @@ public final class ExactSession {
                     continue
                 }
                 if name == "reload" {
-                    // The dev menu's Reload, from the app, in a release build too (a Mac one has no menu, LLP 1115.000 D7.8); `EXACT_DEV_MENU=0` refuses it.
-                    guard ExactEnv.environment["EXACT_DEV_MENU"] != "0" else { fputs("exact: reload: no dev menu in this build\n", stderr); continue }
+                    // The dev menu's Reload, from the app, in a release build too (a Mac one has no menu, LLP 1115.000 D7.8); `EXACT_DEV_MENU=0`, at build or launch, refuses it.
+                    guard ExactEnv.devMenu != false else { fputs("exact: reload: no dev menu in this build\n", stderr); continue }
                     app.deliver { DevMenu.reload() }
                     continue
                 }

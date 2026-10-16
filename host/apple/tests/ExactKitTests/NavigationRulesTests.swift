@@ -941,9 +941,9 @@ final class MacShortcutTests: XCTestCase {
         }
         XCTAssertFalse(DevMenu.develops(kind: "debug", production: true, override: nil))
         XCTAssertFalse(DevMenu.develops(kind: nil, production: true, override: nil))
-        XCTAssertTrue(DevMenu.develops(kind: "release", production: true, override: "1"))
-        XCTAssertFalse(DevMenu.develops(kind: "debug", production: false, override: "0"))
-        XCTAssertEqual(DevMenu.enabled, ExactEnv.environment["EXACT_DEV_MENU"] != "0", "the tests' host is a development build")
+        XCTAssertTrue(DevMenu.develops(kind: "release", production: true, override: true))
+        XCTAssertFalse(DevMenu.develops(kind: "debug", production: false, override: false))
+        XCTAssertEqual(DevMenu.enabled, ExactEnv.devMenu ?? true, "the tests' host is a development build")
     }
 
     func testShortcutsRespectDisabledInertHiddenRepeatedAndWindowOwnership() {

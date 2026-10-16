@@ -5,6 +5,14 @@
 // the device it runs on.
 import Foundation
 
+extension ExactEnv {
+    /// Whether the dev menu was asked for: `EXACT_DEV_MENU` at launch, else
+    /// as the build's environment had it (`ExactDevMenu`; an installed iOS
+    /// app is launched with no environment). `0` is off, anything else on;
+    /// `nil` when neither says, and the platform's default holds.
+    public static let devMenu: Bool? = environment["EXACT_DEV_MENU"].map { $0 != "0" } ?? appMetadata["ExactDevMenu"] as? Bool
+}
+
 enum BuildInfo {
     /// The menu's first lines, from a bundle's info dictionary, `now` for the
     /// build's age. A key the build did not stamp (an older build, a test

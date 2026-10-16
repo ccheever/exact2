@@ -40,6 +40,9 @@ test('an app inside exact2 carries exact2\'s commit alone, and the kind', () => 
   expect(buildInfo({ dir: root }, { root, now, env: { EXACT_DISTRIBUTION_REVISION: '7' } }).ExactDistributionRevision).toBe('7');
   expect(buildInfo({ dir: root }, { root, production: true, now }).ExactBuildKind).toBe('release');
   expect(buildInfo({ dir: root }, { root, archive: true, production: true, now }).ExactBuildKind).toBe('archive');
+  expect(buildInfo({ dir: root }, { root, now, env: {} }).ExactDevMenu).toBeUndefined();
+  expect(buildInfo({ dir: root }, { root, now, env: { EXACT_DEV_MENU: '0' } }).ExactDevMenu).toBe(false);
+  expect(buildInfo({ dir: root }, { root, production: true, now, env: { EXACT_DEV_MENU: '1' } }).ExactDevMenu).toBe(true);
 });
 
 test('an app in its own repository carries its commit and whether it was dirty', () => {
