@@ -9,7 +9,7 @@ if (process.platform !== 'win32') throw new Error('build the Windows host on Win
 const args = process.argv.slice(2);
 const outAt = args.indexOf('--out');
 if (outAt >= 0 && !args[outAt + 1]) throw new Error('--out needs a directory');
-const app = resolveApp(args.find((arg, i) => !arg.startsWith('--') && i !== outAt + 1));
+const app = resolveApp(args.find((arg, i) => !arg.startsWith('--') && (outAt < 0 || i !== outAt + 1)));
 const target = bakeTarget('windows');
 const profile = args.includes('--release') ? 'release' : 'gpu-dev';
 const build = buildBake(app, 'windows', target, { profile, env: developmentBuildEnv(app) });
