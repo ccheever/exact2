@@ -479,12 +479,15 @@ if (es) {
   // A selection is its node in a generation: a refresh after another
   // generation finds the node by its site and instance path again, or says
   // it is gone.
-  const select = async (id) => {
+  const select = async (id, clicked = false) => {
     const seq = inspecting.seq;
     const report_ = await selectedReport(id);
     // Left (or another command came) meanwhile: not published.
     if (!inspecting.on || inspecting.seq !== seq) return;
     if (report_.kind === "selected") inspecting.selected = { id, generation: globalThis.exact.generation, plan: report_.selected.planDigest, site: report_.selected.site, instance: JSON.stringify(report_.selected.instance) };
+    // A click's: the outline the server answers it with (its site's copies,
+    // on its plan, within 10 s) leaves the page where it is.
+    if (clicked && report_.kind === "selected") inspecting.clicked = { site: report_.selected.site, plan: report_.selected.planDigest, at: performance.now() };
     report(report_);
   };
   const refresh = async () => {
@@ -528,7 +531,7 @@ if (es) {
     if (event.type === "pointerup" && inspecting.press?.id === event.pointerId) {
       const { x, y } = inspecting.press;
       inspecting.press = null;
-      if (Math.hypot(event.clientX - x, event.clientY - y) <= 10) { const hit = nodeAt(event.clientX, event.clientY); outline(hit?.el ?? null); if (hit) void select(hit.id); }
+      if (Math.hypot(event.clientX - x, event.clientY - y) <= 10) { const hit = nodeAt(event.clientX, event.clientY); outline(hit?.el ?? null); if (hit) void select(hit.id, true); }
     }
     if (event.type === "pointercancel") inspecting.press = null;
   };
@@ -599,14 +602,14 @@ if (es) {
       document.activeElement?.blur?.();
       chrome();
     } else {
-      inspecting.banner?.remove(); inspecting.outline?.remove(); inspecting.shield?.remove(); inspecting.cover?.remove(); unmark();
+      inspecting.banner?.remove(); inspecting.outline?.remove(); inspecting.shield?.remove(); inspecting.cover?.remove(); unmark(); inspecting.clicked = null;
       inspecting.banner = inspecting.outline = inspecting.shield = inspecting.cover = inspecting.close = inspecting.press = null;
     }
   };
   // `outline {sites, plan}` (D4, D5): every copy of the selected node, the
   // views of those plan sites, outlined while inspect mode is on (the first
-  // scrolled into view, then measured; kept on them as the page scrolls and
-  // resizes). A frame for another plan leaves the outlines as they are (a
+  // scrolled into view, unless they are the copies of one just clicked here;
+  // then measured; kept on them as the page scrolls and resizes). A frame for another plan leaves the outlines as they are (a
   // host never reads a source map: the server resolves sites); an empty one
   // clears them; `clear` too.
   const marks = [];
@@ -621,14 +624,19 @@ if (es) {
     }
   };
   const outlineSites = (frame) => {
-    if (frame.clear) { unmark(); return; }
+    if (frame.clear) { unmark(); inspecting.clicked = null; return; }
     if (!inspecting.on) return;
     const views = ask({ op: "sites" });
     if (views.error || views.planDigest !== frame.plan || !Array.isArray(frame.sites)) return;
     unmark();
     const wanted = new Set(frame.sites);
     const found = views.sites.filter(([, site]) => wanted.has(site)).map(([id]) => globalThis.exact.views?.get(id)).filter((el) => el?.isConnected);
-    found[0]?.scrollIntoView({ block: "nearest" });
+    // The outline of a copy just clicked here scrolls nothing: that copy is
+    // (or was) under the pointer. Any other (the tool's Outline) brings the
+    // first in.
+    const c = inspecting.clicked, ours = !!c && c.plan === frame.plan && wanted.has(c.site) && performance.now() - c.at < 10_000;
+    if (ours) inspecting.clicked = null;
+    else found[0]?.scrollIntoView({ block: "nearest" });
     for (const el of found) {
       const mark = document.createElement("div");
       mark.dataset.exactOutline = "";

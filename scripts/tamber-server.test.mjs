@@ -451,6 +451,8 @@ test('inspect on the wasm page: no tap reaches the app, a click selects the node
     // test finds there is selected and reported.
     const swap = page.locator('[data-testid="swap"]');
     const at = await swap.boundingBox();
+    // (Counting the page's scrolls into view from here.)
+    await page.evaluate(() => { globalThis.__scrolls = 0; const was = Element.prototype.scrollIntoView; Element.prototype.scrollIntoView = function (...a) { globalThis.__scrolls += 1; return was.apply(this, a); }; });
     await page.mouse.click(at.x + at.width / 2, at.y + at.height / 2);
     const selected = await until(() => events.find(e => e.event === 'selected'));
     expect(await dim()).toBe(before);
@@ -475,6 +477,9 @@ test('inspect on the wasm page: no tap reaches the app, a click selects the node
     const color = selection.rows.find(r => r.name === 'text_color');
     expect(color).toMatchObject({ source: 'inherited', editable: { rung: null, link: 'text.primary' } });
     await until(async () => (await page.locator('[data-exact-outline]').count()) >= 1);
+    // The outline of the copy just clicked scrolls nothing (it is under the
+    // pointer); the tool's Outline below brings its first copy in.
+    expect(await page.evaluate(() => globalThis.__scrolls)).toBe(0);
     // Selecting from the tool: a token's uses outline their views (the
     // card's surface, each row reading surface.card).
     const uses = (await post({ method: 'uses', token: 'surface.card' })).ok;
@@ -493,6 +498,7 @@ test('inspect on the wasm page: no tap reaches the app, a click selects the node
       };
     }, outlined.sites);
     await until(async () => { const b = await boxes(); return b.views.length > 0 && JSON.stringify(b.marks) === JSON.stringify(b.views); });
+    expect(await page.evaluate(() => globalThis.__scrolls)).toBe(1);
     // An outline of nothing clears them.
     await post({ method: 'outline', client: 'tool', at: [] });
     await until(async () => (await page.locator('[data-exact-outline]').count()) === 0);
