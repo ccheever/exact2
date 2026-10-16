@@ -513,7 +513,7 @@ extension NavigationHost {
         #endif
         // The theme's label colour on the bar's titles (LLP 1095 D4); its
         // glyphs take the app's tint, which the theme's `AccentColor` sets.
-        if let ink = ThemeRoles.color("label", in: first) ?? ThemeRoles.color("CanvasText", in: first) {
+        if let ink = ThemeRoles.color("label", in: presenter.root) ?? ThemeRoles.color("CanvasText", in: presenter.root) {
             nav.navigationBar.titleTextAttributes = [.foregroundColor: ink]
             #if !os(tvOS)
             nav.navigationBar.largeTitleTextAttributes = [.foregroundColor: ink]
@@ -753,7 +753,7 @@ extension NavigationHost {
         // Unsaid, the placeholder is the search field's own, which UIKit
         // draws darker than an ordinary field's `placeholderText`; an
         // authored `::placeholder` colour or theme role wins (LLP 1104 D3).
-        if field.placeholderColor != nil || ThemeRoles.color("placeholder", in: field) != nil {
+        if field.placeholderColor != nil || ThemeRoles.color("placeholder", in: presenter.root) != nil {
             field.applyPlaceholder(bar.searchTextField)
             search.paintsPlaceholder = true
         } else if search.paintsPlaceholder || bar.placeholder != placeholder {

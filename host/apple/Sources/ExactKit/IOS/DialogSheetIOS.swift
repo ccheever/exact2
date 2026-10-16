@@ -54,7 +54,7 @@ final class DialogSheetController: UIViewController, UIGestureRecognizerDelegate
         #else
         // The sheet's surface where the dialog painted none: the platform's
         // (LLP 1115 D2), which UIKit elevates in dark mode.
-        ThemeRoles.adopt(view)
+        ThemeRoles.adopt(view, from: host?.root)
         view.backgroundColor = ThemeRoles.color("background", in: view) ?? ThemeRoles.color("Canvas", in: view, or: .systemBackground)
         scroller.keyboardDismissMode = .interactive
         #endif
@@ -113,6 +113,8 @@ final class DialogSheetController: UIViewController, UIGestureRecognizerDelegate
 /// the person sees it until then.
 final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
     private weak var presenter: Presenter?
+    /// Its presenter's root: what a sheet's surface resolves the theme by.
+    var root: UIView? { presenter?.root }
     private final class Entry {
         let dialog: NodeView
         weak var parent: UIView?

@@ -62,7 +62,7 @@ public final class ExactView: UIView {
         super.init(frame: .zero)
         // The launch screen's colour (the manifest's `launch`) until the first
         // frame names the canvas; unset, the platform's (LLP 1115 D2).
-        backgroundColor = UIColor(named: "ExactLaunch") ?? .platformBackground
+        backgroundColor = UIColor(named: "ExactLaunch") ?? .platformBackground(in: nil)
         canvas = backgroundColor
         addSubview(session.presenter.viewport)
         #if !os(tvOS)
@@ -427,7 +427,7 @@ public final class ExactView: UIView {
         // under the keys, and the sheet's own surface returns with them.
         #if os(iOS)
         if let sheet = session.presenter.modals.coordinateView {
-            let surface = edge ?? .platformBackground
+            let surface = edge ?? .platformBackground(in: sheet)
             if sheet.backgroundColor != surface { sheet.backgroundColor = surface }
         }
         #endif

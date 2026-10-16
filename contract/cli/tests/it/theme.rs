@@ -455,9 +455,13 @@ fn a_refused_candidate_and_a_nested_boot_leave_the_live_sessions_roles() {
         fixed("#030303")
     );
     drop(other);
-    assert_eq!(
-        exact_kernel::style::roles::overridden(canvas_text),
-        fixed("#010101")
-    );
+    let now = || exact_kernel::style::roles::overridden(canvas_text);
+    assert_eq!(now(), fixed("#010101"));
+    // Two candidates refused, the first first (Apple's `applyTogether`).
+    let (one, two) = (run("#040404"), run("#050505"));
+    drop(one);
+    assert_eq!(now(), fixed("#050505"));
+    drop(two);
+    assert_eq!(now(), fixed("#010101"));
     drop(live);
 }

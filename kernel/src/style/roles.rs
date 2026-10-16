@@ -309,16 +309,16 @@ impl Roles {
 thread_local! {
     /// The session whose roles resolve now: bound by a host around what it
     /// does for one session ([`bind`]), else the one the thread installed
-    /// last ([`install`]), while that session lives.
+    /// last ([`install`]) that still lives, then the one before.
     static BOUND: std::cell::RefCell<Option<std::rc::Rc<Roles>>> = const { std::cell::RefCell::new(None) };
-    static INSTALLED: std::cell::RefCell<std::rc::Weak<Roles>> = const { std::cell::RefCell::new(std::rc::Weak::new()) };
+    static INSTALLED: std::cell::RefCell<Vec<std::rc::Weak<Roles>>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
 /// The roles that resolve now ([`BOUND`]); none when no session is.
 pub fn bound() -> std::rc::Rc<Roles> {
     BOUND
         .with(|b| b.borrow().clone())
-        .or_else(|| INSTALLED.with(|i| i.borrow().upgrade()))
+        .or_else(|| INSTALLED.with(|i| i.borrow().iter().rev().find_map(std::rc::Weak::upgrade)))
         .unwrap_or_default()
 }
 
@@ -347,25 +347,29 @@ impl Drop for RolesScope {
 }
 
 /// Make `roles` the thread's outside any [`bind`] (a build that emits one
-/// plan), while its holder keeps it alive. A scope a host bound stays its
-/// own: a session that boots inside one binds its roles itself.
+/// plan), while its holder keeps it alive; the ones installed before resolve
+/// again once it ends. A scope a host bound stays its own: a session that
+/// boots inside one binds its roles itself.
 pub fn install(roles: &std::rc::Rc<Roles>) {
-    INSTALLED.with(|i| *i.borrow_mut() = std::rc::Rc::downgrade(roles));
+    INSTALLED.with(|i| {
+        let mut i = i.borrow_mut();
+        i.retain(|w| w.strong_count() > 0 && !std::ptr::eq(w.as_ptr(), std::rc::Rc::as_ptr(roles)));
+        i.push(std::rc::Rc::downgrade(roles));
+    });
 }
 
 /// A session's roles, installed as its thread's once it has booted
-/// ([`Installed::install`]), and the ones before put back when it ends
-/// still installed: a candidate its host refused leaves the live session's
-/// resolving, not none.
+/// ([`Installed::install`]), and no longer once it ends: a candidate its
+/// host refused leaves the live session's resolving, not none, whatever
+/// order candidates end in.
 pub struct Installed {
     roles: std::rc::Rc<Roles>,
-    over: Option<std::rc::Weak<Roles>>,
 }
 
 impl Installed {
     /// `roles`, not yet installed.
     pub fn new(roles: std::rc::Rc<Roles>) -> Installed {
-        Installed { roles, over: None }
+        Installed { roles }
     }
 
     /// The roles.
@@ -373,27 +377,19 @@ impl Installed {
         &self.roles
     }
 
-    /// Install them on this thread (a session that moved here installs
-    /// again).
+    /// Install them on this thread, over the ones before (a session that
+    /// moved here installs again).
     pub fn install(&mut self) {
-        let before = INSTALLED.with(|i| i.replace(std::rc::Rc::downgrade(&self.roles)));
-        if self.over.is_none() && !std::ptr::eq(before.as_ptr(), std::rc::Rc::as_ptr(&self.roles)) {
-            self.over = Some(before);
-        }
+        install(&self.roles);
     }
 
-    /// Put back the ones before, if these are still this thread's (a session
-    /// that leaves the thread, or ends).
+    /// No longer this thread's: the ones installed before resolve again (a
+    /// session that leaves the thread, or ends).
     pub fn uninstall(&mut self) {
-        let Some(over) = self.over.take() else { return };
-        // Nothing to put back on a thread that is ending (a session its
+        let roles = std::rc::Rc::as_ptr(&self.roles);
+        // Nothing to take back on a thread that is ending (a session its
         // thread-locals drop).
-        let _ = INSTALLED.try_with(|i| {
-            let mut i = i.borrow_mut();
-            if std::ptr::eq(i.as_ptr(), std::rc::Rc::as_ptr(&self.roles)) {
-                *i = over;
-            }
-        });
+        let _ = INSTALLED.try_with(|i| i.borrow_mut().retain(|w| !std::ptr::eq(w.as_ptr(), roles)));
     }
 }
 

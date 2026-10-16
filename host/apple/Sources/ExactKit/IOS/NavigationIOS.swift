@@ -103,7 +103,7 @@ final class RouteController: UIViewController {
         #else
         // A sheet's surface is the platform's (LLP 1115 D2): the route
         // paints its own background, if any, over it.
-        let system = UIColor.platformBackground
+        let system = UIColor.platformBackground(in: host?.presenter.root ?? view)
         #endif
         view.backgroundColor = modal ? system : UIColor { [weak self] traits in
             self?.backdrop(dark: traits.userInterfaceStyle == .dark).map { TextEngine.color($0) } ?? system

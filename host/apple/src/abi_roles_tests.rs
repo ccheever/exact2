@@ -103,27 +103,64 @@ fn a_reboot_with_other_overrides_re_presents_them() {
     assert_eq!(resolved(second), fixed("#020202"));
 }
 
-/// A colour report to one session, through the export's path, resolves
-/// that session's colours from its own overrides, not the session that
-/// booted last's.
+/// A gradient the presenter resolves later, once it knows the box, carries
+/// its session's overrides as their colours, and resolves with none of
+/// another session's.
 #[test]
-fn a_colour_report_re_presents_its_own_sessions_overrides() {
-    let (first, _) = boot(None, "#010101");
-    let (second, _) = boot(None, "#020202");
-    let report = |rt: u32| {
-        crate::abi::registry::with_runtime(
+#[allow(unsafe_code)] // The presenter's resolve, over buffers this test owns.
+fn a_boxed_gradient_carries_its_sessions_accent() {
+    let plan = |accent: &str| {
+        contract::compile(&format!(
+            "theme\n  AccentColor = \"{accent}\"\n\ncomponent App\n  view\n    view width=100 height=20 background-image=\"linear-gradient(90deg, AccentColor 0px, transparent 100px)\"\n"
+        ))
+        .unwrap()
+        .encode()
+    };
+    let boot = |accent: &str| {
+        let rt = RUNTIMES.with(|r| r.borrow_mut().create());
+        let batch = crate::abi::registry::with_runtime(
             &RUNTIMES,
             rt,
             false,
-            |b, _| b.host.as_mut().unwrap().set_colors(Vec::new()),
+            |b, _| {
+                let len = b.boot(
+                    &plan(accent),
+                    StorageModule::default(),
+                    Hooks::none(),
+                    200.,
+                    200.,
+                );
+                String::from_utf8(b.output_bytes(len as usize).to_vec()).unwrap()
+            },
             |_| String::new(),
-        )
+        );
+        batch
     };
-    // Each first report finds what boot resolved, its own: nothing moves.
-    for (rt, other) in [(first, "[2,2,2,255]"), (second, "[1,1,1,255]")] {
-        let batch = report(rt);
-        assert!(!batch.contains(other), "{batch}");
-        assert!(!batch.contains("text_color"), "{batch}");
-    }
-    assert_eq!(resolved(first), fixed("#010101"));
+    let first = boot("#ff0000");
+    let second = boot("#0000ff");
+    assert!(first.contains("#ff0000ff 0px"), "{first}");
+    assert!(second.contains("#0000ffff 0px"), "{second}");
+    let css = "linear-gradient(90deg, AccentColor 0px, transparent 100px)";
+    let resolve = || {
+        let mut out = vec![0u8; 4096];
+        // SAFETY: both buffers are the lengths given.
+        let n = unsafe {
+            crate::gradient::resolve(
+                css.as_ptr(),
+                css.len(),
+                [100., 20.],
+                false,
+                out.as_mut_ptr(),
+                out.len(),
+            )
+        };
+        String::from_utf8(out[..n].to_vec()).unwrap()
+    };
+    // The last session installed is the second; its blue is not the
+    // platform's accent.
+    let resolved = resolve();
+    assert!(
+        !resolved.contains(r#""stops":[0,0,0,255,255"#),
+        "{resolved}"
+    );
 }

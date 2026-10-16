@@ -25,10 +25,15 @@ package enum ThemeRoles {
 
     private static func table(of root: PlatformView) -> Table {
         if let owner = owners[ObjectIdentifier(root)], owner.view === root { return owner.table }
-        owners = owners.filter { $0.value.view != nil }
         let table = Table()
-        owners[ObjectIdentifier(root)] = Owner(view: root, table: table)
+        own(root, table)
         return table
+    }
+
+    /// `view` resolves by `table`; the owners whose view has gone, dropped.
+    private static func own(_ view: PlatformView, _ table: Table) {
+        owners = owners.filter { $0.value.view != nil }
+        owners[ObjectIdentifier(view)] = Owner(view: view, table: table)
     }
 
     /// The boot's table (`{"op": "roles"}`), the last plan's replaced, for
@@ -52,11 +57,12 @@ package enum ThemeRoles {
         return body()
     }
 
-    /// `view`, a surface the presenter applying now presents outside its
-    /// root (a sheet's), resolves by that presenter's table.
-    static func adopt(_ view: PlatformView) {
-        guard let table = applying else { return }
-        owners[ObjectIdentifier(view)] = Owner(view: view, table: table)
+    /// `view`, a surface a presenter presents outside its root (a sheet's),
+    /// resolves by the table of the presenter at `root` (none: the one
+    /// applying now).
+    static func adopt(_ view: PlatformView, from root: PlatformView?) {
+        guard let table = root.map(table(of:)) ?? applying else { return }
+        own(view, table)
     }
 
     /// The table `view` resolves by: its presenter's, the nearest owner
