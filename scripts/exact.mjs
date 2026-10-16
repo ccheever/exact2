@@ -632,6 +632,7 @@ const USAGE = `exact — run an Exact app from the command line (macOS)
   exact tamber tool [<app>] [--via <dev url>]  the design tool, at http://127.0.0.1:7740/__tamber/tool/
   exact tamber import shadcn|tailwind|dtcg|astryx <source> <url> --app <app>  a theme as held proposals
                                (astryx: bun scripts/astryx-tokens.mjs resolves its pinned package first)
+  exact tamber export dtcg <app> [-o <file>]  the design as DTCG 2025.10; its baseline in .exact/
 
 An app is a directory under apps/ (or EXACT_APP_DIR for one outside this repo).
 EXACT_BIN_DIR names where a shim goes; the default is the first of ~/.local/bin,

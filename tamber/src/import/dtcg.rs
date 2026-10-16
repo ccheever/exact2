@@ -876,7 +876,7 @@ fn kind(ty: Option<&str>) -> Kind {
 
 /// A colour value as Tamber writes it: a string, or 2025.10's object form
 /// (its colour space first; `hex` only without one).
-fn colour(value: &Value) -> Option<String> {
+pub(crate) fn colour(value: &Value) -> Option<String> {
     if let Some(s) = value.as_str() {
         return colour_literal(s);
     }

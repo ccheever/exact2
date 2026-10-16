@@ -64,7 +64,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
 
 /// The protocol this server speaks (D13: minor versions only add).
-pub const PROTOCOL: &str = "tamber/1.3";
+pub const PROTOCOL: &str = "tamber/1.4";
 
 /// The longest request line it reads; a longer one is refused whole.
 const LINE_LIMIT: usize = 1 << 20;
@@ -613,8 +613,17 @@ impl Server {
             }
             Some("import-plan") => vec![reply(self.texts().and_then(|now| {
                 let design = now.iter().find(|(f, _)| *f == self.design).map(|(_, t)| t);
-                crate::tamber_import::plan(&request, design.map_or("tamber app\n", |t| t))
+                let baseline = std::fs::read_to_string(crate::tamber_export::baseline(
+                    &self.dir.join(&self.design),
+                ))
+                .ok();
+                crate::tamber_import::plan(
+                    &request,
+                    design.map_or("tamber app\n", |t| t),
+                    baseline.as_deref(),
+                )
             }))],
+            Some("export") => vec![reply(self.export(&request))],
             other => vec![reply(Err(
                 json!({"message": format!("no method {}", other.unwrap_or("(none)"))}),
             ))],
@@ -677,6 +686,27 @@ impl Server {
             .1;
         let folding = exact_tamber::check(text, &self.vocab).map_err(|all| refused(&file, all))?;
         Ok((snap, folding))
+    }
+
+    /// `export {kind: "dtcg"}` (*1.4*, LLP 1121 D14): the app's design as a
+    /// DTCG export, its text, kept as the baseline a re-import compares with.
+    fn export(&self, request: &Value) -> Result<Value, Value> {
+        let kind = optional(request, "kind")?.unwrap_or_default();
+        if kind != "dtcg" {
+            return Err(json!({"message": format!("no exporter `{kind}` (dtcg)")}));
+        }
+        let (_, folding) = self.design(&json!({}))?;
+        let text = exact_tamber::export::dtcg(&folding, &self.vocab)
+            .map_err(|all| refused(&self.design, all))?;
+        let path = self.dir.join(&self.design);
+        crate::tamber_export::keep(&path, &text)
+            .map_err(|e| json!({"message": format!("the baseline: {e}")}))?;
+        let kept = crate::tamber_export::baseline(&path);
+        Ok(json!({
+            "kind": "dtcg",
+            "text": text,
+            "baseline": kept.strip_prefix(&self.dir).unwrap_or(&kept).to_string_lossy(),
+        }))
     }
 
     fn describe(&self, request: &Value) -> Result<Value, Value> {
