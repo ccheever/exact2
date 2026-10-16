@@ -546,3 +546,95 @@ carrier and LTO experiments are excluded. Redmi Window metrics and callback
 counts are not presented FPS. Release build/R8/lint, the 304-case image pixel/metric
 oracle, kernel tests, Clippy/fmt/caps/boot passed; the broader test run retains two
 unchanged exact-bake asset-watch failures.
+
+
+## Retained Redmi implementation against latest main, 2026-10-16
+
+This supersedes the frozen C4 numbers above for the current implementation. C9 is
+`bc4579ffe`; main is `e5907b7a269f3f26f88abcb2660ba3069e8111d4`.
+Main's Android Canvas/backend sources have not changed since the previous reference,
+but shared kernel/runner changes are included in this fresh build and measurement.
+The literal `main947` role in private receipts is a collector label, not its revision.
+
+The retained changes after first-draw scheduling are small and generic:
+
+- Pass the same borrowed measurement callback type to root and boundary Taffy
+  layouts. This removes 200,448 bytes of duplicated native `.text` machine code in a matched full-LTO
+  build. A separate balanced N=2 pair lowers process CPU about 0.8%/0.7% at slow/fast
+  scroll; it establishes no consistent startup or memory gain.
+- Wake the existing coalesced owner pump when an asynchronous native intrinsic-size
+  report arrives outside a transaction. The actual idle-session regression passes;
+  removing only these three lines makes the same delayed geometry assertion fail.
+  This is a correctness fix, with neutral steady CPU and variable startup results.
+- Reuse an existing larger full-source image decode with the same source/fit/hardware mode/density, a full-source aspect-preserving
+  backing and sufficient decoded dimensions. Existing ImageViews and pixel
+  leases remain the owners; no alias keys or extra cache are added. An isolated N=4
+  comparison has paired relative CPU changes averaging -2.05% at fast scroll
+  (all four improve) and +0.48% at slow scroll. Endpoint PSS is mixed and separate vendor GPU accounting increases. Reusing
+  higher-resolution pixels is not byte identity with a fresh smaller JPEG decode.
+
+The final combined cohort below is measured directly; isolated deltas are not
+added together. Release/R8, ART speed, original data/104 JPEGs, Live OFF, four
+balanced fresh processes per arm/speed, 8s after 1.5s warmup, no profiling/video/GC.
+All four image cache caps are 64 MiB in this CPU/memory cohort. Values are arithmetic
+means; CPU100% is one core. PSS is an external endpoint, not peak or retained memory.
+
+| Speed dp/s | Implementation | UI CPU % | Process CPU % | Endpoint PSS MiB | Separate vendor GPU MiB |
+|---:|---|---:|---:|---:|---:|
+|1000|C9|18.80|72.28|85.81|104.85|
+|1000|Views|14.30|61.90|70.55|105.58|
+|1000|Compose|19.29|65.26|78.09|105.43|
+|1000|main e590|13.18|75.63|84.85|103.09|
+|24000|C9|68.03|150.16|99.19|151.72|
+|24000|Views|49.99|149.90|83.59|140.42|
+|24000|Compose|59.37|146.56|91.07|163.05|
+|24000|main e590|14.63|127.60|96.72|133.29|
+
+C9 process CPU is 16.76%/10.75% above Views/Compose at1k and 0.17%/2.45% above at24k.
+Its PSS is 21.62%/9.89% higher at1k and18.66%/8.92% higher at24k. Against main,
+C9 process CPU is4.43% lower at1k and17.68% higher at24k; PSS is1.13%/2.55% higher.
+Vendor GPU is different accounting and is never added to PSS; Graphics PSS is
+already included in PSS. One retained slow Compose snapshot has nice−19 instead of
+−20. Seven phases lose Window notifications, so no frame/FPS result is claimed.
+Fast endpoint row identities differ (C9m576, Views/Compose m577, main row-m571);
+equal paced physical movement does not prove identical geometry or image work.
+
+The separate startup cohort uses the unchanged common local SDK touch observer,
+one discarded startup prime after every install, 500ms idle, then a fresh measured
+process without reinstall. All16 attempts succeed. No OS/file/driver cache clearing is performed; each installation receives a discarded
+startup-only prime before the measured fresh process.
+Main uses its default estimated108.4MiB image policy here, unlike the64MiB CPU cohort.
+
+| Implementation | First-content readiness p50 ms | Local SDK input ACK p50 ms |
+|---|---:|---:|
+|C9|384.98|446.22|
+|Views|487.30|552.13|
+|Compose|508.84|576.05|
+|main e590|407.35|468.27|
+
+ACK is19.18%/22.54% lower than Views/Compose and4.71% lower than main in this N=4
+cohort. C9's ACK range is430.23–479.98ms and main's423.35–487.34ms; these descriptive
+samples do not establish a universal ordering. ACK observes committed local SDK
+scroll state after a post-UP traversal; it excludes hardware input dispatch, image
+completion and GPU/physical presentation. It is not OS-cold TTI.
+
+Whole APK sizes are C9 28.108MiB, Views8.973MiB, Compose10.229MiB and main36.552MiB.
+These include workload data, JPEGs, code and surviving verification code; they are
+not framework-only sizes. Native bytes are20.201/0/0.010/28.805MiB respectively.
+
+The actual minified combined SDK run passes all nine existing tags. The retained
+image cache protocol test and the asynchronous wake positive/negative differential
+also pass their expected outcomes. Default-member build, Clippy/fmt, staged caps
+and boot pass; full Rust tests retain the two previously identified exact-bake
+asset-watch failures. Kernel checks pass. The Caltrain macOS build and driven
+search/clock smoke pass; the WASM app builds, but browser functional driving remains
+unqualified. No enabled accessibility service, API29 physical fallback or new iOS
+performance result is claimed.
+
+Audited raw cohorts remain in ignored `target/android-redmi-structural-20261015/`:
+`retained-three-change-latest-main-four-n4-r2` and
+`retained-final-four-input-n4-r2`, with their outside-window touch-mode witnesses.
+All planned phases/attempts are retained, and source/APK/native/ART/work/PID/thermal
+and restore checks pass. Earlier failed preflights contain no measured phases.
+Native parity is still not achieved in slow CPU or memory; no frame-drop claim is
+inferred from callbacks, incomplete Window metrics or these CPU measurements.
