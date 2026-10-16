@@ -388,8 +388,8 @@ fn a_name_that_is_an_attribute_and_a_function_shows_both() {
 #[test]
 fn a_function_the_web_has_and_contract_refuses_says_what_to_write() {
     for (name, says) in [
-        ("sort", "compute it in the data source"),
-        ("sortBy", "compute it in the data source"),
+        ("sort", "name the order where the view reads it"),
+        ("sortBy", "name the order where the view reads it"),
         ("pow", "`x * x` is a square"),
         ("now", "performanceNow()"),
         ("padStart", "pad in the data module"),

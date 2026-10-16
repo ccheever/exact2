@@ -293,7 +293,7 @@ what to write. Nothing runs because a value changed (no `useEffect` or watch).
 | `min`/`max` drop a `NaN` operand (`max(NaN, 1)` is `1`) | today's roster; a debt |
 | Names hold hyphens, so subtraction takes spaces (`a - b`) | CSS's names |
 | A binding's list work is bounded (65,536 steps); a row's own binding has its own bound, so a row that searches another table costs rows × items (`lower-row-lookup`) | determinism on every host |
-| Sorting, grouping, joining and aggregates are the data module's | a view computes what it shows |
+| Sorting, grouping, joining and aggregates are the data module's; the view names an order it relies on where it reads it (`loadTasksByDueDate()`) | a view computes what it shows |
 
 - Types are `number`, `string`, `bool`, declared shapes, `option<T>`, `T[]`,
   and `action` for behavior interfaces. Do not emit authored `any` or object types.

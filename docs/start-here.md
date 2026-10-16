@@ -164,7 +164,8 @@ component Groceries
   (`first(xs)`, `round(n)`). What differs: no truthiness; absence is an option (`none`,
   `some(x)`, `match`), not `null`; a value never changes (`xs.concat([x])`, a record copy
   `Shape(old, field=value)`); `==` compares lists and records by value; a stored number is
-  finite (a `NaN` refuses the commit); sorting, grouping and joining are the data module's.
+  finite (a `NaN` refuses the commit); sorting, grouping and joining are the data module's,
+  and the view names the order it relies on where it reads it (`resource tasks = loadTasksByDueDate()`).
   Nothing runs because a value changed: an event runs an action, which passes its captured
   arguments, then the payload (`toggle(i.id)` gets the bool). Its writes land when it ends, so a
   later line reads the old value: bind the new one (`let n = go(nav, url)`, `nav = n`, read `n`).

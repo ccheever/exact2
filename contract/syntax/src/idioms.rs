@@ -131,8 +131,12 @@ pub fn refusal(name: &str) -> Option<String> {
                 "`{name}` is refused (LLP 1017.003: lists have `map`, `filter`, `join`, `concat`, `slice`, `includes` and `indexOf`): write {instead}, or compute it in the data source and hand the view the result"
             )
         }
-        "reduce" | "reduceRight" | "findLast" | "sort" | "sortBy" | "toSorted" | "flatMap"
-        | "flat" | "forEach" | "reverse" | "toReversed" => format!(
+        // LLP 1116.016 §7: told only to sort in the data source, a builder
+        // writing the view alone dropped the order; named, it kept it.
+        "sort" | "sortBy" | "toSorted" | "reverse" | "toReversed" => format!(
+            "`{name}` is refused (LLP 1017.003: lists have `map`, `filter`, `join`, `concat`, `slice`, `includes` and `indexOf`): order the list in the data source and name the order where the view reads it (`resource tasks = loadTasksByDueDate()`)"
+        ),
+        "reduce" | "reduceRight" | "findLast" | "flatMap" | "flat" | "forEach" => format!(
             "`{name}` is refused (LLP 1017.003: lists have `map`, `filter`, `join`, `concat`, `slice`, `includes` and `indexOf`); compute it in the data source and hand the view the result, as the crypto port keeps `lo` and `hi` beside its series"
         ),
         // @ref LLP 1088 D7.4 — the web's string and list spellings an agent
