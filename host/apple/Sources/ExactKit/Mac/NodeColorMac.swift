@@ -38,7 +38,7 @@ extension NodeView {
         tintSource = node.map(ObjectIdentifier.init)
         // No authored accent above: the theme's `AccentColor`, if it sets one
         // (LLP 1095 D4), else the system's.
-        guard let node else { return ThemeRoles.color("AccentColor") }
+        guard let node else { return ThemeRoles.color("AccentColor", in: self) }
         return NSColor(name: nil) { [weak node] appearance in
             let dark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
             return node?.style["accent_color"]?.channels(dark: dark).map(TextEngine.color) ?? .controlAccentColor

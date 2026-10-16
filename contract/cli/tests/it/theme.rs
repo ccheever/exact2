@@ -414,3 +414,50 @@ fn a_reload_with_other_overrides_re_presents() {
     );
     drop(reloaded);
 }
+
+/// A candidate its host refuses (dropped once booted) leaves the live
+/// session's roles resolving on the thread, not none; a session that boots
+/// inside another's scope leaves that scope the other's (LLP 1121 stage 5).
+#[test]
+fn a_refused_candidate_and_a_nested_boot_leave_the_live_sessions_roles() {
+    let run = |canvas: &str| {
+        Runner::boot(
+            contract::compile(&format!(
+                "theme\n  CanvasText = \"{canvas}\"\n\ncomponent App\n  view\n    text \"a\"\n"
+            ))
+            .unwrap(),
+            NoData,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap()
+    };
+    let canvas_text = exact_kernel::style::roles::role("CanvasText").unwrap();
+    let fixed = |text: &str| Some(exact_kernel::ColorValue::Fixed(Color::parse(text).unwrap()));
+    let live = run("#010101");
+    drop(run("#020202"));
+    assert_eq!(
+        exact_kernel::style::roles::overridden(canvas_text),
+        fixed("#010101")
+    );
+    let other = {
+        let _scope = live.bind_roles();
+        let other = run("#030303");
+        assert_eq!(
+            exact_kernel::style::roles::overridden(canvas_text),
+            fixed("#010101")
+        );
+        other
+    };
+    assert_eq!(
+        exact_kernel::style::roles::overridden(canvas_text),
+        fixed("#030303")
+    );
+    drop(other);
+    assert_eq!(
+        exact_kernel::style::roles::overridden(canvas_text),
+        fixed("#010101")
+    );
+    drop(live);
+}

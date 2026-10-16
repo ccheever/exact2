@@ -54,7 +54,8 @@ final class DialogSheetController: UIViewController, UIGestureRecognizerDelegate
         #else
         // The sheet's surface where the dialog painted none: the platform's
         // (LLP 1115 D2), which UIKit elevates in dark mode.
-        view.backgroundColor = ThemeRoles.color("background") ?? ThemeRoles.color("Canvas", or: .systemBackground)
+        ThemeRoles.adopt(view)
+        view.backgroundColor = ThemeRoles.color("background", in: view) ?? ThemeRoles.color("Canvas", in: view, or: .systemBackground)
         scroller.keyboardDismissMode = .interactive
         #endif
         scroller.frame = view.bounds

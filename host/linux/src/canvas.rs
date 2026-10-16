@@ -1436,6 +1436,18 @@ impl<D: DataSource + Default> CanvasHost<D> {
         self.borrowed = borrowed;
     }
 
+    /// Its session's roles as this thread's, or (`false`) no longer: a host
+    /// handed between threads (`startAsync`'s boot thread to the one that
+    /// runs it) leaves one and takes the other (LLP 1121 stage 5).
+    pub fn roles_here(&mut self, here: bool) {
+        let runner = self.p.host_mut().runner_mut();
+        if here {
+            runner.install_roles();
+        } else {
+            runner.uninstall_roles();
+        }
+    }
+
     /// Milliseconds until the next timer, if any.
     pub fn next_due(&self) -> Option<f64> {
         // The windows' lead is owed a turn as soon as the first frame is out,

@@ -367,7 +367,7 @@ pub struct Runner<D: DataSource> {
     /// A development build, admitting live batches ([`Runner::admit_live`], from its compat).
     live: bool,
     /// Its role overrides, its own (LLP 1121 stage 5; [`Runner::roles`]).
-    roles: std::rc::Rc<exact_kernel::style::roles::Roles>,
+    roles: exact_kernel::style::roles::Installed,
     /// The session the owner's token names (LLP 1094 D4).
     reorder_session: Option<Box<reorder_group::Session>>,
     /// A grouped drop's source while its `reorderdrop` runs (D2).
@@ -828,7 +828,7 @@ impl<D: DataSource> Runner<D> {
             reorder_kept: Default::default(),
             design: None,
             live: false,
-            roles,
+            roles: exact_kernel::style::roles::Installed::new(roles.clone()),
             reorder_session: None,
             dropping_from: None,
             ids: Ids::default(),
@@ -1070,7 +1070,7 @@ impl<D: DataSource> Runner<D> {
             runner.log(line);
         }
         drop(booting);
-        exact_kernel::style::roles::install(&runner.roles);
+        runner.roles.install();
         Ok(runner)
     }
 

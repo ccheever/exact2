@@ -137,7 +137,8 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
         #else
         // A sheet's surface where the author painted none: the platform's
         // (LLP 1115 D2), which UIKit elevates in dark mode.
-        view.backgroundColor = ThemeRoles.color("background") ?? ThemeRoles.color("Canvas", or: .systemBackground)
+        ThemeRoles.adopt(view)
+        view.backgroundColor = ThemeRoles.color("background", in: view) ?? ThemeRoles.color("Canvas", in: view, or: .systemBackground)
         let probe = UIView()
         probe.isHidden = true
         probe.translatesAutoresizingMaskIntoConstraints = false

@@ -11,25 +11,70 @@ import UIKit
 #endif
 
 package enum ThemeRoles {
-    nonisolated(unsafe) private static var table: NodeStyle = [:]
-    /// Moves when the table does, so a surface that cached a colour asks again.
+    /// A presenter's table (LLP 1121 stage 5: a session's own, not the
+    /// process's), shared by the views it hangs off.
+    private final class Table { var style: NodeStyle = [:] }
+    private struct Owner { weak var view: PlatformView?; let table: Table }
+    /// Each presenter's table by its root (and a sheet's view it mounts
+    /// into); the one whose batch applies now; the last one to apply.
+    nonisolated(unsafe) private static var owners: [ObjectIdentifier: Owner] = [:]
+    nonisolated(unsafe) private static var applying: Table?
+    nonisolated(unsafe) private static var last = Table()
+    /// Moves when a table does, so a surface that cached a colour asks again.
     nonisolated(unsafe) package static var generation = 0
 
-    /// The boot's table (`{"op": "roles"}`), the last plan's replaced;
-    /// whether it changed.
+    private static func table(of root: PlatformView) -> Table {
+        if let owner = owners[ObjectIdentifier(root)], owner.view === root { return owner.table }
+        owners = owners.filter { $0.value.view != nil }
+        let table = Table()
+        owners[ObjectIdentifier(root)] = Owner(view: root, table: table)
+        return table
+    }
+
+    /// The boot's table (`{"op": "roles"}`), the last plan's replaced, for
+    /// the presenter at `root` (none: the last to apply's); whether it changed.
     @discardableResult
-    static func apply(_ batch: Batch) -> Bool {
-        guard let op = batch.ops.last(where: { $0.op == .roles }), op.style != table else { return false }
-        table = op.style
+    static func apply(_ batch: Batch, root: PlatformView? = nil) -> Bool {
+        let table = root.map(table(of:)) ?? last
+        last = table
+        guard let op = batch.ops.last(where: { $0.op == .roles }), op.style != table.style else { return false }
+        table.style = op.style
         generation += 1
         return true
+    }
+
+    /// `body` with `root`'s presenter the one a view outside its root (one
+    /// not yet mounted) resolves by.
+    static func within<T>(_ root: PlatformView, _ body: () -> T) -> T {
+        let previous = applying
+        applying = table(of: root)
+        defer { applying = previous }
+        return body()
+    }
+
+    /// `view`, a surface the presenter applying now presents outside its
+    /// root (a sheet's), resolves by that presenter's table.
+    static func adopt(_ view: PlatformView) {
+        guard let table = applying else { return }
+        owners[ObjectIdentifier(view)] = Owner(view: view, table: table)
+    }
+
+    /// The table `view` resolves by: its presenter's, the nearest owner
+    /// above it; else the applying presenter's; else the last to apply.
+    private static func style(in view: PlatformView?) -> NodeStyle {
+        var at = view
+        while let v = at {
+            if let owner = owners[ObjectIdentifier(v)], owner.view === v { return owner.table.style }
+            at = v.superview
+        }
+        return (applying ?? last).style
     }
 
     /// The app's colour for `role` (the schema's name: `grouped-background`,
     /// `CanvasText`), dynamic over the appearance; `nil` where the theme
     /// leaves the role the platform's.
-    package static func color(_ role: String) -> PlatformColor? {
-        guard let value = table[role] else { return nil }
+    package static func color(_ role: String, in view: PlatformView? = nil) -> PlatformColor? {
+        guard let value = style(in: view)[role] else { return nil }
         let side = { (dark: Bool, contrast: Bool?, elevated: Bool) in
             TextEngine.color(value.textChannels(dark: dark, contrast: contrast, elevated: elevated) ?? [0, 0, 0, 0])
         }
@@ -50,8 +95,8 @@ package enum ThemeRoles {
     }
 
     /// `role`'s app colour, else the platform's own.
-    package static func color(_ role: String, or platform: PlatformColor) -> PlatformColor {
-        color(role) ?? platform
+    package static func color(_ role: String, in view: PlatformView? = nil, or platform: PlatformColor) -> PlatformColor {
+        color(role, in: view) ?? platform
     }
 }
 
@@ -61,10 +106,10 @@ extension Presenter {
     /// and an authored `accent-color` below still sets its subtree's.
     func applyThemeTint() {
         #if os(iOS) || os(tvOS)
-        root.tintColor = ThemeRoles.color("AccentColor")
+        root.tintColor = ThemeRoles.color("AccentColor", in: root)
         #else
         // The page's ground where the app sets none (LLP 1115 D2).
-        viewport.backgroundColor = ThemeRoles.color("background") ?? ThemeRoles.color("Canvas", or: .windowBackgroundColor)
+        viewport.backgroundColor = ThemeRoles.color("background", in: root) ?? ThemeRoles.color("Canvas", in: root, or: .windowBackgroundColor)
         #endif
     }
 }

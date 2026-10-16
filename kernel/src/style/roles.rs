@@ -340,23 +340,67 @@ pub fn bind(roles: &std::rc::Rc<Roles>) -> RolesScope {
 
 impl Drop for RolesScope {
     fn drop(&mut self) {
-        BOUND.with(|b| {
+        let _ = BOUND.try_with(|b| {
             b.replace(self.previous.take());
         });
     }
 }
 
-/// Make `roles` the thread's outside any [`bind`] (a session that boots, a
-/// build that emits one plan), while its holder keeps it alive; inside one,
-/// the scope's too, until it ends (a host's session that boots a new plan
-/// within its scope resolves the new plan's roles from then on).
+/// Make `roles` the thread's outside any [`bind`] (a build that emits one
+/// plan), while its holder keeps it alive. A scope a host bound stays its
+/// own: a session that boots inside one binds its roles itself.
 pub fn install(roles: &std::rc::Rc<Roles>) {
     INSTALLED.with(|i| *i.borrow_mut() = std::rc::Rc::downgrade(roles));
-    BOUND.with(|b| {
-        if let Some(current) = b.borrow_mut().as_mut() {
-            *current = roles.clone();
+}
+
+/// A session's roles, installed as its thread's once it has booted
+/// ([`Installed::install`]), and the ones before put back when it ends
+/// still installed: a candidate its host refused leaves the live session's
+/// resolving, not none.
+pub struct Installed {
+    roles: std::rc::Rc<Roles>,
+    over: Option<std::rc::Weak<Roles>>,
+}
+
+impl Installed {
+    /// `roles`, not yet installed.
+    pub fn new(roles: std::rc::Rc<Roles>) -> Installed {
+        Installed { roles, over: None }
+    }
+
+    /// The roles.
+    pub fn roles(&self) -> &std::rc::Rc<Roles> {
+        &self.roles
+    }
+
+    /// Install them on this thread (a session that moved here installs
+    /// again).
+    pub fn install(&mut self) {
+        let before = INSTALLED.with(|i| i.replace(std::rc::Rc::downgrade(&self.roles)));
+        if self.over.is_none() && !std::ptr::eq(before.as_ptr(), std::rc::Rc::as_ptr(&self.roles)) {
+            self.over = Some(before);
         }
-    });
+    }
+
+    /// Put back the ones before, if these are still this thread's (a session
+    /// that leaves the thread, or ends).
+    pub fn uninstall(&mut self) {
+        let Some(over) = self.over.take() else { return };
+        // Nothing to put back on a thread that is ending (a session its
+        // thread-locals drop).
+        let _ = INSTALLED.try_with(|i| {
+            let mut i = i.borrow_mut();
+            if std::ptr::eq(i.as_ptr(), std::rc::Rc::as_ptr(&self.roles)) {
+                *i = over;
+            }
+        });
+    }
+}
+
+impl Drop for Installed {
+    fn drop(&mut self) {
+        self.uninstall();
+    }
 }
 
 /// The overridden roles that resolve now, for a caller that puts them back.

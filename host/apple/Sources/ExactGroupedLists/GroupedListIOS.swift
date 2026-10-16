@@ -469,7 +469,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         var c = view.defaultContentConfiguration()
         c.text = header ? s?.header : s?.footer
         // UIKit's header and footer ink is the secondary label: the theme's where it replaces it.
-        if let ink = ThemeRoles.color("secondary-label") { c.textProperties.color = ink }
+        if let ink = ThemeRoles.color("secondary-label", in: collection) { c.textProperties.color = ink }
         (header ? s?.headerLook : s?.footerLook)?.apply(to: &c.textProperties, engine: owner.text)
         view.contentConfiguration = c
         view.marginsIgnoreSafeArea()
@@ -481,7 +481,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             guard let self else { return nil }
             var c = UICollectionLayoutListConfiguration(appearance: model.appearance)
             // The theme's grouped ground where it replaces the role (LLP 1095 D4).
-            if let ground = ThemeRoles.color("grouped-background") { c.backgroundColor = ground }
+            if let ground = ThemeRoles.color("grouped-background", in: collection) { c.backgroundColor = ground }
             let s = section(at: index)
             c.headerMode = s?.header == nil ? .none : .supplementary
             c.footerMode = s?.footer == nil ? .none : .supplementary
@@ -729,7 +729,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         let sides = [owner.channels("background_color", dark: false), owner.channels("background_color", dark: true)]
         if sides != skirtKey || view.backgroundColor == nil {
             skirtKey = sides
-            view.backgroundColor = UIColor { traits in sides[traits.userInterfaceStyle == .dark ? 1 : 0].map(TextEngine.color) ?? ThemeRoles.color("grouped-background", or: .systemGroupedBackground) }
+            view.backgroundColor = UIColor { [weak owner] traits in sides[traits.userInterfaceStyle == .dark ? 1 : 0].map(TextEngine.color) ?? ThemeRoles.color("grouped-background", in: owner, or: .systemGroupedBackground) }
         }
         if view.superview !== container || container.subviews.firstIndex(of: view).map({ $0 > (container.subviews.firstIndex(of: viewport) ?? 0) }) == true {
             container.insertSubview(view, belowSubview: viewport)
@@ -802,7 +802,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         if card(of: id) {
             cell.configurationUpdateHandler = nil
             var card = cell.defaultBackgroundConfiguration()
-            if let fill = ThemeRoles.color("secondary-grouped-background") { card.backgroundColor = fill }
+            if let fill = ThemeRoles.color("secondary-grouped-background", in: collection) { card.backgroundColor = fill }
             cell.backgroundConfiguration = card
         } else {
             let highlights = row.pressable && !row.custom && !row.disabled
@@ -838,17 +838,17 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         // font, as outside a list (D7); a destructive row's own colour is
         // red where its author gave none.
         // Where the author gave none, the theme's label colours (LLP 1095 D4).
-        if row.titleLook.color == nil, let ink = ThemeRoles.color("label") { c.textProperties.color = ink }
-        if row.secondaryLook.color == nil, let ink = ThemeRoles.color("secondary-label") { c.secondaryTextProperties.color = ink }
+        if row.titleLook.color == nil, let ink = ThemeRoles.color("label", in: collection) { c.textProperties.color = ink }
+        if row.secondaryLook.color == nil, let ink = ThemeRoles.color("secondary-label", in: collection) { c.secondaryTextProperties.color = ink }
         row.titleLook.apply(to: &c.textProperties, engine: owner.text)
         row.secondaryLook.apply(to: &c.secondaryTextProperties, engine: owner.text)
         if row.destructive {
-            let red = ThemeRoles.color("system-red", or: .systemRed)
+            let red = ThemeRoles.color("system-red", in: collection, or: .systemRed)
             if row.titleLook.color == nil { c.textProperties.color = red }
             c.imageProperties.tintColor = red
         }
         if row.disabled {
-            let gray = ThemeRoles.color("tertiary-label", or: .tertiaryLabel)
+            let gray = ThemeRoles.color("tertiary-label", in: collection, or: .tertiaryLabel)
             c.textProperties.color = gray
             c.secondaryTextProperties.color = gray
             c.imageProperties.tintColor = gray

@@ -1219,7 +1219,7 @@ package final class Presenter {
         // shows beyond a document shorter than the viewport, as a browser
         // paints the root element's background over the whole canvas.
         // Unset, the platform's window background (LLP 1115 D2).
-        let ground = ThemeRoles.color("background") ?? ThemeRoles.color("Canvas", or: .windowBackgroundColor)
+        let ground = ThemeRoles.color("background", in: root) ?? ThemeRoles.color("Canvas", in: root, or: .windowBackgroundColor)
         let color = (root.subviews.first as? NodeView)?.color("background_color", ground) ?? ground
         if viewport.backgroundColor != color { viewport.backgroundColor = color; navigation.groundChanged() }
         let first = root.subviews.first as? NodeView
