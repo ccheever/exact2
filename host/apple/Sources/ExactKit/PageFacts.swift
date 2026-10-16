@@ -228,6 +228,15 @@ package enum PageFacts {
 }
 
 extension ExactSession {
+    /// @ref LLP 1069.000 D2 — told after every boot and on each change; a
+    /// change while iOS suspends the process lands with the foreground
+    /// notification, in the same turn.
+    func tellPage() {
+        guard booted, state != .destroyed else { return }
+        apply(runtime.setPage(PageFacts.bits(pageWindow, readsOnLine: runtime.readsOnLine())))
+        apply(runtime.setRootFontSize(PageFacts.rootFontSize))
+        tellDisplayScale()
+    }
     /// LLP 1115.000 D10.3: the display's scale, told with the page's facts
     /// after every boot and again when the view's display changes
     /// (`ExactViewIOS`, `ExactViewMac`); the same scale again commits

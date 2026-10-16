@@ -53,3 +53,23 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 }
+
+/// The app modes' exports, invoked inside [`crate::host!`].
+#[macro_export]
+macro_rules! mode_exports {
+    () => {
+        /// App modes, `axis=value` pins in the input buffer (LLP 1121 D5);
+        /// returns the batch length.
+        #[no_mangle]
+        pub extern "C" fn exact_set_mode(len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().set_mode(len as usize))
+        }
+
+        /// A live design batch or snapshot in the input buffer (LLP 1121
+        /// stage 4); returns the batch length. Development builds only.
+        #[no_mangle]
+        pub extern "C" fn exact_design_rows(len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().design_rows(len as usize))
+        }
+    };
+}

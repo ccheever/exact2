@@ -1285,15 +1285,6 @@ public final class ExactSession {
         let bits = DisplayPreferences.bits(systemDark: dark, view: view)
         return displayModeOverride.map { (bits & ~(7 << 11)) | ($0 << 11) } ?? bits
     }
-    /// @ref LLP 1069.000 D2 — told after every boot and on each change; a
-    /// change while iOS suspends the process lands with the foreground
-    /// notification, in the same turn.
-    func tellPage() {
-        guard booted, state != .destroyed else { return }
-        apply(runtime.setPage(PageFacts.bits(pageWindow, readsOnLine: runtime.readsOnLine())))
-        apply(runtime.setRootFontSize(PageFacts.rootFontSize))
-        tellDisplayScale()
-    }
     public func resize(_ size: CGSize) { guard booted, state != .destroyed else { return }; apply(runtime.resize(width: size.width, height: size.height)) }
     public func insets(top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat) { guard booted, state != .destroyed else { return }; apply(runtime.insets(top: top, right: right, bottom: bottom, left: left)) }
     /// What changed of the view (`Runtime.ViewChange`); the window's size is what every viewport unit resolves against everywhere (LLP 1075.003 §9.11).

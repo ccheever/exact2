@@ -1288,19 +1288,7 @@ macro_rules! host {
             EXACT_BRIDGE.with(|b| b.borrow_mut().changed(len as usize))
         }
 
-        /// App modes, `axis=value` pins in the input buffer (LLP 1121 D5);
-        /// returns the batch length.
-        #[no_mangle]
-        pub extern "C" fn exact_set_mode(len: u32) -> u32 {
-            EXACT_BRIDGE.with(|b| b.borrow_mut().set_mode(len as usize))
-        }
-
-        /// A live design batch or snapshot in the input buffer (LLP 1121
-        /// stage 4); returns the batch length. Development builds only.
-        #[no_mangle]
-        pub extern "C" fn exact_design_rows(len: u32) -> u32 {
-            EXACT_BRIDGE.with(|b| b.borrow_mut().design_rows(len as usize))
-        }
+        $crate::mode_exports!();
 
         /// The locale and time zone: `locale NUL timeZone` in the input buffer.
         #[no_mangle]
