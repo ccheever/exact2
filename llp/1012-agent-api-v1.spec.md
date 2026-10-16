@@ -815,3 +815,9 @@ The euxy port (its FRICTION §9 and §10) drove the real app with AXe and
   animation stays on its layer at speed 0 for the clock to seek; it had
   counted as native geometry in flight, so every `clock settle` while one
   was on screen (euxy's tip) waited 2 s and answered `settled: false`.
+- **A tap on a module's native view is refused, not swallowed.** The
+  agent's press reaches no control, gesture recognizer or `touchesBegan` of
+  a native module's view (UIKit has no public touch synthesis): a plain tap
+  landing on one with no Contract press reaching it, and no responder there
+  for it to focus, answers `unsupported`, naming `--touch platform`, where
+  it is a real touch (`moduleTouch`, `AgentIOS.swift`).

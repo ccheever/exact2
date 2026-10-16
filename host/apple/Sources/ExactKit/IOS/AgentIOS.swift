@@ -706,6 +706,7 @@ extension Agent {
         // what the pointer events below do to the tree never sends the press
         // elsewhere, as a real contact keeps its target.
         let reach = fingerReach(hit, at: p)
+        if plain, reach.action == nil, let why = moduleTouch(hit) { return ["error": "unsupported: tap #\(v.id) at (\(at[0]), \(at[1])) \(why)"] }
         // An iPad's hardware keys held through the tap (gallery F20).
         let held = Agent.heldPrefix(req)
         // A finger's `pointerdown` as it lands and `pointerup` as it lifts,
@@ -824,6 +825,21 @@ extension Agent {
         // build.mjs compiles an app's native modules as one Swift module of this name.
         let own = String(reflecting: cls).hasPrefix("ExactAppModules.") || appOverlay(hit)
         return "\(held) covers its middle" + (own ? "; it is the app's own view, on the wall's time: the tap waited 3 s for an overlay over the screen to go, `clock settle` waits out its UIView.animate, `clock +N real` lets a display link's motion run, and one drawn from the module's `frames` or `after` follows `clock +N`" : "")
+    }
+
+    /// Why the agent's press would not do what a finger on `hit` does, or
+    /// nil: `hit` is a native module's own view, whose controls, gesture
+    /// recognizers and `touchesBegan` only a real touch drives (UIKit has no
+    /// public touch synthesis). A responder in it is focused by the press
+    /// (`lift`), as a finger focuses it.
+    func moduleTouch(_ hit: UIView) -> String? {
+        var at: UIView? = hit
+        while let cur = at, !(cur is NodeView) {
+            if cur.canBecomeFirstResponder { return nil }
+            at = cur.superview
+        }
+        guard at !== hit, let node = at as? NodeView, node.kind == "native" else { return nil }
+        return "lands on the app's own native view (\(String(describing: Swift.type(of: hit))), in node #\(node.id)), whose controls and gesture recognizers only a real touch drives: drive it with `--touch platform` on a simulator"
     }
 
     /// The web's rule for a phase-less wheel tick (LLP 1070 G2, Chrome's,
