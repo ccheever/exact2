@@ -96,8 +96,8 @@ internal class Requests(private val activity: ExactActivity) {
         return String(bytes, Charsets.UTF_8) to at + 1 + (n + 3) / 4
     }
 
-    /** The pickers that are up, by their requests' ids: none has answered yet. */
-    private val picking = HashSet<Int>()
+    /** The pickers that are up, by their requests' ids, and what closes each: none has answered yet. */
+    private val picking = HashMap<Int, () -> Unit>()
 
     /**
      * A date or time control's picker (LLP 1115.001.000 D1): the control's hatch may set what it offers or take it
@@ -113,8 +113,8 @@ internal class Requests(private val activity: ExactActivity) {
         val (max, d) = string(w, c)
         val picker = ExactPicker(kind, value, min, max, string(w, d).first)
         activity.hatches()?.picker(node, picker)
-        picking.add(id)
-        val answer = { chosen: String? -> if (picking.remove(id)) Exact.answer(id, chosen) }
+        picking[id] = {}
+        val answer = { chosen: String? -> if (picking.remove(id) != null) Exact.answer(id, chosen) }
         val asked = SystemClock.uptimeMillis()
         val touched = Exact.touched
         val drawn = {
@@ -124,7 +124,14 @@ internal class Requests(private val activity: ExactActivity) {
             }
         }
         val own = picker.show
-        if (own != null) own(answer) else activity.pickers.show(activity, picker, drawn, answer)
+        try {
+            val close = if (own != null) { own(answer); {} } else activity.pickers.show(activity, picker, drawn, answer)
+            if (id in picking) picking[id] = close
+        } catch (e: Exception) {
+            // A hatch's picker or the platform's that failed to show: the control is left as it was.
+            Log.e(TAG, "picker $kind: $e")
+            answer(null)
+        }
     }
 
     /** A link that leaves the app: an `http` or `https` URL in the browser (or the app that claims it), `mailto:` in
@@ -210,8 +217,11 @@ internal class Requests(private val activity: ExactActivity) {
         if (listening) activity.unregisterReceiver(receiver)
         for (id in sharing) Exact.answer(id, null)
         sharing.clear()
-        for (id in picking) Exact.answer(id, null)
-        picking.clear()
+        // Each picker closes with its activity, and answers null as it does; a hatch's own is answered here.
+        for ((id, close) in picking.toList()) {
+            try { close() } catch (e: Exception) { Log.w(TAG, "picker: $e") }
+            if (picking.remove(id) != null) Exact.answer(id, null)
+        }
     }
 
     private companion object {

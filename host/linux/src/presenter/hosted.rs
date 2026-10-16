@@ -383,13 +383,16 @@ impl<D: DataSource> Presenter<D> {
         let rgba = crate::paint::rgba;
         let _accent = crate::paint::accent_scope(&node);
         let role = |name: &str| roles::role(name).map(|r| rgba(ColorValue::Role(r).resolve(dark)));
-        let mut ink = rgba(node.text_color().resolve(dark));
-        if disabled
-            && node.style.appearance != exact_kernel::Appearance::None
-            && !node.style.mask.has(StyleId::TextColor)
-        {
-            ink = crate::paint::control::disabled_field_ink(ink, dark);
-        }
+        // Material's field's text is `onSurface`, at 38 % disabled: an
+        // inherited `color` does not tint it (LLP 1115.001 D9), the node's own does.
+        let own = node.style.mask.has(StyleId::TextColor);
+        let native = node.style.appearance != exact_kernel::Appearance::None;
+        let ink = match (own, native, disabled) {
+            (true, _, _) | (false, false, _) => None,
+            (false, true, true) => role("GrayText"),
+            (false, true, false) => role("FieldText"),
+        };
+        let ink = ink.unwrap_or_else(|| rgba(node.text_color().resolve(dark)));
         let hint = crate::paint::control::authored_placeholder(node.style, dark)
             .or_else(|| role("-exact-placeholder"))
             .unwrap_or([0x75, 0x75, 0x75, 0xff]);
@@ -645,8 +648,10 @@ impl<D: DataSource> Presenter<D> {
     /// Views were renewed (LLP 1078: a list's row rebound to another
     /// item). A hosted field among them is another field from here on: its
     /// generation moves on, and nothing kept for the last item's text
-    /// (typed text, its selection, a `change` owed) stands.
+    /// (typed text, its selection, a `change` owed) stands. A picker the
+    /// shell has up for one answers nothing (`picks_renewed`).
     pub(super) fn hosted_renewed(&mut self, renewed: &[ViewId]) {
+        self.picks_renewed(renewed);
         if self.hosted.known.is_empty() {
             return;
         }

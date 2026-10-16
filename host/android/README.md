@@ -412,6 +412,11 @@ the plan's uses and passes `-Pcompose=1`. The activity stays a plain `Activity`;
 lifecycle and saved-state owners a `ComposeView` looks for. `x_log_requests=1` logs each picker's first frame, from
 the request and from the touch (`Exact.touched`).
 
+**The field** (D6) is painted by exact2 as Material's filled text field, for a text field, a select and a date or
+time control alike. A date control shows its value as the device writes it: `Device.read` sends, with the other
+settings, the patterns `DateFormat.getBestDateTimePattern` picks for the locale and the person's clock, ICU's short
+month names and day periods, and the zero digit (`Device.dates`), and exact2 fills them in.
+
 **Hatches** (D4, D5). The app's Rust hatches (`modules/linux`, or Rust in `modules/android`) run on this host as on
 Linux: `canvas_jni!`'s `hatches` hands the host their install, they connect as the reader takes its first requests
 after a displayed frame, and an overlay is painted as a canvas is, as a picture. Beside them, Kotlin in the app's

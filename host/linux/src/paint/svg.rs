@@ -135,6 +135,20 @@ impl Painter {
         let Some((_, d, filled)) = exact_kernel::generated::symbol(role) else {
             return;
         };
+        self.glyph_face(d, filled, style, rect, colour, ts);
+    }
+
+    /// A 24-unit path in `rect`, stroked as a symbol role is at `style`'s
+    /// weight, or filled.
+    pub(super) fn glyph_face(
+        &mut self,
+        d: &'static str,
+        filled: bool,
+        style: &exact_kernel::StyleProps,
+        rect: Rect4,
+        colour: [u8; 4],
+        ts: Transform,
+    ) {
         let (x, y, w, h) = rect;
         let path = parsed_symbol(d);
         let weight = f32::from(style.font_weight).clamp(100.0, 900.0);

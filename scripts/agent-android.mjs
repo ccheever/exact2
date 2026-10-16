@@ -24,7 +24,7 @@
 // otherwise: the GPU painter needs a real GPU's Vulkan (an emulator's
 // SwiftShader crashes it).
 import { spawn, spawnSync } from 'node:child_process';
-import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import { homedir } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
@@ -231,6 +231,19 @@ function planUses(messages, crate) {
   return [];
 }
 
+/** The same, where the build ran without JSON (a bake): the newest `uses.txt` of the crate's build scripts' outputs
+ * under Cargo's `build` directory. */
+function bakedUses(dir, crate) {
+  const prefix = `${crate.replaceAll('-', '_')}-`, alt = `${crate}-`;
+  let newest = null;
+  for (const name of existsSync(dir) ? readdirSync(dir) : []) {
+    if (!name.startsWith(prefix) && !name.startsWith(alt)) continue;
+    const file = resolve(dir, name, 'out/uses.txt');
+    if (existsSync(file) && (!newest || statSync(file).mtimeMs > newest.at)) newest = { file, at: statSync(file).mtimeMs };
+  }
+  return newest ? readFileSync(newest.file, 'utf8').split('\n').filter(Boolean) : [];
+}
+
 /** The app on the Canvas reader, as an APK: its `android/` crate (a cdylib over `exact_linux::canvas_jni!`; a game's
  * is generated under `.shells/`) built for the phone's ABI and put, with the app's assets, where the Gradle shell
  * packages them (host/android/app), then `:app:assembleRelease`. An app with a GPU module (LLP 1009) is built as a
@@ -246,6 +259,7 @@ function buildApk(app, env, profile) {
     try { buildBake(app, 'linux', ANDROID_TARGET, { profile, env, kind: 'android' }); }
     catch (error) { console.error(error.message); return null; }
     gpu = built(app.crate('gpu'));
+    uses = bakedUses(resolve(app.target, ANDROID_TARGET, profile, 'build'), crate);
   } else {
     // JSON on stdout, for the crate's build-script output directory; the compiler's own messages still on stderr.
     const cargo = spawnSync('cargo', ['build', ...injectedProfiles(app), '--profile', profile, '-p', crate, '--target', ANDROID_TARGET, '--message-format=json-render-diagnostics'], { cwd: app.workspace ?? app.dir, env, stdio: ['inherit', 'pipe', 'inherit'], maxBuffer: 1 << 28 });

@@ -826,6 +826,7 @@ fn a_surface_follows_the_scheme_the_font_scale_and_a_reader_made_again() {
         high_contrast: false,
         touch: true,
         touch_slop: 8.0,
+        dates: String::new(),
     };
     assert!(p.set_device(&phone).is_none());
     let dark = told(&mut p);

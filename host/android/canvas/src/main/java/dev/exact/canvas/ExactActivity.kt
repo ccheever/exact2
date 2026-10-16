@@ -42,7 +42,7 @@ open class ExactActivity : Activity() {
      * first pixel; one for the process, as exact2's host is, and given each activity made again. */
     internal fun hatches(): HatchReader? {
         if (!hatchesLooked) { hatchesLooked = true; hatchReader = HatchReader.make(this) }
-        return hatchReader?.also { it.activity = this }
+        return hatchReader
     }
 
     /** Hosted field [node]'s `EditText`, where the reader hosts it now (main thread). */
@@ -72,6 +72,7 @@ open class ExactActivity : Activity() {
         // once (decoded pictures otherwise stay held).
         if (!again) android.system.Os.setenv("MIMALLOC_PURGE_DELAY", "0", false)
         super.onCreate(state)
+        hatchReader?.activity = this
         // The starting window goes the moment the first frame is drawn, not after its exit fade (splashfade=1: the
         // platform's fade, to compare): the first frame is what shows.
         if (intent.getStringExtra("splashfade") != "1") splashScreen.setOnExitAnimationListener { it.remove() }
@@ -438,6 +439,7 @@ open class ExactActivity : Activity() {
     /** This activity's reader lets go of the host: its hosted views and their surfaces go, and the owner stops
      * telling its view. Once: at [onDestroy], or sooner when the activity that replaces it is made first. */
     private fun release() {
+        hatchReader?.takeIf { it.activity === this }?.activity = null
         requests.surfaces?.destroy()
         natives?.destroyAll()
         natives = null

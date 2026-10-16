@@ -19,8 +19,9 @@ import android.view.View
  * control gives its picker as it opens ([picker]).
  */
 abstract class ExactHatches {
-    /** The activity the app runs in: set before the first call. */
-    lateinit var activity: Activity
+    /** The activity the app runs in now: set before the first call, given each activity made again, and null while
+     * none is (between one's end and the next's start). */
+    var activity: Activity? = null
         internal set
 
     /** The app: built as the hatches connect, changed when a root `data-*` word changes. */
@@ -42,8 +43,8 @@ abstract class ExactHatches {
 /** The app scope's handle: the first root node's `data-*` words, by name without the prefix. */
 class ExactApp internal constructor(val data: Map<String, String>, val isNew: Boolean)
 
-/** A hatched node's handle. Cheap to keep: a kept handle reads the node's current box and words, and after the
- * node's end its last. */
+/** A hatched node's handle. Cheap to keep: it holds the box and words of the node's last moment, and after the
+ * node's end its last. A node made again in its place (a list's row given another item) is another handle. */
 class ExactElement internal constructor(val node: Int, private val reader: HatchReader) {
     /** The node's `hatch` word. */
     var hatch = ""
@@ -51,8 +52,8 @@ class ExactElement internal constructor(val node: Int, private val reader: Hatch
     /** The node's authored `id`, empty when it has none. */
     var id = ""
         internal set
-    /** The border box exact2 laid out, in the document's points, as of the last commit: scroll offsets and
-     * transforms are not folded in. */
+    /** The border box exact2 laid out, in the document's points, as of the node's last moment (built, or a change of
+     * its size or its words: a move alone is not told). Scroll offsets and transforms are not folded in. */
     var frame = RectF()
         internal set
     /** Every declared `data-*` word the node carries. */
@@ -70,35 +71,36 @@ class ExactElement internal constructor(val node: Int, private val reader: Hatch
 
     /** The node's platform view where it is one: a text field's `EditText` once the reader hosts it (LLP 1115.001
      * D8). Null for a painted node. exact2 keeps what it sets (its text, its look, its place); the app may add to it. */
-    val view: View? get() = reader.view(node)
+    val view: View? get() = if (reader.current(this)) reader.view(node) else null
 
-    /** Press the node, as a person would: run by exact2 between its turns. False when the node has left. */
-    fun click() = reader.act(node, 1, null)
+    /** Press the node, as a person would: run by exact2 between its turns. False when this handle's node has left. */
+    fun click() = reader.act(this, 1, null)
     /** Give the node the focus. */
-    fun focus() = reader.act(node, 2, null)
+    fun focus() = reader.act(this, 2, null)
     /** Take the focus from the node, if it has it. */
-    fun blur() = reader.act(node, 3, null)
+    fun blur() = reader.act(this, 3, null)
     /** Replace an authored text field's whole value, without moving the focus. */
-    fun input(text: String) = reader.act(node, 4, text)
+    fun input(text: String) = reader.act(this, 4, text)
 }
 
 /** What exact2 tells of the app's hatches (`hatches/reader.rs` writes the words), made into handles and calls. */
 internal class HatchReader(activity: ExactActivity, private val hatches: ExactHatches) {
     private val elements = HashMap<Int, ExactElement>()
 
-    /** The activity that runs now: an activity made again is given to the app's hatches. */
-    var activity: ExactActivity = activity
+    /** The activity that runs now: an activity made again is given to the app's hatches, and one that ends lets go. */
+    var activity: ExactActivity? = activity
         set(value) { field = value; hatches.activity = value }
 
     init {
         hatches.activity = activity
     }
 
-    fun element(node: Int): ExactElement? = elements[node]
+    /** [e] is its node's handle now, and the node is in the tree. */
+    fun current(e: ExactElement): Boolean = e.isLive && elements[e.node] === e
 
-    fun view(node: Int): View? = activity.hostedField(node)
+    fun view(node: Int): View? = activity?.hostedField(node)
 
-    fun act(node: Int, kind: Int, text: String?): Boolean = elements[node]?.isLive == true && Exact.hatchAct(node, kind, text)
+    fun act(e: ExactElement, kind: Int, text: String?): Boolean = current(e) && Exact.hatchAct(e.node, kind, text)
 
     /** The moments in [w] from [at] to [end]. */
     fun told(w: IntArray, at: Int, end: Int) {
@@ -121,7 +123,7 @@ internal class HatchReader(activity: ExactActivity, private val hatches: ExactHa
             try {
                 if (scope == APP) { if (moment != ENDED) hatches.app(ExactApp(data, moment == BUILT)) }
                 else if (scope == ELEMENT) element(node, moment, word, id, frame, data)
-            } catch (e: RuntimeException) {
+            } catch (e: Exception) {
                 // A throw in the app's hatch: that call is lost, the app goes on (LLP 1075.003.000.001 D8).
                 Log.e(TAG, "hatch ${if (scope == APP) "app" else word}: $e")
             }
@@ -139,7 +141,7 @@ internal class HatchReader(activity: ExactActivity, private val hatches: ExactHa
     /** A hatched control's picker, about to open. */
     fun picker(node: Int, picker: ExactPicker) {
         val e = elements[node] ?: return
-        try { hatches.picker(e, picker) } catch (e: RuntimeException) { Log.e(TAG, "hatch picker: $e") }
+        try { hatches.picker(e, picker) } catch (e: Exception) { Log.e(TAG, "hatch picker: $e") }
     }
 
     companion object {
@@ -149,10 +151,17 @@ internal class HatchReader(activity: ExactActivity, private val hatches: ExactHa
         private const val BUILT = 0
         private const val ENDED = 2
 
-        /** The app's `exact.app.Hatches`, when it has one. */
+        /** The app's `exact.app.Hatches`, when it has one. One that cannot be made (its constructor threw, it has
+         * none without arguments, it is no [ExactHatches]) is logged, and the app runs without its hatches. */
         fun make(activity: ExactActivity): HatchReader? {
             val type = try { Class.forName("exact.app.Hatches") } catch (e: ClassNotFoundException) { return null }
-            return HatchReader(activity, type.getDeclaredConstructor().newInstance() as ExactHatches)
+            return try {
+                HatchReader(activity, type.getDeclaredConstructor().newInstance() as ExactHatches)
+            } catch (e: Exception) {
+                val cause = (e as? java.lang.reflect.InvocationTargetException)?.targetException ?: e
+                Log.e(TAG, "hatches: exact.app.Hatches could not be made: $cause")
+                null
+            }
         }
 
         /** The string at [at]: its bytes' count, then UTF-8 padded to whole words. And the index after it. */

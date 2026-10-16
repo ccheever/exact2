@@ -31,9 +31,11 @@ internal data class Device(
     /** The screen is a finger's, and how far one moves before its touch is a drag, in dp (the system's touch slop). */
     val touch: Boolean,
     val touchSlop: Float,
+    /** How the device writes a date and a time: what a date control shows ([dates]). */
+    val dates: String,
 ) {
     /** Tell exact2: on the thread that holds the host, or on any before it boots. */
-    fun tell() = Native.configure(night, fontScale, locale, rtl, hour24, noAnimations, boldText, highContrast, touch, touchSlop)
+    fun tell() = Native.configure(night, fontScale, locale, rtl, hour24, noAnimations, boldText, highContrast, touch, touchSlop, dates)
 
     companion object {
         fun read(context: Context): Device {
@@ -53,7 +55,24 @@ internal data class Device(
                 highContrast = contrast,
                 touch = config.touchscreen == Configuration.TOUCHSCREEN_FINGER,
                 touchSlop = android.view.ViewConfiguration.get(context).scaledTouchSlop / context.resources.displayMetrics.density,
+                dates = dates(config.locales[0], android.text.format.DateFormat.is24HourFormat(context)),
             )
+        }
+
+        /**
+         * The lines `host/linux/src/paint/dates.rs` reads: the patterns Android's formatter picks for the locale for a
+         * medium date, the time on the person's clock with and without seconds, and the two together; the day
+         * periods, the zero digit and the short month names. ICU's, as a Views app's `DateFormat` writes them.
+         */
+        private fun dates(locale: java.util.Locale, hour24: Boolean): String {
+            val best = { skeleton: String -> android.text.format.DateFormat.getBestDateTimePattern(locale, skeleton) }
+            val clock = if (hour24) "Hm" else "hm"
+            val symbols = android.icu.text.DateFormatSymbols.getInstance(locale)
+            val months = symbols.getMonths(android.icu.text.DateFormatSymbols.FORMAT, android.icu.text.DateFormatSymbols.ABBREVIATED)
+            val zero = android.icu.text.DecimalFormatSymbols.getInstance(locale).zeroDigit
+            val lines = listOf(best("yMMMd"), best(clock), best(clock + "s"), best("yMMMd$clock"), best("yMMMd${clock}s")) +
+                symbols.amPmStrings.take(2) + zero.toString() + months.take(12)
+            return lines.joinToString("\n")
         }
     }
 }

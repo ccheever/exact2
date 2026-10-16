@@ -399,17 +399,12 @@ impl<D: DataSource> Presenter<D> {
                         .into_iter()
                         .map(|c| c.label)
                         .collect(),
-                    exact_kernel::ControlKind::Date => vec!["0000-00-00".into()],
-                    exact_kernel::ControlKind::Time => vec!["00:00:00".into()],
-                    exact_kernel::ControlKind::DateTimeLocal => {
-                        vec!["0000-00-00T00:00".into()]
+                    exact_kernel::ControlKind::Date
+                    | exact_kernel::ControlKind::Time
+                    | exact_kernel::ControlKind::DateTimeLocal => {
+                        date_samples(&node, self.brush.dates.as_ref())
                     }
                     _ => continue,
-                };
-                let chevron = if kind == exact_kernel::ControlKind::Select {
-                    30.0
-                } else {
-                    12.0
                 };
                 let style = node.computed_style(exact_kernel::StyleMask::INHERITED);
                 let (mut w, mut h) = (0f32, 0f32);
@@ -434,10 +429,15 @@ impl<D: DataSource> Presenter<D> {
                     sizes.push((id, ((w + inline).ceil(), high)));
                     continue;
                 }
+                // Material's filled field round the text and its trailing icon.
                 if h == 0.0 {
                     h = style.font_size * 1.2;
                 }
-                sizes.push((id, ((w + chevron).ceil(), (h + 6.0).ceil())));
+                let high = (h + 32.0).max(crate::paint::material::HEIGHT);
+                sizes.push((
+                    id,
+                    ((w + crate::paint::material::WITH_ICON).ceil(), high.ceil()),
+                ));
             }
         }
         for (id, size) in sizes {
@@ -446,6 +446,41 @@ impl<D: DataSource> Presenter<D> {
             }
         }
     }
+}
+
+/// What a date control may show, to fit the widest: HTML's widest values,
+/// in the device's writing where its shell told it (`paint/dates.rs`), with
+/// the seconds where the value or its `step` has them, and its own value.
+fn date_samples(
+    node: &exact_kernel::NodeRef<'_>,
+    dates: Option<&crate::paint::dates::Dates>,
+) -> Vec<String> {
+    let kind = node.props.str(PropId::Type).unwrap_or("date");
+    let value = node.props.str(PropId::Value).unwrap_or("");
+    let step = node
+        .props
+        .str(PropId::Step)
+        .and_then(|s| s.parse::<f64>().ok());
+    let seconds =
+        step.is_some_and(|s| s % 60.0 != 0.0) || value.len() > "00:00".len() && kind == "time";
+    let clock = |h: u32| match seconds {
+        true => format!("{h:02}:58:58"),
+        false => format!("{h:02}:58"),
+    };
+    let mut samples: Vec<String> = match kind {
+        "date" => (1..=12).map(|m| format!("2000-{m:02}-28")).collect(),
+        "time" => vec![clock(11), clock(23)],
+        _ => (1..=12)
+            .flat_map(|m| [11, 23].map(|h| format!("2000-{m:02}-28T{}", clock(h))))
+            .collect(),
+    };
+    samples.push(value.to_string());
+    for s in &mut samples {
+        if let Some(shown) = dates.and_then(|d| d.show(kind, s)) {
+            *s = shown;
+        }
+    }
+    samples
 }
 
 #[cfg(test)]

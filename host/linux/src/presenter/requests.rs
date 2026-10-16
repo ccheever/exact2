@@ -408,6 +408,11 @@ impl<D: DataSource> Presenter<D> {
             // A choice is the person's, as a select's row is: `input`, then
             // `change`. A dismissed picker changes nothing.
             Waiting::Pick(node) => match answer {
+                // The control may have become one a person cannot change
+                // while its picker was up.
+                Some(_) if self.pickable(node).is_none() => self
+                    .host
+                    .log(format!("picker: {node} no longer takes a choice")),
                 Some(value) => {
                     if let Err(e) = self.set_control_value(node, value) {
                         self.host.log(format!("picker: {e}"));
@@ -421,14 +426,55 @@ impl<D: DataSource> Presenter<D> {
 
     /// The shell was made again (`reader_replaced`): it is told the app's
     /// state anew, and what the last one was asked and never answered is
-    /// cancelled, since nothing will answer it.
+    /// cancelled, since nothing will answer it. A picker is the exception:
+    /// it is the activity's, which answers it as it closes, whether the
+    /// person chose or the activity went (`Requests.destroy`), and a reader
+    /// made again over the same activity leaves it up.
     pub(super) fn requests_reset(&mut self) {
         (self.requests.back, self.requests.back_epoch) = (None, None);
         self.requests.keyboard = None;
         (self.requests.wakelock, self.requests.wakelock_epoch) = (None, None);
-        let waiting: Vec<u32> = self.requests.waiting.keys().copied().collect();
+        let waiting: Vec<u32> = (self.requests.waiting.iter())
+            .filter(|(_, w)| !matches!(w, Waiting::Pick(_)))
+            .map(|(id, _)| *id)
+            .collect();
         for id in waiting {
             self.answer_request(id, None);
+        }
+    }
+
+    /// Views a commit renewed (LLP 1078): one whose picker is up is another
+    /// item now, so that picker's answer is not its (a list's row given
+    /// another item while it was up).
+    pub(crate) fn picks_renewed(&mut self, renewed: &[ViewId]) {
+        let stale: Vec<(u32, ViewId)> = (self.requests.waiting.iter())
+            .filter_map(|(id, w)| match w {
+                Waiting::Pick(node) if renewed.contains(node) => Some((*id, *node)),
+                _ => None,
+            })
+            .collect();
+        for (id, node) in stale {
+            self.requests.waiting.remove(&id);
+            self.host.log(format!(
+                "picker: {node} was made again; its answer is dropped"
+            ));
+        }
+    }
+
+    /// `id`'s kind, where it is a date or time control a person can change:
+    /// not disabled, not read-only.
+    fn pickable(&self, id: ViewId) -> Option<&'static str> {
+        let node = self.host.kernel().node(id)?;
+        if node.props.bool(PropId::Disabled) == Some(true)
+            || node.props.bool(PropId::Editable) == Some(false)
+        {
+            return None;
+        }
+        match exact_kernel::ControlKind::of(node.node_type, node.props)? {
+            exact_kernel::ControlKind::Date => Some("date"),
+            exact_kernel::ControlKind::Time => Some("time"),
+            exact_kernel::ControlKind::DateTimeLocal => Some("datetime-local"),
+            _ => None,
         }
     }
 
@@ -443,15 +489,17 @@ impl<D: DataSource> Presenter<D> {
     /// A press on a date or time control where a shell takes requests: its
     /// picker, with what the control shows now (the person's choice while
     /// the bound value is the one it was made at, else the bound value).
+    /// A read-only control opens none, and one whose picker is up opens no
+    /// second.
     pub(super) fn pick(&mut self, id: ViewId) {
-        let Some(node) = self.host.kernel().node(id) else {
+        let Some(kind) = self.pickable(id) else {
             return;
         };
-        let kind = match exact_kernel::ControlKind::of(node.node_type, node.props) {
-            Some(exact_kernel::ControlKind::Date) => "date",
-            Some(exact_kernel::ControlKind::Time) => "time",
-            Some(exact_kernel::ControlKind::DateTimeLocal) => "datetime-local",
-            _ => return,
+        if (self.requests.waiting.values()).any(|w| matches!(w, Waiting::Pick(n) if *n == id)) {
+            return;
+        }
+        let Some(node) = self.host.kernel().node(id) else {
+            return;
         };
         let text = |prop| node.props.str(prop).unwrap_or_default().to_owned();
         let value = crate::paint::control::choice(&node, self.chosen.get(&id))

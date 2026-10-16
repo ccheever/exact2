@@ -62,11 +62,16 @@ macro_rules! canvas_jni {
                 HOST.with(|h| h.borrow_mut().as_mut().map(f))
             }
 
+            /// A Java string's UTF-16, as Rust's: JNI's UTF-8 functions give
+            /// modified UTF-8, which writes a character beyond the first plane
+            /// as two surrogates and a NUL as two bytes.
             unsafe fn string(env: *mut JNIEnv, s: jstring) -> String {
-                let get = (**env).GetStringUTFChars.expect("jni");
-                let release = (**env).ReleaseStringUTFChars.expect("jni");
+                let get = (**env).GetStringChars.expect("jni");
+                let release = (**env).ReleaseStringChars.expect("jni");
+                let length = (**env).GetStringLength.expect("jni")(env, s);
                 let p = get(env, s, std::ptr::null_mut());
-                let out = CStr::from_ptr(p).to_string_lossy().into_owned();
+                let units = std::slice::from_raw_parts(p, length.max(0) as usize);
+                let out = String::from_utf16_lossy(units);
                 release(env, s, p);
                 out
             }
@@ -256,6 +261,7 @@ macro_rules! canvas_jni {
                 high_contrast: jboolean,
                 touch: jboolean,
                 touch_slop: jfloat,
+                dates: jstring,
             ) {
                 let device = $crate::presenter::Device {
                     night: night == JNI_TRUE,
@@ -268,6 +274,7 @@ macro_rules! canvas_jni {
                     high_contrast: high_contrast == JNI_TRUE,
                     touch: touch == JNI_TRUE,
                     touch_slop,
+                    dates: string(env, dates),
                 };
                 $crate::canvas::configure(&device);
                 // What a hosted field measured was under the old settings.

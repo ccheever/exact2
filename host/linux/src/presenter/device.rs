@@ -29,6 +29,9 @@ pub struct Device {
     /// tap, in points (Android's scaled touch slop); 0 where the shell
     /// knows none, which keeps the shared one.
     pub touch_slop: f32,
+    /// How the device writes a date and a time, in lines
+    /// (`paint::dates::Dates::from_lines`); empty where the shell tells none.
+    pub dates: String,
 }
 
 /// The root font size at a font scale of 1: CSS's `medium`.
@@ -47,7 +50,8 @@ impl<D: DataSource> Presenter<D> {
     /// - "remove animations" is `prefers-reduced-motion`, high contrast is
     ///   `prefers-contrast: more`;
     /// - a touch screen is `pointer: coarse` and `hover: none`, and its
-    ///   touch slop is how far a contact moves before it is a drag.
+    ///   touch slop is how far a contact moves before it is a drag;
+    /// - how the device writes dates is how a date control shows its value.
     ///
     /// The layout direction, the 12 or 24-hour clock and bold text are kept
     /// ([`Presenter::device`]) and change nothing yet: the runner has no
@@ -88,6 +92,13 @@ impl<D: DataSource> Presenter<D> {
         // A tag the runner refuses (an empty one) leaves the place as it was.
         if !device.locale.is_empty() && place != *self.host.runner().place() {
             error = error.or(self.set_place(&place));
+        }
+        // A date control shows its value as the device writes it (D9).
+        let dates = crate::paint::dates::Dates::from_lines(&device.dates);
+        if self.brush.dates != dates {
+            self.brush.dates = dates;
+            self.dirty = true;
+            error = error.or(self.after_commit());
         }
         error
     }

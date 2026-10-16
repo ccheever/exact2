@@ -58,7 +58,8 @@ internal val materialPickers: Pickers? = MaterialPickers
  * its own above the page. `datetime-local` asks for the day, then the time.
  */
 private object MaterialPickers : Pickers {
-    /** The reader's activity is a plain Activity: Compose looks for a lifecycle and a saved state on the view tree. */
+    /** The reader's activity is a plain Activity: Compose looks for a lifecycle and a saved state on the view tree.
+     * One for each picker, on its own view: resumed while it is up, destroyed as it closes, which disposes it. */
     private class Owner : SavedStateRegistryOwner {
         private val registry = LifecycleRegistry(this)
         private val saved = SavedStateRegistryController.create(this)
@@ -68,25 +69,28 @@ private object MaterialPickers : Pickers {
             saved.performRestore(null)
             registry.currentState = Lifecycle.State.RESUMED
         }
+        fun destroy() { registry.currentState = Lifecycle.State.DESTROYED }
     }
 
-    private val owner by lazy { Owner() }
-
-    override fun show(activity: Activity, picker: ExactPicker, drawn: () -> Unit, answer: (String?) -> Unit) {
-        activity.window.decorView.setViewTreeLifecycleOwner(owner)
-        activity.window.decorView.setViewTreeSavedStateRegistryOwner(owner)
+    override fun show(activity: Activity, picker: ExactPicker, drawn: () -> Unit, answer: (String?) -> Unit): () -> Unit {
+        val owner = Owner()
         val view = ComposeView(activity)
+        view.setViewTreeLifecycleOwner(owner)
+        view.setViewTreeSavedStateRegistryOwner(owner)
         var told = false
         val first = { if (!told) { told = true; drawn() } }
-        view.setContent {
-            Theme(activity) {
-                Picker(picker, first) { chosen ->
-                    (view.parent as? ViewGroup)?.removeView(view)
-                    answer(chosen)
-                }
+        var closed = false
+        val close = { chosen: String? ->
+            if (!closed) {
+                closed = true
+                (view.parent as? ViewGroup)?.removeView(view)
+                owner.destroy()
+                answer(chosen)
             }
         }
+        view.setContent { Theme(activity) { Picker(picker, first, close) } }
         activity.addContentView(view, FrameLayout.LayoutParams(1, 1))
+        return { close(null) }
     }
 }
 
@@ -100,7 +104,7 @@ private fun Theme(activity: Activity, content: @Composable () -> Unit) {
 private fun Picker(picker: ExactPicker, drawn: () -> Unit, done: (String?) -> Unit) {
     var day by remember { mutableStateOf<LocalDate?>(null) }
     if (picker.kind == "time" || day != null) {
-        TimeDialog(picker, drawn) { t -> done(t?.let { picker.value(day, it) }) }
+        TimeDialog(picker, day, drawn) { t -> done(t?.let { picker.value(day, it) }) }
     } else {
         DateDialog(picker, drawn) { d ->
             when {
@@ -115,21 +119,27 @@ private fun Picker(picker: ExactPicker, drawn: () -> Unit, done: (String?) -> Un
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DateDialog(picker: ExactPicker, drawn: () -> Unit, done: (LocalDate?) -> Unit) {
-    val min = ExactPicker.parseDay(picker.min)
-    val max = ExactPicker.parseDay(picker.max)
+    // Material's state refuses a month or a selection outside its years: they run from the first allowed year to
+    // the last, else Material's own, widened to the day shown and the day held.
+    val shown = picker.day()
+    val held = picker.heldDay
+    val from = picker.firstDay?.year ?: minOf(DatePickerDefaults.YearRange.first, shown.year, held?.year ?: shown.year)
+    val to = maxOf(from, picker.lastDay?.year ?: maxOf(DatePickerDefaults.YearRange.last, shown.year, held?.year ?: shown.year))
     val state = rememberDatePickerState(
-        initialSelectedDateMillis = ExactPicker.parseDay(picker.value)?.let(::utc),
-        initialDisplayedMonthMillis = utc(picker.day()),
-        yearRange = (min?.year ?: DatePickerDefaults.YearRange.first)..(max?.year ?: DatePickerDefaults.YearRange.last),
+        initialSelectedDateMillis = held?.takeIf { it.year in from..to }?.let(::utc),
+        initialDisplayedMonthMillis = utc(shown.withDayOfMonth(1)),
+        yearRange = from..to,
         initialDisplayMode = if (picker.input) DisplayMode.Input else DisplayMode.Picker,
         selectableDates = object : SelectableDates {
             override fun isSelectableDate(utcTimeMillis: Long) = picker.allows(Instant.ofEpochMilli(utcTimeMillis).atZone(ZoneOffset.UTC).toLocalDate())
         },
     )
     val chosen = state.selectedDateMillis?.let { Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate() }
+    // The held day may be one the control no longer allows: OK is for an allowed one.
+    val ok = chosen != null && if (picker.kind == "date") picker.allows(picker.value(chosen, null)) else picker.allows(chosen)
     DatePickerDialog(
         onDismissRequest = { done(null) },
-        confirmButton = { TextButton(onClick = { done(chosen) }, enabled = chosen != null) { Text(stringResource(android.R.string.ok)) } },
+        confirmButton = { TextButton(onClick = { done(chosen) }, enabled = ok) { Text(stringResource(android.R.string.ok)) } },
         dismissButton = { TextButton(onClick = { done(null) }) { Text(stringResource(android.R.string.cancel)) } },
     ) {
         val title = picker.title
@@ -148,14 +158,18 @@ private fun DateDialog(picker: ExactPicker, drawn: () -> Unit, done: (LocalDate?
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun TimeDialog(picker: ExactPicker, drawn: () -> Unit, done: (LocalTime?) -> Unit) {
+private fun TimeDialog(picker: ExactPicker, day: LocalDate?, drawn: () -> Unit, done: (LocalTime?) -> Unit) {
     val t = picker.time()
     val state = rememberTimePickerState(t.hour, t.minute, picker.hour24 ?: DateFormat.is24HourFormat(LocalContext.current))
     var mode by remember { mutableStateOf(if (picker.input) TimePickerDisplayMode.Input else TimePickerDisplayMode.Picker) }
     val title = picker.title
+    // Material's clock offers no seconds: the held value's stay where its hour and minute are kept.
+    val chosen = picker.time(state.hour, state.minute)
     TimePickerDialog(
         onDismissRequest = { done(null) },
-        confirmButton = { TextButton(onClick = { done(LocalTime.of(state.hour, state.minute)) }) { Text(stringResource(android.R.string.ok)) } },
+        confirmButton = {
+            TextButton(onClick = { done(chosen) }, enabled = picker.allows(picker.value(day, chosen))) { Text(stringResource(android.R.string.ok)) }
+        },
         title = { if (title == null) TimePickerDialogDefaults.Title(mode) else Text(title) },
         modeToggleButton = if (picker.modeToggle) {
             {

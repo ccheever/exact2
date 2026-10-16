@@ -365,6 +365,7 @@ const DATES: &str = r#"component App
     column
       input type="date" value=day change=setDay min="2026-01-01" max="2026-12-31" testId="day" height=30
       input type="time" value=at change=setAt step="60" testId="at" height=30
+      input type="date" value=day change=setDay readonly=true testId="fixed" height=30
 "#;
 
 #[test]
@@ -418,4 +419,24 @@ fn a_date_or_time_controls_press_asks_the_shell_for_its_picker_and_its_answer_is
     assert!(p.answer_request(asked[0].1, None));
     assert_eq!(value(&p, "at"), "");
     assert_eq!(says(&p, "picker: dismissed"), 1);
+    // A read-only control opens none.
+    tap(&mut p, "fixed");
+    assert_eq!(p.take_requests(), None);
+    // While a control's picker is up, a press opens no second; a reader
+    // made again over the same activity leaves it up, and it still answers.
+    tap(&mut p, "day");
+    let asked = decode(p.take_requests());
+    tap(&mut p, "day");
+    assert_eq!(p.take_requests(), None);
+    p.reader_replaced(Box::new(crate::raster::Raster::new()));
+    let _ = p.take_requests();
+    assert!(p.answer_request(asked[0].1, Some("2026-12-24")));
+    p.run_commands(|| Nothing);
+    assert_eq!(value(&p, "day"), "2026-12-24");
+    // A view made again while its picker is up drops the answer.
+    tap(&mut p, "day");
+    let asked = decode(p.take_requests());
+    p.picks_renewed(&[id(&p, "day")]);
+    assert!(!p.answer_request(asked[0].1, Some("2026-12-25")));
+    assert_eq!(value(&p, "day"), "2026-12-24");
 }

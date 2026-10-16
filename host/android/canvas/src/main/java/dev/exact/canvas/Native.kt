@@ -20,7 +20,7 @@ object Native {
      * with them, and again on the host's thread whenever one changes. */
     @JvmStatic external fun configure(
         night: Boolean, fontScale: Float, locale: String, rtl: Boolean, hour24: Boolean, noAnimations: Boolean,
-        boldText: Boolean, highContrast: Boolean, touch: Boolean, touchSlop: Float,
+        boldText: Boolean, highContrast: Boolean, touch: Boolean, touchSlop: Float, dates: String,
     )
     /** The device's colours ([Palette], LLP 1115.001 D4): Material 3's colour roles as the reader resolved them for
      * this device, twelve under the light scheme and then the same twelve under the dark one, ARGB. Before [start],
