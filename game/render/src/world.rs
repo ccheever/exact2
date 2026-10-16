@@ -997,11 +997,17 @@ impl Feed {
             self.changed_pages
                 .extend(self.changed_blocks.iter().map(|&b| b as usize / PAGE));
             // An offset moves drawn model poses without a simulated pose write.
-            let moved = if initial || parent_changed || offset_changed || batches {
+            let moved = if initial
+                || parent_changed
+                || offset_changed
+                || next.assets != old.assets
+                || next.mesh != old.mesh
+            {
                 crate::models::Moved::All
             } else {
                 crate::models::Moved::Pages {
                     pages: &self.changed_pages,
+                    reconcile: batches,
                 }
             };
             r.model_poses(
