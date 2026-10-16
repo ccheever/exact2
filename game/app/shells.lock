@@ -375,6 +375,7 @@ dependencies = [
  "exact-plan",
  "exact-runner",
  "exact-tamber",
+ "libc",
  "serde_json",
  "sha2",
 ]
@@ -1152,6 +1153,7 @@ dependencies = [
  "exact-num",
  "exact-plan",
  "exact-route",
+ "serde_json",
  "sha2",
 ]
 
@@ -1172,6 +1174,7 @@ version = "0.1.0"
 dependencies = [
  "exact-color",
  "exact-num",
+ "serde_json",
 ]
 
 [[package]]

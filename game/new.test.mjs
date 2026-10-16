@@ -112,7 +112,7 @@ test('generated commands run from an external author directory with quoted paths
     const sdk=resolve(directory,'recording SDK');
     mkdirSync(resolve(sdk,'host/windows'),{recursive:true});
     mkdirSync(resolve(sdk,'scripts'),{recursive:true});
-    cpSync(resolve(import.meta.dir,'../scripts/app-cli.mjs'),resolve(sdk,'scripts/app-cli.mjs'));
+    for (const file of ['app-cli.mjs', 'bun.mjs']) cpSync(resolve(import.meta.dir, '../scripts', file), resolve(sdk, 'scripts', file));
     writeFileSync(resolve(sdk,'host/windows/build.mjs'),`console.log(JSON.stringify({args:process.argv.slice(2),app:process.env.EXACT_APP_DIR}));`);
     const windows=spawnSync(process.execPath,['exact.mjs','windows','--release','--run'],{cwd:app,env:{...process.env,EXACT2:sdk},encoding:'utf8'});
     assert.equal(windows.status,0,windows.stderr);
