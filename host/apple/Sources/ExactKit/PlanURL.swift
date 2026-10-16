@@ -844,8 +844,13 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
             terminal = "the dev server rebuilt the app's native code — rebuild and relaunch this host (the last good plan is still running)"
             status(terminal!)
         }
-        // A design snapshot being fetched goes on: no generation will follow
-        // to sync it.
+        settle()
+    }
+
+    /// A resolution with no generation to follow (the app runs it already,
+    /// or waits for its program): a design snapshot being fetched is fetched
+    /// again, as no generation will sync the design.
+    private func settle() {
         let resync = syncing
         beginResolution()
         if resync { syncDesign() }
@@ -895,7 +900,7 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
         }
         if frame["ready"] as? Bool == false { return }
         guard let revision = PlanURL.revision(frame), observe(revision) else { return }
-        if currentGeneration() == revision.identity { beginResolution(); return }
+        if currentGeneration() == revision.identity { settle(); return }
         guard pending != revision,
               let path = frame["envelope"] as? String, let url = URL(string: path, relativeTo: page)?.absoluteURL,
               PlanURL.sameOrigin(url, page) else { return }
