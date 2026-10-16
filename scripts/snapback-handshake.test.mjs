@@ -8,6 +8,7 @@ import { createServer } from 'node:net';
 import { listenOn } from './agent-launch.mjs';
 const sdk = resolve(import.meta.dirname, '..');
 const installedBinary = process.env.SNAPBACK4_BIN ?? resolve(sdk, `node_modules/snapback4-${process.platform}-${process.arch}/snapback4`);
+const pinnedVersion=JSON.parse(readFileSync(resolve(sdk,'package.json'),'utf8')).devDependencies.snapback4;
 const packageDir = process.env.SNAPBACK4_PACKAGE ?? resolve(sdk, 'node_modules/snapback4');
 for (const online of [false, true]) for (const mode of ['dev', 'serve']) test(`npm Exact ${online ? 'online write' : 'guestbook syncs, writes offline and reconnects'} against ${mode}`, async () => {
   const project = mkdtempSync(join(sdk, 'target/hs-guestbook-'));
@@ -29,7 +30,7 @@ for (const online of [false, true]) for (const mode of ['dev', 'serve']) test(`n
     const port = reservation.address().port; await new Promise(ok => reservation.close(ok));
     // Qualify the shipped npm shape, not a source-directory symlink.
     if (process.env.SNAPBACK4_REGISTRY) {
-      writeFileSync(join(project, 'package.json'), JSON.stringify({type: 'module', dependencies: {snapback4: '0.4.28'}}));
+      writeFileSync(join(project, 'package.json'), JSON.stringify({type: 'module', dependencies: {snapback4: pinnedVersion}}));
       run(process.execPath, ['install', '--registry', process.env.SNAPBACK4_REGISTRY]);
     } else {
       const packed = JSON.parse(run('npm', ['pack', packageDir, '--ignore-scripts', '--json', '--pack-destination', project]));
@@ -40,7 +41,7 @@ for (const online of [false, true]) for (const mode of ['dev', 'serve']) test(`n
     if (process.env.SNAPBACK4_REGISTRY) {
       binary = join(project, `node_modules/snapback4-${process.platform}-${process.arch}/snapback4`);
       env.SNAPBACK4_BIN = binary;
-      assert.equal(JSON.parse(readFileSync(join(project, `node_modules/snapback4-${process.platform}-${process.arch}/package.json`))).version, '0.4.28');
+      assert.equal(JSON.parse(readFileSync(join(project, `node_modules/snapback4-${process.platform}-${process.arch}/package.json`))).version, pinnedVersion);
     }
     assert.ok(readFileSync(join(project, 'node_modules/snapback4/dist/contract.d.ts')).length);
     if (online) {
@@ -157,7 +158,8 @@ test "one online write"
       writeFileSync(join(app, 'app.ts'), source);
       writeFileSync(join(app, 'app.test.contract'), readFileSync(join(app, 'app.test.contract'), 'utf8').replaceAll(from, old));
       run(process.execPath, ['exact.mjs', 'snapback', '--port', String(port)], app);
-      assert.ok(readFileSync(join(app, 'app.ts'), 'utf8').includes(`const origin = '${from}/'`));
+      assert.equal(readFileSync(join(app, 'app.ts'), 'utf8'), source);
+      assert.equal(readFileSync(join(app,'.exact/backend-origin'),'utf8').trim(),from);
       assert.ok(readFileSync(join(app, 'app.test.contract'), 'utf8').includes('fail fetch "backend"'));
     }
     assert.match(readFileSync(join(app, 'app.ts'), 'utf8'), /import \{ api \} from '.\/backend\/api.ts'/);
@@ -249,11 +251,11 @@ test('registry online scaffold and complete password example work through test w
     return r;
   };
   try {
-    writeFileSync(join(project, 'package.json'), JSON.stringify({type: 'module', dependencies: {snapback4: '0.4.28'}}));
+    writeFileSync(join(project, 'package.json'), JSON.stringify({type: 'module', dependencies: {snapback4: pinnedVersion}}));
     run(['install', '--registry', process.env.SNAPBACK4_REGISTRY ?? 'https://registry.npmjs.org/']);
     const binary = join(project, `node_modules/snapback4-${process.platform}-${process.arch}/snapback4`);
     env.SNAPBACK4_BIN = binary;
-    assert.equal(JSON.parse(readFileSync(join(project, `node_modules/snapback4-${process.platform}-${process.arch}/package.json`))).version, '0.4.28');
+    assert.equal(JSON.parse(readFileSync(join(project, `node_modules/snapback4-${process.platform}-${process.arch}/package.json`))).version, pinnedVersion);
     const reservation = createServer(); await listenOn(reservation, 0);
     const port = reservation.address().port; await new Promise(ok => reservation.close(ok));
     const guide = readFileSync(join(sdk, 'snapback4/README.md'), 'utf8');
@@ -339,4 +341,52 @@ export const answer:Answer=(_source,[now])=>now;
     run(['contract','types','app.contract','-o','app.contract.d.ts']);
     assert.match(run(['test','web']).stdout,/1 passed, 0 failed/);
   } finally {rmSync(project,{recursive:true,force:true});}
+},600_000);
+
+for (const online of [false,true]) test(`README ${online ? 'online' : 'synced'} guestbook passes both tests as written on the pinned registry pack`,async()=>{
+  const project=mkdtempSync(join(sdk,'target/ex8-readme-')),app=join(project,'app');
+  const env={...process.env,CARGO_INCREMENTAL:'0',CARGO_PROFILE_DEV_DEBUG:'0',CARGO_PROFILE_TEST_DEBUG:'0'};
+  let server;
+  const run=(args,cwd=project)=>{
+    const r=spawnSync(process.execPath,args,{cwd,env,encoding:'utf8',timeout:300_000});
+    assert.equal(r.status,0,`${args.join(' ')}\n${r.stdout}\n${r.stderr}`); return r;
+  };
+  try {
+    writeFileSync(join(project,'package.json'),JSON.stringify({private:true,type:'module',dependencies:{snapback4:pinnedVersion}}));
+    run(['install','--registry',process.env.SNAPBACK4_REGISTRY ?? 'http://127.0.0.1:4873/']);
+    const binary=join(project,`node_modules/snapback4-${process.platform}-${process.arch}/snapback4`);
+    env.SNAPBACK4_BIN=binary;
+    assert.equal(JSON.parse(readFileSync(join(project,'node_modules/snapback4/package.json'),'utf8')).version,pinnedVersion);
+    const guide=readFileSync(join(sdk,'snapback4/README.md'),'utf8');
+    const section=guide.split(online ? '### A complete online app\n' : '### A complete app\n')[1].split(online ? '### A complete online password app' : '### A complete online app')[0];
+    const blocks=[...section.matchAll(/```(?:quarry|contract|ts)?\n([\s\S]*?)\n```/g)].map(m=>m[1]);
+    assert.equal(blocks.length,4);
+    mkdirSync(join(project,'snapback'),{recursive:true});
+    writeFileSync(join(project,'snapback/schema.q'),blocks[0]+'\n');
+    const reservation=createServer();await listenOn(reservation,0);
+    const port=reservation.address().port;await new Promise(ok=>reservation.close(ok));
+    run([join(sdk,'scripts/exact.mjs'),'new',app,'--snapback',...(online ? ['--online'] : []),'--port',String(port)]);
+    // The examples themselves remain byte-for-byte: runtime backend input selects the test server.
+    for(const [i,file] of ['app.contract','app.ts','app.test.contract'].entries()) writeFileSync(join(app,file),blocks[i+1]+'\n');
+    const authored=['app.contract','app.ts','app.test.contract'].map(f=>readFileSync(join(app,f),'utf8'));
+    run(['exact.mjs','snapback','--port',String(port)],app);
+    if (!online) { const update=run(['exact.mjs','update'],app); assert.match(update.stdout,/rebuilt; app sources and mounts kept unchanged/); }
+    assert.deepEqual(['app.contract','app.ts','app.test.contract'].map(f=>readFileSync(join(app,f),'utf8')),authored);
+    run(['exact.mjs','contract','types','app.contract','-o','app.contract.d.ts'],app);
+    server=spawn(binary,['dev','--port',String(port),'--no-watch'],{cwd:project,env,stdio:['ignore','pipe','pipe']});
+    await new Promise((ok,fail)=>{
+      let log='';const timer=setTimeout(()=>fail(new Error(log)),30_000);
+      const read=bytes=>{log+=bytes;if(/SNAPBACK4_READY|^http:\/\/127\.0\.0\.1:\d+\s*$/m.test(log)){clearTimeout(timer);ok();}};
+      server.stdout.on('data',read);server.stderr.on('data',read);server.once('error',fail);server.once('exit',code=>{clearTimeout(timer);fail(new Error(`backend exited ${code}: ${log}`));});
+    });
+    for(let round=0;round<2;round++) {
+      const result=run(['exact.mjs','test','web','--backend',`http://127.0.0.1:${port}`],app);
+      assert.match(result.stdout,/2 passed, 0 failed/);
+    }
+    assert.deepEqual(['app.contract','app.ts','app.test.contract'].map(f=>readFileSync(join(app,f),'utf8')),authored);
+    run(['exact.mjs','contract','types','--check','app.contract'],app);
+  } finally {
+    if(server && server.exitCode===null){const ended=new Promise(ok=>server.once('exit',ok));server.kill('SIGTERM');await ended;}
+    rmSync(project,{recursive:true,force:true});
+  }
 },600_000);

@@ -105,8 +105,9 @@ above it): `bun exact.mjs snapback`. Either one:
 It names the `appId` line `app.ts` needs when the two disagree: `app.json`'s
 `"app": { "id" }`, which `exact new` set from the directory's name. Last it
 says the server to start, `bunx snapback4 dev --port <n>` above. The driver is
-pinned to published Snapback4 0.4.28: install that version for the server.
-The reset and generic file cases use the same release and matched device build.
+pinned to Snapback4 0.4.29: install that version for the server. A new app
+made this way and tested as written against 0.4.29 (2026-10-16): both of the
+guestbook's tests pass.
 
 ### Upgrading a wave-10-era app
 
@@ -434,21 +435,21 @@ test "a note posts, and another persona sees it"
 
 test "offline, a note is kept, then delivered on reconnect"
   clock data
-  fail fetch "http://127.0.0.1:4400"
+  fail fetch "backend"
   type "draft" "from the tunnel"
   tap "post"
   clock data
   expect text "notice" == "Saved on this device; it sends when online."
   expect text "sending" == "1 sending"
-  pass fetch "http://127.0.0.1:4400"
+  pass fetch "backend"
   clock +5000
   clock data
   expect text "sending" == "0 sending"
 ```
 
 The app is `bun <this checkout>/scripts/exact.mjs new app --snapback`, run in
-the backend’s directory, which writes these files when there is no existing
-schema and wires their mounts and device.
+the backend's directory, which writes these four files and wires them. Built that way and tested as written against 0.4.29
+(2026-10-16): both tests pass, and pass again on the data a first run leaves.
 
 ### A complete online app
 
