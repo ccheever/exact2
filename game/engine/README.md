@@ -26,6 +26,9 @@ and randomness; `Sim` owns input. The renderer interpolates completed ticks.
   Under a root scaled `(diameter, height, diameter)` so its parts can be authored in
   a unit box, every `Mesh::sphere` draws as an ellipsoid. Give a part that must stay
   round the inverse of the root's aspect in its own scale.
+- Repeated global-pose reads can use `let globals = w.globals(); globals.get(entity)`
+  to resolve component columns once. Roots still read current local poses,
+  parented entities use propagated poses, and row-borrow checks still apply.
 - `Visible(false)` hides the entity and all `Parent` descendants from drawing,
   shadows, lights and picking. `is_visible(e)` reads current ancestor rows even
   while paused; absent `Visible` rows are true, but children cannot override a

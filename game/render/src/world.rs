@@ -629,11 +629,12 @@ impl Feed {
             // A scene without offsets already has exact propagated globals.
             // Check once per feed, not once per entity's entire parent chain.
             let has_offsets = w.query::<&exact_game::Offset>().iter().next().is_some();
+            let globals = w.globals();
             let world_pose = |e| {
                 if has_offsets {
                     scene::drawn(w, e)
                 } else {
-                    w.global(e)
+                    globals.get(e)
                 }
                 .map(scene::decompose)
             };
