@@ -22,6 +22,7 @@ use UsageKey from "./pages-usage.contract"
 use UsagePricesLayer from "./pages-usage-dialogs.contract"
 use UsageModelLayer from "./pages-usage-dialogs.contract"
 use ResetCreditDialog from "./usage-bars.contract"
+use SidebarToggle from "./sidebar-toggle.contract"
 use PrList from "./pages-prs.contract"
 use PgIcon from "./pages-icons.contract"
 use PrListView from "./pages-prs.contract"
@@ -372,6 +373,9 @@ component PagesCover
     command: action
     openConnectionsPage: action
     pagesOp: action
+    // The window's inert for the main sidebar trigger (SidebarToggle), which the page's own dialogs add to.
+    toggleInert: bool
+    toggleSidebar: action
   // The pooled reset confirm closes for the page as its Cancel, Escape or Use credit is
   // pressed, so the page is no longer inert when the command's answer gives the segment the focus back (the
   // usage answer that drops the confirm comes later; Base UI's AlertDialog returns the focus as it closes).
@@ -401,6 +405,9 @@ component PagesCover
               PgIcon(name="panel-right", size=16, color="light-dark(#71717b, #818181)")
         if utilityPage == ""
           PagesLanding(controlsLeft=data.controlsLeft, home=home, scheme=scheme, sidebarOpen=data.sidebarOpen, busy=commandPending, command=command, addProject=paletteShow("command", "add-project"), openConnections=openConnectionsPage)
+    // The main sidebar trigger is drawn here, whatever the page: after the chat and the page in paint and Tab order,
+    // under the dialogs below, which cover the whole window as the reference's portaled dialogs cover SidebarControl.
+    SidebarToggle(open=data.sidebarOpen, controlsLeft=data.controlsLeft, keySidebar=settings.keySidebar, artwork=data.look.artwork, inert=(toggleInert or (pageCover and utilityPage == "usage" and (usageConfirmOpen or usage.detail.open or usage.prices.open)) or prDetail.actions.dialogOpen or prDetail.actions.stack.dialogOpen), toggle=toggleSidebar)
     // Usage's model and Model prices dialogs cover the whole window, sidebar included (pages-usage-dialogs).
     // A pooled segment's reset credit confirm, outside its popover (UsageLimitsPooled RedeemableSegmentPopup).
     if pageCover and utilityPage == "usage" and usageConfirmOpen

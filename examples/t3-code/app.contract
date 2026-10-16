@@ -813,9 +813,6 @@ component T3Code
           settingsProjectId = result.message.slice(25)
           settingsRoute = "projects"
       case none
-    if confirmedFocus != ""
-      focus(confirmedFocus)
-      confirmedFocus = ""
     pendingModal = ""
     commandPending = false
   action command(op: string, id: string, value: string, n: number)
@@ -1320,8 +1317,7 @@ component T3Code
   state confirmDestructive = false
   state confirmOp = ""
   state confirmTarget = ""
-  state confirmReturn = "" // the element a terminal close confirm opened from gives the focus back on Cancel (Base UI's finalFocus); a confirmed removal of a focused shelf Remove, where the focus goes next
-  state confirmedFocus = "" // that element, focused once the confirmed command has landed and removed the tile
+  state confirmReturn = "" // the element a terminal close confirm opened from gives the focus back on Cancel (Base UI's finalFocus)
   state confirmValue = ""
   state terminalCloseHandled = 0
   task shellTicks mount
@@ -1474,7 +1470,7 @@ component T3Code
       confirmDestructive = destructive
       confirmOp = value
       confirmTarget = target
-      confirmValue = ""
+      confirmValue = value == "remove-snapshot" ? op.slice(11) : "" // a focused Remove's next element, focused once the removal lands (`focus:`)
     if op.startsWith("shelllocal:")
       send localChanged = command(op, target, value, 0)
     if (op == "ui:new-thread" or not op.startsWith("ui:")) and not op.startsWith("shelllocal:") and not commandPending
@@ -1488,7 +1484,6 @@ component T3Code
       terminalCloseHandled = shell.panel.terminalClose.serial // a terminal close asked while it was open is dropped, as the reference refuses it
     if confirmOp.startsWith("shell:") // the title menu's confirms give the focus back to its trigger (Base UI's finalFocus)
       focus("thread-title")
-    confirmedFocus = accept and confirmOp == "remove-snapshot" ? confirmReturn : ""
     if accept and (confirmOp == "terminallocal:close" or confirmOp == "terminalpanellocal:close")
       send terminalChanged = command(confirmOp, confirmTarget, confirmValue, 0)
     else if accept and not commandPending
