@@ -127,9 +127,10 @@ extension NodeView {
     func activateNative() {
         guard let presenter, !disabled, !inert else { return }
         let target = activationTarget(at: convert(CGPoint(x: bounds.midX, y: bounds.midY), to: nil))
+        let bubbled = target.map { presenter.pressBox(of: $0, from: self) !== $0 } ?? false
         focusForPress(target: target)
         guard let target, presenter.views[target.id] === target else { return }
-        presenter.press(target.id)
+        presenter.press(target.id, bubbled: bubbled)
     }
 }
 

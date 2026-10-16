@@ -110,6 +110,69 @@ final class AddressedTapIOSTests: XCTestCase {
         XCTAssertEqual(presses(), [])
     }
 
+    /// A field and a checkbox take a touch themselves (UIKit's controls), so
+    /// the agent's walks press no ancestor from them, as a real touch does
+    /// not; text beside them still presses it, and a native button's action
+    /// still presses the nearest handler.
+    func testAFieldOrAControlTakesTheTapAndPressesNoAncestor() throws {
+        let (session, agent, presses) = rows(), p = session.presenter
+        p.apply(wireBatch([
+            ["op": "create", "id": 21, "kind": "input", "props": ["value": "draft"]],
+            ["op": "create", "id": 22, "kind": "control", "props": ["type": "checkbox"]],
+            ["op": "create", "id": 23, "kind": "control", "props": ["type": "button"]],
+            ["op": "create", "id": 24, "kind": "textarea", "props": ["value": "notes"]],
+            ["op": "create", "id": 25, "kind": "text", "props": ["text": "Beside the controls"]],
+            ["op": "children", "id": 1, "ids": [2]], ["op": "children", "id": 2, "ids": [21, 22, 23, 24, 25]],
+            ["op": "frame", "id": 2, "x": 0, "y": 0, "w": 400, "h": 500],
+        ] + (21...25).map { ["op": "frame", "id": $0, "x": 20, "y": ($0 - 21) * 60 + 20, "w": 240, "h": 40] }))
+        let ancestor = try XCTUnwrap(p.views[2]), win = try XCTUnwrap(window)
+        func point(_ node: NodeView) -> CGPoint { node.convert(CGPoint(x: node.bounds.midX, y: node.bounds.midY), to: nil) }
+        for id: UInt32 in [21, 22, 24] {
+            let node = try XCTUnwrap(p.views[id])
+            XCTAssertNil(node.activationTarget(at: point(node)), "\(id)")
+            XCTAssertNil(node.activate(at: point(node)), "\(id)")
+            XCTAssertNil(agent.fingerReach(node, at: point(node)).action, "\(id)")
+            XCTAssertNil(agent.stillPresses(HeldNode(ancestor), from: HeldNode(node)), "\(id)")
+            if case .control(let owner)? = agent.pressReach(node, at: point(node), in: win) {
+                XCTAssertTrue(owner === node, "\(id)")
+            } else { XCTFail("the addressed walk stops at \(id)") }
+        }
+        XCTAssertEqual(presses(), [], "no ancestor press from a field or a control")
+        let plain = try XCTUnwrap(p.views[25]), button = try XCTUnwrap(p.views[23])
+        XCTAssertTrue(plain.activate(at: point(plain)) === ancestor)
+        XCTAssertTrue(button.activationTarget(at: point(button)) === ancestor, "a native button's action presses the nearest handler")
+        XCTAssertEqual(presses(), [2])
+    }
+
+    func testAControlWithItsOwnPressTakesItBeforeConsumingTheTap() throws {
+        let (session, agent, presses) = rows(), p = session.presenter
+        p.apply(wireBatch([
+            ["op": "create", "id": 21, "kind": "input", "props": ["value": "draft"], "handlers": ["press"]],
+            ["op": "create", "id": 22, "kind": "control", "props": ["type": "checkbox"], "handlers": ["press"]],
+            ["op": "children", "id": 1, "ids": [2]], ["op": "children", "id": 2, "ids": [21, 22]],
+            ["op": "frame", "id": 21, "x": 20, "y": 20, "w": 240, "h": 40],
+            ["op": "frame", "id": 22, "x": 20, "y": 80, "w": 240, "h": 40],
+        ]))
+        let win = try XCTUnwrap(window)
+        for id: UInt32 in [21, 22] {
+            let node = try XCTUnwrap(p.views[id])
+            let point = node.convert(CGPoint(x: node.bounds.midX, y: node.bounds.midY), to: nil)
+            XCTAssertTrue(node.activationTarget(at: point) === node, "\(id)")
+            XCTAssertTrue(node.activate(at: point) === node, "\(id)")
+            XCTAssertEqual(presses(), [id])
+            XCTAssertTrue(agent.stillPresses(HeldNode(node), from: HeldNode(node)) === node)
+            if case .node(let target)? = agent.pressReach(node, at: point, in: win) {
+                XCTAssertTrue(target === node)
+            } else { XCTFail("the control's own handler takes the tap: \(id)") }
+            // The agent toggles a checkbox through its own action (host activation), as before.
+            guard id == 21 else { continue }
+            let reply = agent.tap(["id": Int(id)])
+            XCTAssertNil(reply["error"], "\(reply)")
+            XCTAssertEqual(reply["pressed"] as? Int, Int(id))
+            XCTAssertEqual(presses(), [id], "the ancestor never presses")
+        }
+    }
+
     /// What a press there would deliver counts, a text editor's focus too;
     /// a 2-point strip around a child that covers the rest is found (Astra,
     /// round 1); a point on an inline run presses the run.

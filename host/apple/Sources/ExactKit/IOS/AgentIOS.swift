@@ -749,7 +749,10 @@ extension Agent {
             #else
             let takes = (cur as? UIControl)?.isEnabled == true || (cur as? UITextView)?.isEditable == true
             #endif
-            if takes, let n = Agent.enclosing(cur).first { return .control(n) }
+            if takes, let n = Agent.enclosing(cur).first {
+                if n.takesPress { node = n; break }
+                return .control(n)
+            }
             at = cur.superview
         }
         guard let node, !node.inert else { return .nothing }
@@ -761,13 +764,14 @@ extension Agent {
         var up: UIView? = node
         while let cur = up {
             if let n = cur as? NodeView {
-                if n.disabled { return .blocked(n) }
-                if n.takesPress {
-                    let box = presenter.pressBox(of: n, from: node)
-                    return box.bounds.contains(box === n ? n.local(p) : box.convert(p, from: nil)) ? .node(n) : .nothing
+                if n.disabled || n.authoredInert { return .blocked(n) }
+                let box = presenter.pressBox(of: n, from: node)
+                if n.takesPress(bubbled: box !== n) {
+                    return box.bounds.contains((box as? NodeView)?.local(p) ?? box.convert(p, from: nil)) ? .node(n) : .nothing
                 }
+                if n === node, n.consumesTap { return .control(n) }
             }
-            up = presenter.touchParent(of: cur)
+            up = presenter.listenerParent(of: cur)
         }
         return .nothing
     }

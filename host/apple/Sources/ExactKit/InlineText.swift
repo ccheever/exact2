@@ -247,8 +247,8 @@ extension NodeView {
         guard kind == "button", !handlers.contains("press"), let url = props["href"], !url.isEmpty else { return nil }
         return url
     }
-    func activateLink(_ url: String) -> Bool {
-        guard let session = presenter?.session, !disabled, !inert else { return false }
+    func activateLink(_ url: String, bubbled: Bool = false) -> Bool {
+        guard let session = presenter?.session, !disabled, !(bubbled ? authoredInert : inert) else { return false }
         if url.hasPrefix("/") && !url.hasPrefix("//") { return session.navigate(url) }
         session.delegate?.exactSession(session, command: "openURL", args: [url]); return true
     }

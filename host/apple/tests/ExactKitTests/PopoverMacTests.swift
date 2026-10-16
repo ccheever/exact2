@@ -105,7 +105,7 @@ final class PopoverMacTests: XCTestCase {
         p.views[1]?.handlers = ["press"]; behind.handlers = ["press"]
         p.press(2)
         // A plain child, neither a control nor selectable text, forwards
-        // through the popover. The page's responder chain must not hear it.
+        // through the popover to its authored ancestor, never the page's focus.
         p.apply(wireBatch([
             ["op": "create", "id": 7, "kind": "view", "handlers": ["pointerdown", "pointerup"]],
             ["op": "children", "id": 3, "ids": [4, 5, 7]],
@@ -123,8 +123,24 @@ final class PopoverMacTests: XCTestCase {
             window.sendEvent(event)
         }
         XCTAssertEqual(pointers, [7, 7])
-        XCTAssertEqual(presses, [], "no page ancestor or focused page control is activated")
+        XCTAssertEqual(presses, [1], "the authored parent presses; the focused page control never does")
         XCTAssertTrue(p.menus.isOpen(pop))
+    }
+
+    func testAPressInThePopoverUsesItsContentBoxAndNearestAuthoredAncestor() throws {
+        let p = fixture(), root = try XCTUnwrap(p.views[1]), popover = try XCTUnwrap(p.views[3])
+        defer { p.menus.reset() }
+        p.apply(wireBatch([
+            ["op": "create", "id": 7, "kind": "text", "props": ["text": "Plain content"]],
+            ["op": "children", "id": 3, "ids": [4, 5, 7]],
+            ["op": "frame", "id": 7, "x": 120, "y": 80, "w": 100, "h": 30],
+            ["op": "create", "id": 8, "kind": "view", "handlers": ["press"]],
+            ["op": "children", "id": 8, "ids": [1]], ["op": "roots", "ids": [8]],
+            ["op": "frame", "id": 8, "x": 0, "y": 0, "w": 500, "h": 400],
+        ]))
+        try XCTUnwrap(p.viewport.window).makeKeyAndOrderFront(nil)
+        try assertPresentationPresses(p, content: XCTUnwrap(p.views[7]), ancestor: root, presentation: popover,
+            open: { p.press(2) }, close: { p.menus.close(popover) }, isOpen: { p.menus.isOpen(popover) })
     }
 
     /// A right click in an open painted popover reaches its authored

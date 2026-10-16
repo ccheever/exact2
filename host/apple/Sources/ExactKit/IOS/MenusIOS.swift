@@ -42,6 +42,15 @@ final class MenuHost {
         #endif
         return agentOpen.values.first { $0.popover === view }?.parent
     }
+    /// A captured press belongs to this opening, even if the same node reopens.
+    func pressLifetime(of view: UIView) -> (() -> Bool)? {
+        if let open = sheets.pressLifetime(of: view) { return open }
+        guard let entry = agentOpen.values.first(where: { $0.popover === view }) else { return nil }
+        return { [weak self, weak entry] in
+            guard let entry else { return false }
+            return self?.agentOpen.values.contains { $0 === entry } == true
+        }
+    }
     var nativeConfirmation: NodeView? { pendingConfirmation?.popover ?? (confirmation?.finishing == false ? confirmation?.popover : nil) }
     /// How many popovers the agent has opened: each one's place in the stack.
     private var opened = 0
@@ -299,7 +308,7 @@ final class MenuHost {
         return !isConfirmation(pop) && closes(source, pop, modal: false) && eligible(source)
     }
     /// D13: activation finished; now read the surviving control's live target.
-    func invoke(_ source: NodeView) {
+    func invoke(_ source: NodeView, bubbled: Bool = false) {
         // A bar item's `command="show-modal"` (`BarPress`): the page hides
         // its button while the bar shows it, and what it opens presents with
         // no invoker, as a pull-down's confirmation does. A bar item that
@@ -309,6 +318,7 @@ final class MenuHost {
         guard source.isNativeButton || barModal || closesPresentedContent(source), barModal || eligible(source),
               let invocation = presenter?.invocation(of: source), let name = invocation.target.props["id"] else { return }
         let pop = invocation.target, action = invocation.action
+        if bubbled, !usableForBubbledInvocation(pop) { return }
         if barModal {
             if isConfirmation(pop), openModally(pop) == nil, !sheets.owns(pop) {
                 _ = openConfirmation(from: nil, popover: pop, modal: true, dispatchPress: false)
@@ -331,6 +341,18 @@ final class MenuHost {
             if action == .hide || action == .toggle && open { drop(name) }
             else if !open { agentShow(pop, named: name, from: source.id) }
         }
+    }
+
+    /// A modal may leave the invoker behind it, but never its target.
+    private func usableForBubbledInvocation(_ target: NodeView) -> Bool {
+        guard !target.inert else { return false }
+        guard let dialog = sheets.topDialog else { return true }
+        var view: UIView? = target
+        while let current = view {
+            if current === dialog { return true }
+            view = presenter?.listenerParent(of: current) ?? current.superview
+        }
+        return false
     }
 
     func action(_ command: String, _ args: [Any]) {

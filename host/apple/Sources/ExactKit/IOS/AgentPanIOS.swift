@@ -38,6 +38,8 @@ struct FingerReach {
     var run: UInt32?
     var href: String?
     var action: HeldNode?
+    var presentations: [() -> Bool] = []
+    var presentationsOpen: Bool { presentations.allSatisfy { $0() } }
 }
 
 /// A node as a contact found it: its id and incarnation, so a view the pool
@@ -163,7 +165,13 @@ extension Agent {
         let run = element == nil && !node.disabled && !node.inert ? node.inlineActivationTarget(at: local) : nil
         let href = element == nil && run == nil && node.inlineActivationTarget(at: local) == nil ? node.inlineLink(at: local) : nil
         let action = element == nil ? node.activationTarget(at: p) : nil
-        return FingerReach(reached: HeldNode(node), element: element, run: run?.id, href: href, action: action.map(HeldNode.init))
+        var reach = FingerReach(reached: HeldNode(node), element: element, run: run?.id, href: href, action: action.map(HeldNode.init))
+        var at: UIView? = node
+        while let view = at {
+            if let open = presenter.menus.pressLifetime(of: view) { reach.presentations.append(open) }
+            at = presenter.listenerParent(of: view)
+        }
+        return reach
     }
 
     /// `target` as the lift finds it: still the node it was and still taking
@@ -171,12 +179,12 @@ extension Agent {
     /// inert, and none from it up to `target` disabled, as `activationTarget`
     /// walks (a node its own `pointerdown` disabled presses nothing).
     func stillPresses(_ target: HeldNode?, from reached: HeldNode?) -> NodeView? {
-        guard let target = target?.live(in: presenter), let node = reached?.live(in: presenter), !node.inert else { return nil }
+        guard let target = target?.live(in: presenter), let node = reached?.live(in: presenter), !node.inert, target === node || !node.consumesTap else { return nil }
         var v: UIView? = node
         while let cur = v {
-            if let n = cur as? NodeView, n.disabled { return nil }
-            if cur === target { return target }
-            v = presenter.touchParent(of: cur) ?? cur.superview
+            if let n = cur as? NodeView, n.disabled || n.authoredInert { return nil }
+            if cur === target { return target.takesPress(bubbled: presenter.pressBox(of: target, from: node) !== target) ? target : nil }
+            v = presenter.listenerParent(of: cur) ?? cur.superview
         }
         return nil
     }
@@ -191,7 +199,7 @@ extension Agent {
         // As `touchesEnded`: a node the events took away, gave to another
         // node (`NodePool.rebind`) or disabled ends the touch there, with no
         // activation, no press and no focus change.
-        guard let node = reach.reached?.live(in: presenter), !node.disabled else { return ["pressed": NSNull()] }
+        guard reach.presentationsOpen, let node = reach.reached?.live(in: presenter), !node.disabled else { return ["pressed": NSNull()] }
         if let run = reach.run, !node.inert, node.activateInline(run) { return ["pressed": Int(run)] }
         if let href = reach.href {
             presenter.session?.follow(href)
@@ -216,7 +224,10 @@ extension Agent {
         // The press, its target checked after the focus's callbacks too.
         var pressed: Any = NSNull()
         if let element = reach.element, let node = reach.reached?.live(in: presenter), !node.disabled, !node.inert { presenter.press(element, held: held); pressed = Int(element) }
-        if let target = stillPresses(reach.action, from: reach.reached) { presenter.press(target.id, held: held); pressed = Int(target.id) }
+        if reach.presentationsOpen, let target = stillPresses(reach.action, from: reach.reached) {
+            presenter.press(target.id, held: held, bubbled: presenter.pressBox(of: target, from: node) !== target)
+            pressed = Int(target.id)
+        }
         return ["pressed": pressed]
     }
 
@@ -389,8 +400,13 @@ extension Agent {
             // down: a lift beside that presses nothing, as a touch up outside
             // a control does.
             guard phase == "up", let reach = contact.reach,
+                  let start = reach.reached?.live(in: presenter),
                   let pressing = reach.action?.live(in: presenter) ?? reach.reached?.live(in: presenter),
-                  pressing.window != nil, box(pressing).contains(contact.at) else { return reply }
+                  pressing.window != nil else { return reply }
+            let landing = presenter.pressBox(of: pressing, from: start)
+            let inside = landing === pressing ? box(pressing).contains(contact.at)
+                : landing.bounds.contains((landing as? NodeView)?.local(windowPoint(contact.at)) ?? landing.convert(windowPoint(contact.at), from: nil))
+            guard inside else { return reply }
             reply.merge(lift(reach, at: windowPoint(contact.at), held: contact.held)) { _, b in b }
             return reply
         default:

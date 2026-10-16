@@ -209,18 +209,18 @@ final class MenuHost: NSObject {
     /// What activating `source` does once its own handler has run: the
     /// surviving button's invocation then, as HTML resolves the target after
     /// the event's listeners (a handler may retarget it, or give it one).
-    func command(_ source: NodeView, fromNativeMenu: Bool = false) -> (() -> Void)? {
-        guard let presenter, source.isButton, !source.disabled, !source.inert,
+    func command(_ source: NodeView, fromNativeMenu: Bool = false, bubbled: Bool = false) -> (() -> Void)? {
+        guard let presenter, source.isButton, !source.disabled, !(bubbled ? source.authoredInert : source.inert),
               fromNativeMenu || !source.isHiddenOrHasHiddenAncestor || presenter.toolbar.contains(source),
               popoverInvocation(source) != nil || source.handlers.contains("press") else { return nil }
         return { [weak self, weak source] in
-            guard let self, let source, self.live(source), !source.inert, !source.disabled,
-                  let invocation = self.popoverInvocation(source), self.live(invocation.target),
+            guard let self, let source, self.live(source), !(bubbled ? source.authoredInert : source.inert), !source.disabled,
+                  let invocation = self.popoverInvocation(source), self.live(invocation.target), !bubbled || !invocation.target.inert,
                   !self.showsModally(invocation.target) else { return }
             let pop = invocation.target
             if invocation.action == .hide || (invocation.action == .toggle && self.isOpen(pop)) { self.close(pop) }
             // AppKit closed it with this very click on its invoker: a toggle leaves it closed.
-            else if invocation.action == .show || !self.closedByThisClick(source) { self.show(pop, from: source) }
+            else if invocation.action == .show || !self.closedByThisClick(source) { self.show(pop, from: source, bubbled: bubbled) }
         }
     }
     func opens(_ source: NodeView, _ pop: NodeView) -> Bool {
@@ -255,9 +255,9 @@ final class MenuHost: NSObject {
         if name == "hidePopover" || name == "togglePopover" && open { close(pop) }
         else if !open { show(pop, from: source) }
     }
-    func show(_ pop: NodeView, from source: NodeView?, run: UInt32? = nil) {
+    func show(_ pop: NodeView, from source: NodeView?, run: UInt32? = nil, bubbled: Bool = false) {
         guard let presenter, !isOpen(pop), live(pop), source.map(live) ?? true, pop.props["popover"] != nil,
-              connected(pop), source.map(connected) ?? true, !pop.inert, source.map({ !$0.inert && !$0.disabled }) ?? true,
+              connected(pop), source.map(connected) ?? true, !pop.inert, source.map({ !(bubbled ? $0.authoredInert : $0.inert) && !$0.disabled }) ?? true,
               pop.style["display"]?.string != "none", let page = presenter.viewport.window,
               source.map({ !hidden($0) || presenter.toolbar.contains($0) }) ?? true else { return }
         let window = source?.window.flatMap { presenter.hosts($0) ? $0 : nil } ?? page
@@ -294,7 +294,7 @@ final class MenuHost: NSObject {
             RunLoop.main.perform(inModes: [.common]) { [weak self, weak source, weak entry] in
                 guard let self, let entry, self.entries.contains(where: { $0 === entry }) else { return }
                 guard let source, self.live(source), self.live(entry.popover), source.window === window,
-                      !source.inert, !source.disabled, entry.confirmation.map(self.valid) ?? true
+                      !(bubbled ? source.authoredInert : source.inert), !source.disabled, entry.confirmation.map(self.valid) ?? true
                 else { self.close(entry.popover); return }
                 entry.tracking = true
                 self.track(menu, positioning: entry.focusedItem, at: self.popUpPoint(menu, entry.popover, in: source), in: source)
@@ -364,6 +364,7 @@ final class MenuHost: NSObject {
                                    margins: PositionArea.margins(of: pop), in: bounds)
     }
     func close(_ pop: NodeView, restoreFocus: Bool = true, cancelling: Bool = true) {
+        presenter?.mouseChain.bubbledPress?.cancel(in: pop)
         if presenter?.alerts.close(pop) == true { return }
         guard let index = entries.firstIndex(where: { $0.popover === pop }) else { return }
         // Hiding an auto stack never hides a manual popover above it.

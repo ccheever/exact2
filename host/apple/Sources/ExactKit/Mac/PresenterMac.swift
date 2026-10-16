@@ -8,7 +8,6 @@ import CoreText
 import os
 
 /// Which live views carry the few props the chrome passes look for.
-///
 
 package final class Presenter {
     var documentLanguage = ""
@@ -590,7 +589,7 @@ package final class Presenter {
         cancelPageElementScroll(viewport.contentView)
         focusEvents.reset()
         pointerHeld = nil; pointerPath = []
-        pointerSource = nil
+        pointerSource = nil; mouseChain.bubbledPress?.cancel()
         elements.reset()
         resetFlights()
         viewport.invalidateDocumentFit()
@@ -800,6 +799,7 @@ package final class Presenter {
     /// view (LLP 1063) does not until its exit ends.
     @discardableResult
     func release(_ id: UInt32, forget: Bool) -> NodeView? {
+        if let node = views[id] { mouseChain.bubbledPress?.cancel(in: node) }
         focusEvents.removed(id)
         // A held node that goes has no handler left to hear its up.
         if pointerHeld == id { pointerHeld = nil }
@@ -851,14 +851,14 @@ package final class Presenter {
 
     /// The modifiers held for the press being sent (its `MouseEvent`'s; gallery F20).
     var pressHeld = ""
-    package func press(_ id: UInt32, fromNativeMenu: Bool = false, held: String = "") {
+    package func press(_ id: UInt32, fromNativeMenu: Bool = false, held: String = "", bubbled: Bool = false) {
         pressHeld = held; defer { pressHeld = "" }
-        guard let node = textHost(id), !node.inert, !node.disabled,
+        guard let node = textHost(id), !(bubbled ? node.authoredInert : node.inert), !node.disabled,
               fromNativeMenu || (segments.shown(node) ?? sidebar.shows(node) ?? !node.isHiddenOrHasHiddenAncestor) || toolbar.contains(node) else { return }
         commitPendingEdit() // the press no longer ends a field's editing (FocusMac.swift)
-        let command = dialogs.command(node, fromNativeMenu: fromNativeMenu)
-        let popover = menus.command(node, fromNativeMenu: fromNativeMenu)
-        if command == nil && popover == nil, node.id == id, let url = node.defaultLink, node.activateLink(url) { return }
+        let command = dialogs.command(node, fromNativeMenu: fromNativeMenu, bubbled: bubbled)
+        let popover = menus.command(node, fromNativeMenu: fromNativeMenu, bubbled: bubbled)
+        if command == nil && popover == nil, node.id == id, let url = node.defaultLink, node.activateLink(url, bubbled: bubbled) { return }
         if (command == nil && popover == nil) || node.handlers.contains("press") { onPress?(id) }
         command?()
         popover?()

@@ -184,22 +184,25 @@ extension NodeView {
     func activateNative() {
         guard let presenter, !disabled, !inert else { return }
         let click = convert(NSPoint(x: bounds.midX, y: bounds.midY), to: nil)
-        var target: NodeView?
+        var target: NodeView?, bubbled = false
         var at: NSView? = self
         while let view = at {
             if let node = view as? NodeView {
-                if node.disabled || node.inert { break }
+                if node.disabled || (bubbled ? node.authoredInert : node.inert) { break }
                 // Its own command is a press as its handler is (a close row in a dialog).
                 if node.pressable {
-                    if node.bounds.contains(node.convert(click, from: nil)) { target = node }
+                    if bubbled || node.bounds.contains(node.convert(click, from: nil)) { target = node }
                     break
                 }
             }
-            at = view.superview
+            if let parent = presenter.presentationParent(of: view) {
+                bubbled = true
+                at = parent
+            } else { at = view.superview }
         }
         guard let target, presenter.views[target.id] === target else { return }
-        presenter.press(target.id)
-        target.finishPointerPress()
+        presenter.press(target.id, bubbled: bubbled)
+        if !bubbled { target.finishPointerPress() }
     }
 }
 

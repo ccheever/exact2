@@ -144,6 +144,42 @@ final class NativeButtonsMacTests: XCTestCase {
         XCTAssertEqual(pressed, [2, 3])
     }
 
+    func testNativeButtonBubblesOutOfPresentationsAndKeepsModalInvocationsInside() throws {
+        let p = presenter(box(1) + box(2, handlers: ["press"]) + box(3, ["id": "pop", "popover": "manual"])
+                          + box(4, ["id": "form", "semanticTag": "dialog"]) + native(5, handlers: []) + native(6, handlers: [])
+                          + box(7, ["id": "outside", "popover": "manual"]) + [
+                            ["op": "children", "id": 1, "ids": [2, 7]],
+                            ["op": "children", "id": 2, "ids": [3, 4]],
+                            ["op": "children", "id": 3, "ids": [5]],
+                            ["op": "children", "id": 4, "ids": [6]],
+                            ["op": "roots", "ids": [1]],
+                            ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 400, "h": 400],
+                            ["op": "frame", "id": 2, "x": 0, "y": 0, "w": 40, "h": 30],
+                            ["op": "frame", "id": 3, "x": 0, "y": 0, "w": 240, "h": 100],
+                            ["op": "frame", "id": 4, "x": 0, "y": 0, "w": 240, "h": 100],
+                          ], faces: [5: face("Popover"), 6: face("Dialog")])
+        p.menus.painted = true; p.dialogs.painted = true
+        defer { p.menus.reset(); p.dialogs.reset() }
+        let ancestor = try XCTUnwrap(p.views[2]), pop = try XCTUnwrap(p.views[3])
+        let dialog = try XCTUnwrap(p.views[4]), outside = try XCTUnwrap(p.views[7])
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        p.menus.action("showPopover", ["pop"])
+        XCTAssertTrue(p.menus.isOpen(pop))
+        try XCTUnwrap(p.controls.controls[5] as? NSButton).performClick(nil)
+        XCTAssertEqual(pressed, [2], "a native action reaches the lifted popover's authored ancestor once")
+        p.menus.close(pop)
+        p.dialogCommand("showModal", "form")
+        XCTAssertTrue(p.dialogs.active === dialog)
+        XCTAssertTrue(ancestor.inert)
+        ancestor.props["popovertarget"] = "outside"
+        ancestor.props["popovertargetaction"] = "show"
+        try XCTUnwrap(p.controls.controls[6] as? NSButton).performClick(nil)
+        XCTAssertEqual(pressed, [2, 2], "modal inertness does not suppress the ancestor's handler")
+        XCTAssertFalse(p.menus.isOpen(outside), "a bubbled native action cannot invoke a target outside the modal")
+        XCTAssertTrue(p.dialogs.active === dialog)
+    }
+
     func testItIsAppKitsButtonPressingOnce() throws {
         let p = presenter(box(1, handlers: ["press"]) + native(2, ["testId": "go"]) + native(3, handlers: []) + native(4, ["disabled": "true"])
                           + [["op": "children", "id": 1, "ids": [2, 3, 4]], ["op": "roots", "ids": [1]]],
