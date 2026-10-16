@@ -874,7 +874,7 @@ mod tests {
             "the plan admits the literal"
         );
         assert!(
-            js.contains(&format!("\nconst $cm={map};\n"))
+            js.contains(&format!("const $cm={map};\n"))
                 && js.contains(",\"filter\",\"\",()=>($cm)(blank(("),
             "the bound filter is not mapped:\n{js}"
         );
