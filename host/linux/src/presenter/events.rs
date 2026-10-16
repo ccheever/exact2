@@ -151,6 +151,9 @@ impl<D: DataSource> Presenter<D> {
             None => "no live node with that id",
             Some(id) if self.surface_focus(id) => return Some(id),
             Some(id) if !self.focusable(id) => "not focusable",
+            // As `HTMLElement.focus()` on an element with no box: a command
+            // queued by a handler can run after its dialog has closed.
+            Some(id) if self.box_of(id).is_none() => "not rendered",
             Some(id) => {
                 if let Some(e) = self.set_focus(Some(id), self.host.now()) {
                     eprintln!("exact: {e}");

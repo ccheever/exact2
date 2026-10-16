@@ -750,7 +750,11 @@ impl<D: DataSource> Presenter<D> {
                 scope.parent = own;
             } else if aria == Some("tablist")
                 || Self::access_live(&node) != 0
-                || (label.is_some() && matches!(aria, Some("group" | "radiogroup" | "region")))
+                || (label.is_some()
+                    && matches!(
+                        aria,
+                        Some("group" | "radiogroup" | "region" | "dialog" | "alertdialog")
+                    ))
             {
                 let role = if aria == Some("tablist") {
                     role::TABLIST

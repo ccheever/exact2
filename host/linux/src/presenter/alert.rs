@@ -138,28 +138,31 @@ impl<D: DataSource> Presenter<D> {
         true
     }
     pub(super) fn alert_close(&mut self, now: f64) {
-        let Some(serial) = self.alert.as_ref().map(|open| open.serial) else {
+        // Taken before the cancel: its pointerup can remove, replace or reopen
+        // the dialog, and the commit's sync must find nothing left to close.
+        let Some(open) = self.alert.take() else {
             return;
         };
         if let Err(e) = self.pointer_cancel(now) {
             self.host.log(e);
         }
-        // A pointerup handler can remove, replace or reopen the dialog. Its
-        // new opening owns its own host layout and focus.
-        if self.alert.as_ref().is_none_or(|open| open.serial != serial) {
-            return;
-        }
-        let open = self.alert.take().unwrap();
-        self.brush.alert = None;
-        if let Some(node) = self.host.kernel().node_by_key(open.key) {
-            let id = node.id;
-            let k = self.host.runner_mut().kernel_mut();
-            let _ = k.set_alert_prefix(id, false);
-            let _ = k.set_host_block(id, None);
-            if let Err(e) = self.host.layout() {
-                self.host.log(e);
+        let opened = self.alert.as_ref().map(|new| new.key);
+        if opened != Some(open.key) {
+            if let Some(node) = self.host.kernel().node_by_key(open.key) {
+                let id = node.id;
+                let k = self.host.runner_mut().kernel_mut();
+                let _ = k.set_alert_prefix(id, false);
+                let _ = k.set_host_block(id, None);
+                if let Err(e) = self.host.layout() {
+                    self.host.log(e);
+                }
             }
         }
+        // A new opening owns its own paint and focus.
+        if opened.is_some() {
+            return;
+        }
+        self.brush.alert = None;
         if let Some(e) = self.set_focus(None, now) {
             self.host.log(e);
         }
