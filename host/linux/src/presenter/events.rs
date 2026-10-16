@@ -664,3 +664,7 @@ impl<D: DataSource> Presenter<D> {
         Ok((x, y))
     }
 }
+
+#[cfg(test)]
+#[path = "focus_rendered_tests.rs"]
+mod focus_rendered_tests;
