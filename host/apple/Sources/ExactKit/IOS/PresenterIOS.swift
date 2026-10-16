@@ -351,6 +351,7 @@ package final class Presenter {
 
     /// A restart: every view goes.
     func reset() {
+        WakeLock.hold(self, false) // the new host's first batch says it again
         focusEvents.reset()
         // Every hatched node ends first, its view and platform object there.
         elements.reset()
@@ -749,7 +750,7 @@ package final class Presenter {
         session?.fieldChrome.presented(batch.layoutProvisional)
         let outerWaiting = fieldsWaiting; fieldsWaiting = menus.waitingFields(batch)
         defer { fieldsWaiting = outerWaiting }
-        defer { applyLanguage(batch) }
+        defer { applyLanguage(batch); applyWakeLock(batch) }
         if applySnapshots(batch) { return }
         PaintOrder.begin()
         let post = Self.signposts.beginInterval("apply")

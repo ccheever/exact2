@@ -896,6 +896,18 @@ A toolbar reads one format as `` ` ${s.formats} `.includes(" bold ") ``;
 [Markdown Stress](../apps/markdown-stress/app.contract) is a whole toolbar and
 link sheet.
 
+### Keep-awake: `wakelock`
+
+`wakelock` on any element takes `"screen"` or `"none"` (the default), literal
+or bound ([LLP 1125](../llp/1125-a-transport-midi-and-the-small-pieces.rfc.md)
+D11). While an element that is mounted and displayed (no ancestor
+`display: none`) says `"screen"`, the display does not dim or lock for
+idleness. Any other literal word is refused (`lower-attr-value`, naming the
+two); a computed one is journaled and holds nothing. `keepScreenOn`,
+`idleTimerDisabled` and `keepAwake` are refused with this name. The agent
+reads `state.wakelock` (`{held, by}`); [the reference](reference.md#keep-the-screen-awake)
+has each host's lock.
+
 ## Events
 
 An event binding is an action reference or partially applied action. Captured

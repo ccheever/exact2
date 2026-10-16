@@ -142,6 +142,13 @@ pub fn prop_value(id: u16, value: &Value) -> Result<(PropId, PropValue), BridgeE
         (exact_kernel::PropKind::Float, Value::Number(n)) => PropValue::Float(*n),
         _ => return Err(mismatch()),
     };
+    // A computed `wakelock` outside its two words is refused here, so the
+    // row is unset (`none`) and journaled (LLP 1125 D11).
+    if prop == PropId::Wakelock
+        && !matches!(&out, PropValue::Str(s) if matches!(s.as_str(), "screen" | "none"))
+    {
+        return Err(mismatch());
+    }
     Ok((prop, out))
 }
 

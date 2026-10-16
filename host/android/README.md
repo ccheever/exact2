@@ -359,10 +359,11 @@ capability has a call of its own.
 | 5 | whether Back has somewhere to go in the app (D6) | one word: 1 or 0 | registers its `OnBackInvokedCallback` while it has, and unregisters it while it has not, so Back at the first screen is the system's own and leaves with its animation | none |
 | 6 | the software keyboard | two words: 0 hidden, 1 shown for an `input`, 3 for a `textarea`; then the hosted field it is for (D8), or 0 for a field exact2 paints | for a hosted field, that `EditText` takes the focus and shows its own keyboard (`Fields.focus`); else `Keys.show` | none |
 | 7 | the top layer's surface (D10, below) | its serial; what it is (0 it closed, 1 an alert, 2 a menu); flags (bit 0 Back and Escape dismiss it, bit 1 a tap outside does, bits 2 and 3 the corner a menu grows from: its right side, its bottom); where its window goes in the activity's window and its size (x, y, width, height, pixels; an alert's place is the platform's); its container's corner radius and elevation in pixels, as float bits; a count, then that many words: its picture, an op stream of its own | makes, repaints, moves or dismisses that surface's window (`Surfaces.told`) | none by id: what happens in the window is told by `Native.surface` |
+| 8 | whether a displayed element says `wakelock="screen"` (LLP 1125 D11) | one word: 1 or 0; a reader's view starts at 0, so a reader made again is told only a 1 | `View.setKeepScreenOn` on the reader's view, so the screen stays on while its window is shown | none |
 
-Kinds 5, 6 and 7 are statements of the app's state, told when it changes and anew to a reader made again; exact2
-reads them as the queue is taken (`Presenter::tell_shell`), Back only after a commit or when a surface opens or
-closes, and none of them during a scroll's own frames.
+Kinds 5, 6, 7 and 8 are statements of the app's state, told when it changes and anew to a reader made again; exact2
+reads them as the queue is taken (`Presenter::tell_shell`), Back and the wake lock only after a commit or (Back) when
+a surface opens or closes, and none of them during a scroll's own frames.
 
 **Haptics.** Android names occasions, not strengths. Under its constants are a texture tick, a tick, a click, a
 heavy click and a double click, and Exact's names choose by those: `selection` is `SEGMENT_TICK` (Android 14;

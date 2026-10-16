@@ -933,6 +933,29 @@ declaration, `playbackStateDeclared`); `artworkError` says why an artwork was
 not published. `tap <element> mediasession <action> [seconds]` calls the handler
 the platform would call (`delivery: "substituted"`).
 
+### Keep the screen awake
+
+`wakelock="screen"` on any element keeps the display from dimming or locking
+for idleness while that element is mounted and displayed: neither it nor an
+ancestor is `display: none`, so a screen kept mounted in a hidden tab panel
+holds nothing ([LLP 1125](../llp/1125-a-transport-midi-and-the-small-pieces.rfc.md)
+D11). `"none"` is the default. Bind it to what needs the screen:
+`wakelock=(playing ? "screen" : "none")`. A literal other than the two words
+is refused; a computed one is journaled (`view N: invalid wakelock value …;
+unset`) and holds nothing. The runner decides which elements hold it
+(`exact_runner::wakelock`), so the rule is one on every host.
+
+| host | held through |
+| --- | --- |
+| web (both targets) | `navigator.wakeLock.request("screen")`, asked again on `visibilitychange` when the page is visible again (a hidden page loses it) and released when no element holds it; `wakelock: unavailable: …` is journaled once where the API is missing or a request is refused |
+| iOS, tvOS | `UIApplication.isIdleTimerDisabled`, true while any session's element holds it; under the driver the timer stays disabled for the whole drive |
+| macOS | an `IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleDisplaySleep)` assertion, held while any session's element holds it |
+| Android | `View.setKeepScreenOn` on the reader's view (request kind 8) |
+| Linux, Windows | none: `wakelock: unavailable: this host keeps no display awake`, journaled once |
+
+`state.wakelock` is `{held, by}`: whether any element holds it and their view
+ids, on every host's driver.
+
 ### Pick a file of any type
 
 An `input type="file"` with no `accept` (or `accept="*/*"`) offers any file;

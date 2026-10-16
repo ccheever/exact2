@@ -23,6 +23,7 @@ impl<D: DataSource> Host<D> {
             batch.withhold(!batch.layout_provisional);
         }
         batch.facts = self.facts_moved();
+        batch.wakelock = self.wakelock_moved();
         batch.finish(
             self.runner.timer_due_ms(),
             !self.engine.quiescent(),

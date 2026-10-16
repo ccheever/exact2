@@ -49,6 +49,9 @@ pub struct Batch {
     images: Vec<String>,
     /// The root font size or the window's modes moved (`Host::facts_moved`).
     pub facts: bool,
+    /// Whether a displayed element holds the wake lock, when that changed
+    /// (`Host::wakelock_moved`, LLP 1125 D11).
+    pub wakelock: Option<bool>,
 }
 
 pub use exact_runner::agent::quote;
@@ -791,6 +794,9 @@ impl Batch {
         }
         if self.facts {
             s.push_str(",\"facts\":true");
+        }
+        if let Some(held) = self.wakelock {
+            let _ = write!(s, ",\"wakelock\":{held}");
         }
         if !self.images.is_empty() {
             s.push_str(",\"canvasImages\":[");

@@ -74,6 +74,8 @@ internal class Requests(private val activity: ExactActivity) {
                     // The second word, from D8 on: the hosted field the keyboard is for (0: one exact2 paints).
                     KEYBOARD -> view?.keyboard(words[body], if (i - body > 1) words[body + 1] else 0)
                     SURFACE -> surfaces?.told(words, body)
+                    // `wakelock="screen"` (LLP 1125 D11): the platform's own view attribute.
+                    KEEP_SCREEN_ON -> view?.keepScreenOn = words[body] != 0
                 }
             } catch (e: RuntimeException) {
                 // The platform refused (no activity to start from, a full clipboard transaction): the app goes on.
@@ -186,6 +188,7 @@ internal class Requests(private val activity: ExactActivity) {
         const val BACK = 5
         const val KEYBOARD = 6
         const val SURFACE = 7
+        const val KEEP_SCREEN_ON = 8
         /** How long after the activity is in front again a share sheet's choice is still waited for. */
         const val DISMISSED_MS = 500L
     }

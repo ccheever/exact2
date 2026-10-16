@@ -45,6 +45,8 @@ public struct Batch {
     public var design: String? = nil
     /// The root font size or the window's modes moved, the app's `setMode` and `setRootFontSize` included (LLP 1122 D4).
     public var facts = false
+    /// Whether a displayed element holds the wake lock, when that changed (LLP 1125 D11).
+    public var wakelock: Bool? = nil
     /// The kernel transactions it carries, while the runner measures (LLP 1079 D3).
     public var seq: (UInt64, UInt64)?
     init(ops: [BatchOp], timers: Bool, motion: Bool, clock: Double?, error: String?, timerDueMs: Double? = nil, pending: Bool = false) {

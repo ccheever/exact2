@@ -20,6 +20,7 @@ const pieces = afterPaintPieces(loadAfterPaint, { root, views, applyBatch, agent
 const { collections, motion, arrange } = pieces, retiredViews = new WeakSet(); // committed removals must not dispatch teardown events
 const presence = presenceLoader(loadAfterPaint, root, batch => applyBatch(batch), log); // -exact-exit-animation and -exact-layout-transition, after paint at first use (LLP 1063)
 let mediaModule, mediaAttaching = new Set(), soundModule, soundOut, imageHold, geometry = null, resizes = null, intersects = null; // the voice table's output (sound-glue.js, LLP 1096 D7); animated images held to the agent's clock (image-glue.js, LLP 1011.000); geometry reads (geometry-glue.js, LLP 1051.000 D4); the element resize event (resize-glue.js)
+let wakeLock = null; const holdWake = () => (wakeLock ??= loadAfterPaint('./wakelock-glue.js', 'wakeLockGlue')).then(w => w.hold(w.holders(root).length > 0, log)); // LLP 1125 D11: loaded at the first `wakelock`, then asked after each batch
 function syncMedia(el, set = {}, clear = []) {
   if (!(el instanceof HTMLMediaElement)) return;
   el.exactMedia ??= { props: {}, handlers: [] };
@@ -479,6 +480,7 @@ function applyProps(el, set, clear) {
   if (el instanceof HTMLIFrameElement) commitGuestOrigin(el);
   if ((set && "value" in set) || clear?.includes("value")) settleValue(el); syncMarkup(el); // a valued control shows its committed value when it changes, not another prop (LLP 1069.001 D4, amended)
   if ((set && ("viewportFit" in set || "interactiveWidget" in set)) || clear?.some((n) => n === "viewportFit" || n === "interactiveWidget")) syncViewportFit();
+  if (set && "data-exact-wakelock" in set && !wakeLock) holdWake();
 }
 function ensureMessageListener() {
   if (messageListening) return;
@@ -881,7 +883,7 @@ function applyBatch(batch) {
   if (page?.hold(batch) || presence.hold(batch)) return { timers: batch.timers, batch }; textflow?.beforeBatch(batch);
   const began = frameSampler ? performance.now() : 0; // what applying it cost, for the next frame's record (LLP 1079 D3)
   globalThis.exact.applyDepth = (globalThis.exact.applyDepth ?? 0) + 1; try {
-  const timers = apply(batch); letGo(); refitTexts();
+  const timers = apply(batch); letGo(); refitTexts(); if (wakeLock) holdWake();
   motion.commit(); arrange.commit();
   if (agentMode) {
     // What the ops since the last marker started belongs to that marker's

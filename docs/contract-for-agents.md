@@ -2976,6 +2976,9 @@ always dark does; leave it off to follow the surrounding scheme (LLP 1034 §8).
 status bar: of what the bar sits over, the declaration painted on top wins, and
 a flip shows in its own batch's frame; `status-bar-animation="fade"` fades it
 (LLP 1105). Other hosts ignore both.
+`wakelock="screen"` on any node, bound to state (`wakelock=(playing ? "screen" :
+"none")`), keeps the display awake while that node is displayed; a hidden or
+unmounted one holds nothing (LLP 1125 D11; `state.wakelock` is `{held, by}`).
 `currentcolor` takes the node's `color` on borders, `background-color`,
 `-exact-tint-color`, text stroke and SVG paint. `unset` clears any row, and `inherit`
 an inherited one (`color`, fonts, `fill`…); `inherit` on a row CSS does not

@@ -79,6 +79,7 @@ pub mod time;
 pub mod uses;
 pub mod viewport;
 pub mod vm;
+pub mod wakelock;
 
 pub use delivery::Delivery;
 pub use exact_canvas;

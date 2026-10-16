@@ -229,6 +229,8 @@ pub struct Host<D: DataSource> {
     colors_seen: Option<u64>,
     /// The root font size and the window's modes as a batch last said them (`Host::facts_moved`).
     facts_told: Option<(f64, Vec<(String, String)>)>,
+    /// Whether the wake lock was held as a batch last said it (`Host::wakelock_moved`).
+    wakelock_told: Option<bool>,
     unopened: layout::unopened::Unopened,
     /// The top-layer boxes covered while closed (`closed.rs`).
     closed: layout::closed::Closed,
@@ -532,6 +534,7 @@ impl<D: DataSource> Host<D> {
             delivery,
             colors_seen: None,
             facts_told: None,
+            wakelock_told: None,
             unopened: Default::default(),
             closed: Default::default(),
         };

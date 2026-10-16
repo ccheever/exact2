@@ -199,6 +199,8 @@ const files = existsSync(resolve(gen, 'files.flag'));
 const notifies = existsSync(resolve(gen, 'notify.flag'));
 // A declared sound or a sound command (sounds.js, LLP 1096 D5): the flag is the plan's table.
 const soundTable = existsSync(resolve(gen, 'sounds.flag')) ? readFileSync(resolve(gen, 'sounds.flag'), 'utf8') : null;
+// `wakelock` on any element (wakelock.js, LLP 1125 D11).
+const wakelock = existsSync(resolve(gen, 'wakelock.flag'));
 // App generation may create files imported by app.ts. Run it before reading
 // the declaration, as the wasm build does.
 const webScript = resolve(appDir, 'web/build.rs');
@@ -356,6 +358,7 @@ writeFileSync(resolve(gen, 'main.js'), [
   ...(files ? ["import './files.js';"] : []),
   ...(notifies ? ["import './notify.js';"] : []),
   ...(soundTable ? [`import { install as sounds } from './sounds.js'; sounds(${soundTable});`] : []),
+  ...(wakelock ? ["import { install as wakelock } from './wakelock.js'; wakelock();"] : []),
   "import { data, journal, clock, advance, commit, inflight, Views, viewId, After, Clocked, R, resolvedLocale, Resources, Mutations, writeRecords } from './rt.js';",
   ...(production ? [] : ["import { develop } from './perf.js';"]),
   // A data module's answers, watched from before the app asks (seam.js).
@@ -429,6 +432,7 @@ cpSync(resolve(here, 'auth.js'), resolve(gen, 'auth.js'));
 cpSync(resolve(here, 'files.js'), resolve(gen, 'files.js'));
 cpSync(resolve(here, 'notify.js'), resolve(gen, 'notify.js'));
 cpSync(resolve(here, 'sounds.js'), resolve(gen, 'sounds.js'));
+cpSync(resolve(here, 'wakelock.js'), resolve(gen, 'wakelock.js'));
 // The server bundle a JavaScript render runs (render.mjs), one script per VM context.
 writeFileSync(resolve(gen, 'main-server.js'), [
   `import app${rust ? ', { sources }' : ''} from './app.js';`,

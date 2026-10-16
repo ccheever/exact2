@@ -587,10 +587,10 @@ package final class Presenter {
 
     /// A restart: every view goes.
     func reset() {
+        WakeLock.hold(self, false) // the new host's first batch says it again
         cancelPageElementScroll(viewport.contentView)
         focusEvents.reset()
-        pointerHeld = nil; pointerPath = []
-        pointerSource = nil
+        pointerHeld = nil; pointerPath = []; pointerSource = nil
         elements.reset()
         resetFlights()
         viewport.invalidateDocumentFit()
@@ -1006,7 +1006,7 @@ package final class Presenter {
 
     func apply(_ batch: Batch) {
         session?.fieldChrome.presented(batch.layoutProvisional)
-        defer { applyLanguage(batch) }
+        defer { applyLanguage(batch); applyWakeLock(batch) }
         PaintOrder.begin()
         let post = Self.signposts.beginInterval("apply", "\(batch.ops.count) ops")
         defer { Self.signposts.endInterval("apply", post) }

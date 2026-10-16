@@ -807,6 +807,7 @@ impl<D: DataSource> Presenter<D> {
             self.commands.extend(commands);
             self.executor.notify();
         }
+        self.wakelock_unavailable();
         let renewed = self.renew();
         let mut error = renewed.or(self.sync_images());
         if !self.booting {

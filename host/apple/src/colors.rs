@@ -82,6 +82,19 @@ impl<D: DataSource> Host<D> {
         true
     }
 
+    /// Whether a displayed element holds the wake lock, when that changed
+    /// since a batch last said it (LLP 1125 D11): the presenter takes the
+    /// platform's lock while any session's batch last said `true`. A new host
+    /// (a boot, a committed plan) says it at its first batch.
+    pub(super) fn wakelock_moved(&mut self) -> Option<bool> {
+        let held = !exact_runner::wakelock::holders(self.runner.kernel()).is_empty();
+        if self.wakelock_told == Some(held) {
+            return None;
+        }
+        self.wakelock_told = Some(held);
+        Some(held)
+    }
+
     /// Take the presenter's resolutions; when anything resolves differently,
     /// re-present what the kernel resolved from the old ones.
     pub fn set_colors(&mut self, report: Vec<(ColorValue, bool, Color)>) -> String {
