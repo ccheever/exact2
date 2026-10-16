@@ -132,7 +132,8 @@ pub fn web_linked(plan: &exact_plan::Plan, inputs: &serde_json::Value) -> String
     // smoked artifact is the shipped one (LLP 1047 §10, Q3).
     // A grouped list is its authored nodes on the web, and the browser does
     // its own I/O and plays CSS's transitions (LLP 1047.001 D2); its file
-    // input is the media picker, and `auth` below is the sign-in sheet.
+    // input is the media picker, `auth` below is the sign-in sheet, and its
+    // numerals roll in the runtime's text (LLP 1077 D15).
     let names: Vec<&str> = uses
         .iter()
         .filter(|c| {
@@ -143,6 +144,7 @@ pub fn web_linked(plan: &exact_plan::Plan, inputs: &serde_json::Value) -> String
                     | Capability::Transitions
                     | Capability::MediaPicker
                     | Capability::AuthSession
+                    | Capability::Numerals
             )
         })
         .map(|c| c.name())
@@ -192,7 +194,8 @@ pub fn web_linked(plan: &exact_plan::Plan, inputs: &serde_json::Value) -> String
             | Capability::Io
             | Capability::Transitions
             | Capability::MediaPicker
-            | Capability::AuthSession => {}
+            | Capability::AuthSession
+            | Capability::Numerals => {}
         }
     }
     entry

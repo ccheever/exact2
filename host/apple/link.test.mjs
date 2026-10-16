@@ -11,6 +11,8 @@ test('production links what the plan uses, the manifest names and the grants ope
   assert.deepEqual(appleComposition({ uses: ['picker', 'media_picker'] }, false, [], true).products,
     ['ExactGroupedLists', 'ExactMarkdown', 'ExactSurfaces', 'ExactDrag', 'ExactMediaPicker', 'ExactAuthSession']);
   assert.deepEqual(appleComposition(graph, false, ['auth_session']).products.at(-1), 'ExactAuthSession');
+  assert.deepEqual(appleComposition({ uses: ['numerals'] }, false).products.at(-1), 'ExactNumerals');
+  assert.ok(!appleComposition(graph, false).products.includes('ExactNumerals'));
   assert.equal(appleComposition(undefined, false).link, 'all');
 });
 

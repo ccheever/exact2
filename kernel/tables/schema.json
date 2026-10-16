@@ -3629,7 +3629,7 @@
       "bit": 167,
       "field": "content_transition",
       "codec": "enum:ContentTransition",
-      "_comment": "@ref LLP 1077 D15: not CSS. How a text's digits change: numeric rolls each changed digit (up, or down for numeric-countdown).",
+      "_comment": "@ref LLP 1077 D15: not CSS. How a text's digits change: numeric rolls each changed digit the way the number moved (always down for numeric-countdown); on Apple, SwiftUI's numeric text (LLP 1115.003 D3).",
       "cold": true
     },
     {
@@ -4140,8 +4140,8 @@
     ],
     [
       "filter",
-      "slider.horizontal.3",
-      "M4 6h9m4 0h3m-3 0a2 2 0 1 1-4 0 2 2 0 0 1 4 0ZM4 12h3m4 0h9m-9 0a2 2 0 1 1-4 0 2 2 0 0 1 4 0ZM4 18h8m4 0h4m-4 0a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z"
+      "line.3.horizontal.decrease",
+      "M4 7h16M7 12h10M10 17h4"
     ],
     [
       "heart",
@@ -4392,6 +4392,61 @@
       "refresh",
       "arrow.clockwise",
       "M20 12a8 8 0 1 1-8-8c2.2 0 4.2.9 5.7 2.3L20 8.5M20 3.5v5h-5"
+    ],
+    [
+      "menu",
+      "line.3.horizontal",
+      "M4 6h16M4 12h16M4 18h16"
+    ],
+    [
+      "adjust",
+      "slider.horizontal.3",
+      "M4 6h9m4 0h3m-3 0a2 2 0 1 1-4 0 2 2 0 0 1 4 0ZM4 12h3m4 0h9m-9 0a2 2 0 1 1-4 0 2 2 0 0 1 4 0ZM4 18h8m4 0h4m-4 0a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z"
+    ],
+    [
+      "alert-fill",
+      "exclamationmark.circle.fill",
+      "M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0ZM11 6.5h2v7.5h-2ZM11 15.5h2v2h-2Z"
+    ],
+    [
+      "info-fill",
+      "info.circle.fill",
+      "M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0ZM11 10h2v7.5h-2ZM11 6.5h2v2h-2Z"
+    ],
+    [
+      "chooser",
+      "chevron.up.chevron.down",
+      "M8 9l4-4 4 4M8 15l4 4 4-4"
+    ],
+    [
+      "download",
+      "arrow.down",
+      "M12 4v15M6 13l6 6 6-6"
+    ],
+    [
+      "install",
+      "arrow.down.app",
+      "M8 4H5v16h14V4h-3M12 3v11M8 10l4 4 4-4"
+    ],
+    [
+      "open-app",
+      "arrow.up.forward.app",
+      "M11 4H5v15h15v-6M14 4h6v6M20 4l-9 9"
+    ],
+    [
+      "download-pending",
+      "arrow.down.circle.dotted",
+      "M20.91 10.75A9 9 0 0 1 20.91 13.25M20.34 15.37A9 9 0 0 1 19.09 17.54M17.54 19.09A9 9 0 0 1 15.37 20.34M13.25 20.91A9 9 0 0 1 10.75 20.91M8.63 20.34A9 9 0 0 1 6.46 19.09M4.91 17.54A9 9 0 0 1 3.66 15.37M3.09 13.25A9 9 0 0 1 3.09 10.75M3.66 8.63A9 9 0 0 1 4.91 6.46M6.46 4.91A9 9 0 0 1 8.63 3.66M10.75 3.09A9 9 0 0 1 13.25 3.09M15.37 3.66A9 9 0 0 1 17.54 4.91M19.09 6.46A9 9 0 0 1 20.34 8.63M12 7.5v8.5M8.5 12.5 12 16l3.5-3.5"
+    ],
+    [
+      "package",
+      "shippingbox",
+      "M3.5 7.5 12 3l8.5 4.5v9L12 21l-8.5-4.5v-9ZM3.5 7.5 12 12l8.5-4.5M12 12v9M7.75 5.25l8.5 4.5"
+    ],
+    [
+      "mail",
+      "envelope",
+      "M3 6h18v12H3V6Zm0 0 9 7 9-7"
     ]
   ],
   "symbolAliases": [
@@ -4464,16 +4519,12 @@
       "select-fill"
     ],
     [
-      "menu",
-      "reorder"
-    ],
-    [
       "hamburger",
-      "reorder"
+      "menu"
     ],
     [
       "tune",
-      "filter"
+      "adjust"
     ],
     [
       "favorite-border",
@@ -4602,9 +4653,37 @@
     [
       "auto-awesome",
       "sparkles"
+    ],
+    [
+      "unfold-more",
+      "chooser"
+    ],
+    [
+      "inventory",
+      "package"
+    ],
+    [
+      "install-mobile",
+      "install"
+    ],
+    [
+      "email",
+      "mail"
+    ],
+    [
+      "error",
+      "alert-fill"
+    ],
+    [
+      "filter-list",
+      "filter"
+    ],
+    [
+      "sliders",
+      "adjust"
     ]
   ],
-  "_symbols": "[role, Apple system symbol name, browser SVG path in a 24-unit box]. The path is stroked; a filled state is its own role, `<role>-fill` for Apple's `<name>.fill`, whose path is a filled silhouette (even-odd, so a cutout is a subpath). Portable roles only; symbol:sf/<name> passes an opaque name directly to Apple (LLP 1035.004.000), without a table entry. The sf namespace is reserved.",
+  "_symbols": "[role, Apple system symbol name, browser SVG path in a 24-unit box]. The path is stroked; a filled state is its own role, `<role>-fill` for Apple's `<name>.fill`, whose path is a filled silhouette (even-odd, so a cutout is a subpath). Two roles may share an Apple glyph when Material draws their meanings apart (`reorder`, `menu`); the Apple name then answers to the earlier row. Portable roles only; symbol:sf/<name> passes an opaque name directly to Apple (LLP 1035.004.000), without a table entry. The sf namespace is reserved.",
   "_symbolAliases": "[alias, role]. Other spellings a `symbol:` source answers to, beside the role itself and Apple's name for it (dots, dashes and underscores are one: `chevron.right`, `chevron-right`, `chevron_right`): Material's names and the common guesses that mean this role and no other. An alias keeps the distinctions the roles make (filled or outlined, enclosed or bare): a name for a symbol no role draws is no alias and is refused. Never a role, never another spelling's key; `sf/` stays reserved. The lowering rewrites a source to its role, so the plan and every host see the role, and warns (`lower-symbol-alias`) once per use (LLP 1116.007 D3.1).",
   "_materials": "[name, iOS UIBlurEffect.Style (or glass / glassClear: UIGlassEffect), macOS NSVisualEffectView.Material (or glass / glassClear: NSGlassEffectView), web and Linux blur px, web saturate %, light tint, dark tint]. @ref LLP 1053.000 D4: `backgroundMaterial`'s whole vocabulary, one row per platform material, kebab-case one-to-one. A `~` marks a platform without that material: it draws the one named instead and logs so once. The web and Linux columns are stated approximations of Apple's look, not parity. Hosts never admit a platform name directly.",
   "_buttonStyles": "[name, iOS 26+ UIButton.Configuration factory, the factory before iOS 26, macOS NSButton look (borderless, push, push-accent: the accent as bezelColor, glass: NSBezelStyleGlass on macOS 26 else push, glass-accent), web and Linux look (ua: the browser's own button, text, soft, fill, glass, glass-fill)]. @ref LLP 1069.011 D2: `buttonStyle`'s whole vocabulary, kebab-case one-to-one with Apple's names. A `~` marks a platform drawing a stand-in, silently; the agent reports the requested and the drawn style. Hosts never admit a platform name directly.",

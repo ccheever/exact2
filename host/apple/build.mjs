@@ -152,6 +152,8 @@ export const svgFilterLibraryName = 'ExactSvgFilter.metallib';
 export const iosTripleFor = (app, device, tv = false) =>
   tv ? `arm64-apple-tvos${deploymentTargets(app).ios}${device ? '' : '-simulator'}` : device ? `arm64-apple-ios${deploymentTargets(app).ios}` : `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-ios${deploymentTargets(app).ios}-simulator`;
 export const macTriple = `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-macosx`;
+export const moduleTripleFor = (app, ios, device = false, tv = false) =>
+  ios ? iosTripleFor(app, device, tv) : `${macTriple}${deploymentTargets(app).macos}`;
 /** App-owned Apple paths, shared by builder and launchers. @ref LLP 1036.000 §2 */
 export function appleArtifacts(app, { destination = 'macos', composition, trust = process.env.EXACT_UPDATE_TRUST ?? 'development', host = false, optimize = 'speed' } = {}) {
   if (!['macos', 'ios-simulator', 'ios', 'tvos-simulator', 'tvos'].includes(destination)) throw new Error(`unknown Apple destination ${destination}`);
@@ -1074,8 +1076,8 @@ async function main(args) {
   const macArch = process.arch === 'arm64' ? 'arm64' : 'x86_64';
   const iosArch = device ? 'arm64' : (iosTriple.startsWith('arm64') ? 'arm64' : 'x86_64');
   const moduleArgs = (sdkFor, targetArgs, out, forIos = false, simulator = false, arch = macArch) => ['--sdk', sdkFor, 'swiftc', '-module-cache-path', resolve(swiftBuildRoot, 'modules-module-cache'), '-parse-as-library', '-emit-library', '-O', '-swift-version', '5', '-module-name', 'ExactAppModules', ...moduleSources, ...frameworkArgs(forIos, simulator, arch), ...linkArgs(forIos), '-o', out, ...targetArgs];
-  const macTarget = ['-target', `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-macos14.0`];
-  if (modulesBuilt) arms.push(arm(moduleArgs(sdkName, ios ? ['-target', tv ? iosTripleFor(app, device, true) : device ? 'arm64-apple-ios17.0' : iosTriple, '-sdk', sdk] : macTarget, modulesBuilt, ios, ios && !device, ios ? iosArch : macArch), moduleSources, modulesBuilt, frameworkStamp(ios, ios && !device, ios ? iosArch : macArch), true));
+  const macTarget = ['-target', moduleTripleFor(app, false)];
+  if (modulesBuilt) arms.push(arm(moduleArgs(sdkName, ios ? ['-target', moduleTripleFor(app, true, device, tv), '-sdk', sdk] : macTarget, modulesBuilt, ios, ios && !device, ios ? iosArch : macArch), moduleSources, modulesBuilt, frameworkStamp(ios, ios && !device, ios ? iosArch : macArch), true));
   // The roster the artifact serves (its tags, and which join the first frame) is read from its table: for iOS from a Mac
   // Catalyst executable of the same sources (their iOS code, run here), else a macOS slice; for tvOS the macOS slice, and no
   // tag joins the first frame. A probe that does not compile or run is named; it, or no slice, fails a production build.
@@ -1084,7 +1086,7 @@ async function main(args) {
   let probed = modulesBuilt && modules.tags.length && typeof Bun !== 'undefined' && probeable, probeFailure = null, rosterKeys = {};
   const probe = !ios ? modulesBuilt : resolve(webBuildDir, via === 'macOS' ? 'probe-' + modulesLoadName : 'probe-roster'), probeMain = resolve(linkRoot, 'ExactRosterProbe.swift'), catalyst = probed && via === 'Mac Catalyst' && resolve(read('xcrun', ['--sdk', 'macosx', '--show-sdk-path']).stdout.trim(), 'System/iOSSupport');
   if (catalyst) writeFileSync(probeMain, '@main enum ExactRosterProbe { static func main() { print(String(cString: exactNativeAbi().load(fromByteOffset: 8, as: UnsafePointer<CChar>.self))) } }\n');
-  const probing = !(probed && ios) ? null : catalyst ? [moduleArgs('macosx', ['-target', `${macArch}-apple-ios17.0-macabi`, '-Fsystem', `${catalyst}/System/Library/Frameworks`, '-I', `${catalyst}/usr/lib/swift`, '-L', `${catalyst}/usr/lib/swift`, probeMain], probe, true, 'maccatalyst', macArch).filter(a => a !== '-emit-library'), [...moduleSources, probeMain], frameworkStamp(true, 'maccatalyst', macArch)] : [moduleArgs('macosx', macTarget, probe), moduleSources, frameworkStamp(false, false, macArch)];
+  const probing = !(probed && ios) ? null : catalyst ? [moduleArgs('macosx', ['-target', `${macArch}-apple-ios${targets.ios}-macabi`, '-Fsystem', `${catalyst}/System/Library/Frameworks`, '-I', `${catalyst}/usr/lib/swift`, '-L', `${catalyst}/usr/lib/swift`, probeMain], probe, true, 'maccatalyst', macArch).filter(a => a !== '-emit-library'), [...moduleSources, probeMain], frameworkStamp(true, 'maccatalyst', macArch)] : [moduleArgs('macosx', macTarget, probe), moduleSources, frameworkStamp(false, false, macArch)];
   if (probing) { const placed = arm(probing[0], probing[1], probe, probing[2], true, true); arms.push(async () => { const log = await placed(); if (log !== true) { probed = false; const at = resolve(linkRoot, 'roster-probe.log'); copyFileSync(log, at); probeFailure = { did: 'compile', text: readFileSync(at, 'utf8'), at }; } }); }
   await hostCompile?.done({ repeated: true });
   // The early build stands when it succeeded and the bake came out as it was expected to.

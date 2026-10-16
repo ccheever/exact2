@@ -758,8 +758,18 @@ fn timer_demand_empty_receipts_do_not_repaint_but_explicit_clock_does() {
         "empty receipt must not repaint through the real loop gate"
     );
     assert!(!submitted && !p.dirty());
-    assert_eq!(p.clock(125.), (125., None));
-    assert!(p.dirty(), "explicit clock remains conservative");
+    let epoch = p.host.kernel().epoch();
+    for seek in [Presenter::clock, Presenter::clock_until_request] {
+        let to_ms = p.host.now() + 25.;
+        let painted = paints.get();
+        assert_eq!(seek(&mut p, to_ms), (to_ms, None));
+        assert_eq!(p.host.kernel().epoch(), epoch);
+        assert!(p.dirty(), "explicit clock remains conservative");
+        let frame = submit(&mut p).unwrap();
+        assert!(complete(&mut p, &frame));
+        assert_eq!(paints.get(), painted + 1);
+        assert!(!p.dirty());
+    }
 }
 #[test]
 fn timer_demand_changed_timer_and_final_motion_frame_remain_visible() {

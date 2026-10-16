@@ -279,6 +279,9 @@ impl Store {
     /// app — `get` sees nothing there, `set` refuses — and never counted as
     /// a read or a revision.
     pub const KEPT: &'static str = "exact.kept.";
+    /// The most the kept answers hold together: the runner keeps no more,
+    /// and a host's snapshot need read no more (LLP 1027 D4, 2026-10-16).
+    pub const KEPT_TOTAL_BYTES: usize = crate::runner::kept::KEPT_TOTAL_BYTES;
 
     /// The runner's persisted states (LLP 1116 D5): `state … persist`'s
     /// value lives under this prefix and the state's name, as JSON text,
@@ -299,6 +302,15 @@ impl Store {
     /// A kept answer, by the runner (uncounted, ungated).
     pub(crate) fn kept(&self, name: &str) -> Option<&[u8]> {
         self.values.get(name).map(Vec::as_slice)
+    }
+
+    /// Every kept answer's name and length, by the runner.
+    pub(crate) fn kept_lengths(&self) -> Vec<(String, usize)> {
+        self.values
+            .iter()
+            .filter(|(name, _)| Store::is_kept(name))
+            .map(|(name, value)| (name.clone(), value.len()))
+            .collect()
     }
 
     /// Keep an answer for the next boot, by the runner: a write for the host

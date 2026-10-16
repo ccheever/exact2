@@ -15,9 +15,50 @@ use exact_kernel::{PropId, StyleCodec, StyleId};
 /// A prop's literal value grammar, shared by its refusal and `contract vocab`.
 pub fn accepts(prop: PropId) -> Option<&'static str> {
     match prop {
-        PropId::NavigationDetent => Some("space-separated large, medium, or finite positive point heights; fit-content alone or as fit-content large"),
+        PropId::NavigationDetent => Some("space-separated large, medium, finite positive point heights, or percentages of the sheet's maximum height above 0% and at most 100%; fit-content alone or as fit-content large; otherwise ascending, point heights and percentages (or medium) not mixed, large last"),
         _ => None,
     }
+}
+
+/// The first of a `navigationDetent`'s valid words that is not taller than
+/// the one before it on every screen (LLP 1075.003 §9.13): UIKit takes
+/// detents from shortest to tallest. A point height and a share of the
+/// sheet's maximum (`medium`, which is half, or a percentage) cross on some
+/// screen, so the words before `large` are of one kind and ascend; `large`,
+/// the maximum, goes last, and `100%` is `large` (the same height, so one
+/// of them only). `fit-content` has its own rule.
+pub fn detent_out_of_order<'a>(words: &[&'a str]) -> Option<&'a str> {
+    let mut last: Option<(bool, f64)> = None;
+    let mut large = false;
+    for word in words {
+        if large {
+            return Some(word);
+        }
+        let (share, height) = match *word {
+            "large" => {
+                large = true;
+                continue;
+            }
+            "fit-content" => continue,
+            "medium" => (true, 50.0),
+            w => match w.strip_suffix('%') {
+                Some(p) => {
+                    let p: f64 = p.parse().ok()?;
+                    if p >= 100.0 {
+                        large = true;
+                        continue;
+                    }
+                    (true, p)
+                }
+                None => (false, w.parse().ok()?),
+            },
+        };
+        if last.is_some_and(|(kind, before)| kind != share || height <= before) {
+            return Some(word);
+        }
+        last = Some((share, height));
+    }
+    None
 }
 
 include!(concat!(env!("OUT_DIR"), "/vocab.rs"));
@@ -90,7 +131,7 @@ pub const TAG_NOTES: &[(&str, &str)] = &[
         "header",
         // @ref LLP 1116.003 D2.2, LLP 1115.000 D5.2, D5.3 —
         // NavigationBarIOS.swift's `HeaderShape`, `NavigationRules.bar`.
-        "on iOS a route's `header` is its navigation bar when it is the route's first child, is shown, and holds exactly one heading (`text role=\"heading\"`, or a `text` with `aria-level`), whatever the stack's other routes have. The heading is the title, large at `aria-level=1`, else inline; buttons that press or open a popover are the bar's items, leading before the heading and trailing after it (on iOS 26 and later neighbours share one glass capsule; `buttonStyle=\"glass\"` gives an item its own); the first text after the heading is the subtitle; one `input type=\"search\"` is the bar's search field and one `role=\"tablist\"` its segmented title; the root's `navigationBack` control is the system Back button. The rest of the header is hidden (warning `lower-header-unplaced`). A header with no heading or with two is no bar and is drawn in the page as written (warning `lower-header-no-bar`). A pushed route with no bar of its own (no header, or one that is no bar) still gets a bar holding the system Back button alone, with no title; a stack's first route with none has no bar. A route that draws its own chrome says `navigationBar=\"none\"`: no bar, and the edge swipe still goes back; without it, a `navigationBack` control drawn in a pushed route's page is a second Back under the bar's (warning `lower-back-twice`). On the Mac the same header is the window's title bar and toolbar (LLP 1115.002 D2): the heading is the window's title, with no large title; the buttons are toolbar items, one whose popover is a menu a menu item; a `role=\"tablist\"` of text tabs is the centred segments; the search input is the toolbar's search field. There a header holding anything a toolbar has no place for (a picture, a second text, a pressable title, a button drawn as a box) is drawn in the page as written, whole. docs/recipes/navigation-stack.md",
+        "on iOS a route's `header` is its navigation bar when it is the route's first child, is shown, and holds exactly one heading (`text role=\"heading\"`, or a `text` with `aria-level`), whatever the stack's other routes have. The heading is the title, large at `aria-level=1`, else inline; buttons that press or open a popover are the bar's items, leading before the heading and trailing after it (on iOS 26 and later neighbours share one glass capsule; `buttonStyle=\"glass\"` gives an item its own); the first text after the heading is the subtitle; one `input type=\"search\"` is the bar's search field and one `role=\"tablist\"` its segmented title; the root's `navigationBack` control is the system Back button. The rest of the header is hidden (warning `lower-header-unplaced`). A header with no heading or with two is no bar and is drawn in the page as written (warning `lower-header-no-bar`), and so is one a box down from the route, such as a screen component's root `column` holding it inside the route column that uses it: put `navigationKey` on that root (warning `lower-header-nested`). A pushed route with no bar of its own (no header, or one that is no bar) still gets a bar holding the system Back button alone, with no title; a stack's first route with none has no bar. A route that draws its own chrome says `navigationBar=\"none\"`: no bar, and the edge swipe still goes back; without it, a `navigationBack` control drawn in a pushed route's page is a second Back under the bar's (warning `lower-back-twice`). On the Mac the same header is the window's title bar and toolbar (LLP 1115.002 D2): the heading is the window's title, with no large title; the buttons are toolbar items, one whose popover is a menu a menu item; a `role=\"tablist\"` of text tabs is the centred segments; the search input is the toolbar's search field. There a header holding anything a toolbar has no place for (a picture, a second text, a pressable title, a button drawn as a box) is drawn in the page as written, whole. docs/recipes/navigation-stack.md",
     ),
     (
         "button",

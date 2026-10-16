@@ -41,7 +41,8 @@ final class Strip: ExactNativeInstance {
 ```
 
 - **Props are strings**, the whole object again on each change. A name Contract knows
-  (`value`, `size`, `label`, `name`) is the box's, and the compiler says to rename it.
+  is the box's, not the module's: an attribute or event (`value`, `size`, `name`,
+  `title`, `input`, `playing`). Check a name with `contract vocab <name>`.
 - **Events:** `events.message(text)` runs `message=`; `press()`, `change(v)`, `load()` likewise.
 - **Time is the session's:** `context.frames` and `context.after(ms)`, never a
   `CADisplayLink` or a `DispatchQueue` timer, so the agent's `clock +N` moves the animation

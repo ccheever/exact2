@@ -1404,7 +1404,12 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             RasterGeometry.draw(ctx, AnimatedRasters.shared.frame(for: self) ?? bitmap.image, in: CGRect(origin: .zero, size: rect.size), tint: channels("tint_color").map { TextEngine.color($0).cgColor })
             ctx.restoreGState()
         }
-        if isParagraph {
+        if isParagraph, rollsNumerals, let engine = text {
+            dropTextRaster()
+            NumeralLink.installed?.show(self, attributed: engine.attributed(paragraphSpec()), box: contentBox(),
+                                        align: paragraphSpec().align, mode: style["content_transition"]?.string ?? "numeric")
+        } else if isParagraph {
+            NumeralLink.installed?.hide(self)
             if canRasterText {
                 presenter?.textRasters.ensure(self, urgent: presenter?.textIsVisible(self) == true)
             } else if !textRasterFailed { dropTextRaster() }

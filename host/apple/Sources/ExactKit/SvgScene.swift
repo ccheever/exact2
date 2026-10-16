@@ -141,8 +141,10 @@ enum CssAnimations {
         let key = spec["k"] as? String ?? ""
         let colors = key == "fillColor" || key == "strokeColor" || key == "backgroundColor"
         // A colour track's values are [r,g,b,a] bytes (LLP 1055.000 D6).
+        // A `path` track's values are paths, as a scene's `p` (LLP 1115.003 D4).
         let values: [Any] = colors
             ? (spec["v"] as? [Any] ?? []).compactMap { color($0, dark: false) }
+            : key == "path" ? (spec["v"] as? [Any] ?? []).map { path($0) as Any }
             : nums(spec["v"]).map { key == "r" ? circle(max(0, $0)) as Any : NSNumber(value: $0) }
         // No curves: every interval is linear, Core Animation's default.
         var timing: [CAMediaTimingFunction]?

@@ -86,6 +86,7 @@ fn navigation_detent_vocab_names_its_validated_forms() {
         "large",
         "medium",
         "positive point height",
+        "percentages of the sheet's maximum",
         "fit-content large",
     ] {
         assert!(out.contains(form), "{out}");
@@ -95,6 +96,8 @@ fn navigation_detent_vocab_names_its_validated_forms() {
     let accepts = doc["attribute"]["accepts"].as_str().unwrap();
     assert!(accepts.contains("fit-content large"), "{accepts}");
     assert!(accepts.contains("positive point height"), "{accepts}");
+    let note = doc["attribute"]["note"].as_str().unwrap();
+    assert!(note.contains("journaled"), "{note}");
 }
 
 /// LLP 1116.001 D1.4: a name Exact invents starts with a dash, and is still

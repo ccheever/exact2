@@ -104,7 +104,8 @@ exit status: 0 success, 1 compilation/I/O failure, 2 invalid invocation. Read al
 diagnostics, including related locations, before making the next repair. Each has
 a `severity`: `"error"` refuses the build; `"warning"` (after the errors, also on a
 success) builds and runs but is not what you meant, such as a header node the iOS
-bar hides (`lower-header-unplaced`), a content heading that says the bar's title
+bar hides (`lower-header-unplaced`), a route's `header` a box below the route,
+which iOS leaves in the page (`lower-header-nested`), a content heading that says the bar's title
 again (`lower-title-twice`), a tab bar of one tab (`lower-single-tab`), a
 `button` with no words and no `aria-label` (`lower-button-unlabelled`), a dialog's
 role on a box (`lower-dialog-role`), an `aria-level` with no `role="heading"`
@@ -114,7 +115,10 @@ its parent by the padding (`lower-width-padding`), screens swapped by an `if` in
 (`lower-count-plural`), a row of the app's records that searches another table of them,
 `users.filter(u => u.id == p.userId)` in `for p in posts` (`lower-row-lookup`), a
 symbol by an alias, not its role (`lower-symbol-alias`), a
-`performanceNow()` time sent to a source (`type-performance-now-persisted`), a
+`performanceNow()` time sent to a source (`type-performance-now-persisted`), the
+launch's `time.epochAtZero` or `time.seed` as a resource's identifying argument, which
+keeps its kept answer from ever showing at launch: pass it after `with`
+(`lower-resource-launch-identity`), a
 state read after its own action assigned it (`analyze-read-after-assign`), a
 literal colour that stays the same in dark mode (`lower-colour-one-scheme`, every
 site past the cap), and a name or key a host would refuse or ignore at run time: a
@@ -612,10 +616,13 @@ A native host (and the wasm web target; the default JS target keeps none) can ma
 that child from a kept answer. When the data module is not ready at boot, a resource
 whose source read device state (a file, a database, a secret, a watched topic) shows
 the last answer the runner kept for it (asked with the same identifying
-arguments, and at most 4 KiB counting them; `with` values are not counted), so
+arguments, and at most 256 KiB counting them, 512 KiB for all of them together; `with` values are not counted), so
 the form's states take those fields. A larger answer is not kept, and an older one
 kept for the resource is forgotten, so a launch never shows an answer since replaced;
-`logs` says `too big to keep` once, naming the resource and what to do.
+`logs` says `too big to keep` once, naming the resource and what to do. An
+identifying argument that changes every launch (the launch's time or seed) never
+matches the kept one: pass it after `with`, as `resource lib = library() with
+time.epochAtZero`; the compiler and `logs` both say so.
 Keep a first screen's resources small and move their bulk into a resource the first
 frame does not need. A write the resource does not hear about (a file or database save from
 a mutation without `refreshes saved`, not a `store` write it reads) leaves that
@@ -1760,9 +1767,20 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   false, reason: "transition"` says it had not. `--timing platform` leaves that to
   `clock settle`.
 - A sheet's heights are `navigationDetent`, space-separated words: `large`,
-  `medium`, a point height or `fit-content` (the route's content height; a menu or
-  a short dialog), which goes alone or as `"fit-content large"`. A literal with
-  another word is refused. `fit-content` measures the route laid out alone, its
+  `medium`, a point height, a percentage of the sheet's maximum height (`"45%"`,
+  React Native's `sheetAllowedDetents: [0.45]`; above 0% and at most 100%) or
+  `fit-content` (the route's content height; a menu or
+  a short dialog), which goes alone or as `"fit-content large"`. Write a share of
+  the screen as a percentage, never points computed from a measure. Heights go
+  shortest to tallest on every screen, as UIKit takes them: before `large`, which
+  goes last, use one kind (points, or percentages with `medium` as half), each
+  taller than the one before; `"300 45%"` crosses on a small screen. `"100%"` is
+  `large`, and a point height a screen's maximum reaches, with a taller detent after
+  it, is left out there. A percentage, like a point height, leaves out the bottom
+  safe area, which UIKit adds below. A literal with
+  another word or order is refused; a bound one iOS cannot use is journaled (`logs`)
+  with the route, and the sheet keeps its other detents or opens `large`.
+  `fit-content` measures the route laid out alone, its
   height left to its children, so nothing sized from the sheet counts; on iOS every
   viewport unit (`vw`, `vh`, `vmin`, `vmax`, and kin) is the window's in every sheet, never the
   sheet's, so `min-height: 100vh` opens the sheet at its maximum; a route
@@ -2044,7 +2062,16 @@ every `translate`, `rotate` and `scale` on it and above it (the bounding box of 
 turned box), with every scroll offset above it (the page's too) applied, so a drop
 target needs no scroll bookkeeping and a dragged card is where it shows. Natively a
 transform in flight counts at its end value; the web reads it mid-flight. `measure`
-reads an auto-height hypothetical layout at the same origin.
+reads the border box as if its `height` were `auto`, at the same origin, with every
+other style kept: its in-flow content, plus its padding and border, within its
+`min-height` and `max-height`, and the height opposing `top` and `bottom` insets
+give an absolutely positioned box. So a navigation root whose children are all
+absolutely positioned, with no padding, border or `min-height` of its own,
+measures 0 however tall it is laid out. Read a laid-out
+size, the screen's included, with `frame`, and size a sheet as a share of the
+screen with `navigationDetent="45%"`. Before the first layout both answer
+`unavailable` with zeros, as on the web until the page's geometry code loads after
+first paint; natively a mount task's `after(1, …)` runs after that layout.
 Neither is a computed style binding to run every render.
 `elementFromPoint(x, y)` names the front-most of the same boxes at a viewport
 point by its nearest `id` (`option<string>`), through the same transforms. For a

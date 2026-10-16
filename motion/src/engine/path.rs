@@ -26,9 +26,9 @@ use std::sync::Arc;
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct PathTrack {
     /// The path the row says now.
-    target: Arc<PathValue>,
+    pub(super) target: Arc<PathValue>,
     /// The path the running transition starts from.
-    from: Arc<PathValue>,
+    pub(super) from: Arc<PathValue>,
     /// CSS §3.2: the path a reversal is measured against.
     reversing_adjusted_start: Arc<PathValue>,
 }
@@ -142,6 +142,13 @@ impl Engine {
         );
         self.running.insert(key);
         self.dirty.insert(key);
+    }
+
+    /// A running `d` transition's two paths, start and target.
+    pub fn path_ends(&self, node: u64) -> Option<(Arc<PathValue>, Arc<PathValue>)> {
+        self.slots.get(&(node, Property::D))?.running()?;
+        let track = self.paths.get(&node)?;
+        Some((track.from.clone(), track.target.clone()))
     }
 
     /// The path a host draws for `node` now: the one between a running

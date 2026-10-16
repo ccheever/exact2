@@ -65,7 +65,7 @@ pub use picker::{Picked, PickerRequest, PICKED};
 mod fragments;
 mod gates;
 mod into_view;
-mod kept;
+pub(crate) mod kept;
 #[cfg(test)]
 mod kept_tests;
 mod lines;

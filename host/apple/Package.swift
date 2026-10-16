@@ -32,6 +32,7 @@ let capabilities: [(name: String, target: String, define: String)] = [
     ("drag", "ExactDrag", "EXACT_LINK_DRAG"),
     ("media_picker", "ExactMediaPicker", "EXACT_LINK_MEDIA_PICKER"),
     ("auth_session", "ExactAuthSession", "EXACT_LINK_AUTH_SESSION"),
+    ("numerals", "ExactNumerals", "EXACT_LINK_NUMERALS"),
 ].filter { links($0.name) }
 
 // `swift test` builds every target a package declares, and the two UIKit
@@ -56,6 +57,7 @@ let core: [Target] = [
     .target(name: "ExactDrag", dependencies: ["ExactKit", "CExact"], path: "Sources/ExactDrag"),
     .target(name: "ExactMediaPicker", dependencies: ["ExactKit"], path: "Sources/ExactMediaPicker"),
     .target(name: "ExactAuthSession", dependencies: ["ExactKit"], path: "Sources/ExactAuthSession"),
+    .target(name: "ExactNumerals", dependencies: ["ExactKit"], path: "Sources/ExactNumerals"),
     .target(name: "ExactComposition", dependencies: [.target(name: "ExactKit")] + (composition == "updating" ? [.target(name: "ExactUpdates")] : [])
                 + capabilities.map { .target(name: $0.target) },
             path: composition == "updating" ? "Sources/ExactUpdating" : "Sources/ExactEmbedded",
@@ -95,6 +97,7 @@ let package = Package(
         .library(name: "ExactDrag", targets: ["ExactDrag"]),
         .library(name: "ExactMediaPicker", targets: ["ExactMediaPicker"]),
         .library(name: "ExactAuthSession", targets: ["ExactAuthSession"]),
+        .library(name: "ExactNumerals", targets: ["ExactNumerals"]),
         .executable(name: "ExactMac", targets: ["ExactMac"]),
         .executable(name: "ExactIOS", targets: ["ExactIOS"]),
         .executable(name: "ExactHostMac", targets: ["ExactHostMac"]),

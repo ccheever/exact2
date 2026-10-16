@@ -8,7 +8,7 @@ import { homedir, tmpdir } from 'node:os';
 import { delimiter, resolve, toNamespacedPath } from 'node:path';
 import { HERMES_INSTALLER, hermesBundle, hermesLeanSysRoots } from './app.mjs';
 import { checkHermesBundles, hermesCrossTargets, hermesSetupTargets } from './exact.mjs';
-import { iosAssets, infoPlist, macInfoPlist, documentTypes, importedTypes, exportedTypes, writeUsageStrings, designCompatible, COMPATIBLE_SDK } from '../host/apple/build.mjs';
+import { iosAssets, infoPlist, macInfoPlist, documentTypes, importedTypes, exportedTypes, writeUsageStrings, designCompatible, COMPATIBLE_SDK, moduleTripleFor } from '../host/apple/build.mjs';
 import { useXcode } from '../host/apple/devices.mjs';
 import { macReleaseEntitlements } from '../host/apple/assets.mjs';
 
@@ -19,6 +19,32 @@ if (!(process.env.PATH ?? '').split(delimiter).includes(cargoBin)) process.env.P
 if (!Bun.which('cargo', { PATH: process.env.PATH })) throw new Error(`these tests need cargo: put it on PATH or in ${cargoBin}`);
 // The fixtures name their apps; a caller's EXACT_APP_DIR would redirect every one.
 delete process.env.EXACT_APP_DIR;
+
+for (const [sdk, platform, ios, device, tv] of [
+  ['macosx', 'MACOS', false, false, false],
+  ['iphoneos', 'IOS', true, true, false],
+  ['iphonesimulator', 'IOSSIMULATOR', true, false, false],
+  ['appletvos', 'TVOS', true, true, true],
+  ['appletvsimulator', 'TVOSSIMULATOR', true, false, true],
+]) test(`app module deployment target follows minimumOS: ${sdk}`, () => {
+  if (process.platform !== 'darwin') return;
+  useXcode();
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-module-target-'));
+  try {
+    const source = resolve(dir, 'Module.swift'), dylib = resolve(dir, 'Module.dylib');
+    for (const raised of [false, true]) {
+      const minimum = raised ? '26.0' : ios ? '17.0' : '14.0';
+      const app = { manifest: raised ? { host: { macos: { minimumOS: '26.0' }, ios: { minimumOS: '26.0' } } } : {} };
+      writeFileSync(source, `@available(macOS ${minimum}, iOS ${minimum}, tvOS ${minimum}, *)\nfunc requiredAPI() -> Int { 26 }\npublic func moduleValue() -> Int { requiredAPI() }\n`);
+      const built = spawnSync('xcrun', ['--sdk', sdk, 'swiftc', '-parse-as-library', '-emit-library', '-target', moduleTripleFor(app, ios, device, tv), source, '-o', dylib], { encoding: 'utf8' });
+      assert.equal(built.status, 0, `${sdk} minimumOS ${minimum}: ${built.stderr}`);
+      const load = spawnSync('xcrun', ['vtool', '-show-build', dylib], { encoding: 'utf8' });
+      assert.equal(load.status, 0, load.stderr);
+      assert.match(load.stdout, new RegExp(`platform ${platform}\\s`));
+      assert.match(load.stdout, new RegExp(`minos ${minimum.replace('.', '\\.')}\\s`));
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}, 60_000);
 
 test('iOS Hermes preflight selects the pinned digest and exact installer command', () => {
   const home = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-hermes-home-')));

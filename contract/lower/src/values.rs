@@ -1076,12 +1076,17 @@ pub(crate) fn check_prop_value(
         );
     }
     // @ref LLP 1075.003 §9.11 — a sheet's resting heights: UIKit's two named
-    // detents, CSS's `fit-content`, or a positive point height.
+    // detents, CSS's `fit-content`, a positive point height, or a percentage
+    // of the sheet's maximum (§9.13).
     if prop == PropId::NavigationDetent {
         if let Expr::Str(s, _) = value {
             if let Some(word) = s.split(' ').filter(|w| !w.is_empty()).find(|w| {
                 !matches!(*w, "large" | "medium" | "fit-content")
                     && !w.parse::<f64>().is_ok_and(|h| h.is_finite() && h > 0.0)
+                    && !w.strip_suffix('%').is_some_and(|p| {
+                        p.parse::<f64>()
+                            .is_ok_and(|p| p.is_finite() && p > 0.0 && p <= 100.0)
+                    })
             }) {
                 return err(
                     "lower-attr-value",
@@ -1101,6 +1106,13 @@ pub(crate) fn check_prop_value(
                 return err(
                     "lower-attr-value",
                     format!("`navigationDetent` accepts {}: a content height can pass any other detent, and UIKit's go from shortest to tallest; given \"{s}\"", vocab::accepts(prop).unwrap()),
+                    span,
+                );
+            }
+            if let Some(word) = vocab::detent_out_of_order(&words) {
+                return err(
+                    "lower-attr-value",
+                    format!("`navigationDetent`'s heights go from shortest to tallest on every screen, as UIKit takes them; a point height and a share of the screen (`medium`, half, or a percentage) cross on some screen, so use one kind, each taller than the one before, with `large` last; given \"{word}\" in \"{s}\""),
                     span,
                 );
             }
