@@ -72,7 +72,6 @@ component ChatColumn
     titleMenuOpen: bool
     renaming: bool
     renameText: string
-    toggleSidebar: action
     panelUi: action
     detailsAct: action
     titleUi: action
@@ -210,7 +209,7 @@ component ChatColumn
   // reference's portaled popups do.
   view
     column flex=1 min-width=0 min-height=0 height="100%" position="relative" z-index=1 inert=pageCover hatch="t3-frame" data-frame="chat"
-      ChatHeader(data=data, shell=shell, keySidebar=settings.keySidebar, rightOpen=((rightPanel or data.diffOpen) and not narrowDiff), detailsOpen=(detailsOpen or (details.inline and canvas.cardShown)), menuOpen=titleMenuOpen, renaming=renaming, renameText=renameText, toggleSidebar=toggleSidebar, panel=panelUi, details=detailsAct, title=titleUi)
+      ChatHeader(data=data, shell=shell, rightOpen=((rightPanel or data.diffOpen) and not narrowDiff), detailsOpen=(detailsOpen or (details.inline and canvas.cardShown)), menuOpen=titleMenuOpen, renaming=renaming, renameText=renameText, panel=panelUi, details=detailsAct, title=titleUi)
       if hero
         column flex=1 min-height=0 width="100%" padding-right=laneInset box-sizing="border-box"
           EmptyThread(data=data, home=home, scheme=scheme, shoulder=(editor.stash.count > 0 and data.requestMode != "approval"), busy=commandPending, command=command, addProject=paletteShow("command", "add-project"))
@@ -343,7 +342,6 @@ component PagesCover
     usage: UsageView
     usageShortcuts: UsageKey[]
     settings: Settings
-    toggleSidebar: action
     usageMetricSet: action
     usageWindowSet: action
     usageBreakdownSet: action
@@ -393,16 +391,16 @@ component PagesCover
     if pageCover
       box position="absolute" left=(data.sidebarOpen ? sidebarWidth : 0) top=0 right=0 bottom=0 inert=modal testId="pages-cover"
         if utilityPage == "usage"
-          UsagePage(controlsLeft=data.controlsLeft, page=usage, keys=usageShortcuts, scheme=scheme, wide=(viewport.width >= 1280), lg=(viewport.width >= 1024), md=(viewport.width >= 768), sm=(viewport.width >= 640), sidebarOpen=data.sidebarOpen, keySidebar=settings.keySidebar, toggleSidebar=toggleSidebar, op=pagesOp, setMetric=usageMetricSet, setWindow=usageWindowSet, setBreakdown=usageBreakdownSet, reload=usageRefreshNow, back=pageBack, command=usageCommand, confirmOpen=usageConfirmOpen, reduced=viewport.prefersReducedMotion, outside=outside)
+          UsagePage(controlsLeft=data.controlsLeft, page=usage, keys=usageShortcuts, scheme=scheme, wide=(viewport.width >= 1280), lg=(viewport.width >= 1024), md=(viewport.width >= 768), sm=(viewport.width >= 640), sidebarOpen=data.sidebarOpen, op=pagesOp, setMetric=usageMetricSet, setWindow=usageWindowSet, setBreakdown=usageBreakdownSet, reload=usageRefreshNow, back=pageBack, command=usageCommand, confirmOpen=usageConfirmOpen, reduced=viewport.prefersReducedMotion, outside=outside)
         if utilityPage == "pull-requests"
           row position="absolute" left=0 top=0 right=0 bottom=0
-            PrList(controlsLeft=data.controlsLeft, page=prList, scheme=scheme, query=(prTyped ? prQuery : prList.query), sidebarOpen=data.sidebarOpen, keySidebar=settings.keySidebar, narrow=(prListWidth < 512), compact=(prListWidth < 428), panelOpen=(prSelected != "" and prPanelOpen), toggleSidebar=toggleSidebar, togglePanel=prTogglePanel, search=prType, control=prControl, select=prSelect, reload=prReload, addProject=paletteShow("command", "add-project"), act=prAct, back=pageBack)
+            PrList(controlsLeft=data.controlsLeft, page=prList, scheme=scheme, query=(prTyped ? prQuery : prList.query), sidebarOpen=data.sidebarOpen, narrow=(prListWidth < 512), compact=(prListWidth < 428), panelOpen=(prSelected != "" and prPanelOpen), togglePanel=prTogglePanel, search=prType, control=prControl, select=prSelect, reload=prReload, addProject=paletteShow("command", "add-project"), act=prAct, back=pageBack)
             if prSelected != "" and prPanelOpen
               PrPanel(detail=prDetail, documents=prMarkdown.documents, scheme=scheme, width=prPanelWidth, tab=prTab, setTab=prSetTab, close=prClose, reload=prReload, act=prAct, copy=prCopy, still=viewport.prefersReducedMotion, select=prSelect, compact=(prPanelWidth < 480), back=pageBack, local=chatLocal)
             button press=prTogglePanel disabled=(prSelected == "") position="absolute" right="0.8125rem" top="0.75rem" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 background-color=(prSelected != "" and prPanelOpen ? "light-dark(#27272a0d, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Toggle right panel" testId="pull-requests-toggle-panel" title=""
               PgIcon(name="panel-right", size=16, color="light-dark(#71717b, #818181)")
         if utilityPage == ""
-          PagesLanding(controlsLeft=data.controlsLeft, home=home, scheme=scheme, sidebarOpen=data.sidebarOpen, keySidebar=settings.keySidebar, busy=commandPending, toggleSidebar=toggleSidebar, command=command, addProject=paletteShow("command", "add-project"), openConnections=openConnectionsPage)
+          PagesLanding(controlsLeft=data.controlsLeft, home=home, scheme=scheme, sidebarOpen=data.sidebarOpen, busy=commandPending, command=command, addProject=paletteShow("command", "add-project"), openConnections=openConnectionsPage)
     // Usage's model and Model prices dialogs cover the whole window, sidebar included (pages-usage-dialogs).
     // A pooled segment's reset credit confirm, outside its popover (UsageLimitsPooled RedeemableSegmentPopup).
     if pageCover and utilityPage == "usage" and usageConfirmOpen
