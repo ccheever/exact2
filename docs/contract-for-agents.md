@@ -3012,6 +3012,12 @@ scheme=fixed`), and `lower-colour-one-scheme` leaves it alone; an unmarked one
 is reported once, at its line in the design. `pair=surface.page` after a
 foreground's value names what it is drawn on (a token or a role);
 `contract tamber check` warns when the two fall below 4.5:1 (`tamber-contrast`).
+Code outside a view names a token by its name too (LLP 1121 D12): a data module
+returns a `ColorToken` (`contract types` declares the design's, so an unknown
+one fails `tsc`), and `bun exact.mjs tamber gen ts|rust .` writes bindings into
+`.exact/tamber/` (never committed): `tamber.ts` and `tamber.css` (each token's
+CSS per mode), or `tamber.rs` (`pub const SURFACE_CARD: Token<Color>`, which
+`session.tamber().get(SURFACE_CARD, place)` resolves in a running session).
 Recipe:
 [a brand](recipes/tamber.md).
 `color-scheme="dark"` (or `"light"`) on a node makes that subtree resolve

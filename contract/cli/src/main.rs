@@ -14,6 +14,7 @@ mod ambient;
 mod build;
 mod diff;
 mod tamber;
+mod tamber_gen;
 mod tamber_history;
 mod tamber_import;
 mod tamber_serve;

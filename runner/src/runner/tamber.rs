@@ -18,6 +18,53 @@ pub enum Place {
     Node(ViewId),
 }
 
+/// A generated constant (`contract tamber gen rust`, LLP 1121 D12): a
+/// token's name and kind, which a session resolves by name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Token<K> {
+    /// The token's name as the design writes it.
+    pub name: &'static str,
+    kind: std::marker::PhantomData<K>,
+}
+
+impl<K> Token<K> {
+    /// The token named `name`.
+    pub const fn new(name: &'static str) -> Token<K> {
+        Token {
+            name,
+            kind: std::marker::PhantomData,
+        }
+    }
+}
+
+/// A colour token's kind: [`Tamber::get`] answers its value as a row reads
+/// it. (Lengths, numbers, fonts and symbols come with stage 6.)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Color;
+
+/// A token kind, and what a token of it resolves to.
+pub trait Kind {
+    /// The value.
+    type Value;
+    /// `name`'s value at `place`, as [`Tamber::color`] reads a colour.
+    fn get<D: DataSource>(
+        tamber: &mut Tamber<'_, D>,
+        name: &str,
+        place: Place,
+    ) -> Option<Self::Value>;
+}
+
+impl Kind for Color {
+    type Value = ColorValue;
+    fn get<D: DataSource>(
+        tamber: &mut Tamber<'_, D>,
+        name: &str,
+        place: Place,
+    ) -> Option<ColorValue> {
+        tamber.color(name, place)
+    }
+}
+
 /// The session's tokens for bindings ([`Runner::tamber`]).
 pub struct Tamber<'a, D: DataSource> {
     runner: &'a mut Runner<D>,
@@ -47,6 +94,12 @@ impl<D: DataSource> Tamber<'_, D> {
             at = node.parent.and_then(|p| kernel.node(p));
         }
         self.runner.ids.theme.window
+    }
+
+    /// Generated constant `token` at `place` (`SURFACE_CARD`): its value,
+    /// or `None` when the plan lacks it, said once ([`Tamber::color`]).
+    pub fn get<K: Kind>(&mut self, token: Token<K>, place: Place) -> Option<K::Value> {
+        K::get(self, token.name, place)
     }
 
     /// Whether the plan has token `name`.

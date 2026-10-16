@@ -239,3 +239,80 @@ fn a_scheme_above_moves_the_places_inputs() {
     assert!(!r.tamber().dark(Place::Root), "the window's stays light");
     assert_ne!(r.tamber().inputs(inner), before);
 }
+
+fn plan_of(name: &str, design: &str, view: &str) -> Plan {
+    let dir = std::env::temp_dir().join(format!("exact2-binding-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    // A native module the views show is one the app declares.
+    if view.contains("map-view") {
+        std::fs::write(
+            dir.join("app.json"),
+            r#"{"name": "T", "app": {"id": "com.exact.t", "name": "T"}, "modules": ["map-view"]}"#,
+        )
+        .unwrap();
+    }
+    std::fs::write(dir.join("app.tamber"), design).unwrap();
+    std::fs::write(dir.join("app.contract"), view).unwrap();
+    let plan = contract::compile_path(&dir.join("app.contract")).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    plan
+}
+
+fn names(plan: &Plan) -> Vec<String> {
+    plan.theme
+        .iter()
+        .map(|t| plan.str(t.name).to_string())
+        .collect()
+}
+
+const KEPT: &str =
+    "tamber t\n\ntheme\n  brand = #c8102e\n  badge.ink = #123456\n  CanvasText = #101010\n";
+
+/// LLP 1121 D7's retention for an app with generated bindings: one that
+/// reads a data module, or shows a native module, keeps every token (a
+/// binding may name one no view does), and the binding core resolves it; a
+/// plain app keeps what its views name.
+#[test]
+fn an_app_that_can_name_tokens_outside_its_views_keeps_them_all() {
+    let view = "component App\n  view\n    column\n      text \"a\" color=\"brand\"\n";
+    let plain = plan_of("plain", KEPT, view);
+    assert_eq!(names(&plain), ["brand", "CanvasText"], "a plain app prunes");
+    let data = plan_of(
+        "data",
+        KEPT,
+        "component App\n  resource badge = badge() as shape string\n  view\n    column\n      text badge color=\"brand\"\n",
+    );
+    assert_eq!(names(&data), ["brand", "badge.ink", "CanvasText"]);
+    let native = plan_of(
+        "native",
+        KEPT,
+        "component App\n  view\n    column\n      map-view\n      text \"a\" color=\"brand\"\n",
+    );
+    assert_eq!(names(&native), ["brand", "badge.ink", "CanvasText"]);
+    let mut r = Runner::boot(
+        contract::bake(native, NoData).unwrap(),
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(
+        r.tamber().color("badge.ink", Place::Root),
+        Some(parsed("#123456"))
+    );
+}
+
+/// A design's `exports` bounds what such an app keeps for bindings: the
+/// exported tokens, what the views name, and the role overrides.
+#[test]
+fn exports_bound_what_the_bindings_may_name() {
+    let design = "tamber t\n\nexports\n  badge.ink\n\ntheme\n  brand = #c8102e\n  badge.ink = #123456\n  other = #654321\n  CanvasText = #101010\n";
+    let native = plan_of(
+        "exports",
+        design,
+        "component App\n  view\n    column\n      map-view\n      text \"a\" color=\"brand\"\n",
+    );
+    assert_eq!(names(&native), ["brand", "badge.ink", "CanvasText"]);
+}

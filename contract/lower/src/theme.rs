@@ -6,8 +6,10 @@
 //! kernel reads the token's colour. A row's expression naming a token
 //! (`color-mix(in srgb, brand 60%, white)`) is a synthetic token (D3),
 //! folded here too and named by its whole text. The plan keeps D7's
-//! retention: the tokens a literal names, every role override, and every
-//! token when a computed string may name one.
+//! retention: the tokens a literal names, every role override, every token
+//! when a computed string may name one, and in an app that can name tokens
+//! outside its views (a data or a native module) every token, or its
+//! design's `exports`.
 
 mod scan;
 
@@ -148,10 +150,13 @@ struct Profiled {
 impl Lowerer<'_> {
     /// Check and fold the app's design, inline or `app.tamber`, and bind it
     /// for the styles that follow; the plan's table is what D7 keeps.
+    /// `bindable`: the app can name a token outside its views
+    /// ([`crate::names_tokens_outside_views`]).
     pub(crate) fn declare_theme(
         &mut self,
         file: &File,
         root: &Component,
+        bindable: bool,
     ) -> exact_kernel::style::theme::ThemeScope {
         AXES.with(|axes| axes.borrow_mut().clear());
         CANDIDATES.with(|c| c.borrow_mut().clear());
@@ -288,9 +293,18 @@ impl Lowerer<'_> {
                 .map(|a| (a.name.value.clone(), a.values.clone()))
                 .collect()
         });
-        // D7's retention: what the view may name, and every role override.
+        // D7's retention: what the view may name, every role override, and
+        // in an app that can name a token outside its views (generated
+        // bindings, D12) every token, or those its `exports` block lists.
+        let exported = |e: &ThemeEntry| {
+            folding.design.exports.as_ref().is_none_or(|exports| {
+                exports
+                    .iter()
+                    .any(|x| x.value == e.name || e.role.as_deref() == Some(x.value.as_str()))
+            })
+        };
         for e in &self.theme {
-            if e.role.is_some() || said.computed || said.names(&e.name) {
+            if e.role.is_some() || said.computed || said.names(&e.name) || bindable && exported(e) {
                 let slices: Vec<&str> = e.slices.iter().map(String::as_str).collect();
                 self.b
                     .theme_token(&e.name, e.role.as_deref().unwrap_or(""), &e.value, &slices);

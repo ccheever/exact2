@@ -132,7 +132,34 @@ pub fn typescript(plan: &Plan) -> Result<String, String> {
          /** What a resource shows while writes affect it: its answer with them laid over it. Synchronous, with no effects; `undefined` shows the answer and stops showing every answered write. */\n\
          export type Overlay = <S extends Source>(source: S, args: Args<S>, answer: Result<S>, writes: readonly Write[]) => Result<S> | undefined;\n",
     );
+    tokens(plan, &mut out);
     Ok(out)
+}
+
+/// @ref LLP 1121 D12 — the design's colour tokens as a string-literal
+/// union, so a data module returning a token's name is checked
+/// (`ColorToken`); none without a design. A synthetic token (an expression
+/// a row writes) is no name a module returns.
+fn tokens(plan: &Plan, out: &mut String) {
+    let mut names: Vec<&str> = Vec::new();
+    for row in &plan.theme {
+        let name = plan.str(row.name);
+        if !name.contains('(') && !names.contains(&name) {
+            names.push(name);
+        }
+    }
+    if names.is_empty() {
+        return;
+    }
+    let quoted: Vec<String> = names
+        .iter()
+        .map(|n| serde_json::to_string(n).expect("a string is JSON"))
+        .collect();
+    let _ = writeln!(
+        out,
+        "/** A colour token of the app's design, by its name (LLP 1121 D12). */\nexport type ColorToken = {};",
+        quoted.join(" | ")
+    );
 }
 
 /// The file's top (LLP 1116.006 D7): what `app.ts` writes, one line each, so a builder reads

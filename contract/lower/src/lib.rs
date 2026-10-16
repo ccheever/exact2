@@ -309,7 +309,7 @@ fn lower_with_sites(
     // Bound before any style is parsed, the profiles first: an entry may be
     // a profile's colour.
     let _profiles = l.declare_color_profiles(file);
-    let _theme = l.declare_theme(file, root);
+    let _theme = l.declare_theme(file, root, names_tokens_outside_views(file, root_types));
     // Styles: rows only, literal only (the parser holds the second), by name.
     for s in &file.styles {
         for a in &s.attrs {
@@ -1127,4 +1127,13 @@ impl<'a> Lowerer<'a> {
         }
         Ok(())
     }
+}
+
+/// @ref LLP 1121 D7, D12 — whether an app can name a design token outside its
+/// views, so its plan keeps every token (or its design's `exports`) for the
+/// bindings: it reads a data module (the seam's sources; a TypeScript
+/// `app.ts` or a Rust data crate) or shows a native module (a custom
+/// element, LLP 1024). The one test for "an app with generated bindings".
+pub fn names_tokens_outside_views(file: &File, root: &contract_types::ComponentTypes) -> bool {
+    !root.sources.is_empty() || !native::module_tags(file).is_empty()
 }

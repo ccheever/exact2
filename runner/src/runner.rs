@@ -39,7 +39,7 @@ pub use event::{
     KeyboardEvent, ScrollEvent,
 };
 pub use live::{LiveApplied, LiveRefusal};
-pub use tamber::{Place, Tamber};
+pub use tamber::{Color as ColorKind, Kind, Place, Tamber, Token};
 mod canvas2d;
 pub use canvas2d::{
     engine as canvas_engine, CanvasEngine, CanvasList, DrawReply, DrawRequest, Drawn, Geometry,
