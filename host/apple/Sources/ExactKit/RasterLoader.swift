@@ -100,12 +100,12 @@ private final class RasterBackend: @unchecked Sendable {
         guard !stopped, name.utf8.count <= (name.hasPrefix("data:") ? RasterInput.dataLimit : 4096) else { return .refused }
         pruneLocked()
         let key = RasterSourceKey(name: name, resolver: ObjectIdentifier(resolver))
-        if let id = byName[key], let source = sources[id]?.value, source.resolver === resolver,
+        if let known = byName[key], let source = sources[known]?.value, source.resolver === resolver,
            !source.cancellation.isCancelled {
             cold.removeAll { $0 === source }
             source.users += 1
             // Released before its header was read: a worker reads it now.
-            if source.users == 1 && source.metadata == nil && source.failure == nil { exact_raster_session_control(id, 5) }
+            if source.users == 1 && source.metadata == nil && source.failure == nil { exact_raster_session_control(self.id, 5) }
             return .source(source)
         }
         var live = sources.values.compactMap(\.value)
