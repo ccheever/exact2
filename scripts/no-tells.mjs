@@ -334,11 +334,12 @@ screenshot had, which miss dark mode, Increased Contrast, Dynamic Type and the n
 - Colour: leave it unsaid (text, tint, backgrounds, separators and controls are the
   platform's), or name a role: CanvasText, AccentColor, -exact-secondary-label,
   -exact-separator, -exact-fill, -exact-grouped-background, -exact-system-red …
-  The one authored colour is the accent: a role, or one light-dark(light, dark) pair
-  on accent-color (docs/contract-for-agents.md, "Colours: say a role, not a value").
+  Leave the accent unsaid too (the platform's); if written, a role or one
+  light-dark(light, dark) pair on accent-color (docs/contract-for-agents.md, "Colours:
+  say a role, not a value").
   An app's own palette is its design (app.tamber, LLP 1121) or its root \`theme\`
   block, and rows name its tokens.
-- Type: leave body text unsaid; say a heading (text role="heading" aria-level=1..4) or
+- Type: leave body text unsaid; say a heading (h1 .. h4) or
   a text style (font="-exact-footnote", -exact-headline, -exact-caption1 …)
   (docs/contract-for-agents.md, "Type: say a heading, not a size").
 apps/shelf is the recipe. A line that must keep a literal says why with
