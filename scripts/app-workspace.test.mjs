@@ -3,6 +3,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { delimiter, dirname, resolve, sep } from 'node:path';
@@ -614,6 +615,27 @@ test.each(['notes', 'planner'])('OS-specific folders resolve for %s without app-
       assert.throws(() => refuseStale(platform, receipt, changed, 'rebuild'), /build is stale:.*Input.swift/);
       utimesSync(source, built, built);
     }
+    // A GPU module the build signs after it starts, which a build script names, is unchanged while the bytes it
+    // packaged and its bytes now are the ones its baked card binds: replaced afterwards, it is changed even where the
+    // product row followed it, and restored after another was packaged, too
+    const product = resolve(dir, 'ios/modules/Input.swift'), during = new Date(+built + 5000);
+    const bound = createHash('sha256').update(readFileSync(product)).digest('hex');
+    const receiptOf = sha256 => JSON.stringify({target: 'aarch64-apple-ios-sim', started: built.toISOString(),
+      build: {products: [{path: product, sha256}], compat: {embedded: {gpu: {name: 'Input.swift', sha256: bound}}}}});
+    write('target/receipt.json', receiptOf(bound));
+    utimesSync(receipt, edited, edited); utimesSync(product, during, during);
+    assert.deepEqual(receiptChanges(receipt, app), []);
+    writeFileSync(product, 'struct Changed {}\n'); utimesSync(product, during, during);
+    assert.deepEqual(receiptChanges(receipt, app), [product]);
+    write('target/receipt.json', receiptOf(createHash('sha256').update(readFileSync(product)).digest('hex')));
+    utimesSync(receipt, edited, edited);
+    assert.deepEqual(receiptChanges(receipt, app), [product]);
+    const packaged = createHash('sha256').update(readFileSync(product)).digest('hex');
+    writeFileSync(product, ''); utimesSync(product, during, during);
+    write('target/receipt.json', receiptOf(packaged));
+    utimesSync(receipt, edited, edited);
+    assert.equal(createHash('sha256').update(readFileSync(product)).digest('hex'), bound);
+    assert.deepEqual(receiptChanges(receipt, app), [product]);
     rmSync(resolve(dir, 'ios'), {recursive:true}); rmSync(resolve(dir, 'macos'), {recursive:true});
     write('modules/apple/Input.swift');
     const shared = resolveApp(name);
