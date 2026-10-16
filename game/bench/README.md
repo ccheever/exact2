@@ -228,8 +228,32 @@ frame) and the RenderThread waiting in `queueBuffer`, while simpleperf counts ~0
 of the app's CPU in 4 s (the game's `tick` and storage `Lease::drop` lead). The cost
 follows the pixels the cubes cover: one cube holds 60, a quarter-size canvas holds 60
 at 2,000, and the reader's window path (`gpubuf=0`) is no faster than its buffers
-(21 against 16 fps at 2,000). Exact's forward shading costs roughly ten times three.js's
-`MeshStandardMaterial` per covered pixel on this GPU (QUEUE.md).
+(21 against 16 fps at 2,000). Exact's forward shading cost roughly ten times three.js's
+`MeshStandardMaterial` per covered pixel on this GPU.
+
+**Later the same day**, with the renderer's forward variants and culling order
+(`render/README.md`, "Forward variants for tiling GPUs"), the hardware-buffer
+ring's ordering (exact-gpu `buffers.rs`) and the queue's low priority (wgpu-hal
+patch 9), and Exact's canvas full screen (`viewport-fit="cover"`), its pixels
+those of the WebView's (1080 by 2340): three full orbits a size (`SECONDS=20`),
+three.js then Exact, back to back. Frames per second by gfxinfo:
+
+| N | Exact | three.js instanced, WebView (page) |
+|---|---|---|
+| 32,000 | 59.9 | 59.8 (60.0) |
+| 40,000 | 60.0 | 59.1 (59.7) |
+| 48,000 | 59.9 | 57.7 (58.8) |
+| 56,000 | 60.0 | 55.2 (56.5) |
+| 64,000 | 59.9 | 53.0 (54.7) |
+| 80,000 | 54.3 | 46.5 (48.6) |
+
+Exact holds the refresh rate to 64,000; three.js to 48,000 by its own clock. What
+mattered, in the order found: depth tested before shading (Adreno's Vulkan driver
+tested it after, shading every hidden fragment), the variants' registers, the
+direct path's bytes a sample, the camera's chunk order, and frames published in
+the order they finish with three on the GPU at most. Rendering the cull's pose
+once a frame for the vertex shader, culling on the CPU, a `SurfaceView` and
+mailbox presentation were each measured and cost more than they saved.
 
 #### Sitting #2 — landmark re-score, 2026-09-18T20-36-09-882Z
 

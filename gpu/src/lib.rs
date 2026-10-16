@@ -789,7 +789,7 @@ impl Module {
         }
         let ring = self.instances.get_mut(&id)?.ring.as_mut()?;
         ring.settle();
-        ring.latest()
+        ring.take()
     }
 
     /// Create surface ownership without a device, target, or registered shaders.

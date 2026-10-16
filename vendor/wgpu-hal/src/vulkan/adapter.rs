@@ -3017,9 +3017,23 @@ impl super::Adapter {
         let mut enabled_phd_features = self.physical_device_features(&enabled_extensions, features);
 
         let family_index = 0; //TODO
-        let family_info = vk::DeviceQueueCreateInfo::default()
+        #[allow(unused_mut)]
+        let mut family_info = vk::DeviceQueueCreateInfo::default()
             .queue_family_index(family_index)
             .queue_priorities(&[1.0]);
+        // EXACT (EXACT-PATCHES.md, 9): the queue at low global priority, so the
+        // platform's renderer and compositor preempt a frame of ours on the GPU.
+        #[cfg(target_os = "android")]
+        let mut global = vk::DeviceQueueGlobalPriorityCreateInfoKHR::default()
+            .global_priority(vk::QueueGlobalPriorityKHR::LOW);
+        #[cfg(target_os = "android")]
+        if self
+            .phd_capabilities
+            .supports_extension(vk::EXT_GLOBAL_PRIORITY_NAME)
+        {
+            enabled_extensions.push(vk::EXT_GLOBAL_PRIORITY_NAME);
+            family_info = family_info.push_next(&mut global);
+        }
         let mut family_infos = Vec::from([family_info]);
 
         let mut pre_info = vk::DeviceCreateInfo::default();

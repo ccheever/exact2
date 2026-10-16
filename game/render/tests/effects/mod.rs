@@ -184,6 +184,56 @@ fn all_cascades_and_shadow_distance() {
 }
 
 #[test]
+fn a_direct_frame_draws_what_the_tone_pass_draws() {
+    let Some(gpu) = gpu() else {
+        return;
+    };
+    for format in [
+        wgpu::TextureFormat::Rgba8Unorm,
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+    ] {
+        let mut r = Renderer::new(&gpu.device, &gpu.queue, format);
+        let (v, i) = shapes::sphere(48);
+        let sphere = r.add_mesh(&v, &i);
+        r.write_transforms_both(0, &transform(Vec3::ZERO, Quat::IDENTITY, Vec3::splat(2.0)))
+            .unwrap();
+        r.write_materials(0, &material([0.8, 0.4, 0.2], 0.0))
+            .unwrap();
+        r.set_batches(&[Batch::new(sphere, 0..1)], &[0]).unwrap();
+        let texture = target(&gpu, (320, 200), format);
+        let mut f = frame();
+        f.sun = Some(Sun {
+            direction: Vec3::new(-0.4, -0.6, -0.7).normalize(),
+            color: Vec3::ONE,
+            illuminance: 4.0,
+            shadows: None,
+        });
+        f.environment.background = Some([0.3, 0.5, 2.0]);
+        f.environment.zenith = [0.4; 3];
+        f.environment.horizon = [0.4; 3];
+        f.environment.ground = [0.4; 3];
+        f.environment.ambient = 1.0;
+        r.set_direct(false);
+        let tone = render(&gpu, &mut r, &texture, &f);
+        r.set_direct(true);
+        let direct = render(&gpu, &mut r, &texture, &f);
+        direct.save(&format!("direct-{format:?}"));
+        // Inside the silhouette and on the cleared background the two agree to
+        // rounding; only MSAA edges differ, each sample tonemapped before the resolve.
+        let differing = tone
+            .data
+            .chunks(4)
+            .zip(direct.data.chunks(4))
+            .filter(|(a, b)| a.iter().zip(*b).any(|(x, y)| x.abs_diff(*y) > 2))
+            .count();
+        eprintln!("direct {format:?}: {differing} pixels differ by more than 2/255");
+        assert!(differing < tone.data.len() / 4 / 50, "{differing}");
+        assert_eq!(tone.at(160, 100), direct.at(160, 100));
+        assert_eq!(tone.at(5, 5), direct.at(5, 5));
+    }
+}
+
+#[test]
 fn bloom_spreads_light_and_leaves_subthreshold_identical() {
     let Some(gpu) = gpu() else {
         return;

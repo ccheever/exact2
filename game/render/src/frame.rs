@@ -1,4 +1,5 @@
 use crate::{shadows::Cascades, FrameInput};
+use exact_gpu::wgpu;
 use glam::Vec3;
 
 pub(crate) const FLOATS: usize = 184;
@@ -32,7 +33,8 @@ pub(crate) fn uniform(
     data[16..19].copy_from_slice(&frame.camera_position.to_array());
     data[19] = frame.alpha.clamp(0.0, 1.0);
     if let Some(sun) = frame.sun {
-        data[20..23].copy_from_slice(&sun.direction.to_array());
+        // Unit length: the forward shader takes it as it is (lights.wgsl `brdf`'s `l`).
+        data[20..23].copy_from_slice(&sun.direction.normalize_or(Vec3::NEG_Y).to_array());
         data[23] = sun.illuminance;
         data[24..27].copy_from_slice(&sun.color.to_array());
     }
@@ -88,4 +90,33 @@ pub(crate) fn uniform(
         data[182] = map.rgbm.max(0.);
     }
     data
+}
+
+/// tone.wgsl's curve on the CPU: a direct frame's clear colour, which no shader
+/// tonemaps.
+pub(crate) fn tone(color: [f32; 3], frame: &FrameInput<'_>, encode_srgb: bool) -> wgpu::Color {
+    let h = if frame.headroom.is_finite() {
+        frame.headroom.max(1.0)
+    } else {
+        1.0
+    };
+    let finite = |x: f32| if x.is_nan() { 0. } else { x.clamp(0., 65472.) };
+    let channel = |c: f32| {
+        let y = finite(finite(c) * frame.environment.exposure) / h;
+        let mut v = h * ((y * (2.51 * y + 0.03)) / (y * (2.43 * y + 0.59) + 0.14)).clamp(0., 1.);
+        if encode_srgb {
+            v = if v <= 0.003_130_8 {
+                12.92 * v
+            } else {
+                1.055 * v.powf(1. / 2.4) - 0.055
+            };
+        }
+        f64::from(v)
+    };
+    wgpu::Color {
+        r: channel(color[0]),
+        g: channel(color[1]),
+        b: channel(color[2]),
+        a: 1.,
+    }
 }

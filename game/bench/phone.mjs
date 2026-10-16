@@ -51,6 +51,9 @@ function gfxinfo(pkg) {
 
 async function measure(pkg) {
   await Bun.sleep(WARMUP * 1000);
+  // A run behind a dialog (Play Protect asks about each new install) measures nothing.
+  const focus = /mCurrentFocus=\S+ \S+ (\S+)\//.exec(shell('dumpsys window'))?.[1];
+  if (focus !== pkg) throw new Error(`${pkg} is not in front (${focus}): dismiss what covers it and run again`);
   shell(`dumpsys gfxinfo ${pkg} reset`);
   const start = Date.now();
   await Bun.sleep(SECONDS * 1000);

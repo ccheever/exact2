@@ -21,6 +21,13 @@ pub(crate) const RECORD_WORDS: usize = 8;
 pub(crate) const SKIN_WORDS: usize = 20;
 /// Group flag: keep every item (game-deformed vertices have no engine bound).
 pub(crate) const KEEP_ALL: u32 = 16;
+/// Depth buckets of the camera's chunk order (cull.wgsl `BUCKETS`).
+const BUCKETS: u32 = 256;
+/// A group of at least this many chunks has its camera order sorted (cull.wgsl
+/// `sort_chunks`), with a histogram region of its own.
+pub(crate) const SORTED_CHUNKS: u32 = 16;
+/// Setup word 13 of a group that keeps its order.
+pub(crate) const UNSORTED: u32 = u32::MAX;
 pub(crate) const CAPSULE: u32 = 64;
 pub(crate) const PLAIN: u32 = 128;
 const CHUNK: u32 = 64;
@@ -65,6 +72,8 @@ pub(crate) struct Cull {
     pub window: u64,
     /// Diagnostic: keep every item, drawing exactly what an unculled frame drew.
     pub keep_all: bool,
+    /// Groups with a histogram region (setup word 13), counted by the setup.
+    pub sorted: u32,
     /// The lists exceed this device's storage limits, or it has no indirect
     /// execution (the iOS simulator's Metal): draw every group directly.
     pub direct: bool,
@@ -202,6 +211,7 @@ impl Cull {
             views: 0,
             window: 256,
             keep_all: false,
+            sorted: 0,
             direct: !indirect_execution,
             indirect_execution,
             align: (device.limits().min_storage_buffer_offset_alignment / 4).max(1),
@@ -317,6 +327,7 @@ impl Cull {
     pub fn begin_setup(&mut self) {
         self.words.clear();
         self.regions.clear();
+        self.sorted = 0;
         let mut region = 0;
         let mut chunk = 0;
         for group in &self.groups {
@@ -369,7 +380,11 @@ impl Cull {
             .max(self.align);
         let sizes = [
             (self.words.len() as u64 * 4).max(4),
-            (u64::from(items) + u64::from(self.chunks) * 5).max(1) * 4,
+            (u64::from(items)
+                + u64::from(self.chunks) * 7
+                + u64::from(self.sorted) * 64 * u64::from(BUCKETS))
+            .max(1)
+                * 4,
             (u64::from(VIEWS) * u64::from(self.stride) + u64::from(window)) * 4,
             (u64::from(VIEWS) * self.groups.len() as u64 * 20).max(20),
         ];
@@ -430,7 +445,12 @@ impl Cull {
             self.stride,
         ]);
         data[tail + 4..tail + 8].copy_from_slice(&self.sections);
-        data[tail + 8..tail + 12].copy_from_slice(&[items, items + self.chunks, 0, 0]);
+        data[tail + 8..tail + 12].copy_from_slice(&[
+            items,
+            items + self.chunks,
+            items + self.chunks * 5,
+            items + self.chunks * 6,
+        ]);
         queue.write_buffer(&self.uniform, 0, bytes(&data));
     }
 
@@ -536,8 +556,8 @@ impl Cull {
         pass.set_bind_group(0, &self.test_binds.as_ref().unwrap().0[current], &[]);
         pass.dispatch_workgroups(chunks.0, chunks.1, 1);
         let lists = &self.list_bind.as_ref().unwrap().0;
-        pass.set_pipeline(&self.scan);
         pass.set_bind_group(0, lists, &[]);
+        pass.set_pipeline(&self.scan);
         pass.dispatch_workgroups(groups.0, groups.1, 1);
         pass.set_pipeline(&self.scatter);
         pass.dispatch_workgroups(chunks.0, chunks.1, 1);

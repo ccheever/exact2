@@ -86,6 +86,11 @@ function adapter() {
   const info = gl?.getExtension?.('WEBGL_debug_renderer_info');
   return info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : which;
 }
+// The default framebuffer's MSAA samples as granted: a browser may decline `antialias`.
+function samples() {
+  const gl = renderer.getContext?.();
+  return gl?.getParameter ? gl.getParameter(gl.SAMPLES) : null;
+}
 function report() {
   const sorted = [...frames].sort((a, b) => a - b), pct = (p) => sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))] ?? 0;
   const avg = (a) => a.reduce((s, v) => s + v, 0) / Math.max(a.length, 1), r2 = (x) => Math.round(x * 100) / 100;
@@ -93,7 +98,7 @@ function report() {
     engine: 'three', version: THREE.REVISION, renderer: which, scene: 'cubes', n, mode,
     pixels: [renderer.domElement.width, renderer.domElement.height], frames: frames.length,
     fps_avg: Math.round(10000 / avg(frames)) / 10, ms_p50: r2(pct(0.5)), ms_p95: r2(pct(0.95)), ms_p99: r2(pct(0.99)),
-    ms_max: r2(sorted[sorted.length - 1] ?? 0), gpu: adapter(), script_ms_avg: r2(avg(script)), draws: renderer.info?.render?.calls ?? renderer.info?.render?.drawCalls ?? null,
+    ms_max: r2(sorted[sorted.length - 1] ?? 0), gpu: adapter(), samples: samples(), script_ms_avg: r2(avg(script)), draws: renderer.info?.render?.calls ?? renderer.info?.render?.drawCalls ?? null,
   };
   document.title = 'BENCH ' + JSON.stringify(out);
   navigator.sendBeacon('/__bench', JSON.stringify(out));
