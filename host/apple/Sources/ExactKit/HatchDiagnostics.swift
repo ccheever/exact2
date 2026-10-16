@@ -1,7 +1,7 @@
 // What Exact measures of each hatch call, and what hatch code says of itself
 // (@ref LLP 1075.003.000.001 §3.1–3.3). One store a session, owned by the
-// main thread. Development only, as `perf` is (LLP 1079 D1): a production
-// bake hands the module no entry to call and times nothing.
+// main thread. Development only, as `perf` is (LLP 1079 D1): a release
+// build hands the module no entry to call and times nothing.
 //
 // The module records through one entry of the host's table (NativeHatches.swift):
 //
@@ -21,7 +21,7 @@ import QuartzCore
 
 final class HatchDiagnostics {
     weak var session: ExactSession?
-    static let measuring = !ExactEnv.productionBake
+    static let measuring = !ExactEnv.releaseBuild
     private let mediaTime: () -> Double
 
     init(mediaTime: @escaping () -> Double = CACurrentMediaTime) { self.mediaTime = mediaTime }

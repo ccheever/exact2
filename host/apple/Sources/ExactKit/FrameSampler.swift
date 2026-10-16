@@ -9,7 +9,7 @@ import AppKit
 /// A development session's presented frames (LLP 1079 D3–D4): a display
 /// link of its own, run only inside active segments. It watches; it never
 /// keeps the session's frame source (`Frames`) running, so the measured app
-/// schedules frames as the shipped one does. A production bake has none.
+/// schedules frames as the shipped one does. A release build has none.
 ///
 /// A segment starts on activity — a batch applied, the session's frame
 /// source running — and ends 500 ms after the last, or when the app leaves
@@ -18,8 +18,8 @@ import AppKit
 /// `targetTimestamp − timestamp`, as the canvases read it (`duration` is
 /// wrong under ProMotion); `missed = round(interval / period) − 1`.
 final class FrameSampler: NSObject {
-    /// Whether this binary measures at all: not a production bake.
-    static let measured = !ExactEnv.productionBake
+    /// Whether this binary measures at all: not a release build.
+    static let measured = !ExactEnv.releaseBuild
     static let ring = 600, lateKept = 100, quiet = 0.5
 
     struct Record {
