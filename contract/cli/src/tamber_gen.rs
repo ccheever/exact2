@@ -286,6 +286,10 @@ pub fn admitted(folding: &exact_tamber::Folding) -> Result<(), String> {
 }
 
 pub fn run(args: &[String]) -> ExitCode {
+    if args.iter().any(|a| a == "--help" || a == "-h") {
+        println!("{USAGE}");
+        return ExitCode::SUCCESS;
+    }
     let (mut target, mut input, mut out) = (None, None, None);
     let mut i = 0;
     while i < args.len() {
