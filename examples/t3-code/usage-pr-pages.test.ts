@@ -184,14 +184,14 @@ describe('the Pull Requests page', () => {
     // The title: its field's focus and blur; cancel, Escape and a save let go; typing takes it again.
     const title = await component('pages-pr-edit.contract', 'PrdTitle');
     expect(title).toContain('local("pr-escape-hold", "pull-request-title-input", on ? "true" : "")');
-    expect(title).toContain('input value=draft input=edit key=keys focus=hold(true) blur=hold(false) autofocus=true');
+    expect(title).toContain('input id="pull-request-title-input" value=draft input=edit key=keys focus=hold(true) blur=hold(false) autofocus=true');
     expect(title).toContain('  action cancel\n    editing = false\n    hold(false)');
     expect(title).toContain('      act("edit-title", draft)\n      hold(false)');
     expect(title).toContain('    else if k == "Escape"\n      preventDefault()\n      cancel()');
     expect(await source('pages-pr-detail.contract')).toContain('still=still, act=act, local=local)');
     // The markdown editor: its field and Write/Preview count in; Escape and Cancel let go, ⌘↵ as its key comes up.
     const words = await component('pages-pr-edit.contract', 'PrdWords');
-    expect(words).toContain('textarea value=draft input=typed focus=part(true) blur=part(false) autofocus=true');
+    expect(words).toContain('textarea id=`${testId}-text` value=draft input=typed focus=part(true) blur=part(false) autofocus=true');
     expect(words).toContain('PrdModeSegment(label="Write", pressed=(not previewing), disabled=saving, press=preview(false), focusing=part, ');
     expect(words).toContain('PrdModeSegment(label="Preview", pressed=previewing, disabled=saving, press=preview(true), focusing=part, ');
     expect(words).toContain('key=keys keyup=keysUp tabindex=-1 testId=testId');
@@ -202,7 +202,7 @@ describe('the Pull Requests page', () => {
     // A reply: named by the reply serial it opened on; the code comment draft: its field.
     const threads = await source('pages-pr-threads.contract');
     expect(threads).toContain('local("pr-escape-hold", `reply:${card.id}:${seenReply}`, on ? "true" : "")');
-    expect(threads).toContain('textarea value=reply input=editReply key=replyKeys focus=replyHold(true) blur=replyHold(false) autofocus=true');
+    expect(threads).toContain('textarea id=`pull-request-thread-reply-text-${card.id}` value=reply input=editReply key=replyKeys focus=replyHold(true) blur=replyHold(false) autofocus=true');
     expect(threads).toContain('  action cancelReply\n    replying = false\n    replyHold(false)');
     expect(threads).toContain('textarea id="pr-code-draft-text" value=text input=typed key=keys focus=hold(true) blur=hold(false) autofocus=true');
     expect(await source('pages-pr-code.contract')).toContain('add=add, agent=agent, local=local)');

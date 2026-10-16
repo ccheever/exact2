@@ -89,7 +89,9 @@ component ControlGuard
 // popup. Each modal dialog carries one DialogOpenFocus naming that element (`dialog-trap.test.ts` lists them): it moves
 // the focus there once, when the popup is first laid out (this box's first `resize` event, ResizeObserver's first entry:
 // the layout that drew the popup, as Base UI focuses from a layout effect). A popup hidden under `display: none` lays it
-// out 0 by 0, which is no opening; it opens again when it shows.
+// out 0 by 0, which is no opening; it opens again when it shows. An in-page field the reference focuses as it mounts
+// (React's autoFocus, a mount effect) stands beside one too, for the same rule: a double-click or a pointer press leaves
+// the focus where it was, in the prompt say, and `autofocus` then takes none.
 //
 // Such a dialog is `aria-modal` only once the focus has entered it (`dialogSeated`, app-window.contract). The Mac host
 // tells VoiceOver of a modal in the commit that first shows it and lands VoiceOver on the focused element when that is
