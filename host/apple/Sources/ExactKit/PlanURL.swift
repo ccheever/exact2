@@ -387,6 +387,9 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
     private let preparationPending: () -> Bool
     private let acceptProgram: (String?) -> Bool
     var terminal: String?
+    /// The program of the last generation this host took: one it waits for
+    /// (`terminal`) is taken again only when a generation names it.
+    private var adopted: String?
     private var observed: Revision?
     private var retiredEpochs = Set<String>()
     private var pending: Revision?
@@ -552,9 +555,12 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
             return false
         }
         if terminal != nil {
+            // Only its own program, known: none named, or none known, waits on.
+            guard let program = revision.program, program == adopted else { return false }
             terminal = nil
             status("dev: the server runs this host's native code again")
         }
+        if let program = revision.program { adopted = program }
         if let old = observed {
             if old.epoch == revision.epoch {
                 guard revision.seq >= old.seq, revision.seq != old.seq || revision.identity == old.identity else { return false }
@@ -645,7 +651,9 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
         if let dev = json["dev"] as? [String: Any] {
             // Built for other native code: no generation, but the stream, so
             // the build stays registered and takes the next one for its own.
-            if let revision = PlanURL.revision(dev), !acceptProgram(revision.program),
+            // (Read without adopting: a refused envelope pins nothing.)
+            if let revision = PlanURL.revision(dev),
+               terminal != nil ? !(revision.program != nil && revision.program == adopted) : (adopted != nil && revision.program != adopted),
                let path = dev["events"] as? String, let events = URL(string: path, relativeTo: base)?.absoluteURL,
                PlanURL.sameOrigin(events, page) {
                 waitForProgram()
@@ -832,7 +840,11 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
             terminal = "the dev server rebuilt the app's native code — rebuild and relaunch this host (the last good plan is still running)"
             status(terminal!)
         }
+        // A design snapshot being fetched goes on: no generation will follow
+        // to sync it.
+        let resync = syncing
         beginResolution()
+        if resync { syncDesign() }
     }
 
     private func failed(_ message: String, generation: UInt64) {
