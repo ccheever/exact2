@@ -126,56 +126,54 @@ pub(super) fn tuple_of(plan: &Plan, pin: Option<&Value>, around: u32) -> u32 {
         .unwrap_or(around)
 }
 
-/// Bits a binding, the first 64 inline and the rest beside.
-#[derive(Debug, Default)]
-pub(super) struct Bits(u64, Vec<bool>);
-
-impl Bits {
-    pub(super) fn get(&self, i: usize) -> bool {
-        match i {
-            0..64 => self.0 & (1 << i) != 0,
-            _ => self.1.get(i - 64).copied().unwrap_or(false),
-        }
-    }
-
-    pub(super) fn set(&mut self, i: usize, on: bool) {
-        match i {
-            0..64 => match on {
-                true => self.0 |= 1 << i,
-                false => self.0 &= !(1 << i),
-            },
-            _ if !on && self.1.is_empty() => {}
-            _ => {
-                if self.1.len() <= i - 64 {
-                    self.1.resize(i - 63, false);
-                }
-                self.1[i - 64] = on;
-            }
-        }
-    }
-}
-
 /// Per binding of a node: whether its last text read a token, and whether
 /// it set its row (a row it unset, or whose value the row refused, is the
-/// inherited one's).
+/// inherited one's). A bit a binding, the first 64 inline and the rest, for
+/// the rare node with more bindings, beside.
 #[derive(Debug, Default)]
 pub(super) struct Themed {
-    named: Bits,
-    set: Bits,
+    named: u64,
+    set: u64,
+    rest: Option<Box<[Vec<bool>; 2]>>,
 }
 
 impl Themed {
+    fn bit(&self, inline: u64, list: usize, i: usize) -> bool {
+        match i {
+            0..64 => inline & (1 << i) != 0,
+            _ => (self.rest.as_ref()).is_some_and(|rest| rest[list].get(i - 64) == Some(&true)),
+        }
+    }
+
     pub(super) fn get(&self, i: usize) -> bool {
-        self.named.get(i)
+        self.bit(self.named, 0, i)
     }
 
     pub(super) fn sets(&self, i: usize) -> bool {
-        self.set.get(i)
+        self.bit(self.set, 1, i)
     }
 
     pub(super) fn set(&mut self, i: usize, named: bool, set: bool) {
-        self.named.set(i, named);
-        self.set.set(i, set);
+        let put = |word: &mut u64, on: bool| match on {
+            true => *word |= 1 << i,
+            false => *word &= !(1 << i),
+        };
+        match i {
+            0..64 => {
+                put(&mut self.named, named);
+                put(&mut self.set, set);
+            }
+            _ if !named && !set && self.rest.is_none() => {}
+            _ => {
+                let rest = self.rest.get_or_insert_with(Default::default);
+                for (list, on) in rest.iter_mut().zip([named, set]) {
+                    if list.len() <= i - 64 {
+                        list.resize(i - 63, false);
+                    }
+                    list[i - 64] = on;
+                }
+            }
+        }
     }
 }
 

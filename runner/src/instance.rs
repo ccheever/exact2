@@ -139,13 +139,13 @@ pub struct NodeInst {
     /// The kernel view.
     pub view: ViewId,
     /// Last emitted value per binding, in binding order.
-    last: Vec<Option<Value>>,
+    last: Box<[Option<Value>]>,
     /// Last published surface inputs (a canvas node).
-    last_surface: Option<Vec<Value>>,
+    last_surface: Option<Box<[Value]>>,
     /// Ordered children: static nodes and regions interleaved by `order`.
     children: Vec<Child>,
     /// Last emitted child list.
-    last_children: Vec<ViewId>,
+    last_children: Box<[ViewId]>,
     collection: Option<Box<collection::Collection>>,
     /// The app tuple its rows and children are in (LLP 1121 D5).
     tuple: u32,
@@ -889,10 +889,10 @@ impl NodeInst {
         let mut inst = NodeInst {
             node,
             view,
-            last: vec![None; row.bindings.len as usize],
+            last: vec![None; row.bindings.len as usize].into_boxed_slice(),
             last_surface: None,
             children: Vec::new(),
-            last_children: Vec::new(),
+            last_children: Box::default(),
             collection: None,
             tuple: u.theme.tuple,
             themed: theme::Themed::default(),
@@ -1178,7 +1178,7 @@ impl NodeInst {
             for a in s.args.iter() {
                 values.push(u.eval(plan.surface_arg(a).expr, frames)?);
             }
-            if self.last_surface.as_ref() != Some(&values) {
+            if self.last_surface.as_deref() != Some(&values[..]) {
                 u.surfaces.push(SurfaceUpdate {
                     view: self.view,
                     name: plan.str(s.name).to_string(),
@@ -1192,7 +1192,7 @@ impl NodeInst {
                         .collect(),
                     values: values.clone(),
                 });
-                self.last_surface = Some(values);
+                self.last_surface = Some(values.into_boxed_slice());
             }
         }
         Ok(())
@@ -1200,12 +1200,12 @@ impl NodeInst {
 
     fn emit_children(&mut self, u: &mut Update<'_>) {
         let now = roots_of(&self.children);
-        if now != self.last_children {
+        if *now != *self.last_children {
             u.ops.push(Op::SetChildren {
                 id: self.view,
                 children: now.clone(),
             });
-            self.last_children = now;
+            self.last_children = now.into_boxed_slice();
         }
     }
 
