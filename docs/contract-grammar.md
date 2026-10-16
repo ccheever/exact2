@@ -139,10 +139,18 @@ refused with the block to write.
 
 A length attribute's string is CSS's own text, read by the kernel: a px or
 other absolute length, a percentage, a viewport length, `auto`,
-`env(safe-area-inset-*)`, `env(viewport-segment-* x y)`, or a `calc()`,
-`min()`, `max()` or `clamp()` of these (`clamp(15px,
-env(safe-area-inset-bottom), 60px)`; LLP 1001 §2). Anything else
-is `lower-attr-value`, with the kernel's reason.
+`env(safe-area-inset-*)`, `env(viewport-segment-* x y)`, a layout region's
+`env(-exact-<region>-inset-*)`, or a `calc()`, `min()`, `max()` or `clamp()` of
+these (`clamp(15px, env(safe-area-inset-bottom), 60px)`; LLP 1001 §2). Anything
+else is `lower-attr-value`, with the kernel's reason.
+
+The layout regions (LLP 1123 D10) are the platform's own spacing, measured from
+the layout viewport, inside the safe area by default: `layout-margins` (UIKit's
+16 or 20 points), `readable-content` (a comfortable reading width), and
+`safe-area-corners`, `layout-margins-corners` and `readable-content-corners`,
+the same kept clear of rounded corners. `padding-left="env(-exact-layout-margins-inset-left)"`
+puts a header where a UIKit screen's would be. On a host without them (the web,
+Linux, Windows) each is the safe area.
 
 `-exact-fit="shrink"` on a `text` (CSS has no such property; LLP 1116.001 D1.4) draws
 a line too wide for its content box at the scale that fits: its whole line under

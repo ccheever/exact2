@@ -157,6 +157,8 @@ package final class Presenter {
     /// screen's under `viewport-fit=cover`, zero when the viewport is the
     /// safe area itself. Reported to the agent as `env`.
     var insets = UIEdgeInsets.zero
+    /// The layout regions the kernel was given (LLP 1123 D10), `nil` for none.
+    var regions: [CGFloat]?
     /// The posture and the viewport segments last told (LLP 1078 D5), for `layout.env`.
     var fold = ViewportFold.flat
     /// Whether the device has a fold — UIKit 27.1 reported a division region
