@@ -278,7 +278,9 @@ component R4GitMenuRow
             text item.reason font-size="0.75rem" line-height="1.03125rem" white-space="nowrap" color="light-dark(#27272a, #f5f5f5)"
 
 // The shared dialog frame (ui/dialog.tsx DialogPopup): a blurred backdrop, a
-// rounded popup centred in the window, the corner close button.
+// rounded popup centred in the window, the corner close button. Base UI's Dialog is modal and closes only the topmost
+// popup on Escape, so the popup is `aria-modal` (only shortcuts inside it are heard while it shows) and Escape is its
+// close button's: an Escape shortcut declared earlier outside it, such as the right panel sheet's, no longer takes it.
 component R4Dialog
   inject
     dialogEntered: action
@@ -294,13 +296,13 @@ component R4Dialog
   derive dialogTargets = [first, `${testId}-close`]
   view
     column position="absolute" left=0 right=0 top=0 bottom=0 z-index=80 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" testId=`${testId}-overlay`
-      button press=close aria-label="Close" aria-keyshortcuts="Escape" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId=`${testId}-backdrop` title=""
-      column width="100%" max-width=maxWidth max-height="100%" position="relative" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="dialog" aria-label=label testId=testId id=testId tabindex=-1 data-dialog-focus="open" focusin=dialogEntered(testId) key=dialogFallback(testId, dialogTargets)
+      button press=close aria-label="Close" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId=`${testId}-backdrop` title=""
+      column width="100%" max-width=maxWidth max-height="100%" position="relative" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="dialog" aria-modal=true aria-label=label testId=testId id=testId tabindex=-1 data-dialog-focus="open" focusin=dialogEntered(testId) key=dialogFallback(testId, dialogTargets)
         // The focus trap (dialog-trap.contract): the content, then the X (DialogPopup's last child).
         FocusGuard(guardId="r4-dialog-guard-start", targets=dialogTargets, popup=testId)
         DialogOpenFocus(target=first)
         children
-        button id=`${testId}-close` press=close aria-label="Close" testId=`${testId}-close` position="absolute" top="0.5rem" right="0.5rem" width="2rem" height="2rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title="" data-focus-stop="enabled"
+        button id=`${testId}-close` press=close aria-label="Close" aria-keyshortcuts="Escape" testId=`${testId}-close` position="absolute" top="0.5rem" right="0.5rem" width="2rem" height="2rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title="" data-focus-stop="enabled"
           ShellIcon(name="x", size=16, color="light-dark(#27272a, #f5f5f5)")
         FocusGuard(guardId="r4-dialog-guard-end", targets=dialogTargets, popup=testId)
 

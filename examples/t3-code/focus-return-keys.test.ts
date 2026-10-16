@@ -17,26 +17,26 @@ function recorder(names: string[], extra: Env = {}) {
 
 describe('Settings › Keybindings: the capture field keeps the focus after a chord', () => {
   const field = contractComponent('settings-keybindings.contract', 'CaptureField');
-  test('a chord ends recording but keeps the recorder mounted; Escape restores the binding there; leaving it unmounts it', () => {
+  test('a chord ends recording and the field keeps the focus; Escape restores the binding there; leaving it keeps the field', () => {
     const state = field.state();
-    const { calls, scope } = recorder(['capture'], { original: 'mod+n', value: 'mod+n', label: 'Chat: New' });
-    const drawn = (recording: boolean, value: string) => field.drawn('KeyRecorder(', state, { ...scope, recording, value });
-    expect(drawn(true, 'mod+n')).toBe(true);
-    // The chord: the root sets the draft and ends recording; the field still has the recorder, so the focus stays and
-    // Settings' Back (outside the recorder's modal row) does not hear the next Escape.
+    const { calls, scope } = recorder(['capture', 'held'], { original: 'mod+n', value: 'mod+n', label: 'Chat: New', rowId: 'chat-new', recording: true });
+    const modal = () => field.drawn('aria-modal=true', state, scope);
+    expect(modal()).toBe(true);
+    // The chord: the root sets the draft and ends recording; the field still takes keys, so the row stays the window's
+    // modal scope and Settings' Back (outside it) does not hear the next Escape.
     field.call('took', state, scope, ['mod+k']);
-    expect(drawn(false, 'mod+k')).toBe(true);
+    scope.recording = false;
+    expect(modal()).toBe(true);
     field.call('took', state, scope, ['escape']);
     expect(calls).toEqual(['capture:mod+n,mod+k', 'capture:mod+n,escape']);
-    // An unassigned row keeps its field after Escape, still focused, as the reference's Input stays mounted.
-    expect(drawn(false, '')).toBe(true);
-    field.call('took', state, scope, ['blur']);
-    expect(drawn(false, 'mod+k')).toBe(false);
-    expect(calls.at(-1)).toBe('capture:mod+n,blur');
+    // KeybindingsSettings.tsx's Input stays mounted, unfocused, once the focus leaves it.
+    field.call('took', state, { ...scope, recording: true }, ['blur']);
+    expect(field.drawn('testId=`keybinding-field-${rowId}`', state, scope)).toBe(true);
+    expect(modal()).toBe(false);
+    expect(calls.slice(-2)).toEqual(['capture:mod+n,blur', 'held:keybinding-recorder-chat-new,false']);
   });
   test('the field shows the draft once it stops recording, and the placeholder while it records', async () => {
     const source = await Bun.file(new URL('./settings-keybindings.contract', import.meta.url)).text();
-    expect(source).toContain('    if recording or held\n');
     expect(source).toContain('KeyRecorder(prompt=(recording ? "Press shortcut" : "Unassigned"), value=(recording ? "" : value), recording=recording,');
   });
 });
