@@ -13,9 +13,6 @@ shape R6DeviceRail
   textSizeDisabled: bool
   screenshotLabel: string
   screenshotDisabled: bool
-  menu: string
-  menuTop: number
-  menuRight: number
 shape R6DeviceStream
   status: string
   message: string

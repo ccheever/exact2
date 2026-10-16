@@ -117,7 +117,7 @@ describe('the shared menu keyboard (Base UI Menu)', () => {
     ['pages-hero.contract', 'hero-project-keys'], ['r4-git.contract', 'details-git-options-keys'], ['r4-surfaces.contract', 'r4-add-surface-keys'], ['r4-surfaces.contract', 'linked-pr-menu-keys'],
     ['shell-panels.contract', 'title-menu-keys'], ['shell-panels.contract', 'title-submenu-keys'], ['requests.contract', 'approval-menu-${approval.id}-keys'],
     ['shell-details.contract', 'details-editors-keys'], ['r6-polish.contract', 'details-scripts-keys'], ['diff.contract', 'diff-scope-keys'], ['diff.contract', 'diff-turns-keys'],
-    ['r6-device.contract', 'device-text-keys'], ['r6-device.contract', 'device-rotate-keys'], ['r6-device.contract', 'device-more-keys'], ['r4-surfaces-files.contract', 'crumb-menu-keys'],
+    ['r4-surfaces-files.contract', 'crumb-menu-keys'],
     ['r4-surfaces-files.contract', 'file-editors-keys'], ['r8-keys-table-menu.contract', 'table-copy-keys'],
     ['pages-pr-code.contract', 'pull-request-code-scope-keys'],
   ];
@@ -161,8 +161,7 @@ describe('the shared menu keyboard (Base UI Menu)', () => {
 
   test('a menu opened by the data module: its trigger lets go of the focus, so the popup can take it', async () => {
     // Diff scope no longer waits for this: its panel shows the menu for the opening turn and focuses it.
-    for (const [file, comp, call] of [['r6-device.contract', 'R6DeviceWorkspaceView', 'local("surface-r6dev-menu", "", menu)'],
-      ['markdown.contract', 'TableCopyButton', 'press()']] as const)
+    for (const [file, comp, call] of [['markdown.contract', 'TableCopyButton', 'press()']] as const)
       expect(await component(file, comp)).toContain(`    blur()\n    ${call}`);
   });
 });
@@ -191,7 +190,7 @@ describe('public popover triggers execute one ordered command sequence', () => {
     ['providers-setup.contract', 'ProviderAccountRow', 'triggerKey'], ['r4-git.contract', 'R4GitRows', 'gitMenuKey'],
     ['pages-usage-prices.contract', 'UsagePricesApply', 'triggerKey'], ['r6-polish.contract', 'R6ScriptRow', 'triggerKey'],
     ['shell-details.contract', 'OpenInRow', 'triggerKey'], ['r4-surfaces-files.contract', 'R4FileHeader', 'editorsKey'],
-    ['requests.contract', 'ApprovalActions', 'menuKey'], ['diff.contract', 'DiffToolbar', 'scopeKey'],
+    ['requests.contract', 'ApprovalActions', 'menuKey'], ['diff.contract', 'DiffToolbar', 'scopeKey'], ['r6-device.contract', 'R6RailMenuButton', 'triggerKey'],
   ];
   test('the inventory includes every opener and no retired invoker, focus redirect, watcher or counter remains', async () => {
     const found: string[] = [];
@@ -215,7 +214,7 @@ describe('public popover triggers execute one ordered command sequence', () => {
     const scope: Env = { ...await helpers, ...effects(calls), [itemName]: items, section: 'models', rowId: 'model', rowRef: 'repo:42',
       selectId: 'select', menuId: 'popup', popId: 'row-popup', idPrefix: 'account-', t: { id: 'thread' }, row: { id: 'row' },
       environment: { environmentId: 'env' }, account: { instanceId: 'instance' }, message: { id: 'message' },
-      host: { id: 'host', menuId: 'host-popup' }, item: { id: 'task', environmentId: 'task-env' }, approval: { id: 'approval' } };
+      host: { id: 'host', menuId: 'host-popup' }, item: { id: 'task', environmentId: 'task-env' }, approval: { id: 'approval' }, testId: 'rail-trigger' };
     const popup = value(command[1]!, scope), sourceId = value(command[2]!, scope);
     expect(sourceId).not.toBe(popup);
     const triggerOwner = name === 'ThreadRow' ? await component(file, 'SidebarCardActions') : body;
@@ -285,12 +284,6 @@ describe('↓ and ↑ on a closed trigger open its menu at the first or the last
     // An action reads the state as it began, so the end comes from the key itself, not from the state it just set.
     const title = await component('chat.contract', 'ChatHeader');
     expect(title).toContain('action titleKey(k: string, e: KeyboardEvent)\n    titleEnd = kmKeyEnd(k)\n    if kmArrow(k) and not e.metaKey and not e.ctrlKey and not e.altKey\n      preventDefault()\n      title("open", "")\n      focus(kmOpenTarget("title-menu-keys", kmKeyEnd(k)))');
-    // Menus the data module mounts: the trigger's keys ask for the end, its taking the focus clears it (no `pointerdown`: that would
-    // keep the press from the window's light-dismiss count), and the menu reads it as it mounts.
-    const rail = await component('r6-device.contract', 'R6RailButton');
-    expect(rail).toContain('button id=testId press=press key=keyed focus=menuEnd("")');
-    expect(rail).toContain('    if menu and kmArrow(k) and not e.metaKey and not e.ctrlKey and not e.altKey\n      preventDefault()\n      press()');
-    expect((await source('r6-device.contract')).split('keyed=kmEndKeyed(railEnd)').length - 1).toBe(3);
     const files = await source('r4-surfaces-files.contract');
     // The folder menu is a popover whose rows mount once the data module lists the folder: they read the end then.
     expect(files.split('\n').find(l => l.includes('KeyMenu(menuId="crumb-menu-keys"'))).toContain('keyed=kmEndKeyed(menuEnd)');
@@ -570,6 +563,9 @@ describe('one highlight: the pointer and the keys move one focus (Base UI highli
     const popupOf = (line: string): string | null => {
       const own = line.match(/^\s*KeyMenu\(menuId=(`[^`]*`|"[^"]*"|[\w.]+)/);
       if (own) return own[1]!;
+      // R6RailMenuButton names its KeyMenu's popup itself (`keysId`).
+      const rail = line.match(/^\s*R6RailMenuButton\(.*\bkeysId=("[^"]*")/)?.[1];
+      if (rail) return rail;
       const wrapped = line.match(/^\s*(?:SkPopup|CnMenu)\(menuId=(`[^`]*`|"[^"]*"|[\w.]+)/)?.[1];
       if (!wrapped) return null;
       return /^[`"]/.test(wrapped) ? `${wrapped.slice(0, -1)}-keys${wrapped.slice(-1)}` : `\`\${${wrapped}}-keys\``;

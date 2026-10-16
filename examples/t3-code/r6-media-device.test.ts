@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { activeDevice, menuPlace, r6DeviceCommand, r6DeviceLocal, r6DeviceMini, r6DeviceView, railAction, streamView, MORE_MENU_HEIGHT, TEXT_MENU_HEIGHT } from './r6-media-device';
+import { activeDevice, r6DeviceCommand, r6DeviceLocal, r6DeviceMini, r6DeviceView, railAction, streamView } from './r6-media-device';
 import type { T3Client } from './client';
 import type { Native } from './protocol';
 import type { Obj } from './domain';
@@ -127,19 +127,11 @@ describe('the Device surface after onboarding', () => {
     expect(calls.map(call => [call.op, call.request?.action, call.request?.key])).toEqual([['r6DeviceInput', 'home', KEY], ['r6DeviceInput', 'rotate', KEY], ['r6DeviceInput', 'reconnect', KEY]]);
   });
 
-  test('Save screenshot reports the hub failure in the workspace; menus open beside their triggers', async () => {
+  test('Save screenshot reports the hub failure in the workspace', async () => {
     const c = client([], { 'device.open': { hostId: 'local', deviceId: 'SIM-1' }, 'device.detail': settings, r6DeviceScreenshot: { ok: false, message: 'Screenshot capture failed (502). Try again.' } });
     const state = deviceState({ sessions: [{ threadId: 't1', hostId: 'local', deviceId: 'SIM-1', platform: 'ios', openedAt: '' }] });
     await r6DeviceCommand(c, native, state, 'p', 'open', KEY, '');
     await r6DeviceCommand(c, native, state, 'p', 'screenshot', '', '');
     expect((await r6DeviceView(c, native, state, true, 'p')).workspace.alert).toBe('Screenshot capture failed (502). Try again.');
-    (c.presentation as Obj).frames = { 'r6-device': [800, 80, 480, 760], 'r6-device-text': [1238, 400, 28, 28], 'r6-device-more': [1238, 464, 28, 28] };
-    expect(menuPlace(c, 'text')).toEqual({ menuTop: 400 + 14 - TEXT_MENU_HEIGHT / 2 - 80, menuRight: 1280 - 1238 + 4 });
-    expect(menuPlace(c, 'more')).toEqual({ menuTop: 464 + 28 - MORE_MENU_HEIGHT - 80, menuRight: 46 });
-    expect(menuPlace(c, '')).toEqual({ menuTop: 0, menuRight: 0 });
-    await r6DeviceLocal(c, native, state, 'p', 'menu', 'more');
-    expect((await r6DeviceView(c, native, state, true, 'p')).workspace.rail.menu).toBe('more');
-    await r6DeviceLocal(c, native, state, 'p', 'menu', 'more');
-    expect((await r6DeviceView(c, native, state, true, 'p')).workspace.rail.menu).toBe('');
   });
 });

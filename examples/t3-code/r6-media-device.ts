@@ -24,7 +24,7 @@ export const deviceThreadId = (client: T3Client): string => activeRef(client)?.t
 export type DeviceTarget = { hostId: string; deviceId: string; platform: string; name: string };
 export type R6DeviceRail = {
   inputConnected: boolean; appearance: string; appearanceLabel: string; appearanceIcon: string; appearanceDisabled: boolean;
-  textSize: string; textSizeDisabled: boolean; screenshotLabel: string; screenshotDisabled: boolean; menu: string; menuTop: number; menuRight: number;
+  textSize: string; textSizeDisabled: boolean; screenshotLabel: string; screenshotDisabled: boolean;
 };
 export type R6DeviceStream = { status: string; message: string; error: boolean; inputNotice: string };
 export type R6DeviceWorkspace = {
@@ -42,13 +42,13 @@ export type R6DeviceMini = { show: boolean; key: string; sourceKey: string; name
 type Store = {
   generation: number; pending: (DeviceTarget & { booted: boolean; version: string }) | null; operationError: string;
   targets: Map<string, DeviceTarget>; mini: PreviewMiniPlayerStore;
-  detail: Obj | null; detailKey: string; detailError: string; acting: boolean; screenshotPending: boolean; screenshotError: string; menu: string;
+  detail: Obj | null; detailKey: string; detailError: string; acting: boolean; screenshotPending: boolean; screenshotError: string;
 };
 const stores = new WeakMap<T3Client, Store>();
 function storeOf(client: T3Client): Store {
   let store = stores.get(client);
   if (!store) {
-    store = { generation: client.generation, pending: null, operationError: '', targets: new Map(), mini: new PreviewMiniPlayerStore(), detail: null, detailKey: '', detailError: '', acting: false, screenshotPending: false, screenshotError: '', menu: '' };
+    store = { generation: client.generation, pending: null, operationError: '', targets: new Map(), mini: new PreviewMiniPlayerStore(), detail: null, detailKey: '', detailError: '', acting: false, screenshotPending: false, screenshotError: '' };
     stores.set(client, store);
   }
   if (store.generation !== client.generation) { store.generation = client.generation; store.detail = null; store.detailKey = ''; store.pending = null; }
@@ -101,7 +101,7 @@ export function streamView(client: T3Client, key: string, platform: string): R6D
 }
 
 const EMPTY_STREAM: R6DeviceStream = { status: '', message: '', error: false, inputNotice: '' };
-const EMPTY_RAIL: R6DeviceRail = { inputConnected: false, appearance: '', appearanceLabel: '', appearanceIcon: 'moon', appearanceDisabled: true, textSize: '', textSizeDisabled: true, screenshotLabel: 'Save screenshot', screenshotDisabled: true, menu: '', menuTop: 0, menuRight: 0 };
+const EMPTY_RAIL: R6DeviceRail = { inputConnected: false, appearance: '', appearanceLabel: '', appearanceIcon: 'moon', appearanceDisabled: true, textSize: '', textSizeDisabled: true, screenshotLabel: 'Save screenshot', screenshotDisabled: true };
 export const emptyWorkspace = (): R6DeviceWorkspace => ({ key: '', name: '', description: '', platform: '', deviceId: '', hostId: '', screenLabel: '', alert: '', stream: EMPTY_STREAM, rail: EMPTY_RAIL, r7: emptyR7Workspace(), r9: emptyR9Folding() });
 export const emptyR6Device = (): R6DeviceView => ({ mode: 'list', pendingKey: '', openingName: '', openingDescription: '', openingMessage: '', operationError: '', booting: '', hostDetail: '', workspace: emptyWorkspace() });
 export const emptyMini = (): R6DeviceMini => ({ show: false, key: '', sourceKey: '', name: '', description: '', platform: '', deviceId: '', hostId: '', stream: EMPTY_STREAM });
@@ -134,7 +134,7 @@ export async function r6DeviceView(client: T3Client, native: Native | null, stat
       rail: { inputConnected: obj(obj(client.presentation.deviceStreams)[key]).inputConnected === true, appearance,
         appearanceLabel: `Switch device to ${next} mode`, appearanceIcon: appearance === 'dark' ? 'sun' : 'moon', appearanceDisabled: controlsDisabled || !appearance,
         textSize: str(settings.textSize), textSizeDisabled: controlsDisabled || !str(settings.textSize),
-        screenshotLabel: store.screenshotPending ? 'Capturing screenshot' : 'Save screenshot', screenshotDisabled: stream.status !== 'streaming' || store.screenshotPending, menu: store.menu, ...menuPlace(client, store.menu) },
+        screenshotLabel: store.screenshotPending ? 'Capturing screenshot' : 'Save screenshot', screenshotDisabled: stream.status !== 'streaming' || store.screenshotPending },
     } };
   }
   const pending = store.pending;
@@ -169,19 +169,6 @@ export function miniDeviceOf(client: T3Client, threadId: string): DeviceTarget |
 export function floatMiniDevice(client: T3Client, threadId: string, target: DeviceTarget): void { storeOf(client).mini.open(threadId, miniSource(target)); }
 export const closeMiniDevice = (client: T3Client, threadId: string): void => { storeOf(client).mini.close(threadId); };
 
-/** Text size (side left, centred, min-w-40, four 28pt rows) and More (side left, aligned to the
- *  trigger's end, three rows and a separator) beside their rail triggers, measured by `t3-frame`. */
-export const TEXT_MENU_HEIGHT = 4 * 28 + 8 + 2, MORE_MENU_HEIGHT = 3 * 28 + 9 + 8 + 2, ROTATE_MENU_HEIGHT = 2 * 28 + 8 + 2;
-export function menuPlace(client: T3Client, menu: string): { menuTop: number; menuRight: number } {
-  const frames = obj(client.presentation.frames), nums = (value: unknown) => (Array.isArray(value) ? value.map(Number) : []);
-  const area = nums(frames['r6-device']), trigger = nums(frames[`r6-device-${menu}`]);
-  if (!menu || area.length < 4 || trigger.length < 4) return { menuTop: 0, menuRight: 0 };
-  const centred = menu === 'text' ? TEXT_MENU_HEIGHT : menu === 'rotate' ? ROTATE_MENU_HEIGHT : 0;
-  const top = centred ? trigger[1]! + trigger[3]! / 2 - centred / 2 : trigger[1]! + trigger[3]! - MORE_MENU_HEIGHT;
-  const height = centred || MORE_MENU_HEIGHT;
-  return { menuTop: Math.max(4, Math.min(area[3]! - height - 4, top - area[1]!)), menuRight: Math.max(0, area[0]! + area[2]! - trigger[0]! + 4) };
-}
-
 async function readDetail(client: T3Client, native: Native, store: Store, key: string, target: Obj): Promise<void> {
   store.detailKey = key;
   try { store.detail = obj(await client.restAccess(native).request('device.detail', target)); store.detailError = ''; }
@@ -202,7 +189,7 @@ export async function openDevice(client: T3Client, native: Native, state: Obj, k
   try {
     const result = obj(await client.restAccess(native).request('device.open', { threadId, hostId: str(device.hostId), deviceId: str(device.id), platform }, true));
     store.targets.set(panelKey, { hostId: str(result.hostId, str(device.hostId)), deviceId: str(result.deviceId, str(device.id)), platform, name: str(device.name) });
-    store.detailKey = ''; store.menu = '';
+    store.detailKey = '';
   } catch (error) { if (!letGo(error)) store.operationError = message(error, 'Could not open the device.'); }
   finally { store.pending = null; }
 }
@@ -210,7 +197,6 @@ export async function openDevice(client: T3Client, native: Native, state: Obj, k
 /** closeActive(true): `device.close` with `shutdown`, then the surface closes. Returns whether it closed. */
 export async function powerOff(client: T3Client, native: Native, state: Obj, panelKey: string): Promise<boolean> {
   const store = storeOf(client), device = activeDevice(state, deviceThreadId(client), store.targets.get(panelKey));
-  store.menu = '';
   if (!device) return false;
   store.operationError = '';
   try {
@@ -223,7 +209,6 @@ export async function powerOff(client: T3Client, native: Native, state: Obj, pan
 /** useDeviceControls.act: one serialized `device.action`; its result is the confirmed detail. */
 export async function deviceAction(client: T3Client, native: Native, state: Obj, panelKey: string, op: string, value: string): Promise<void> {
   const store = storeOf(client);
-  store.menu = '';
   const body = railAction(op, value, str(obj(store.detail?.settings).appearance));
   if (body) await actDevice(client, native, state, panelKey, body);
 }
@@ -231,7 +216,6 @@ export async function deviceAction(client: T3Client, native: Native, state: Obj,
 /** One serialized `device.action` with any body (the rail, the Tools drawer); false when it did not run. */
 export async function actDevice(client: T3Client, native: Native, state: Obj, panelKey: string, body: Obj): Promise<boolean> {
   const store = storeOf(client), device = activeDevice(state, deviceThreadId(client), store.targets.get(panelKey));
-  store.menu = '';
   if (!device || store.acting || !store.detail) return false;
   store.acting = true; store.detailError = '';
   try { store.detail = obj(await client.restAccess(native).request('device.action', { hostId: str(device.hostId), deviceId: str(device.id), ...body }, true)); }
@@ -266,7 +250,6 @@ export async function r6DeviceCommand(client: T3Client, native: Native, state: O
 /** DeviceWorkspace saveScreenshot through the module (the hub's POST /api/screenshot). */
 export async function saveScreenshot(client: T3Client, native: Native, state: Obj, panelKey: string): Promise<void> {
   const store = storeOf(client), device = activeDevice(state, deviceThreadId(client), store.targets.get(panelKey));
-  store.menu = '';
   if (!device || store.screenshotPending) return;
   store.screenshotPending = true; store.screenshotError = '';
   try {
@@ -276,14 +259,12 @@ export async function saveScreenshot(client: T3Client, native: Native, state: Ob
   finally { store.screenshotPending = false; }
 }
 
-/** The no-write controls: menus, the error dismissal, float / restore / close, input buttons and Reconnect. */
+/** The no-write controls: the error dismissal, float / restore / close, input buttons and Reconnect. */
 export async function r6DeviceLocal(client: T3Client, native: Native, state: Obj | null, panelKey: string, op: string, value: string): Promise<'close' | 'hide' | 'reopen' | ''> {
   const store = storeOf(client);
   if (op === 'dismiss-error') { store.operationError = ''; return ''; }
-  if (op === 'menu') { store.menu = store.menu === value ? '' : value; return ''; }
-  if (op === 'close-panel') { store.menu = ''; return 'close'; }
+  if (op === 'close-panel') return 'close';
   if (op === 'float') {
-    store.menu = '';
     const device = state ? activeDevice(state, deviceThreadId(client), store.targets.get(panelKey)) : null;
     if (!device) return '';
     floatMiniDevice(client, deviceThreadId(client), { hostId: str(device.hostId), deviceId: str(device.id), platform: platformOf(str(device.platform)), name: str(device.name) });
@@ -308,7 +289,6 @@ export async function r6DeviceLocal(client: T3Client, native: Native, state: Obj
   }
   if (op.startsWith('tools-')) {
     const device = state ? activeDevice(state, deviceThreadId(client), store.targets.get(panelKey)) : null;
-    store.menu = '';
     await r7DeviceLocal(client, op.slice(6), value, device ? deviceKey({ hostId: str(device.hostId), id: str(device.id) }) : '', {
       input: (action, key, extra) => client.restAccess(native).call({ op: 'r6DeviceInput', action, key, value: extra }).then(() => undefined),
       act: body => (state ? actDevice(client, native, state, panelKey, body) : Promise.resolve(false)), detail: store.detail,
