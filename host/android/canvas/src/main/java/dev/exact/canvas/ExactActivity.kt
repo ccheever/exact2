@@ -34,6 +34,19 @@ open class ExactActivity : Activity() {
     protected open val startPitchDp = 0f
     /** The app has text fields: keys and the software keyboard reach it ([Keys]). */
     protected open val input = false
+    /** What shows a date or time control's picker (LLP 1115.001.000 D1): the framework's dialogs, unless the app
+     * links a library's (the shell's Compose Material 3 pickers, linked when the plan has such a control). */
+    open val pickers: Pickers get() = FrameworkPickers
+
+    /** The app's Kotlin hatches (LLP 1115.001.000 D4), made the first time exact2 tells a moment, which is after
+     * first pixel; one for the process, as exact2's host is, and given each activity made again. */
+    internal fun hatches(): HatchReader? {
+        if (!hatchesLooked) { hatchesLooked = true; hatchReader = HatchReader.make(this) }
+        return hatchReader?.also { it.activity = this }
+    }
+
+    /** Hosted field [node]'s `EditText`, where the reader hosts it now (main thread). */
+    internal fun hostedField(node: Int): android.view.View? = fields?.text(node)
     /**
      * The seam a driver attaches at ([Drive]); the default attaches none. Called once, as the activity is made, when
      * the host has begun to boot and before the view is made: a driver sets the window up and reads its own launch
@@ -497,5 +510,10 @@ open class ExactActivity : Activity() {
         if (assets.list("app").isNullOrEmpty()) return
         copy("app", to)
         done.writeText(stamp)
+    }
+
+    private companion object {
+        var hatchesLooked = false
+        var hatchReader: HatchReader? = null
     }
 }

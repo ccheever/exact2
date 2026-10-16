@@ -352,3 +352,70 @@ fn the_shell_is_told_when_back_has_somewhere_to_go_and_a_field_holds_the_focus()
     assert!(!p.answer_request(share, Some("shared")));
     assert_eq!(told(&mut p), [(5, 0), (6, 1)]);
 }
+
+/// A date control and a time control, bound.
+const DATES: &str = r#"component App
+  state day = "2026-10-16"
+  state at = ""
+  action setDay(value)
+    day = value
+  action setAt(value)
+    at = value
+  view
+    column
+      input type="date" value=day change=setDay min="2026-01-01" max="2026-12-31" testId="day" height=30
+      input type="time" value=at change=setAt step="60" testId="at" height=30
+"#;
+
+#[test]
+fn a_date_or_time_controls_press_asks_the_shell_for_its_picker_and_its_answer_is_the_value() {
+    let boot = || {
+        Presenter::boot_with(
+            &crate::test_plan(DATES),
+            Nothing,
+            (400., 800.),
+            1.,
+            PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap()
+        .0
+    };
+    let value = |p: &Presenter<Nothing>, name: &str| {
+        let node = id(p, name);
+        p.host()
+            .kernel()
+            .node(node)
+            .unwrap()
+            .props
+            .str(PropId::Value)
+            .unwrap_or("")
+            .to_owned()
+    };
+    // With no shell nothing is asked.
+    let mut p = boot();
+    tap(&mut p, "day");
+    assert_eq!(p.take_requests(), None);
+    let mut p = boot();
+    p.serve_requests();
+    tap(&mut p, "day");
+    let asked = decode(p.take_requests());
+    assert_eq!(asked.len(), 1);
+    let (kind, request, body) = &asked[0];
+    assert_eq!((*kind, body[0] as u32), (9, id(&p, "day")));
+    assert_eq!(
+        strings(body, 1),
+        ["date", "2026-10-16", "2026-01-01", "2026-12-31", ""]
+    );
+    // The answer is the person's choice: `change` runs, and the bound value moves.
+    assert!(p.answer_request(*request, Some("2026-11-02")));
+    p.run_commands(|| Nothing);
+    assert_eq!(value(&p, "day"), "2026-11-02");
+    tap(&mut p, "at");
+    let asked = decode(p.take_requests());
+    assert_eq!(strings(&asked[0].2, 1), ["time", "", "", "", "60"]);
+    // A dismissal changes nothing, and is journaled.
+    assert!(p.answer_request(asked[0].1, None));
+    assert_eq!(value(&p, "at"), "");
+    assert_eq!(says(&p, "picker: dismissed"), 1);
+}

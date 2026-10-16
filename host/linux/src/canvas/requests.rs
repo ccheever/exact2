@@ -20,9 +20,27 @@ impl<D: DataSource + Default> CanvasHost<D> {
     pub fn requests(&mut self) -> Option<Vec<i32>> {
         self.echo_journal();
         if !self.scrolled {
+            // The reader takes its requests once it has the turn's frame:
+            // after first pixel (a displayed frame activates it), the
+            // hatches connect, once (LLP 1075.003.000.001 §2.1).
+            if self.p.first_pixel_told() {
+                self.p.connect_hatches();
+            }
             self.p.tell_shell();
+            self.p.tell_reader_hatches();
         }
         self.p.take_requests()
+    }
+
+    /// What the reader's handle for hatched node `node` asks
+    /// (`hatches::reader::act`), run at once, between turns; whether a node
+    /// of that number took it.
+    pub fn hatch_act(&mut self, node: u32, kind: i32, text: Option<&str>) -> bool {
+        let took = crate::hatches::reader::act(node, kind, text);
+        if took {
+            self.p.hatch_turn();
+        }
+        took
     }
 
     /// The reader's answer to request `id`, or its cancellation (`None`).

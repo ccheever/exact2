@@ -120,11 +120,16 @@ pub enum Capability {
     /// numeric text, whose framework an app links only for this (LLP
     /// 1115.003 D3). A plan uses it when it binds the row.
     Numerals,
+    /// A date or time control (`input type="date"`, `"time"` or
+    /// `"datetime-local"`): on Android its picker is Compose Material 3's,
+    /// which an app links only for it (LLP 1115.001.000 D2). Every other
+    /// host shows its platform's own picker and links nothing for it.
+    Dates,
 }
 
 impl Capability {
     /// Every capability, in bit order.
-    pub const ALL: [Capability; 29] = [
+    pub const ALL: [Capability; 30] = [
         Capability::Markdown,
         Capability::Motion,
         Capability::Collections,
@@ -154,6 +159,7 @@ impl Capability {
         Capability::MediaPicker,
         Capability::AuthSession,
         Capability::Numerals,
+        Capability::Dates,
     ];
 
     /// The name an entry, a refusal and a report use.
@@ -188,6 +194,7 @@ impl Capability {
             Capability::MediaPicker => "media_picker",
             Capability::AuthSession => "auth_session",
             Capability::Numerals => "numerals",
+            Capability::Dates => "dates",
         }
     }
 
@@ -301,6 +308,13 @@ pub fn uses(plan: &Plan) -> Uses {
                 Some(PropId::AccessibilityControls) => uses = uses.with(Capability::Tabs),
                 Some(PropId::Type) if can_be(binding, &|v| v == "file") => {
                     uses = uses.with(Capability::Picker);
+                }
+                Some(PropId::Type)
+                    if can_be(binding, &|v| {
+                        matches!(v, "date" | "time" | "datetime-local")
+                    }) =>
+                {
+                    uses = uses.with(Capability::Dates);
                 }
                 _ => {}
             },

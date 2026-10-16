@@ -514,6 +514,13 @@ internal object Exact {
         return if (o != null) { o.input(); o.sync { Native.accessAct(id, action, value) } } else Native.accessAct(id, action, value).also { turned() }
     }
 
+    /** What a hatch's handle asks of node [node] ([ExactElement]): on exact2's thread, waited for, as an
+     * accessibility service's act is; exact2 runs it between its turns and publishes what it changed. */
+    fun hatchAct(node: Int, kind: Int, text: String?): Boolean {
+        val o = owner
+        return if (o != null) { o.input(); o.sync { Native.hatchAct(node, kind, text) } } else Native.hatchAct(node, kind, text).also { turned() }
+    }
+
     /** When the last touch lifted, or was held long enough to be a long press ([android.os.SystemClock.uptimeMillis]):
      * what a surface's first frame is timed from (`x_log_surfaces=1`). */
     var touched = 0L

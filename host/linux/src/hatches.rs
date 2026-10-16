@@ -25,6 +25,7 @@ use std::rc::Rc;
 
 pub(crate) mod breadcrumb;
 pub(crate) mod diagnostics;
+pub(crate) mod reader;
 pub(crate) mod session;
 #[cfg(test)]
 mod tests;
@@ -75,6 +76,22 @@ pub fn install<H: Hatches>(words: &'static [&'static str]) -> Install {
         make: make::<H>,
         words,
     }
+}
+
+/// An app with no Rust hatches, whose hatches are all the reader's.
+impl Hatches for () {}
+
+/// `H`, with the Android reader's own hatches told every moment beside it
+/// (LLP 1115.001.000 D4); `words` are the ones `app.json` gives `android`.
+pub fn install_with_reader<H: Hatches>(words: &'static [&'static str]) -> Install {
+    Install {
+        make: make_with_reader::<H>,
+        words,
+    }
+}
+
+fn make_with_reader<H: Hatches>(shared: Rc<Shared>) -> Box<dyn Module> {
+    Box::new(reader::Beside(make::<H>(shared)))
 }
 
 fn make<H: Hatches>(shared: Rc<Shared>) -> Box<dyn Module> {

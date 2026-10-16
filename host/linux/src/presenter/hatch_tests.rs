@@ -1082,3 +1082,106 @@ fn the_scopes_are_told_a_change_once_end_in_order_and_are_built_again_after_a_re
     p.hatch_turn();
     assert!(notes().is_empty());
 }
+
+// A field with a hatch, its word's value, and a way to change and remove it.
+const BESIDE: &str = r##"component App
+  state text = ""
+  state tone = "calm"
+  state shown = true
+  action edit(value: string)
+    text = value
+  action busy
+    tone = "busy"
+  action hide
+    shown = false
+  view
+    column data-mood=tone
+      if shown
+        input hatch="feed" data-tone=tone value=text input=edit testId="fed" width=200 height=30
+      button press=busy testId="busy" width=50 height=30
+      button press=hide testId="hide" width=50 height=30
+"##;
+
+/// A moment the reader's hatches were told: its scope, its moment, its
+/// node, its word and its `data-*` words.
+type Told = (i32, i32, u32, String, Vec<(String, String)>);
+
+/// The moments the reader's hatches were told (`hatches/reader.rs`).
+fn told() -> Vec<Told> {
+    let words = crate::hatches::reader::take().unwrap_or_default();
+    let string = |at: &mut usize| {
+        let n = words[*at] as usize;
+        let bytes: Vec<u8> = words[*at + 1..*at + 1 + n.div_ceil(4)]
+            .iter()
+            .flat_map(|w| w.to_le_bytes())
+            .take(n)
+            .collect();
+        *at += 1 + n.div_ceil(4);
+        String::from_utf8(bytes).unwrap()
+    };
+    let (mut out, mut at) = (Vec::new(), 0);
+    while at < words.len() {
+        let (scope, moment, node) = (words[at], words[at + 1], words[at + 2] as u32);
+        at += 7;
+        let word = string(&mut at);
+        string(&mut at);
+        let count = words[at];
+        at += 1;
+        let data = (0..count)
+            .map(|_| (string(&mut at), string(&mut at)))
+            .collect();
+        out.push((scope, moment, node, word, data));
+    }
+    out
+}
+
+#[test]
+fn the_readers_hatches_are_told_every_moment_and_act_by_the_nodes_number() {
+    let mut p = boot::<()>(BESIDE, &["feed"]);
+    p.set_hatches(Some(crate::hatches::install_with_reader::<()>(&["feed"])));
+    crate::hatches::reader::take();
+    first_pixel(&mut p);
+    p.hatch_turn();
+    let fed = id(&p, "fed");
+    let pair = |k: &str, v: &str| (k.to_owned(), v.to_owned());
+    assert_eq!(
+        told(),
+        [
+            (1, 0, 0, String::new(), vec![pair("mood", "calm")]),
+            (3, 0, fed, "feed".into(), vec![pair("tone", "calm")]),
+        ],
+        "the app, then the node, each built"
+    );
+    // A word that changes is a changed moment, the root's for the app too.
+    tap(&mut p, "busy");
+    p.hatch_turn();
+    assert_eq!(
+        told(),
+        [
+            (1, 1, 0, String::new(), vec![pair("mood", "busy")]),
+            (3, 1, fed, "feed".into(), vec![pair("tone", "busy")]),
+        ]
+    );
+    // What the reader's handle asks runs as a Rust hatch's act does.
+    assert!(crate::hatches::reader::act(fed, 4, Some("Palo Alto")));
+    assert!(
+        !crate::hatches::reader::act(fed + 1000, 1, None),
+        "no such node"
+    );
+    p.hatch_turn();
+    let value = |p: &Presenter<()>| {
+        p.host()
+            .kernel()
+            .node(fed)
+            .and_then(|n| n.props.str(PropId::Value).map(str::to_owned))
+    };
+    assert_eq!(value(&p).as_deref(), Some("Palo Alto"));
+    // The node's end is told, and its number takes no act after it.
+    tap(&mut p, "hide");
+    p.hatch_turn();
+    assert_eq!(
+        told(),
+        [(3, 2, fed, "feed".into(), vec![pair("tone", "busy")])]
+    );
+    assert!(!crate::hatches::reader::act(fed, 1, None));
+}

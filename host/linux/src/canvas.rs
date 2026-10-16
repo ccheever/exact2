@@ -1063,6 +1063,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
         compat: &'static str,
         size: (u32, u32),
         scale: f32,
+        hatches: Option<crate::hatches::Install>,
     ) -> Result<CanvasHost<D>, String> {
         let started = std::time::Instant::now();
         let origin_ns = monotonic_ns();
@@ -1101,7 +1102,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
             palette.tell();
         }
         let mut config = crate::app::Config::from_env_static(plan, compat);
-        config.scale = scale;
+        (config.scale, config.hatches) = (scale, hatches);
         let (mut p, error) = crate::app::boot_presenter_with_painter::<D>(
             &mut config,
             viewport,
@@ -1250,6 +1251,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
             }
             p.poll_update();
             p.run_commands(D::default);
+            p.hatch_turn();
         }
         if p.host().wants_frames() {
             if let Some(e) = p.animation_frame(now) {

@@ -10,7 +10,9 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.net.Uri
 import android.os.Build
+import android.os.SystemClock
 import android.util.Log
+import android.view.Choreographer
 import android.view.HapticFeedbackConstants
 
 /**
@@ -76,6 +78,8 @@ internal class Requests(private val activity: ExactActivity) {
                     SURFACE -> surfaces?.told(words, body)
                     // `wakelock="screen"` (LLP 1125 D11): the platform's own view attribute.
                     KEEP_SCREEN_ON -> view?.keepScreenOn = words[body] != 0
+                    PICK -> pick(id, words, body)
+                    HATCH -> activity.hatches()?.told(words, body, i)
                 }
             } catch (e: RuntimeException) {
                 // The platform refused (no activity to start from, a full clipboard transaction): the app goes on.
@@ -90,6 +94,37 @@ internal class Requests(private val activity: ExactActivity) {
         val n = w[at]
         val bytes = ByteArray(n) { k -> (w[at + 1 + k / 4] ushr (8 * (k % 4))).toByte() }
         return String(bytes, Charsets.UTF_8) to at + 1 + (n + 3) / 4
+    }
+
+    /** The pickers that are up, by their requests' ids: none has answered yet. */
+    private val picking = HashSet<Int>()
+
+    /**
+     * A date or time control's picker (LLP 1115.001.000 D1): the control's hatch may set what it offers or take it
+     * over ([ExactHatches.picker]); else the activity's [ExactActivity.pickers] shows it. Its answer is the value
+     * chosen, in HTML's form, or null when it was dismissed. `x_log_requests=1` logs when it first drew, from the
+     * request and from the touch that asked for it.
+     */
+    private fun pick(id: Int, w: IntArray, at: Int) {
+        val node = w[at]
+        val (kind, a) = string(w, at + 1)
+        val (value, b) = string(w, a)
+        val (min, c) = string(w, b)
+        val (max, d) = string(w, c)
+        val picker = ExactPicker(kind, value, min, max, string(w, d).first)
+        activity.hatches()?.picker(node, picker)
+        picking.add(id)
+        val answer = { chosen: String? -> if (picking.remove(id)) Exact.answer(id, chosen) }
+        val asked = SystemClock.uptimeMillis()
+        val touched = Exact.touched
+        val drawn = {
+            if (log) Choreographer.getInstance().postFrameCallback {
+                val now = SystemClock.uptimeMillis()
+                Log.i(TAG, "picker $kind: its first frame ${now - asked} ms after the request, ${now - touched} after the touch")
+            }
+        }
+        val own = picker.show
+        if (own != null) own(answer) else activity.pickers.show(activity, picker, drawn, answer)
     }
 
     /** A link that leaves the app: an `http` or `https` URL in the browser (or the app that claims it), `mailto:` in
@@ -175,6 +210,8 @@ internal class Requests(private val activity: ExactActivity) {
         if (listening) activity.unregisterReceiver(receiver)
         for (id in sharing) Exact.answer(id, null)
         sharing.clear()
+        for (id in picking) Exact.answer(id, null)
+        picking.clear()
     }
 
     private companion object {
@@ -189,6 +226,8 @@ internal class Requests(private val activity: ExactActivity) {
         const val KEYBOARD = 6
         const val SURFACE = 7
         const val KEEP_SCREEN_ON = 8
+        const val PICK = 9
+        const val HATCH = 10
         /** How long after the activity is in front again a share sheet's choice is still waited for. */
         const val DISMISSED_MS = 500L
     }

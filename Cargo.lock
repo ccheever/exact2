@@ -3220,6 +3220,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "native-fixture-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "native-fixture-data",
+]
+
+[[package]]
 name = "native-fixture-apple"
 version = "0.1.0"
 dependencies = [
@@ -5107,6 +5117,16 @@ name = "typenum"
 version = "1.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
+
+[[package]]
+name = "typetour-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "typetour-data",
+]
 
 [[package]]
 name = "typetour-apple"

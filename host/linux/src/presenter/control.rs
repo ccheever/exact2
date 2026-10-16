@@ -57,6 +57,21 @@ impl<D: DataSource> Presenter<D> {
         if node.props.bool(PropId::Disabled) == Some(true) {
             return true;
         }
+        // A date or time control's press opens the platform's picker where a
+        // shell takes requests (LLP 1115.001.000 D1).
+        if self.has_shell()
+            && matches!(
+                exact_kernel::ControlKind::of(node.node_type, node.props),
+                Some(
+                    exact_kernel::ControlKind::Date
+                        | exact_kernel::ControlKind::Time
+                        | exact_kernel::ControlKind::DateTimeLocal
+                )
+            )
+        {
+            self.pick(id);
+            return true;
+        }
         // A select's press opens its menu (D7).
         if node.props.str(PropId::Type) == Some("select") {
             self.menu = Some(id);

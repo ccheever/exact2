@@ -13,10 +13,15 @@
 
 /// Define the JNI for an app over `CanvasHost<$data>` with the plan and
 /// compat the app's build script writes to `OUT_DIR` (`app.plan`,
-/// `compat.json`).
+/// `compat.json`). `hatches = …` is the app's [`crate::hatches::Install`]
+/// when it has hatches (`hatches::install_with_reader`, so the reader's
+/// Kotlin ones hear them too).
 #[macro_export]
 macro_rules! canvas_jni {
     ($data:ty) => {
+        $crate::canvas_jni!($data, hatches = None);
+    };
+    ($data:ty, hatches = $hatches:expr) => {
         #[global_allocator]
         static EXACT_ALLOCATOR: $crate::canvas::jni::Allocator = $crate::canvas::jni::Allocator;
 
@@ -33,6 +38,10 @@ macro_rules! canvas_jni {
             const COMPAT: &str = include_str!(concat!(env!("OUT_DIR"), "/compat.json"));
 
             type Host = $crate::canvas::CanvasHost<$data>;
+
+            fn hatches() -> Option<$crate::hatches::Install> {
+                $hatches
+            }
 
             /// How long after boot the library's read-only pages are let go of
             /// (boot's own work is done; see `release_library_pages_after`).
@@ -120,7 +129,7 @@ macro_rules! canvas_jni {
                 std::env::set_var("EXACT_FONTS", "/system/fonts");
                 std::env::set_var("EXACT_FONT", "Roboto");
                 std::env::set_var("BENCH_LIVE", if live == JNI_TRUE { "1" } else { "0" });
-                match Host::boot(PLAN, COMPAT, (width as u32, height as u32), scale) {
+                match Host::boot(PLAN, COMPAT, (width as u32, height as u32), scale, hatches()) {
                     Ok(h) => {
                         HOST.with(|slot| *slot.borrow_mut() = Some(h));
                         RUNNING.store(true, std::sync::atomic::Ordering::Release);
@@ -183,7 +192,7 @@ macro_rules! canvas_jni {
                     .name("exact-boot".into())
                     .spawn(move || {
                         let booted = $crate::android::trace(c"exact boot", || {
-                            Host::boot(PLAN, COMPAT, (width as u32, height as u32), scale).map(
+                            Host::boot(PLAN, COMPAT, (width as u32, height as u32), scale, hatches()).map(
                                 |mut h| {
                                     h.set_borrowed(true);
                                     let first = h.frame();
@@ -751,6 +760,21 @@ macro_rules! canvas_jni {
                 value: jfloat,
             ) -> jboolean {
                 flag(with(|h| h.access_act(id, action, value)).unwrap_or(false))
+            }
+
+            /// What the reader's hatch handle for node `node` asks (LLP
+            /// 1115.001.000 D4): 1 `click`, 2 `focus`, 3 `blur`, 4
+            /// `input(text)`. Whether a hatched node of that number took it.
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_hatchAct(
+                env: *mut JNIEnv,
+                _class: jclass,
+                node: jint,
+                kind: jint,
+                text: jstring,
+            ) -> jboolean {
+                let text = (!text.is_null()).then(|| string(env, text));
+                flag(with(|h| h.hatch_act(node as u32, kind, text.as_deref())).unwrap_or(false))
             }
 
             /// No accessibility service is on any more: the presenter

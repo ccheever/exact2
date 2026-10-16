@@ -164,6 +164,12 @@ impl<D: DataSource> Presenter<D> {
         self.connect_hatches();
     }
 
+    /// First pixel has been acknowledged ([`Presenter::first_pixel`]).
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    pub(crate) fn first_pixel_told(&self) -> bool {
+        self.painted
+    }
+
     /// The deferred data module has yet to activate, and has not failed to:
     /// the agent's `clock data` waits for it.
     pub fn data_activating(&self) -> bool {

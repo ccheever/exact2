@@ -124,7 +124,7 @@ pub use painter::{set_custom_painter, PainterChoice, PainterFactory, PainterInfo
 pub(crate) use palette::reported_accent;
 pub use palette::{Material, Palette, MATERIAL_ROLES};
 pub use pointer::PointerKind;
-pub use requests::{Haptic, Request};
+pub use requests::{Haptic, Pick, Request};
 pub use scrollers::{Scroller, Under, PAGE};
 pub use window::{Chrome, Window};
 

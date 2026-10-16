@@ -24,7 +24,7 @@
 // otherwise: the GPU painter needs a real GPU's Vulkan (an emulator's
 // SwiftShader crashes it).
 import { spawn, spawnSync } from 'node:child_process';
-import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import { homedir } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
@@ -218,6 +218,19 @@ async function relay([serial, id, vars]) {
   process.stdin.on('end', () => { turn.then(() => done(0)); });
 }
 
+/** The capabilities the plan of `crate` uses (LLP 1047 D2), from the `uses.txt` its build script writes beside the
+ * plan (`contract::native::android_entry`), found by Cargo's JSON messages. None when the crate writes none. */
+function planUses(messages, crate) {
+  for (const line of messages.split('\n')) {
+    if (!line.startsWith('{')) continue;
+    const m = JSON.parse(line);
+    if (m.reason !== 'build-script-executed' || !(m.package_id.includes(`#${crate}@`) || m.package_id.startsWith(`${crate} `))) continue;
+    const file = resolve(m.out_dir, 'uses.txt');
+    return existsSync(file) ? readFileSync(file, 'utf8').split('\n').filter(Boolean) : [];
+  }
+  return [];
+}
+
 /** The app on the Canvas reader, as an APK: its `android/` crate (a cdylib over `exact_linux::canvas_jni!`; a game's
  * is generated under `.shells/`) built for the phone's ABI and put, with the app's assets, where the Gradle shell
  * packages them (host/android/app), then `:app:assembleRelease`. An app with a GPU module (LLP 1009) is built as a
@@ -228,14 +241,16 @@ function buildApk(app, env, profile) {
   const crate = app.crate('android');
   if (!app.manifest.game && !existsSync(resolve(app.dir, 'android/Cargo.toml'))) throw new Error(`${app.dir} has no android/ crate: the app's library for the Canvas host (apps/caltrain/android is one)`);
   const built = (name) => resolve(app.target, ANDROID_TARGET, profile, `lib${name.replaceAll('-', '_')}.so`);
-  let gpu = null;
+  let gpu = null, uses = [];
   if (app.manifest.game || app.hasGpu) {
     try { buildBake(app, 'linux', ANDROID_TARGET, { profile, env, kind: 'android' }); }
     catch (error) { console.error(error.message); return null; }
     gpu = built(app.crate('gpu'));
   } else {
-    const cargo = spawnSync('cargo', ['build', ...injectedProfiles(app), '--profile', profile, '-p', crate, '--target', ANDROID_TARGET], { cwd: app.workspace ?? app.dir, env, stdio: 'inherit' });
+    // JSON on stdout, for the crate's build-script output directory; the compiler's own messages still on stderr.
+    const cargo = spawnSync('cargo', ['build', ...injectedProfiles(app), '--profile', profile, '-p', crate, '--target', ANDROID_TARGET, '--message-format=json-render-diagnostics'], { cwd: app.workspace ?? app.dir, env, stdio: ['inherit', 'pipe', 'inherit'], maxBuffer: 1 << 28 });
     if (cargo.status !== 0) return null;
+    uses = planUses(cargo.stdout.toString(), crate);
   }
   const staged = resolve(READER, 'app/build', app.name, 'rust');
   rmSync(staged, { recursive: true, force: true });
@@ -246,7 +261,9 @@ function buildApk(app, env, profile) {
   if (gpu) copyFileSync(gpu, resolve(staged, 'jniLibs/arm64-v8a', basename(gpu)));
   if (existsSync(resolve(app.dir, 'assets'))) cpSync(resolve(app.dir, 'assets'), resolve(staged, 'assets/app/assets'), { recursive: true });
   // A game's resolved manifest (with its `app` identity) is the one its shells were generated with.
-  const gradle = spawnSync(resolve(READER, 'gradlew'), [':app:assembleRelease', `-Papp=${app.name}`, `-PappDir=${app.manifest.game ? app.workspace : app.dir}`, ...(gpu ? [`-PgpuModule=${basename(gpu)}`] : [])], { cwd: READER, env: { ...env, ANDROID_HOME: androidSdk(env) }, stdio: 'inherit' });
+  // A date or time control's picker is Compose Material 3's, linked only for a plan that has one (LLP 1115.001.000 D2).
+  const compose = uses.includes('dates') ? ['-Pcompose=1'] : [];
+  const gradle = spawnSync(resolve(READER, 'gradlew'), [':app:assembleRelease', `-Papp=${app.name}`, `-PappDir=${app.manifest.game ? app.workspace : app.dir}`, ...(gpu ? [`-PgpuModule=${basename(gpu)}`] : []), ...compose], { cwd: READER, env: { ...env, ANDROID_HOME: androidSdk(env) }, stdio: 'inherit' });
   return gradle.status === 0 ? resolve(READER, 'app/build', app.name, 'outputs/apk/release/app-release.apk') : null;
 }
 

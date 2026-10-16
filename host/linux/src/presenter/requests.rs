@@ -52,6 +52,32 @@ pub enum Request {
     /// the shell keeps the screen on while it does. A statement, told when it
     /// changes.
     KeepScreenOn(bool),
+    /// A date or time control's picker (LLP 1115.001 D9, as amended by
+    /// 1115.001.000): the shell shows the platform's dialog for it and
+    /// answers with the value chosen, in HTML's form, or cancels.
+    Pick(Pick),
+    /// The moments the reader's own hatches hear (LLP 1115.001.000 D4), as
+    /// `hatches/reader.rs` writes them. Queued with no wake: the reader
+    /// takes them with its requests after each turn.
+    Hatch(Vec<i32>),
+}
+
+/// What a picker is opened with, each value as HTML writes it and empty
+/// where the author gave none.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Pick {
+    /// The control.
+    pub node: ViewId,
+    /// `date`, `time` or `datetime-local`.
+    pub kind: &'static str,
+    /// What the control shows now.
+    pub value: String,
+    /// Its `min`.
+    pub min: String,
+    /// Its `max`.
+    pub max: String,
+    /// Its `step`.
+    pub step: String,
 }
 
 impl Request {
@@ -65,6 +91,8 @@ impl Request {
             Request::Keyboard(..) => 6,
             Request::Surface(_) => 7,
             Request::KeepScreenOn(_) => 8,
+            Request::Pick(_) => 9,
+            Request::Hatch(_) => 10,
         }
     }
 }
@@ -130,6 +158,8 @@ impl Haptic {
 enum Waiting {
     /// The share sheet: its outcome is a journal line (LLP 1069.003 D2).
     Share,
+    /// A date or time control's picker: its answer is the control's value.
+    Pick(ViewId),
 }
 
 /// What the presenter keeps of its shell's requests.
@@ -189,6 +219,14 @@ fn encode(id: u32, request: &Request, out: &mut Vec<i32>) {
         Request::Back(goes) | Request::KeepScreenOn(goes) => out.push(i32::from(*goes)),
         Request::Keyboard(kind, field) => out.extend([*kind as i32, *field as i32]),
         Request::Surface(surface) => surface.encode(out),
+        Request::Hatch(words) => out.extend(words),
+        // The node, then the kind and the four values.
+        Request::Pick(pick) => {
+            out.push(pick.node as i32);
+            for text in [pick.kind, &pick.value, &pick.min, &pick.max, &pick.step] {
+                string(out, text);
+            }
+        }
     }
     out[at + 2] = (out.len() - at - 3) as i32;
 }
@@ -367,6 +405,16 @@ impl<D: DataSource> Presenter<D> {
                 None | Some("dismissed") => "share: dismissed".to_string(),
                 Some(reason) => format!("share: refused: {reason}"),
             }),
+            // A choice is the person's, as a select's row is: `input`, then
+            // `change`. A dismissed picker changes nothing.
+            Waiting::Pick(node) => match answer {
+                Some(value) => {
+                    if let Err(e) = self.set_control_value(node, value) {
+                        self.host.log(format!("picker: {e}"));
+                    }
+                }
+                None => self.host.log(format!("picker: dismissed for {node}")),
+            },
         }
         true
     }
@@ -382,6 +430,43 @@ impl<D: DataSource> Presenter<D> {
         for id in waiting {
             self.answer_request(id, None);
         }
+    }
+
+    /// What the reader's hatches heard since it last took its requests.
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    pub(crate) fn tell_reader_hatches(&mut self) {
+        if let Some(words) = crate::hatches::reader::take() {
+            self.queue(Request::Hatch(words));
+        }
+    }
+
+    /// A press on a date or time control where a shell takes requests: its
+    /// picker, with what the control shows now (the person's choice while
+    /// the bound value is the one it was made at, else the bound value).
+    pub(super) fn pick(&mut self, id: ViewId) {
+        let Some(node) = self.host.kernel().node(id) else {
+            return;
+        };
+        let kind = match exact_kernel::ControlKind::of(node.node_type, node.props) {
+            Some(exact_kernel::ControlKind::Date) => "date",
+            Some(exact_kernel::ControlKind::Time) => "time",
+            Some(exact_kernel::ControlKind::DateTimeLocal) => "datetime-local",
+            _ => return,
+        };
+        let text = |prop| node.props.str(prop).unwrap_or_default().to_owned();
+        let value = crate::paint::control::choice(&node, self.chosen.get(&id))
+            .map(str::to_owned)
+            .unwrap_or_else(|| text(PropId::Value));
+        let pick = Pick {
+            node: id,
+            kind,
+            value,
+            min: text(PropId::Min),
+            max: text(PropId::Max),
+            step: text(PropId::Step),
+        };
+        let request = self.request(Request::Pick(pick));
+        self.requests.waiting.insert(request, Waiting::Pick(id));
     }
 
     /// `haptic(kind)`, and a pressable's `-exact-press-haptic`: the shell
