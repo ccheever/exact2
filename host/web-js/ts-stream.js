@@ -26,6 +26,7 @@ function request(input, init, redirect) {
 // mutation's answer, and rt.js publishes them only after its commit stands.
 function handle(transport, owner) {
   const encoder = new TextEncoder();
+  answering.sockets = true;
   const stage = (op, data, reason, size = 0) => {
     const call = answering.call;
     if (!call?.mutation) throw new Error(`socket.${op} is only available in a mutation's synchronous source`);

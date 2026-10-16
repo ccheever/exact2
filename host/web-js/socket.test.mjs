@@ -127,9 +127,11 @@ export function answer(name: string, args: any): any {
   if (mode === 'big') { t.send('x'.repeat(900000)); return 'big'; }
   if (mode === 'sendfetch') { t.send('a'); fetch(counter).catch(() => {}); return 'x'; }
   if (mode === 'captured') {
-    const init = { method: 'POST', body: 'original' }, sent = fetch(${JSON.stringify(`http://127.0.0.1:${peer.port}/body`)}, init);
-    init.body = 'changed';
-    return sent.then(r => r.text());
+    const url = new URL(${JSON.stringify(`http://127.0.0.1:${peer.port}/body`)}), init = Object.create({ method: 'POST' });
+    init.body = new URLSearchParams('was=original');
+    const sent = fetch(url, init);
+    url.pathname = '/count'; init.body.set('was', 'changed');
+    return sent.then((r: any) => r.text());
   }
   if (mode === 'fetchsend') { fetch(counter).catch(() => {}); try { t.send('a'); } catch {} return 'x'; }
   if (mode === 'cancel') { for (const c of controllers.values()) c.abort(); return 'cancelled'; }
@@ -242,7 +244,8 @@ export function answer(name: string, args: any): any {
     expect(refused.match(/a mutation cannot both send on a socket and fetch/g)?.length).toBe(2);
     // A mutation's fetch sends the request as it was when fetch was called.
     await browser.tap('captured');
-    await until(s => JSON.stringify(s.slots.sent).includes('body:original'));
+    await until(s => JSON.stringify(s.slots.sent).includes('body:was=original'));
+    expect(counted).toBe(0);
   } finally {
     await browser?.close(); server?.stop(true); peer.stop(true); rmSync(dir, { recursive: true, force: true });
   }

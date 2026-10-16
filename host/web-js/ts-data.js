@@ -331,6 +331,8 @@ export function install(data, mixed = false, modules = null) {
       throw new Error(SOCKET_AND_FETCH);
     }
     if (call.effects?.length && r && typeof r.then === 'function') {
+      // A fetch its continuation makes is the module's, not the mutation's:
+      // the page has no turn to tie it to (LLP 1016.000 D7).
       Promise.resolve(r).catch(() => {}); call.settled = true;
       throw new Error('a socket mutation must answer synchronously');
     }

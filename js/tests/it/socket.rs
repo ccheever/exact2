@@ -214,6 +214,12 @@ fn a_mutation_cannot_both_send_and_fetch() {
         assert_eq!((said.as_str(), ops), ("", vec![]), "{what}");
         assert!(r.take_requests().is_empty(), "{what}: no fetch goes out");
     }
+    // A refused mutation's continuation fetches nothing either.
+    assert_eq!(say(&mut r, "send, await, fetch"), (String::new(), vec![]));
+    assert!(
+        r.take_requests().is_empty(),
+        "the continuation's fetch never goes out"
+    );
     let journal = journal(&r);
     assert_eq!(
         journal

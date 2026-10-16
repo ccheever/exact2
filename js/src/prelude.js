@@ -684,7 +684,7 @@
       return Promise.reject(orphan);
     }
     if (call.letGo) return Promise.reject(new FetchError({ kind: "Aborted", message: "the answer was let go before this fetch" }));
-    if (call.socketOps && call.socketOps.length) { call.socketConflict = true; return Promise.reject(new Error(SOCKET_AND_FETCH)); }
+    if (call.socketConflict || (call.socketOps && call.socketOps.length)) { call.socketConflict = true; return Promise.reject(new Error(SOCKET_AND_FETCH)); }
     var method = init && init.method ? String(init.method).toUpperCase() : "GET";
     var headers = Array.from(new global.Headers(init && init.headers).entries());
     // A BufferSource body goes as its bytes, in base64 beside the text body
@@ -1264,6 +1264,9 @@
     catch (e) {
       calls.set(call.id, call);
       if (call.socketConflict) { withdrawFetches(call); e = new Error(SOCKET_AND_FETCH); }
+      // A refused socket mutation makes no fetch later either: its
+      // continuation's are refused as the second effect.
+      if (call.socketOps) call.socketConflict = true;
       call.socketOps = null;
       call.status = "failed"; call.error = e;
       return JSON.stringify({ tag: 3, call: call.id });
