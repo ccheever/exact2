@@ -1,6 +1,7 @@
 # macOS: a bounded quit hold for native module work, and SIGTERM as an orderly quit (rest of #105)
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Fixed on macos-module-quit-hold (#654): ExactModule.willQuit joins the one 5 s quit hold under LLP 1069.010 Q4 as amended (Charlie, 2026-10-15); not exercised: ⌘Q by keystroke, the Dock's Quit, logout and shutdown
 **Systems:** host/apple macOS, native modules, lifecycle
 **Severity:** P2
 **Author:** daehyeon-mun (GitHub report); Codex (filesystem transfer)
@@ -126,7 +127,7 @@ one storage hold, one shared 5 s deadline, once-only completion, responsive
 main thread, tests for repeated quit and an unresponsive child), which needs
 LLP 1069.010 Q4 relaxed.
 
-## 2026-10-15 status: option A built, awaiting Charlie's acceptance of the Q4 amendment
+## 2026-10-15 status: option A built; Charlie accepted the Q4 amendment
 
 Built on `macos-module-quit-hold`. `ExactModule.willQuit(done:)`
 (`host/apple/modules/ExactNativeModule.swift`; the default calls `done` at
@@ -138,7 +139,7 @@ storage of LLP 1097 D10 in one `StorageHold`: one five-second deadline in all.
 A repeated quit joins that hold. The last window closing, or any window closing
 while the quit is held, now leaves its session for the quit instead of
 destroying it first, which had skipped the hold.
-iOS and tvOS never call the hook. LLP 1069.010 Q4 carries the proposed amendment.
+iOS and tvOS never call the hook. LLP 1069.010 Q4 carries the amendment, accepted by Charlie on 2026-10-15.
 
 Verified on macOS 27.0.1 (Apple Silicon), a generated app whose module's child
 traps SIGTERM and exits 3 s later (or ignores it), driven through
@@ -164,7 +165,6 @@ covers the host side: once-only asking, `done` from another thread, the main
 run loop running during the hold, the bound, the session ending, and a module
 without the entry.
 
-Remaining: Charlie's acceptance of the LLP 1069.010 Q4 amendment. ⌘Q and the
-app menu were not driven literally (they reach the same `NSApp.terminate` and
-delegate as the Apple Event quit); neither were the Dock's Quit, logout or
-shutdown.
+Not exercised: ⌘Q by keystroke and the app menu (they reach the same
+`NSApp.terminate` and delegate as the Apple Event quit, which was driven), the
+Dock's Quit, logout and shutdown. SIGKILL cannot be made orderly.
