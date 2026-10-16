@@ -829,11 +829,10 @@ test('T2: a scrub chosen on a token previews on the frame\'s build with no reloa
       // Again, cancelled.
       'tap cell-accent.fill-0-light', 'clock data', 'type branch-value #00ff00', 'type branch-value key Enter', 'clock data',
       'tap scrub-start', 'clock data', 'tree scrub', 'clock +6000 real', 'tap scrub-cancel', 'clock data', ...wait, 'state',
-      // AccentColor is a role override: its edit rebuilds, and offers no scrub.
-      'tap cell-AccentColor-0-light', 'clock data', 'type branch-value #ff0000', 'type branch-value key Enter', 'clock data', 'state',
+      // A token added is structure: it rebuilds, and offers no scrub. (A
+      // role override's value is live since LLP 1121 stage 5.)
+      'type new-name accent.extra', 'type new-value #ff0000', 'tap add-token', 'clock data', 'state',
       'tree proposal', 'clock +6000 real',
-      // Applied, it reloads the frame.
-      'tap apply', 'clock data', ...wait,
     ], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
     let driveSaid = '';
     drive.stderr.on('data', d => { driveSaid = (driveSaid + d).slice(-4000); });
@@ -885,11 +884,12 @@ test('T2: a scrub chosen on a token previews on the frame\'s build with no reloa
     expect(after.frame.design).toBe(before.frame.design);
     expect([cancelling.frame.id, after.frame.id]).toEqual([before.frame.id, before.frame.id]);
     expect(after.connects).toBe(before.connects);
-    // The role override: rebuilds, and Scrub live is not offered (said
-    // why); applied, the frame's page reloads (it connects again).
+    // The token added: rebuilds, and Scrub live is not offered. (A set-token
+    // edit that rebuilds says why it has no scrub: the stub's contract test.
+    // Not applied: the dev loop sends a token no page reads as a batch.)
     expect(states[5].resources.proposal).toMatchObject({ ok: true, chip: 'rebuild' });
-    expect(trees[4].nodes.some(n => n.props.testId === 'scrub-unavailable' || n.props.text === "This edit rebuilds the app, so it can't be scrubbed: Apply writes it.")).toBe(true);
-    await devSaid.until(() => connects() > after.connects, 60_000);
+    expect(trees[4].nodes.some(n => n.props.testId === 'chip' && n.props.text === 'Rebuilds')).toBe(true);
+    expect(trees[4].nodes.some(n => n.props.testId === 'scrub-start')).toBe(false);
   } finally {
     if (tool) await stop(tool);
     await stop(dev);
