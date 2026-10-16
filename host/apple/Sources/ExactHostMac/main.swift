@@ -206,6 +206,11 @@ final class Delegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return .terminateLater
     }
     var quitting: StorageHold?
+    /// The quit is decided and the hold, if any, has ended: each session goes,
+    /// so its module's `destroy()` runs before the process does.
+    func applicationWillTerminate(_ notification: Notification) {
+        for (_, s) in sessions { s.destroy() }
+    }
     func windowDidBecomeKey(_ notification: Notification) { agentReady() }
     func windowDidChangeOcclusionState(_ notification: Notification) { for (_, s) in sessions { s.occlusionChanged() } }
 }
