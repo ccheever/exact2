@@ -1,188 +1,157 @@
 # LLP 1125: A transport, MIDI, and the small pieces apps hand-roll
 
-**Type:** RFC (a decision brief: each decision carries a proposed answer; nothing here is built until Charlie has read it)
-**Status:** Draft r1, 2026-10-16. Not reviewed.
-**Systems:** Contract compiler (a `sequence` schedule for `task`; `sendMIDI`; `midimessage`; `wakelock`; `qrPath`; `share`'s `files=`), Plan (`sequences`, `midi` use), Runner (new transport record beside `runner/src/sound.rs`; `exactTransport()` and `exactMIDI()` reserved sources; the journal), the sound arm (`host/apple/soundarm/`, `host/web/sound-glue.js`, `host/web-js/sounds.js`), a new MIDI arm (Apple `ExactMIDI`, web `midi-glue.js`), Share (`runner/src/share.rs`, `Share.swift`), the agent (`state.transport`, `state.midi`, `state.wakelock`, test steps), `runner/src/device.rs` (one grant row)
+**Type:** RFC
+**Status:** Accepted r2, 2026-10-16, by the orchestrator under Charlie's instruction of that day ("once happy with it, go ahead and implement"). r1 (`404863b35`) was reviewed blind by three families, each asked for direction and fundamentals only: GPT-6 Astra (max), Grok 4.7 (xhigh) and Muse Wonder Full 1.0 (xhigh), all RIGHT DIRECTION WITH CHANGES (`llp/reviews/1125-a-transport-midi-and-the-small-pieces.{astra,grok,muse}.md`). r2 takes their findings as §R records.
+**Systems:** Contract compiler (a `sequence` declaration; `sendMIDI`, `requestMIDIAccess`; `midimessage`, `midiinputs`; `wakelock`; `playbackRate=` and `pan=` on hits; `share`'s `files=`), Plan (`sequences`; use bits), Runner (new `runner/src/transport.rs` beside `sound.rs`; the voice bound; `exactTransport()` and `exactMIDI()`; a MIDI queue and record; clock ticks as an input), JS target (`host/web-js/sounds.js` and a transport twin), the sound arm (`host/apple/soundarm/`, `host/web/sound-glue.js`: rate, pan, capacity), a new MIDI arm (Apple `ExactMIDI`, web `midi-glue.js`), the wake lock on each host, Share (`runner/src/share.rs`, `Share.swift`), the agent (`state.transport`, `state.midi`, `state.wakelock`; test steps), `runner/src/device.rs` (one grant row)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-16
-**Implementer:** unassigned until ruled; §7 stages the work so each piece can get its own lane
-**Amends (if accepted):** LLP 1096 §7 (pitch, pan and on-demand loading leave the deferred list; D9 here), LLP 1069.003 D7 (files in a share, with an element's picture as a file, D12), LLP 1069 §5 #10 (keep-awake gets its consumer, D10), `docs/recipes/native-views.md:56–58` (the time rule names the transport as the exception for timed output), `rules/DEFERRED.md` (§8, question 1)
-**Related:** LLP 1096 (sounds: the voice table, groups, D6's runner time to the speaker, D8's one session owner); LLP 1098 (the media session: events on an element by the web API's names); LLP 1092 D7–D10 (gated tasks, arming from the commit, the seek rule); LLP 1073 (`every(frame)`); LLP 1077 D14 (`haptic`, `press-haptic`); LLP 1069.000 (reserved sources for device facts); LLP 1069.007 (capabilities in the agent's hands; streams excluded, §5 here); LLP 1069.008 (grants to permissions); LLP 1069.009 (replayable inputs); LLP 1047 and 1047.001 (linked and loaded tiers; a Swift target per capability); LLP 1067.000 (one native module per app); LLP 1124 (host extensions; why these are not, §6); LLP 1112 (pictures of a state, parked; not this). The consumer: euxy, a Euclidean MIDI sequencer (`~/projects/euxy-src/euxy`), and its exact2 port (`~/projects/euxy-ports/exact2/euxy`, `FRICTION.md`, `NOTES.md`, `modules/apple/`). External, read 2026-10-16: Web MIDI API (W3C WD), Screen Wake Lock API (W3C CR), Web Share API Level 2 (`files`), Web Audio API 1.1 (`playbackRate`, `StereoPannerNode`), Apple CoreMIDI (`MIDIClientCreateWithBlock`, `MIDISendEventList`, `kMIDIPropertyUniqueID`), `UIApplication.isIdleTimerDisabled`, IOKit `IOPMAssertionCreateWithName`, Android `View.setKeepScreenOn` and `android.media.midi`, `qrcode` 1.5.4 (npm), ISO/IEC 18004:2015.
+**Revised:** 2026-10-16 (r2: one blind round, §R)
+**Implementer:** Claude (Opus 5.5) lanes, orchestrated for Charlie Cheever, from 2026-10-16, in §7's stages
+**Amends:** LLP 1096 D5 (the voice bound counts voices sounding at a voice's start, D3 here) and §7 (`playbackRate`, `pan` leave the deferred list, D10); LLP 1069.003 D7 (files in a share, D12); LLP 1069 §5 #10 (keep-awake, D11); LLP 1069.007 (one stream, MIDI input, gets its rule, §4); `docs/recipes/native-views.md:56–58` (timed output goes through a sequence); `rules/DEFERRED.md` (§8)
+**Related:** LLP 1096 (sounds: the voice table, groups, runner time to the speaker, one session owner); LLP 1098 (events on an element by the web API's names); LLP 1092 D7–D10 (gated tasks, arming from the commit, the seek rule); LLP 1073 (`every(frame)`; no catch-up); LLP 1077 D14 (`haptic`); LLP 1069.000 (reserved sources); LLP 1069.008 (grants to permissions); LLP 1069.009 (replayable inputs); LLP 1047 and 1047.001 (linked and loaded tiers); LLP 1067.000 (one native module per app); LLP 1124 (host extensions, D1). The consumer: euxy, a Euclidean MIDI sequencer (`~/projects/euxy-src/euxy`), and its exact2 port (`~/projects/euxy-ports/exact2/euxy`: `FRICTION.md`, `NOTES.md`, `modules/apple/`). External, read 2026-10-16: Web MIDI API (W3C WD; Chromium's `midi_output.idl` leaves `clear()` unimplemented), Screen Wake Lock API, Web Share API Level 2 (`files`), Web Audio API 1.1 (`playbackRate`, `StereoPannerNode`), CoreMIDI (`MIDIClientCreateWithBlock`, `MIDISendEventList`, `MIDIFlushOutput`, `kMIDIPropertyUniqueID`), `UIApplication.isIdleTimerDisabled`, `IOPMAssertionCreateWithName`, Android `View.setKeepScreenOn`.
 
 ## Summary
 
-Each of the three euxy ports (SwiftUI, UIKit, exact2) wrote the same
-things by hand. The exact2 port carries 1,607 lines of Swift in
-`modules/apple/`. Most of them are a lookahead scheduler, CoreMIDI, a
-sampler and a share card. This RFC proposes those pieces as part of exact2's
-standard vocabulary, built so that a drum machine, a metronome, a rhythm game,
-a practice timer, a MIDI controller surface or a ticket app would use them as
-they are:
+Each of the three euxy ports (SwiftUI, UIKit, exact2) wrote the same things
+by hand. The exact2 port carries 1,607 lines of Swift in `modules/apple/`,
+most of them a lookahead scheduler, CoreMIDI, a sampler and a share card.
+This RFC makes those pieces exact2's own, shaped so that a drum machine, a
+metronome, a rhythm game, an interval timer, a MIDI controller surface or a
+share card in any app uses them unchanged:
 
-| | Piece | What the author writes | Where it runs | Stage |
-|---|---|---|---|---|
-| D1 | Packaging | nothing: each piece is linked or loaded only when the plan uses it | — | — |
-| D2–D5 | **Transport** | `task groove when playing` / `sequence(tracks, bpm=…)`: a pattern, not a scheduler | the sound arm's own thread, on the audio clock | 2 |
-| D6–D8 | **MIDI** | `exactMIDI()` (ports), `sendMIDI(output, data, at=)`, `midimessage=`, and MIDI steps in a sequence | a new MIDI arm (CoreMIDI, Web MIDI) | 3 |
-| D9 | **Sampler gaps** | `playbackRate=`, `pan=`, sounds decoded on demand, `loadSounds(srcs)` | the sound arm | 2 |
-| — | Haptics | already there (LLP 1077 D14); a step can fire one (D3) | — | 2 |
-| D10 | **Keep-awake** | `wakelock="screen"` on an element | each host's own call | 1 |
-| D11 | **QR** | `qrPath(text, errorCorrectionLevel="M")`, the path for an `svg` | pure, in the runner and the JS target | 1 |
-| D12 | **Image share** | `share(files=["#card"])`: an element's picture, shared as a PNG | each host's share sheet | 1 |
+| | Piece | What the author writes | Stage |
+|---|---|---|---|
+| D2–D5 | **A sequence** | `sequence groove when playing` / `play(tracks, bpm=…)`: what should play, as a value | 2 |
+| D6–D9 | **MIDI** | `exactMIDI()`, `sendMIDI(output, data, at=)`, `midimessage=`, MIDI steps, clock out and in | 3, 4 |
+| D10 | **Sampler controls** | `playbackRate=` and `pan=` on a hit | 1 |
+| D11 | **Keep-awake** | `wakelock="screen"` on an element | 1 |
+| D12 | **Files and pictures in a share** | `share(files=["app:/…", "#card"])` | 5 |
+| — | Haptics | already there (LLP 1077 D14); a step can carry one (D2) | 2 |
 
-**The transport is the main proposal (D2–D5).** Today an app keeps time with
-LLP 1096's window clock: a 25 ms timer whose action schedules the next
-100 ms of hits. That works while the runner is responsive, but each tick is a
-commit on the main thread. It stops when the app is in the background, and it
-cannot follow a clock that arrives 48 times a second. So euxy's port ran its
-own `DispatchSourceTimer` and broke the native-views rule that time is the
-session's (FRICTION.md:124–126). Under this RFC the app **declares what should
-play**, as a value computed from state. The host plays it on its own clock,
-sample-accurate, with no commit per tick. The runner keeps a record that is a
-pure function of that value and its clock, so the driver and tests see every
-hit exactly, with no audio.
+**A sequence is the main proposal.** Today an app keeps time with LLP 1096's
+window clock: a 25 ms timer whose action schedules the next 100 ms of hits.
+Each tick is an app commit, the pattern logic is the app's, a track of its own
+length needs the app's arithmetic, and nothing follows an external clock. So
+euxy's port ran its own `DispatchSourceTimer` (FRICTION.md:124–126). Under
+this RFC the app **declares what should play**, and the runner expands it into
+the voice table and a MIDI queue a second ahead. The runner remains the single
+owner of what sounds, so choke groups, the voice bound and `stopSounds` work
+the same for a sequence as for a tap. An edit ends what has not started and
+re-expands from the edit's commit. No app action runs per step, and the record
+is a pure function of the sequence's history and the clock. The driver and
+tests therefore see every hit, exactly, with no audio.
 
 ## 1. Evidence
 
-**What euxy is.** A Euclidean MIDI sequencer for the Teenage Engineering
-OP–XY (README). Each pattern is a set of lanes. Each lane is a Euclidean
-rhythm with its own length and resolution (1/4 to 1/32), playing one note on
-one MIDI channel. Lanes of different lengths run against each other
-(polymeter). It sends MIDI clock and notes over CoreMIDI. It can also follow
-the device's clock, with a count-in. With no device, it plays built-in 808,
-909 and analog kits. It shares a pattern as a link and as a card with a QR code.
+**What euxy is.** A Euclidean MIDI sequencer for the Teenage Engineering OP–XY.
+Each pattern is a set of lanes. Each lane is a Euclidean rhythm with its own
+length and resolution, playing one note on one MIDI channel, so lanes of
+different lengths run against each other (polymeter). It sends clock and
+notes over CoreMIDI, or follows the device's clock with a count-in. With no
+device it plays built-in kits. It shares a pattern as a link and as a card
+with a QR code.
 
-**What the exact2 port wrote** (`~/projects/euxy-ports/exact2/euxy/modules/apple/`):
+**What the exact2 port wrote** (`modules/apple/`):
 
-| File | Lines | What it does | What replaces it here |
+| File | Lines | What it does | Replaced by |
 |---|---|---|---|
-| `Engine.swift` | 555 | A two-clocks scheduler: 24 PPQN, 100 ms lookahead, a 25 ms `DispatchSourceTimer` on its own queue. Clock out; following an external clock with a count-in; tempo from a 48-tick window; panic; beat haptics by `asyncAfter`; a 3 s device poll; keep-awake | D2–D5, D7, D10 |
-| `MidiManager.swift` | 134 | CoreMIDI on its own run loop: ports, connect, timestamped send, receive stamped with `CACurrentMediaTime` | D6–D8 |
-| `Sampler.swift` | 192 | 24 `AVAudioPlayerNode`s round robin, `scheduleBuffer(at:)` at a host time, three kits preloaded | LLP 1096 plus D9 |
-| `ShareCard.swift` | 179 | `CIQRCodeGenerator` (the wrong QR version, below), `UIGraphicsImageRenderer`, a hand-presented `UIActivityViewController` | D11, D12 |
-| `Euxy.swift` | 547 | The `<euxy-engine>` and `<share-card>` tags; every lane and device list encoded into strings, because a prop is a string and Contract cannot flatten lists (FRICTION §6–7) | mostly D2 (a pattern is a typed value, not a prop string) |
+| `Engine.swift` | 555 | Two-clocks scheduler (24 PPQN, 100 ms lookahead, 25 ms `DispatchSourceTimer`), clock out, following a clock with a count-in, tempo from a 48-tick window, panic, beat haptics, a 3 s device poll, keep-awake | D2–D5, D7–D9, D11 |
+| `MidiManager.swift` | 134 | CoreMIDI on its own run loop: ports, timestamped send, receive stamped in the read callback | D6–D8 |
+| `Sampler.swift` | 192 | 24 `AVAudioPlayerNode`s round robin, `scheduleBuffer(at:)`, three kits preloaded | LLP 1096 and D2 |
+| `ShareCard.swift` | 179 | `CIQRCodeGenerator`, `UIGraphicsImageRenderer`, a hand-presented `UIActivityViewController` | D12; QR stays app code (§6) |
+| `Euxy.swift` | 547 | The `<euxy-engine>` tag: every lane and device list encoded into strings, because props are strings (FRICTION §6–7) | mostly D2: a pattern is a typed value |
 
-**The porter's notes**, quoted from `FRICTION.md`:
+**The porter's notes** (`FRICTION.md`):
 
-- §9 (124–126): "The `native` time guidance (`context.frames`/`after`, never a
+- "The `native` time guidance (`context.frames`/`after`, never a
   DispatchSource) does not fit an audio/MIDI scheduler that must keep real time
-  while the UI is idle; the engine uses a `DispatchSourceTimer` on its own
-  queue, the views use `context.frames`."
-- §9 (129–131): "`share(...)` takes text/URLs", so the card's PNG went through
-  a hand-written `UIActivityViewController`.
-- §1: once an app declared `sound`s, exact opened the output at boot and the
-  app crashed on every launch on a busy simulator. That is fixed (LLP 1096
-  r5: the output opens at the first voice and survives failing to open). The
-  port had already moved to its own sampler.
+  while the UI is idle" (§9).
+- "`share(...)` takes text/URLs" (§9).
 
-**What the original needed that is easy to miss:**
+**What the original needs that is easy to miss:**
 
-- **Polymeter.** Each lane wraps at its own length (`src/core/euclid.ts`
+- **Polymeter.** Each lane wraps at its own length (`euclid.ts`
   `laneStepAt`). One loop over the least common multiple of the lane lengths
-  can be thousands of steps, so a pattern is a set of tracks, each with its own
-  loop.
+  can be thousands of steps long.
 - **Following a clock.** On Start (0xFA) the engine resets and swallows a
-  count-in of `countInBeats × 24` ticks. On Stop (0xFC) after recording it
-  ends the take. Each Clock (0xF8) fires its tick at once, with no lookahead.
-  Tempo comes from a rolling window of 48 tick timestamps, taken in the native
-  read callback. An earlier average taken in JavaScript read 120 BPM as about
-  226, because stalls bunched the ticks (`engine.ts:85–100`).
-- **Device lists.** CoreMIDI's setup notifications arrive only on the run loop
-  that was current when the client was created. Its first call is a
-  synchronous XPC that blocks about 600 ms when MIDIServer cold-starts
-  (`MidiModule.swift:5–55`). Endpoint refs change on replug. euxy also polls
-  every 3 s because notifications were missed on hardware
-  (`runtime.ts:162–182`).
+  count-in of `countInBeats × 24` ticks. Each Clock (0xF8) fires its tick at
+  once. Tempo comes from a 48-tick window of timestamps taken in the native
+  read callback. An average taken in JavaScript read 120 BPM as about 226,
+  because stalls bunched the ticks (`engine.ts:85–100`).
+- **Devices.** CoreMIDI's setup notifications arrive only on the run loop that
+  was current when the client was made. Its first call can block about 600 ms
+  on a cold MIDIServer (`MidiModule.swift:5–55`). Endpoint refs change on
+  replug, and euxy polls every 3 s because notifications were missed on
+  hardware (`runtime.ts:162–182`).
+- **Backgrounding.** euxy deliberately stops when the app leaves the
+  foreground. It sends Stop, panics and rewinds, because a device left
+  following a dead clock wedges (`engine.ts:184–235`).
+- **A latency offset per output**, −120 to +120 ms, set by the user
+  (`Engine.swift:303`).
 - **Keep-awake** is held while playing *or* while waiting for an external
   clock (`engine.ts:174–195`).
-- **QR.** The original uses `qrcode` 1.5.4 with a byte segment and level H
-  (`share-card.tsx:119–127`). `CIQRCodeGenerator` segments the text itself and
-  chose version 14 where `qrcode` chose 15
-  (`euxy-ports/swiftui/euxy/FRICTION.md:103–107`). The SwiftUI port ported the
-  encoder (228 lines, bit-identical under Bun). The exact2 port's dots differ.
 
-**What exact2 already has**, which the porter's list overstates:
+**What exact2 already has:**
 
-- **Choke groups and per-voice gain** are LLP 1096 D2 and D4: `group=` makes
-  a group monophonic by start time, and `gain=` is per voice. euxy's own
-  sampler had neither choke groups nor pitch; gain was velocity squared.
-- **Haptics** are LLP 1077 D14, on every host that has them:
-  `haptic("selection" | "impact-light" … | "success" | "warning" | "error")`
-  from an action, and `press-haptic` at touch-down. What euxy also does is a
-  haptic on the beat, which belongs to the transport (D3).
-- **Timed one-shots** are LLP 1096: `at=` on the runner's clock, mapped to the
-  speaker within a few microseconds on Apple (1096 §6, As built).
+- **Choke groups and per-voice gain** are LLP 1096 D2 and D4. euxy's own
+  sampler had neither choke groups nor pitch.
+- **Haptics** are LLP 1077 D14 on every host that has them.
+- **Timed one-shots** are LLP 1096, mapped to the speaker within a few
+  microseconds on Apple (1096 §6, As built).
+- **Apple's presenter has one `UIView` per kernel node**
+  (`host/apple/Sources/ExactKit/IOS/NodeViewIOS.swift:1`), so an element's
+  picture is the host's own drawing (D12).
 
-## 2. Who else would use them
+## 2. Who else uses them
 
-The test for each piece is a second app that is not euxy:
-
-- **Transport:** a metronome that keeps time with the screen locked (a
-  `playback` session, D5); a drum machine or step sequencer; a rhythm game
-  whose notes must land on the beat however busy the frame is; an
-  interval-training timer whose beeps and haptics land on the second; a
-  language or music practice app that plays along.
-- **MIDI:** any app that a keyboard or pad controller can play or steer (a
-  piano tutor, a lighting desk, a slide clicker, a soundboard), and any app
-  that drives hardware (euxy, a patch librarian without sysex, a MIDI
-  monitor).
-- **Sampler gaps:** a chromatic instrument playing one sample at many pitches;
-  a game varying a footstep's pitch; stereo placement in a game or an
-  instrument; an app whose kits are too many to decode at launch.
-- **Keep-awake:** a recipe screen, a presentation timer, turn-by-turn steps,
-  a boarding pass, a workout. Expo's survey listed it as cheap with no consumer
-  yet (LLP 1069 §5 #10).
-- **QR:** tickets, Wi-Fi sharing, pairing a second device, a share card, an
-  invite.
-- **Image share:** any "share this as a picture" card: a score, a stats
-  summary, a quote, a receipt.
+- **A sequence:** a metronome; a drum machine or step sequencer; a rhythm
+  game whose notes land on the beat however busy the frame is; an
+  interval-training timer whose beeps and haptics land on the second (finite
+  tracks and `ended=`, D2); a practice app that plays along.
+- **MIDI:** apps a controller steers (a lighting desk, a slide clicker, a
+  soundboard), apps that drive hardware (euxy, a MIDI monitor), and recording
+  what a player played. A low-latency instrument is not claimed: an input goes
+  through a commit before it sounds (D8).
+- **Sampler controls:** a chromatic instrument from one sample; a game varying
+  a footstep's pitch; stereo placement.
+- **Keep-awake:** a recipe screen, a presentation timer, turn-by-turn steps, a
+  boarding pass, a workout. LLP 1069 §5 #10 listed it with no consumer yet.
+- **Files and pictures in a share:** a score card, a stats summary, a quote, a
+  backup (LLP 1069.003 D7's own consumer).
 
 ## 3. Design
 
-### D1 — Core vocabulary, linked or loaded by use; not extensions
+### D1 — Exact2's vocabulary, linked or loaded by use
 
-Each piece is part of exact2's own vocabulary, as `sound` and `share` are.
-None is a cargo feature, and an app that uses none of them carries none of
-their code (LLP 1047):
+Each piece is exact2's own, as `sound` and `share` are. None is a cargo
+feature, and an app that uses none of them carries none of their code (LLP
+1047):
 
-| Piece | Tier (LLP 1047 D1) | Apple | Web | Linux, Windows | Android |
-|---|---|---|---|---|---|
-| Transport | loaded, in the sound arm | `libexact_sound` / `ExactSound.framework` gains the scheduler | `sound-glue.js` gains it | the record, no output (as LLP 1096 D9) | — |
-| MIDI | loaded, a new arm | `ExactMIDI` target, linking CoreMIDI only when used (LLP 1047.001 D4) | `midi-glue.js`, after paint, only for a plan that uses MIDI | the record; ALSA sequencer deferred | `android.media.midi`, deferred to an Android consumer |
-| Sampler gaps | the sound arm | the C mixer | `sound-glue.js` | the record | — |
-| Keep-awake | core (one call) | `isIdleTimerDisabled`; macOS `IOPMAssertionCreateWithName` | `navigator.wakeLock` | none (journaled) | `View.setKeepScreenOn` |
-| QR | linked by use | the runner's Rust | a JS module loaded with the first plan that uses it | the runner's Rust | the runner's Rust |
-| Image share | `Capability::Share` | `UIActivityViewController` / `NSSharingServicePicker` with a PNG | `navigator.share({files})` | refused, `unavailable` | `ACTION_SEND` with `image/png` |
+| Piece | Runner | Apple | Web | Linux, Windows |
+|---|---|---|---|---|
+| Sequence | `transport.rs`, expanding into `sound.rs` | the sound arm, unchanged but for capacity | `sound-glue.js`, unchanged but for capacity | the record |
+| MIDI | a MIDI queue and record | `ExactMIDI`, linking CoreMIDI only when used (LLP 1047.001 D4) | `midi-glue.js`, after paint, for a plan that uses MIDI | the record |
+| Sampler controls | the voice's two fields | the C mixer | the glue | the record |
+| Keep-awake | a node row | `isIdleTimerDisabled`; macOS `IOPMAssertionCreateWithName` | `navigator.wakeLock` | journaled |
+| Share files | `share.rs` | the share sheet with files | `navigator.share({files})` | refused, `unavailable` |
 
-**Why core vocabulary and not LLP 1124 extensions.** An extension is the
-right home for a device value that only some apps want and that has no
-timing (battery, attitude). These pieces differ in three ways:
+**Why not host extensions (LLP 1124) or each app's own module.** An extension
+fits a device value with no timing. These pieces differ in three ways:
 
-- **They share one clock.** A step plays a sample and sends a MIDI note at
-  the same instant. That instant must hold whatever the main thread is doing,
-  and it is runner time mapped to the output clock (LLP 1096 D6). An extension
-  answers through the native slot on the main thread. It cannot reach the
-  sound arm's realtime mixer, so the two outputs could not share a scheduler.
-- **The agent must see them.** The driver plays no audio and sends no MIDI.
-  It reads the record (`state.sounds`, `expect sound`). That record exists
-  only if the runner knows what was scheduled.
+- **They share one clock.** A step plays a sample, sends a note and fires a
+  haptic at one instant, mapped from runner time (LLP 1096 D6).
+- **The agent must see them.** The driver plays nothing and reads the record.
 - **MIDI input is a stream of events that must each arrive.** LLP 1124 §5
-  refuses value streams, and its sources are pulls (LLP 1016.002 D1).
+  refuses value streams.
 
-If 1124 is accepted, a MIDI device list alone would fit it. Splitting that
-list from the sends would give an app two ways to name one port, so this RFC
-keeps MIDI whole.
+### D2 — `sequence`: what should play, declared
 
-### D2 — `sequence`: a schedule the host plays
-
-`sequence` is a third schedule for a gated task, beside `after` and `every`
-(LLP 1092 D7). The gate says *whether* it plays; the arguments say *what*.
-The runner and the hosts do the rest:
+`sequence` is a root declaration with a task's gate grammar (LLP 1092 D7). It
+holds one `play(...)`:
 
 ```
 sound "assets/kits/808/kick.wav"
 sound "assets/kits/808/hat-closed.wav"
-sound "assets/kits/808/hat-open.wav"
 
 shape Step
   beat: number        -- from the track's start, in quarter notes
@@ -197,6 +166,8 @@ shape Step
 
 shape Track
   length: number      -- beats; the track loops at this length
+  loops: number       -- times it plays; 0 is forever
+  offset: number      -- milliseconds added to its times: an output's latency
   output: string      -- a MIDI output's id for its notes, or ""
   steps: Step[]
 
@@ -204,129 +175,126 @@ component Euxy
   state playing = false
   state bpm = 120
   state take = 0
-  task groove when playing key=take
-    sequence(tracks(lanes, kit, output), bpm=bpm, from=-4, countIn=clicks(4))
-  view
-    button (playing ? "Stop" : "Play") press=toggle
+  sequence groove when playing key=take
+    play(tracks(lanes, kit, output), bpm=bpm, from=-4, countIn=clicks(4), ended=finished)
 ```
 
-- **The gate starts it.** The transport arms from the commit that made the
-  gate true (LLP 1092 D8). Beat `from` (default 0) falls at that commit's
-  time, so the press's own commit is the downbeat. A changed `key=` restarts
-  it from `from`. A gate turning false stops it (D4).
-- **A track loops at its own length.** `length: 3.5` against `length: 4` is
-  polymeter, with no common loop computed. A step outside `[0, length)` is
-  dropped and journaled. Steps at one beat play in list order.
-- **`from=` below 0 is a count-in.** Beats in `[from, 0)` play `countIn=`, a
-  list of steps played once, with beat 0 at the downbeat. Tracks start at 0.
-- **Beats, not ticks.** A step's time is in quarter notes, as Ableton Link and
-  Tone.js's `Transport` count. A sixteenth is `0.25` and a triplet eighth is
-  `1/3`. MIDI's 24 PPQN appears only where MIDI needs it: clock out and clock
-  in (D7).
-- **One step can do all three.** A sample (LLP 1096's `src`, `gain`, `group`,
-  and D9's `playbackRate`, `pan`), a MIDI note on the track's `output`, and a
-  haptic. Contract shapes are flat, so "none" is `""` or `-1`, as `group` is
-  today. A spec may instead propose optional fields (`option<number>`).
-- **One sequence plays at a time.** A second live `sequence` task is refused
-  at bake (`analyze-sequence-twice`) when both gates can hold together, and
-  journaled at run time otherwise.
+- **The gate.** The sequence arms from the commit that made the gate true
+  (LLP 1092 D8), and beat `from` (default 0) falls at that commit's time. A
+  changed `key=` restarts it from `from`. The gate turning false stops it
+  (D4). The gate and key follow a task's rules, including that neither may
+  read `performanceNow()`.
+- **The arguments are re-read after every commit that stands**, and compared
+  by value. An equal value changes nothing; a different one is an edit (D3).
+  A refused commit changes nothing that sounds.
+- **A track loops at its own length**, `loops` times or forever. That gives
+  polymeter with no common loop. A step outside `[0, length)` is dropped and
+  journaled. Steps at one beat play in list order.
+- **`from=` below 0 is a count-in.** `countIn=` is a list of steps played
+  once over `[from, 0)`. Tracks start at beat 0.
+- **`ended=`** names an action the runner runs when the last finite track
+  finishes, at that exact time, as a timer runs (`performanceNow()` is the
+  end). With a track that loops forever, it never runs. This is how an
+  interval timer or a one-shot chart learns it is over without polling, and
+  the end lands on the runner's clock, not on a late commit.
+- **Beats, not ticks.** A sixteenth is `0.25`, a triplet eighth `1/3`. MIDI's
+  24 PPQN appears only in clock out and in (D7, D9).
+- **A step can carry a sample, a MIDI note and a haptic.** Shapes are flat, so
+  "none" is `""` or `-1`, as `group` is today. A step's sample may also carry
+  D10's `playbackRate` and `pan`.
+- **One sequence plays at a time.** A second one arming while one plays is
+  journaled and does not play.
 
-### D3 — What the runner keeps, and edits while playing
+### D3 — The runner expands it into the voice table
 
-The runner keeps a **transport record** beside the voice table
-(`runner/src/sound.rs`): the arming time, the anchor `(at, beat)`, the tempo
-and a digest of the tracks. Beat `b` falls at runner time
-`anchor.at + (b − anchor.beat) × 60000 / bpm`. Every hit is a pure function of
-this record. The host is given the record and expands it; the runner expands
-the same record for the driver (D5).
+The runner keeps a **transport record** (`runner/src/transport.rs`): its
+segments, each `(at, beat, bpm, tracks)`, and its state. Beat `b` falls at
+`at + (b − beat) × 60000 / bpm` in the segment that holds it.
 
-**The horizon.** A host schedules ahead, so a step due within the next moment
-has already been handed to the audio output or CoreMIDI. An edit at commit
-time `t` therefore applies to steps at or after **`t + 100 ms`**, on every
-host and in the runner's record. Steps before that play as they were. 100 ms
-is the window clock's lookahead (LLP 1096 D3), less than a sixteenth at
-150 BPM. One constant on every host keeps the record identical across hosts.
+**Expansion.** The runner issues the sequence's steps into the existing voice
+table (`runner/src/sound.rs`) as voices, into a MIDI queue (D7) and as timed
+haptics, up to **1000 ms ahead** of its clock. It refills when less than
+500 ms remain, on a wake of its own: `timer_due_ms` reports it, but it runs no
+app action, makes no commit and renders nothing. `clock settle` does not wait
+for it. A host whose main thread stalls for up to 500 ms therefore loses no
+step. The lookahead is one constant on every host and under the driver, so the
+record is the same everywhere.
 
-- **New tracks** (a lane muted, a step toggled, a kit changed) replace the old
-  from `t + 100`. The beat continues; nothing restarts.
-- **A new `bpm`** re-anchors at `t + 100`: `anchor.beat` becomes the beat
-  then, and `anchor.at` becomes `t + 100`. Tempo moves without a jump in phase.
-- **A stop is now** (D4), not at the horizon.
+**One owner.** The sound arm and the web glue receive `Play` and `End` as they
+do today. No host expands a pattern. Choke groups, the voice bound and
+`stopSounds` decide sequence voices and tapped voices by one rule, in one
+place per runtime: the runner and its JS-target twin, `sounds.js`.
 
-**`exactTransport()`** is a reserved source (LLP 1069.000's shape):
+**Edits at the commit.** An edit at commit time `t` ends every voice the
+sequence issued that has not started by `t`. Each ends as `by: edit`, never
+sounds, and leaves the voice bound. The new value is then expanded from `t`.
+Voices already sounding play on. A new `bpm` starts a new segment at `t`, at
+the beat reached then, so tempo moves without a jump in phase. LLP 1096's
+`End` already retracts a future voice on both outputs. On Apple the mixer
+moves its end; on the web it is `stop(when)` or a held voice that never
+starts.
+
+**The bound.** LLP 1096 D5 bounded the voices that sound or wait at a
+commit's time. A second of lookahead makes "wait" the wrong thing to count,
+so the bound becomes: **at most 32 voices sounding at a voice's start**. It is
+the same on every host and does not depend on the lookahead. A sequence that
+asks for more polyphony has its extra voices dropped and journaled, as today.
+Separately, at most 256 voices may be issued and not yet started. When that
+cap is reached, expansion stops early and wakes sooner; nothing is dropped.
+The Apple mixer's slots and ring grow to match (`sound_render.h`).
+
+**`exactTransport()`** is a reserved source:
 
 ```
 resource transport = exactTransport() as shape Transport
 -- { state: "stopped" | "waiting" | "countin" | "playing",
---   bpm: number, anchorAt: number, anchorBeat: number, clock: "internal" | "midi" }
+--   reason: string, bpm: number, anchorAt: number, anchorBeat: number,
+--   clock: "internal" | "midi" }
 ```
 
-A view that shows the playhead computes the beat from it, in a frame task
-gated on visibility. A frame commits only while the screen shows the
-playhead. Audio never depends on those commits:
+A playhead is drawn from it in a frame task gated on visibility (LLP 1073),
+with `beat = anchorBeat + (performanceNow() − anchorAt) × bpm / 60000`. A
+frame commits only while the playhead is shown, and sound never waits on
+those commits.
 
-```
-task playhead when transport.state == "playing" and page.visibilityState == "visible"
-  every(frame, sample)
-action sample
-  shownAt = performanceNow()
-fn beatAt(t: Transport, ms: number): number
-  t.anchorBeat + (ms - t.anchorAt) * t.bpm / 60000
-```
+**Haptic steps** play on the main thread at their time. UIKit's feedback
+generators cannot be scheduled ahead, so a blocked main thread makes them
+late. The journal counts late haptics.
 
-**A step's haptic** plays at its time on the main thread: `asyncAfter` to the
-step's host time on Apple, as euxy's port does. UIKit's feedback generators
-cannot be scheduled ahead. A few milliseconds of main-thread lateness is below
-what a hand feels. The web plays it through `navigator.vibrate` where it
-exists, as `haptic` does.
+**The seek rule** holds for an internal clock (LLP 1092 D10): the record is a
+function of the segments and the clock, so one `advance(60_000)` and sixty
+`advance(1_000)`s give the same voices. Clock in (D9) has its own record.
 
 ### D4 — Stopping, the session, and the background
 
-- **The gate turning false stops it at that commit's time.** Voices the
-  transport started are ended, as `stopSounds()` ends them (LLP 1096 D4,
-  `by: stop`). Every MIDI note it turned on gets its note-off, and each
-  channel it used gets CC 123 (All Notes Off), as euxy's `panic()` does. Clock
-  out sends Stop (0xFC).
-- **`stopSounds()` also stops the transport's voices**, but not the transport.
-  The next step plays.
-- **The audio session is LLP 1096 D8's**: one owner, `ambient` by default,
-  `playback` from `app.json`. A `playback` app with `audio` in
-  `host.ios.backgroundModes` keeps playing with the screen locked. The
-  scheduler is a host thread, not the runner, so it keeps running while the
-  runner sleeps. This is the metronome case. An `ambient` app is suspended
-  with its process, and the transport resumes on the beat it would have
-  reached. It does not catch up: missed steps are not played late (LLP 1073
-  D2's rule for frames).
+- **The gate turning false stops it at that commit's time.** Unstarted
+  sequence voices end as `cancelled`, and sounding ones as `stop`, as
+  `stopSounds()` ends them (LLP 1096 D4). Queued MIDI not yet handed to the
+  output is discarded. Every note the sequence turned on gets its note-off,
+  stamped no earlier than its note-on, so a note already handed out still ends
+  (D7). Clock out sends Stop. No CC 123: other notes on a shared channel are
+  not the sequence's to silence.
+- **`stopSounds()` ends the sequence's voices too**, but not the sequence.
+  Its next steps play.
+- **Leaving the foreground stops it** by default, as euxy does. When the host
+  is about to suspend the app, the runner stops the sequence as if its gate
+  had turned false, and `exactTransport()` reports `stopped` with reason
+  `background`. The app sees that and sets its own state. A device following
+  the clock gets Stop rather than a dead clock.
+- **A `playback` session keeps playing.** With `audio_session: "playback"`
+  and `audio` in `host.ios.backgroundModes` (LLP 1096 D8), iOS keeps the
+  process running, the main run loop keeps the runner's wake firing, and the
+  sequence plays on with the screen locked. That is the metronome case. A
+  browser page is not suspended when hidden, so on the web it plays on.
+  Chromium does not throttle an audible page's timers.
 
-### D5 — The hosts, and the driver
+### D5 — The driver
 
-**Apple.** The sound arm gains one scheduler thread (QoS
-`userInteractive`, a 10 ms wake). Each wake expands the steps that fall in the
-next 100 ms. It pushes their voices into the mixer's existing SPSC ring at
-frame-accurate starts, which the render callback already places (LLP 1096 D6).
-It hands their MIDI to the MIDI arm with host-time stamps (D7), and their
-haptics to the main queue. The thread is the host's, inside a host arm. LLP
-1029.000 §4's ban is on threads an app's module owns. The native-views recipe
-keeps its rule for views and gains one line: timed output goes through the
-transport.
-
-**Web.** The glue runs the same expansion. Its wake comes from a dedicated
-Worker's `setInterval`, posting to the page, because the browser throttles a
-hidden page's own timers to about once a second. Steps become
-`AudioBufferSourceNode.start(when)` through D6's mapping, and
-`MIDIOutput.send(data, timestamp)` with `performance.now()` stamps. A
-main-thread stall longer than the 100 ms window makes those steps late. An
-AudioWorklet mixer would remove that limit for sound but not for MIDI, since
-Web MIDI is main-thread only. That mixer is deferred until a measurement shows
-late steps (§9).
-
-**The driver.** Nothing plays and nothing is sent. The runner expands the
-record as its clock advances. Each sample step becomes a voice in
-`state.sounds` (LLP 1096 D10), so `expect sound has "assets/kits/808/kick.wav"
-at 500` works unchanged. Each MIDI step becomes a line in `state.midi.sent`.
-Steps are not timers: `clock settle` never waits on one, and one
-`advance(60_000)` gives the same record as sixty `advance(1_000)`s (LLP 1092
-D10). The record keeps its last 1,024 entries.
+Nothing plays and nothing is sent. The runner expands as its clock advances,
+so each sample step is a voice in `state.sounds` (LLP 1096 D10) and
+`expect sound has "assets/kits/808/kick.wav" at 500` works unchanged. Each
+MIDI step is a line in `state.midi.sent`, and `state.transport` is the record.
+The record keeps its last 1,024 entries.
 
 ### D6 — `exactMIDI()`: the ports, by Web MIDI's names
 
@@ -337,388 +305,315 @@ resource midi = exactMIDI() as shape MIDI
 -- MIDIPort: { id, name, manufacturer, state: "connected" | "disconnected" }
 ```
 
-- **Field names are Web MIDI's** (`MIDIAccess.inputs`, `MIDIPort.id`, `.name`,
-  `.manufacturer`, `.state`).
-- **`id` is stable across replug.** On Apple it is the endpoint's
-  `kMIDIPropertyUniqueID`, not the endpoint ref, which changes on replug (§1).
-  Chrome's ids are stable per device.
-- **It changes by itself.** The host announces it, and the runner asks again
-  (LLP 1016.002). On Apple the MIDI arm creates its client on its own thread,
-  with its own run loop, so setup notifications arrive and the cold XPC never
-  blocks the main thread. It re-enumerates when the app returns to the
-  foreground, and on a 3 s watchdog while a port is in use. The watchdog stays
-  because euxy saw notifications missed on hardware. It lives in the arm, so no
-  app writes it again. The web listens to `MIDIAccess.onstatechange`.
-- **Permission.** On the web, `requestMIDIAccess()` asks. It is a host command
-  an action calls, and its outcome moves `state`. Apple asks for nothing, so
-  `state` is `granted` once the arm has loaded. The grant line is
-  `device.midi <strings-key>` (LLP 1069.008 D1: `midi` is the Permissions API
-  name). On the web it maps to `Permissions-Policy: midi`; Apple has no row.
-  SysEx (`{sysex: true}`, a separate prompt) is deferred.
-- **Where there is none**, `state` is `unavailable`. WebKit, and so every iOS
-  browser, has no Web MIDI. Firefox gates it behind a site-permission add-on.
+- **Names are Web MIDI's** (`MIDIAccess.inputs`, `MIDIPort.id` and so on).
+- **`id` is stable across replug**: on Apple, `kMIDIPropertyUniqueID`, not the
+  endpoint ref.
+- **It changes by itself** (LLP 1016.002). On Apple the arm makes its client on
+  its own thread with its own run loop, so notifications arrive and the cold
+  XPC never blocks the main thread. It re-enumerates on foreground, and on a
+  3 s watchdog while a port is in use, because euxy saw notifications missed on
+  hardware. The web listens to `onstatechange`.
+- **Permission.** `requestMIDIAccess()` is a host command. On the web it asks;
+  Apple asks for nothing. The grant line is `device.midi <strings-key>` (LLP
+  1069.008 D1), which maps to `Permissions-Policy: midi`. SysEx is out.
+- **Where there is none**, `state` is `unavailable`. That includes WebKit, and
+  so every iOS browser.
 
-### D7 — Sending, clock out, clock in
+### D7 — Sending and clock out
 
-- **`sendMIDI(output, data, at=)`** is a host command, named like LLP 1096's
-  `playSound`. `output` is a port id and `data` is a `number[]` of MIDI 1.0
-  bytes, as `MIDIOutput.send(data, timestamp)` takes. `at=` is runner time
-  (default: the commit's), mapped to `MIDITimeStamp` (host ticks) on Apple and
-  to `performance.now()` on the web, as LLP 1096 D6 maps voices. A message
-  that is not well-formed MIDI 1.0 (a missing data byte, a SysEx) is dropped
-  and journaled. The commit stands. On Apple the bytes go out as a MIDI 1.0
-  `MIDIEventList` (`MIDISendEventList`, the API that replaces packet lists).
-- **Notes from a sequence** go to the track's `output`: a note-on at the
-  step's time and a note-off `length` beats later. A note still sounding when
-  the transport stops gets its note-off then (D4).
-- **`clockOut=<output id>`** on `sequence` sends Timing Clock (0xF8) 24 times
-  per beat, stamped ahead like the notes. It sends Start (0xFA) at beat 0, and
-  Continue (0xFB) with a Song Position Pointer when a `key=` restart resumes
-  rather than restarts (question 4). It sends Stop (0xFC) at the stop.
-- **`clock=<input id>`** follows that input instead of `bpm=`:
-  - The transport is `waiting` until the input sends Start (0xFA). Start puts
-    beat `from` at that message's timestamp, as euxy swallows its count-in.
-  - Each Clock (0xF8) moves the position by 1/24 of a beat. The arm fires a
-    step due at a tick at once, with no lookahead, because the device decides
-    when the tick comes.
-  - The tempo comes from the arm's 48-tick window, taken from CoreMIDI's own
-    timestamps (§1). The runner's anchor is updated when the tempo moves by
-    0.5 BPM or more, at most every 500 ms (euxy's thresholds). That is a few
-    commits a second, never 48.
-  - Stop (0xFC) moves `state` to `stopped`. Whether a stop ends a take is the
-    app's rule: it hears Stop as a `midimessage` (D8) and sets its own state.
-  - Continue resumes. Song Position is honoured, though euxy ignores it.
+- **`sendMIDI(output, data, at=)`** is a host command. `data` is a `number[]`
+  of MIDI 1.0 bytes, as `MIDIOutput.send(data, timestamp)` takes. `at=` is
+  runner time and defaults to the commit's. A message that is not well-formed
+  MIDI 1.0 is dropped and journaled; SysEx is not sent.
+- **The runner's MIDI queue** holds every timed message: `sendMIDI`'s and a
+  sequence's notes, each with an id. Hosts take them as `take_midi()` ops, as
+  sounds are taken.
+- **Hosts hand a message to the output at most 50 ms before it is due**, and
+  hold it until then. CoreMIDI could take it a second early and flush, but
+  `MIDIFlushOutput` empties a whole destination. Chromium has no
+  `MIDIOutput.clear()`. Holding is the one rule both can keep. A retraction
+  (an edit, a stop) removes held messages. A message already handed out plays,
+  and its note-off follows it. On Apple the holding runs on the arm's thread,
+  so main-thread stalls do not delay it. On the web it runs on the page's
+  timer, so a stall of more than 50 ms makes those notes late; that limit is
+  declared.
+- **Track `offset`** shifts a track's times, so a sample and a hardware synth
+  can be lined up by ear, as euxy's latency slider does.
+- **`clockOut=<output id>`** on `play` sends Timing Clock (0xF8) 24 times per
+  beat through the same queue. It sends Start (0xFA) at beat 0 and Stop (0xFC)
+  at the stop. Continue with a Song Position Pointer is a later addition.
 
 ### D8 — Receiving: `midimessage`
 
-`midimessage` is an event, named as Web MIDI's `MIDIInput` fires it. Every
-element that declares it hears it, as `beforeunload` is heard
+`midimessage` is an event named as `MIDIInput` fires it. Every mounted element
+that declares it hears it, as `beforeunload` is heard
 (`docs/contract-grammar.md:1164`):
 
 ```
-view
-  column midimessage=heard
-    ...
+column midimessage=heard midiinputs=[inputId]
 action heard(e: MIDIMessageEvent)
   -- e.input: string, e.data: number[], e.timeStamp: number (runner ms), e.beat: number
 ```
 
-- **Inputs open while a handler is mounted.** Every connected input is open
-  then (`MIDIPortConnectSource`; the web's `onmidimessage`). An app filters on
-  `e.input`.
-- **Each message is one dispatch, in order.** None is coalesced, because a
-  note-off must never be lost. Messages that arrive between commits are
-  dispatched one after another. A burst is bounded at 256 pending, and the
-  257th is dropped and journaled: a controller's knob sweep can exceed what a
-  commit per message keeps up with.
-- **Clock and Active Sensing (0xF8, 0xFE) are not dispatched.** They feed
-  `clock=` (D7) and would be 48 or more commits a second. Start, Continue and
-  Stop are dispatched.
-- **`timeStamp` is the arm's**, taken in CoreMIDI's read callback (or Web
-  MIDI's `event.timeStamp`) and moved to runner time. It is not the commit's
-  time. **`e.beat`** is the transport's beat at that time, or `-1` when it is
-  stopped. A recorder quantises with a `fn` of `e.beat`, with no clock math.
+- **`midiinputs=`** lists the inputs to open. An app that lists none hears none.
+- **Notes and transport messages are never dropped or reordered.** These are
+  note on and off, Start, Continue, Stop and Song Position.
+- **Continuous messages coalesce.** Control Change, pitch bend, channel
+  pressure and polyphonic aftertouch keep only their latest value between
+  commits, per input, channel and controller or note. A fader sweep is then one
+  commit per frame, not hundreds.
+- **Clock and Active Sensing are not dispatched.** They feed clock in (D9).
+- **One dispatch per message**, in arrival order. Each mounted handler hears it
+  in that one commit.
+- **`timeStamp`** is the arm's (CoreMIDI's read callback, or the web event's),
+  moved to runner time. **`e.beat`** is the transport's beat at that time, or
+  `-1` when stopped. A recorder quantises from `e.beat` alone.
 
-### D9 — The sampler gaps
+### D9 — Clock in
 
-LLP 1096 has groups, gain and timed one-shots. The rest of what instruments
-and games ask:
+`clock=<input id>` on `play` follows that input instead of `bpm=`:
+
+- **The ticks are an input.** The arm batches Clock, Start, Continue, Stop and
+  Song Position messages with their timestamps, at most every 50 ms. It hands
+  them to the runner as one call, which LLP 1069.009's tape records. The
+  record is a function of that tick history, so a replay reproduces jitter,
+  missing ticks and stops.
+- **The runner estimates tempo** from a 48-tick window of those timestamps,
+  euxy's estimator moved where it can be replayed. The anchor is re-taken
+  each batch.
+- **Steps are issued from the predicted clock.** Under clock in, the lookahead
+  is the batch interval plus 50 ms, and a voice whose predicted time moves by
+  more than 2 ms on a new batch is retracted and re-issued.
+- **Start** puts beat `from` at its timestamp (the count-in). `state` is
+  `waiting` until then. **Stop** stops the sequence as D4 does, with reason
+  `clock`. The app hears Stop as a `midimessage` and decides whether the take
+  ended.
+- **The driver** sends ticks with `tap midi "<input>" clock <bpm> <ms>`. That
+  call is the same runner input, so a drive and its replay agree.
+
+### D10 — Sampler controls
 
 - **`playbackRate=`** (Web Audio's `AudioBufferSourceNode.playbackRate`),
-  0.25–4, default 1. Pitch moves with it, as on a tape or a hardware sampler. A
-  semitone is `2^(n/12)`. The web sets the node's parameter. The C mixer reads
-  at a fractional position with linear interpolation; cubic is a spec
-  question. The voice's end becomes `start + duration / rate`, so groups and
-  `state.sounds` stay exact.
-- **`pan=`** (Web Audio's `StereoPannerNode.pan`), −1 to 1, default 0. Its law
-  is the spec's equal-power law, which the mixer copies.
-- **Both are fields a hit may carry**, after `src`, `at`, `gain` and `group`
-  in `playSounds`'s shape, and in a sequence's `Step`. A shape without them
-  plays at rate 1, centred.
-- **Decoding on demand.** Today every declared sound is decoded when the
-  output opens (LLP 1096 D7, D8). Three 24-slot kits would mean 72 decodes
-  before the first hit. Instead:
-  - A sound is decoded at its first use.
-  - `loadSounds(srcs)` decodes a list ahead, which is what euxy does when a kit
-    is chosen. It runs off the main thread on Apple, and through
-    `decodeAudioData` on the web.
-  - `state.sounds` reports each sound's `loaded` state.
-  - A voice whose sound is still decoding behaves as LLP 1096 D7 says: it
-    starts when decoded, or is dropped at its end.
-  - Whether the first `sound` declarations stay eager below some total size is
-    question 6.
+  0.25–4, default 1. Pitch moves with it, as on tape. The C mixer reads at a
+  fractional position with linear interpolation. A voice lasts `duration /
+  rate`, so groups, the bound and `state.sounds` stay exact.
+- **`pan=`** (Web Audio's `StereoPannerNode.pan`), −1 to 1, default 0,
+  equal-power as the spec defines it.
+- **Both are optional on a hit.** They come after `src`, `at`, `gain` and
+  `group` in `playSounds`'s shape and in a `Step`. A shape without them plays
+  at rate 1, centred. A literal outside range is refused; a computed one is
+  clamped, as `gain` is.
+- **Decoding stays eager** (LLP 1096 D7, D8). On-demand decoding needs a
+  readiness the app can wait on before its downbeat, and a buffer handoff the
+  render thread can take mid-playback. It is deferred to a consumer whose kits
+  are too large to decode at the first voice.
 
-### D10 — Keep-awake: `wakelock="screen"`
+### D11 — Keep-awake: `wakelock="screen"`
 
 ```
 column wakelock=(playing or waitingForClock ? "screen" : "none")
 ```
 
-While any mounted element says `wakelock="screen"`, the display does not dim
-or lock for idleness. The value is the Screen Wake Lock API's one type
-(`navigator.wakeLock.request("screen")`). An attribute fits better than a pair
-of commands, for two reasons:
+While any element that is mounted and displayed says `wakelock="screen"`, the
+display does not dim or lock for idleness. Displayed means no ancestor is
+`display: none`, so a screen kept mounted in a hidden tab panel holds nothing.
+The value is the Screen Wake Lock API's one type. An attribute fits better
+than commands, for two reasons:
 
-- **It cannot leak.** A screen that unmounts releases its lock, as a recipe
-  screen should. With commands, a forgotten release keeps the phone awake.
+- **It cannot leak.** A screen that unmounts or hides releases its lock.
 - **It is the platform's own shape.** Android's is a view attribute,
-  `View.setKeepScreenOn` (`android:keepScreenOn`). A video's
-  `preventsDisplaySleepDuringVideoPlayback` is already per element in exact2
-  (LLP 1042).
+  `View.setKeepScreenOn`.
 
 Per host:
 
-- **iOS:** `UIApplication.isIdleTimerDisabled`, set while any element holds
-  it.
-- **macOS:** `IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleDisplaySleep)`,
-  released with the last holder.
-- **Web:** `navigator.wakeLock.request("screen")`. The browser releases it
-  when the page is hidden, so the glue requests it again on `visibilitychange`
-  (the spec's own example). Where the API is missing it is journaled once.
-- **Android:** `setKeepScreenOn` on the root view.
+- **iOS:** `isIdleTimerDisabled` while any element holds it.
+- **macOS:** an `IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleDisplaySleep)`
+  assertion, held while any element holds it.
+- **Web:** `navigator.wakeLock.request("screen")`. The glue requests it again
+  on `visibilitychange`, because a hidden page loses it.
 - **Linux:** journaled as unavailable.
-- **The driver:** `state.wakelock` is `{held, by: [node ids]}`. The iOS agent
-  keeps disabling the idle timer for its own reasons (`AgentIOS.swift:24–26`),
-  separately.
+- **The driver:** `state.wakelock` is `{held, by}`.
 
-### D11 — QR: `qrPath(text, …)`, matching `qrcode`
+### D12 — Files and an element's picture in a share
 
-`qrPath(text, errorCorrectionLevel="M", margin=4)` is a pure built-in
-function, like `format`. It returns an SVG path in module units, one square
-per dark module, and `qrSize(...)`, with the same arguments, returns the side
-in modules, margin included:
-
-```
-svg viewBox=("0 0 " + qrSize(link, errorCorrectionLevel="H") + " " + qrSize(link, errorCorrectionLevel="H"))
-  path d=qrPath(link, errorCorrectionLevel="H")
-```
-
-- **The output is `qrcode` 1.5.4's.** For a byte segment and a level, it
-  matches `QRCode.create([{data, mode: "byte"}], {errorCorrectionLevel})`
-  bit for bit: the same smallest version, the same mask by ISO/IEC 18004's
-  penalty, and the same modules. Byte mode is always used, so the text is
-  never segmented differently, which is where Core Image differs (§1). The
-  argument names are `qrcode`'s. A conformance corpus checks the Rust
-  encoder against `qrcode` under Bun on every change to either.
-- **Level H with a covered centre** is how euxy draws its glyph in the middle.
-  The app paints a plate over the centre. Level H recovers up to about 30 %
-  of the codewords, which is why such codes still scan.
-- **Rounded or spaced dots** (euxy's 84 % rounded rects) are drawing, not
-  encoding. `qrPath` could take a `module` style (question 7). Without it the
-  app can still lay out the dots as `rect`s from a module list, at the cost of
-  one node per module.
-- **Where it runs.** The runner's Rust, linked when the plan uses it. On the
-  JS target it is a module loaded with the first plan that uses it, compiled
-  from the same Rust or written as a port held to the same corpus (question
-  7). LLP 1027.000's purity rules hold: same arguments, same path.
-
-### D12 — Sharing an image: `share(files=[…])`, and an element as a file
-
-LLP 1069.003 D7 already designs `files=` as a later slice: `app:/` paths
-behind `fs.read`, each turned into the host's own type. This RFC brings that
-slice in, with one addition: **an entry `"#id"` names an element, and the
-host shares a PNG of it as it is drawn now.**
+LLP 1069.003 D7's `files=` comes in: `app:/` paths behind `fs.read`, each
+turned into the host's own type. An entry `"#id"` names an element: the host
+shares a PNG of it as it is drawn now.
 
 ```
 action shareCard
   share(title=pattern.name, url=link, files=["#card"])
-view
-  column id="card" ...   -- the card, drawn as the app draws anything else
 ```
 
-- **The picture is the host's own drawing**, at the display's scale. Apple
-  renders the element's layer (`UIGraphicsImageRenderer`, as euxy's port
-  does). Android draws the view into a bitmap. The web serialises the
-  element's subtree into an SVG `foreignObject` and draws it to a canvas.
-  Cross-origin images in it are left out and journaled, because they would
-  taint the canvas. The Linux CPU painter could serve a Linux share later.
-- **Nothing is written that the app can read**, so a picture needs no
-  `fs.read` grant. Only an `app:/` path does. The PNG lives in the host's
-  temporary space until the sheet closes.
-- **The web needs `navigator.canShare({files})`.** Desktop Chrome and Firefox
-  share no files. `exactPage().canShare` becomes `canShareFiles` as well
-  (question 8). The browser still asks for a user gesture.
-- **Not an image API.** There is no `toBlob` and no image the app can read
-  back. A picture the app keeps or uploads is LLP 1112's territory, which stays
-  parked.
+- **On Apple and Android it is the host's own drawing**: the node's view
+  rendered at the display's scale. Apple's presenter has one view per node (§1).
+  The PNG lives in the host's temporary space until the sheet closes. Nothing is
+  written that the app can read, so a picture needs no grant.
+- **On the web a picture is refused by name** (`share: refused: a picture of
+  an element is not available on the web`), and `exactPage().canSharePictures`
+  is false. A serialised SVG `foreignObject` carries no stylesheet, fonts,
+  images or canvases, so it would not be the element as drawn. A web picture
+  waits for a capture that is, such as the HTML-in-Canvas proposal.
+- **Paths on the web** go through `navigator.canShare({files})`;
+  `exactPage().canShareFiles` says whether they can.
 
 ## 4. The agent and tests
 
 | Piece | `state` | Drive | Test step |
 |---|---|---|---|
-| Transport | `state.transport` (the record, D3), and its voices in `state.sounds` | `clock +N` moves it; nothing plays | `expect sound … at N` (unchanged); `expect midi sent "<id>" 90 3c 64 at N` |
-| MIDI ports | `state.midi.inputs/outputs` | `prefer midi.outputs=[…]` (LLP 1069.007 D3's `prefer`, a new name) | — |
-| MIDI in | `state.midi.received` | `tap midi "<input>" 90 3c 64`, as LLP 1098 addressed the media session with `tap … mediasession` | the same, in a test |
-| Clock in | `state.transport.clock` | `tap midi "<input>" fa`, then `clock +N` ticks it at the `prefer`red tempo | — |
+| Sequence | `state.transport`; its voices in `state.sounds` | `clock +N` | `expect sound … at N`; `expect midi sent "<id>" 90 3c 64 at N` |
+| MIDI ports | `state.midi.inputs`, `outputs` | `prefer midi.outputs=[…]` | — |
+| MIDI in | `state.midi.received` | `tap midi "<input>" 90 3c 64` (LLP 1098's `tap … mediasession` addressing) | the same |
+| Clock in | `state.transport` | `tap midi "<input>" clock 120 2000` | the same |
 | Keep-awake | `state.wakelock` | — | `expect wakelock held` |
-| QR | — (a pure value) | — | `expect` on the path, as for any value |
-| Image share | a held `share` ticket (as today), with `files` | `tap @N shared` | as LLP 1069.003 |
+| Share files | a held `share` ticket with `files` | `tap @N shared` | as LLP 1069.003 |
 
-**MIDI input against LLP 1069.007.** That LLP says a stream "of events that
-must each arrive" does not fit its rule yet. This RFC proposes the rule for
-this one stream. An input message is a `dispatch` (LLP 1069.009 D1). The
-driver's `tap midi` makes exactly that call with the arm absent, and a
-recorded tape replays it. No eleventh operation is added.
+**MIDI input against LLP 1069.007.** That LLP excludes streams "of events that
+must each arrive". Its rule for this one is the following. A message is a
+`dispatch` (LLP 1069.009 D1), and a clock batch is one runner call.
+`tap midi` makes those calls with the arm absent, and a tape replays them. No
+eleventh operation is added.
 
 ## 5. Effect on each implementation
 
-- **Contract compiler:**
-  - `sequence` as a schedule (the task grammar, `docs/contract-grammar.md:225`);
-  - `Step` and `Track` checked structurally, as `playSounds`'s hits are;
-  - `sendMIDI`, `requestMIDIAccess` and `loadSounds` join `HOST_COMMANDS`
-    (`contract/syntax/src/lib.rs:87`);
-  - `midimessage` joins the event table;
-  - `wakelock` joins the attributes;
-  - `qrPath` and `qrSize` join the roster;
-  - `share` gains `files=`.
-- **Plan:** a `sequences` table; use bits for MIDI, wake lock and QR
-  (`runner/src/uses.rs`).
-- **Runner:** the transport record and its expansion for the driver; two
-  reserved sources; the MIDI record; dispatch of `midimessage` with its bound.
-  `runner/src/sound.rs` is 394 lines, so the transport is a new
-  `runner/src/transport.rs`.
-- **Lean and difftest:** the commands and the event only, as for LLP 1096
-  (D11 there). The transport's expansion is a pure function, which difftest
-  can compare between the runner and the JS target.
+- **Contract:**
+  - the `sequence` declaration;
+  - `Step` and `Track` checked structurally;
+  - `sendMIDI` and `requestMIDIAccess` in `HOST_COMMANDS`;
+  - `midimessage` among the events;
+  - `midiinputs` and `wakelock` among the attributes;
+  - `playbackRate` and `pan` on hits;
+  - `files=` on `share`.
+- **Runner:**
+  - `transport.rs`;
+  - `sound.rs`'s bound and the `edit` ending;
+  - the MIDI queue and record;
+  - two reserved sources;
+  - the clock-batch call;
+  - the background stop.
+- **Lean and difftest:** the commands and the event, as LLP 1096 D11 added
+  its commands. The expansion is a pure function that difftest can compare
+  between the runner and the JS target.
 - **Apple:**
-  - the scheduler in `soundarm/`;
-  - rate and pan in `sound_render.c`;
-  - a new `ExactMIDI` target;
-  - the wake lock in `Session.swift`;
-  - the PNG in `Share.swift`.
-- **Web:** the scheduler and its Worker in `sound-glue.js`; `midi-glue.js`;
-  the wake lock and file share in the glue; the QR module.
-- **Linux, Windows:** the record. Keep-awake and image share are refused by
-  name.
+  - capacity, rate and pan in `soundarm/`;
+  - `ExactMIDI`;
+  - the wake lock;
+  - pictures in `Share.swift`.
+- **Web:**
+  - capacity, rate and pan in `sound-glue.js`;
+  - `midi-glue.js`;
+  - the wake lock;
+  - file share.
+- **Linux, Windows:** the record.
 
 ## 6. Considered, not taken
 
-- **Keep the window clock in Contract** (LLP 1096 D3). It stays for a few
-  hits. As a transport it costs a commit every 25 ms on the main thread. It
-  stops in the background and is late when the runner is. It cannot follow a
-  clock at 24 PPQN.
-- **A scheduler in a data module on a worker** (LLP 1027.002). Data modules
-  refuse timers by design (LLP 1027.000 D3), and the module would still reach
-  the outputs only through commits.
-- **Host extensions (LLP 1124)** and **each app's own module (LLP 1067.000)**,
-  which is today's state: see D1. Each app writes CoreMIDI again, and the
-  agent can drive none of it.
-- **Imperative transport commands** (`startTransport`, `setPattern`,
-  `stopTransport`). They need a handle, and a forgotten stop keeps playing.
-  A gated task is already how exact2 says "while".
-- **A pattern in ticks.** The author would multiply by 24 everywhere. Beats
-  are what musicians and Link count.
-- **One loop over the least common multiple** of the track lengths. See
-  polymeter in §1.
-- **Core Image's QR.** It segments the text itself and its version differs
-  from the web's most common library (§1).
-- **`keepAwake()` / `allowSleep()` commands.** They leak (D10).
-- **An AudioWorklet mixer now.** No measurement shows the main-thread
-  lookahead missing yet (§9).
+- **The host expands the pattern** on its own thread (r1). It makes a second
+  producer into Apple's single-producer ring. It splits voice semantics between
+  the runner and four expansions (Rust, the JS twin, Swift, the web glue), so
+  groups and the bound between a sequence and a tap would be undefined. With
+  the runner a second ahead, only a main-thread stall over 500 ms costs a step.
+- **A fixed 100 ms edit horizon** (r1). Voices can be retracted, so an edit
+  applies at its commit. Only the 50 ms hold before a MIDI send is
+  irrevocable.
+- **The window clock as the transport** (LLP 1096 D3). It stays for a few hits.
+  As a transport it costs an app commit every 25 ms and leaves polymeter and
+  clock in to every app.
+- **A `sequence` schedule on `task`** (r1). The gate grammar is the same, but
+  a task fires an action and captures literals, while a sequence's arguments
+  are re-read after every commit. Two of three reviewers preferred the
+  declaration.
+- **QR in exact2.** A QR code needs no clock and no platform, so it is data
+  code. Two of three reviewers, and this revision, keep it in the app: a port
+  of `qrcode`'s encoder in a data module (the SwiftUI port's is 228 lines),
+  until a library can be shared through a package. Grok held that one encoder,
+  held to `qrcode` bit for bit, is worth centralising because Core Image
+  disagreed across ports.
+- **Unconditional CC 123 on stop.** It silences notes the sequence did not
+  play.
+- **Dropping an input message past a bound.** It can drop a note-off.
+- **An AudioWorklet mixer.** It is not needed once the runner schedules a
+  second ahead.
 
 ## 7. Stages
 
-Each stage stands alone and has a consumer. Euxy's exact2 port is
-re-written against each one, deleting the Swift that the stage replaces.
+Each stage stands alone, has a consumer, and lands after Astra and Grok review
+its diff.
 
-1. **The small pieces** (each a day or two; independent):
-   - `wakelock` (D10);
-   - `qrPath` with its corpus against `qrcode` (D11);
-   - `share(files=)` with element pictures (D12).
-   The port deletes `ShareCard.swift` and the idle-timer lines in
-   `Engine.swift`.
-2. **The transport and the sampler gaps** (D2–D5, D9): the runner record, the
-   Apple scheduler, the web scheduler, `playbackRate`, `pan` and decoding on
-   demand. The port's sounds and beat haptics move to `sequence`, and it
-   deletes `Sampler.swift` and the scheduler in `Engine.swift`.
-3. **MIDI** (D6–D8): the arm, ports, sends, clock out, clock in and
-   `midimessage`. The port deletes `MidiManager.swift` and the rest of
-   `Engine.swift`. `Euxy.swift` keeps only what its views draw.
+1. **Sampler controls and keep-awake** (D10, D11).
+2. **The sequence** with sample and haptic steps (D2–D5): the runner,
+   `exactTransport()`, the JS twin, capacity on both outputs, the background
+   stop, and the driver. Its consumer is a metronome and drum machine (an
+   example app), and euxy's kit playback.
+3. **MIDI** (D6–D8): ports, `sendMIDI`, MIDI steps and `offset`, clock out,
+   `midimessage`. With stage 2, euxy deletes its scheduler, `Sampler.swift` and
+   `MidiManager.swift`.
+4. **Clock in** (D9).
+5. **Files and pictures in a share** (D12). euxy deletes `ShareCard.swift`'s
+   share path.
 
 The bar for stage 2 is LLP 1096 §6's device check, applied to a sequence:
-onsets on the grid within the mixer's own precision on a Mac and an iPhone,
-with the main thread blocked for 80 ms by a test action. The bar for stage 3
-is euxy against a real OP–XY: clock out, notes, and following its clock
-through a count-in and a take, as `README.md`'s demo shows.
+onsets on the grid within the mixer's precision on a Mac and an iPhone, while
+a test action blocks the main thread for 300 ms. The bar for stages 3 and 4
+is euxy against a real OP–XY: clock out and notes, then following its clock
+through a count-in and a take.
 
 ## 8. `rules/DEFERRED.md`
 
-This admits a transport, MIDI and four small pieces. Charlie's 2026-10-15
-instruction ("keep making improvements to exact2 until porting euxy … is
-higher fidelity than the others", recorded in `DEFERRED.md` with no take)
-covers making the euxy port faithful. It does not obviously cover a general
-MIDI capability. Question 1 asks.
+The admission is Charlie's 2026-10-16 instruction ("once happy with it, go
+ahead and implement"), recorded as an expansion with no take offered.
 
-**Still out after this RFC:**
+**Still out:**
 
+- on-demand decoding (D10);
+- web pictures of an element (D12);
+- QR in exact2 (§6);
 - SysEx;
-- Bluetooth MIDI pairing UI (`CABTMIDICentralViewController`);
-- MIDI 2.0 messages;
+- Bluetooth MIDI pairing;
+- MIDI 2.0;
+- Continue and Song Position out;
 - Ableton Link;
-- swing and groove templates;
+- swing;
 - Linux, Windows and Android output;
 - synthesis;
-- compressed sound formats;
-- a picture the app keeps;
-- Core Haptics patterns (euxy's charge ramp).
+- compressed formats;
+- Core Haptics patterns.
 
-## 9. Questions for Charlie
+## 9. Questions decided (the orchestrator, for Charlie, 2026-10-16)
 
-1. **Admission and take.** Background: `DEFERRED.md` admits a capability only
-   with a reason and something taken off, or a waiver. The euxy instruction
-   is close to a waiver but is about fidelity, not a capability every app
-   gets. **Recommendation:** admit stages 1 and 2 under the euxy instruction,
-   since each is what the port lacks and each has the second consumers in §2.
-   Rule on MIDI (stage 3) separately, with Linux MIDI as the stated
-   non-goal. · **Confidence:** medium, ~65%. · **Why not higher:** whether the
-   instruction covers MIDI is yours to say. If it does, admit all three
-   stages.
-2. **A schedule on `task`, or a new declaration.** Background: a gated task
-   already means "while this holds, keep doing this", and the transport needs
-   exactly that: arm from the commit, re-arm on a key, stop at the gate. A
-   separate `transport` declaration would be a second way to say it.
-   **Recommendation:** `sequence` as a third schedule (D2). · **Confidence:**
-   high, ~80%. · **Why not higher:** a task's other schedules call an action;
-   this one calls none. If that difference reads as a different thing, a
-   declaration named `sequence` with the same gate grammar is the fallback.
-3. **The 100 ms horizon for edits** (D3). Background: an edit cannot reach a
-   step already handed to the speaker or CoreMIDI. Fixing the horizon at one
-   constant keeps the record the same on every host; a host-chosen horizon
-   would let Apple use 30 ms but make `state.sounds` differ by host.
-   **Recommendation:** 100 ms everywhere. · **Confidence:** medium-high,
-   ~70%. · **Why not higher:** a live-performance app might feel 100 ms on
-   a mute. Then the next step is 50 ms on Apple only, with the driver
-   simulating Apple's.
-4. **`key=` re-arm: restart or continue.** Background: today a changed key
-   re-arms from scratch. For clock out, a resume is Continue plus Song
-   Position, which a drum machine follows; a restart is Start. **Recommendation:**
-   a key change restarts (Start); a separate `resume` (the gate turning true
-   with `from=` set to the old beat) sends Continue. · **Confidence:** medium,
-   ~60%. · **Why not higher:** euxy has "Pause/Continue" and "Reset", and I
-   have not confirmed which the OP–XY expects after Pause.
-5. **One flat `Step`, or kinds** (D2). Background: Contract shapes are flat,
-   so a step that may be a sample, a note or a haptic carries all of them,
-   with `""` or `-1` for none. Optional fields would read better but cost the
-   checker work. **Recommendation:** flat now, as `playSounds` is.
-   · **Confidence:** medium, ~60%. · **Why not higher:** if `option<…>` fields are cheap to check structurally, a spec should use them.
-6. **Decoding: on demand always, or eager below a size** (D9). Background:
-   eager decoding makes the first hit instant; on-demand keeps launch and
-   memory flat for big libraries. `loadSounds` covers the instant case.
-   **Recommendation:** on demand always, with `loadSounds`.
-   · **Confidence:** medium-high, ~70%. · **Why not higher:** a game with
-   ten short sounds would need to call `loadSounds` at mount, which is a new
-   thing to forget.
-7. **QR's scope** (D11). Background: matching `qrcode` means one encoder
-   held to a corpus. Drawing styles (rounded, spaced dots) are what card
-   designers ask next. **Recommendation:** square modules only. Rust in the
-   runner, and the same Rust compiled into the JS target's module rather than a
-   second port. · **Confidence:** medium, ~65%. · **Why not higher:** the JS
-   target's runtime budget is ~20 KB, and a compiled encoder may not fit as a
-   loaded module. A hand port with the corpus is then cheaper.
-8. **`canShareFiles`** (D12). Background: desktop browsers share text but not
-   files, so a share-card button must know. **Recommendation:** add it to
-   `exactPage()`. · **Confidence:** high, ~85%.
-9. **The web's MIDI reach.** Background: no WebKit browser has Web MIDI, so
-   euxy on an iPhone's Safari has none. Native iOS has CoreMIDI.
-   **Recommendation:** accept it as a declared limit: `state: "unavailable"`,
-   with the app hiding its MIDI UI. · **Confidence:** high, ~90%.
+1. **Admission:** by the instruction (§8). The three reviewers agreed the
+   2026-10-15 euxy entry, which named chrome, did not cover this.
+2. **Surface:** a `sequence` declaration with a task's gate grammar (§6).
+3. **Edits:** at the commit, by retraction; no horizon (D3).
+4. **`key=`:** restarts, sending Start. Continue is deferred (§8).
+5. **`Step`:** flat, as `playSounds`'s hits are.
+6. **Decoding:** eager; on demand is deferred (D10).
+7. **QR:** app code (§6).
+8. **`canShareFiles`, `canSharePictures`:** both on `exactPage()`.
+9. **Web MIDI's reach:** a declared limit; WebKit is `unavailable`.
+
+## R. Round 1, and what r2 changed
+
+Each finding was checked against the code or the platform before it was
+taken.
+
+| Finding | Reviewers | r2 |
+|---|---|---|
+| The host expanding into Apple's single-producer ring, with voice semantics split from the runner's table | Muse 1, Astra 3, Grok 3 | The runner expands; hosts unchanged (D3, §6) |
+| The 100 ms horizon: no slack, and retraction already exists | Muse 2, Astra 4, Grok 2 | Edits at the commit; 1 s lookahead (D3) |
+| Clock in not reproducible from tempo updates | Astra 1, Muse 4, Grok 4 | Tick batches are a recorded input (D9) |
+| Stop cannot recall queued MIDI; Chromium lacks `clear()`; CC 123 too broad | Astra 2 | Hold within 50 ms; note-offs after their note-ons; no CC 123 (D4, D7) |
+| The 257th message dropped can be a note-off; controller floods | Grok 1, Astra 7, Muse 8 | Notes never dropped; continuous messages coalesce; `midiinputs=` (D8) |
+| `sequence` is not a schedule: its arguments are re-read | Muse 3, Grok 5 | A declaration; the re-read rule normative (D2) |
+| Endless loops only; no end signal | Astra 6, Muse 7, Grok 5 | `loops` and `ended=` (D2) |
+| Background resume contradicts euxy, which stops | Muse 5, Astra 6, Grok 4 | Stop on suspension by default; `playback` plays on (D4) |
+| No per-output latency offset | Muse 6 | Track `offset` (D2, D7) |
+| On-demand decoding regresses the first hit and lacks readiness | Muse 9, Astra 8, Grok 7 | Eager stays; on demand deferred (D10) |
+| QR is the wrong layer | Muse 10, Astra 9; Grok dissents | App code (§6) |
+| `foreignObject` is not the element as drawn | Muse 11, Astra 10, Grok 6 | Web pictures refused by name (D12) |
+| Apple has no per-element layer | Muse 11 | Not taken: one `UIView` per node (`NodeViewIOS.swift:1`) |
+| Stage 2 cannot delete euxy's scheduler before MIDI | Muse 12, Astra 11 | Stage 2's consumer is a metronome and drum machine; euxy deletes after stage 3 (§7) |
+| The euxy waiver names chrome | all three | Admitted by the 2026-10-16 instruction (§8) |
+| Keep-awake leaks in a mounted hidden screen | Muse 13 | Mounted and displayed (D11) |
+| The undecidable bake check for two sequences | Muse 7 | A run-time rule (D2) |
+| Main-queue haptics can be late by a whole stall | Astra 5 | Stated; late haptics are counted (D3) |

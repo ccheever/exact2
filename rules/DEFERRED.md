@@ -572,6 +572,22 @@ reading. Nothing that isn't HTML is added by it.
   one voice, a stop at a future time, compressed formats, sound produced by a
   data module, microphone input, and output on Linux and Windows (LLP 1096
   §7). No tag is added.
+- **Expanded (LLP 1125; Charlie, 2026-10-16: "once happy with it, go ahead
+  and implement"):** a sequence (`sequence NAME when COND`, `play(tracks,
+  bpm=, from=, countIn=, clock=, clockOut=, ended=)`) that the runner expands
+  a second ahead into the voice table, a MIDI queue and timed haptics, with
+  `exactTransport()`; MIDI by Web MIDI's names (`exactMIDI()`,
+  `requestMIDIAccess()`, `sendMIDI(output, data, at=)`, `midimessage=` with
+  `midiinputs=`, clock out and in); `playbackRate=` and `pan=` on a hit;
+  `wakelock="screen"`; `share(files=)` with `app:/` paths and, on Apple and
+  Android, an element's picture (`"#id"`). Consumers: euxy's port (its
+  scheduler, sampler, CoreMIDI and share card), a metronome and drum
+  machine. Unblocks timed sound and MIDI with no app commit per step and no
+  app-owned audio thread. Take: none offered; waived by that instruction.
+  Still out: on-demand decoding, web pictures of an element, QR in exact2,
+  SysEx, Bluetooth MIDI pairing, MIDI 2.0, Continue and Song Position out,
+  Ableton Link, swing, Linux, Windows and Android output, synthesis (LLP 1125
+  §8).
 - **Expanded (LLP 1098; admitted by the orchestrator under Charlie's
   2026-10-04 delegation, "make decisions without me"):** the media session,
   by the Media Session API's names, on HTML's media element:
