@@ -37,7 +37,7 @@ component Iframes
         text "flip"
       button press=restrict testId="restrict"
         text "restrict"
-      when open
+      if open
         iframe "data:text/html,<script>parent.postMessage('s','*')</script>" sandbox="allow-scripts"
           message=heardShown
           testId="shown"
