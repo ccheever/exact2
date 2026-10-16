@@ -133,7 +133,8 @@ final class TableRowCell: NSTableCellView {
     }
 
     func separatorAppearanceChanged(_ node: NodeView) {
-        guard node === row, let rowView = superview as? TableSeparatorRowView,
+        guard let row, (node === row || node.isDescendant(of: row)),
+              let rowView = superview as? TableSeparatorRowView,
               rowView.appearanceSource === node else { return }
         rowView.needsDisplay = true
     }
@@ -730,10 +731,14 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         guard let row = row(at: index) else { return index + 1 < count }
         return presenter?.tables.separates(row.node, in: id) ?? false
     }
+    private func separatorAppearanceSource(at index: Int) -> NodeView? {
+        guard let row = row(at: index), let presenter else { return nil }
+        return presenter.views[row.root] ?? presenter.tables.authoredRow(of: row.node) ?? row.node
+    }
     private func syncSeparators() {
         table.enumerateAvailableRowViews { view, index in
             guard let view = view as? TableSeparatorRowView else { return }
-            view.appearanceSource = self.row(at: index)?.node
+            view.appearanceSource = self.separatorAppearanceSource(at: index)
             view.separates = self.separates(at: index)
         }
     }
@@ -741,7 +746,7 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         let identifier = NSUserInterfaceItemIdentifier("exact.row.separator")
         let view = tableView.makeView(withIdentifier: identifier, owner: self) as? TableSeparatorRowView ?? TableSeparatorRowView()
         view.identifier = identifier
-        view.appearanceSource = self.row(at: row)?.node
+        view.appearanceSource = separatorAppearanceSource(at: row)
         view.separates = separates(at: row)
         return view
     }

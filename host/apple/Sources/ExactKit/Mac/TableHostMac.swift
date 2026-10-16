@@ -90,19 +90,29 @@ final class TableHost {
         if let feed = feeds[list], feed.children != nil { feed.children = want }
     }
 
+    /// A windowed row's authored first root. The wrapper remains the row for
+    /// geometry and shadow intent.
+    func authoredRow(of row: NodeView) -> NodeView? {
+        guard row.props["listItemKey"] != nil else { return row }
+        guard let presenter else { return nil }
+        // An exiting child stays in the hierarchy as a paint ghost after it
+        // leaves `views`. It is no longer the wrapper's authored row.
+        for case let child as NodeView in row.container.subviews where presenter.views[child.id] === child {
+            return child
+        }
+        return nil
+    }
+
     /// The Swift projection of `Kernel.row_separator` (LLP 1115.000 D16).
     /// The wrapper is the row; only its authored child's edge intent is read.
     /// Logical siblings include the children AppKit does not make table rows.
     func separates(_ row: NodeView, in list: UInt32) -> Bool {
         guard let nextID = nextRow[list]?[row.id], let next = presenter?.views[nextID],
               row.props["accessibilityElementsHidden"] != "true", !row.wrote("box_shadow") else { return false }
-        func authored(_ node: NodeView) -> NodeView? {
-            node.props["listItemKey"] == nil ? node : node.container.subviews.compactMap { $0 as? NodeView }.first
-        }
         func owns(_ node: NodeView?, _ edge: String) -> Bool {
             node.map { $0.wrote("border_width_" + edge) || $0.wrote("border_style_" + edge) } ?? false
         }
-        return !owns(authored(row), "bottom") && !owns(authored(next), "top")
+        return !owns(authoredRow(of: row), "bottom") && !owns(authoredRow(of: next), "top")
     }
 
     /// The native cell and the painted row use the same leading paragraph.
@@ -147,23 +157,39 @@ final class TableHost {
                 // bottom; the trailing cell inset is sixteen points.
                 let frame = NSRect(x: from, y: bottom - 1, width: end - from, height: 1)
                 if line.frame != frame { line.frame = frame }
-                appearanceChanged(row)
+                applySeparatorAppearance(line, from: authoredRow(of: row) ?? row)
             }
         }
         for (id, line) in lines where !needed.contains(id) { line.removeFromSuperlayer(); lines[id] = nil }
     }
-    /// A painted separator belongs to its row's appearance. AppKit can tell
-    /// the root about a window change before it has updated every descendant;
-    /// the row's own callback is the point at which its effective appearance
-    /// is current, including an authored `color-scheme` override.
-    func appearanceChanged(_ row: NodeView) {
-        (row.superview as? TableRowCell)?.separatorAppearanceChanged(row)
-        guard let line = lines[row.id] else { return }
+    private func applySeparatorAppearance(_ line: CALayer, from source: NodeView) {
         CATransaction.begin(); CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
-        row.effectiveAppearance.performAsCurrentDrawingAppearance {
+        source.effectiveAppearance.performAsCurrentDrawingAppearance {
             let color = NSColor.separatorColor.cgColor
             if line.backgroundColor != color { line.backgroundColor = color }
+        }
+    }
+    /// A separator belongs to its authored row's appearance. AppKit can tell
+    /// the wrapper about a window change before it has updated its child; the
+    /// child's own callback is the point at which its effective appearance is
+    /// current, including an authored `color-scheme` override.
+    func appearanceChanged(_ source: NodeView) {
+        var ancestor: NSView? = source
+        while let view = ancestor {
+            if let cell = view as? TableRowCell {
+                cell.separatorAppearanceChanged(source)
+                break
+            }
+            ancestor = view.superview
+        }
+        ancestor = source
+        while let view = ancestor {
+            if let row = view as? NodeView, let line = lines[row.id], authoredRow(of: row) === source {
+                applySeparatorAppearance(line, from: source)
+                return
+            }
+            ancestor = view.superview
         }
     }
     /// A row in a cell takes layout's frame in the cell's space. Any other
