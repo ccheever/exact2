@@ -133,6 +133,7 @@ mod tests_decl;
 mod text_item;
 mod text_selection;
 mod theme;
+mod three_forms;
 mod time;
 mod timelines;
 mod top_layer_inheritance;

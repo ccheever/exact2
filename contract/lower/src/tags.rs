@@ -970,9 +970,7 @@ pub(crate) fn html_tag(name: &str) -> Option<&'static str> {
         "label" => {
             "a label is `text` beside its field, and the field is named by `aria-label` (or `aria-labelledby` with the text's `id`)"
         }
-        "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "heading" => {
-            "a heading is `text role=\"heading\" aria-level=1` (2 and on for the level)"
-        }
+        "heading" => "a heading is `h1` (to `h6` for the level)",
         // The app farm's guesses (round 1): each names the Contract form
         // that does the job.
         "small" | "code" | "pre" | "paragraph" | "subtitle" => {

@@ -98,7 +98,8 @@ use           = "use" use-name { "," use-name } "from" STRING NL ;
 use-name      = IDENT [ "as" IDENT ] ;
 shape         = "shape" IDENT block(field) ;
 field         = FIELD ":" type NL ;
-function      = "fn" IDENT "(" [ typed-params ] ")" ":" type "=" expr NL ;
+function      = "fn" IDENT "(" [ typed-params ] ")" ":" type "="
+                ( expr NL | NL INDENT expr NL DEDENT ) ;
 typed-params  = typed-param { "," typed-param } [ "," ] ;
 typed-param   = IDENT ":" type ;
 style         = "style" IDENT block(style-line | part) ;
@@ -762,14 +763,14 @@ Several tags share a kernel node type with different fixed properties.
 | --- | --- |
 | Boxes / layout | `view`, `box`, `row`, `column`, `scroll`, `list` |
 | Structure | `main`, `header`, `nav`, `section`, `footer`, `article`, `aside`, `dialog`, `hr` |
-| Text and controls | `text`, `button`, `link`, `input`, `textarea`, `select`, `option`, `progress` |
+| Text and controls | `text`, `h1`–`h6`, `button`, `link`, `input`, `textarea`, `select`, `option`, `progress` |
 | Media / metadata | `image`, `video`, `audio`, `iframe`, `canvas`, `head` |
 | SVG scene | `svg`, `g`, `path`, `polyline`, `polygon`, `circle`, `ellipse`, `line`, `rect` |
 | SVG definitions | `defs`, `symbol`, `use`, `clipPath`, `marker`, `mask`, `pattern` |
 | SVG color / text / embedding | `linearGradient`, `radialGradient`, `stop`, `tspan`, `foreignObject` |
 | SVG filters | `filter`, `feBlend`, `feColorMatrix`, `feComponentTransfer`, `feComposite`, `feConvolveMatrix`, `feDiffuseLighting`, `feDisplacementMap`, `feDropShadow`, `feFlood`, `feFuncR`, `feFuncG`, `feFuncB`, `feFuncA`, `feGaussianBlur`, `feMerge`, `feMergeNode`, `feMorphology`, `feOffset`, `feSpecularLighting`, `feTile`, `feTurbulence`, `feDistantLight`, `fePointLight`, `feSpotLight` |
 
-`text` inside SVG has SVG semantics. A hyphenated tag names a native module: the
+`h1` to `h6` are `text role="heading" aria-level=1` to `6` (LLP 1116.017 D1). `text` inside SVG has SVG semantics. A hyphenated tag names a native module: the
 bake checks it against `app.json`'s `modules` list (`bake-unknown-module`), and
 its unknown attributes, and an SVG element's own props, pass to the module as one
 object. A known attribute binds to the module's box, and the box takes only layout,

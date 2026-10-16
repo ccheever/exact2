@@ -358,15 +358,9 @@ fn a_stray_else_and_a_body_on_the_next_line_say_where_they_go() {
         ),
         "{error}"
     );
+    // A `fn`'s body may start on the next line (LLP 1116.017 D2); a derive's may not.
     let body = "fn label(done: bool): string =\n  done ? \"Done\" : \"Open\"\ncomponent App\n  view\n    text label(true)\n";
-    let error = contract::compile(body).unwrap_err();
-    assert_eq!(error.id, "syntax-expected-expression");
-    assert!(
-        error
-            .message
-            .starts_with("a fn's expression starts on its `=` line"),
-        "{error}"
-    );
+    contract::compile(body).unwrap();
     let derive = "component App\n  state done = false\n  derive label =\n    done ? \"Done\" : \"Open\"\n  view\n    text label\n";
     let error = contract::compile(derive).unwrap_err();
     assert!(
