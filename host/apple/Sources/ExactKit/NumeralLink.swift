@@ -23,3 +23,21 @@ package protocol NumeralCapability: AnyObject {
 package enum NumeralLink {
     package static var installed: NumeralCapability?
 }
+
+/// The number a paragraph's text leads with, which says which way a change
+/// rolls: its first run of digits, group separators skipped, negative when a
+/// minus sign comes before it (`$-12`, `−3%`); `0` when it has no digits. The
+/// Linux host's `leading_number` reads it the same way.
+package func leadingNumber(_ text: String) -> Double {
+    guard let first = text.firstIndex(where: { $0.isASCII && $0.isNumber }) else { return 0 }
+    var digits = text[..<first].contains(where: { $0 == "-" || $0 == "\u{2212}" }) ? "-" : ""
+    var dot = false
+    for ch in text[first...] {
+        if ch.isASCII && ch.isNumber { digits.append(ch) }
+        else if ch == "," { continue }
+        else if ch == "." && !dot { dot = true; digits.append(ch) }
+        else { break }
+    }
+    if digits.hasSuffix(".") { digits.removeLast() }
+    return Double(digits) ?? 0
+}
