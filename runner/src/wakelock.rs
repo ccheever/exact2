@@ -1,11 +1,14 @@
 //! `wakelock="screen"` (LLP 1125 D11): the display does not dim or lock for
 //! idleness while any element that is mounted and displayed says so.
-//! Displayed is CSS's: neither the node nor an ancestor is `display: none`,
-//! so a screen kept mounted in a hidden tab panel holds nothing. This is the
-//! one rule: the native hosts take the lock by it, and the agent reads it as
-//! `state.wakelock`.
+//! Displayed means neither the node nor an ancestor is `display: none` or
+//! laid out as such by its host (a whole [`HostCover`]: an unopened tab, a
+//! closed top-layer box), and it is under no route its navigation root
+//! hides: a tab not selected, or a screen a stack keeps under its top (the
+//! one a sheet covers stays shown). So a screen kept mounted in a hidden tab
+//! panel holds nothing. This is the one rule: the native hosts take the lock
+//! by it, and the agent reads it as `state.wakelock`.
 
-use exact_kernel::{Display, Kernel, PropId, ViewId};
+use exact_kernel::{Display, HostCover, Kernel, PropId, ViewId};
 use exact_plan::{BindingKind, Plan};
 
 /// Whether any node of `plan` says `wakelock`: a host that loads its lock on
@@ -33,19 +36,21 @@ pub fn holders(kernel: &Kernel) -> Vec<ViewId> {
         .collect()
 }
 
-/// Whether neither `id` nor an ancestor is `display: none`.
+/// Whether `id` is displayed (the module's rule).
 fn displayed(kernel: &Kernel, id: ViewId) -> bool {
+    let arena = kernel.arena();
     let mut at = Some(id);
     while let Some(id) = at {
         let Some(node) = kernel.node(id) else {
             return false;
         };
-        if node.style.display == Display::None {
+        let whole = arena.slot_of(id).and_then(|slot| arena.cover(slot)) == Some(HostCover::Whole);
+        if node.style.display == Display::None || whole {
             return false;
         }
         at = node.parent;
     }
-    true
+    !crate::head::hidden_route(kernel, id)
 }
 
 /// `,"wakelock":{"held":…,"by":[…]}`, the agent's `state.wakelock`.

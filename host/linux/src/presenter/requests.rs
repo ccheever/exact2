@@ -283,20 +283,24 @@ impl<D: DataSource> Presenter<D> {
     }
 
     /// A host with no shell (desktop Linux, Windows, a headless run) keeps no
-    /// display awake: the first time after boot that an element holds the
-    /// wake lock, the journal says so (LLP 1125 D11). Not during the boot,
-    /// which Android's reader starts serving after.
+    /// display awake: the first time an element holds the wake lock, the
+    /// journal says so (LLP 1125 D11). Asked as a loop's turn runs its
+    /// commands (`run_commands`), which Android's reader serves before.
     pub(super) fn wakelock_unavailable(&mut self) {
-        if self.booting
-            || self.requests.shell
-            || self.requests.wakelock_said
-            || self.wakelock_moved() != Some(true)
+        if self.requests.shell || self.requests.wakelock_said || self.wakelock_moved() != Some(true)
         {
             return;
         }
         self.requests.wakelock_said = true;
         self.host
             .log("wakelock: unavailable: this host keeps no display awake");
+    }
+
+    /// Another host took over (`Presenter::replaced`): its kernel may have
+    /// the epoch the wake lock was last read at, so it is read again; what
+    /// the shell was told stands.
+    pub(super) fn wakelock_replaced(&mut self) {
+        self.requests.wakelock_epoch = None;
     }
 
     /// Whether Back has somewhere to go may have changed with no commit (a

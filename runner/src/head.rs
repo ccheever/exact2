@@ -114,6 +114,17 @@ impl<D: DataSource> Runner<D> {
 }
 
 pub(crate) fn inactive(kernel: &Kernel, id: ViewId) -> bool {
+    inactive_with(kernel, id, false)
+}
+
+/// Whether `id` lies under a route every host hides: [`inactive`], less the
+/// route a modal sheet covers, which stays shown beneath the sheet
+/// (navigation.js `covered`). What a wake lock reads (LLP 1125 D11).
+pub(crate) fn hidden_route(kernel: &Kernel, id: ViewId) -> bool {
+    inactive_with(kernel, id, true)
+}
+
+fn inactive_with(kernel: &Kernel, id: ViewId, covered_shows: bool) -> bool {
     let node = |id: ViewId| {
         kernel
             .node(id)
@@ -125,7 +136,8 @@ pub(crate) fn inactive(kernel: &Kernel, id: ViewId) -> bool {
         if let Some(n) = node(at.id) {
             let off = unselected(&node, &n);
             if let Some(route) = off.iter().find(|off| path.contains(off)) {
-                if !beside_a_pane(kernel, &n, *route) {
+                let shown = covered_shows && under_a_sheet(&node, &n) == Some(*route);
+                if !shown && !beside_a_pane(kernel, &n, *route) {
                     return true;
                 }
             }
@@ -277,6 +289,41 @@ fn unselected<'a>(
         .collect();
     off.extend(stacks[selected].iter().filter(|r| key_of(**r) != Some(key)));
     off
+}
+
+/// The route a navigation root's selected route covers when that route is a
+/// sheet (`navigationPresentation="modal"`): the one before it in its stack,
+/// which every host leaves shown beneath the sheet (navigation.js `covered`).
+fn under_a_sheet<'a>(
+    node: &impl Fn(ViewId) -> Option<HeadNode<'a>>,
+    at: &HeadNode<'a>,
+) -> Option<ViewId> {
+    let key =
+        at.1.str(PropId::NavigationBack)
+            .and(at.1.str(PropId::NavigationKey))?;
+    let routes = |ids: &[ViewId]| -> Vec<ViewId> {
+        ids.iter()
+            .copied()
+            .filter(|r| node(*r).is_some_and(|(_, p, _)| p.str(PropId::NavigationKey).is_some()))
+            .collect()
+    };
+    let panels = tab_panels(node, &at.2);
+    let stacks: Vec<Vec<ViewId>> = if panels.is_empty() {
+        vec![routes(&at.2)]
+    } else {
+        panels
+            .iter()
+            .map(|p| node(*p).map(|(_, _, c)| routes(&c)).unwrap_or_default())
+            .collect()
+    };
+    stacks.iter().find_map(|rs| {
+        let top = rs.iter().position(|r| {
+            node(*r).is_some_and(|(_, p, _)| p.str(PropId::NavigationKey) == Some(key))
+        })?;
+        let modal = node(rs[top])
+            .is_some_and(|(_, p, _)| p.str(PropId::NavigationPresentation) == Some("modal"));
+        (modal && top > 0).then(|| rs[top - 1])
+    })
 }
 
 /// A navigation root's tabpanels, in tab order: those its own tablist's

@@ -901,8 +901,9 @@ link sheet.
 `wakelock` on any element takes `"screen"` or `"none"` (the default), literal
 or bound ([LLP 1125](../llp/1125-a-transport-midi-and-the-small-pieces.rfc.md)
 D11). While an element that is mounted and displayed (no ancestor
-`display: none`) says `"screen"`, the display does not dim or lock for
-idleness. Any other literal word is refused (`lower-attr-value`, naming the
+`display: none`, under no unselected tab and no screen a stack keeps under
+its top; the one a sheet covers is shown) says `"screen"`, the display does
+not dim or lock for idleness. Any other literal word is refused (`lower-attr-value`, naming the
 two); a computed one is journaled and holds nothing. `keepScreenOn`,
 `idleTimerDisabled` and `keepAwake` are refused with this name. The agent
 reads `state.wakelock` (`{held, by}`); [the reference](reference.md#keep-the-screen-awake)

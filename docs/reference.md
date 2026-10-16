@@ -937,8 +937,11 @@ the platform would call (`delivery: "substituted"`).
 
 `wakelock="screen"` on any element keeps the display from dimming or locking
 for idleness while that element is mounted and displayed: neither it nor an
-ancestor is `display: none`, so a screen kept mounted in a hidden tab panel
-holds nothing ([LLP 1125](../llp/1125-a-transport-midi-and-the-small-pieces.rfc.md)
+ancestor is `display: none` (or laid out so by its host, as an unopened tab
+is), and it is under no tab the navigation leaves unselected and no screen a
+stack keeps under its top, so a screen kept mounted in a hidden tab panel
+holds nothing; the screen a sheet covers is still shown, and holds. An exit
+animation's ghost holds nothing ([LLP 1125](../llp/1125-a-transport-midi-and-the-small-pieces.rfc.md)
 D11). `"none"` is the default. Bind it to what needs the screen:
 `wakelock=(playing ? "screen" : "none")`. A literal other than the two words
 is refused; a computed one is journaled (`view N: invalid wakelock value …;

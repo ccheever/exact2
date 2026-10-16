@@ -104,3 +104,38 @@ fn a_host_with_no_shell_journals_it_once() {
     p.tell_shell();
     assert_eq!(p.take_requests(), None);
 }
+
+fn unavailable(p: &Presenter<Nothing>) -> usize {
+    p.host()
+        .runner()
+        .journal()
+        .filter(|l| l.contains("wakelock: unavailable"))
+        .count()
+}
+
+/// Android's reader commits after boot (the place and time, a resize) and
+/// serves its shell before its loop's first turn: nothing says the lock is
+/// unavailable, and the shell is told it is on.
+#[test]
+fn commits_before_the_shell_is_served_say_nothing() {
+    let mut p = boot();
+    assert!(p.resize(400., 700.).is_none());
+    p.serve_requests();
+    p.run_commands(|| Nothing);
+    assert_eq!(unavailable(&p), 0);
+    assert_eq!(told(&mut p), [1]);
+}
+
+/// A plan replaced by one with no holder at the same kernel epoch still
+/// tells the shell the lock is off.
+#[test]
+fn a_replacement_at_the_same_epoch_is_read_again() {
+    let mut p = boot();
+    p.serve_requests();
+    assert_eq!(told(&mut p), [1]);
+    let epoch = p.host().kernel().epoch();
+    let plan = crate::test_plan("component App\n  view\n    text \"Nothing held\"\n");
+    p.reload(&plan, Nothing).unwrap();
+    assert_eq!(p.host().kernel().epoch(), epoch, "the case under test");
+    assert_eq!(told(&mut p), [0]);
+}

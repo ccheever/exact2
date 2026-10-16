@@ -135,3 +135,137 @@ fn a_plan_without_the_attribute_holds_nothing() {
     .unwrap();
     assert_eq!(state(&r), ",\"wakelock\":{\"held\":false,\"by\":[]}");
 }
+
+/// The runner journals a bad word each time the value changes to it, as
+/// the JS target's wakelock.js does (host/web/tests/wakelock.test.mjs).
+#[test]
+fn a_bad_word_is_journaled_each_time_it_comes_back() {
+    let mut r = boot();
+    for word in ["dim", "screen", "dim", "dim"] {
+        press(&mut r, word);
+    }
+    let lines = r
+        .journal()
+        .filter(|l| l.contains("invalid wakelock value \"dim\""))
+        .count();
+    assert_eq!(lines, 2);
+}
+
+fn boot_source(source: &str) -> Runner<NoData> {
+    let plan = contract::compile(source).unwrap();
+    Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap()
+}
+
+const TABS: &str = r#"routes nav
+  tab first "/"
+  tab second "/second"
+
+component App
+  action pick(name: string)
+    nav = select(nav, name)
+  action back
+    nav = back(nav)
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back" width="100%" height="100%"
+      for t in nav.tabs key=t.name
+        column role="tabpanel" id=`panel-${t.name}`
+          for e in t.stack key=e.id
+            column navigationKey=`${e.id}` testId=`route-${e.name}`
+              if e.name == "second"
+                text "Player" testId="player" wakelock="screen"
+      row role="tablist"
+        button role="tab" aria-controls="panel-first" press=pick("first") testId="tab-first"
+          text "First"
+        button role="tab" aria-controls="panel-second" press=pick("second") testId="tab-second"
+          text "Second"
+"#;
+
+/// A tab not selected stays mounted, hidden by every host: it holds nothing.
+#[test]
+fn a_tab_not_selected_holds_nothing() {
+    let mut r = boot_source(TABS);
+    let id = player(&r).expect("the second tab is mounted");
+    assert!(super::holders(r.kernel()).is_empty());
+    press(&mut r, "tab-second");
+    assert_eq!(super::holders(r.kernel()), vec![id]);
+    press(&mut r, "tab-first");
+    assert_eq!(player(&r), Some(id));
+    assert!(super::holders(r.kernel()).is_empty());
+}
+
+const STACK: &str = r#"routes nav
+  home "/"
+    item "/item"
+    add "/add"
+
+component App
+  action open
+    nav = push(nav, "/item")
+  action openAdd
+    nav = push(nav, "/add")
+  action back
+    nav = back(nav)
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back" width="100%" height="100%"
+      for e in stack(nav) key=e.id
+        if e.name == "home"
+          column navigationKey=`${e.id}` position="absolute" inset=0
+            text "Player" testId="player" wakelock="screen"
+            button press=open testId="open"
+              text "Open"
+            button press=openAdd testId="add"
+              text "Add"
+        if e.name == "item"
+          column navigationKey=`${e.id}` position="absolute" inset=0
+            button press=back testId="back"
+              text "Back"
+        if e.name == "add"
+          column navigationKey=`${e.id}` navigationPresentation="modal" position="absolute" inset=0
+            button press=back testId="close"
+              text "Close"
+"#;
+
+/// A screen a stack keeps under its top holds nothing; the one a sheet
+/// covers is still shown, and holds.
+#[test]
+fn a_covered_screen_holds_nothing_but_one_under_a_sheet_does() {
+    let mut r = boot_source(STACK);
+    let id = player(&r).unwrap();
+    assert_eq!(super::holders(r.kernel()), vec![id]);
+    press(&mut r, "open");
+    assert_eq!(player(&r), Some(id));
+    assert!(
+        super::holders(r.kernel()).is_empty(),
+        "a pushed route covers it"
+    );
+    press(&mut r, "back");
+    assert_eq!(super::holders(r.kernel()), vec![id]);
+    press(&mut r, "add");
+    assert_eq!(
+        super::holders(r.kernel()),
+        vec![id],
+        "a sheet leaves it shown"
+    );
+}
+
+/// A box its host lays out as `display: none` (an unopened tab, a closed
+/// top-layer box) holds nothing.
+#[test]
+fn a_whole_host_cover_holds_nothing() {
+    let mut r = boot();
+    let id = player(&r).unwrap();
+    let parent = r.kernel().node(id).unwrap().parent.unwrap();
+    r.kernel_mut()
+        .set_host_cover(parent, Some(exact_kernel::HostCover::Whole))
+        .unwrap();
+    assert!(super::holders(r.kernel()).is_empty());
+    r.kernel_mut().set_host_cover(parent, None).unwrap();
+    assert_eq!(super::holders(r.kernel()), vec![id]);
+}

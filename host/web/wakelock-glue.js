@@ -11,16 +11,25 @@ let want = false, sentinel = null, asking = false, said = false, listening = fal
 
 const unavailable = why => { if (!said) { said = true; log(`wakelock: unavailable: ${why}`); } };
 
+const visible = () => document.visibilityState === "visible";
+
 function acquire() {
-  if (!want || sentinel || asking || document.visibilityState !== "visible") return;
+  if (sentinel?.released) sentinel = null; // a release whose event has not run yet
+  if (!want || sentinel || asking || !visible()) return;
   if (typeof navigator.wakeLock?.request !== "function") return unavailable("navigator.wakeLock is missing");
   asking = true;
   navigator.wakeLock.request("screen").then(s => {
     asking = false;
-    if (!want) { s.release().catch(() => {}); return; }
+    // Not wanted now, or granted to a page that has since hidden (which
+    // loses it): let it go; a visible page that still wants it asks again.
+    if (!want || !visible() || s.released) { s.release().catch(() => {}); return; }
     sentinel = s;
-    s.addEventListener("release", () => { if (sentinel === s) sentinel = null; });
-  }, e => { asking = false; unavailable(`the request was refused (${e?.name ?? e})`); });
+    s.addEventListener("release", () => { if (sentinel === s) { sentinel = null; acquire(); } });
+  }, e => {
+    asking = false;
+    // A hidden page is refused by the spec; it asks again when visible.
+    if (visible()) unavailable(`the request was refused (${e?.name ?? e})`);
+  });
 }
 
 /** Hold the lock or let it go; `journal` takes the one line said where it cannot be held. */
@@ -32,9 +41,16 @@ export function hold(on, journal) {
   else if (sentinel) { const s = sentinel; sentinel = null; s.release().catch(() => {}); }
 }
 
-/** Whether `el` and every ancestor up to `root` are displayed (none is `display: none`). */
+/** Whether `el` is displayed: neither it nor an ancestor up to `root` is
+ * `display: none`, leaving (an exit animation's ghost, presence-glue.js), or
+ * a route or tab panel its navigation root hides (navigation.js `project`;
+ * the route a sheet covers stays visible), as the runner's rule
+ * (runner/src/wakelock.rs). */
 function displayed(el, root) {
-  for (let n = el; n; n = n === root ? null : n.parentElement) if (getComputedStyle(n).display === "none") return false;
+  for (let n = el; n; n = n === root ? null : n.parentElement) {
+    if (n.hasAttribute("data-exiting") || getComputedStyle(n).display === "none") return false;
+    if (n.style.visibility === "hidden" && (n.hasAttribute("navigationKey") || n.getAttribute("role") === "tabpanel")) return false;
+  }
   return true;
 }
 

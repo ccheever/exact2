@@ -12,6 +12,9 @@ impl<D: DataSource> Presenter<D> {
     /// store (LLP 1030 D7); `setScheme` chooses this painter's `light-dark()`
     /// appearance (LLP 1034 D2); anything else is named.
     pub fn run_commands(&mut self, mut data: impl FnMut() -> D) {
+        // Every loop runs this each turn, and a reader's shell is served
+        // before its first: whether a shell keeps the screen on is known.
+        self.wakelock_unavailable();
         self.run_queued_commands();
         if self.pending_update {
             self.pending_update = false;

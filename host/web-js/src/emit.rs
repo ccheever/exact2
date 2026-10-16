@@ -1182,6 +1182,10 @@ impl Em<'_> {
                         format!("()=>!({f})()")
                     } else if prop == PropId::GlassGroup {
                         format!("()=>{{const v=({f})();return v===-1?\"auto\":v}}")
+                    } else if prop == PropId::Wakelock {
+                        // The value as computed, which wakelock.js journals
+                        // as the runner does when it is neither word.
+                        format!("()=>{{const v=({f})();{e}.$wake=v;return v}}")
                     } else {
                         f.clone()
                     };

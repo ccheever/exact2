@@ -8,15 +8,20 @@ import { hold, holders } from './wakelock-glue.js';
 
 const say = line => journal.push(`t=${clock.now} ${line}`);
 const root = () => document.getElementById('exact-root');
-const told = new WeakMap();
+// Each element's last computed value (`$wake`, written by its binding): a
+// word outside the two is journaled when the value changes to it, as the
+// runner journals a binding whose value changed (runner/src/instance.rs).
+const last = new WeakMap();
 
 export function install() {
   After.push(() => {
     const r = root();
     if (!r) return;
     for (const el of r.querySelectorAll('[data-exact-wakelock]')) {
-      const v = el.getAttribute('data-exact-wakelock');
-      if (v !== 'screen' && v !== 'none' && told.get(el) !== v) { told.set(el, v); say(`view ${viewId(el)}: invalid wakelock value ${JSON.stringify(v)}; unset`); }
+      const v = '$wake' in el ? el.$wake : el.getAttribute('data-exact-wakelock'), shown = JSON.stringify(v);
+      if (last.get(el) === shown) continue;
+      last.set(el, shown);
+      if (v !== 'screen' && v !== 'none') say(`view ${viewId(el)}: invalid wakelock value ${shown}; unset`);
     }
     hold(holders(r).length > 0, say);
   });
