@@ -16,6 +16,10 @@ use exact_runner::agent::{error, field_bool, field_num, field_str, num};
 use exact_runner::DataSource;
 use std::io::{BufRead, Write};
 
+fn malformed(message: &str) -> String {
+    serde_json::json!({ "error": message, "malformed": true }).to_string()
+}
+
 /// Serve requests until stdin closes or `quit` arrives. The first line out
 /// is `{"ready":true,"boot":ms,"views":n,"error":null|"…"}`.
 pub fn serve<D: DataSource + Default>(
@@ -81,6 +85,7 @@ pub fn handle<D: DataSource + Default>(p: &mut Presenter<D>, line: &str) -> Stri
     p.sync_surfaces();
     let reply = p.surfaces.error.take().map_or(reply, |e| error(&e));
     p.run_commands(D::default);
+    let reply = p.settle_scroll_commands(line, reply);
     // The moments this command's commits caused, after them and before its picture.
     p.hatch_moments();
     // In the headless carrier a completed paint is presentation. A command
@@ -281,7 +286,7 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             // Input variants use the full JSON parser before any delivery.
             let request: serde_json::Value = match serde_json::from_str(line) {
                 Ok(request) => request,
-                Err(_) => return error("unreadable tap request"),
+                Err(_) => return malformed("unreadable tap request"),
             };
             // A held contact's phase that says `mouse` (a drag's, review A1)
             // is a contact with the left button held, as `answer` set it up.
@@ -305,7 +310,7 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                     .as_object()
                     .is_some_and(|o| o.keys().any(|k| k != "op" && k != "back"))
                 {
-                    return error("tap back takes no other input fields");
+                    return malformed("tap back takes no other input fields");
                 }
                 return match p.agent_back(p.host().now()) {
                     None => error("back: nothing to go back from: no route is beneath the selected one"),
@@ -320,12 +325,15 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                 return contact::answer(p, &request);
             }
             let Some(id) = id() else {
-                return error("tap needs an id");
+                return malformed("tap needs an id");
             };
             // @ref LLP 1098 D9, D10 — the platform's media session action,
             // before anything that would make it a press.
             if let Some(action) = request.get("mediaSession").and_then(|a| a.as_str()) {
                 let seconds = request.get("seconds").and_then(|s| s.as_f64());
+                if action == "seekto" && !seconds.is_some_and(|s| s.is_finite() && s >= 0.0) {
+                    return malformed("mediasession: seekto needs finite nonnegative seconds");
+                }
                 return crate::media_session::act(p, id, action, seconds)
                     .unwrap_or_else(|e| error(&e));
             }
@@ -353,22 +361,23 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                         .filter(|v| v.len() == 2)
                         .and_then(|v| Some((v[0].as_f64()? as f32, v[1].as_f64()? as f32)));
                     let Some(pair) = pair else {
-                        return error("wheel needs two finite deltas");
+                        return malformed("wheel needs two finite deltas");
                     };
                     Some(pair)
                 }
                 None => None,
             };
             // A click with modifiers held (gallery F20: `tap <id> modifiers Shift`).
-            let held = match field_str(line, "modifiers")
-                .map(|m| exact_runner::KeyModifiers::held(&m))
-            {
-                Some(None) => {
-                    return error("tap: modifiers are Shift, Control, Alt and Meta, joined by +")
-                }
-                Some(Some(held)) => held,
-                None => Default::default(),
-            };
+            let held =
+                match field_str(line, "modifiers").map(|m| exact_runner::KeyModifiers::held(&m)) {
+                    Some(None) => {
+                        return malformed(
+                            "tap: modifiers are Shift, Control, Alt and Meta, joined by +",
+                        )
+                    }
+                    Some(Some(held)) => held,
+                    None => Default::default(),
+                };
             let codes = [
                 (held.shift, "ShiftLeft"),
                 (held.ctrl, "ControlLeft"),
@@ -392,6 +401,9 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                 }
             }
             let r = match wheel {
+                Some((dx, dy)) if field_bool(line, "gesture") && p.tracks_scroll_end(id) => {
+                    p.reader_wheel(id, dx, dy)
+                }
                 Some((dx, dy)) => p.wheel(id, dx, dy),
                 None if field_bool(line, "hover") => p.hover(id),
                 // `at`: a point in the target, whatever a press there reaches (LLP 1012 §1).
@@ -424,7 +436,7 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         }
         Some("type") => {
             let Some(id) = id() else {
-                return error("type needs an id");
+                return malformed("type needs an id");
             };
             if let Some(edit) = field_str(line, "clipboard") {
                 let text = field_str(line, "text").unwrap_or_default();
@@ -437,7 +449,7 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                 let (_, key) = exact_runner::KeyModifiers::split(&chord);
                 let modifiers = chord_modifiers(&chord);
                 let Some((code, logical)) = driver_key(key) else {
-                    return error(&format!("key: unsupported key {key}"));
+                    return malformed(&format!("key: unsupported key {key}"));
                 };
                 let phase = field_str(line, "phase");
                 let up = phase.as_deref() == Some("up");
@@ -492,7 +504,7 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         // Before a tap or a type: a target out of view, scrolled into it.
         Some("reveal") => match id() {
             Some(id) => p.reveal(id).unwrap_or_else(|e| error(&e)),
-            None => error("reveal needs an id"),
+            None => malformed("reveal needs an id"),
         },
         Some("clock") => clock(p, line),
         // A fetch fault (LLP 1103) is the runner's; the device facts are this presenter's.
@@ -500,7 +512,7 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         Some("prefer") => prefer(p, line),
         Some("screenshot") => match field_str(line, "path") {
             Some(path) => p.screenshot(&path).unwrap_or_else(|e| error(&e)),
-            None => error("screenshot needs a path"),
+            None => malformed("screenshot needs a path"),
         },
         _ => p.host().agent(line),
     }
@@ -527,7 +539,7 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     let (media, page_facts, fold) = (group("media"), group("page"), group("fold"));
     let mode = group("mode");
     if media.is_none() && page_facts.is_none() && fold.is_none() && mode.is_none() {
-        return error(
+        return malformed(
             "prefer needs media, page, fold or mode: {\"prefers-reduced-motion\": \"reduce\", …}",
         );
     }
@@ -577,9 +589,13 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                 ))
             }
             _ => {
-                return error(&format!(
-                    "prefer: {name}: {value} is not a preference this host sets"
-                ))
+                let message = format!("prefer: {name}: {value} is not a preference this host sets");
+                // A real preference this host does not set stays a delivery refusal.
+                return if name == "display-mode" {
+                    error(&message)
+                } else {
+                    malformed(&message)
+                };
             }
         }
     }
@@ -602,9 +618,13 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                 display_scale = v.parse::<f32>().ok()
             }
             _ => {
-                return error(&format!(
-                    "prefer: {name}: {value} is not a page fact this host sets"
-                ))
+                let message = format!("prefer: {name}: {value} is not a page fact this host sets");
+                // A real page fact this host does not set stays a delivery refusal.
+                return if name == "keyboard-navigation" {
+                    error(&message)
+                } else {
+                    malformed(&message)
+                };
             }
         }
     }
@@ -680,7 +700,7 @@ fn prefer_fold<D: DataSource>(
             "posture" => match value.as_str().and_then(exact_runner::Posture::from_keyword) {
                 Some(p) => posture = p,
                 None => {
-                    return Some(error(&format!(
+                    return Some(malformed(&format!(
                         "prefer: posture: {value} is folded or continuous"
                     )))
                 }
@@ -688,7 +708,7 @@ fn prefer_fold<D: DataSource>(
             "cols" => match count() {
                 Some(n) => cols = n,
                 None => {
-                    return Some(error(&format!(
+                    return Some(malformed(&format!(
                         "prefer: segments: {value} columns is not a count"
                     )))
                 }
@@ -696,7 +716,7 @@ fn prefer_fold<D: DataSource>(
             "rows" => match count() {
                 Some(n) => rows = n,
                 None => {
-                    return Some(error(&format!(
+                    return Some(malformed(&format!(
                         "prefer: segments: {value} rows is not a count"
                     )))
                 }
@@ -704,13 +724,13 @@ fn prefer_fold<D: DataSource>(
             "gap" => match value.as_f64() {
                 Some(g) => gap = g,
                 None => {
-                    return Some(error(&format!(
+                    return Some(malformed(&format!(
                         "prefer: segments: gap {value} is not a length"
                     )))
                 }
             },
             _ => {
-                return Some(error(&format!(
+                return Some(malformed(&format!(
                     "prefer: {name} is not a fold fact this host sets"
                 )))
             }
@@ -733,7 +753,7 @@ fn prefer_fold<D: DataSource>(
 /// No DRM mode switch, desktop compositor or physical display is involved.
 fn resize<D: DataSource>(p: &mut Presenter<D>, request: &serde_json::Value) -> String {
     let invalid = || {
-        error("tap resize needs exactly two integer dimensions in 64...4096, area <= 8388608, and no other input fields")
+        malformed("tap resize needs exactly two integer dimensions in 64...4096, area <= 8388608, and no other input fields")
     };
     let Some(object) = request.as_object() else {
         return invalid();
@@ -824,6 +844,7 @@ fn settle<D: DataSource>(p: &Presenter<D>) -> Option<f64> {
     field_num(&p.host().agent("{\"op\":\"settle\"}"), "settle")
         .into_iter()
         .chain(p.group_settles_at())
+        .chain(p.scroll_end_due())
         .reduce(f64::max)
 }
 
@@ -939,7 +960,7 @@ fn clock_within<D: DataSource>(
         to = Some(from.max(settle(p).unwrap_or(from)));
     }
     let Some(mut to) = to.filter(|t| t.is_finite()) else {
-        return error("clock needs \"to\" (ms) or \"settle\": true");
+        return malformed("clock needs \"to\" (ms) or \"settle\": true");
     };
     if to < from {
         return error(&format!("the clock cannot go backwards ({from} → {to})"));
@@ -1022,7 +1043,7 @@ fn clock_within<D: DataSource>(
             .filter(|w| w["quiescent"] == false)
             .filter_map(|w| w["settleAt"].as_f64())
             .fold(landed.max(settle(p).unwrap_or(landed)), f64::max);
-        if next <= landed {
+        if next <= landed && p.scroll_end_due().is_none() {
             // A held device request never settles on its own and is never
             // waited on: the fixed point is reached, and the agent is told
             // what still waits for it (LLP 1069.007 D3).

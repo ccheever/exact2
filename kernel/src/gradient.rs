@@ -8,6 +8,7 @@
 //! [`Gradient::geometry`]; a colour may be a `light-dark()` pair, resolved per
 //! appearance like any colour row (LLP 1034).
 
+pub use crate::style::wide::Lookup;
 use crate::style::{Color, ColorValue};
 use std::fmt::Write as _;
 
@@ -413,7 +414,14 @@ impl Gradient {
     /// extends them, so no painter has to (Vello's ramp starts its first
     /// stretch at 0 whatever the first stop's offset).
     pub fn resolved(&self, dark: bool) -> Vec<(f32, Color)> {
-        if let Some(ramp) = self.interpolated(dark) {
+        self.resolved_with(dark, &crate::style::wide::wide)
+    }
+
+    /// [`resolved`](Self::resolved), each wide stop's colour read through
+    /// `wide` (a retained gradient's captured values, LLP 1121 stage 4);
+    /// any other colour as ever.
+    pub fn resolved_with(&self, dark: bool, wide: Lookup<'_>) -> Vec<(f32, Color)> {
+        if let Some(ramp) = self.interpolated_with(dark, wide) {
             return ramp
                 .into_iter()
                 .map(|(at, c, a)| (at, Color::from_linear_srgb(c, a)))
@@ -422,7 +430,15 @@ impl Gradient {
         let mut out: Vec<(f32, Color)> = self
             .stops
             .iter()
-            .map(|s| (s.at / 100.0, s.color.resolve(dark)))
+            .map(|s| {
+                let c = match s.color {
+                    ColorValue::Wide(id) => {
+                        wide(id).map_or(Color::TRANSPARENT, |w| w.fallback().resolve(dark))
+                    }
+                    other => other.resolve(dark),
+                };
+                (s.at / 100.0, c)
+            })
             .collect();
         if let Some(&(_, c)) = out.first().filter(|s| s.0 > 0.0) {
             out.insert(0, (0.0, c));
@@ -436,12 +452,21 @@ impl Gradient {
     /// As written; else Oklab when a stop is a modern colour; `None` is
     /// legacy sRGB, as CSS says.
     pub fn interpolation(&self, dark: bool) -> Option<exact_color::Interpolation> {
+        self.interpolation_with(dark, &crate::style::wide::wide)
+    }
+
+    fn interpolation_with(
+        &self,
+        dark: bool,
+        wide: Lookup<'_>,
+    ) -> Option<exact_color::Interpolation> {
         self.interpolation.or_else(|| {
             self.stops
                 .iter()
                 .any(|s| match s.color {
-                    ColorValue::Wide(id) => crate::style::wide::wide(id)
-                        .is_some_and(|w| w.modern[usize::from(dark && w.dark.is_some())]),
+                    ColorValue::Wide(id) => {
+                        wide(id).is_some_and(|w| w.modern[usize::from(dark && w.dark.is_some())])
+                    }
                     _ => false,
                 })
                 .then_some(exact_color::Interpolation::OKLAB)
@@ -451,9 +476,17 @@ impl Gradient {
     /// The sampled ramp when not legacy sRGB: positions 0–1, extended
     /// linear sRGB and alpha.
     pub fn interpolated(&self, dark: bool) -> Option<Vec<(f32, [f64; 3], f64)>> {
-        let how = self.interpolation(dark)?;
+        self.interpolated_with(dark, &crate::style::wide::wide)
+    }
+
+    fn interpolated_with(
+        &self,
+        dark: bool,
+        lookup: Lookup<'_>,
+    ) -> Option<Vec<(f32, [f64; 3], f64)>> {
+        let how = self.interpolation_with(dark, lookup)?;
         let wide = |c: ColorValue| match c {
-            ColorValue::Wide(id) => crate::style::wide::wide(id).map(|w| w.half(dark)),
+            ColorValue::Wide(id) => lookup(id).map(|w| w.half(dark)),
             other => {
                 let c = other.resolve(dark);
                 Some(exact_color::Wide {

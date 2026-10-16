@@ -191,6 +191,17 @@ impl<'a> Reader<'a> {
             14..=23 => {
                 Dimension::Viewport(crate::style::ViewportUnit::ALL[(kind - 14) as usize], value)
             }
+            // A layout region's inset (LLP 1123 D10): its region and edge follow.
+            25 => {
+                let (region, edge) = (self.u8()?, self.u8()?);
+                match (
+                    crate::style::Region::from_index(region),
+                    Edge::from_index(edge),
+                ) {
+                    (Some(region), Some(edge)) => Dimension::Region(region, edge, value),
+                    _ => return Err(DecodeError::UnknownDimensionKind(kind)),
+                }
+            }
             // The leading `f32` is zero; the tree follows.
             24 if value.to_bits() == 0 => {
                 Dimension::Compare(crate::style::Comparison::decode(self, style)?)
@@ -522,6 +533,12 @@ impl Writer {
                 self.u8(3 + edge as u8);
                 self.f32(v);
             }
+            Dimension::Region(region, edge, v) => {
+                self.u8(25);
+                self.f32(v);
+                self.u8(region as u8);
+                self.u8(edge as u8);
+            }
             Dimension::Segment(var, x, y, v) => {
                 self.u8(8 + var as u8);
                 self.f32(v);
@@ -712,7 +729,7 @@ mod tests {
         // schema. The literal makes an accidental removal of that coupling a
         // test failure whenever the byte snapshot above is intentionally moved.
         // Recomputed when the schema changes; the digest test prints the value.
-        assert_eq!(SCHEMA_DIGEST, 0xaf54a3e48162bad9);
+        assert_eq!(SCHEMA_DIGEST, 0x23ed1bce05c39d19);
     }
 
     #[test]

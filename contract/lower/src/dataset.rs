@@ -19,7 +19,7 @@ use exact_plan::BindingsRow;
 /// has no DOM name for, written as `data-<the prop's name, lowercased>`.
 /// `host/web`'s `every_data_name_the_host_writes_is_a_reserved_word` keeps
 /// the second half whole.
-const HOST_WORDS: [&str; 89] = [
+const HOST_WORDS: [&str; 90] = [
     "accept",
     "accessibilitybusy",
     "accessibilitydisabled",
@@ -81,6 +81,7 @@ const HOST_WORDS: [&str; 89] = [
     "nativeviewprops",
     "navigationbar",
     "navigationdetent",
+    "navigationgrabber",
     "navigationscroll",
     "num",
     "pressed",
@@ -305,7 +306,12 @@ impl Lowerer<'_> {
         for (key, a) in &keyed {
             asm.str(self.b.str(key));
             let ty = crate::expr::compile(self, &mut asm, &a.value, scope, &mut depth)?;
-            let scalar = |t: &Ty| matches!(t, Ty::String | Ty::Number | Ty::Bool | Ty::Unknown);
+            let scalar = |t: &Ty| {
+                matches!(
+                    t,
+                    Ty::String | Ty::Enum(_) | Ty::Number | Ty::Bool | Ty::Unknown
+                )
+            };
             let admitted = match &ty {
                 Ty::Option(inner) => scalar(inner),
                 t => scalar(t),

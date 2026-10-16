@@ -47,8 +47,8 @@ export function page(readers) {
   const facts = typeof document === "object" && document.createElement ? pageReporter(agent) : null;
   (data.reserved ??= {}).exactPage = (_, a, name) => {
     // A render has no page: the bake's answer (runner/src/page.rs `Page::default`).
-    const f = facts ? facts.read() : { "visibility-state": "visible", online: true, "can-share": false, "can-open-files": false, "has-focus": true };
-    return byName(readers, name, { visibilityState: f["visibility-state"], onLine: f.online, canShare: f["can-share"], canOpenFiles: f["can-open-files"], hasFocus: f["has-focus"] });
+    const f = facts ? facts.read() : { "visibility-state": "visible", online: true, "can-share": false, "can-open-files": false, "has-focus": true, "navigation-type": "" };
+    return byName(readers, name, { visibilityState: f["visibility-state"], onLine: f.online, canShare: f["can-share"], canOpenFiles: f["can-open-files"], hasFocus: f["has-focus"], navigationType: f["navigation-type"] });
   };
   if (!facts) return;
   const changed = again("exactPage", "page");
@@ -110,6 +110,7 @@ function shaped(t, v, path, name) {
     if (t === "u") return v === null ? null : fail();
     return (t === "n" && typeof v === "number") || (t === "b" && typeof v === "boolean") || (t === "s" && typeof v === "string") ? v : fail();
   }
+  if (Array.isArray(t) && t[0] === "e") return v === undefined ? t[1][0] : typeof v === "string" ? v : fail();
   if (t[0] === "?") return v == null ? null : shaped(t[1], v, path, name);
   if (Array.isArray(t)) {
     if (v === undefined) return [];

@@ -188,9 +188,29 @@ extension NodeView {
         field = bar
         return bar
     }
-    /// The page has its field again, holding what the toolbar's held, in
-    /// the page's look, which was not written while the toolbar had it.
-    func reclaimFieldFromBar() {
+    /// A prompt's field for its alert's accessory view (AlertsMac.swift), lent
+    /// as the toolbar's search field is: of the input's own kind, the node its
+    /// delegate and its editor the session's, AppKit's to draw and place.
+    func lendFieldToAlert() -> NSTextField? {
+        guard pageField == nil, let page = field else { return nil }
+        let lent: NSTextField = page is NSSecureTextField ? SecureField(frame: .zero) : Field(frame: .zero)
+        lent.delegate = self
+        lent.formatter = TextInputFormatter(self)
+        lent.stringValue = page.stringValue
+        lent.isEnabled = page.isEnabled
+        lent.isEditable = page.isEditable
+        lent.contentType = page.contentType // `autocomplete` (LLP 1102 §3.6)
+        lent.cell?.isScrollable = true
+        lent.cell?.wraps = false
+        lent.cell?.usesSingleLineMode = true
+        pageField = page
+        field = lent
+        syncBarField()
+        return lent
+    }
+    /// The page has its field again, holding what the toolbar's or the
+    /// alert's held, in the page's look, which was not written meanwhile.
+    func reclaimLentField() {
         guard let page = pageField else { return }
         if let bar = field, page.stringValue != bar.stringValue { page.stringValue = bar.stringValue }
         (field, pageField) = (page, nil)

@@ -3,9 +3,11 @@
 // (NodeViewMac's `rightMouseDown`).
 //
 // A wheel's turn or a trackpad's scroll over a node is heard by every
-// node from it up that declares `wheel` (a disabled box included, as a
-// `<div disabled>` in Chrome; not a disabled form control or an inert node), innermost first, as the
-// DOM's bubbles; one that calls `preventDefault()` keeps the scroll from
+// node from it up the authored tree (`eventParent`) that declares `wheel`
+// (a disabled box included, as a `<div disabled>` in Chrome; not a
+// disabled form control or a node an `inert` makes inert; a modal dialog's
+// ancestors, inert behind it, hear it), innermost first, as the DOM's
+// bubbles; one that calls `preventDefault()` keeps the scroll from
 // happening (a canvas zooming on ⌘-scroll). A trackpad's pinch is a wheel
 // with Control held and `deltaY` of -100 × the magnification, which is how
 // a browser on a Mac delivers one, so one handler zooms on both hosts.
@@ -24,7 +26,7 @@ extension Presenter {
     func contextMenuKey(_ event: NSEvent, in owner: NSWindow? = nil) -> Bool {
         guard event.type == .keyDown, NodeView.keyName(event) == "ContextMenu",
               event.modifierFlags.intersection([.shift, .control, .option, .command]).isEmpty,
-              let window = owner ?? event.window, window === viewport.window,
+              let window = owner ?? event.window, hosts(window),
               (window.firstResponder as? NSTextInputClient)?.hasMarkedText() != true else { return false }
         if let run = window.firstResponder as? InlineKeyView, run.owner?.inlineContextMenu(run.id) == true { return true }
         let point: NSPoint
@@ -34,6 +36,7 @@ extension Presenter {
             point = middle
             start = focus
         } else {
+            guard window === viewport.window else { return false }
             // A handler removed the focus: Chrome hits the page at (1,1).
             // An embedded view/editor still owns its keys, even when its
             // responder is not one of our focusable nodes.
@@ -46,12 +49,12 @@ extension Presenter {
             start = viewport.hitTest(viewport.superview?.convert(point, from: nil) ?? point)
         }
         guard let node = contextTarget(start) else { return false }
-        return contextMenu(node, at: point)
+        return contextMenu(node, at: point, from: start)
     }
 
     /// The node a request from the keyboard at `view` reaches (the
-    /// ContextMenu key, VoiceOver's show menu): the first from it up,
-    /// through a popover's invoker, whose `contextmenu` or `contextPopover`
+    /// ContextMenu key, VoiceOver's show menu): the first from it up the
+    /// authored tree (`eventParent`), whose `contextmenu` or `contextPopover`
     /// answers, as Chrome's `contextmenu` at the element bubbles to its
     /// first handler; nil at a field, which keeps its own menu.
     func contextTarget(_ view: NSView?) -> NodeView? {
@@ -61,7 +64,7 @@ extension Presenter {
                 if node.field != nil || node.textArea != nil { return nil }
                 if views[node.id] === node, node.answersContextMenu { return node }
             }
-            next = menus.parent(of: view)
+            next = eventParent(of: view)
         }
         return nil
     }
@@ -91,14 +94,20 @@ extension Presenter {
         return drawn.isEmpty ? nil : NSPoint(x: drawn.midX, y: drawn.midY)
     }
 
-    /// `node`'s `contextmenu` and `contextPopover` at window point `point`,
-    /// as a request from the keyboard sends them: no button held.
-    func contextMenu(_ node: NodeView, at point: NSPoint) -> Bool {
-        let local = node.local(point), box = node.contentBox(), client = self.client(point)
+    /// `node`'s `contextmenu` and `contextPopover` at `point` in the source's
+    /// window (the node's when omitted), with no button held.
+    func contextMenu(_ node: NodeView, at point: NSPoint, from source: NSView? = nil) -> Bool {
+        func converted(to window: NSWindow?) -> NSPoint {
+            guard let from = source?.window ?? node.window, let window, from !== window else { return point }
+            return window.convertPoint(fromScreen: from.convertPoint(toScreen: point))
+        }
+        let windowPoint = converted(to: node.window)
+        let local = node.local(windowPoint), box = node.contentBox(), client = self.client(converted(to: viewport.window))
         let sample = PointerSample(x: Double(local.x - box.minX), y: Double(local.y - box.minY),
                                    buttons: 0, pressure: 0, type: "mouse", id: 1,
                                    clientX: Double(client.x), clientY: Double(client.y))
-        return node.dispatchContextMenu(at: node.convert(point, from: nil), sample: sample)
+        return node.dispatchContextMenu(at: node.convert(windowPoint, from: nil), sample: sample,
+                                        bubbled: source.map { $0 !== node } ?? false)
     }
 }
 
@@ -109,15 +118,30 @@ extension NodeView {
     /// The context action runs before the menu is read, for pointer and
     /// keyboard alike. A context action cannot leak its preventDefault to
     /// another input; keydown cancellation was handled before this default.
-    func dispatchContextMenu(at point: NSPoint, sample: PointerSample) -> Bool {
-        guard let presenter, presenter.views[id] === self, !disabled, !inert else { return false }
+    func dispatchContextMenu(at point: NSPoint, sample: PointerSample, bubbled: Bool = false) -> Bool {
+        guard let presenter, presenter.views[id] === self, !disabled, !(bubbled ? authoredInert : inert) else { return false }
         let action = handlers.contains("contextmenu"), menu = props["contextPopover"]?.isEmpty == false
         let outer = presenter.defaultPrevented
         presenter.defaultPrevented = false
         defer { presenter.defaultPrevented = outer }
         if action { presenter.mouseEvent(id, 10, sample.line) }
-        if menu { presenter.menus.context(self, at: point) }
+        // In the browser this ancestor's popover opens behind the modal, inert.
+        if menu, !inert { presenter.menus.context(self, at: point) }
         return action || menu
+    }
+
+    /// AppKit keeps the ordinary responder chain; only a lifted view's
+    /// step into the top layer goes through its authored ancestors instead.
+    func bubbleContextMenu(_ event: NSEvent) -> Bool {
+        guard let presenter, let parent = presenter.eventParent(of: self), parent !== superview else { return false }
+        var next: NSView? = parent
+        while let view = next {
+            if let node = view as? NodeView,
+               node.dispatchContextMenu(at: node.convert(Self.point(event, in: node.window), from: nil),
+                                        sample: node.pointerSample(event), bubbled: true) { return true }
+            next = presenter.eventParent(of: view)
+        }
+        return false
     }
 
     /// A Control-click is the Mac's secondary click (X85): Chrome sends it as
@@ -185,7 +209,7 @@ extension NodeView {
         guard let presenter, presenter.inlineEnabled(id), let run = presenter.inlineText(id),
               let line = inlineRects(run).first, let point = presenter.contextPoint(self, rect: line) else { return false }
         guard let target = inlineContextTarget(from: run), let first = inlineRects(target).first else {
-            return presenter.contextTarget(self).map { presenter.contextMenu($0, at: point) } ?? false
+            return presenter.contextTarget(self).map { presenter.contextMenu($0, at: point, from: self) } ?? false
         }
         let local = self.local(point), client = presenter.client(point)
         let sample = PointerSample(x: Double(local.x - first.minX), y: Double(local.y - first.minY),
@@ -200,7 +224,7 @@ extension NodeView {
         guard let presenter, presenter.views[self.id] === self, !disabled, !inert,
               presenter.inlineEnabled(id), let run = presenter.inlineText(id) else { return false }
         if inlineContextTarget(from: run) != nil { return true }
-        return presenter.contextTarget(self).map { !$0.disabled && !$0.inert } ?? false
+        return presenter.contextTarget(self).map { !$0.disabled && !$0.authoredInert } ?? false
     }
 
     /// `run`'s `contextmenu`, then its `contextPopover`'s menu at `point`
@@ -236,24 +260,28 @@ extension NodeView {
     }
 
     /// `wheel` at this node and its ancestors, once per event however many
-    /// of the views on the way pass it up; true when a handler prevented
-    /// its default, and the scroll stops here.
+    /// of the views on the way pass it up, until a handler stops its
+    /// propagation; true when a handler prevented its default, and the
+    /// scroll stops here (a stop alone does not stop the scroll).
     func wheel(_ event: NSEvent) -> Bool {
         guard let presenter else { return false }
         if let (seen, prevented) = presenter.lastWheel, seen === event { return prevented }
         var path: [NodeView] = []
         var next: NSView? = self
         while let view = next {
-            if let node = view as? NodeView, presenter.views[node.id] === node, node.handlers.contains("wheel"), !node.formDisabled, !node.inert {
+            if let node = view as? NodeView, presenter.views[node.id] === node, node.handlers.contains("wheel"), !node.formDisabled, !node.authoredInert {
                 path.append(node)
             }
-            next = view.superview
+            next = presenter.eventParent(of: view)
         }
         var prevented = false
-        for node in path where presenter.views[node.id] === node {
-            presenter.defaultPrevented = false
-            presenter.mouseEvent(node.id, 37, node.wheelLine(event))
-            prevented = prevented || presenter.defaultPrevented
+        presenter.propagating {
+            for node in path where presenter.views[node.id] === node {
+                presenter.defaultPrevented = false
+                presenter.mouseEvent(node.id, 37, node.wheelLine(event))
+                prevented = prevented || presenter.defaultPrevented
+                if presenter.propagationStopped { break }
+            }
         }
         presenter.defaultPrevented = false
         presenter.lastWheel = (event, prevented)
@@ -264,7 +292,8 @@ extension NodeView {
     /// CSS px with the web's sign (positive scrolls down and right), pixels
     /// as the mode, and the modifiers held.
     func wheelLine(_ event: NSEvent) -> String {
-        let point = local(event.locationInWindow), box = contentBox()
+        // In this node's window: a wheel in a popover's bubbles to the page.
+        let point = local(Self.point(event, in: window)), box = contentBox()
         var dx = 0.0, dy = 0.0
         var held = event.modifierFlags
         if event.type == .magnify {

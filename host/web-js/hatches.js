@@ -567,7 +567,7 @@ function scopesOf(m) {
   const QUERIES = ["(prefers-color-scheme: dark)", "(prefers-contrast: more)", "(prefers-contrast: less)", "(prefers-contrast: custom)", "(prefers-reduced-motion: reduce)", "(prefers-reduced-transparency: reduce)"];
   const facts = () => ({
     visibilityState: document.visibilityState ?? "visible", onLine: globalThis.navigator?.onLine !== false,
-    prefersColorScheme: media(QUERIES[0]) ? "dark" : "light",
+    prefersColorScheme: globalThis.exact?.systemScheme ?? (media(QUERIES[0]) ? "dark" : "light"), // a dev pin's is the system's (LLP 1122 D4)
     prefersContrast: media(QUERIES[1]) ? "more" : media(QUERIES[2]) ? "less" : media(QUERIES[3]) ? "custom" : "no-preference",
     prefersReducedMotion: media(QUERIES[4]), prefersReducedTransparency: media(QUERIES[5]),
   });

@@ -38,3 +38,24 @@ fn the_detent_words_lower_and_others_are_refused() {
         );
     }
 }
+
+/// A sheet's grabber is the author's to say, `visible` or `hidden`, else
+/// the platform's (`auto`); any other word is refused.
+#[test]
+fn the_grabber_words_lower_and_others_are_refused() {
+    let compile = |value: &str| {
+        contract::compile(&format!(
+            "component App\n  view\n    column navigationKey=\"a\" navigationPresentation=\"modal\" navigationGrabber=\"{value}\"\n"
+        ))
+    };
+    for value in ["visible", "hidden", "auto"] {
+        compile(value).unwrap_or_else(|e| panic!("{value:?}: {e}"));
+    }
+    for value in ["", "true", "shown"] {
+        let error = compile(value).unwrap_err().to_string();
+        assert!(
+            error.contains("lower-attr-value") && error.contains("`navigationGrabber` takes"),
+            "{value}: {error}"
+        );
+    }
+}

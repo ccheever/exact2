@@ -62,6 +62,8 @@ mod height_drag;
 mod height_tests;
 #[path = "holds.rs"]
 mod holds;
+#[path = "live.rs"]
+mod live;
 #[path = "paint.rs"]
 mod paint;
 #[path = "paragraph.rs"]
@@ -218,12 +220,16 @@ pub struct Host<D: DataSource> {
     data_activated: bool,
     /// The session's wake (`listen`), which a pending activation leaves with the data source.
     preload_wake: exact_runner::PreloadWake,
+    doc_watch: Option<crate::doc_watch::DocWatch>,
     /// The update store's last line this host journaled, so a sync after a check writes it once.
     update_line: Option<String>,
     delivery: Option<&'static crate::delivery::Hooks>,
     /// The reported colours' generation this session last presented; `None`
     /// before its first report, which corrects without motion (LLP 1095 D9).
     colors_seen: Option<u64>,
+    /// The root font size and the window's modes as a batch last said them (`Host::facts_moved`).
+    facts_told: Option<(f64, Vec<(String, String)>)>,
+    unopened: layout::unopened::Unopened,
 }
 
 /// A plan's bytes at boot: copied from while decoding, or linked into the
@@ -434,6 +440,7 @@ impl<D: DataSource> Host<D> {
         runner.set_device_links(links.device);
         // @ref LLP 1079 D1 — a development build measures its work.
         runner.measure_unless_production(compat, true);
+        runner.admit_live(compat);
         if let Some(action) = region.and_then(|r| r.activate) {
             runner.act(action, Vec::new()).map_err(HostError::Runner)?;
         }
@@ -518,13 +525,17 @@ impl<D: DataSource> Host<D> {
             now_ms: 0.0,
             data_activated: false,
             preload_wake: Default::default(),
+            doc_watch: None,
             secrets,
             update_line: None,
             delivery,
             colors_seen: None,
+            facts_told: None,
+            unopened: Default::default(),
         };
         let mut batch = Batch::new();
         host.native_prepare_candidate().map_err(HostError::Layout)?;
+        host.close_unopened_tabs();
         let order = host.preorder();
         let handlers = host.runner.handlers();
         for id in &order {
@@ -539,9 +550,7 @@ impl<D: DataSource> Host<D> {
         host.emit_title(&mut batch);
         host.emit_language(&mut batch);
         colors::emit_roles(&mut batch);
-        for s in host.runner.take_surface_updates() {
-            batch.surface(&s);
-        }
+        host.emit_surfaces(&mut batch);
         // @ref LLP 1038 D7 — drain once, after all commits in this batch.
         if let Some(change) = host.runner.take_router_change() {
             batch.router(&change);
@@ -714,8 +723,10 @@ impl<D: DataSource> Host<D> {
         self.runner.listen(wake);
     }
 
-    /// [`Host::listen`] to `io`, and read sockets' buffered bytes from it (D7).
-    pub fn listen_io(&mut self, io: &dyn crate::executor::Io) {
+    /// [`Host::listen`] to `io`, and read sockets' buffered bytes from it
+    /// (D7); watch the documents the answers watch, as `owner`'s (LLP 1069.010.000 D1).
+    pub fn listen_io(&mut self, io: &dyn crate::executor::Io, owner: u64) {
+        self.doc_watch = Some(crate::doc_watch::DocWatch::new(owner, &mut self.runner));
         self.listen(io.waker());
         self.runner.set_socket_reader(io.socket_reader());
     }
@@ -1178,24 +1189,10 @@ impl<D: DataSource> Host<D> {
     }
 
     fn finish(&mut self, batch: Batch, error: Option<String>) -> String {
+        crate::doc_watch::sync(&mut self.doc_watch, &mut self.runner);
         let (mut batch, error) = self.resize_rounds(batch, error);
         self.state_onto(&mut batch);
         self.write(batch, error.as_deref())
-    }
-
-    /// An empty batch, which has no geometry to hold: a refusal's.
-    fn refused(&self, error: Option<String>) -> String {
-        let mut batch = Batch::new();
-        self.state_onto(&mut batch);
-        let (timers, motion) = (self.runner.timer_due_ms(), !self.engine.quiescent());
-        batch.finish(timers, motion, self.runner.now_ms(), error.as_deref())
-    }
-
-    fn state_onto(&self, batch: &mut Batch) {
-        batch.spatial = self.engine.spatial();
-        batch.frames = self.runner.wants_frames();
-        batch.seq = self.runner.seq_range();
-        batch.canvas_frames(self.runner.canvas_wants_frame());
     }
 
     fn commit(&mut self, receipts: &[Timed], error: Option<String>) -> String {
@@ -1225,6 +1222,7 @@ impl<D: DataSource> Host<D> {
             .sum::<usize>()
             > 1)
         .then(|| self.runner.handlers());
+        self.close_new_tabs(receipts);
         for t in receipts {
             let r = &t.receipt;
             // Flights capture their leavers before an exit takes them
@@ -1276,6 +1274,7 @@ impl<D: DataSource> Host<D> {
                 }
             }
         }
+        self.open_selected_tabs(&mut batch);
         self.emit_paragraphs(&mut batch);
         let roots = self.runner.roots();
         if roots != self.roots {
@@ -1336,9 +1335,7 @@ impl<D: DataSource> Host<D> {
             self.emit_ranks(&mut batch);
         }
         self.canvas_turn(&mut batch);
-        for s in self.runner.take_surface_updates() {
-            batch.surface(&s);
-        }
+        self.emit_surfaces(&mut batch);
         // The capabilities the actions called, after their commits, in order.
         // @ref LLP 1038 D7 — drain once, after all commits in this batch.
         if let Some(change) = self.runner.take_router_change() {
@@ -1358,21 +1355,6 @@ impl<D: DataSource> Host<D> {
         self.emit_transform_drags(&mut batch);
         self.present(&mut batch, false);
         self.finish(batch, error)
-    }
-
-    fn preorder(&self) -> Vec<ViewId> {
-        let kernel = self.runner.kernel();
-        let mut stack: Vec<ViewId> = self.runner.roots().into_iter().rev().collect();
-        let mut order = Vec::new();
-        while let Some(id) = stack.pop() {
-            order.push(id);
-            if let Some(node) = kernel.node(id) {
-                let mut children = node.children();
-                children.reverse();
-                stack.extend(children);
-            }
-        }
-        order
     }
 }
 

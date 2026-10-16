@@ -166,11 +166,9 @@ fn a_declaration_continued_on_an_indented_line_is_told_to_join_it() {
 }
 
 #[test]
-fn failed_names_why_a_mutation_is_not_its_argument() {
-    let src = "shape Saved\n  ok: bool\ncomponent App\n  mutation save as shape Saved\n  view\n    text failed(save) ? \"x\" : \"y\"\n";
-    let error = contract::compile(src).unwrap_err();
-    assert_eq!(error.id, "type-failed-argument");
-    assert!(error.message.starts_with("`save` is a mutation, and `failed` takes a resource: a mutation whose request fails without an answer keeps its previous value"), "{error}");
+fn failed_and_failure_name_mutations() {
+    let src = "shape Saved\n  ok: bool\ncomponent App\n  mutation save as shape Saved\n  view\n    text (match failure(save) { case some(f) => f.code, case none => failed(save) ? \"x\" : \"y\" })\n";
+    contract::compile(src).unwrap();
 }
 
 #[test]
@@ -412,4 +410,101 @@ fn a_shape_named_like_a_built_in_says_so() {
     )
     .unwrap_err();
     assert_eq!(error.message, "shape `A` declared twice");
+}
+
+#[test]
+fn enum_parameters_generate_literal_unions_and_refuse_unknown_members() {
+    let src = r#"shape Choice
+  value: enum<"draft", "published">
+fn echo(value: enum<"draft", "published">): enum<"draft", "published"> = value
+component App
+  resource choice = choice() as shape Choice else empty()
+  action choose(value: enum<"draft", "published">)
+    focus(value)
+  action go
+    choose("draft")
+  view
+    button "Choose" press=go
+"#;
+    let plan = contract::compile(src).unwrap();
+    let declarations = contract::typescript(&plan).unwrap();
+    assert!(
+        declarations.contains("\"draft\" | \"published\""),
+        "{declarations}"
+    );
+    for (good, bad) in [
+        ("choose(\"draft\")", "choose(\"missing\")"),
+        (
+            "enum<\"draft\", \"published\">",
+            "enum<\"draft\", \"draft\">",
+        ),
+    ] {
+        assert!(contract::compile(&src.replace(good, bad)).is_err(), "{bad}");
+    }
+    contract::compile(&src.replace("button \"Choose\" press=go", "column\n      text choice.value\n      text (choice.value == \"draft\" ? choice.value.slice(0, 2) : choice.value + \"!\")\n      button \"Choose\" press=go")).unwrap();
+    let style_error =
+        contract::compile(&src.replace("button \"Choose\" press=go", "view opacity=choice.value"))
+            .unwrap_err();
+    assert_eq!(style_error.id, "lower-attr-type");
+    let props = "component App\n  state value = \"draft\"\n  view\n    Child(value=VALUE)\ncomponent Child\n  props\n    value: enum<\"draft\", \"published\">\n  view\n    text value\n";
+    contract::compile(&props.replace("VALUE", "\"draft\"")).unwrap();
+    for value in ["\"missing\"", "value"] {
+        assert!(contract::compile(&props.replace("VALUE", value)).is_err());
+    }
+    assert!(contract::compile(&src.replace(
+        "= value\ncomponent",
+        "= false ? value : \"missing\"\ncomponent"
+    ))
+    .is_err());
+    let enum_ty = plan
+        .types
+        .iter()
+        .position(|t| plan.str(t.name) == "enum")
+        .unwrap();
+    assert!(
+        exact_plan::Value::str("published").conforms(&plan, exact_plan::TypesId(enum_ty as u32))
+    );
+    assert!(!exact_plan::Value::str("missing").conforms(&plan, exact_plan::TypesId(enum_ty as u32)));
+}
+
+#[test]
+fn nested_enum_parameters_keep_membership_and_enum_keys_and_overrides_work() {
+    let app = "component App\n  action pick(a: option<enum<\"a\", \"b\">>, b: enum<\"a\", \"b\">[])\n    focus(\"ok\")\n  action go\n    pick(some(\"a\"), [\"a\", \"b\"])\n  view\n    button \"Pick\" press=go\n";
+    contract::compile(app).unwrap();
+    for (good, bad) in [
+        ("some(\"a\")", "some(\"bad\")"),
+        ("[\"a\", \"b\"]", "[\"a\", \"bad\"]"),
+    ] {
+        assert!(contract::compile(&app.replace(good, bad)).is_err(), "{bad}");
+    }
+    let keyed = "shape Choice\n  value: enum<\"a\", \"b\">\ncomponent App\n  resource choices = choices() as shape Choice[] else empty()\n  resource choice = choice() as shape Choice else empty(value=\"b\")\n  view\n    column\n      text choice.value\n      for x in choices key=x.value\n        text x.value testId=\"enum-row\"\n";
+    let plan = contract::compile(keyed).unwrap();
+    assert!(contract::compile(&keyed.replace("value=\"b\"", "value=\"bad\"")).is_err());
+    struct Choices;
+    impl DataSource for Choices {
+        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+            Ok(if source == "choices" {
+                Value::list(vec![
+                    Value::record(vec![Value::str("a")]),
+                    Value::record(vec![Value::str("b")]),
+                ])
+            } else {
+                Value::record(vec![Value::str("b")])
+            })
+        }
+    }
+    let baked = contract::bake(plan, Choices).unwrap();
+    let runner = Runner::boot(
+        baked,
+        Choices,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(runner.kernel().find_by_test_id("enum-row").len(), 2);
+
+    let wrapped = "shape Choice\n  value: option<enum<\"a\", \"b\">>[]\ncomponent App\n  resource choice = choice() as shape Choice else empty(value=[some(\"b\"), none])\n  view\n    text \"nested\"\n";
+    contract::compile(wrapped).unwrap();
+    assert!(contract::compile(&wrapped.replace("some(\"b\")", "some(\"bad\")")).is_err());
 }

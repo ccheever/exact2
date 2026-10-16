@@ -52,6 +52,9 @@ pub fn dispatch(
     request: &Json,
 ) -> Result<Json, String> {
     let op = text(request, "op")?;
+    if op == "engine_info" {
+        return Ok(json!({"ok": crate::engine_info()}));
+    }
     if op == "open" {
         if request.get("backend").is_some_and(|b| !b.is_null()) {
             // A host that brings the backend itself installs it once.

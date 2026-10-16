@@ -8,10 +8,8 @@
 //! against the app's data source and writes every resource's boot value into
 //! the plan, so the first frame on a device needs no host and no seam. The
 //! compiler is, for one frame, a host.
-
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
-
 pub mod functions;
 /// The Lean backend: a program as a term of `semantics/` (LLP-free; see
 /// `semantics/README.md`).
@@ -27,9 +25,10 @@ mod sources;
 mod strings;
 mod surface;
 mod symbols;
+/// `uses` (LLP 1121 stage 4, commit 6): where the app reads a token.
+pub mod tamber_uses;
 pub mod terminal;
 mod typescript;
-
 pub use contract_lower::vocab::collection_edge_refusal;
 pub use contract_types::strings::Strings;
 /// The data seam, re-exported for an app's build script: the bake asks the
@@ -40,10 +39,9 @@ pub use manifest::Manifest;
 pub use map::{plan_digest, SourceMap};
 pub use resolve::Origin;
 pub use rust::rust;
-pub use sources::{design_path, Package, Source, SourceGraph};
+pub use sources::{design_path, with_design_text, Package, Source, SourceGraph};
 pub use symbols::symbols_json;
 pub use typescript::typescript;
-
 /// The app's strings tables (LLP 1060 D1), `None` for an app without a
 /// `strings` directory, every refusal in one message: the bake reads grant
 /// purposes from them (LLP 1069.008 D1).
@@ -55,14 +53,12 @@ pub fn strings_tables(app_root: &Path) -> Result<Option<std::sync::Arc<Strings>>
             .join("\n")
     })
 }
-
 use contract_syntax::{Expr, File, Span, Step, TapForm, TestDecl};
 use exact_kernel::{Dimension, Kernel, NodeType, Offer, PropValue};
 use exact_plan::builder::PlanBuilder;
 use exact_plan::{Plan, ResourcesId};
 use exact_runner::{Runner, RunnerError};
 use std::path::{Path, PathBuf};
-
 /// A refusal from `bake`: the runner's, or the layout lint's (LLP 1017 P1d).
 #[derive(Debug)]
 pub enum BakeError {
@@ -80,7 +76,6 @@ pub enum BakeError {
         site: Option<exact_plan::NodesId>,
     },
 }
-
 impl std::fmt::Display for BakeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -100,18 +95,14 @@ impl std::fmt::Display for BakeError {
         }
     }
 }
-
 impl std::error::Error for BakeError {}
-
 impl From<RunnerError> for BakeError {
     fn from(e: RunnerError) -> Self {
         BakeError::Runner(e)
     }
 }
-
 /// The viewport the lint lays the first frame out at: a phone, in points.
 pub const LINT_VIEWPORT: (f32, f32) = (390.0, 844.0);
-
 /// A related authored location, with its own independently resolved file.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RelatedLocation {
@@ -122,7 +113,6 @@ pub struct RelatedLocation {
     /// Why this declaration or binding is relevant.
     pub note: String,
 }
-
 /// Any rejection from any pass, with its stable id and span.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CompileError {
@@ -139,7 +129,6 @@ pub struct CompileError {
     /// Other authored declarations or bindings involved in this rejection.
     pub related: Box<[RelatedLocation]>,
 }
-
 impl CompileError {
     /// A warning (LLP 1116 D6): lowering's non-fatal diagnostic, which fails
     /// no build and no test and is reported after the refusals.
@@ -149,12 +138,10 @@ impl CompileError {
             ..CompileError::from(e)
         }
     }
-
     /// Whether this is a warning, not a refusal.
     pub fn is_warning(&self) -> bool {
         self.pass == "warning"
     }
-
     /// A machine-readable diagnostic (LLP 1035.005 D2). Columns are one-based
     /// UTF-8 byte offsets with an exclusive end; zero means no source range.
     /// Standalone source has a null file. Every related location owns its file;
@@ -180,7 +167,6 @@ impl CompileError {
         .to_string()
     }
 }
-
 impl std::fmt::Display for CompileError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Some(file) = &self.file {
@@ -198,9 +184,7 @@ impl std::fmt::Display for CompileError {
         Ok(())
     }
 }
-
 impl std::error::Error for CompileError {}
-
 macro_rules! from_pass {
     ($ty:path, $pass:expr) => {
         impl From<$ty> for CompileError {
@@ -217,7 +201,6 @@ macro_rules! from_pass {
         }
     };
 }
-
 from_pass!(contract_syntax::SyntaxError, "syntax");
 from_pass!(contract_types::TypeError, "types");
 impl From<contract_analyze::AnalyzeError> for CompileError {
@@ -241,7 +224,6 @@ impl From<contract_analyze::AnalyzeError> for CompileError {
     }
 }
 from_pass!(contract_lower::LowerError, "lower");
-
 /// Compile one source text to a validated plan. A text has no path, so a
 /// `use … from "./file.contract"` in it cannot be resolved: compile a file
 /// that uses others with [`compile_path`].
@@ -264,7 +246,6 @@ pub fn compile(src: &str) -> Result<Plan, CompileError> {
     }
     compile_file(file, None)
 }
-
 /// [`compile`], with the warnings beside its result (LLP 1116 D6): every
 /// one the text earns once it type-checks, whether it then compiled or not.
 pub fn compile_warned(src: &str) -> (Result<Plan, CompileError>, Vec<CompileError>) {
@@ -287,7 +268,6 @@ pub fn compile_warned(src: &str) -> (Result<Plan, CompileError>, Vec<CompileErro
         });
     (result, warned)
 }
-
 /// [`compile`] for a terminal entry (LLP 1101): the terminal admission
 /// profile first, then the plan with the terminal's field sheet — what
 /// [`compile_path_terminal`] does for a file, for a test's source text.
@@ -300,7 +280,6 @@ pub fn compile_terminal(src: &str) -> Result<Plan, CompileError> {
         .map(|(plan, _)| plan)
         .map_err(first)
 }
-
 /// Compile a file by path, resolving every `use … from "./other.contract"`
 /// (LLP 1017 P8): the used file is loaded the same way, transitively, and
 /// all of its declarations — shapes, styles, components — are merged into
@@ -312,12 +291,10 @@ pub fn compile_terminal(src: &str) -> Result<Plan, CompileError> {
 pub fn compile_path(path: &Path) -> Result<Plan, CompileError> {
     compile_path_source(path, &read_source(path)?)
 }
-
 /// Compile a file with the development map of the nodes it produces.
 pub fn compile_path_mapped(path: &Path) -> Result<(Plan, SourceMap), CompileError> {
     compile_path_source_mapped(path, &read_source(path)?)
 }
-
 fn read_source(path: &Path) -> Result<String, CompileError> {
     let src = std::fs::read_to_string(path).map_err(|e| CompileError {
         pass: "use",
@@ -329,7 +306,6 @@ fn read_source(path: &Path) -> Result<String, CompileError> {
     })?;
     Ok(src)
 }
-
 /// Compile source bytes with their file path for relative `use` and font
 /// resolution. Unlike [`compile_path`], this never re-reads the root file;
 /// callers that watch a file can compile the exact snapshot they observed.
@@ -338,10 +314,8 @@ pub fn compile_path_source(path: &Path, src: &str) -> Result<Plan, CompileError>
         .map(|(plan, _)| plan)
         .map_err(first)
 }
-
 /// At most this many diagnostics from one compile.
 pub const MAX_DIAGNOSTICS: usize = 20;
-
 /// Compile a file by path, as [`compile_path`] does, and report every
 /// independent refusal rather than the first: within a pass each
 /// declaration, statement, element and attribute is checked whatever its
@@ -535,6 +509,18 @@ pub fn surface_findings(path: &Path) -> Result<SurfaceFindings, Vec<CompileError
         findings,
         newer: surface::newer_rust(&app_root),
     })
+}
+
+/// Non-blocking advice for resource arguments fed by a live frame clock.
+/// Includes imported derives and functions, with the authored resource location.
+pub fn resource_clock_warnings(path: &Path) -> Result<Vec<CompileError>, Vec<CompileError>> {
+    let src = read_source(path).map_err(|e| vec![e])?;
+    let app_root = app_root(path)?;
+    let (file, sources) = sources::load(path, &src, &app_root)?;
+    Ok(contract_analyze::resource_clock_warnings(&file)
+        .into_iter()
+        .map(|e| sources.resolve(e.into()))
+        .collect())
 }
 
 /// Compile a terminal entry (LLP 1101 D2): the terminal profile's refusals,
@@ -905,6 +891,13 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                 }
                 Step::Seed { seed, .. } => {
                     s.push_str(&format!("{{\"op\":\"seed\",\"value\":{seed}"));
+                }
+                Step::Fresh { seed, .. } => {
+                    s.push_str("{\"op\":\"fresh\",\"seed\":");
+                    match seed {
+                        Some(path) => q(path, &mut s),
+                        None => s.push_str("null"),
+                    }
                 }
                 Step::Type {
                     target,

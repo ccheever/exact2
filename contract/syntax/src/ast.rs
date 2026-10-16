@@ -1,9 +1,7 @@
 //! The abstract syntax tree.
-
 pub use crate::colours::{ColorProfileDecl, DesignSource, ThemeDecl};
 use crate::Span;
 use std::collections::BTreeMap;
-
 /// Identifier ranges that are distinct from their AST construct's diagnostic span.
 /// Compiler tooling consumes these; they never enter an executable plan.
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -13,14 +11,12 @@ pub struct NameSpans {
     /// Data source name in a resource or send, keyed by its construct.
     pub sources: BTreeMap<Span, Span>,
 }
-
 impl NameSpans {
     /// The exact identifier range, or the construct when it already names a token.
     pub fn name(&self, span: Span) -> Span {
         self.names.get(&span).copied().unwrap_or(span)
     }
 }
-
 /// One source file.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct File {
@@ -63,7 +59,6 @@ pub struct File {
     /// `component` declarations, in order. The first is the root.
     pub components: Vec<Component>,
 }
-
 impl File {
     /// Describe an unknown component and the merged declarations in source order.
     /// Only refusal paths call this; valid uses allocate no diagnostic list.
@@ -82,7 +77,6 @@ impl File {
         format!("unknown component `{name}`; {choices}")
     }
 }
-
 /// `routes <slot>` with rows in declaration order. @ref LLP 1038 D2.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RoutesDecl {
@@ -93,7 +87,6 @@ pub struct RoutesDecl {
     /// Where.
     pub span: Span,
 }
-
 /// One route line. Parent indices refer to earlier rows of the same table.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RouteDecl {
@@ -113,7 +106,6 @@ pub struct RouteDecl {
     /// Where.
     pub span: Span,
 }
-
 /// A declared font family. Faces are static in v1: one path, weight, style.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FontDecl {
@@ -124,7 +116,6 @@ pub struct FontDecl {
     /// Where.
     pub span: Span,
 }
-
 /// A declared sound (LLP 1096 D1): a WAV under the app's `assets/`, which
 /// `playSound` and `playSounds` name by its path.
 #[derive(Debug, Clone, PartialEq)]
@@ -134,7 +125,6 @@ pub struct SoundDecl {
     /// Where.
     pub span: Span,
 }
-
 /// One static face in a [`FontDecl`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct FontFaceDecl {
@@ -147,7 +137,6 @@ pub struct FontFaceDecl {
     /// Where.
     pub span: Span,
 }
-
 /// `test "name"` with steps: the agent API's own operations (LLP 1012) and
 /// `expect` lines that read their replies — compiled to a script the agent
 /// driver runs against the real hosts; never a second evaluator (LLP 1017 P7).
@@ -160,7 +149,6 @@ pub struct TestDecl {
     /// Where.
     pub span: Span,
 }
-
 /// One step of a `test`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Step {
@@ -283,6 +271,17 @@ pub enum Step {
         persona: Option<String>,
         /// `expect 409` (LLP 1116.010 D3): the refusal's status; `None`: any 2xx.
         status: Option<u16>,
+        /// Where.
+        span: Span,
+    },
+    /// `fresh` or `fresh "seed.json"`: before the test opens, the Snapback
+    /// dev server the app fetches is emptied (`POST /dev/reset`), and seeded
+    /// with the file's `[{table, row}]` when one is named (a path from the
+    /// test file). At a file's top level, before every test in it (the
+    /// author's ruling of 2026-10-12, via the sb4 app farm).
+    Fresh {
+        /// The seed file, as written.
+        seed: Option<String>,
         /// Where.
         span: Span,
     },
@@ -468,7 +467,6 @@ pub enum Step {
         span: Span,
     },
 }
-
 /// Which input a `tap` step gives: the driver's `tap` forms (LLP 1012).
 #[derive(Debug, Clone, PartialEq)]
 pub enum TapForm {
@@ -502,7 +500,6 @@ pub enum TapForm {
         seconds: Option<f64>,
     },
 }
-
 /// `fn name(param: type, …): type = expr` — a pure function written in
 /// Contract: one expression over its parameters and the roster, expanded
 /// inline wherever it is called (LLP 1017 P5). No recursion, no loops, no
@@ -521,7 +518,6 @@ pub struct FnDecl {
     /// Where.
     pub span: Span,
 }
-
 /// `use A, B as C from "./file.contract"` — declarations of another Contract
 /// file, named one by one, each optionally renamed in this file (LLP 1017 P8,
 /// LLP 1091 D1/D2); never anything else (`contract-no-imports`).
@@ -534,7 +530,6 @@ pub struct UseDecl {
     /// Where.
     pub span: Span,
 }
-
 /// One name a `use` brings: `Card`, or `Card as UiCard`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct UseName {
@@ -545,14 +540,12 @@ pub struct UseName {
     /// The declaration's name as written.
     pub span: Span,
 }
-
 impl UseName {
     /// The name this file reads it by.
     pub fn local(&self) -> &str {
         self.alias.as_deref().unwrap_or(&self.name)
     }
 }
-
 /// `style Name` with lines of `attr=literal` — a named set of style rows a
 /// node applies with `class=Name`; its own attributes win (LLP 1017 P6).
 #[derive(Debug, Clone, PartialEq)]
@@ -564,7 +557,6 @@ pub struct StyleDecl {
     /// Where.
     pub span: Span,
 }
-
 /// `keyframes Name`: CSS `@keyframes` (LLP 1055 D5).
 #[derive(Debug, Clone, PartialEq)]
 pub struct KeyframesDecl {
@@ -575,7 +567,6 @@ pub struct KeyframesDecl {
     /// Where.
     pub span: Span,
 }
-
 /// `timeline Name`: a clock timeline (LLP 1055.002 D1). Every animation on
 /// it starts in step with the others.
 #[derive(Debug, Clone, PartialEq)]
@@ -585,7 +576,6 @@ pub struct TimelineDecl {
     /// Where.
     pub span: Span,
 }
-
 /// One line of a `keyframes` declaration.
 #[derive(Debug, Clone, PartialEq)]
 pub struct KeyframeDecl {
@@ -596,7 +586,6 @@ pub struct KeyframeDecl {
     /// Where.
     pub span: Span,
 }
-
 /// `shape Name` with its fields.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ShapeDecl {
@@ -607,7 +596,6 @@ pub struct ShapeDecl {
     /// Where it was declared.
     pub span: Span,
 }
-
 /// One shape field.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Field {
@@ -618,10 +606,11 @@ pub struct Field {
     /// Where.
     pub span: Span,
 }
-
 /// A written type: `number`, `string`, `bool`, a shape name, `option<T>`, `T[]`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeExpr {
+    /// A finite string vocabulary, `enum<"a", "b">`.
+    Enum(Vec<String>, Span),
     /// A named type: a primitive or a shape.
     Named(String, Span),
     /// `option<T>`.
@@ -629,16 +618,25 @@ pub enum TypeExpr {
     /// `T[]`.
     List(Box<TypeExpr>, Span),
 }
-
 impl TypeExpr {
+    /// Whether this type carries a finite string vocabulary.
+    pub fn contains_enum(&self) -> bool {
+        match self {
+            Self::Enum(..) => true,
+            Self::Option(t, _) | Self::List(t, _) => t.contains_enum(),
+            Self::Named(..) => false,
+        }
+    }
     /// Where it was written.
     pub fn span(&self) -> Span {
         match self {
-            TypeExpr::Named(_, s) | TypeExpr::Option(_, s) | TypeExpr::List(_, s) => *s,
+            TypeExpr::Enum(_, s)
+            | TypeExpr::Named(_, s)
+            | TypeExpr::Option(_, s)
+            | TypeExpr::List(_, s) => *s,
         }
     }
 }
-
 /// A component.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Component {
@@ -677,7 +675,6 @@ pub struct Component {
     /// Where.
     pub span: Span,
 }
-
 impl Component {
     /// Describe every required prop absent from a use, in declaration order.
     /// Called only after a missing argument is found; valid uses allocate nothing.
@@ -692,7 +689,6 @@ impl Component {
         format!("`{}` needs {missing}", self.name)
     }
 }
-
 /// `state name = expr persist` (LLP 1116 D5): a root state the host keeps
 /// across launches; the state's name, and where `persist` is written.
 #[derive(Debug, Clone, PartialEq)]
@@ -702,14 +698,12 @@ pub struct Persist {
     /// Where `persist` is written.
     pub span: Span,
 }
-
 impl Component {
     /// Whether the state `name` says `persist`.
     pub fn persists(&self, name: &str) -> bool {
         self.persist.iter().any(|p| p.name == name)
     }
 }
-
 /// `name = expr`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Binding {
@@ -720,7 +714,6 @@ pub struct Binding {
     /// Where.
     pub span: Span,
 }
-
 /// `resource name = source(args) [with context, …] as shape T [else source(args)]`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResourceDecl {
@@ -741,7 +734,6 @@ pub struct ResourceDecl {
     /// Where.
     pub span: Span,
 }
-
 /// A resource's placeholder: a source call, as a resource's value is (a
 /// record comes from a source), whose arguments are values — it reads no
 /// state, so the build answers it once for every launch.
@@ -754,7 +746,6 @@ pub struct Placeholder {
     /// Where.
     pub span: Span,
 }
-
 /// `mutation name as shape T` (LLP 1016): an `option<T>` slot, `none` at
 /// boot, that a `send` fills from an action.
 #[derive(Debug, Clone, PartialEq)]
@@ -774,7 +765,6 @@ pub struct MutationDecl {
     /// Where.
     pub span: Span,
 }
-
 /// A typed parameter (`props` entry or action parameter).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Param {
@@ -785,7 +775,6 @@ pub struct Param {
     /// Where.
     pub span: Span,
 }
-
 /// `action name(params)` with a body of statements.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Action {
@@ -798,7 +787,6 @@ pub struct Action {
     /// Where.
     pub span: Span,
 }
-
 /// One slot an action body assigns (`x = …`) or sends (`send m = …`).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Effect<'a> {
@@ -812,7 +800,6 @@ pub struct Effect<'a> {
     /// span), when a called action makes it (LLP 1089 D5).
     pub call: Option<(&'a str, Span)>,
 }
-
 impl Action {
     /// Every slot the body assigns or sends, through every branch of its
     /// `if`s and `match`es, in statement order with repeats. An action's
@@ -859,7 +846,6 @@ impl Action {
         out
     }
 }
-
 /// A statement in an action body.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {
@@ -1388,6 +1374,7 @@ impl Step {
             | Step::TimeZone { span, .. }
             | Step::Locale { span, .. }
             | Step::Seed { span, .. }
+            | Step::Fresh { span, .. }
             | Step::BeforeData { span }
             | Step::FailFetch { span, .. }
             | Step::PassFetch { span, .. }

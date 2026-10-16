@@ -22,6 +22,81 @@ shape Change
   files: string[]
   tokens: string[]
 
+// A held proposal (LLP 1122 D10): its proposer, diff, the tokens it
+// changes and its operations; a recomputed one names the one it replaces.
+shape HeldItem
+  index: number
+  text: string
+
+// An import's review (LLP 1122 D11): the mapped tokens with each mode's
+// value and swatches, the role overrides it offers (off until ticked), the
+// values it did not map and why, and the count check.
+// A mode's value: `mode` 0 is the default (or a set's own `when`), k the
+// k-th `when`; a swatch side is "" for a value no page can paint (a
+// reference to a token).
+shape ModeValue
+  label: string
+  mode: number
+  value: string
+  light: string
+  dark: string
+
+// `kind`: `token` (added or set, its modes' values), `axis` (a new axis),
+// `drop` (a mode's value dropped), or `other`, said in `text`.
+shape Mapped
+  index: number
+  kind: string
+  name: string
+  text: string
+  modes: ModeValue[]
+
+shape Offer
+  role: string
+  token: string
+  items: string
+  note: string
+  // Ticked to begin with (a recomputed import's kept offers); a picked id
+  // flips it.
+  on: bool
+
+shape Unmapped
+  name: string
+  value: string
+  why: string
+  derived: bool
+  block: string
+  key: string
+
+shape Held
+  proposal: string
+  client: string
+  tint: string
+  diff: string
+  tokens: string[]
+  replaces: string
+  items: HeldItem[]
+  // An import's ("" for any other proposal).
+  importer: string
+  mapped: Mapped[]
+  offers: Offer[]
+  unmapped: Unmapped[]
+  counted: string
+  countOk: bool
+  // The import an edit replaced, and whether its offers begin on (a
+  // recomputed import, or an edit of one).
+  from: string
+  kept: bool
+
+// An import started from picked files: the proposal it holds, or why not.
+shape Imported
+  ok: bool
+  error: string
+  proposal: string
+  note: string
+  // With nothing to propose, what it still reports.
+  counted: string
+  unmapped: Unmapped[]
+
 shape Changes
   ok: bool
   error: string
@@ -35,6 +110,7 @@ shape Changes
   undo: number
   redo: number
   session: number
+  held: Held[]
 
 // A control drawn from a dial's declared metadata (LLP 1122 D7, LLP 1121
 // D4): `control` is `color`, `slider`, `stepper` or `select`.
@@ -63,6 +139,12 @@ shape Column
   id: string
   label: string
 
+// A declared pair's contrast in one cell (LLP 1121 D3, `pair=`).
+shape PairBadge
+  name: string
+  ratio: string
+  low: bool
+
 shape Cell
   column: string
   label: string
@@ -70,12 +152,28 @@ shape Cell
   swatch: string
   residual: bool
   note: string
+  pairs: PairBadge[]
 
 shape TokenRow
   name: string
   kind: string
   follows: string
   cells: Cell[]
+
+// The tokens changed since the last highlight faded, each by its latest
+// client and in that client's colour (LLP 1122 D10).
+shape Lit
+  seq: number
+  epoch: string
+  file: string
+  // The cursor once the oldest highlight here fades (per file and run).
+  fadeTo: string
+  // Each cell changed, `<token>|<column>`, and its client's colour.
+  cells: string[]
+  cellTints: string[]
+  names: string[]
+  whos: string[]
+  tints: string[]
 
 shape TokenGroup
   name: string
@@ -141,6 +239,79 @@ shape Written
   last: string
   key: string
   session: number
+  // What an accept or a drop did, in words; an edited import's picks,
+  // carried to the proposal that replaced it.
+  note: string
+  carried: string[]
+
+// The session changeset (LLP 1122 D9): each write since the tool opened,
+// in plain words, with the diff under the tool's own.
+shape ChangeEntry
+  seq: number
+  who: string
+  tint: string
+  mine: bool
+  text: string
+  diff: string
+  committed: bool
+
+shape Changeset
+  ok: bool
+  error: string
+  entries: ChangeEntry[]
+
+// What a commit would take now: its edits, or a refusal to show.
+shape Scope
+  open: number
+  refused: bool
+  // No answer: Commit stays on, and says why when pressed.
+  unavailable: bool
+
+shape Refusal
+  file: string
+  why: string
+
+// A `commit`: its sha and files and the edits it took, or each file it
+// refused and why.
+shape EditLine
+  n: number
+  text: string
+
+shape Committed
+  ok: bool
+  error: string
+  commit: string
+  files: string[]
+  refused: Refusal[]
+  edits: EditLine[]
+
+// The design files' git log, read as edits.
+shape HistoryFile
+  file: string
+  refused: string
+  edits: string[]
+
+shape HistoryCommit
+  commit: string
+  short: string
+  author: string
+  date: string
+  subject: string
+  files: HistoryFile[]
+
+shape History
+  ok: bool
+  error: string
+  commits: HistoryCommit[]
+  more: bool
+
+// A past commit's inverse, held for review, or why it cannot apply.
+shape Reverted
+  ok: bool
+  error: string
+  commit: string
+  proposal: string
+  refused: string[]
 
 shape Ratio
   column: string
@@ -192,17 +363,38 @@ component DesignTool
   state renameTo = ""
   resource branch = loadBranch(file, selToken, selColumn, design.answer) as shape Branch else empty(ok=true)
   resource proposal = proposeEdit(file, editKind, editTarget, editWhen, editValue, since, epoch) as shape Proposal else empty(ok=true)
+  // The changeset follows the long poll and each design read (which
+  // measures what changed); history is read when shown.
+  resource changeset = loadChangeset(file, since, design.answer) as shape Changeset else empty(ok=true)
+  resource scope = loadScope(client, changes.answer) as shape Scope else empty(open=0, refused=false, unavailable=false)
+  // The items of held proposals picked for "Accept picked"
+  // (`<proposal>:<index>`), and the last change whose highlight has faded.
+  state picked: string[] = []
+  state faded = ""
+  resource lit = loadLit(file, design.answer, faded) as shape Lit else empty(seq=0)
+  state historyShown = false
+  state historyPages = 1
+  resource history = loadHistory(historyShown, historyPages, since, epoch) as shape History else empty(ok=true)
+  mutation committed as shape Committed refreshes changeset, scope
+  // The importer for a picked file: shadcn CSS, a Tailwind v4 sheet, DTCG
+  // JSON (several files, a mode each).
+  state importKind = "shadcn"
+  mutation imported as shape Imported
+  mutation reverted as shape Reverted
   // One slot for a write, an undo or a redo: its reply holds the stacks.
   mutation written as shape Written refreshes design then afterWrite
   // The stacks as the last write left them, unless a new run of the
   // server has emptied them since (a write that found the restart itself is
   // newer than the poll, and says so).
-  derive stack = match written { case some(w) => (w.session >= changes.session ? w : Written(ok=true, error="", undo=changes.undo, redo=changes.redo, last="", key="", session=changes.session)), case none => Written(ok=true, error="", undo=changes.undo, redo=changes.redo, last="", key="", session=changes.session) }
+  derive stack = match written { case some(w) => (w.session >= changes.session ? w : Written(ok=true, error="", undo=changes.undo, redo=changes.redo, last="", key="", session=changes.session, note="", carried=[])), case none => Written(ok=true, error="", undo=changes.undo, redo=changes.redo, last="", key="", session=changes.session, note="", carried=[]) }
   derive draftKey = `${file}␟${editKind}␟${editTarget}␟${editWhen}␟${editValue}`
   // A cell's edit whose branch the grid no longer shows (another client
   // changed it): not applied, lest it make a `when` no one asked for.
   derive draftStale = editKind == "set-token" and not scopeOwn and (branch.token != editTarget or branch.when != editWhen)
 
+  // The oldest highlight here fades after 3 s, then the next.
+  task fading when lit.names.length > 0 key=`${lit.epoch}-${lit.file}-${lit.seq}`
+    after(3000, fade)
   // Each answer asks again: at once after one, after 3 s after a failure.
   task follow when not pending(changes) and changes.ok key=changes.answer
     after(1, advance)
@@ -304,6 +496,8 @@ component DesignTool
     // The draft written is done with; one drafted since stays.
     match written
       case some(w)
+        if w.carried.length > 0
+          picked = picked.concat(w.carried)
         if w.ok and w.key != "" and w.key == draftKey
           editKind = ""
           scopeOwn = false
@@ -319,6 +513,50 @@ component DesignTool
       send written = redoLast(client)
   action reloadDesign
     refresh design
+  action chooseKind(k: string)
+    importKind = k
+  action pickImport
+    showPicker("import-file")
+  action importPicked(files: Picked[])
+    if not pending(imported) and files.length > 0
+      send imported = importFiles(client, importKind, files.map(f => f.path).join("\n"), files.map(f => f.name).join("\n"))
+  action acceptImportNow(proposal: string)
+    if not pending(written)
+      send written = acceptImport(client, proposal, picked.join(";"))
+  action editImportValue(proposal: string, index: number, mode: number, v: string)
+    if not pending(written)
+      send written = editImport(client, proposal, index, mode, v, picked.join(";"))
+  // A mapped token is in until unticked: its id is picked when left out.
+  action toggleLeaveOut(id: string, checked: bool)
+    picked = checked ? picked.filter(p => p != id) : picked.filter(p => p != id).concat([id])
+  // An offer's id is picked when it differs from where it began.
+  action toggleOffer(id: string, on: bool, checked: bool)
+    picked = checked != on ? picked.filter(p => p != id).concat([id]) : picked.filter(p => p != id)
+  action togglePick(id: string, checked: bool)
+    picked = checked ? picked.filter(p => p != id).concat([id]) : picked.filter(p => p != id)
+  action acceptAll(proposal: string)
+    if not pending(written)
+      send written = acceptHeld(client, proposal, "")
+  action acceptPicked(proposal: string, items: string)
+    if not pending(written) and items != ""
+      send written = acceptHeld(client, proposal, items)
+  action dropProposal(proposal: string)
+    if not pending(written)
+      send written = dropHeld(client, proposal)
+  action fade
+    faded = lit.fadeTo
+  action commit
+    if not pending(committed)
+      send committed = commitSession(client)
+  action toggleHistory
+    historyShown = not historyShown
+  action moreHistory
+    historyPages = historyPages + 1
+  action newerHistory
+    historyPages = historyPages > 1 ? historyPages - 1 : 1
+  action revert(commit: string)
+    if not pending(reverted)
+      send reverted = revertCommit(client, commit)
   action toggleMore(group: string)
     opened = opened.includes(group) ? opened.filter(g => g != group) : opened.concat([group])
   action chooseFile(f: string)
@@ -411,14 +649,18 @@ component DesignTool
                         row gap=8 align-items="center" testId=`token-${t.name}`
                           column width=200 flex-shrink=0
                             text t.name
+                            if lit.names.includes(t.name)
+                              text `changed by ${lit.whos.filter((w, i) => lit.names.indexOf(t.name) == i).join("")}` font="-exact-caption1" color=lit.tints.filter((c, i) => lit.names.indexOf(t.name) == i).join("") testId=`changed-by-${t.name}`
                             if t.follows != ""
                               text `follows ${t.follows}` font="-exact-caption1" color="-exact-secondary-label" testId=`follows-${t.name}`
                           for cell in t.cells key=cell.column
-                            column width=96 flex-shrink=0 gap=2 press=selectCell(t.name, cell.column) role="button" aria-label=cell.label testId=`cell-${t.name}-${cell.column}`
+                            column width=96 flex-shrink=0 box-sizing="border-box" gap=2 padding=2 border-radius=6 border-width=2 border-style="solid" border-color=(lit.cells.includes(`${t.name}|${cell.column}`) ? lit.cellTints.filter((c, i) => lit.cells.indexOf(`${t.name}|${cell.column}`) == i).join("") : "transparent") press=selectCell(t.name, cell.column) role="button" aria-label=cell.label testId=`cell-${t.name}-${cell.column}`
                               view height=24 border-radius=4 background-color=cell.swatch border="1px solid -exact-separator"
                               if cell.residual
                                 text "fallback" font="-exact-caption2" color="-exact-system-orange" testId=`cell-fallback-${t.name}-${cell.column}`
                               text (cell.residual ? cell.note : cell.css) font="-exact-caption2" color="-exact-secondary-label" line-clamp=1 testId=`cell-text-${t.name}-${cell.column}`
+                              for b in cell.pairs key=b.name
+                                text `${b.ratio} on ${b.name}` font="-exact-caption2" color=(b.low ? "-exact-system-red" : "-exact-secondary-label") line-clamp=1 testId=`pair-${t.name}-${cell.column}-${b.name}`
               // The branch of the cell chosen, read of the grid shown.
               if selToken != "" and branch.ok and branch.token == selToken and branch.column == selColumn and branch.answer == design.answer and not pending(branch)
                 column gap=8 padding=12 border-radius=10 background-color="-exact-secondary-background" testId="branch"
@@ -488,6 +730,8 @@ component DesignTool
                   text `Redo (${stack.redo})`
                 if not stack.ok
                   text stack.error color="-exact-system-red" white-space="pre-wrap" flex=1 testId="write-error"
+                else if stack.note != ""
+                  text stack.note color="-exact-secondary-label" flex=1 testId="write-note"
               column gap=8 testId="contrast"
                 text "Contrast" role="heading" aria-level=2
                 text "Text over background, between the stored values: a role or platform colour is its fallback until a running app reports it." color="-exact-secondary-label" font="-exact-footnote"
@@ -506,6 +750,156 @@ component DesignTool
                   row gap=12
                     text r.label width=160
                     text r.ratio testId=`ratio-${r.column}`
+            column gap=8 testId="inbox"
+              text "Proposals" role="heading" aria-level=2
+              if changes.held.length == 0
+                text "No proposal is waiting." color="-exact-secondary-label" testId="no-proposals"
+              for h in changes.held key=h.proposal
+                column gap=6 padding=12 border-radius=10 border-width=2 border-style="solid" border-color=h.tint testId=`held-${h.proposal}`
+                  if h.importer != ""
+                    // An import (LLP 1122 D11): mapped tokens in until unticked, role
+                    // overrides out until ticked, what it did not map, and the count.
+                    text `${h.client} imports a ${h.importer} theme` font="-exact-headline" testId=`held-title-${h.proposal}`
+                    text h.counted color=(h.countOk ? "-exact-secondary-label" : "-exact-system-red") font="-exact-footnote" testId=`held-count-${h.proposal}`
+                    if h.replaces != ""
+                      text `Recomputed from ${h.replaces} with the items chosen, on the files as they are now: review its diff, then accept it to write it. The overrides kept are on because they were ticked.` color="-exact-system-orange" font="-exact-footnote" testId=`held-replaces-${h.proposal}`
+                    else if h.from != ""
+                      text `Held again from ${h.from} with your edit, on the files as they are now: review its diff, then accept it.` color="-exact-system-orange" font="-exact-footnote" testId=`held-replaces-${h.proposal}`
+                    if h.replaces != "" or h.from != ""
+                      text h.diff font="-exact-caption1" font-family="ui-monospace, monospace" white-space="pre" testId=`held-diff-${h.proposal}`
+                    text `Tokens (${h.mapped.length})` role="heading" aria-level=3
+                    for m in h.mapped key=`${m.index}`
+                      row gap=8 align-items="center" flex-wrap="wrap" testId=`mapped-${h.proposal}-${m.index}`
+                        input type="checkbox" disabled=pending(written) checked=(not picked.includes(`${h.proposal}:${m.index}`)) change=toggleLeaveOut(`${h.proposal}:${m.index}`) aria-label=m.name testId=`take-${h.proposal}-${m.index}`
+                        text m.name width=200 flex-shrink=0 font="-exact-footnote"
+                        if m.kind != "token"
+                          text m.text color="-exact-secondary-label" font="-exact-caption1" testId=`mapped-text-${h.proposal}-${m.index}`
+                        for md in m.modes key=`${md.mode}`
+                          row gap=4 align-items="center"
+                            if md.light != ""
+                              view width=16 height=16 border-radius=3 background-color=md.light border="1px solid -exact-separator"
+                            if md.dark != ""
+                              view width=16 height=16 border-radius=3 background-color=md.dark border="1px solid -exact-separator"
+                            text md.label font="-exact-caption2" color="-exact-secondary-label"
+                            input value=md.value change=editImportValue(h.proposal, m.index, md.mode) aria-label=`${m.name} ${md.label}` min-width=160 font="-exact-caption1" testId=`mapped-value-${h.proposal}-${m.index}-${md.mode}`
+                    text (h.kept ? "Role overrides, as ticked" : "Role overrides, off until ticked") role="heading" aria-level=3
+                    for o in h.offers key=o.role
+                      row gap=8 align-items="center" testId=`offer-${h.proposal}-${o.role}`
+                        if o.items != ""
+                          input type="checkbox" disabled=pending(written) checked=(o.on != picked.includes(`${h.proposal}:${o.items}`)) change=toggleOffer(`${h.proposal}:${o.items}`, o.on) aria-label=`${o.role} = ${o.token}` testId=`override-${h.proposal}-${o.role}`
+                        text `${o.role} = ${o.token}` font="-exact-footnote"
+                        if o.note != ""
+                          text o.note color="-exact-secondary-label" font="-exact-caption1" testId=`offer-note-${h.proposal}-${o.role}`
+                    text `Not mapped (${h.unmapped.length})` role="heading" aria-level=3
+                    for u in h.unmapped key=u.key
+                      text `${u.name} = ${u.value}${u.block != "" and not u.derived ? ` (${u.block})` : ""}: ${u.why}` color="-exact-secondary-label" font="-exact-caption1" testId=`unmapped-${h.proposal}-${u.key}`
+                    row gap=8
+                      button press=acceptImportNow(h.proposal) disabled=pending(written) buttonStyle="filled" testId=`accept-${h.proposal}`
+                        text "Accept"
+                      button press=dropProposal(h.proposal) disabled=pending(written) destructive=true testId=`drop-${h.proposal}`
+                        text "Drop"
+                  else
+                    text `${h.client} proposes ${h.tokens.join(", ")}` testId=`held-title-${h.proposal}`
+                    if h.replaces != ""
+                      text `Recomputed from ${h.replaces} on the files as they are now: review it again.` color="-exact-system-orange" font="-exact-footnote" testId=`held-replaces-${h.proposal}`
+                    text h.diff font="-exact-caption1" font-family="ui-monospace, monospace" white-space="pre" testId=`held-diff-${h.proposal}`
+                    for it in h.items key=`${it.index}`
+                      row gap=8 align-items="center"
+                        input type="checkbox" checked=picked.includes(`${h.proposal}:${it.index}`) change=togglePick(`${h.proposal}:${it.index}`) aria-label=it.text testId=`pick-${h.proposal}-${it.index}`
+                        text it.text font="-exact-footnote"
+                    row gap=8
+                      button press=acceptAll(h.proposal) disabled=pending(written) buttonStyle="filled" testId=`accept-${h.proposal}`
+                        text "Accept"
+                      button press=acceptPicked(h.proposal, h.items.filter(it => picked.includes(`${h.proposal}:${it.index}`)).map(it => `${it.index}`).join(",")) disabled=(pending(written) or not h.items.map(it => picked.includes(`${h.proposal}:${it.index}`)).includes(true)) testId=`accept-picked-${h.proposal}`
+                        text "Accept picked"
+                      button press=dropProposal(h.proposal) disabled=pending(written) destructive=true testId=`drop-${h.proposal}`
+                        text "Drop"
+            column gap=8 testId="import"
+              text "Import a theme" role="heading" aria-level=2
+              text "Its tokens, the role overrides it offers (each off until ticked) and what it could not map are held as a proposal, reviewed above." color="-exact-secondary-label" font="-exact-footnote"
+              row gap=8 align-items="center"
+                select value=importKind change=chooseKind aria-label="Kind" testId="import-kind"
+                  option "shadcn (CSS)" value="shadcn"
+                  option "Tailwind v4 (CSS)" value="tailwind"
+                  option "DTCG (JSON, a file a mode)" value="dtcg"
+                button press=pickImport disabled=pending(imported) testId="import-choose"
+                  text "Choose files…"
+                input type="file" multiple=(importKind == "dtcg") id="import-file" testId="import-file" display="none" change=importPicked
+              match imported
+                case some(i)
+                  text (i.ok ? i.note : i.error) color=(i.ok ? "-exact-secondary-label" : "-exact-system-red") white-space="pre-wrap" testId="import-result"
+                  if i.counted != ""
+                    text i.counted color="-exact-secondary-label" font="-exact-footnote" testId="import-counted"
+                    for u in i.unmapped key=u.key
+                      text `${u.name} = ${u.value}${u.block != "" and not u.derived ? ` (${u.block})` : ""}: ${u.why}` color="-exact-secondary-label" font="-exact-caption1"
+                case none
+                  text "" display="none"
+            column gap=8 testId="changeset"
+              text "Changes" role="heading" aria-level=2
+              if changeset.entries.length == 0
+                text "Nothing has changed since the tool opened." color="-exact-secondary-label" testId="no-changes"
+              for e in changeset.entries key=`${e.seq}`
+                column gap=2 testId=`entry-${e.seq}`
+                  row gap=6 align-items="center"
+                    view width=8 height=8 border-radius=4 background-color=e.tint
+                    text e.text color=(e.committed ? "-exact-secondary-label" : "-exact-label") flex=1 testId=`entry-text-${e.seq}`
+                  if e.mine and e.diff != ""
+                    text e.diff font="-exact-caption1" font-family="ui-monospace, monospace" white-space="pre" color="-exact-secondary-label" testId=`entry-diff-${e.seq}`
+              row gap=8 align-items="center"
+                button press=commit disabled=(pending(committed) or (scope.open == 0 and not scope.refused and not scope.unavailable)) buttonStyle="bordered" testId="commit"
+                  text "Commit"
+                text "Commits what this session wrote, never pushes." color="-exact-secondary-label" font="-exact-footnote"
+              match committed
+                case some(c)
+                  if c.ok
+                    column gap=2 testId="committed"
+                      text `Committed ${c.commit}: ${c.files.join(", ")}` testId="committed-summary"
+                      for t in c.edits key=`${t.n}`
+                        text t.text color="-exact-secondary-label" font="-exact-footnote"
+                  else
+                    column gap=2 testId="commit-refused"
+                      text c.error color="-exact-system-red" white-space="pre-wrap" testId="commit-error"
+                      for r in c.refused key=r.file
+                        text `${r.file}: ${r.why}` color="-exact-system-red" testId=`refused-${r.file}`
+                case none
+                  text "" display="none"
+            column gap=8 testId="history"
+              button press=toggleHistory testId="toggle-history"
+                text (historyShown ? "Hide history" : "History")
+              if historyShown
+                if not history.ok
+                  text history.error color="-exact-system-red" testId="history-error"
+                for c in history.commits key=c.commit
+                  column gap=2 padding=8 border-radius=8 background-color="-exact-secondary-background" testId=`commit-${c.short}`
+                    row gap=8 align-items="center"
+                      text `${c.short} · ${c.author} · ${c.date}` font="-exact-footnote" color="-exact-secondary-label" flex=1
+                      button press=revert(c.commit) disabled=pending(reverted) testId=`revert-${c.short}`
+                        text "Revert"
+                    text c.subject testId=`subject-${c.short}`
+                    for f in c.files key=f.file
+                      text f.file font="-exact-footnote"
+                      if f.refused != ""
+                        text f.refused color="-exact-system-orange" font="-exact-caption1"
+                      for t in f.edits key=t
+                        text t font="-exact-caption1" testId=`edit-${c.short}`
+                row gap=8
+                  if historyPages > 1
+                    button press=newerHistory testId="newer-history"
+                      text "Newer"
+                  if history.more
+                    button press=moreHistory testId="more-history"
+                      text "Older"
+                match reverted
+                  case some(r)
+                    if r.ok
+                      text `Held for review as ${r.proposal}: the revert of ${r.commit.slice(0, 12)}.` testId="reverted"
+                    else
+                      column gap=2 testId="revert-refused"
+                        text r.error color="-exact-system-red" white-space="pre-wrap"
+                        for t in r.refused key=t
+                          text t color="-exact-system-red" font="-exact-footnote"
+                  case none
+                    text "" display="none"
             column gap=4 testId="following"
               text (changes.ok ? `Following changes · ${changes.seq}` : changes.error) color="-exact-secondary-label" font="-exact-footnote" testId="follow-state"
               for c in changes.recent key=`${c.seq}`

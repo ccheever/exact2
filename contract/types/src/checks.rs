@@ -125,9 +125,13 @@ fn calls_in(e: &Expr, indices: &BTreeMap<&str, usize>, out: &mut Vec<usize>) {
     }
 }
 
+pub(super) use super::enums::accepts_expr;
+
 /// Check compatibility without constructing a discarded merged type.
 pub(super) fn can_unify(a: &Ty, b: &Ty) -> bool {
     match (a, b) {
+        (Ty::String, Ty::Enum(_)) => true,
+        (Ty::Enum(a), Ty::Enum(b)) => b.iter().all(|value| a.contains(value)),
         (Ty::Unknown, _) | (_, Ty::Unknown) => true,
         (Ty::Option(a), Ty::Option(b)) | (Ty::List(a), Ty::List(b)) => can_unify(a, b),
         (Ty::Action(a), Ty::Action(b)) => {
@@ -765,7 +769,7 @@ fn into_view_args(
     };
     let Some(key) = key else {
         // Any string names the element, as `focus` takes one.
-        if infer(list, scope, shapes)? != Ty::String {
+        if !infer(list, scope, shapes)?.is_string() {
             return err(
                 "type-scroll-into-view",
                 format!("the element is named by its `id`, a string: {USAGE}"),
@@ -900,7 +904,7 @@ pub(super) fn check_command(
     if name == "stopPropagation" && !args.is_empty() {
         return err(
             "type-stop-propagation",
-            "`stopPropagation()` takes no arguments: it stops the key event that ran this action at this handler, so no ancestor's `key` handler hears it",
+            "`stopPropagation()` takes no arguments: it stops the event that ran this action (a key, focus, the pointer's down or up, a wheel) at this handler, so no ancestor's handler hears it",
             span,
         );
     }
@@ -925,7 +929,7 @@ pub(super) fn check_command(
         const USAGE: &str = "`scrollBy(\"element-id\", x, y)`, pixels to move by";
         let ok = match args {
             [id, x, y] => {
-                infer(id, scope, shapes)? == Ty::String
+                infer(id, scope, shapes)?.is_string()
                     && infer(x, scope, shapes)? == Ty::Number
                     && infer(y, scope, shapes)? == Ty::Number
             }
@@ -990,7 +994,7 @@ pub(super) fn check_command(
                 span,
             );
         };
-        if !matches!(infer(text, scope, shapes)?, Ty::String) {
+        if !infer(text, scope, shapes)?.is_string() {
             return err(
                 "type-post-message",
                 format!("the message is a string: {USAGE}"),
@@ -1130,7 +1134,7 @@ pub(super) fn check_view(nodes: &[Node], scope: &Scope, shapes: &Shapes, sink: &
                 let mut inner = scope.clone();
                 inner.push_each(var, index.as_deref(), item);
                 match infer(key, &inner, shapes) {
-                    Ok(Ty::String | Ty::Number | Ty::Bool) => {}
+                    Ok(Ty::String | Ty::Enum(_) | Ty::Number | Ty::Bool) => {}
                     Ok(kt) => sink.push(TypeError {
                         id: "type-each-key",
                         message: format!("a key must be a string, number, or bool, not `{kt}`"),
@@ -1262,7 +1266,7 @@ fn glass_group_value(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, Typ
         Expr::Ternary(..) | Expr::Match { .. } => {
             let (ta, tb) = arms(e, scope, shapes, glass_group_value)?;
             let either = |a: &Ty, b: &Ty| {
-                matches!((a, b), (Ty::Number, Ty::String) | (Ty::String, Ty::Number))
+                (a == &Ty::Number && b.is_string()) || (a.is_string() && b == &Ty::Number)
             };
             match ta.unify(&tb) {
                 Some(t) => Ok(t),
@@ -1314,7 +1318,7 @@ fn style_value(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError
         return infer(e, scope, shapes);
     }
     let (ta, tb) = arms(e, scope, shapes, style_value)?;
-    let dimension = |t: &Ty| matches!(t, Ty::Number | Ty::String);
+    let dimension = |t: &Ty| t == &Ty::Number || t.is_string();
     match ta.unify(&tb) {
         Some(t) => Ok(t),
         None if dimension(&ta) && dimension(&tb) => Ok(Ty::Unknown),

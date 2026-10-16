@@ -22,7 +22,7 @@ impl<D: DataSource> Runner<D> {
                     | DataError::BadArguments(why)
                     | DataError::UnknownSource(why)
                     | DataError::Interface(why)
-                    | DataError::Failed(_, why),
+                    | DataError::Failed(_, why, _),
             }) => self
                 .surface_refusals
                 .insert(name.to_owned(), format!("{resource}: {why}")),

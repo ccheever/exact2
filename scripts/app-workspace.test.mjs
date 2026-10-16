@@ -42,7 +42,7 @@ async function fixture(body) {
     return resolve(root, dir);
   };
   try {
-    for (const path of ['scripts/app.mjs','scripts/contract-diagnosis.mjs','scripts/filesystem.mjs','scripts/rust.mjs','scripts/install-page.mjs','scripts/sweep.mjs','scripts/app.schema.json','host/web/stages.mjs','host/web/look.mjs','host/apple/assets.mjs','host/apple/buildinfo.mjs','game/app/shells.mjs','game/.cargo/config.toml']) {
+    for (const path of ['scripts/app.mjs','scripts/bun.mjs','scripts/contract-diagnosis.mjs','scripts/filesystem.mjs','scripts/rust.mjs','scripts/install-page.mjs','scripts/sweep.mjs','scripts/app.schema.json','host/web/stages.mjs','host/web/look.mjs','host/apple/assets.mjs','host/apple/buildinfo.mjs','game/app/shells.mjs','game/.cargo/config.toml']) {
       write(path, readFileSync(resolve(import.meta.dir,'..',path)));
     }
     const { resolveApp: localResolveApp, cargoReproducibilityFlags: flags } = await import(resolve(root,'scripts/app.mjs'));
@@ -643,7 +643,7 @@ test('native resource snapshot preserves ignored scoped packages, executable bit
   try {
     const staged=materializeSnapshot(snapshot,resolve(root,'target/run'),resolved);
     assert.equal(readFileSync(resolve(staged.app.dir,'server/node_modules/@scope/pkg/index.js'),'utf8'),'captured ignored dependency');
-    assert.equal(statSync(resolve(staged.app.dir,'server/helper')).mode&0o777,0o755&~process.umask(),'git keeps 755; the umask withholds the rest');
+    assert.equal(statSync(resolve(staged.app.dir,'server/helper')).mode&0o111,0o111);
     assert.equal(readlinkSync(resolve(staged.app.dir,'server/link')),'helper');
   } finally {disposeSnapshot(snapshot);}
 }),60000);

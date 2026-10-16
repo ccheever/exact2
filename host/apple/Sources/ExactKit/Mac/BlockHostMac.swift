@@ -18,9 +18,26 @@ import CExact
 /// (a divider, a window) gave it another size.
 final class BlockView: NSView {
     var sizeChanged: ((CGSize) -> Void)?
+    /// The moves of a free pointer over a window of the session's own (a
+    /// popover's, a sheet's), as the page's viewport reports its window's
+    /// (PageScrollView.swift): an authored ancestor out in the page hears
+    /// them, though no tracking area of its own is in this window.
+    var pointerTracking: ((NSEvent) -> Void)? { didSet { updateTrackingAreas() } }
+    private var pointerArea: NSTrackingArea?
     override var isFlipped: Bool { true }
     override init(frame: NSRect) { super.init(frame: frame); clipsToBounds = true }
     required init?(coder: NSCoder) { nil }
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        guard pointerTracking != nil, pointerArea == nil else { return }
+        // In the active app, not only the key window: a popover need not be
+        // key, and it stands in front of the page that is.
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeInActiveApp, .inVisibleRect], owner: self, userInfo: nil)
+        addTrackingArea(area); pointerArea = area
+    }
+    override func mouseEntered(with event: NSEvent) { pointerTracking?(event) }
+    override func mouseMoved(with event: NSEvent) { pointerTracking?(event) }
+    override func mouseExited(with event: NSEvent) { pointerTracking?(event) }
     override func setFrameSize(_ newSize: NSSize) {
         let old = frame.size
         super.setFrameSize(newSize)

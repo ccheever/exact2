@@ -394,7 +394,7 @@ impl<D: DataSource> Presenter<D> {
             || self.arrange_edge().is_some()
             || self.group_needs_frame()
     }
-    fn arrange_edge(&self) -> Option<(ViewId, f32)> {
+    pub(super) fn arrange_edge(&self) -> Option<(ViewId, f32)> {
         let s = self.arrange.as_ref()?;
         if !self.arrange_live(s.token) {
             return None;
@@ -424,6 +424,7 @@ impl<D: DataSource> Presenter<D> {
             return;
         };
         let s = self.arrange.as_ref().unwrap();
+        let owner = s.token;
         let dt = ((now - s.edge_clock) / 1000.).clamp(0., 0.05) as f32;
         let max = self.collection_scroll_limits()[&id];
         let old = self.scroll_of(id).1;
@@ -433,6 +434,7 @@ impl<D: DataSource> Presenter<D> {
             return;
         }
         self.scroll.entry(id).or_default().1 = next;
+        self.scroll_end_moved(id, Completion::Edge(owner));
         self.publish_scroll();
         self.collection_scrolled_by_arrange(id);
         if let Some(point) = self.contact_position() {
@@ -440,6 +442,18 @@ impl<D: DataSource> Presenter<D> {
                 self.host.log(e);
             }
         }
+    }
+
+    pub(super) fn scroll_edge_owned(&self, token: ReorderToken) -> bool {
+        self.arrange.as_ref().is_some_and(|s| s.token == token)
+            || self.group.as_ref().is_some_and(|s| s.token == token)
+    }
+
+    pub(super) fn scroll_edge_active(&self, view: ViewId, token: ReorderToken) -> bool {
+        (self.arrange.as_ref().is_some_and(|s| s.token == token)
+            && self.arrange_edge().is_some_and(|e| e.0 == view))
+            || (self.group.as_ref().is_some_and(|s| s.token == token)
+                && self.group_edge().is_some_and(|e| e.0 == view))
     }
 }
 

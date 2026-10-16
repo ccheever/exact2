@@ -208,8 +208,13 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var accessibilityHiddenWritten = false
     package var inert: Bool { inert(forAccessibility: false) }
     var accessibilityInert: Bool { inert(forAccessibility: true) }
-    private func inert(forAccessibility: Bool) -> Bool {
-        if forAccessibility ? presenter?.dialogs.accessibilityBlocks(self) == true : presenter?.dialogs.blocks(self) == true { return true }
+    /// Inert by an `inert` attribute or a route behind a presentation, not by
+    /// an open modal dialog: an event bubbling out of the dialog still reaches
+    /// it, as HTML's inertness keeps a node from being a target, not its
+    /// listeners from the bubbling.
+    var authoredInert: Bool { inert(forAccessibility: false, blocked: false) }
+    private func inert(forAccessibility: Bool, blocked: Bool = true) -> Bool {
+        if blocked, forAccessibility ? presenter?.dialogs.accessibilityBlocks(self) == true : presenter?.dialogs.blocks(self) == true { return true }
         var ancestor: NSView? = self
         while let view = ancestor {
             if let node = view as? NodeView, node.routeInert || node.props["inert"] == "true" { return true }
@@ -791,6 +796,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// the colours assigned outside a draw are re-applied. @ref LLP 1034 D2
     package override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
+        presenter?.tables.appearanceChanged(self)
         if let regions = presenter?.session?.regions, regions.owns(self) { regions.geometryChanged() }
         // An `svg`'s paints are resolved again; paint motion hears the appearance (LLP 1062 D4).
         presenter?.svg.reappear(id, dark: drawsDark, clock: presenter?.session?.clock, tint: viewTint); presenter?.session?.noteAppearance(self)
@@ -1477,7 +1483,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         pointerPressed(event)
         let canvas = canvasInput?.pointer(event, phase: "down") == true
         if inlineContextMenu(event) || dispatchContextMenu(at: convert(event.locationInWindow, from: nil), sample: pointerSample(event)) { return }
-        if !canvas { super.rightMouseDown(with: event) }
+        if !canvas, !bubbleContextMenu(event) { super.rightMouseDown(with: event) }
     }
     package override func scrollWheel(with event: NSEvent) {
         // A canvas that wants input scrolls itself; the nodes' `wheel` is

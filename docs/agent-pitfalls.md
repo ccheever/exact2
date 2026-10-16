@@ -387,9 +387,10 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   `lower-alertdialog: … a `column` row is not text, an action or the cancel`.
   Cause: an `alertdialog` popover or `dialog` is a native confirmation (LLP
   1021, LLP 1115 D6: iOS's alert or sheet, macOS's menu), whose rows can only be text, buttons that
-  close it, and one cancel. Fix: a modal you lay out yourself is a sheet, a route
+  close it, one cancel, and, in the alert's shape, text fields (a rename prompt's `input`).
+  Fix: a modal you lay out yourself is a sheet, a route
   with `navigationPresentation="modal"` (recipes/navigation-stack.md); keep
-  `alertdialog` for a flat list of text and buttons. (x2apps onboarding's Delete
+  `alertdialog` for a flat list of text, fields and buttons. (x2apps onboarding's Delete
   account?, 2026-10-04.)
 - **`tabIndex` on a module tag is refused.** `` `paint-surface` has no attribute
   `tabIndex`; `tabIndex` is spelled `tabindex` here ``. Cause: HTML's
@@ -640,9 +641,11 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   children, naming them with `swipeContent`, `swipeLeading` and `swipeTrailing` ids,
   which the web scrolls and iOS turns into UIKit's own swipe actions: UIKit's shape
   and size (round on iOS 26 and later) with each button's background colour and a
-  snapshot of its content, never the painted box (euxy port's flush rectangles,
-  2026-10-15); a snap row without the three attributes keeps its paint and loses the
-  full swipe and the actions VoiceOver reads. Fix: copy
+  snapshot of its content, not the painted box (euxy port's flush rectangles,
+  2026-10-15). To keep the paint, give every control the row names
+  `appearance="none"`: the row keeps its snap scroll and still has the full swipe,
+  one row open at a time and the actions VoiceOver reads; dropping the three
+  attributes instead keeps the paint and loses all three. Fix: copy
   `apps/shelf/app.contract`'s `BookRow` (`swipe-…`; `apps/messages` paints its own
   circles in hex and is no model for the rest). (Ledger2 DIARY, "Needed:
   swipe gesture", about 15 minutes, 2026-10-04.) iOS refuses a row whose content is
@@ -707,11 +710,6 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   flight. Fix: await the write before answering, or carry it in a
   request of its own that the view sends (a `flush` source called with the change).
   (Authoring bench, LLP 1087, t2-todo on iOS: about 20 minutes, 2026-10-05.)
-- **`showPicker("x")` names the input's `id`, not its `testId`.** With only
-  `testId="x"` the press opens no picker, and a drive's `type @x photo.jpg`
-  answers `no held device request … (held: none)`. Fix: give the
-  `input type="file"` both, `id="x" testId="x"`. (Interview's profile photo,
-  LLP 1108, 2026-10-08.)
 
 ## Driving and testing
 
@@ -816,24 +814,24 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   To drive what a user sees on macOS, build with `bun exact.mjs mac --bundle` and set
   `EXACT_MAC_BIN` to the `.app`'s `Contents/MacOS/<Name>`; the driver then skips its
   stale-build check, so rebuild the bundle before each drive. An app's own page
-  (`src="assets/…"`) is a document at `http://exact.localhost`, which no server
-  answers: an absolute `http:` sub-resource on loopback loads, one on a named host
-  follows the same ATS setting, and a relative one does not load (the next entry).
-  A sub-resource that fails is logged (`exact: iframe assets/…: <url> did not load
-  (<reason>)`) (#135).
+  (`src="assets/…"`) is served at `exact-app://app/assets/…` (the next entry): an
+  absolute `http:` sub-resource on loopback loads, and one on a named host follows
+  the same ATS setting. A sub-resource that fails is logged (`exact: iframe
+  assets/…: <url> did not load (<reason>)`, or `… is not an app asset under assets/
+  or deck/`) (#135).
   (Issue #106, 2026-10-06.)
 
-- **A multi-file web page in `assets/` runs on the web and not on Apple.** An
-  `iframe src="assets/editor/index.html"` whose page loads `./app.js`, a stylesheet,
-  fonts or lazy chunks works on the web, where the build copies `assets/` beside the
-  app's page, and is blank or unstyled on macOS and iOS. Cause: the Apple host reads
-  the one HTML file and gives it to WebKit as a document at
-  `http://exact.localhost/frame/<id>/index.html`; nothing serves that origin, so
-  every relative URL in it fails (`localBytes` in `host/apple/webarm/WebArm.swift`).
-  Fix: build the page as one self-contained HTML file (scripts, styles and fonts
-  inlined, no lazy chunks), or serve it from a local server and set `src` to its
-  `http://127.0.0.1:<port>/` URL (the next entry says what that server sees). LLP
-  1020.001 proposes serving the tree. (Exact Draw, 2026-10-15.)
+- **A bundled web page that works on the web can break on Apple if it reaches its
+  parent, sets cookies or registers a service worker.** An `iframe` of an HTML page
+  under `assets/` or `deck/` (a built web app: scripts, styles, fonts, chunks,
+  workers, wasm) loads with its files on the web, macOS and iOS. On the web it is same-origin
+  with the app's page; on Apple it is `exact-app://app/<path>`, a secure context
+  with no app page above it, where WebKit refuses `navigator.serviceWorker.register`
+  and drops `document.cookie`. Fix: talk to the app by `postMessage` only, keep
+  saved data in `localStorage`, IndexedDB or OPFS (kept across launches on all
+  three), and treat a service worker as optional. Untrusted content belongs at its
+  own URL, or under a `sandbox` without `allow-same-origin`. (LLP 1020.001 D5;
+  Exact Draw, 2026-10-15.)
 
 - **A local server behind an `iframe` is loaded from the frame's parent, not the
   app.** On macOS an `iframe` of an `http(s)` URL with no `sandbox` is the web view's
@@ -970,11 +968,21 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
 
 - **A storage test fails with `storage is busy`, or storage is "unavailable in
   agent mode".** Cause: a drive has no storage unless it names a scratch store, and
-  an open SQLite database locks its file, so a mutation and the refresh it triggers
-  collide. Fix: `--storage <name>` on an `agent` drive (authored tests get a
-  store of their own), and queue every `storage.sqlite.open` in `app.ts`
+  an open SQLite database locks its file until close. Competing opens now wait
+  up to 10 seconds; a timeout means another handle or tab still owns it.
+  Fix: `--storage <name>` on an `agent` drive (authored tests get a
+  store of their own), and close each handle in `finally` or reuse it through
+  `Snapback.switcher`. Queue short-lived `storage.sqlite.open` calls in `app.ts`
   ([the human guide](contract-for-humans.md#writing-the-data-module) shows one).
   (LLP 1086 reading-list example, 2026-10-04.)
+
+- **A browser proof reopens an old password session after rebuilding the backend.**
+  `agent web --storage <name>` now resets its scratch profile on each CLI run.
+  `--keep-storage` deliberately preserves it; `--reset-storage` explicitly
+  starts empty. Use `fresh` only with `snapback4 dev`; against `serve`, provision
+  uniquely keyed fixtures or log in to a provisioned account. Backend rows
+  survive browser resets. `E_AUTH` from the server forgets the current managed
+  session. (Wave 9, lanes 015/060, 2026-10-12.)
 
 - **An agent drive shows the app's defaults (a mock, an empty store) though
   the app's files are there.** Cause: without `--storage <name>` every
@@ -1192,6 +1200,16 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   platform's background, border and corners. `background-clip` and
   `background-attachment` alone keep the field native. (LLP 1104 r8 D2.)
 
+## Games
+
+- **Older saves refuse to restore after adding a generated model.** `restore` names it:
+  ``asset `…` identity is missing``. Cause: a model registered with `w.generated_model`
+  at setup is part of every later save's identity (`game/engine/README.md`, "Saves and
+  assets"), even one that only changes how a unit looks. Fix: a model that is only
+  appearance belongs in the bake, under `art/` (`Game::STREAMED` if setup need not wait
+  for it): a delivered model carries no save identity. (Skirmish's art trials, LLP
+  1046.012 F5, 2026-10-07.)
+
 ## Access hatches
 
 - **A view a hatch adds on macOS hears no click while its window is not key.**
@@ -1260,3 +1278,11 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   Horizontal percentages use root width. The native sampler matches the
   measured browser behavior, which differs from the W3C draft's all-width
   rule (LLP 1001). Use `px` when the overscan is an absolute distance.
+
+- **Changing accounts can leave a resource's last rows visible after a refused read.**
+  Resources keep their previous value on failure. Gate account views while the
+  account is pending or failed, and render rows only when their answer's principal
+  matches the current principal. Throw `refused(page.denied)` on a query denial.
+  The complete online password example in `snapback4/README.md` demonstrates this
+  alongside reload, logout and sign-in tests; an empty successful list would hide
+  an authentication failure.

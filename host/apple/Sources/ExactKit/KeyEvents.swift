@@ -95,14 +95,26 @@ extension Presenter {
     func keyUp(at target: NodeView?, _ name: String, held: String = "", code: String = "") -> Bool {
         keyEvent("keyup", at: target, KeyPress(held + name, code: code, up: true))
     }
-    /// What an event (a key, a clipboard edit) bubbles to from `view`: its
-    /// authored parent. A subtree a container shows in a view of its own
-    /// bubbles to the node it is declared under: on the Mac a block's root to
-    /// its authored parent (BlockHostMac.swift), on iOS a route to its tab
-    /// panel or the routes' owner (LLP 1123 D2).
+    /// One bubbling dispatch (the pointer's down or up, a wheel): a handler
+    /// it runs that calls `stopPropagation()` sets `propagationStopped` for
+    /// this dispatch alone, as the DOM's stop ends one event's propagation.
+    func propagating(_ walk: () -> Void) {
+        let enclosing = propagationStopped
+        defer { propagationStopped = enclosing }
+        propagationStopped = false
+        walk()
+    }
+    /// What an event (a key, a clipboard edit, a pointer's) bubbles to from
+    /// `view`: its authored parent. A subtree shown in a view of its own
+    /// bubbles to the node it is declared under, as DOM's events bubble out
+    /// of the top layer: on the Mac an open popover or a presented dialog,
+    /// painted over the page or in a window of its own, and a block's root
+    /// (BlockHostMac.swift); on iOS a route to its tab panel or the routes'
+    /// owner (LLP 1123 D2). Never the page under a popover or a dialog that
+    /// is not its ancestor.
     func eventParent(of view: KeyPlatformView) -> KeyPlatformView? {
         #if os(macOS)
-        if let node = view as? NodeView { return blocks.parent(of: node) }
+        if let node = view as? NodeView { return menus.authoredParent(of: node) ?? dialogs.authoredParent(of: node) ?? blocks.parent(of: node) }
         #else
         if let node = view as? NodeView, navigation.controllers[node.id]?.node === node,
            let parent = navigation.logicalParent(of: node) ?? navigation.container {
@@ -131,16 +143,18 @@ extension Presenter {
         var next: KeyPlatformView? = target
         while let view = next {
             // An event out of a presentation still reaches the document's
-            // ancestors, which only an authored `inert` silences
-            #if os(iOS) || os(tvOS)
+            // ancestors, which only an authored `inert` silences.
             let silenced = (view as? NodeView)?.authoredInert == true
-            #else
-            let silenced = (view as? NodeView)?.inert == true
-            #endif
             if let node = view as? NodeView, views[node.id] === node, !node.formDisabled, !silenced {
                 path.append((node.id, node.handlers))
             }
+            #if os(iOS) || os(tvOS)
+            // Keys leave the sheet; eventParent's inertness walks stay inside it.
+            if let node = view as? NodeView, let parent = menus.sheets.authoredParent(of: node) { next = parent }
+            else { next = menus.logicalParent(of: view) ?? eventParent(of: view) }
+            #else
             next = eventParent(of: view)
+            #endif
         }
         var prevented = false
         func deliver(_ node: (id: UInt32, handlers: Set<String>), _ press: KeyPress) -> Bool {

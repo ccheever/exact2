@@ -20,12 +20,16 @@ const name = (spec) => spec.split(' ')[0];
 const takesValue = (spec) => spec.includes(' ');
 
 // The drive flags `scripts/agent-launch.mjs` `parseFlags` takes, shared by `agent` and `test`
-// (`runTests` reads all but those `test` lists as internal).
+// (`runTests` reads all but those `test` lists as internal). A default said as exact.mjs's is the app
+// launcher's (app-cli.mjs): scripts/agent.mjs run alone paints the bars and keeps the device's pixels,
+// which the repository's smokes and pixel fixtures are written against.
 const DRIVE = [
-  ['--storage <name>', 'a scratch store, kept between drives by name'],
+  ['--port <n>', 'web: the page’s port (or EXACT_PORT); backend origins remain those app.ts grants'],
+  ['--storage <name>', 'a scratch store; Chrome starts empty each drive'],
+  ['--keep-storage · --reset-storage', 'Chrome: reopen a named store · explicitly empty it'],
   ['--size <w>x<h>', 'the viewport (default 420x900; a simulator\'s own)'],
-  ['--scale <n>', 'shrink screenshots to n pixels per point; 1 captures points'],
-  ['--chrome platform', 'Apple: UIKit\'s bars, the Mac\'s sidebar (default: painted)'],
+  ['--scale <n>', 'screenshots at n pixels per point (exact.mjs agent on ios, macos: 1; an iPhone\'s own: 3)'],
+  ['--chrome platform|agent', 'UIKit\'s bars (exact.mjs on iOS); agent paints the header'],
   ['--timing platform', 'Apple: UIKit\'s transitions keep their own timing (default: frozen)'],
   ['--touch platform', 'iOS simulator: every tap a real touch, through the XCTest runner'],
   ['--epoch <ISO|ms|now>', 'the date at the clock\'s zero (default 2026-01-01)'],
@@ -33,7 +37,7 @@ const DRIVE = [
   ['--fail-fetch <prefix>', 'each fetch whose URL starts with it fails, from the first data load'],
   ['--url <url>', 'web: drive a page already served (the dev loop\'s) instead of building'],
   ['--browser chrome|firefox|webkit', 'web (default chrome; bunx playwright@1.63.0 install firefox webkit)'],
-  ['--sim <udid|name>', 'iOS: which simulator (default: a booted iPhone)'],
+  ['--sim <udid|name>', 'iOS: which simulator (default: a booted one)'],
   ['--device · --phone <udid|name> · --reader', 'a connected iPhone (built with ios --device), and which · Android: the app on the Canvas reader (its APK)'],
   ['--plan <file>', 'a compiled plan (contract build -o) in place of the app\'s'],
   ['--world <file> · --open <file>', 'a game: a saved world to load · macOS: a document on its command line'],
@@ -47,13 +51,29 @@ const DRIVE_INTERNAL = ['--app <name>', '--session <label>'];
 const NATIVE_PORTS = 'iOS simulator: a Unix socket; --device: a free TCP port; macOS, Linux, Android: stdio.';
 
 // host/apple/build.mjs's flags, which `ios` and `mac` both run: each documents its own, and takes the rest.
-const APPLE = ['--ios', '--tvos', '--device', '--run', '--no-install', '--prebuild', '--host', '--embed', '--bundle', '--distribution', '--unsigned', '--test',
+const APPLE = ['--ios', '--tvos', '--device', '--run', '--no-install', '--prebuild', '--release', '--host', '--embed', '--bundle', '--distribution', '--unsigned', '--test',
   '--archive <out.ipa>', '--sim <udid|name>', '--phone <udid|name>', '--url <url>', '--optimize <speed|size>', '--link <plan>'];
 const appleRest = (documented) => APPLE.filter((spec) => !documented.some(([row]) => specs(row).some((d) => name(d) === name(spec))));
 const OPTIMIZE = ['--optimize speed|size', 'the Rust archive\'s (default speed, or app.json host.ios|macos.optimize)'];
 const PREBUILD = ['--prebuild', 'start the build apart from this shell and return; its log: .exact/<ios|macos>-build.log'];
+const RELEASE = ['--release', 'the build that ships, as EXACT_UPDATE_TRUST=production (set, agent drives it); a first is minutes: --prebuild --release early'];
 
 export const HELP = {
+  backend: {
+    line: 'run the Snapback backend',
+    usage: 'bun exact.mjs backend [dev|serve <release>] [flags]',
+    flags: [],
+    body: 'Runs the backend package installed above the app, on app.ts’s loopback origin. Use snapback --port <n> to move it.',
+  },
+  snapback: {
+    line: 'wire Snapback',
+    usage: 'bun exact.mjs snapback [--port <n>] [--rebuild]',
+    flags: [['--port <n>', 'add or move a loopback backend origin, matching grants and test fetch prefixes'],
+      ['--online', 'use the server without a local device'],
+      ['--artifact-only', 'with --rebuild: repair the device without changing wiring'],
+      ['--rebuild', 'rebuild a missing or stale device after updating Snapback4']],
+    body: 'Mounts the driver and generated operations, builds assets/snapback4.wasm, and names the server to start.',
+  },
   web: {
     line: 'the web dev loop: serves the app, rebuilds and reloads the page on every save (foreground)',
     usage: 'bun exact.mjs web [--port <n>] [--lan] [--allow-host <name>]… [--wasm]',
@@ -102,16 +122,15 @@ Ports    none. Runs to completion: exit 0 when it built. test web and agent web 
 older than its sources, saying so on stderr. Each test launches the app fresh with its own
 store, after its first data has landed; its leading lines (size, epoch, fail fetch …)
 override flags.
-Server   an app with its own (server.ts, the rest pattern's): test runs it where app.ts calls it,
-         on an empty database (DB=.exact/test/db.sqlite), then stops it, as verify does; one
-         already answering there (a dev server) is refused, named, never written to; so is a
-         server entry that does not read DB (process.env.DB), with the fix.
+Server   runs server.ts at app.ts’s origin on DB=.exact/test/db.sqlite, then stops it.
+         Refuses a server already answering there or an entry that does not read process.env.DB.
 Runs     to completion, exit 1 when a test fails; nothing is left running.
+Backend  start snapback4 dev on app.ts’s origin’s port; checked before launch. EXACT_PORT is the page’s.
 Lines    tap, type, expect text|tree|state|disabled, clock data|settle|+<ms>, reload, back, fail|pass
          fetch, request <METHOD> "/path" [json] [as <persona>] [expect <status>]: docs/recipes/tests.md;
          all: docs/contract-grammar.md "Authored tests".`,
     bodyAll: `A phone's build is ios --device's.
-Ports    none to choose. web: headless Chrome over a pipe; the page on 127.0.0.1, each test at a
+Ports    --port <n> or EXACT_PORT chooses the page’s port; otherwise web: headless Chrome over a pipe; the page on 127.0.0.1, each test at a
          port fixed by its own store's name (20000-47999).
          ${NATIVE_PORTS}`,
     example: 'bun exact.mjs test ios tests/*.test.contract --size 390x844',
@@ -125,9 +144,9 @@ Ports    none to choose. web: headless Chrome over a pipe; the page on 127.0.0.1
     flags: DRIVE.filter(naming(DRIVE_FIRST, true)),
     more: DRIVE.filter(naming(DRIVE_FIRST, false)),
     internal: ['--test <file>', ...DRIVE_INTERNAL],
-    body: `Launches the app anew each drive (building first if stale, said on stderr), runs each op (one
-quoted argument each) on the agent's clock, prints its reply. Without --storage, storage is
-refused. An app's server.ts runs for the drive, its database kept per --storage. Runs to completion.
+    body: `Builds if stale, launches, runs each quoted op on the agent's clock, prints replies and closes.
+Without --storage, storage is refused. Chrome starts a named store empty; --keep-storage reopens it.
+An app's server.ts runs for the drive, its database kept per --storage.
 Ops      a target is a testId, else a view's exact text or label
   tree [<target>] · tree --ax · logs · layout [<target>]
   state [<name>]  a view's testId, else a state or resource, dotted: groceries.0.done
@@ -137,9 +156,7 @@ Ops      a target is a testId, else a view's exact text or label
   check [dark|both] · screenshot <file.png> [window]  what is wrong, in text, before a picture · window: bars
   prefer <feature> <value> · perf [<target>] · resize <w>x<h> · close · back · fail|pass fetch <prefix>`,
     bodyAll: `Trace    trace <file> reads a saved trace. Op forms: docs/contract-for-agents.md, "Inspection and testing".
-Ports    none to choose. web: headless Chrome over a pipe; the page on 127.0.0.1 at a free port, or
-         with --storage one fixed by app and store (20000-47999; "in use": another drive has it).
-         ${NATIVE_PORTS}`,
+Ports    web: --port/EXACT_PORT, else a named store’s port (20000-47999), else free. ${NATIVE_PORTS}`,
     example: 'bun exact.mjs agent web --storage s1 "clock data" tree "tap add" "screenshot .exact/a.png"',
   },
   verify: {
@@ -175,11 +192,12 @@ Ports    none to choose: test's and agent's (headless Chrome over a pipe; a simu
   },
   ios: {
     line: 'build for an iOS simulator and install it (--run launches it)',
-    usage: 'bun exact.mjs ios [--run|--prebuild] [--sim <udid|name>] [--device [--phone <udid|name>]] [--url <url>]',
+    usage: 'bun exact.mjs ios [--run|--prebuild] [--release] [--sim <udid|name>] [--device [--phone <udid|name>]] [--url <url>]',
     common: ['ios [--run] [--sim <name>]    build for a simulator; --run launches it'],
     flags: [
       ['--run', 'also launch it (in Simulator.app, or on the phone); returns once launched'],
       PREBUILD,
+      RELEASE,
       ['--sim <udid|name>', 'which simulator (else EXACT_SIM, a booted iPhone, or the newest Pro)'],
       ['--device', 'a connected iPhone, signed with a development profile on this Mac'],
       ['--phone <udid|name>', 'which phone, with --device'],
@@ -190,20 +208,22 @@ Ports    none to choose: test's and agent's (headless Chrome over a pipe; a simu
       OPTIMIZE,
     ],
     get internal() { return appleRest(this.flags); },
-    body: `The first build takes minutes, later ones a minute or two; several booted simulators are
-refused, not guessed (set EXACT_SIM). test ios and agent ios run it first themselves when
-the build is missing or older than its sources; an edit to only app.contract or what app.ts
-imports runs its new plan on the existing build instead, in about a second.
+    body: `The first build takes minutes, later ones a minute or two. Of several booted simulators it
+takes the one the app is installed on, else refuses to guess (--sim or EXACT_SIM). test ios
+and agent ios run it first themselves when the build is missing or older than its sources;
+an edit to only app.contract or what app.ts imports runs its new plan on the existing build
+instead, in about a second.
 Ports    none. Runs to completion (--run too); --prebuild returns at once, the build going on
          apart from this shell (its pid printed; test and agent wait for it).`,
     example: 'bun exact.mjs ios --run',
   },
   mac: {
     line: 'build the macOS app (--run launches it here)',
-    usage: 'bun exact.mjs mac [--run|--prebuild] [--bundle] [--url <url>] [--optimize speed|size]',
+    usage: 'bun exact.mjs mac [--run|--prebuild] [--release] [--bundle] [--url <url>] [--optimize speed|size]',
     flags: [
       ['--run', 'assemble the .app and launch it when built, in the foreground (its log here) until it quits'],
       PREBUILD,
+      RELEASE,
       ['--bundle', 'also assemble the .app bundle (--run does)'],
       ['--url <url>', 'with --run or --bundle: connect it to that dev server (web\'s URL) for live reload'],
       OPTIMIZE,
@@ -339,6 +359,13 @@ Ports    none; send makes one HTTPS request. Runs to completion.`,
     body: 'Ports    none. Runs to completion: exit 1 when a test or lint fails.',
     example: 'bun exact.mjs test-rust',
   },
+  shells: {
+    line: 'write .shells/ without a build',
+    usage: 'bun exact.mjs shells',
+    flags: [],
+    body: 'For Cargo commands in render/ or another crate that names ../.shells.\nPorts    none. Runs to completion.',
+    example: 'bun exact.mjs shells',
+  },
   lock: {
     line: 'fetch (the network), resolve Cargo.lock again and print what changed',
     usage: 'bun exact.mjs lock',
@@ -349,8 +376,8 @@ Ports    none; send makes one HTTPS request. Runs to completion.`,
   },
   windows: {
     line: 'build the standalone Windows game into dist-windows/ (on Windows)',
-    usage: 'bun exact.mjs windows [--run] [--release]',
-    flags: [['--run', 'launch it when built'], ['--release', 'the release profile (default gpu-dev)']],
+    usage: 'bun exact.mjs windows [--run] [--release] [--out <dir>]',
+    flags: [['--run', 'launch it when built'], ['--release', 'the release profile (default gpu-dev)'], ['--out <dir>', 'package into <dir> instead of dist-windows/, e.g. beside a copy still running']],
     body: 'Needs Windows and the MSVC Rust target.\nPorts    none. Runs to completion; with --run, until the game quits.',
     example: 'bun exact.mjs windows --run',
   },
@@ -374,6 +401,9 @@ Ports    none; send makes one HTTPS request. Runs to completion.`,
     line: 'a new app outside this repo, using this checkout',
     usage: 'bun <exact2>/scripts/exact.mjs new <path> [--game [--assets]]',
     flags: [
+      ['--online', 'use the server without a local device'],
+      ['--snapback', 'write a guestbook wired to the Snapback backend above the app'],
+      ['--port <n>', 'the Snapback origin’s port with --snapback (default 4400)'],
       ['--game', 'a game (game/README.md): a Rust world under Contract\'s menus'],
       ['--assets', 'with --game: declare game.assets'],
       ['--update', 'rewrite an existing app\'s generated files (its exact.mjs update runs this)'],
@@ -409,11 +439,10 @@ export function indexText({ verbs = Object.keys(HELP).filter((v) => v !== 'new')
   const forms = verbs.flatMap((verb) => HELP[verb]?.common ?? []);
   return [
     'bun exact.mjs <verb> [arguments]    from the app\'s directory (EXACT2=<path> picks another exact2)',
-    '',
     ...names.map((verb) => `  ${verb.padEnd(width)}  ${line(verb)}`),
-    ...(forms.length ? ['', 'The forms a build uses:', ...forms.map((form) => `  ${form}`)] : []),
+    ...(forms.length ? ['The forms a build uses:', ...forms.map((form) => `  ${form}`)] : []),
     '',
-    'bun exact.mjs <verb> --help: what each flag does, whether it stays in the foreground, an example;',
+    'bun exact.mjs <verb> --help: flags and an example;',
     'bun exact.mjs <verb> --help all: every other flag and the ports it opens. Read it only for a flag not above.',
   ].join('\n');
 }

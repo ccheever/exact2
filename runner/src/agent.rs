@@ -733,6 +733,8 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     );
     s.push_str(",\"displayMode\":");
     quote(media.display_mode.keyword(), &mut s);
+    s.push_str(",\"navigationType\":");
+    quote(page.navigation_type(), &mut s);
     s.push('}');
     // The driver's fetch faults (LLP 1103 D3), when any are armed or spent.
     if !runner.faults().is_empty() {
@@ -857,6 +859,24 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
             );
         }
         s.push('}');
+    }
+    s.push(']');
+    // The documents the answers watch (LLP 1069.010.000 D1), whether or not
+    // the host can listen for them.
+    s.push_str(",\"watches\":[");
+    let watches = runner.watched_topics();
+    let watches = watches.iter().filter_map(|t| {
+        t.strip_prefix("doc-watch-recursive:")
+            .map(|p| (p, true))
+            .or_else(|| t.strip_prefix("doc-watch:").map(|p| (p, false)))
+    });
+    for (i, (path, recursive)) in watches.enumerate() {
+        if i > 0 {
+            s.push(',');
+        }
+        s.push_str("{\"path\":");
+        quote(path, &mut s);
+        let _ = write!(s, ",\"recursive\":{recursive}}}");
     }
     s.push(']');
     // The module's background storage (LLP 1097 D8), where it has any.

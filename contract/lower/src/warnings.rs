@@ -23,6 +23,7 @@ mod counts;
 mod miswiring;
 mod parts;
 mod roles;
+mod rows;
 mod screens;
 mod title;
 mod width;
@@ -109,6 +110,8 @@ pub fn warnings(checked: &Checked<'_>) -> Vec<LowerError> {
     }
     out.extend(screens::screen_by_state(checked));
     out.extend(counts::count_plural(checked));
+    // @ref LLP 1116.016 D4 — a row that searches another data list.
+    out.extend(rows::row_lookup(checked));
     // @ref LLP 1116.011 D2.1 — a RoundButton label of more than a word.
     out.extend(parts::round_button_label(checked));
     performance_now(root, &checked.file.fns, &mut out);

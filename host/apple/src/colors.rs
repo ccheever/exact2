@@ -69,6 +69,19 @@ impl<D: DataSource> Host<D> {
         }
     }
 
+    /// Whether the root font size or the window's modes moved since a batch
+    /// last said them, whatever moved them: the app's `setMode` (which
+    /// reaches no host as a command) and `setRootFontSize` as well as a
+    /// host's. The build channel reports each move (LLP 1122 D4).
+    pub(super) fn facts_moved(&mut self) -> bool {
+        let facts = (self.runner.root_font_size(), self.runner.modes());
+        if self.facts_told.as_ref() == Some(&facts) {
+            return false;
+        }
+        self.facts_told = Some(facts);
+        true
+    }
+
     /// Take the presenter's resolutions; when anything resolves differently,
     /// re-present what the kernel resolved from the old ones.
     pub fn set_colors(&mut self, report: Vec<(ColorValue, bool, Color)>) -> String {

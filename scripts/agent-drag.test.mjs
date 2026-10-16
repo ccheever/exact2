@@ -90,3 +90,20 @@ test('an iOS drag with ops during it needs a held finger', async () => {
   await expect(d.run()).rejects.toThrow('--touch platform');
   expect(d.asked).toEqual([]);
 });
+
+test('drag-to movement depends on layout and fails as a refusal', async () => {
+  for (const [x, options, message] of [
+    [50, { over: 0 }, 'a drag that moves needs over > 0'],
+    [50, { press: 5000, hold: 5000, over: 200 }, 'the gesture lasts past 10000 ms'],
+    [NaN, {}, 'expected finite dx, dy'],
+  ]) {
+    const s = { find: async () => ({ id: 2 }), layout: async () => ({ nodes: [
+      { id: 1, x: 0, y: 0, w: 10, h: 10 }, { id: 2, x, y: 0, w: 10, h: 10 },
+    ] }) };
+    const error = await dragTap({ s, node: { id: 1 } }, { to: 'b', ...options }).catch(e => e);
+    expect(error.message).toContain(message);
+    expect(error.malformed).toBeUndefined();
+  }
+  const error = await dragTap({}, { to: 'b', over: -1 }).catch(e => e);
+  expect(error.malformed).toBe(true);
+});

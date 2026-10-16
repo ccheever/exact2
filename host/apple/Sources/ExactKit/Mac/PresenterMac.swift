@@ -19,9 +19,9 @@ package final class Presenter {
     var autofocusProcessed: Set<ObjectIdentifier> = []
     /// Set the turn after the session's first activation. A booted session's autofocus waits for it.
     var launchAutofocusReleased = false
-    var announcedModal: ObjectIdentifier?, shownMenus: [NodeView] = []
-    /// The page-drawn dialogs announced as they opened that are still up (`syncAccessibility`).
-    var announcedDialogs: [NodeView] = []
+    /// What VoiceOver was told of the modal and the menus, and the menus a row of which held the focus (`tellLanding`).
+    var toldModal: ObjectIdentifier?, shownMenus: [NodeView] = [], landing = VoiceOverLanding()
+    let menusHeldFocus = NSHashTable<NodeView>.weakObjects()
     /// The session this presenter shows (LLP 1031 D1).
     weak package var session: ExactSession?
     /// The document: the roots live here, content-sized like a page.
@@ -144,10 +144,10 @@ package final class Presenter {
     /// its height is `safe-area-inset-top`). @ref LLP 1008 §9
     private(set) var viewportFit: String?
     var onViewportFit: (() -> Void)?
-    /// The safe-area insets the kernel was given: the titlebar under
-    /// `viewport-fit=cover`, zero when the viewport is the content view
-    /// below it. Reported to the agent as `env`.
-    var insets = NSEdgeInsetsZero
+    /// The safe-area insets the kernel was given (the titlebar under `viewport-fit=cover`, zero
+    /// when the viewport is the content view below it) and its layout regions (LLP 1123 D10,
+    /// `nil` for none). Reported to the agent as `env`.
+    var insets = NSEdgeInsetsZero, regions: [CGFloat]?
     /// The posture and the viewport segments last told (LLP 1078 D5): flat, unless an agent preferred otherwise.
     var fold = ViewportFold.flat
 
@@ -589,7 +589,7 @@ package final class Presenter {
     func reset() {
         cancelPageElementScroll(viewport.contentView)
         focusEvents.reset()
-        pointerHeld = nil
+        pointerHeld = nil; pointerPath = []
         pointerSource = nil
         elements.reset()
         resetFlights()
@@ -693,10 +693,10 @@ package final class Presenter {
         guard args.count == 1, let name = args.first as? String,
               let target = views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name }) else { return }
         if !selectText, menus.focus(target) { return }
-        // A search input the window's toolbar hosts has no box in the page
-        // (LLP 1115.002 D2): the caret goes to its field in the bar.
+        // A search input the window's toolbar hosts, or a prompt's input lent to its
+        // alert, has no box in the page (LLP 1115.002 D2): the caret goes to its field.
         if target.pageField != nil {
-            if !target.formDisabled, toolbar.focusSearch(target), selectText { fieldSelections.selectAll(target) }
+            if !target.formDisabled, toolbar.focusSearch(target) || alerts.focus(target), selectText { fieldSelections.selectAll(target) }
             return
         }
         guard let window = target.window, !target.formDisabled,
@@ -748,8 +748,10 @@ package final class Presenter {
     var onDblclick: ((UInt32) -> Void)?
     /// The primary button went down on a node (`true`) or came up (LLP 1005 §3).
     var onPointer: ((UInt32, PointerKind, PointerSample) -> Void)?
-    /// The node the primary button went down on, until it comes up.
+    /// The innermost node hearing a pointer event that the button went down on, until it comes up: it hears the drags.
     var pointerHeld: UInt32?
+    /// The nodes from it up that hear `pointerdown` or `pointerup`, innermost first: each hears the up (LLP 1005 §3).
+    var pointerPath: [UInt32] = []
     /// The last input was a pointer's press, not a key: a focus it, or a
     /// handler it ran, moves shows no ring (`:focus-visible`, `FocusMac.swift`).
     var focusByPointer = false
@@ -801,6 +803,7 @@ package final class Presenter {
         focusEvents.removed(id)
         // A held node that goes has no handler left to hear its up.
         if pointerHeld == id { pointerHeld = nil }
+        pointerPath.removeAll { $0 == id }
         mouseSwipe.retire(id)
         mouseLayoutPan.retire(id)
         mouseDrags.height.retire(id)

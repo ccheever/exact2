@@ -393,7 +393,7 @@ fn encode_result(w: &mut Writer, result: Result<Answer, DataError>) {
                 DataError::Unavailable(s)
                 | DataError::Interface(s)
                 | DataError::DeferredAtBake(s)
-                | DataError::Failed(_, s) => (4, s),
+                | DataError::Failed(_, s, _) => (4, s),
             };
             w.u8(tag);
             w.string(&message);

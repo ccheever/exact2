@@ -559,7 +559,6 @@ impl<D: DataSource> Presenter<D> {
         if selection.start != selection.end {
             self.field_select(id, &value, selection, now_ms);
         }
-        self.drain_field_select_tasks();
     }
 
     /// The reader's field had its action key pressed, or Enter or Tab on a
@@ -613,7 +612,7 @@ impl<D: DataSource> Presenter<D> {
             eprintln!("exact: {e}");
         }
         if let Some(next) = next {
-            self.keep_in_view(next);
+            self.keep_in_view(next, reveal::Cause::FieldNavigation);
         }
         self.queue_collections();
     }

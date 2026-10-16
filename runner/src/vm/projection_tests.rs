@@ -65,6 +65,7 @@ fn row_projections_match_the_machine_values_traps_and_reused_storage() {
             failed_resources: &[],
             failed_why: &[],
             pending_mutations: &[],
+            failed_mutations: &[],
             store_dependent_derives: &[],
             store_dependent_resources: &[],
         };
@@ -236,6 +237,7 @@ fn projected_string_defaults_match_both_branches_and_all_refusals() {
                 failed_resources: &[],
                 failed_why: &[],
                 pending_mutations: &[],
+                failed_mutations: &[],
                 store_dependent_derives: &[],
                 store_dependent_resources: &[],
             };
@@ -459,6 +461,7 @@ fn prepared_conditionals_preserve_branch_laziness_argument_order_and_traps() {
                     failed_resources: &[],
                     failed_why: &[],
                     pending_mutations: &[],
+                    failed_mutations: &[],
                     store_dependent_derives: &[],
                     store_dependent_resources: &[],
                 };

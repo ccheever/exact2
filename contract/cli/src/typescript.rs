@@ -33,7 +33,19 @@ pub fn typescript(plan: &Plan) -> Result<String, String> {
         match row.kind {
             TypeKind::Number => out.push_str("number"),
             TypeKind::Bool => out.push_str("boolean"),
-            TypeKind::String => out.push_str("string"),
+            TypeKind::String => {
+                if row.fields.is_empty() {
+                    out.push_str("string");
+                } else {
+                    out.push_str(
+                        &row.fields
+                            .iter()
+                            .map(|f| quoted(plan.str(plan.field(f).name)))
+                            .collect::<Vec<_>>()
+                            .join(" | "),
+                    );
+                }
+            }
             TypeKind::Unit => out.push_str("null"),
             TypeKind::Option | TypeKind::List => {
                 let elem = row.elem.ok_or_else(|| format!("type {i} has no element"))?;
@@ -84,6 +96,8 @@ pub fn typescript(plan: &Plan) -> Result<String, String> {
         "}\n\n\
          export type Source = keyof SourceMap;\n\
          export type Args<S extends Source> = SourceMap[S]['args'];\n\
+         /** A generated backend operation's arguments (distinct from this app's source tuple). */\n\
+         export type ArgsOf<O> = O extends { readonly __args?: infer A } ? A : never;\n\
          /** A source's answer. A shape has no exported name: name one by its source,\n\
           * `type Recipe = Result<'recipe'>` (a list's element: `Result<'recipes'>[number]`). */\n\
          export type Result<S extends Source> = SourceMap[S]['result'];\n\

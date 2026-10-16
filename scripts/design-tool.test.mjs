@@ -6,7 +6,7 @@
 // apps/design-tool/app.test.contract.
 import { expect, test } from 'bun:test';
 import { spawn, spawnSync } from 'node:child_process';
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -61,7 +61,7 @@ test('the tool opens on the theme fixture, shows its hello, and an agent\'s writ
     expect(drive.exitCode, driveSaid).toBe(0);
     const replies = out.seen.filter(l => l.startsWith('{')).map(l => JSON.parse(l));
     const { hello, changes } = replies.findLast(r => r.resources).resources;
-    expect(hello).toMatchObject({ ok: true, protocol: 'tamber/1.1', app });
+    expect(hello).toMatchObject({ ok: true, protocol: 'tamber/1.2', app });
     expect(hello.files.map(f => f.path)).toEqual(['app.tamber']);
     expect(changes.recent[0]).toMatchObject({ kind: 'changed', who: 'agent:codex', files: ['app.tamber'], tokens: ['surface.card'] });
     // One tool per machine: while it runs, another app's is refused, naming
@@ -198,13 +198,13 @@ test('every control on the dials panel comes from the design as describe gives i
 /** `bun scripts/agent.mjs web --url <url>` running `ops`, each reply parsed
  * (spawned, not run synchronously: the proxy below answers in this
  * process). */
-async function drive(url, storage, ops) {
-  const child = spawn(process.execPath, [resolve(ROOT, 'scripts/agent.mjs'), 'web', '--app', 'design-tool', '--url', url, '--storage', storage, '--json', ...ops], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+async function drive(url, storage, ops, { keepStorage = false } = {}) {
+  const child = spawn(process.execPath, [resolve(ROOT, 'scripts/agent.mjs'), 'web', '--app', 'design-tool', '--url', url, '--storage', storage, ...(keepStorage ? ['--keep-storage'] : []), '--json', ...ops], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
   let said = '';
   child.stderr.on('data', d => { said = (said + d).slice(-4000); });
   const out = lines(child);
   const code = await new Promise(ok => child.once('close', ok));
-  if (code !== 0) throw new Error(`the drive failed: ${said}`);
+  if (code !== 0) throw new Error(`the drive failed: ${said}\n${out.seen.slice(-3).join('\n').slice(0, 3000)}`);
   return out.seen.filter(l => l.startsWith('{')).map(l => JSON.parse(l));
 }
 
@@ -227,7 +227,7 @@ async function proxied(app, before = () => {}) {
     headers.delete('host'); headers.delete('content-length');
     const res = await fetch(`${origin}${url.pathname}${url.search}`, { method: req.method, headers, body, redirect: 'manual' });
     const bytes = await res.arrayBuffer();
-    if (request.method === 'transaction' || request.method === 'undo') {
+    if (request.method === 'transaction' || request.method === 'undo' || request.method === 'accept') {
       const reply = JSON.parse(new TextDecoder().decode(bytes));
       writes.push({ method: request.method, ok: !!reply.ok, error: reply.error, after: readFileSync(join(app, 'app.tamber'), 'utf8') });
     }
@@ -237,7 +237,7 @@ async function proxied(app, before = () => {}) {
   } });
   const tool = spawn(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--via', `http://127.0.0.1:${proxy.port}`, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
   const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000);
-  return { url, writes, close: async () => { await stop(tool); proxy.stop(true); await stop(serve); } };
+  return { url, origin, writes, close: async () => { await stop(tool); proxy.stop(true); await stop(serve); } };
 }
 
 /** Where two texts differ, in order: the first line that differs, the
@@ -299,8 +299,8 @@ test('a dial edit and a Dim cell edit each write one line, undo gives the bytes 
 test('expressions are kept unless pinned, "only this mode" adds a when, redo writes it again, and tokens are added, renamed and removed; undo restores an unformatted line', async () => {
   const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-ops-'));
   // Not in fmt's layout: undo must give these bytes back, not fmt's.
-  const primary = '  text.primary   =   light-dark(#0f1419, #e7e9ea)';
-  const original = readFileSync(resolve(ROOT, 'apps/design-tool/stub/dials.tamber'), 'utf8').replace('  text.primary = light-dark(#0f1419, #e7e9ea)', primary);
+  const primary = '  text.primary   =   light-dark(#0f1419, #e7e9ea)  pair=surface.page';
+  const original = readFileSync(resolve(ROOT, 'apps/design-tool/stub/dials.tamber'), 'utf8').replace('  text.primary = light-dark(#0f1419, #e7e9ea)  pair=surface.page', primary);
   expect(original).toContain(primary);
   writeFileSync(join(app, 'app.tamber'), original);
   writeFileSync(join(app, 'app.contract'), 'component App\n  view\n    text "a"\n');
@@ -364,6 +364,283 @@ test('expressions are kept unless pinned, "only this mode" adds a when, redo wri
     expect(changedPrimary.added).toHaveLength(1);
     expect(changedPrimary.added[0]).toContain('#000000');
     expect(w[8].after).toBe(original);
+  } finally {
+    await tool.close();
+    rmSync(app, { recursive: true, force: true });
+  }
+}, 900_000);
+
+/** An app with the fixture design in a git repository of its own: `app`,
+ * and git in it. */
+function repo(name) {
+  const app = mkdtempSync(join(tmpdir(), `exact-design-tool-${name}-`));
+  writeFileSync(join(app, 'app.tamber'), readFileSync(resolve(ROOT, 'apps/design-tool/stub/dials.tamber'), 'utf8'));
+  writeFileSync(join(app, 'app.contract'), 'component App\n  view\n    text "a"\n');
+  const git = (...args) => spawnSync('git', ['-c', 'user.email=t@example.test', '-c', 'user.name=t', ...args], { cwd: app, encoding: 'utf8' });
+  git('init', '-q'); git('add', '.'); git('commit', '-q', '-m', 'design');
+  // Who the server's commit is by, here, whatever this machine's git says.
+  git('config', 'user.email', 't@example.test'); git('config', 'user.name', 't');
+  return { app, git };
+}
+
+test('commit takes the session\'s writes, leaves other staging and never pushes; history reads it as edits, and revert holds a past commit\'s inverse', async () => {
+  const { app, git } = repo('commit');
+  // A past design commit to revert, other staging to leave alone, and a
+  // remote that must not move.
+  writeFileSync(join(app, 'app.tamber'), readFileSync(join(app, 'app.tamber'), 'utf8').replace('surface.inset = light-dark(#f8f9fa, #101214)', 'surface.inset = light-dark(#f8f9fb, #101214)'));
+  git('commit', '-q', '-am', 'a warmer inset');
+  const past = git('rev-parse', 'HEAD').stdout.trim();
+  writeFileSync(join(app, 'notes.txt'), 'one\n'); git('add', 'notes.txt'); git('commit', '-q', '-m', 'notes');
+  writeFileSync(join(app, 'notes.txt'), 'two\n'); git('add', 'notes.txt');
+  const staged = git('ls-files', '-s', 'notes.txt').stdout;
+  const remote = mkdtempSync(join(tmpdir(), 'exact-design-tool-remote-'));
+  spawnSync('git', ['init', '-q', '--bare', remote]);
+  git('remote', 'add', 'origin', remote); git('push', '-q', 'origin', 'HEAD:main');
+  const pushed = spawnSync('git', ['ls-remote', remote], { encoding: 'utf8' }).stdout;
+  // A hand edit, just before history is read: its row says what moved.
+  const tool = await proxied(app, request => {
+    if (request.method === 'history') writeFileSync(join(app, 'app.tamber'), readFileSync(join(app, 'app.tamber'), 'utf8').replace('tone.warm = oklch(0.7 0.1 warmth)', 'tone.warm = oklch(0.71 0.1 warmth)'));
+  });
+  try {
+    const replies = await drive(tool.url, `design-tool-commit-${process.pid}`, [
+      'type name Ada', 'tap save-name', 'clock data',
+      'type dial-hue-stepper 210', 'clock data', 'tap apply', 'clock data',
+      'clock +1', 'clock data', 'clock +1', 'clock data', 'state',
+      'tap commit', 'clock data', 'state',
+      'tap toggle-history', 'clock data', 'state',
+      `tap revert-${past.slice(0, 12)}`, 'clock data', 'clock +1', 'clock data', 'clock +1', 'clock data', 'state',
+    ]);
+    const states = replies.filter(r => r.resources);
+    const entry = states[0].resources.changeset.entries[0];
+    expect(entry).toMatchObject({ who: 'design-tool:Ada', mine: true, committed: false });
+    expect(entry.text).toMatch(/^app\.tamber: tone\.base oklch\(.+\) → oklch\(.+\) · design-tool:Ada$/);
+    expect(entry.diff).toContain('+  hue: number = 210');
+    const made = git('log', '-1', '--format=%H%n%B').stdout;
+    expect(made).toContain('design: 1 change by design-tool:Ada');
+    expect(made).toContain(entry.text);
+    expect(git('show', '--name-only', '--format=', 'HEAD').stdout.trim()).toBe('app.tamber');
+    expect(git('ls-files', '-s', 'notes.txt').stdout).toBe(staged);
+    expect(spawnSync('git', ['ls-remote', remote], { encoding: 'utf8' }).stdout).toBe(pushed);
+    expect(states[1].slots.committed).toEqual({ ok: true, error: '', commit: made.slice(0, 12), files: ['app.tamber'], refused: [], edits: [{ n: 0, text: entry.text }] });
+    expect(states[1].resources.changeset.entries[0].committed).toBe(true);
+    // Nothing left to commit: Commit is off.
+    expect(states[1].resources.scope).toEqual({ open: 0, refused: false, unavailable: false });
+    const history = states[2].resources.history;
+    expect(history.commits[0]).toMatchObject({ subject: 'design: 1 change by design-tool:Ada', files: [{ file: 'app.tamber', refused: '', edits: ['hue 200 → 210'] }] });
+    expect(history.commits.find(c => c.commit === past).files[0].edits).toEqual(['surface.inset light-dark(#f8f9fa, #101214) → light-dark(#f8f9fb, #101214)']);
+    expect(states[3].slots.reverted).toMatchObject({ ok: true, commit: past });
+    // Held, not written: in the inbox, the file as it was.
+    expect(states[3].resources.changes.held.map(h => h.proposal)).toContain(states[3].slots.reverted.proposal);
+    expect(readFileSync(join(app, 'app.tamber'), 'utf8')).toContain('surface.inset = light-dark(#f8f9fb, #101214)');
+    const hand = states[3].resources.changeset.entries.find(e => e.who === 'changed on disk');
+    expect(hand.text).toBe('app.tamber: tone.warm oklch(0.7 0.1 20) → oklch(0.71 0.1 20) · changed on disk');
+  } finally {
+    await tool.close();
+    rmSync(app, { recursive: true, force: true });
+    rmSync(remote, { recursive: true, force: true });
+  }
+}, 900_000);
+
+test('commit refuses a file dirty or staged at its baseline, or edited by hand between two writes, saying why', async () => {
+  const cases = [
+    ['dirty', ({ app }) => writeFileSync(join(app, 'app.tamber'), readFileSync(join(app, 'app.tamber'), 'utf8').replace('tone.warm = oklch(0.7 0.1 warmth)', 'tone.warm = oklch(0.71 0.1 warmth)')), 'it differed from HEAD when the session first wrote it'],
+    ['staged', ({ app, git }) => { writeFileSync(join(app, 'app.tamber'), readFileSync(join(app, 'app.tamber'), 'utf8').replace('tone.warm = oklch(0.7 0.1 warmth)', 'tone.warm = oklch(0.71 0.1 warmth)')); git('add', 'app.tamber'); }, 'it was staged when the session first wrote it'],
+    ['hand', () => {}, 'it was changed by someone other than this server'],
+  ];
+  for (const [name, before, why] of cases) {
+    const r = repo(name);
+    before(r);
+    // Between the two writes, a hand edit: just before the tool proposes
+    // the second.
+    let proposals = 0;
+    const tool = await proxied(r.app, request => {
+      if (name === 'hand' && request.method === 'propose' && request.ops?.[0]?.op === 'set-token' && ++proposals === 1) writeFileSync(join(r.app, 'app.tamber'), readFileSync(join(r.app, 'app.tamber'), 'utf8').replace('tone.warm = oklch(0.7 0.1 warmth)', 'tone.warm = oklch(0.71 0.1 warmth)'));
+    });
+    try {
+      const head = r.git('rev-parse', 'HEAD').stdout;
+      const replies = await drive(tool.url, `design-tool-refuse-${name}-${process.pid}`, [
+        'type name Ada', 'tap save-name', 'clock data',
+        'type dial-hue-stepper 210', 'clock data', 'tap apply', 'clock data', 'clock +1', 'clock data',
+        'tap cell-surface.page-2-dark', 'clock data', 'type branch-value light-dark(#ffffff, #101820)', 'type branch-value key Enter', 'clock data', 'tap apply', 'clock data', 'clock +1', 'clock data',
+        'tap commit', 'clock data', 'tree commit-refused', 'state',
+      ]);
+      expect(tool.writes.map(w => [w.method, w.ok]), name).toEqual([['transaction', true], ['transaction', true]]);
+      expect(replies.at(-1).slots.committed, name).toMatchObject({ ok: false, refused: [{ file: 'app.tamber', why }] });
+      expect(JSON.stringify(replies.at(-2)), name).toContain(`app.tamber: ${why}`);
+      expect(r.git('rev-parse', 'HEAD').stdout, name).toBe(head);
+    } finally {
+      await tool.close();
+      rmSync(r.app, { recursive: true, force: true });
+    }
+  }
+}, 900_000);
+
+test('an agent\'s write arrives attributed within one poll, and held proposals are accepted whole, in part and recomputed when stale', async () => {
+  const { app } = repo('agents');
+  const read = () => readFileSync(join(app, 'app.tamber'), 'utf8');
+  let tool, accepts = 0;
+  const agentWrite = async () => {
+    const digest = createHash('sha256').update(readFileSync(join(app, 'app.tamber'))).digest('hex');
+    const op = spawn(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'op', tool.origin, JSON.stringify({ method: 'transaction', client: 'agent:codex', files: { 'app.tamber': digest }, ops: [{ op: 'set-token', name: 'surface.card', value: 'light-dark(#f1f3f5, #17191d)' }] })], { cwd: ROOT, stdio: 'ignore' });
+    expect(await new Promise(ok => op.once('close', ok))).toBe(0);
+  };
+  let explains = 0;
+  tool = await proxied(app, async request => {
+    // The agent writes just before the tool's first explain; a hand edit
+    // lands just before the third accept, so that proposal is stale.
+    if (request.method === 'explain' && ++explains === 1) await agentWrite();
+    if (request.method === 'accept' && ++accepts === 3) writeFileSync(join(app, 'app.tamber'), read().replace('accent.fill = accent', 'accent.fill = #3070f0'));
+  });
+  try {
+    const { token } = await (await fetch(`${tool.origin}/__tamber/token`)).json();
+    const ask = async request => (await fetch(`${tool.origin}/__tamber`, { method: 'POST', headers: { 'x-exact-tamber-token': token }, body: JSON.stringify(request) })).json();
+    const p1 = (await ask({ method: 'propose', hold: true, client: 'agent:codex', ops: [{ op: 'set-token', name: 'text.primary', value: 'light-dark(#101010, #e7e9ea)' }, { op: 'set-token', name: 'ink.on-brand', value: '#fefefe' }] })).ok.proposal;
+    const p2 = (await ask({ method: 'propose', hold: true, client: 'agent:claude', ops: [{ op: 'set-token', name: 'accent.fill', value: '#2070f0' }] })).ok.proposal;
+    const id = n => p1.replace(/-1$/, `-${n}`);
+    expect(p2).toBe(id(2));
+    const replies = await drive(tool.url, `design-tool-agents-${process.pid}`, [
+      'type name Ada', 'tap save-name', 'clock data',
+      'tap cell-surface.page-0-light', 'clock data', 'clock +1', 'clock data', 'clock +1', 'clock data', 'state',
+      // Part of p1: the server recomputes it as a new proposal, reviewed afresh.
+      `tap pick-${p1}-0`, `tap accept-picked-${p1}`, 'clock data', 'clock +1', 'clock data', 'state',
+      `tap accept-${id(3)}`, 'clock data', 'clock +1', 'clock data', 'state',
+      // p2, with the file moved since: recomputed, then accepted.
+      `tap accept-${p2}`, 'clock data', 'clock +1', 'clock data', 'state',
+      `tap accept-${id(4)}`, 'clock data', 'clock +1', 'clock data', 'state',
+      // An accepted proposal is one step: undone, and redone.
+      'tap undo', 'clock data', 'clock +1', 'clock data', 'tap redo', 'clock data', 'clock +1', 'clock data', 'state',
+      // And highlights fade, oldest first, one each 3 s.
+      ...Array.from({ length: 8 }, () => ['clock +3000', 'clock data']).flat(), 'state',
+    ]);
+    const states = replies.filter(r => r.resources);
+    const [first, part, whole, stale, fresh, redone, faded] = states;
+    expect(first.resources.changeset.entries[0]).toMatchObject({ who: 'agent:codex', mine: false });
+    expect(first.resources.changeset.entries[0].text).toBe('app.tamber: surface.card light-dark(#f1f3f5ff, #16181cff) → light-dark(#f1f3f5ff, #17191dff) · agent:codex');
+    expect(first.resources.lit).toMatchObject({ names: ['surface.card'], whos: ['agent:codex'] });
+    // Only the cells that moved: the dark side, where the default applies.
+    expect(first.resources.lit.cells).toEqual(['surface.card|0-dark', 'surface.card|1-dark']);
+    // Each with the tokens it changes (a role that follows one among them).
+    expect(first.resources.changes.held.map(h => [h.proposal, h.client, [...h.tokens].sort(), h.items.map(i => i.text)])).toEqual([
+      [p1, 'agent:codex', ['-exact-label', 'ink.on-brand', 'text.primary'], ['text.primary = light-dark(#101010, #e7e9ea) (app.tamber)', 'ink.on-brand = #fefefe (app.tamber)']],
+      [p2, 'agent:claude', ['accent.fill'], ['accent.fill = #2070f0 (app.tamber)']],
+    ]);
+    expect(part.slots.written.note).toContain(`as ${id(3)}`);
+    const recomputed = part.resources.changes.held.find(h => h.proposal === id(3));
+    expect(recomputed).toMatchObject({ replaces: p1 });
+    expect([...recomputed.tokens].sort()).toEqual(['-exact-label', 'text.primary']);
+    expect(recomputed.diff).toContain('#101010');
+    expect(recomputed.diff).not.toContain('#fefefe');
+    expect(whole.slots.written.note).toBe(`Accepted ${id(3)}.`);
+    expect(stale.slots.written.note).toContain(`as ${id(4)}`);
+    const restaled = stale.resources.changes.held.find(h => h.proposal === id(4));
+    expect(restaled).toMatchObject({ replaces: p2, client: 'agent:claude' });
+    // Its diff is the new one, from the hand edit's value.
+    expect(restaled.diff).toContain('-  accent.fill = #3070f0');
+    expect(fresh.slots.written.note).toBe(`Accepted ${id(4)}.`);
+    expect(fresh.resources.changes.held).toEqual([]);
+    expect(tool.writes.map(w => [w.method, w.ok])).toEqual([['accept', true], ['accept', true], ['accept', true], ['accept', true], ['undo', true], ['transaction', true]]);
+    expect(tool.writes[4].after).toBe(tool.writes[2].after);
+    expect(tool.writes[5].after).toBe(tool.writes[3].after);
+    expect(redone.slots.written).toMatchObject({ ok: true, last: 'redo' });
+    // Redone as its proposer's.
+    expect(redone.resources.changeset.entries[0].who).toBe('agent:claude');
+    expect(redone.resources.changeset.entries[0].text).toContain('redone by design-tool:Ada');
+    expect(faded.resources.lit.names).toEqual([]);
+    const now = read();
+    expect(now).toContain('text.primary = light-dark(#101010, #e7e9ea)');
+    expect(now).not.toContain('#fefefe');
+    expect(now).toContain('accent.fill = #2070f0');
+    expect(now).not.toContain('accent.fill = #3070f0');
+  } finally {
+    await tool.close();
+    rmSync(app, { recursive: true, force: true });
+  }
+}, 900_000);
+
+test('T1a: an import reviewed through the file picker, overrides off until ticked, every unmapped value listed, accepted as one transaction and undone in one step', async () => {
+  const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-import-'));
+  for (const f of ['app.contract', 'app.tamber', 'app.json']) cpSync(resolve(ROOT, 'apps/theme-fixture', f), join(app, f));
+  const original = readFileSync(join(app, 'app.tamber'), 'utf8');
+  const fixtures = resolve(ROOT, 'tamber/tests/import');
+  const figma = readdirSync(join(fixtures, 'figma')).map(n => join(fixtures, 'figma', n));
+  const tool = await proxied(app);
+  try {
+    const replies = await drive(tool.url, `design-tool-import-${process.pid}`, [
+      'type name Ada', 'tap save-name', 'clock data',
+      // shadcn's default theme, picked as a person would.
+      'type import-kind shadcn', 'tap import-choose', `type @import-file ${join(fixtures, 'shadcn-neutral.css')}`, 'clock data', 'clock +1', 'clock data', 'state',
+    ]);
+    const states = replies.filter(r => r.resources);
+    const review = states[0].resources.changes.held.find(h => h.importer === 'shadcn');
+    expect(review.counted).toBe('47 source values = 46 mapped + 1 reported');
+    expect(review.countOk).toBe(true);
+    expect(review.mapped).toHaveLength(23);
+    expect(review.mapped[0]).toMatchObject({ name: 'shadcn.background', modes: [{ label: 'default', light: 'oklch(1 0 0)', dark: 'oklch(0.145 0 0)' }] });
+    // Every override off until ticked, every unmapped value with its reason.
+    expect(review.offers.map(o => [o.role, o.on])).toEqual([['-exact-background', false], ['-exact-label', false], ['-exact-secondary-background', false], ['-exact-separator', false], ['AccentColor', false]]);
+    expect(states[0].slots.picked).toEqual([]);
+    expect(review.unmapped.map(u => u.name)).toEqual(['--radius', '--radius-sm', '--radius-md', '--radius-lg', '--radius-xl']);
+    expect(review.unmapped[0].why).toBe('kind pending (stage 6): length');
+    const id = review.proposal, nth = k => id.replace(/-(\d+)$/, (_, n) => `-${Number(n) + k}`);
+    const [edited, kept] = [nth(1), nth(2)];
+    // Tick AccentColor, leave shadcn.foreground out, and edit one value: the
+    // edit holds again what the card had chosen, with the edit, its
+    // AccentColor on. Untick it there and Accept: the server recomputes
+    // without it (nothing written), and that is accepted as one
+    // transaction; one Undo gives the bytes back.
+    const more = await drive(tool.url, `design-tool-import-${process.pid}`, [
+      'clock data', 'clock +1', 'clock data',
+      `tap override-${id}-AccentColor`, `tap take-${id}-1`,
+      `type mapped-value-${id}-0-0 light-dark(oklch(0.99 0 0), oklch(0.145 0 0))`, `type mapped-value-${id}-0-0 key Enter`, 'clock data', 'clock +1', 'clock data', 'state',
+      `tap override-${edited}-AccentColor`, `tap accept-${edited}`, 'clock data', 'clock +1', 'clock data', 'state',
+      `tap accept-${kept}`, 'clock data', 'clock +1', 'clock data', 'state',
+      'tap undo', 'clock data', 'clock +1', 'clock data', 'state',
+      // Tailwind's default theme, and Figma's export (a file a mode).
+      'type import-kind tailwind', 'tap import-choose', `type @import-file ${join(fixtures, 'tailwind-theme.css')}`, 'clock data', 'clock +1', 'clock data', 'state',
+      'type import-kind dtcg', 'tap import-choose', `type @import-file ${figma.join('\n')}`, 'clock data', 'clock +1', 'clock data', 'state',
+    ], { keepStorage: true });
+    const later = more.filter(r => r.resources);
+    const after = later[0].resources.changes.held.find(h => h.proposal === edited);
+    expect(after).toMatchObject({ from: id, kept: true });
+    expect(after.mapped[0].modes[0].value).toBe('light-dark(oklch(0.99 0 0), oklch(0.145 0 0))');
+    expect(after.mapped.map(m => m.name)).not.toContain('shadcn.foreground');
+    expect(after.offers.filter(o => o.items !== '').map(o => [o.role, o.on])).toEqual([['AccentColor', true]]);
+    expect(after.diff).toContain('AccentColor = shadcn.primary');
+    expect(later[1].slots.written.note).toContain(`as ${kept}`);
+    expect(later[1].resources.changes.held.find(h => h.proposal === kept)).toMatchObject({ replaces: edited });
+    expect(later[2].slots.written.note).toBe(`Accepted ${kept}.`);
+    expect(tool.writes.map(w => [w.method, w.ok])).toEqual([['accept', true], ['accept', true], ['undo', true]]);
+    // The partial accept wrote nothing; the accept wrote what was chosen.
+    expect(tool.writes[0].after).toBe(original);
+    const written = tool.writes[1].after;
+    expect(written).not.toContain('AccentColor = shadcn.primary');
+    expect(written).toContain('shadcn.background = light-dark(oklch(0.99 0 0), oklch(0.145 0 0))');
+    expect(written).not.toContain('shadcn.foreground =');
+    expect(written).not.toContain('-exact-background = shadcn.background');
+    // One step back: the bytes as they were.
+    expect(tool.writes[2].after).toBe(original);
+    const tailwind = later[4].resources.changes.held.find(h => h.importer === 'tailwind');
+    expect(tailwind.countOk).toBe(true);
+    expect(tailwind.mapped.length).toBeGreaterThan(200);
+    const dtcg = later[5].resources.changes.held.find(h => h.importer === 'dtcg');
+    expect(dtcg.counted).toBe('104 source values = 40 mapped + 64 reported');
+    expect(dtcg.unmapped).toHaveLength(64);
+    // Its axis is said as an axis; a reference is painted as the token it
+    // names, in the same mode.
+    expect(dtcg.mapped[0]).toMatchObject({ kind: 'axis', modes: [] });
+    const byName = new Map(dtcg.mapped.map(m => [m.name, m]));
+    const ref = dtcg.mapped.find(m => m.kind === 'token' && byName.has(m.modes[0].value));
+    expect(ref.modes[0].light).toBe(byName.get(ref.modes[0].value).modes[0].light);
+    // A token's other mode, edited and accepted, is written.
+    const moded = dtcg.mapped.find(m => m.modes.length > 1);
+    const figmaId = dtcg.proposal, figmaEdited = figmaId.replace(/-(\d+)$/, (_, n) => `-${Number(n) + 1}`);
+    const last = await drive(tool.url, `design-tool-import-${process.pid}`, [
+      'clock data', 'clock +1', 'clock data',
+      `type mapped-value-${figmaId}-${moded.index}-1 #123457`, `type mapped-value-${figmaId}-${moded.index}-1 key Enter`, 'clock data', 'clock +1', 'clock data',
+      `tap accept-${figmaEdited}`, 'clock data', 'clock +1', 'clock data', 'state',
+    ], { keepStorage: true });
+    expect(last.filter(r => r.resources).at(-1).slots.written.note).toBe(`Accepted ${figmaEdited}.`);
+    expect(tool.writes.at(-1).after).toContain(`when ${moded.modes[1].label}: #123457`);
   } finally {
     await tool.close();
     rmSync(app, { recursive: true, force: true });

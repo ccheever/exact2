@@ -59,7 +59,8 @@ extension NodeView {
     /// role is `button` or `link`, as the web's tree has a `div` with one
     /// (chat F14: a message bubble with `role="button"` was no button natively).
     /// A box with a checkable role is one too: the web's tree has a `div`
-    /// with `role="checkbox"` as a checkbox (habits F16).
+    /// with `role="checkbox"` as a checkbox (habits F16). A native module's
+    /// box takes these roles as a box does.
     /// On the Mac a menu's row (`menuitem`, `menuitemcheckbox`,
     /// `menuitemradio`) is one too, as AppKit's menu item is.
     var actsAsButton: Bool {
@@ -68,7 +69,7 @@ extension NodeView {
         #else
         let menuItem = false
         #endif
-        return kind == "button" || kind == "view" && (["button", "link", "checkbox", "radio", "switch"].contains(props["accessibilityRole"] ?? "") || menuItem)
+        return kind == "button" || (kind == "view" || kind == "native") && (["button", "link", "checkbox", "radio", "switch"].contains(props["accessibilityRole"] ?? "") || menuItem)
     }
     /// ARIA's menu item roles, each AppKit's `AXMenuItem` (Core-AAM).
     static let menuItemRoles: Set<String> = ["menuitem", "menuitemcheckbox", "menuitemradio"]
@@ -265,7 +266,10 @@ final class FieldCell: NSTextFieldCell {
     }
     /// The session's editor, which tells the field's node what the window's does not (`FieldEditor`).
     override func fieldEditor(for controlView: NSView) -> NSTextView? {
-        (controlView.superview as? NodeView)?.presenter?.fieldEditor ?? super.fieldEditor(for: controlView)
+        // Through its delegate, the node, wherever the field is: a prompt's
+        // alert holds it in its accessory view (AlertsMac.swift).
+        let node = (controlView as? NSTextField)?.delegate as? NodeView ?? controlView.superview as? NodeView
+        return node?.presenter?.fieldEditor ?? super.fieldEditor(for: controlView)
     }
     override func drawingRect(forBounds rect: NSRect) -> NSRect {
         (controlView?.superview as? NodeView)?.nativeEditorRect(in: rect) ?? super.drawingRect(forBounds: rect)
@@ -402,7 +406,7 @@ extension NodeView {
     /// answers (`contextTarget`; the event bubbles), at this one's drawn middle.
     package override func accessibilityPerformShowMenu() -> Bool {
         guard let target = showMenuTarget, let presenter, let point = presenter.contextPoint(self) else { return false }
-        return presenter.contextMenu(target, at: point)
+        return presenter.contextMenu(target, at: point, from: self)
     }
     /// AppKit offers every action whose method the class implements; show
     /// menu only where something answers it, as AppKit offers it only on a
@@ -424,7 +428,7 @@ extension NodeView {
     }
     private var showMenuTarget: NodeView? {
         guard let presenter, presenter.views[id] === self, !disabled, !inert, field == nil, textArea == nil,
-              let target = presenter.contextTarget(self), !target.disabled, !target.inert else { return nil }
+              let target = presenter.contextTarget(self), !target.disabled, !target.authoredInert else { return nil }
         return target
     }
     /// The host's own record of the flag, for code that serves an
@@ -600,18 +604,6 @@ extension Presenter {
                 #endif
             }
         }
-        #if os(macOS)
-        // The modal is said before the focus moves into it (autofocus,
-        // below), as AppKit tells a sheet before the focus in it (measured:
-        // AXSheetCreated, AXFocusedWindowChanged, then the field's
-        // AXFocusedUIElementChanged); VoiceOver is sent to the focus after.
-        let modal = macAccessibilityModal
-        let modalChanged = modal.map(ObjectIdentifier.init) != announcedModal
-        if modalChanged {
-            announcedModal = modal.map(ObjectIdentifier.init)
-            announceDialog(modal)
-        }
-        #endif
         for node in nodes {
             node.applyFormAccessibility()
             // A native button's control is its accessibility element (LLP 1069.011 D4).
@@ -664,68 +656,117 @@ extension Presenter {
         #if os(macOS)
         // A `menu` says it opened and closed as AppKit's menu does
         // (AXMenuOpened, AXMenuClosed, on the menu; measured), so VoiceOver
-        // says "menu" and, after, leaves the menu for the focus.
+        // says "menu" and, after, leaves the menu. One taken out of the
+        // window said so as it left (`viewWillMove(toWindow:)`, FocusMac.swift).
         let shown = chrome.ids("role:menu").compactMap { views[$0] }.filter(\.accessibilityVisible)
         for menu in shown where !shownMenus.contains(where: { $0 === menu }) {
             NSAccessibility.post(element: menu, notification: .init(rawValue: "AXMenuOpened"))
-            if menu.focusedMenuRow != nil { NSAccessibility.post(element: menu, notification: .selectedChildrenChanged) }
+            if menu.focusedMenuRow != nil {
+                menusHeldFocus.add(menu)
+                NSAccessibility.post(element: menu, notification: .selectedChildrenChanged)
+            } else { menusHeldFocus.remove(menu) }
         }
-        let closed = shownMenus.filter { menu in !shown.contains { $0 === menu } }
-        for menu in closed {
-            // A menu taken out of the window is no element to post on; the page is.
-            NSAccessibility.post(element: menu.window != nil ? menu : viewport, notification: .init(rawValue: "AXMenuClosed"))
-        }
+        for menu in shownMenus where !shown.contains(where: { $0 === menu }) { menuClosed(menu) }
         shownMenus = shown
-        // Once the modal and the menus are said, VoiceOver is sent where the
-        // keyboard focus is, last: a changed modal's one layout change
-        // (LLP 1080.003 D3) names the modal, or the focus in it, or, as the
-        // modal goes, the focus given back; the focus itself is told after
-        // it, as a sheet's arrival ends. A menu that went without the modal
-        // changing tells only the focus (the app focused the invoker, then
-        // removed the menu). `MenuHost.close` gives the focus back before
-        // this pass, so it is the trigger's here.
-        let focus = focusedNode.map { keyView(of: $0) }
-        var landing: NSView?
-        if modalChanged {
-            landing = modal.map(modalLanding) ?? focus
-            NSAccessibility.post(element: viewport, notification: .layoutChanged, userInfo: landing.map { [.uiElements: [$0]] })
-        }
-        if let focus, landing === focus || (!modalChanged && !closed.isEmpty) {
-            NSAccessibility.post(element: focus, notification: .focusedUIElementChanged)
-        }
+        if macAccessibilityModal.map(ObjectIdentifier.init) != toldModal { scheduleLanding() }
         #else
         syncModal()
         #endif
     }
     #if os(macOS)
-    /// Where VoiceOver goes as a modal arrives: the modal, so it reads the
-    /// modal's name and role, unless the keyboard focus is already in it (a
-    /// field it autofocused), which VoiceOver then reads, as AppKit posts only
-    /// the focus change for a popover's first responder.
-    func modalLanding(_ modal: NodeView) -> NSView {
-        guard let focused = focusedNode, menus.contains(modal, focused) else { return modal }
-        return keyView(of: focused)
+    /// A shown `menu` closed: it says so while it is still an element to
+    /// post on, and VoiceOver is sent back to the focus if a row of it held
+    /// the focus. One whose rows never had it (opened by VO-Space and closed
+    /// by Escape) leaves VoiceOver where it was, as AppKit's `NSMenu`, which
+    /// never takes the focus, posts nothing after AXMenuClosed (measured).
+    func menuClosed(_ menu: NodeView) {
+        if menu.window != nil { NSAccessibility.post(element: menu, notification: .init(rawValue: "AXMenuClosed")) }
+        if menusHeldFocus.contains(menu) {
+            menusHeldFocus.remove(menu)
+            landing.focusReturns = true
+            scheduleLanding()
+        }
     }
-    /// A dialog drawn in the page that became the modal is said as it opens:
-    /// VoiceOver reads a dialog window's title (a sheet's, a panel's) and an
-    /// `NSAlert`'s message as it appears, and WAI-ARIA's alertdialog fires
-    /// the alert event as it opens. With no window to be read by, it is
-    /// announced as an `alert` is, assertively. A sheet is AppKit's to read;
-    /// a dialog in a popover is not read, as `NSPopover` is not. It is said
-    /// once while it stays up: one handed the modal back by a dialog closed
-    /// over it is not read again, as an AppKit sheet is not when its child
-    /// sheet ends.
-    private func announceDialog(_ modal: NodeView?) {
-        announcedDialogs.removeAll { dialog in
+    /// VoiceOver is sent where the keyboard focus is once the commit that
+    /// changed the modal or closed a menu has run its commands, so the
+    /// landing is the element an opening commit's `focus()` or the focus
+    /// given back chose, not the one the batch left.
+    func scheduleLanding() {
+        guard !landing.scheduled else { return }
+        landing.scheduled = true
+        DispatchQueue.main.async { [weak self] in self?.tellLanding() }
+    }
+    /// AppKit tells a dialog or a menu-like list that takes the focus by the
+    /// focus: the focused element's AXFocusedUIElementChanged, last
+    /// (measured with a sheet, a panel, an `NSPopover` and a child window
+    /// whose field or row is the first responder; none posts a layout
+    /// change). A changed modal also posts its one layout change
+    /// (LLP 1080.003 D3), naming the same element: the focus when it is in
+    /// the modal, else the modal; as a modal goes, the focus given back, or
+    /// the trigger of a popover that closed with the focus where it was,
+    /// which VoiceOver returns to from an `NSMenu` while the focus stays
+    /// put. The focus change is the host's only when AppKit did not post
+    /// it: AppKit posts one as a view becomes the first responder of the
+    /// active application's key window (measured), and a second for the
+    /// same element is not AppKit's. A dialog drawn in the page is then
+    /// named (`nameDialog`).
+    func tellLanding() {
+        landing.scheduled = false
+        let modal = macAccessibilityModal
+        let focus = focusedNode.map { keyView(of: $0) }
+        let (focusReturns, invoker, invokerFocus) = (landing.focusReturns, landing.invoker, landing.invokerFocus)
+        landing.focusReturns = false
+        landing.invoker = nil
+        landing.invokerFocus = nil
+        // A first responder that changed since the last landing in the
+        // active application's key window: AppKit told it (measured; it
+        // posts nothing for an inactive application's window).
+        let toldByAppKit = focus.map { $0 !== landing.toldFocus && $0.window?.isKeyWindow == true && NSApp.isActive } ?? false
+        defer { landing.toldFocus = focus }
+        if modal.map(ObjectIdentifier.init) != toldModal {
+            toldModal = modal.map(ObjectIdentifier.init)
+            // The trigger only while the focus is the one the popover closed
+            // with: a later command that moved it is where VoiceOver goes.
+            var trigger: NSView?
+            if let invoker, views[invoker.id] === invoker, invoker.accessibilityVisible,
+               viewport.window.flatMap(menus.focusOwner) === invokerFocus,
+               modal.map({ menus.contains($0, invoker) }) ?? true { trigger = keyView(of: invoker) }
+            let target = trigger ?? modal.map(modalLanding) ?? focus
+            NSAccessibility.post(element: viewport, notification: .layoutChanged, userInfo: target.map { [.uiElements: [$0]] })
+            if let focus, target === focus, !toldByAppKit { NSAccessibility.post(element: focus, notification: .focusedUIElementChanged) }
+            nameDialog(modal, landedOn: target)
+        } else if focusReturns, let focus, !toldByAppKit {
+            NSAccessibility.post(element: focus, notification: .focusedUIElementChanged)
+        }
+    }
+    /// A dialog drawn in the page that became the modal is named after the
+    /// focus in it is told: VoiceOver reads a sheet's or a panel's title as
+    /// it appears and an `NSAlert`'s title and message, but a group in the
+    /// page has no window to be read by. The words are queued at low
+    /// priority, as a polite live region's are, so they follow the focused
+    /// control's and do not cut it off. A dialog VoiceOver landed on itself
+    /// is read there; a sheet is AppKit's to read; a dialog in a popover is
+    /// not named, as `NSPopover` is not. It is named once while it stays up:
+    /// one handed the modal back by a dialog closed over it is not named
+    /// again, as an AppKit sheet is not when its child sheet ends.
+    private func nameDialog(_ modal: NodeView?, landedOn target: NSView?) {
+        landing.namedDialogs.removeAll { dialog in
             dialog.window == nil || dialog.isHiddenOrHasHiddenAncestor || leaving[dialog.id] != nil
                 || (dialog.props["accessibilityModal"] != "true" && dialogs.active !== dialog)
         }
         guard let modal, ["AXApplicationDialog", "AXApplicationAlertDialog"].contains(modal.groupSubrole ?? ""),
-              modal.window?.isSheet != true, !modal.inPopover, !announcedDialogs.contains(where: { $0 === modal }),
-              let words = modal.dialogWords else { return }
-        announcedDialogs.append(modal)
+              modal.window?.isSheet != true, !modal.inPopover, !landing.namedDialogs.contains(where: { $0 === modal }) else { return }
+        landing.namedDialogs.append(modal)
+        guard target !== modal, let words = modal.dialogWords else { return }
         NSAccessibility.post(element: modal, notification: .announcementRequested,
-            userInfo: [.announcement: words, .priority: NSAccessibilityPriorityLevel.high.rawValue])
+            userInfo: [.announcement: words, .priority: NSAccessibilityPriorityLevel.low.rawValue])
+    }
+    /// Where VoiceOver goes as a modal arrives: the keyboard focus when it
+    /// is in the modal (a field it autofocused, the button `focus()` named),
+    /// else the modal, so it reads the modal's name and role.
+    func modalLanding(_ modal: NodeView) -> NSView {
+        guard let focused = focusedNode, menus.contains(modal, focused) else { return modal }
+        return keyView(of: focused)
     }
     var macModalAccessibilityChildren: [NodeView]? {
         guard let modal = macAccessibilityModal else { return nil }
@@ -963,3 +1004,20 @@ extension Agent {
         return reply
     }
 }
+
+#if os(macOS)
+/// What `Presenter.tellLanding` tells VoiceOver on the turn after a commit.
+struct VoiceOverLanding {
+    var scheduled = false
+    /// A menu whose rows held the focus closed: the focus it left is told.
+    var focusReturns = false
+    /// The trigger of a popover that closed with the focus where it was, and
+    /// that focus owner: VoiceOver goes to the trigger while it still is.
+    var invoker: NodeView?
+    weak var invokerFocus: NSView?
+    /// The focus at the last landing: one changed since was told by AppKit.
+    weak var toldFocus: NSView?
+    /// The dialogs drawn in the page named as they opened that are still up.
+    var namedDialogs: [NodeView] = []
+}
+#endif

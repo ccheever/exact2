@@ -3,7 +3,7 @@
 import {spawn, spawnSync} from 'node:child_process';
 import {existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync} from 'node:fs';
 import {basename, isAbsolute, resolve} from 'node:path';
-import {equal, agreePins, nativeProofHost, pinInputs, pinRevision, webUnavailable, paranoidRuns, proofCommand} from './proof.mjs';
+import {equal, agreePins, nativeProofHost, pinInputs, pinSourceInputs, pinRevision, webUnavailable, paranoidRuns, proofCommand} from './proof.mjs';
 import {gameDefaults, lintGame, prepareGame} from './app/shells.mjs';
 
 const [destination, ...args] = process.argv.slice(2);
@@ -96,8 +96,8 @@ if (repin) {
   if (errors.length) throw new Error(`repin refused: mode/host proof failed; pins.json unchanged; inspect ${root}/*/run.log and rerun the named proof with --paranoid`);
   const candidate = agreePins(rows, before, hosts, app);
   const command = proofCommand(import.meta.path, local ? app : name, ...(args.includes('--repin') ? ['--repin'] : []), '--hosts', exercised.join(','), ...(device ? ['--device'] : []), ...(phone ? ['--phone', phone] : []));
-  const inputs = pinInputs(rows);
-  const after = {...candidate, inputs, game:previous.game ?? name, generated:command, at:pinRevision(app, inputs), ...(option('--reason', '') ? {reason:option('--reason', '')} : {})};
+  const inputs = pinInputs(rows), sourceInputs = pinSourceInputs(rows);
+  const after = {...candidate, inputs, sourceInputs, game:previous.game ?? name, generated:command, at:pinRevision(app, sourceInputs), ...(option('--reason', '') ? {reason:option('--reason', '')} : {})};
   for (const section of ['ticks', 'saves']) for (const [key, value] of Object.entries(after[section]))
     console.log(`${section} ${key}: ${before[section]?.[key] ?? '(new)'} → ${value}`);
   if (!exercised.includes('web')) console.log(`WEB not exercised; pins record ${exercised.join(',')} only, no web agreement claimed.`);

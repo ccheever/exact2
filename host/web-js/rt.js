@@ -1,5 +1,5 @@
 import { renderMarkup, reportPlace, onSelection, textField, editMenu, settleRadios, installFits, contextAt } from "./navigation.js"; export { animationClocks, launchLocation } from "./navigation.js"; export { fontFamily } from './font-family.js'; // synced animations (LLP 1055.002, emit.rs `clocks`)
-import { Docs, Head, head, markDocument, projectRoots } from "./document.js"; export { Head }; import { conforms, eq, equal, failureCode } from "./shape.js"; import { pointer, record } from "./pointer.js"; import { commands } from "./commands.js"; import { autofocus, press } from "./focus.js";
+import { Docs, Head, head, markDocument, projectRoots } from "./document.js"; export { Head }; import { conforms, eq, equal, failureCode, failureReason } from "./shape.js"; import { pointer, record } from "./pointer.js"; import { commands } from "./commands.js"; import { autofocus, press } from "./focus.js";
 let Paint; export function usePaint(pass) { Paint = pass; } export { conforms, eq, equal }; // the compiler installs `Paint` only when a plan can layer boxes
 import * as Ov from "./overlay.js"; import { beatAfter } from "./beat.js"; // optimistic writes shown over answers (the runner's writes.rs)
 export const writeRecords = () => Ov.Writes.list.map(w => ({ id: w.id, mutation: w.m.name, landed: !!w.landed })); // the agent's `state.writes`
@@ -140,12 +140,11 @@ function endAll(rows) {
 // force, and a count of what commits changed (an edge's no-op, runner/collection.rs).
 export { scope, end, untracked, write, onEnd };
 export const owner = () => Owner, rev = () => Rev, ticket = () => Ticket, nextTicket = () => ++Ticket;
-
 // ---------------------------------------------------------------- commits
 /** A typed refusal: the commit rolls back (LLP 1005 §6 atomicity). */
 export class Refusal extends Error {}
 /** A data or shape refusal (the runner's `RunnerError::Data` or `Shape`): one in a reply's commit lets its ticket go (`reply`). */
-class Failed extends Refusal { constructor(message, code = "error") { super(message); this.code = code; } } // `code`: failure(x)'s (shape.js `failureCode`)
+class Failed extends Refusal { constructor(message, code = "error", reason = "") { super(message); this.code = code; this.reason = reason; } } // `code`, `reason`: failure(x)'s (shape.js `failureCode`, `failureReason`)
 let Writes = null, Commands = [], Out = [], Landed = [], Sends = [], Refresh = [], Poisoned = false, Refused = null, Sched = null;
 /** Queued sends and gated tasks (schedule.js, LLP 1092), installed by a plan that declares them; the last commit's refusal. */
 export const useSchedule = s => { Sched = s; }, refused = () => Refused;
@@ -201,7 +200,7 @@ export function commit(f, what = "commit") {
   }
   const [out, cmds, landed] = [Out, Commands, Landed];
   // A key handler's preventDefault/stopPropagation act on its event before the dispatch ends, a tree update a view transition defers too (review C3).
-  if (KeyEvent) for (const c of cmds.filter(c => c[0] === "preventDefault" || c[0] === "stopPropagation")) { cmds.splice(cmds.indexOf(c), 1); command(...c); }
+  if (KeyEvent || Propagating) for (const c of cmds.filter(c => c[0] === "preventDefault" || c[0] === "stopPropagation")) { cmds.splice(cmds.indexOf(c), 1); command(...c); }
   Writes = null;
   unpark();
   const tail = () => { // the tree update; inside a view transition when it may hand on a shared element's name (LLP 1013.000 D7)
@@ -269,7 +268,7 @@ export const Hosts = {
   setScheme: s => { document.documentElement.style.colorScheme = s === "system" ? "" : s; }, requestFullscreen: id => Media ? Media.requestFullscreen(id) : say(`requestFullscreen: refused: no video with id "${id}"`), // media.js's where a plan has media; without any, the same refusal
   copyText: t => navigator.clipboard?.writeText(t), haptic: k => navigator.vibrate?.(k === "selection" ? 5 : 12), /* LLP 1077 D14: vibration where the browser has it */ scrollIntoView: (id, block, inline, behavior) => { const e = document.getElementById(id); if (e) e.scrollIntoView({ block: block ?? "start", inline: inline ?? "nearest", behavior: behavior ?? "auto" }); else say(`scrollIntoView "${id}" refused: no live node with that id`); }, /* an element's, by id (minesweeper F3); list.js takes a row's */ scrollBy: (id, x, y) => { const e = document.getElementById(id); if (e) e.scrollBy(x, y); else say(`scrollBy "${id}" refused: no live node with that id`); }, // LLP 1101.004 R3
 };
-let KeyEvent = null; Hosts.preventDefault = () => { KeyEvent?.preventDefault(); if (KeyEvent?.type === "beforeunload") KeyEvent.returnValue = ""; }; Hosts.stopPropagation = () => { if (KeyEvent) KeyEvent.$stopped = true; }; // the key, focus, wheel, beforeunload or clipboard event whose handler is running (`on`): commands run before its commit returns; a stopped key reaches no ancestor's `key` handler, its default still does (files diary F8); a prevented beforeunload is the browser's "Leave site?" (Safari reads `returnValue`)
+let KeyEvent = null, Propagating = null; Hosts.preventDefault = () => { KeyEvent?.preventDefault(); if (KeyEvent?.type === "beforeunload") KeyEvent.returnValue = ""; }; Hosts.stopPropagation = () => { const e = KeyEvent ?? Propagating; if (e) e.$stopped = true; }; // Propagating: the pointer's down or up a handler is running for, which only its `stopPropagation()` reaches (its default is the browser's); // the key, focus, wheel, beforeunload or clipboard event whose handler is running (`on`): commands run before its commit returns; a stopped key reaches no ancestor's `key` handler, its default still does (files diary F8); a prevented beforeunload is the browser's "Leave site?" (Safari reads `returnValue`)
 /** The voice table's commands (LLP 1096 D5): the runtime's own, never a host's; sounds.js applies a commit's once it stood. */
 export const Sounds = { apply: null, own: new Set(["playSound", "playSounds", "stopSounds"]) };
 function command(name, args) {
@@ -375,7 +374,6 @@ export function paint() {
 let NowRead = false, Parked = -1;
 /** After a commit that wrote: a parked frame loop runs again. */
 function unpark() { if (Parked >= 0 && Rev !== Parked) { Parked = -1; paint(); } }
-
 // ---------------------------------------------------------------- the data seam
 /** The app's data sources (LLP 1016). `answer(source, args, store)` gives
  * `{v}` now, `{req}` (an HTTP request the host runs, then `parse`s),
@@ -421,7 +419,7 @@ function send(t, land) {
       t.ctl = new AbortController(); t.ctl.active = () => t.held() && !t.r?.gone; t.messages = t.coalesced = 0; Open.add(t);
       (t.stream ? t.stream(o => done(o, true), t.ctl) : data.fetch(t.req, m => done({ streamed: m }, true), t.ctl)).then(done, failed);
     } else if (t.req) data.fetch(t.req).then(done, failed);
-    else t.promise.then(v => done({ v }), e => done({ error: String(e?.message ?? e), code: failureCode(e) }));
+    else t.promise.then(v => done({ v }), e => done({ error: String(e?.message ?? e), code: failureCode(e), reason: failureReason(e) }));
   });
 }
 /** Open streams: one whose ticket its resource or mutation let go (new arguments, `refresh`, a failure,
@@ -447,12 +445,12 @@ function reply(t, name, source, held, f, next, gone) {
     if (commit(() => {
       if (!held()) return say(`dropped reply for ${name}: ticket ${t.id} is no longer held`);
       let p;
-      try { if (o.error !== undefined) throw new Failed(o.error, o.code); p = o.v !== undefined ? { v: o.v } : data.parse(source, t.args, o, Store); }
-      catch (e) { throw e instanceof Failed ? e : new Failed(String(e?.message ?? e), failureCode(e)); }
+      try { if (o.error !== undefined) throw new Failed(o.error, o.code, o.reason); p = o.v !== undefined ? { v: o.v } : data.parse(source, t.args, o, Store); }
+      catch (e) { throw e instanceof Failed ? e : new Failed(String(e?.message ?? e), failureCode(e), failureReason(e)); }
       f(p, o);
     }, `${o.more ? "message" : "reply"} ${name}; wall ${t.elapsed} ms`) !== false || !(Refused instanceof Failed || !t.r) || !held()) return; // a mutation's reply is spent whatever refused it
-    say(`request ${t.id} (${name}) failed and is no longer pending: ${next}`);
-    gone(Refused.message, Refused.code); recommit(() => { if (t.r) again(t); }, "a failed request");
+    say(`request ${t.id} (${name}) failed and is no longer pending: ${next}: ${Refused?.message ?? Refused}`); // why, on the line a test failure quotes (sb4 farm wave 6, E3: a mutation's refused reply named nowhere)
+    gone(Refused.message, Refused.code, Refused.reason); recommit(() => { if (t.r) again(t); }, "a failed request");
   };
 }
 const revalidated = (name, same) => `${name} answered: ${same ? "equal to its build-time answer" : "replaces its build-time answer"}`; // runner lines.rs
@@ -462,7 +460,7 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
   const kept = checkpoint().kept?.get(name);
   if (kept) [initialArgs, initial] = kept;
   const r = { name, source, type, value: initial, settled: initialArgs, baked: !kept && !carried && initialArgs !== undefined, ticket: null, forced: false, rev: false, store: false, origin: 0 };
-  const flag = (s, v, undo) => { if (!eq(s.n.v, v)) { undo?.push([s.n, s.n.v]); write(s.n, v); } }, release = () => { if (r.ticket) { say(`forget ticket ${r.ticket.id} (${name})`); r.ticket = null; } flag(pend, false); }, fails = (args, error, code) => { r.failed = args; r.error = error; r.code = code; flag(fail, failure()); release(); say(`resource ${name} failed: ${error}`); return r.value; }, failure = () => r.failed ? [r.failed, r.code ?? "error", r.error ?? "it failed"] : null; // `fail` holds the message too: a `failure(x)` reader is asked again when only it changes
+  const flag = (s, v, undo) => { if (!eq(s.n.v, v)) { undo?.push([s.n, s.n.v]); write(s.n, v); } }, release = () => { if (r.ticket) { say(`forget ticket ${r.ticket.id} (${name})`); r.ticket = null; } flag(pend, false); }, fails = (args, error, code, reason) => { r.failed = args; r.error = error; r.code = code; r.reason = reason; flag(fail, failure()); release(); say(`resource ${name} failed: ${error}`); return r.value; }, failure = () => r.failed ? [r.failed, r.code ?? "error", r.error ?? "it failed", r.reason ?? ""] : null; // `fail` holds the message too: a `failure(x)` reader is asked again when only it changes
   // Nothing kept: the placeholder shows, pending (LLP 1048.003 D6).
   const hold = () => {
     if (r.value !== undefined) return;
@@ -480,16 +478,16 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
   // that re-asks (a cursor across a gap) is a new ticket, the old one closed with the commit (`Open`).
   const land = t => reply(t, name, source, () => r.ticket === t, (p, o) => {
     if (p.req) { if (o.more) { const n = { id: ++Ticket, args: t.args, req: p.req, r, origin: t.origin }; r.ticket = n; send(n, land(n)); } else { t.req = p.req; t.id = ++Ticket; send(t, land(t)); } return; }
-    if (t.baked) say(revalidated(name, eq(p.v, r.value))); t.baked = false; take(p.v, t.args, t.origin); r.failed = null; r.error = r.code = undefined; if (!o.more) r.ticket = null; again(t);
+    if (t.baked) say(revalidated(name, eq(p.v, r.value))); t.baked = false; take(p.v, t.args, t.origin); r.failed = null; r.error = r.code = r.reason = undefined; if (!o.more) r.ticket = null; again(t);
     W(pend, false); W(fail, null); W(ver, ver.n.v + 1);
-  }, "it keeps its last value", (error, code) => { r.ticket = null; r.failed = t.args; r.error = error; r.code = code; write(pend.n, false); write(fail.n, failure()); });
+  }, "it keeps its last value", (error, code, reason) => { r.ticket = null; r.failed = t.args; r.error = error; r.code = code; r.reason = reason; write(pend.n, false); write(fail.n, failure()); });
   const m = memo(() => Ov.shown(r, (() => {
     ver();
     const a = r.asked = args(); if (Restoring) return flag(fail, failure()), r.value; // `asked`: the overlay's arguments while a placeholder stands; a refused commit put `failed` back, and `fail` follows it there too
     const forced = r.forced, rev = r.rev, reconciling = r.reconciling; // `reconciling`: asked after a write ended, a refusal fails it (overlay.js)
     r.forced = r.rev = r.reconciling = false;
     // A failure keeps the value for its arguments, asking nothing; `refresh` or new ones ask again (settlement.rs). `fail` follows.
-    if (r.failed && (forced || !equal(a, r.failed))) { r.failed = null; r.error = r.code = undefined; }
+    if (r.failed && (forced || !equal(a, r.failed))) { r.failed = null; r.error = r.code = r.reason = undefined; }
     flag(fail, failure());
     if (r.failed) return r.value;
     const baked = r.baked; r.baked = false;
@@ -503,7 +501,7 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
     catch (e) {
       if (e instanceof Refusal) throw e;
       if (e.refuse && !reconciling) throw new Failed(`resource ${name}: ${e.message}`);
-      return fails(a, String(e?.message ?? e), failureCode(e)); // its newest ask failed: an older one in flight is let go
+      return fails(a, String(e?.message ?? e), failureCode(e), failureReason(e)); // its newest ask failed: an older one in flight is let go
     }
     if (ans && ans.store) r.store = true;
     if (ans && "v" in ans) {
@@ -534,8 +532,8 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
     return r.value;
   })(), r.settled ?? r.asked, r.origin), type);
   Object.assign(r, {
-    save: () => [r.value, r.settled, r.ticket, r.ticket?.args, r.store, r.failed, r.baked, r.error, r.ticket?.again, r.code, r.origin, r.forced, r.reconciling, r.rev],
-    restore: x => { [r.value, r.settled, r.ticket] = x; if (r.ticket) { r.ticket.args = x[3]; r.ticket.again = x[8]; } r.store = x[4]; r.failed = x[5]; r.baked = x[6]; r.error = x[7]; r.code = x[9]; r.origin = x[10]; r.forced = x[11]; r.reconciling = x[12]; r.rev = x[13]; write(ver.n, ver.n.v + 1); }, // and what it shows is read again, from what was put back
+    save: () => [r.value, r.settled, r.ticket, r.ticket?.args, r.store, r.failed, r.baked, r.error, r.ticket?.again, r.code, r.origin, r.forced, r.reconciling, r.rev, r.reason],
+    restore: x => { [r.value, r.settled, r.ticket] = x; if (r.ticket) { r.ticket.args = x[3]; r.ticket.again = x[8]; } r.store = x[4]; r.failed = x[5]; r.baked = x[6]; r.error = x[7]; r.code = x[9]; r.origin = x[10]; r.forced = x[11]; r.reconciling = x[12]; r.rev = x[13]; r.reason = x[14]; write(ver.n, ver.n.v + 1); }, // and what it shows is read again, from what was put back
     force: undo => { r.forced = true; flag(ver, ver.n.v + 1, undo); },
     touch: undo => flag(ver, ver.n.v + 1, undo), // its writes changed: what it shows is laid over again
     reconcile: undo => { r.forced = r.reconciling = true; flag(ver, ver.n.v + 1, undo); },
@@ -544,7 +542,7 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
   onEnd(() => { r.gone = true; }); // its region ended: an open stream closes (`Open`)
   Resources.push(r);
   m.p = () => (m(), pend());
-  m.f = () => (m(), fail() != null); m.e = () => (m(), fail()?.slice(1) ?? null); // `failure(x)`: `none`, or the `Failure` record `[code, message]`
+  m.f = () => (m(), fail() != null); m.e = () => { m(); const f = fail(); return f ? [f[3] || f[1], f[2], f[3]] : null; }; // `failure(x)`: `none`, or the `Failure` record `[code, message, reason]`
   m.n.resource = r;
   m.r = r;
   return m;
@@ -553,7 +551,7 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
  * and the sends waiting their turn (`wait`, schedule.js), each asked at its `next`. */
 export const Mutations = [];
 export function mut(name, slot, refreshes, type, queue) {
-  const pend = sig(false);
+  const pend = sig(false), fail = sig(null);
   const m = { name, ticket: null, then: null, due: Infinity, next: Infinity, queue: !!queue, pend, refreshes: refreshes.map(x => x.r) };
   const shown = (re, undo) => { for (const r of m.refreshes) r.touch(undo); for (const r of re ?? []) r.reconcile(undo); }; // a write began or ended (overlay.js)
   Mutations.push(m);
@@ -563,28 +561,34 @@ export function mut(name, slot, refreshes, type, queue) {
   // A reply the source cannot take ends it unsent: its slot as it was, its `then` unarmed (`reply`).
   const land = t => reply(t, name, t.source, () => m.ticket === t, (p, o) => {
     if (p.req) { if (o.more) { const n = { id: ++Ticket, source: t.source, args: t.args, req: p.req, write: t.write }; m.ticket = n; send(n, land(n)); } else { t.req = p.req; send(t, land(t)); } return; }
-    if (type && !conforms(p.v, type, [0], m.checked)) throw new Failed(`${name}: the answer does not conform to its shape`);
-    m.checked = p.v;
+    if (type && !conforms(p.v, type, [0], m.checked)) throw new Failed(`${name}: the answer does not conform to its shape`, "shape");
+    m.checked = p.v; W(fail, null);
     if (!o.more) m.ticket = null; W(pend, !!m.wait?.length);
     Ov.land(m, p.v, t.write);
     slot.n.landing = 1; W(slot, p.v); Landed.push(m);
     for (const r of refreshes) R(r.r);
     queueMicrotask(() => { slot.n.landing = 0; });
-  }, "it ends unsent", () => { m.ticket = null; write(pend.n, !!m.wait?.length); m.ended(t.write); });
+  }, "it ends unsent", (error, code, reason) => { write(fail.n, [reason || code || "error", error, reason || ""]); m.ticket = null; write(pend.n, !!m.wait?.length); m.ended(t.write); });
   Object.assign(m, {
     // A queue's assignment forgets nothing (LLP 1092 D4).
-    forget(undo) { if (m.ticket && !m.wait) { say(`forget ticket ${m.ticket.id} (${name})`); m.ticket = null; undo.push([pend.n, pend.n.v]); write(pend.n, false); } if (!m.wait) shown(Ov.endPending(m), undo); },
+    forget(undo) { undo?.push([fail.n, fail.n.v]); write(fail.n, null); if (m.ticket && !m.wait) { say(`forget ticket ${m.ticket.id} (${name})`); m.ticket = null; undo.push([pend.n, pend.n.v]); write(pend.n, false); } if (!m.wait) shown(Ov.endPending(m), undo); },
     ended(write) { const re = Ov.end(m, write); if (re) shown(re); return !!re; }, // its send in flight ended without landing: whether a write showed (the caller's commit publishes it)
     send(source, args, undo, own) {
       if (!own) shown(Ov.accept(m, source, args), undo); // its write shows from here (a queue's next was accepted as it began to wait)
       // A queue's send waits unless the mutation is free; `own` is a `next`'s, whose ask refusing drops it (LLP 1092 D3).
       if (m.wait && !own && Sched.hold(m, source, args, undo)) return;
+      undo.push([fail.n, fail.n.v]); write(fail.n, null);
       let a;
       try {
         a = ask(source, args, name, true);
         if (!a || !("v" in a || a.req || a.promise || a.stream)) throw new Refusal(`${name}: its source is not ready`);
         if ("v" in a && type && !conforms(a.v, type, [0], m.checked)) throw new Refusal(`${name}: the answer does not conform to its shape`);
-      } catch (e) { if (e instanceof Refusal || e?.refuse || e?.kind === "UnknownSource") { if (own) Sched.own = e; throw e; } m.forget(undo); m.ended(Ov.asked(m)); undo.push([pend.n, pend.n.v]); write(pend.n, !!m.wait?.length); say(`send ${name} failed: ${e?.message ?? e}; it ends unsent`); return; }
+      } catch (e) {
+        if (e instanceof Refusal || e?.refuse || e?.kind === "UnknownSource") { if (own) Sched.own = e; throw e; }
+        m.forget(undo); m.ended(Ov.asked(m)); undo.push([pend.n, pend.n.v]); write(pend.n, !!m.wait?.length);
+        const reason = failureReason(e); undo.push([fail.n, fail.n.v]); write(fail.n, [reason || failureCode(e), String(e?.message ?? e), reason]);
+        say(`send ${name} failed: ${e?.message ?? e}; it ends unsent`); return;
+      }
       Out.push(...(a.effects ?? []));
       if ("v" in a) {
         m.checked = a.v;
@@ -599,7 +603,7 @@ export function mut(name, slot, refreshes, type, queue) {
       if ("v" in a) for (const r of refreshes) R(r.r); // answered at once, it has landed: what it changes is forced (commit.rs `landed_now`)
     },
   });
-  m.p = () => pend();
+  m.p = () => pend(); m.f = () => fail() != null; m.e = () => fail();
   return m;
 }
 export function M(m, source, args, own) { Sends.push([m, source, args, own]); }
@@ -676,7 +680,7 @@ const BOOL = /^(disabled|readonly|inert|checked|multiple|autoplay|controls|loop|
 export const PropHooks = {};
 const Composing = new WeakSet(), Held = new WeakMap(), HeldTask = new WeakMap(); function writeValue(e, v) { if (!HeldTask.has(e) && (e.localName === "input" || e.localName === "textarea")) { HeldTask.set(e, 0); e.addEventListener("compositionstart", () => { clearTimeout(HeldTask.get(e)); Composing.add(e); }); e.addEventListener("compositionend", () => HeldTask.set(e, setTimeout(() => { Composing.delete(e); if (Held.has(e)) writeValue(e, Held.get(e)); }, 0))); } if (e.value !== v && Composing.has(e)) return Held.set(e, v); Held.delete(e); if (e.value !== v) e.value = v; } // the app's `value` never ends a composition (LLP 1115.000 §5, ruling 6; the wasm host's `writeValue`, glue.js): another value written while a field's text composes is held, the last one, and written when the composition has ended and its last `input` was heard.
 /** A dynamic prop, by the DOM name the live host uses (`applyProps`). */
-const navigable = v => { try { return ["http:", "https:", "mailto:", "tel:"].includes(new URL(v, document.baseURI).protocol); } catch { return false; } };
+const navigable = (v, e) => { try { const p = new URL(v, document.baseURI).protocol; return ["http:", "https:", "mailto:", "tel:"].includes(p) || p === "data:" && e?.localName === "iframe" && opaque(e); } catch { return false; } }, opaque = e => e.hasAttribute("sandbox") && !e.getAttribute("sandbox").toLowerCase().split(/[\t\n\f\r ]+/).includes("allow-same-origin"); // a frame also shows a `data:` document in an opaque sandbox (navigation.js `frameURL`)
 function frame(e, v) {
   if (v?.startsWith("app:/")) e.setAttribute("data-app-src", v); else e.removeAttribute("data-app-src"); if (globalThis.__exactRender) return !!v?.startsWith("app:/");
   if (!e.$frame) { e.$frame = true; e.addEventListener("load", ev => { if (e.exactAppFrame && !e.exactAppFrame.url) ev.stopImmediatePropagation(); }, true); onEnd(() => e.exactAppFrame?.dispose()); }
@@ -689,11 +693,10 @@ export function P(e, name, f) {
   if (name === "data-scrolldocument") Docs.add(e);
   effect(() => {
     let v = f();
-    v = rel(name, v == null ? null : typeof v === "boolean" ? String(v) : String(v));
-    if (name === "src" && e.localName === "iframe" && frame(e, v)) return;
-    // A URL that navigates is written only if the web host's policy takes it (navigation.js `navigableURL`: http, https, mailto, tel): a refused
-    // link loses its `href`, an iframe shows about:blank. An `href` that turns out empty is no link either: the kernel's `Props::link` (element.rs `props_of`).
-    if (v != null && (name === "href" || (name === "src" && e.localName === "iframe")) && (!navigable(v) || name === "href" && v === "")) v = name === "src" ? "about:blank" : null;
+    v = rel(name, v == null ? null : typeof v === "boolean" ? String(v) : String(v)); const sandboxChanged = name === "sandbox" && e.localName === "iframe" && e.getAttribute(name) !== v;
+    // A URL that navigates is written only if the web host's policy takes it (navigation.js `navigableURL`,
+    // `frameURL`): a refused link loses its `href`, an iframe shows about:blank and keeps its source for its sandbox to decide.
+    if (name === "src" && e.localName === "iframe") { e.$src = v; if (frame(e, v)) return; if (v != null && !navigable(v, e)) v = "about:blank"; } else if (name === "href" && v != null && (!navigable(v) || v === "")) v = null;
     if (PropHooks[name]?.(e, v)) return;
     if (e.$media && Media.mediaProp(e, name, v)) return; // media.js: `paused`, `volume`, `currentTime` … are the glue's; an `app:/` source its own
     if (name === "text") { if (!e.childElementCount && e.textContent !== (v ?? "")) e.textContent = v ?? ""; }
@@ -703,6 +706,7 @@ export function P(e, name, f) {
     else if (v == null) { if (e.hasAttribute(name)) { e.removeAttribute(name); if (name.startsWith("data-exact-")) Paint?.facts(e); } }
     else if (e.getAttribute(name) !== v) { e.setAttribute(name, v); if (name.startsWith("data-exact-")) Paint?.facts(e); }
     if (e.localName === "a" && (name === "target" || name === "href" && (!e.hasAttribute("target") || e.rel === "external noopener"))) { const out = name === "href" && v != null && /^\s*(https?:)?\/\//i.test(v), t = name === "target" ? v : out ? "_blank" : null; if (t) e.setAttribute("target", t); else e.removeAttribute("target"); if (t === "_blank") e.rel = out ? "external noopener" : "noopener"; else e.removeAttribute("rel"); } // a link to an absolute URL leaves the app in a new browsing context unless its `target` is authored (element.rs `leaves_app`, `props_of`; chat F11)
+    if (name === "sandbox" && e.localName === "iframe" && !e.exactAppFrame) { const source = e.$src ?? e.getAttribute("src"); if (source != null) { const s = navigable(source, e) ? source : "about:blank"; if (sandboxChanged || e.getAttribute("src") !== s) e.setAttribute("src", s); } } // a new sandbox takes effect on navigation, even to the same source; a literal source stays in src, a refused `data:` source in $src
   });
 }
 /** A `markup="markdown"` text (LLP 1045 D3): its source as pieces, built
@@ -819,8 +823,8 @@ export function normal(prop, t) {
   return v;
 }
 export { gridValue } from "./grid.js";
-// A row's CSS text; `auto` on a maximum is CSS's unbounded `none` (LLP 1102 §3.11); a bound `-exact-hairline` is the sheet's one device pixel, as css.rs writes a literal one (LLP 1115.000 D10.3).
-const cssText = (prop, unit, v) => { const t = v == null ? null : typeof v === "number" ? v + unit : /^\s*-exact-hairline\s*$/i.test(v) ? "var(--exact-hairline, 1px)" : String(v); return t === "auto" && (prop === "max-width" || prop === "max-height") ? "none" : t; };
+// A row's CSS text; `auto` on a maximum is CSS's unbounded `none` (LLP 1102 §3.11); a bound `-exact-hairline` is the sheet's one device pixel, as css.rs writes a literal one (LLP 1115.000 D10.3); a layout region is its safe area (LLP 1123 D10).
+import { regions } from "./regions.js"; const cssText = (prop, unit, v) => { const t = v == null ? null : typeof v === "number" ? v + unit : /^\s*-exact-hairline\s*$/i.test(v) ? "var(--exact-hairline, 1px)" : regions(String(v)); return t === "auto" && (prop === "max-width" || prop === "max-height") ? "none" : t; };
 function css(e, prop, unit, v, rendered) {
   // The value this binding last wrote: the same again writes nothing (each
   // write was two style mutations, for every dynamic row of every row a
@@ -880,7 +884,7 @@ export function Sm(e, prop, unit, f) {
 /** A loaded piece's own handling of an event (files.js's file input): true when handled. */
 export const OnHooks = {};
 function guestOrigin(e) {
-  if (e.hasAttribute("sandbox") && !e.getAttribute("sandbox").split(/\s+/).includes("allow-same-origin")) return "null";
+  if (opaque(e)) return "null";
   const src = e.getAttribute("src");
   let o; try { o = !src || src === "about:blank" ? location.origin : new URL(src, document.baseURI).origin; } catch { return undefined; }
   return o === "null" ? undefined : o;
@@ -895,8 +899,8 @@ function imageEvent(e, kind, f) {
 }
 export function on(e, kind, f, bind) {
   // The runner's dispatch_at fires what is due at the event's time first (a focus's `then` before the input); a refusal still lets the event run.
-  const ends = kind === "close" || kind === "scrollend", go = f, wall = !clock.agent, own = ends ? Owner : null;
-  f = (...a) => { const to = wall && start ? Math.max(clock.now, performance.now() - start) : clock.now; if (clock.timers.some(t => t.due <= to && !(wall && t.frame)) || Mutations.some(m => m.due <= to || m.next <= to)) advance(to, wall); if (!ends || (e.isConnected && !own?.gone)) return go(...a); };
+  const ends = kind === "close" || kind === "scrollend", go = f, wall = !clock.agent, own = ends ? Owner : null, pointer = kind === "pointerdown" || kind === "pointerup", /* another event's handler run inside a pointer handler (a focus it moved) is not that pointer event's: its `stopPropagation()` does not stop it */ run = (...a) => { if (pointer) return go(...a); const outer = Propagating; Propagating = null; try { return go(...a); } finally { Propagating = outer; } };
+  f = (...a) => { const to = wall && start ? Math.max(clock.now, performance.now() - start) : clock.now; if (clock.timers.some(t => t.due <= to && !(wall && t.frame)) || Mutations.some(m => m.due <= to || m.next <= to)) advance(to, wall); if (!ends || (e.isConnected && !own?.gone)) return run(...a); };
   // A queued dialog close (or a scroll's end a due task's removal outlived) can outlive its arm, even while an exit animation keeps the element connected.
   const l = (t, g, capture = false) => { e.addEventListener(t, g, capture); if (ends) onEnd(() => e.removeEventListener(t, g, capture)); };
   if (OnHooks.file && e.localName === "input" && e.type === "file" && OnHooks.file(e, kind, f)) return;
@@ -937,12 +941,12 @@ export const onScroll = (e, kind, f, l) => { return l(kind, () => { if (e.$bootS
 export const onRefresh = () => {};
 export const onDblclick = (e, kind, f, l) => { return l(kind, ev => { ev.preventDefault(); f(); }); };
 // pointer.js (LLP 1005 §Events, 1056 §3)
-export const onPointer = (e, kind, f, l) => { return pointer(e, kind, f); };
+export const onPointer = (e, kind, f, l) => { return pointer(e, kind, kind === "pointermove" ? f : (r, ev) => { const outer = Propagating; Propagating = ev; try { f(r); } finally { Propagating = outer; } }); };
 // UI Events' `contextmenu` is a PointerEvent: where the secondary click was (studio diary R22).
 // A text field's own edit menu stays the browser's (navigation.js `editMenu`); a control's input has none, so its node's handler runs (#487). The nearest handler alone hears it, as on the wasm host and macOS (review b5-b 3).
 export const onContextmenu = (e, kind, f, l) => { return l(kind, ev => { if (editMenu(ev.target)) return; ev.preventDefault(); ev.stopPropagation(); f(record(e, ev)); }); };
 // DOM's own, bubbling to every ancestor's handler; one that calls `preventDefault()` keeps the scroll (a pinch is a Control-held wheel) from happening (studio diary R3).
-export const onWheel = (e, kind, f, l) => { return e.addEventListener("wheel", ev => { if (e.matches(":disabled") || e.closest("[inert]")) return; const outer = KeyEvent; KeyEvent = ev; try { f([...record(e, ev).slice(0, 2), ev.deltaX, ev.deltaY, ev.deltaMode, ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey]); } finally { KeyEvent = outer; } }, { passive: false }); };
+export const onWheel = (e, kind, f, l) => { return e.addEventListener("wheel", ev => { if (ev.$stopped || e.matches(":disabled") || e.closest("[inert]")) return; const outer = KeyEvent; KeyEvent = ev; try { f([...record(e, ev).slice(0, 2), ev.deltaX, ev.deltaY, ev.deltaMode, ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey]); } finally { KeyEvent = outer; } }, { passive: false }); };
 // Files dropped from outside, each a `doc:` handle (files.js, documents-glue.js; studio diary R19).
 export const onFileDrop = (e, kind, f, l) => { return OnHooks.drop?.(e, f); };
 // Normal blur commits before focusout chooses its DOM path. Flush callbacks run before post-flush focus commands or autofocus; retired owners never dispatch teardown blur.
@@ -951,7 +955,6 @@ export const onFocus = (e, kind, f, l) => { const own = Owner, run = () => e.isC
 export const onClipboard = (e, kind, f, l) => { return l(kind, ev => { ev.stopPropagation(); const outer = KeyEvent; KeyEvent = ev; try { f([ev.clipboardData?.getData("text/plain") ?? ""]); } finally { KeyEvent = outer; } }); };
 export const onToggle = (e, kind, f, l) => l(kind, ev => f([ev.oldState, ev.newState]));
 export const onSelectionChange = (e, kind, f, l) => { return textField(e) ? l(kind, () => f(inputRecord(e, e.value, false))) : onSelection(e, (text, a, b, rects) => f([text, a, b, rects])); };
-
 // ---------------------------------------------------------------- presence (LLP 1063)
 // `-exact-exit-animation` and `-exact-layout-transition`: the web host's own
 // presence-glue.js, fetched after the first painted frame by a plan with
@@ -992,7 +995,6 @@ export function pr(e) {
     })
     .catch(err => say(`presence: unavailable; motion skipped: ${err.message}`)).finally(() => inflight.n--);
 }
-
 /** The motion piece (motion.js over `motion.wasm` and the web host's
  * `motion-glue.js`), fetched after the first painted frame by a plan that
  * uses motion; `f(m)` runs at once when it is here, else once it is. */
@@ -1158,7 +1160,6 @@ export function hd(p, fields) {
   if (Adopt) p.insertBefore(t, at(p)); else p.append(t);
   onEnd(head(t, fields, effect, After));
 }
-
 function range(p) {
   if (Adopt) return [mark(p), null];
   const a = document.createComment(""), b = document.createComment("");
@@ -1308,7 +1309,6 @@ export function each(p, list, key, row, pure) {
     });
   }).$r = () => [a, b]; // the region's range, for shared.js
 }
-
 /** The indices of `list`'s kept rows (`old`, their former places) on a
  * longest run in increasing former order: the rows that need not move. */
 function inOrder(list) {
@@ -1325,7 +1325,6 @@ function inOrder(list) {
   for (let i = tails.length ? tails[tails.length - 1] : -1; i >= 0; i = prev[i]) stay.add(i);
   return stay;
 }
-
 // Adoption in slices (LLP 1048.001): a keyed list's rows adopt in the
 // adoption's own task until its budget runs out, then in tasks of a few
 // milliseconds after it, so no one task holds the page. A press, key or
@@ -1430,7 +1429,6 @@ export function mount(f) {
   for (const [e, v, c] of shown) if (e.isConnected) { if (e.type === "checkbox" || e.type === "radio") e.checked = c; else if (e.type !== "file") e.value = v; }
   for (const t of early) if (t.target.isConnected) t.type === "click" ? t.target.click() : t.target.dispatchEvent(new Event(t.type, { bubbles: true }));
 }
-
 /** The page's checkpoint (LLP 1048.000 D4): the answers its document used,
  * by resource name, so a resource admits the rendered value while its
  * arguments match, and the time the render stopped at. */

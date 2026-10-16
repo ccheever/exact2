@@ -2,16 +2,44 @@
 //! 1069.001 D4): one a commit changes, removes or renews is replaced, even
 //! if a later commit writes the old value back, as the web build's write of
 //! `value` replaces the element's own.
-use exact_kernel::ViewId;
+use exact_kernel::{CommitReceipt, Kernel, NodeKey, NodeRef, NodeType, ViewId};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Default)]
 pub(crate) struct ValueWatch {
     watched: BTreeMap<ViewId, String>,
     replaced: BTreeSet<ViewId>,
+    fields: BTreeSet<NodeKey>,
 }
 
 impl ValueWatch {
+    pub(crate) fn field(&mut self, node: &NodeRef<'_>) {
+        if node.node_type == NodeType::TextInput {
+            self.fields.insert(node.key);
+        }
+    }
+
+    pub(crate) fn fields_committed(&mut self, kernel: &Kernel, receipt: &CommitReceipt) {
+        for key in &receipt.destroyed {
+            self.fields.remove(key);
+        }
+        for key in receipt.created.iter().chain(&receipt.touched) {
+            if let Some(node) = kernel.node_by_key(*key) {
+                self.field(&node);
+            }
+        }
+    }
+
+    /// Fields whose committed props may need presenting, once per host turn.
+    pub(crate) fn take_fields(&mut self) -> BTreeSet<NodeKey> {
+        std::mem::take(&mut self.fields)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pending_fields(&self) -> usize {
+        self.fields.len()
+    }
+
     /// Watch `view`'s `value` from `at`; `None` stops.
     pub(crate) fn watch(&mut self, view: ViewId, at: Option<String>) {
         match at {

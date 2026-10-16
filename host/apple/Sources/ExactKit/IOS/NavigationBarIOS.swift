@@ -41,6 +41,9 @@ struct HeaderShape: Equatable {
         /// badge: a shape holding a text or a symbol), when the button has
         /// one: the item's image, in the box's own colours and corners.
         let badge: BadgeFace?
+        /// A face that says more than a title or symbol (a dot beside its
+        /// label, a font of the author's), drawn as painted (`ChipFace`).
+        let chip: ChipFace?
         /// Whether the button opens a popover (`Invocation.opensPopover`):
         /// the item's menu, its rows read when it opens, as LLP 1021 D3's
         /// pull-down.
@@ -91,6 +94,7 @@ struct HeaderShape: Equatable {
             id = button.id
             testId = button.props["testId"]
             badge = button.isNativeButton ? nil : BadgeFace(button)
+            chip = badge == nil ? ChipFace(button) : nil
             let invocation = button.presenter?.invocation(of: button)
             menu = invocation?.opensPopover == true
             menuTitle = menu ? invocation?.target.props["accessibilityLabel"] ?? "" : ""
@@ -114,7 +118,7 @@ struct HeaderShape: Equatable {
             }
         }
         /// Everything a bar item is made from.
-        var source: String { "\(toolbarGroup.map(String.init) ?? ""):\(id):\(title):\(symbol ?? ""):\(label ?? ""):\(disabled):\(accessibilityDisabled):\(prominent):\(ownGlass):\(badge?.source ?? ""):\(menu):\(menuTitle):\(tint ?? []):\(testId ?? "")" }
+        var source: String { "\(toolbarGroup.map(String.init) ?? ""):\(id):\(title):\(symbol ?? ""):\(label ?? ""):\(disabled):\(accessibilityDisabled):\(prominent):\(ownGlass):\(badge?.source ?? ""):\(chip?.source ?? ""):\(menu):\(menuTitle):\(tint ?? []):\(testId ?? "")" }
     }
     let header: NodeView
     let title: String
@@ -981,7 +985,7 @@ extension NavigationHost {
         let press = BarPress(i.id, self)
         c.barPresses.append(press)
         let action = #selector(BarPress.press)
-        let image = i.badge?.image ?? i.symbol.flatMap { UIImage(systemName: $0) }
+        let image = i.badge?.image ?? i.chip?.image(tint: presenter.viewport.tintColor) ?? i.symbol.flatMap { UIImage(systemName: $0) }
         let item: UIBarButtonItem
         if i.menu, let button = presenter.views[i.id] {
             // A pull-down: UIKit opens it on tap (`MenuHost.pullDown`).
@@ -998,7 +1002,7 @@ extension NavigationHost {
         else { item.accessibilityTraits.remove(.notEnabled) }
         // The authored `color` of a plain item's face; a prominent item's
         // tint is its fill, which `color` is not.
-        if let tint = i.tint, !i.prominent, i.badge == nil {
+        if let tint = i.tint, !i.prominent, i.badge == nil, i.chip == nil {
             item.tintColor = UIColor { TextEngine.color(tint[$0.userInterfaceStyle == .dark ? 1 : 0]) }
         }
         if #available(iOS 26.0, tvOS 26.0, *) {

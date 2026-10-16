@@ -704,6 +704,101 @@ final class NodePoolIOSTests: XCTestCase {
         XCTAssertEqual(FakeModule.made.count, 1, "the live session's view is made; the stale one's is not")
     }
 
+    /// A first-frame tag's view is made with the batch that made its node,
+    /// before the paint gate opens; another tag's waits for the gate.
+    func testAFirstFrameTagAttachesBeforeThePaintGate() throws {
+        FakeModule.reset()
+        FakeModule.table.withUnsafeBytes { NativeViews.install(table: $0.baseAddress!) }
+        defer { NativeViews.uninstallTable() }
+        let p = Presenter()
+        let natives = NativeViews()
+        natives.install(module: UnsafeMutableRawPointer(bitPattern: 1)!, gateOpen: false)
+        natives.firstFrameTags = ["fake-splash"] // as the build writes Info.plist from the roster
+        for (id, tag) in [(UInt32(1), "fake-plain"), (2, "fake-splash")] {
+            let v = NodeView(id: id, kind: "native", presenter: p)
+            v.frame = CGRect(x: 0, y: 0, width: 200, height: 100)
+            p.viewport.addSubview(v); p.views[id] = v
+            natives.create(owner: v)
+            v.props = ["nativeViewModuleName": tag, "nativeViewProps": "{}"]
+            natives.update(v)
+        }
+        XCTAssertEqual(FakeModule.made.count, 1, "only the first-frame tag's view is made before the gate")
+        XCTAssertTrue(FakeModule.made.first?.view.superview === p.views[2])
+        natives.activated()
+        XCTAssertEqual(FakeModule.made.count, 2, "the gate makes the other")
+        XCTAssertTrue(FakeModule.made.last?.view.superview === p.views[1])
+    }
+
+    /// A touch a module view declines inside its box (its hit test answers
+    /// nil there) is passed on; one on a view that takes no touches, or on a
+    /// box with `press`, is the box's, as a UIKit superview's would be.
+    func testAModuleViewThatDeclinesATouchPassesItOn() throws {
+        FakeModule.reset()
+        FakeModule.table.withUnsafeBytes { NativeViews.install(table: $0.baseAddress!) }
+        defer { NativeViews.uninstallTable() }
+        let p = Presenter()
+        let natives = NativeViews()
+        natives.install(module: UnsafeMutableRawPointer(bitPattern: 1)!)
+        let v = NodeView(id: 1, kind: "native", presenter: p)
+        v.frame = CGRect(x: 0, y: 0, width: 200, height: 100)
+        p.viewport.addSubview(v); p.views[1] = v
+        natives.create(owner: v)
+        v.props = ["nativeViewModuleName": "fake-plain", "nativeViewProps": "{}"]
+        natives.update(v)
+        let view = try XCTUnwrap(FakeModule.made.first?.view)
+        let inside = CGPoint(x: 100, y: 50)
+        XCTAssertFalse(natives.declined(v, at: inside, with: nil), "a plain view takes the touch")
+        view.declines = true
+        XCTAssertTrue(natives.declined(v, at: inside, with: nil))
+        XCTAssertFalse(natives.declined(v, at: CGPoint(x: 300, y: 50), with: nil), "outside the module view")
+        v.handlers = ["press"]
+        XCTAssertFalse(natives.declined(v, at: inside, with: nil), "the box's own press takes it")
+        v.handlers = ["message"]
+        XCTAssertTrue(natives.declined(v, at: inside, with: nil))
+        view.isUserInteractionEnabled = false
+        XCTAssertFalse(natives.declined(v, at: inside, with: nil), "a view that takes no touches declines nothing")
+    }
+
+    /// A module view with an element in it, or a list of its own, speaks for
+    /// itself to accessibility; a plain drawn one leaves its box to.
+    func testAModuleViewWithElementsSpeaksForItself() throws {
+        FakeModule.reset()
+        FakeModule.table.withUnsafeBytes { NativeViews.install(table: $0.baseAddress!) }
+        defer { NativeViews.uninstallTable() }
+        let p = Presenter()
+        let natives = NativeViews()
+        natives.install(module: UnsafeMutableRawPointer(bitPattern: 1)!)
+        let v = NodeView(id: 1, kind: "native", presenter: p)
+        p.viewport.addSubview(v); p.views[1] = v
+        natives.create(owner: v)
+        v.props = ["nativeViewModuleName": "fake-plain", "nativeViewProps": "{}"]
+        natives.update(v)
+        let view = try XCTUnwrap(FakeModule.made.first?.view)
+        XCTAssertFalse(natives.speaksForItself(v))
+        view.accessibilityElements = [UIAccessibilityElement(accessibilityContainer: view)]
+        XCTAssertTrue(natives.speaksForItself(v))
+        view.accessibilityElements = nil
+        // A UILabel is an element once UIKit's accessibility runtime loads,
+        // which a test runner does not.
+        let label = UIView()
+        label.isAccessibilityElement = true
+        view.addSubview(label)
+        XCTAssertTrue(natives.speaksForItself(v), "an element in it")
+        label.isHidden = true
+        XCTAssertFalse(natives.speaksForItself(v))
+        let chart = Counted()
+        view.addSubview(chart)
+        XCTAssertTrue(natives.speaksForItself(v), "a container by count and index")
+        view.accessibilityElements = []
+        XCTAssertFalse(natives.speaksForItself(v), "an empty list hides what is in the view")
+    }
+
+    /// A drawn chart's virtual elements, by count and index.
+    private final class Counted: UIView {
+        override func accessibilityElementCount() -> Int { 3 }
+        override func accessibilityElement(at index: Int) -> Any? { UIAccessibilityElement(accessibilityContainer: self) }
+    }
+
     func testHeavyLeafCostsLeaveOutEachKindsFirstCreation() {
         let kind = "test-kind-\(UUID().uuidString)"
         HeavyLeaves.record(kind, 0.5)
@@ -713,12 +808,17 @@ final class NodePoolIOSTests: XCTestCase {
     }
 }
 
-/// A module table in memory for the reuse and activation tests: two tags,
-/// `fake-map` (reuse) and `fake-plain`, each instance a plain view that
-/// records what the host asked of it.
+/// A module table in memory for the reuse and activation tests: three tags,
+/// `fake-map` (reuse), `fake-plain` and `fake-splash` (first frame), each
+/// instance a plain view that records what the host asked of it.
 private enum FakeModule {
+    /// A view whose hit test answers nil inside it once it `declines`.
+    final class View: UIView {
+        var declines = false
+        override func point(inside point: CGPoint, with event: UIEvent?) -> Bool { !declines && super.point(inside: point, with: event) }
+    }
     final class Instance {
-        let view = UIView()
+        let view = View()
         let nonce: UInt32
         let event: @convention(c) (UnsafeMutableRawPointer?, UInt32, UInt32, UnsafePointer<UInt8>?, UInt32) -> Void
         var props: [String] = []
@@ -735,7 +835,7 @@ private enum FakeModule {
     nonisolated(unsafe) static var made: [Instance] = []
     static func reset() { made = [] }
     static func instance(_ raw: UnsafeMutableRawPointer?) -> Instance { Unmanaged<Instance>.fromOpaque(raw!).takeUnretainedValue() }
-    static let roster = strdup(#"{"fake-map":{"snapshot":false,"reuse":true},"fake-plain":{"snapshot":false}}"#)!
+    static let roster = strdup(#"{"fake-map":{"snapshot":false,"reuse":true},"fake-plain":{"snapshot":false},"fake-splash":{"firstFrame":true}}"#)!
     static let table: [UInt8] = {
         var t = [UInt8](repeating: 0, count: 112)
         func put<T>(_ value: T, _ offset: Int) { withUnsafeBytes(of: value) { for (i, b) in $0.enumerated() { t[offset + i] = b } } }

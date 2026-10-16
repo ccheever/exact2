@@ -844,9 +844,9 @@ pub(crate) fn dimension(out: &mut String, d: Dimension) {
             num_into(out, plus.abs());
             out.push_str("px)");
         }
-        // The browser resolves the inset itself (under `viewport-fit=cover`,
-        // which the glue sets from the root's prop; zero otherwise).
-        Dimension::Env(edge, plus) => {
+        // The browser resolves the inset itself (under `viewport-fit=cover`, which the glue sets
+        // from the root's prop; zero otherwise); a layout region is its safe area (LLP 1123 D10).
+        Dimension::Env(edge, plus) | Dimension::Region(_, edge, plus) => {
             let inset = if plus == 0.0 { "env(" } else { "calc(env(" };
             out.push_str(inset);
             out.push_str("safe-area-inset-");
@@ -863,7 +863,7 @@ pub(crate) fn dimension(out: &mut String, d: Dimension) {
         Dimension::Segment(var, x, y, plus) => exact_kernel::style::env::css(var, x, y, plus, out),
         // CSS's own `min()`, `max()` and `clamp()`: the browser resolves
         // them, the insets with the rest (LLP 1001 §2, 2026-10-07).
-        Dimension::Compare(c) => c.css(out),
+        Dimension::Compare(c) => exact_kernel::style::env::browser_css(c, out),
     }
 }
 

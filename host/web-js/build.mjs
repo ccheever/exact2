@@ -20,7 +20,7 @@ import { basename, dirname, isAbsolute, join, normalize, posix, relative, resolv
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { transformSync } from 'rolldown/utils';
 import { localImports, stageHostGlue } from './glue.mjs';
-import { buildEditor, buildFlow, buildMarkdown, buildModule, buildMotion, fresh, moduleGrants, webCompiler } from './module.mjs';
+import { buildEditor, buildFlow, buildMarkdown, buildModule, buildMotion, fresh, moduleGrants, webCompiler, withoutDev } from './module.mjs';
 import { developmentStore } from '../../scripts/agent-launch.mjs';
 import { withLook } from '../web/look.mjs';
 
@@ -100,7 +100,20 @@ const appTs = resolve(appDir, 'app.ts');
 // `./<name>/…` from the app's own modules resolves into that directory in
 // every load this build makes (the module read below, the server and page
 // bundles), as the type check's capture lays it out.
-const tsMounts = Object.entries(manifest.typescript?.sources ?? {}).map(([name, path]) => [name, realpathSync(resolve(appDir, path))]);
+// A mount is relative to the app's directory, where app.json is; one that is not there is named with the directory it
+// was resolved from, and this checkout's Snapback driver offered when that is what it names (app farm wave 1: five
+// builds miscounted the `../`, and one built the device's wasm outside the app).
+function mountDir(name, path) {
+  try { return realpathSync(resolve(appDir, path)); } catch (e) {
+    const driver = /(^|\/)snapback4\/ts\/?$/.test(path) ? `; this checkout's Snapback driver is "${relative(appDir, resolve(root, 'snapback4/ts'))}" from there` : '';
+    console.error(`error: app.json typescript.sources.${name}: "${path}" is resolved from the app's directory, ${appDir}, to ${resolve(appDir, path)}, which ${e.code === 'ENOENT' ? 'does not exist' : `cannot be read (${e.code ?? e.message})`}${driver}`);
+    process.exit(1);
+  }
+}
+const tsMounts = Object.entries(manifest.typescript?.sources ?? {}).map(([name, path]) => [name, mountDir(name, path)]);
+if (tsMounts.some(([, dir]) => dir === realpathSync(resolve(root, 'snapback4/ts'))) && !existsSync(resolve(appDir, 'assets/snapback4.wasm'))) {
+  console.error(`warning: the app mounts Snapback's driver, and assets/snapback4.wasm, the device it loads by default, is missing (the page will fail with HTTP 404 for /assets/snapback4.wasm). From the app's directory: node ${resolve(root, 'snapback4/web/build.mjs')} assets/snapback4.wasm`);
+}
 // As the bake refuses them (js/bake/src/lib.rs `mounts`): a file reachable
 // through two mounts would have two places in the layout.
 for (const [i, [a, aDir]] of tsMounts.entries()) for (const [b, bDir] of tsMounts.slice(i + 1)) {
@@ -159,7 +172,9 @@ const compiler = webCompiler();
 const cargo = spawnSync(compiler.cmd, [...compiler.pre, 'js', input, '-o', gen, ...(production ? [] : ['--sites']), ...(devReload ? ['--dev-reload'] : [])], { cwd: root, stdio: 'inherit', env: { ...process.env, EXACT_JS_GPU_SURFACES: gpuSurfaces.join(',') } });
 if (cargo.status !== 0) process.exit(cargo.status ?? 1);
 compiler.done();
-for (const f of ['rt.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'shape.js', 'pointer.js', 'document.js', 'media.js', 'commands.js', 'focus.js', 'backdrop.js', 'persist.js', 'modes.js', 'beat.js']) cpSync(resolve(here, f), resolve(gen, f));
+for (const f of ['rt.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'shape.js', 'pointer.js', 'document.js', 'media.js', 'commands.js', 'focus.js', 'backdrop.js', 'persist.js', 'modes.js', 'beat.js', 'regions.js']) cpSync(resolve(here, f), resolve(gen, f));
+// The live table's runtime is the dev loop's build's alone.
+if (!devReload) writeFileSync(resolve(gen, 'modes.js'), withoutDev(readFileSync(resolve(here, 'modes.js'), 'utf8')));
 // Canvas 2D surfaces (a loaded chunk: this runtime's engine over the web
 // host's own replayer) are drawn by the Rust data module, or by a
 // TypeScript source's `draw` in the page (ts-draw.js, in the same chunk).
@@ -222,7 +237,7 @@ async function typecheck() {
   // This build's own output may sit inside the app (`--out <app>/web-out`):
   // it is no source, and the stage is inside it (review r4a 2).
   const output = realpathSync(out);
-  const mounts = Object.entries(manifest.typescript?.sources ?? {}).map(([name, path]) => [name, realpathSync(resolve(appDir, path))]);
+  const mounts = Object.entries(manifest.typescript?.sources ?? {}).map(([name, path]) => [name, mountDir(name, path)]);
   const capture = (from, to, top) => {
     for (const entry of readdirSync(from, { withFileTypes: true })) {
       const name = entry.name, path = resolve(from, name);
@@ -316,7 +331,7 @@ if (ts) {
     ...['__exact_entry.ts', '__exact_tsconfig.json', '__exact_config.mjs', '__exact_paths.json', '__exact_declarations.json', '__exact_canvas.js', '__exact_canvas.d.ts']
       .filter(name => existsSync(resolve(appDir, name))).map(name => `${name} is reserved for the producer`),
     ...('draw' in tsModule) !== ('surfaces' in tsModule) ? ['app.ts exports `draw` and `surfaces` together, or neither (LLP 1056 D1)'] : [],
-    ...!tsModule.appId ? ['app.ts exports no appId'] : tsModule.appId !== expected ? [`app.ts's appId is ${tsModule.appId}, but app.json names ${expected}`] : [],
+    ...!tsModule.appId ? ['app.ts exports no appId'] : tsModule.appId !== expected ? [`app.ts's appId is ${tsModule.appId}, but app.json's "app": { "id" } is ${expected} (its top-level "id" is the web manifest's, another field): make the two the same`] : [],
   ];
   if (problems.length) { console.error(problems.map(p => `error: ${p}`).join('\n')); process.exit(1); }
 }

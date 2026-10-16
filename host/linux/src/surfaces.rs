@@ -27,6 +27,8 @@ pub(crate) use android::{device_pending as gpu_device_pending, prepare as prepar
 pub(crate) mod controls;
 mod pixels;
 mod shaders;
+#[cfg(windows)]
+mod window;
 
 const LIMIT: usize = 256 * 1024 * 1024;
 type Read = unsafe extern "C" fn(u32) -> u32;
@@ -138,6 +140,12 @@ impl Abi {
                 crate::android::release_module_pages_too(*at as *const std::ffi::c_void);
             }
             if abi.rendered {
+                #[cfg(windows)]
+                for name in ["gpu_window_frame", "gpu_window_detach"] {
+                    abi.library
+                        .get::<*const ()>(name.as_bytes())
+                        .map_err(|e| format!("GPU ABI {name}: {e}"))?;
+                }
                 for name in ["gpu_load", "gpu_readback", "gpu_seekable", "gpu_lifecycle"] {
                     abi.library
                         .get::<*const ()>(name.as_bytes())
@@ -495,6 +503,10 @@ impl Canvas {
 }
 #[derive(Default)]
 pub(crate) struct Surfaces {
+    #[cfg(windows)]
+    window_layers: Option<window::Layers>,
+    #[cfg(windows)]
+    window_artifact: Option<String>,
     /// Each opened artifact by name, "" the primary; each is tried once.
     abis: BTreeMap<String, Abi>,
     attempted: BTreeSet<String>,
@@ -1264,6 +1276,9 @@ impl<D: DataSource> Presenter<D> {
     }
     pub(crate) fn agent_finger(&mut self, on: bool) {
         self.surfaces.finger = on;
+    }
+    pub(crate) fn contact_is_direct(&self) -> bool {
+        self.direct() || self.surfaces.finger
     }
     pub(crate) fn has_raw_motion(&self) -> bool {
         self.surfaces.motion.is_some()

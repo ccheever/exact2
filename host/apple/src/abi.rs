@@ -577,7 +577,7 @@ impl<D: DataSource> Bridge<D> {
                     if let Some(roots) = host.app_roots() {
                         executor.set_app_roots(roots);
                     }
-                    host.listen_io(&**executor);
+                    host.listen_io(&**executor, self.document_owner);
                 }
                 self.presenter_hooks(&mut host, &hooks);
                 self.executor = executor;
@@ -937,7 +937,7 @@ impl<D: DataSource> Bridge<D> {
             if let Some(roots) = candidate.host.app_roots() {
                 executor.set_app_roots(roots);
             }
-            candidate.host.listen_io(&**executor);
+            candidate.host.listen_io(&**executor, self.document_owner);
         }
         self.presenter_hooks(&mut candidate.host, &candidate.hooks);
         self.executor = executor;

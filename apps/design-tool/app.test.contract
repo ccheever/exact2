@@ -106,6 +106,13 @@ test "the token grid: every mode tuple light and dark, swatches, residuals, what
   expect tree has "cell-fallback-text.system-0-light"
   expect tree missing "cell-fallback-surface.page-0-light"
   expect text "follows-accent.soft" == "follows accent, lift"
+  // A declared pair's contrast in each cell, a low one marked.
+  expect text "pair-text.primary-0-light-surface.page" == "18.51:1 on surface.page"
+  expect text "pair-tone.warm-0-light-surface.page" == "2.78:1 on surface.page"
+  // And said with the cell, a low one so named.
+  tap "tone.warm, Light, oklch(0.7 0.1 20), 2.78:1 on surface.page, low contrast"
+  clock data
+  expect text "branch-label" == "tone.warm · default (Light)"
   expect tree missing "follows-surface.page"
   expect tree has "token-group-roles"
 
@@ -231,6 +238,140 @@ test "another design file is read when chosen, and a refused one shows its error
   expect tree missing "design-error"
   expect tree has "dial-accent-color"
 
+test "the changeset lists each write since the tool opened, and commit reports what it took or why not"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  expect tree has "no-changes"
+  request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"], "changed": [{"file": "app.tamber", "token": "surface.card"}]} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "entry-text-1" == "app.tamber: surface.card · agent:codex"
+  request POST "/__stub/refuse-commit" {"why": "it differed from HEAD when the session first wrote it"} as ada
+  tap "commit"
+  clock data
+  expect text "refused-app.tamber" == "app.tamber: it differed from HEAD when the session first wrote it"
+  request POST "/__stub/refuse-commit" {"why": ""} as ada
+  tap "commit"
+  clock data
+  expect text "committed-summary" == "Committed c0ffee012345: app.tamber"
+
+test "history reads as edits, and revert holds a proposal"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  tap "toggle-history"
+  clock data
+  expect text "subject-beef01234567" == "design: a warmer card"
+  expect tree has "edit-beef01234567"
+  tap "revert-beef01234567"
+  clock data
+  expect text "reverted" == "Held for review as prop-stub-1: the revert of beef01234567."
+  // Ten a page: Older reads past them, Newer back.
+  tap "more-history"
+  clock data
+  expect text "subject-feed01234567" == "design: the first"
+  expect tree missing "subject-beef01234567"
+  expect tree missing "more-history"
+  tap "newer-history"
+  clock data
+  expect tree has "subject-beef01234567"
+
+test "a restarted server starts the changeset again"
+  request POST "/__stub/restart" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"], "changed": [{"file": "app.tamber", "token": "surface.card"}], "files": {"app.tamber": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect tree has "entry-1"
+  expect tree has "changed-by-surface.card"
+  // The highlight fades after 3 s.
+  clock +3000
+  clock data
+  expect tree missing "changed-by-surface.card"
+  request POST "/__stub/restart" {} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect tree has "no-changes"
+  // A new run's first change is highlighted, though its number is one an
+  // earlier run's faded highlight had passed.
+  request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"], "changed": [{"file": "app.tamber", "token": "surface.card"}], "files": {"app.tamber": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect tree has "entry-1"
+  expect tree has "changed-by-surface.card"
+
+test "held proposals: each with its proposer, diff and items; accepted in part, recomputed, then whole; or dropped"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  expect tree has "no-proposals"
+  request POST "/__stub/hold" {"proposal": "p1", "client": "agent:codex", "diff": "--- app.tamber\n+++ app.tamber\n+  surface.card = #eeeeee\n", "changed": [{"file": "app.tamber", "token": "surface.card"}, {"file": "app.tamber", "token": "ink.on-brand"}], "ops": [{"index": 0, "op": {"op": "set-token", "name": "surface.card", "value": "#eeeeee"}}, {"index": 1, "op": {"op": "set-token", "name": "ink.on-brand", "value": "#fefefe"}}]} as ada
+  request POST "/__stub/hold" {"proposal": "p2", "client": "agent:claude", "diff": "", "changed": [], "ops": [{"index": 0, "op": {"op": "remove-token", "name": "tone.deep"}}]} as ada
+  clock +1
+  clock data
+  expect text "held-title-p1" == "agent:codex proposes surface.card, ink.on-brand"
+  expect tree has "pick-p1-1"
+  expect disabled "accept-picked-p1"
+  tap "pick-p1-0"
+  tap "accept-picked-p1"
+  clock data
+  expect text "write-note" == "p1 was recomputed on the files as they are now, as p1-r: review its diff and accept it again."
+  clock +1
+  clock data
+  expect tree missing "held-p1"
+  expect text "held-replaces-p1-r" == "Recomputed from p1 on the files as they are now: review it again."
+  expect text "held-title-p1-r" == "agent:codex proposes surface.card"
+  expect text "held-diff-p1-r" == "--- app.tamber\n+++ app.tamber\n+  surface.card (kept)\n"
+  tap "accept-p1-r"
+  clock data
+  expect text "write-note" == "Accepted p1-r."
+  expect text "undo" == "Undo (1)"
+  tap "drop-p2"
+  clock data
+  clock +1
+  clock data
+  expect tree has "no-proposals"
+
+test "an import's review: tokens in, overrides off until ticked with their notes, every unmapped value, the count; a token's value edited before accepting"
+  request POST "/__stub/restart" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/hold" {"proposal": "imp", "client": "design-tool:Ada", "diff": "", "changed": [], "ops": [{"index": 0, "op": {"op": "add-token", "name": "shadcn.card", "value": "light-dark(#ffffff, #222222)"}}, {"index": 1, "op": {"op": "set-token", "name": "AccentColor", "value": "shadcn.primary"}}], "review": {"importer": "shadcn", "counted": {"source": 3, "mapped": 2, "reported": 1}, "tokens": 1, "unmapped": [{"block": ":root", "name": "--radius", "value": "0.5rem", "why": "kind pending (stage 6): length"}], "offers": [{"role": "AccentColor", "token": "shadcn.primary", "items": [1], "note": null}, {"role": "-exact-label", "token": "shadcn.foreground", "items": [], "note": "tamber-role-axis: it would vary by dark-style"}]}} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "held-title-imp" == "design-tool:Ada imports a shadcn theme"
+  expect text "held-count-imp" == "3 source values = 2 mapped + 1 reported"
+  expect tree has "take-imp-0"
+  expect tree has "override-imp-AccentColor"
+  expect text "unmapped-imp-0" == "--radius = 0.5rem (:root): kind pending (stage 6): length"
+  expect text "offer-note-imp--exact-label" == "tamber-role-axis: it would vary by dark-style"
+  expect tree missing "override-imp--exact-label"
+  expect state picked == []
+  type "mapped-value-imp-0-0" "light-dark(#fafafa, #222222)"
+  type "mapped-value-imp-0-0" key "Enter"
+  clock data
+  expect text "write-note" == "shadcn.card is light-dark(#fafafa, #222222) in the import, held again as held-1 with what was chosen: review it and accept."
+  clock +1
+  clock data
+  expect tree missing "held-imp"
+  expect tree has "held-held-1"
+
 test "an undo goes only to the server run that issued it: after a restart it is refused, and undo and redo start again"
   type "name" "Ada"
   tap "save-name"
@@ -245,3 +386,18 @@ test "an undo goes only to the server run that issued it: after a restart it is 
   clock data
   expect text "write-error" == "The design server restarted (or another took its port) since this session began: nothing was written, and undo and redo start again."
   expect text "undo" == "Undo (0)"
+
+test "a gap in the long poll is said in Changes"
+  request POST "/__stub/restart" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"], "changed": [{"file": "app.tamber", "token": "surface.card"}], "files": {"app.tamber": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"}} as ada
+  request POST "/__stub/miss" {} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "entry-text-1" == "Some changes were missed here (the server keeps the last 256), so this list may be incomplete."

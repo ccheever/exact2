@@ -34,6 +34,7 @@ pub struct Fetch {
     pub method: &'static str,
     pub path: String,
     pub body: Option<Json>,
+    pub headers: std::collections::BTreeMap<String, String>,
     /// Names this exchange: its reply is delivered with it, and a reply
     /// naming another (an earlier round's, a closed client's) is refused.
     pub exchange: String,
@@ -45,6 +46,7 @@ impl Fetch {
             method: "GET",
             path,
             body: None,
+            headers: snapback4_device::engine::headers(),
             exchange: String::new(),
         }
     }
@@ -53,12 +55,12 @@ impl Fetch {
             method: "POST",
             path,
             body: Some(body),
+            headers: snapback4_device::engine::headers(),
             exchange: String::new(),
         }
     }
     pub fn to_json(&self) -> Json {
-        let mut value =
-            json!({"method": self.method, "path": self.path, "exchange": self.exchange});
+        let mut value = json!({"method": self.method, "path": self.path, "headers": self.headers, "exchange": self.exchange});
         if let Some(body) = &self.body {
             value["body"] = body.clone();
         }
@@ -858,6 +860,7 @@ impl Client {
             method: "POST",
             path: "/auth/refresh".into(),
             body: None,
+            headers: snapback4_device::engine::headers(),
             exchange: String::new(),
         };
         self.exchanges += 1;

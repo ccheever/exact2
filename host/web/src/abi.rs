@@ -1299,6 +1299,13 @@ macro_rules! host {
             EXACT_BRIDGE.with(|b| b.borrow_mut().set_mode(len as usize))
         }
 
+        /// A live design batch or snapshot in the input buffer (LLP 1121
+        /// stage 4); returns the batch length. Development builds only.
+        #[no_mangle]
+        pub extern "C" fn exact_design_rows(len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().design_rows(len as usize))
+        }
+
         /// The locale and time zone: `locale NUL timeZone` in the input buffer.
         #[no_mangle]
         pub extern "C" fn exact_set_place(len: u32) -> u32 {

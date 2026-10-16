@@ -176,7 +176,10 @@ reading (LLP 1045), Interview first. Unblocks rich posts that stay plain text
 in storage and scan cheaply. Take (Charlie, 2026-09-21): the reader's open
 follow-ups other than code-block highlighting (heading anchors, file
 watching, the compact folder layout) wait behind it; no rich value type,
-collaboration or HTML paste import. **Refined (Charlie, 2026-09-21:
+collaboration or HTML paste import. **Lifted (Charlie, 2026-10-15, LLP
+1069.010.000 stage 1):** file watching comes off that wait, the editor being
+built: a `doc:` watch re-asks the answer that reads the path, with no new
+take. **Refined (Charlie, 2026-09-21:
 "move forward with your plan"):** Native editing stays on TextKit 2;
 dependable source editing precedes further marker hiding, with Interview as
 the first consumer. **Refined again (Charlie, 2026-09-22: "let's remove
@@ -277,6 +280,16 @@ Charlie's approval. No new attribute, no title menu, no bar added by a route.
 bar; a header button with it remains authored too (LLP 1075.003 §9.10).
 This uses the existing CSS row, admits no new attribute or apparatus, and
 implements the approved feature ruling rather than inferring from styling.
+**Expanded (Charlie, 2026-10-15: "keep making improvements to exact2 until
+porting euxy … is higher fidelity than the others"):** the chrome euxy's
+original customised. A route's `navigationGrabber` (`visible`, `hidden`,
+`auto`) says a sheet's grabber; an alertdialog with one `input` is the
+platform's text prompt (UIAlertController, NSAlert); a header button whose
+face says more than a symbol or a title (a status dot, an authored font) is
+drawn as written in its bar item; swipe actions whose controls all say
+`appearance="none"` keep their paint. Take: none offered; waived by that
+instruction. Still out: an arbitrary subtree as a bar item, a prompt with
+several fields.
 **Expanded (Charlie, 2026-10-03: "A native grouped-list role mapped to
 UICollectionView list layout"):** `list appearance="auto"` is a grouped list
 (LLP 1084): sections with a header and footer, rows read by shape, UIKit's
@@ -456,6 +469,13 @@ names no take; `:focus-within` remains out.
   hydration, route payloads and cache policies are on the doing-list (the
   entry above). Still refused: progressive forms and server-driven UI.
 - Aquifer data tier, durable worker tier, capability capsules, durable capability grants.
+  **Moved, one form (Charlie, 2026-10-15, waiver; LLP 1069.010.000 stage 2):**
+  a document the person chose, the object itself, kept in the platform's
+  bounded recents the person can clear from outside the app, under the
+  `doc.keep` grant, on macOS, Linux in a desktop session and the web (not
+  iOS). Unblocks document apps reopening their documents after a relaunch.
+  Every other durable grant stays refused, and so does keeping what a route
+  or the app reached rather than what the person chose.
 - A hardened-runtime exception on the app's own executable (Charlie, 2026-10-15):
   `runtime.*` grants name helper executables only (LLP 1069.008 D9), until the
   main executable has a consumer. The likely first, an in-process wasmtime loader
@@ -696,6 +716,14 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
   §Events). The Signal Clone's hold-to-record mic is the consumer: recording
   starts the moment the finger lands. Unblocks hold-to-act controls. Take:
   none offered; waived by Charlie's approval. Still no multi-touch.
+  **Amended (Charlie, 2026-10-15, option 1 of
+  `issues/closed/20261010-pointer-events-reach-ancestors.md`):** both bubble
+  to every ancestor that hears them, as `key` and `wheel` do; the innermost
+  node hearing any pointer event still holds the moves; `stopPropagation()`
+  stops either, and `wheel`, at its handler (decided under Charlie's
+  delegation, 2026-10-15, after Astra's review). Unblocks a window's
+  outside-press dismiss beside a popup that hears `pointermove`. Take: none;
+  Charlie's ruling.
   **Built (2026-10-04, LLP 1056 §8.6; the widening confirmed by Charlie the
   same day):** stage 3's pointer coordinates, which Canvas 2D's acceptance
   admitted for a canvas's handlers, as a `PointerEvent` record (DOM's

@@ -30,7 +30,38 @@ mod style;
 use std::process::ExitCode;
 
 const USAGE: &str =
-    "usage: exact-web-js js <app.contract | app.plan> -o <dir> [--dump] [--sites] [--dev-reload]\n       exact-web-js normalize-grants <file>";
+    "usage: exact-web-js js <app.contract | app.plan> -o <dir> [--dump] [--sites] [--dev-reload]\n       exact-web-js normalize-grants <file>\n       exact-web-js design <app.contract> <design text file, or - for stdin>";
+
+/// `design <app.contract> <file | ->` (LLP 1121 stage 4, commit 6): a scrub's
+/// design, the text (`-`: stdin) compiled in place of the app's design file, as a
+/// development build's `dev-design.json` says it, on stdout. Nothing is
+/// written.
+fn scrub_design(input: &std::path::Path, text: &str) -> ExitCode {
+    exact_web::link(exact_web_capabilities::ALL);
+    exact_kernel::style::roles::set_column(exact_kernel::style::roles::Column::Neutral);
+    let read = if text == "-" {
+        std::io::read_to_string(std::io::stdin())
+    } else {
+        std::fs::read_to_string(text)
+    };
+    let (Some(path), Ok(text)) = (contract::design_path(input), read) else {
+        eprintln!("{}: no design, or the text unreadable", input.display());
+        return ExitCode::from(1);
+    };
+    match contract::with_design_text(&path, text, || contract::compile_path_all(input, false)) {
+        Ok((plan, _)) => {
+            let _every = modes::every(true);
+            println!("{}", modes::design(&plan));
+            ExitCode::SUCCESS
+        }
+        Err(errors) => {
+            for e in errors {
+                eprintln!("{e}");
+            }
+            ExitCode::from(1)
+        }
+    }
+}
 
 fn main() -> ExitCode {
     // `--sites` (a development build): each element names its plan node, and
@@ -48,6 +79,11 @@ fn main() -> ExitCode {
                     ExitCode::from(1)
                 }
             };
+        }
+    }
+    if let [cmd, input, text] = all.as_slice() {
+        if cmd == "design" {
+            return scrub_design(std::path::Path::new(input), text);
         }
     }
     let sites = all.iter().any(|a| a == "--sites");
@@ -221,6 +257,18 @@ fn main() -> ExitCode {
             ] {
                 if let Err(e) = std::fs::write(dir.join(name), text) {
                     eprintln!("{name}: {e}");
+                    return ExitCode::from(1);
+                }
+            }
+            // A development build's design, for the dev loop's live table
+            // (LLP 1121 stage 4): a value-only edit goes as a batch.
+            if dev_reload {
+                let _every = modes::every(true);
+                if let Err(e) = std::fs::write(
+                    dir.join("dev-design.json"),
+                    modes::design(&plan).to_string(),
+                ) {
+                    eprintln!("dev-design.json: {e}");
                     return ExitCode::from(1);
                 }
             }

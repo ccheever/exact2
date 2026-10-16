@@ -1,6 +1,7 @@
 // `pointerdown` and `pointerup` on UIKit (LLP 1005 §3; Charlie,
 // 2026-10-03): DOM's names for a touch going down on a node and coming up
-// or being cancelled, and `pointermove` while it is down (LLP 1056 §3 stage
+// or being cancelled, bubbling to every enabled ancestor that hears either
+// (Charlie, 2026-10-15), and `pointermove` while it is down (LLP 1056 §3 stage
 // 3: UIKit delivers moves once a frame; a touch has no hover, and an iPad's
 // pointer hovering is not delivered). An observer, not a gesture: it never
 // recognizes, so it takes nothing from a press, a pan, a long press or the
@@ -31,6 +32,14 @@ final class PointerRecognizer: UIGestureRecognizer {
     /// The held touch's id, DOM's `pointerId`: the mouse is 1, so a touch
     /// counts on from 2, a new one for each contact.
     private var touchId = 1
+    /// The nodes from this one up, through authored parents, that hear
+    /// `pointerdown` or `pointerup`, innermost first: the held touch's down
+    /// bubbled to each, and each hears its up.
+    private var path: [Weak] = []
+    private struct Weak { weak var node: NodeView? }
+    /// The presenter the touch went down in: the held node may leave the
+    /// tree before the up, which its surviving ancestors still hear.
+    private weak var presenter: Presenter?
     /// No touch held: a pooled row may keep it (it is synced with the
     /// handlers it is reused with).
     var idle: Bool { touch == nil }
@@ -55,19 +64,52 @@ final class PointerRecognizer: UIGestureRecognizer {
         touch = first
         touchId += 1
         buttons = first.type == .indirectPointer ? Self.domButtons(event.buttonMask) : 1
-        if node.handlers.contains("pointerdown") { node.presenter?.pointer(node.id, .down, sample(first)) }
+        // This recognizer's node is the innermost that hears the pointer:
+        // the others from here up leave the touch to it (`nearer`), so it
+        // sends the bubbling down and up for them all.
+        path = Self.bubbling(from: node).map(Weak.init)
+        presenter = node.presenter
+        // A handler may disable a node further up before its turn, or stop
+        // this down; the up's path and the hold stay.
+        dispatch(path.compactMap(\.node).filter { $0.handlers.contains("pointerdown") }) { n in
+            if !n.disabled { n.presenter?.pointer(n.id, .down, sample(first, at: n)) }
+        }
     }
+    /// One bubbling dispatch to `nodes`, innermost first, each still the
+    /// tree's when its turn comes, until a handler calls `stopPropagation()`.
+    private func dispatch(_ nodes: [NodeView], _ send: (NodeView) -> Void) {
+        guard let presenter else { return }
+        presenter.propagating {
+            for n in nodes where Self.live(n) {
+                send(n)
+                if presenter.propagationStopped { break }
+            }
+        }
+    }
+    /// Up the authored tree (`Presenter.pointerParent`).
+    private static func bubbling(from node: NodeView) -> [NodeView] {
+        var nodes: [NodeView] = []
+        var view: UIView? = node
+        let presenter = node.presenter
+        while let v = view {
+            if let n = v as? NodeView, !n.disabled, n.handlers.contains("pointerdown") || n.handlers.contains("pointerup") { nodes.append(n) }
+            view = presenter?.pointerParent(of: v) ?? v.superview
+        }
+        return nodes
+    }
+    /// Still the tree's node: a handler further in may have removed it.
+    private static func live(_ node: NodeView) -> Bool { node.presenter?.views[node.id] === node }
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
         super.touchesMoved(touches, with: event)
         guard let held = touch, touches.contains(held), let node, node.handlers.contains("pointermove") else { return }
         if held.type == .indirectPointer { buttons = Self.domButtons(event.buttonMask) }
         node.presenter?.pointer(node.id, .move, sample(held))
     }
-    /// The record of `t` as the node sees it, from its content box: a
-    /// pencil's or a 3D Touch's force over its maximum where UIKit measures
-    /// one, else DOM's 0.5 while down.
-    private func sample(_ t: UITouch, lifted: Bool = false) -> PointerSample {
-        guard let node else { return PointerSample(x: 0, y: 0, buttons: 0, pressure: 0, type: "touch", id: touchId, clientX: 0, clientY: 0) }
+    /// The record of `t` as `node` (this one's by default) sees it, from its
+    /// content box: a pencil's or a 3D Touch's force over its maximum where
+    /// UIKit measures one, else DOM's 0.5 while down.
+    private func sample(_ t: UITouch, lifted: Bool = false, at node: NodeView? = nil) -> PointerSample {
+        guard let node = node ?? self.node else { return PointerSample(x: 0, y: 0, buttons: 0, pressure: 0, type: "touch", id: touchId, clientX: 0, clientY: 0) }
         let point = t.location(in: node), box = node.contentBox()
         let client = node.presenter?.client(t.location(in: nil)) ?? .zero
         let type = t.type == .pencil ? "pen" : t.type == .indirectPointer ? "mouse" : "touch"
@@ -98,17 +140,33 @@ final class PointerRecognizer: UIGestureRecognizer {
     private func lift(_ touches: Set<UITouch>) {
         guard let held = touch, touches.contains(held) else { return }
         touch = nil
-        if let node, node.handlers.contains("pointerup") { node.presenter?.pointer(node.id, .up, sample(held, lifted: true)) }
+        let nodes = path.compactMap(\.node).filter { $0.handlers.contains("pointerup") }
+        path = []
+        dispatch(nodes) { n in n.presenter?.pointer(n.id, .up, sample(held, lifted: true, at: n)) }
         if relay != nil { node = nil }
         state = .failed
     }
     override func reset() {
         super.reset()
         touch = nil
+        path = []
     }
     // Never in anyone's way.
     override func canPrevent(_ preventedGestureRecognizer: UIGestureRecognizer) -> Bool { false }
     override func canBePrevented(by preventingGestureRecognizer: UIGestureRecognizer) -> Bool { false }
+}
+
+extension Presenter {
+    /// What a touch's pointer events, long press and double tap bubble to
+    /// from `view`, as DOM's bubble out of the top layer: a lifted popover's
+    /// or a modal dialog's authored parent, though its view is in the top
+    /// layer or a sheet, a presented route's logical parent, else the
+    /// superview. `eventParent` stays inside a dialog's sheet: the walks on
+    /// it also read inertness and visibility, which a modal dialog escapes.
+    func pointerParent(of view: UIView) -> UIView? {
+        if let node = view as? NodeView, let parent = menus.sheets.authoredParent(of: node) { return parent }
+        return menus.logicalParent(of: view) ?? eventParent(of: view)
+    }
 }
 
 extension NodeView {

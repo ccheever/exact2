@@ -47,8 +47,8 @@ extension Agent {
         while let v = current {
             if let n = v as? NodeView, !n.disabled,
                !n.handlers.isDisjoint(with: ["pointerdown", "pointermove", "pointerup"]) { return n }
-            // Through a presented route's logical parents, as `MountRelay`
-            current = (v as? NodeView)?.presenter?.touchParent(of: v) ?? v.superview
+            // Through a sheet's or a lifted popover's authored parents, as `MountRelay`
+            current = (v as? NodeView)?.presenter?.listenerParent(of: v) ?? v.superview
         }
         return nil
     }

@@ -15,3 +15,9 @@ mod round;
 
 pub use client::{Client, Config, Core, Fetch, Reply, Step, NEEDS_BACKEND};
 pub use dispatch::dispatch;
+
+/// Identity supplied by the compiled engine, shared by native and web requests.
+pub fn engine_info() -> serde_json::Value {
+    serde_json::to_value(snapback4_core::device_protocol::DeviceEngine::current())
+        .expect("device engine identity")
+}

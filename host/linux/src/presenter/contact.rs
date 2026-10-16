@@ -64,6 +64,7 @@ pub(super) struct Contact {
     origin: (f32, f32),
     position: (f32, f32),
     last_ms: f64,
+    event_ms: f64,
     pub(super) hold: Option<Hold>,
     /// A grouped row lifted: its ghost follows (`group.rs`).
     group: bool,
@@ -176,6 +177,9 @@ impl<D: DataSource> Presenter<D> {
     }
     /// Retire after commits even when the target itself was untouched.
     pub(super) fn retire_pointer(&mut self) {
+        if self.pointer_walking {
+            return;
+        }
         if self.contact.as_ref().is_some_and(|c| !self.contact_live(c)) {
             if self.contact.as_ref().is_some_and(|c| c.retained.is_some()) {
                 // Cancel only our token, at the already accepted Host time. An
@@ -226,6 +230,14 @@ impl<D: DataSource> Presenter<D> {
     }
     pub(crate) fn contact_position(&self) -> Option<(f32, f32)> {
         self.contact.as_ref().map(|c| c.position)
+    }
+    pub(crate) fn contact_event_ms(&self) -> Option<f64> {
+        self.contact.as_ref().map(|c| c.event_ms)
+    }
+    pub(crate) fn delay_contact_event(&mut self, ms: f64) {
+        if let Some(contact) = &mut self.contact {
+            contact.event_ms += ms;
+        }
     }
 
     /// Every candidate of a contact on `hit`: innermost first, then reorder >
@@ -279,6 +291,90 @@ impl<D: DataSource> Presenter<D> {
         }
         None
     }
+
+    /// Whether the web host prevents pointerdown's default focus for this hit.
+    /// Swipe and reorder prevent moves, not the down.
+    pub(crate) fn pointerdown_prevents_focus(&self, hit: ViewId) -> bool {
+        let kernel = self.host.kernel();
+        let Some(hit_key) = kernel.node(hit).map(|n| n.key) else {
+            return true;
+        };
+        let (mut editor, mut press, mut button) = (None, None, None);
+        let (mut retain, mut interactive, mut height) = (false, false, false);
+        let mut at = Some(hit);
+        while let Some(id) = at {
+            let Some(n) = kernel.node(id) else { break };
+            let kind = exact_kernel::ControlKind::of(n.node_type, n.props);
+            let field = n.node_type == NodeType::TextInput
+                || kind.is_some_and(|kind| {
+                    !matches!(
+                        kind,
+                        exact_kernel::ControlKind::Button
+                            | exact_kernel::ControlKind::Progress
+                            | exact_kernel::ControlKind::ProgressBar
+                    )
+                });
+            if field && editor.is_none() {
+                editor = Some(n.key);
+            }
+            let control = n.node_type == NodeType::Pressable
+                || kind == Some(exact_kernel::ControlKind::Button);
+            interactive |= field || control;
+            if control && n.props.str(PropId::Href).is_none() && button.is_none() {
+                button = Some(id);
+            }
+            if press.is_none()
+                && (control
+                    || self
+                        .host
+                        .runner()
+                        .handlers_of(id)
+                        .contains(&EventKind::Press))
+            {
+                press = Some(n.key);
+            }
+            retain |= n.props.bool(PropId::RetainFocus) == Some(true);
+            // Unlike transform drag, height drag does not exclude an inner
+            // generic press handler; only HTML controls and editors exclude it.
+            height |= self.input_live(n.key) && self.host.height_drag_target(n.key).is_some();
+            at = n.parent;
+        }
+        if retain && editor.is_none() {
+            return true;
+        }
+        if let Some(button) = button.filter(|_| kernel.has_prop(PropId::ContextTarget)) {
+            for preview in kernel.preorder_where(&kernel.roots(), |_, props| {
+                props.str(PropId::ContextTarget).is_some()
+            }) {
+                let mut at = kernel.node(preview).and_then(|n| n.parent);
+                while let Some(id) = at {
+                    let Some(n) = kernel.node(id).filter(|n| n.parent.is_some()) else {
+                        break;
+                    };
+                    if n.style.position_type == exact_kernel::PositionType::Absolute {
+                        if self.is_inside(button, id) {
+                            return true;
+                        }
+                        break;
+                    }
+                    at = n.parent;
+                }
+            }
+        }
+        if !interactive && (height || self.transform_candidate(hit_key).is_some()) {
+            return true;
+        }
+        if let Some(Candidate::Pan(pan)) = self.pan_candidate(hit_key) {
+            let inside = |key| self.depth(key, pan).is_some_and(|depth| depth > 0);
+            let own_editor = editor == Some(pan)
+                && kernel.node_by_key(pan).is_some_and(|n| {
+                    exact_kernel::ControlKind::of(n.node_type, n.props)
+                        != Some(exact_kernel::ControlKind::Select)
+                });
+            return !own_editor && !editor.is_some_and(inside) && !press.is_some_and(inside);
+        }
+        false
+    }
     /// Primary down shared by evdev, VNC, and explicitly labeled agent
     /// synthesis; then the node's `pointerdown` (LLP 1005 §3), which the
     /// contact never waits for.
@@ -325,6 +421,7 @@ impl<D: DataSource> Presenter<D> {
                     origin: (x, y),
                     position: (x, y),
                     last_ms: now_ms,
+                    event_ms: now_ms,
                     hold: None,
                     group: false,
                     retained: Some(retained),
@@ -375,6 +472,7 @@ impl<D: DataSource> Presenter<D> {
                 origin: (x, y),
                 position: (x, y),
                 last_ms: now_ms,
+                event_ms: now_ms,
                 hold: None,
                 group: false,
                 panning: false,
@@ -413,6 +511,7 @@ impl<D: DataSource> Presenter<D> {
             origin: (x, y),
             position: (x, y),
             last_ms: now_ms,
+            event_ms: now_ms,
             hold: None,
             group: false,
             panning: false,
@@ -436,8 +535,19 @@ impl<D: DataSource> Presenter<D> {
     }
     /// Recognize one dominant axis. Recognition has zero displacement at catch.
     pub fn pointer_move(&mut self, x: f32, y: f32, now_ms: f64) -> Result<bool, String> {
+        self.pointer_move_at(x, y, now_ms, now_ms)
+    }
+    // Agent events have timestamps for pan velocity while dispatch and held
+    // motion use the frozen runner clock, as on the page.
+    pub(crate) fn pointer_move_at(
+        &mut self,
+        x: f32,
+        y: f32,
+        now_ms: f64,
+        event_ms: f64,
+    ) -> Result<bool, String> {
         let mark = self.hatch_pointer_mark(crate::hatches::Phase::Move, x, y);
-        let moved = self.pointer_moved(x, y, now_ms);
+        let moved = self.pointer_moved(x, y, now_ms, event_ms);
         // The device's motion belongs to this move alone, sent or not.
         self.clear_raw_motion();
         // A node's `pointermove` (LLP 1056 §3 stage 3), as pan's, per move.
@@ -449,7 +559,13 @@ impl<D: DataSource> Presenter<D> {
         self.hatch_pointer(mark, crate::hatches::Phase::Move, x, y);
         over.map_or(moved, Err)
     }
-    fn pointer_moved(&mut self, x: f32, y: f32, now_ms: f64) -> Result<bool, String> {
+    fn pointer_moved(
+        &mut self,
+        x: f32,
+        y: f32,
+        now_ms: f64,
+        event_ms: f64,
+    ) -> Result<bool, String> {
         self.retire_pointer();
         // A finger hovers nothing, down or lifted (LLP 1115.001 D7.4): what
         // a mouse hovered before it came is left.
@@ -468,6 +584,7 @@ impl<D: DataSource> Presenter<D> {
         self.pointer_sample(x, y, now_ms)?;
         let mut contact = self.contact.take().unwrap();
         contact.last_ms = now_ms;
+        contact.event_ms = event_ms;
         if let Some(canvas) = contact.canvas {
             // At the screen's edge the position stops; the device's motion does not.
             let moved = (x, y) != contact.position || self.has_raw_motion();
@@ -477,7 +594,7 @@ impl<D: DataSource> Presenter<D> {
         }
         contact
             .pan_velocity
-            .push(now_ms / 1000., Value::new(x as f64, y as f64));
+            .push(event_ms / 1000., Value::new(x as f64, y as f64));
         if let Some((key, box_)) = contact.press {
             self.host.press_feedback(key, box_.contains(x, y), now_ms);
             self.dirty = true;
@@ -671,13 +788,22 @@ impl<D: DataSource> Presenter<D> {
     }
     /// Accepted final sample, typed action while held, end once, pin released last.
     pub fn pointer_up(&mut self, x: f32, y: f32, now_ms: f64) -> Result<bool, String> {
+        self.pointer_up_at(x, y, now_ms, now_ms)
+    }
+    pub(crate) fn pointer_up_at(
+        &mut self,
+        x: f32,
+        y: f32,
+        now_ms: f64,
+        event_ms: f64,
+    ) -> Result<bool, String> {
         let mark = self.hatch_pointer_mark(crate::hatches::Phase::Up, x, y);
-        let result = self.pointer_lift(x, y, now_ms);
+        let result = self.pointer_lift(x, y, now_ms, event_ms);
         self.refresh_feedback();
         self.hatch_pointer(mark, crate::hatches::Phase::Up, x, y);
         result
     }
-    fn pointer_lift(&mut self, x: f32, y: f32, now_ms: f64) -> Result<bool, String> {
+    fn pointer_lift(&mut self, x: f32, y: f32, now_ms: f64, event_ms: f64) -> Result<bool, String> {
         // DOM's order: the node's `pointerup`, then any click.
         if let Some(error) = self.pointer_lifted(Some((x, y)), now_ms) {
             return Err(error);
@@ -686,7 +812,7 @@ impl<D: DataSource> Presenter<D> {
         if self.contact.is_some() {
             self.pointer_sample(x, y, now_ms)?;
         }
-        let accepted = match self.pointer_move(x, y, now_ms) {
+        let accepted = match self.pointer_move_at(x, y, now_ms, event_ms) {
             Ok(accepted) => accepted,
             Err(error) => {
                 let _ = self.pointer_cancel(now_ms);
@@ -763,7 +889,7 @@ impl<D: DataSource> Presenter<D> {
             }
         } else if contact.panning {
             // The last delta went out above; then the release, once.
-            let velocity = contact.pan_velocity.estimate(now_ms / 1000.);
+            let velocity = contact.pan_velocity.estimate(event_ms / 1000.);
             match contact.candidate {
                 Some(Candidate::Pan(key)) => self
                     .release_pan(key, (velocity.x, velocity.y), now_ms)
@@ -772,8 +898,16 @@ impl<D: DataSource> Presenter<D> {
             }
         } else if let Some((key, box_)) = contact.press {
             if box_.contains(x, y) && self.input_live(key) {
-                if let Some(node) = self.host.kernel().node_by_key(key) {
-                    self.activate(node.id, now_ms);
+                if let Some(id) = self.host.kernel().node_by_key(key).map(|n| n.id) {
+                    // Focus is decided from what the finger touched, as
+                    // `press_at` decides it: a `retainFocus` child counts.
+                    let hit = self.host.kernel().node_by_key(contact.hit).map(|n| n.id);
+                    let hit = hit.unwrap_or(id);
+                    self.note_press(hit, false);
+                    if !self.pointerdown_prevents_focus(hit) {
+                        self.focus_for_press(hit, now_ms, self.contact_is_direct());
+                    }
+                    self.activate(id, now_ms);
                 }
             }
             Ok(false)

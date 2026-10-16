@@ -53,6 +53,16 @@ impl Parser {
     pub(super) fn ternary(&mut self) -> R<Expr> {
         let cond = self.binary(0)?;
         if self.eat_punct("?") {
+            // `x ?? d`, `x?.f`: TypeScript's absence, which Contract spells as an option.
+            let (mark, next) = (self.tokens[self.pos - 1].span, self.peek().span);
+            let touching = next.line == mark.line && next.col == mark.end_col;
+            if touching && (self.at_punct("?") || self.at_punct(".")) {
+                let form = if self.at_punct("?") { "??" } else { "?." };
+                return self.err(
+                    "syntax-refused-idiom",
+                    format!("Contract has no `{form}`: absence is an option, so `x ?? d` is `match x {{ case some(v) => v, case none => d }}` and `x?.f` is `match x {{ case some(v) => some(v.f), case none => none }}`"),
+                );
+            }
             let below = self.last;
             let a = self.expr()?;
             let below = below.max(self.last);
@@ -111,6 +121,15 @@ impl Parser {
                 break;
             }
             self.next();
+            // `a === b`: `==` then `=`.
+            if matches!(op, BinOp::Eq | BinOp::Ne) && self.at_punct("=") {
+                let strict = if op == BinOp::Eq { "===" } else { "!==" };
+                let loose = if op == BinOp::Eq { "==" } else { "!=" };
+                return self.err(
+                    "syntax-refused-idiom",
+                    format!("Contract has no `{strict}`: write `{loose}`, which compares lists and records by value"),
+                );
+            }
             let right = self.binary(prec + 1)?;
             let span = left.span();
             self.built(depth.max(self.last), span)?;
@@ -140,7 +159,18 @@ impl Parser {
 
     pub(super) fn postfix(&mut self) -> R<Expr> {
         let mut e = self.primary()?;
-        while self.at_punct(".") {
+        loop {
+            // `xs[i]`, `s[0]`: the web's bracket indexing, directly after its value.
+            let (last, next) = (self.tokens[self.pos - 1].span, self.peek().span);
+            if self.at_punct("[") && next.line == last.line && next.col == last.end_col {
+                return self.err(
+                    "syntax-refused-idiom",
+                    "Contract has no `xs[i]`: write `xs.at(i)`, an option (`none` past the end; a negative index counts from the end, unlike `xs[i]`); for text, `s.slice(i, i + 1)`",
+                );
+            }
+            if !self.at_punct(".") {
+                break;
+            }
             self.next();
             let (field, span) = self.field_name()?;
             // `xs.map(f)`: the web's method call, directly after the name.

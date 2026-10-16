@@ -265,7 +265,7 @@ export const navigation = {
   // @ref LLP 1038 D11 — the agent uses the real browser traversal.
   travel(nav, delta) {
     if (nav !== root.querySelector("[navigationBack]")) return { error: "history target is not the navigation root" };
-    if (!Number.isInteger(delta) || delta === 0) return { error: "history must be a nonzero integer" };
+    if (!Number.isInteger(delta) || delta === 0) return { malformed: true, error: "history must be a nonzero integer" };
     return new Promise(resolve => {
       const timer = setTimeout(finish, 1000);
       function finish() {
@@ -582,11 +582,6 @@ function followScroll(el, enabled) {
 }
   return { followedScrolls, followScroll, settleFollow, rememberScroll };
 }
-// A `markup="markdown"` text node's pieces, as the wasm emitted them
-// (`[text, scale, weight, flags, href, indent]`; flags italic 1, mono 2, strike 4,
-// link 8, quiet 16, hanging marker 32), built into spans with textContent — never HTML. Lives here because it
-// must run at boot and glue.js is at its line cap. LLP 1045 D3/D4.
-//
 // One scheme allowlist for every URL the page can navigate to: a link's `href` (an authored `link`, an inline run bound
 // to data, a Markdown link), an iframe's `src`, and `openURL`. A `javascript:` URL in any of them runs in this page's
 // origin. The browser's own parser reads the scheme, with the whitespace and control characters `java\tscript:` hides
@@ -598,9 +593,15 @@ export function navigableURL(href, base = document.baseURI) {
   } catch { return null; }
 }
 export const navigates = (el, name) => name === "href" || (name === "src" && el.localName === "iframe");
+// A present sandbox without `allow-same-origin` gives an opaque origin; tokens use ASCII whitespace and ignore case.
+export const opaqueSandbox = sandbox => sandbox != null && !sandbox.toLowerCase().split(/[\t\n\f\r ]+/).includes("allow-same-origin");
+export function dataURL(src, base = document.baseURI) { try { return src != null && new URL(src, base).protocol === "data:"; } catch { return false; } }
+/** Whether an iframe in `sandbox` shows `src`: a `navigableURL`, or a `data:`
+ * document in an opaque sandbox, whose script cannot reach this page (LLP 1020 §10). */
+export const frameURL = (src, sandbox, base = document.baseURI) => navigableURL(src, base) !== null || (opaqueSandbox(sandbox) && dataURL(src, base));
 /** A refused URL is never written: a link loses its `href`, an iframe shows about:blank. */
 export function refuseURL(el, name, value) {
-  console.warn(`exact: refused ${name} ${JSON.stringify(String(value).slice(0, 80))}: only http, https, mailto and tel navigate`);
+  console.warn(`exact: refused ${name} ${JSON.stringify(String(value).slice(0, 80))}: only http, https, mailto and tel navigate${name === "src" ? ", and data: in a sandbox without allow-same-origin" : ""}`);
   if (name === "src") el.setAttribute(name, "about:blank"); else el.removeAttribute(name);
 }
 // A list item's paragraph (indent > 0, LLP 1045 D4) is a block with the item's indent as `padding-left`; its marker
@@ -799,8 +800,8 @@ export function onFold(changed) {
 } /** A context menu's popover, opened for the `contextmenu` event `e` (LLP 1021 §5.1): `find` answers `[popover, source]` when there is still one to open. It opens once the press that asked is over: a Mac's `contextmenu` comes with the button still down, and Firefox and WebKit take the release that follows, outside a popover just opened, for its light dismiss, so the menu never showed there. And it opens at the pointer (LLP 1115.000 D4.7): where the press was is left on the popover (`--exact-context-x`, `-y`) until it closes, for the page's sheet to place it by (neutral.css; the shell's own reads neither). A menu key has no point, and its menu opens at its row. */ export function contextAt(e, find) { const open = () => { const [p, source] = find() ?? []; if (!p) return; if (e.clientX || e.clientY) { p.style.setProperty("--exact-context-x", `${e.clientX}px`); p.style.setProperty("--exact-context-y", `${e.clientY}px`); p.exactAt ??= (p.addEventListener("toggle", t => { if (t.newState === "closed") for (const axis of "xy") p.style.removeProperty(`--exact-context-${axis}`); }), true); } try { p.showPopover({ source }); } catch {} }, ends = ["pointerup", "pointercancel", "mouseup"], end = () => { for (const type of ends) removeEventListener(type, end, true); setTimeout(open); }; if (!e.buttons) return void setTimeout(open); for (const type of ends) addEventListener(type, end, true); }
 /** The grid a host without a fold makes for `prefer segments <cols>x<rows> [gap <points>]`: the viewport split evenly, the gap centred on each divider; refused by name. */
 export function evenSegments(width, height, cols, rows, gap = 0) {
-  if (!(cols >= 1 && rows >= 1)) throw new Error(`segments ${cols}x${rows}: each count is at least 1`);
-  if (!(Number.isFinite(gap) && gap >= 0)) throw new Error(`segments: gap ${gap} is not a non-negative length`);
+  if (!(cols >= 1 && rows >= 1)) throw Object.assign(new Error(`segments ${cols}x${rows}: each count is at least 1`), { malformed: true });
+  if (!(Number.isFinite(gap) && gap >= 0)) throw Object.assign(new Error(`segments: gap ${gap} is not a non-negative length`), { malformed: true });
   if (cols * rows === 1) return [];
   const span = (total, n) => { const bands = (n - 1) * gap; if (bands >= total) throw new Error(`segments ${cols}x${rows} gap ${gap}: the gap is wider than the viewport (${width} × ${height})`); return (total - bands) / n; };
   const w = span(width, cols), h = span(height, rows), out = [];
@@ -815,13 +816,13 @@ export function preferFold(request) {
   for (const [name, raw] of Object.entries(request)) {
     const n = Number(raw);
     switch (name) {
-      case "posture": if (raw !== "folded" && raw !== "continuous") throw new Error(`prefer: posture: ${raw} is folded or continuous`); next.posture = raw; break;
-      case "cols": case "rows": if (!(Number.isInteger(n) && n >= 1)) throw new Error(`prefer: segments: ${raw} ${name === "cols" ? "columns" : "rows"} is not a count`); next[name] = n; grid = true; break;
-      case "gap": if (!(Number.isFinite(n) && n >= 0)) throw new Error(`prefer: segments: gap ${raw} is not a length`); gap = n; grid = true; break;
-      default: throw new Error(`prefer: ${name} is not a fold fact this host sets`);
+      case "posture": if (raw !== "folded" && raw !== "continuous") throw Object.assign(new Error(`prefer: posture: ${raw} is folded or continuous`), { malformed: true }); next.posture = raw; break;
+      case "cols": case "rows": if (!(Number.isInteger(n) && n >= 1)) throw Object.assign(new Error(`prefer: segments: ${raw} ${name === "cols" ? "columns" : "rows"} is not a count`), { malformed: true }); next[name] = n; grid = true; break;
+      case "gap": if (!(Number.isFinite(n) && n >= 0)) throw Object.assign(new Error(`prefer: segments: gap ${raw} is not a length`), { malformed: true }); gap = n; grid = true; break;
+      default: throw Object.assign(new Error(`prefer: ${name} is not a fold fact this host sets`), { malformed: true });
     }
   }
-  if (grid) { try { next.rects = evenSegments(innerWidth, innerHeight, next.cols, next.rows, gap); } catch (e) { throw new Error(`prefer: ${e.message}`); } }
+  if (grid) { try { next.rects = evenSegments(innerWidth, innerHeight, next.cols, next.rows, gap); } catch (e) { throw Object.assign(new Error(`prefer: ${e.message}`), { malformed: e.malformed }); } }
   (globalThis.exact ??= {}).foldSubstitute = next;
   return foldEnv();
 }
@@ -831,22 +832,23 @@ const DISPLAY_MODES = ["standalone", "browser", "fullscreen", "minimal-ui", "win
 let preferenceQueries;
 // Bits 8–25 belong to foldBits(); 26–27 gamut, 28 HDR (LLP 1100 D9), 29–31 display-mode (LLP 1039 D7).
 const queries = () => (preferenceQueries ??= [["(prefers-reduced-motion: reduce)", 1], ["(prefers-reduced-transparency: reduce)", 2], ["(prefers-contrast: more)", 4], ["(prefers-contrast: less)", 8], ["(prefers-contrast: custom)", 12], ["(prefers-color-scheme: dark)", 16], ["(pointer: coarse)", 32], ["(pointer: none)", 64], ["(hover: none)", 128], ["(color-gamut: p3)", 1 << 26], ["(color-gamut: rec2020)", 1 << 27], ["(dynamic-range: high)", 1 << 28], ...DISPLAY_MODES.map((v, i) => [`(display-mode: ${v})`, i << 29])].map(([q, bits]) => [matchMedia(q), bits]));
-export const preferences = () => queries().reduce((bits, [q, bit]) => bits | (q.matches ? bit : 0), 0);
+export const preferences = () => { const bits = queries().reduce((bits, [q, bit]) => bits | (q.matches ? bit : 0), 0), pinned = globalThis.exact?.systemScheme; return pinned ? (bits & ~16) | (pinned === "dark" ? 16 : 0) : bits; }; // a dev pin's scheme is the system's (LLP 1122 D4; dev.js)
 export const displayMode = () => DISPLAY_MODES[(preferences() >>> 29) & 7];
 export const onPreferences = (changed) => queries().forEach(([q]) => q.addEventListener("change", changed));
-// @ref LLP 1069.000 D2 — the page's facts as `exact_set_page` takes them: bit 0 `document.visibilityState == "hidden"`,
-// bit 1 `!navigator.onLine`, bit 2 `typeof navigator.share === "function"` (LLP 1069.003 D5), bit 3 `typeof
-// showOpenFilePicker === "function"` (LLP 1069.010 D2; studio diary R31), bit 4 `!document.hasFocus()` (#114), told
-// again at the window's `focus` and `blur`. Under the agent the drive's values stand in (visible, online, a share
-// sheet, the pickers, focus: LLP 1069.000 D6), set by `prefer`'s `page` group; the machine is never read, but for the display's scale (below).
+// @ref LLP 1069.000 D2 — the page's facts as `exact_set_page` takes them: bit 0 `document.visibilityState == "hidden"`, bit 1
+// `!navigator.onLine`, bit 2 `typeof navigator.share === "function"` (LLP 1069.003 D5), bit 3 `typeof showOpenFilePicker ===
+// "function"` (LLP 1069.010 D2; studio diary R31), bit 4 `!document.hasFocus()` (#114), told again at the window's `focus` and `blur`,
+// bits 5–6 Navigation Timing's `type` (runner/src/page.rs `NAVIGATION_TYPES`; a prerender's is `navigate`). Under the agent the drive's values stand in (visible, online, a share sheet, the pickers, focus, a `navigate`: LLP 1069.000 D6), set by `prefer`'s `page` group; the machine is never read, but for the display's scale (below).
 export function pageReporter(agent, platform = globalThis) {
   const facts = { "visibility-state": "visible", online: true, "can-share": true, "can-open-files": true, "has-focus": true, "root-font-size": 16 };
   // @ref LLP 1069.000 D3 — the root font size: the document element's computed `font-size`, the browser's setting
   // unless a page sets it; under the agent the drive sets it on the element (`prefer root-font-size`). The app's own
   // size (`appRootFontSize`) is set over it and read past.
   const rootFontSize = () => agent ? facts["root-font-size"] : beneathApp(platform, () => parseFloat(platform.getComputedStyle(platform.document.documentElement).fontSize) || 16), displayScale = () => platform.devicePixelRatio > 0 ? platform.devicePixelRatio : 1; // @ref LLP 1115.000 D10.3 — the display's scale is the page's own `devicePixelRatio`, read under the agent too: the drive sets it through the browser's emulation (`prefer display-scale`), never by a substitute, and a zoom fires `resize`, which tells it again
-  const read = () => agent ? { ...facts } : { "visibility-state": platform.document.visibilityState === "hidden" ? "hidden" : "visible", online: platform.navigator.onLine !== false, "can-share": typeof platform.navigator.share === "function", "can-open-files": typeof platform.showOpenFilePicker === "function", "has-focus": typeof platform.document.hasFocus !== "function" || platform.document.hasFocus() };
-  const bits = () => { const f = read(); return (f["visibility-state"] === "hidden" ? 1 : 0) | (f.online ? 0 : 2) | (f["can-share"] ? 4 : 0) | (f["can-open-files"] ? 8 : 0) | (f["has-focus"] ? 0 : 16); };
+  const loaded = agent ? "" : platform.performance?.getEntriesByType?.("navigation")?.[0]?.type;
+  const navigationType = ["reload", "back_forward"].includes(loaded) ? loaded : "navigate";
+  const read = () => agent ? { ...facts, "navigation-type": navigationType } : { "visibility-state": platform.document.visibilityState === "hidden" ? "hidden" : "visible", online: platform.navigator.onLine !== false, "can-share": typeof platform.navigator.share === "function", "can-open-files": typeof platform.showOpenFilePicker === "function", "has-focus": typeof platform.document.hasFocus !== "function" || platform.document.hasFocus(), "navigation-type": navigationType };
+  const bits = () => { const f = read(); return (f["visibility-state"] === "hidden" ? 1 : 0) | (f.online ? 0 : 2) | (f["can-share"] ? 4 : 0) | (f["can-open-files"] ? 8 : 0) | (f["has-focus"] ? 0 : 16) | (["navigate", "reload", "back_forward"].indexOf(f["navigation-type"]) + 1) << 5; };
   const prefer = (page) => {
     const next = { ...facts };
     for (const [name, raw] of Object.entries(page ?? {})) {
@@ -854,7 +856,7 @@ export function pageReporter(agent, platform = globalThis) {
       if (name === "visibility-state" && (value === "visible" || value === "hidden")) next[name] = value;
       else if ((name === "online" || name === "can-share" || name === "can-open-files" || name === "has-focus") && (value === "true" || value === "false")) next[name] = value === "true";
       else if (name === "root-font-size" && Number(value) > 0 && Number.isFinite(Number(value))) next[name] = Number(value); else if (name === "display-scale" && Number(value) > 0 && Number.isFinite(Number(value))) { if (Math.abs(displayScale() - Number(value)) > 0.01) throw new Error(`prefer: display-scale: ${value}: the page's is ${displayScale()}, which the browser sets (its own emulation, or the device)`); }
-      else throw new Error(`prefer: ${name}: ${value} is not a page fact this host sets`);
+      else throw Object.assign(new Error(`prefer: ${name}: ${value} is not a page fact this host sets`), name === "keyboard-navigation" ? {} : { malformed: true }); // keyboard-navigation is a real page fact this host does not set: a refusal
     }
     Object.assign(facts, next);
     if (page?.["root-font-size"] !== undefined) { const { style } = platform.document.documentElement; style.fontSize = `${facts["root-font-size"]}px`; style.setProperty("--exact-host-font-size", style.fontSize); } // the size an app's percentage is of
@@ -972,8 +974,7 @@ export function reportPlace() {
 // committed (an opaque sandbox posts as "null"), which a `message` from it must match.
 const iframeOrigins = new WeakMap(); // iframe -> authored/committed guest origin
 export function commitGuestOrigin(el) {
-  const sandbox = new Set((el.getAttribute("sandbox") ?? "").split(/\s+/).filter(Boolean));
-  const opaque = el.hasAttribute("sandbox") && !sandbox.has("allow-same-origin");
+  const opaque = opaqueSandbox(el.getAttribute("sandbox"));
   let origin = null;
   if (!opaque) {
     const src = el.getAttribute("src");
@@ -1031,7 +1032,7 @@ export function guestTap(frame, request) {
   const y = Number.isFinite(request.y) ? request.y : guest.innerHeight / 2;
   let target;
   try { target = request.selector ? document.querySelector(request.selector) : null; }
-  catch { return { guest: true, error: "guest tap has an invalid selector" }; }
+  catch { return { guest: true, malformed: true, error: "guest tap has an invalid selector" }; }
   target ||= document.elementFromPoint(x, y) || document.body;
   if (!target) return { guest: true, error: "guest tap found no target" };
   // Script input is intentionally untrusted (@ref LLP 1020 D4;
@@ -1050,7 +1051,7 @@ export function guestType(frame, request) {
   const editable = active?.matches?.("input,textarea,[contenteditable]") ? active : null;
   let target;
   try { target = request.selector ? document.querySelector(request.selector) : null; }
-  catch { return { guest: true, error: "guest type has an invalid selector" }; }
+  catch { return { guest: true, malformed: true, error: "guest type has an invalid selector" }; }
   target ||= editable || document.querySelector("input,textarea,[contenteditable]");
   if (!target) return { guest: true, error: "guest type found no target" };
   // These are the Apple guest script's event shapes, including focus and

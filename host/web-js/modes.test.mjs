@@ -78,3 +78,67 @@ test('a boundary takes its tuple and the inherited token text, in document order
   globalThis.exact.modes.command(['dark-style', 'grey']);
   expect(journal.at(-1)).toBe('setMode("dark-style", "grey") refused: an axis of the app\'s design and one of its values');
 });
+
+// LLP 1121 stage 4: a development build's live batch sets each changed
+// token's property in every tuple's rule, on its base only.
+test('a live batch sets each tuple rule on its base, and a stale one asks for the snapshot', async () => {
+  const document = createDocument();
+  const rule = (selectorText) => ({ selectorText, style: { map: new Map(), setProperty(p, v) { this.map.set(p, v); } } });
+  const black = rule(':root,[data-x-modes="dark-style=black"]'), dim = rule('[data-x-modes="dark-style=dim"]'), accent = rule('[data-x-modes="dark-style=dim"][data-x-accent="--x-ink"]');
+  document.styleSheets = [{ cssRules: [black, dim, accent] }];
+  Object.assign(globalThis, { document, __exactRender: true });
+  const { modes } = await import('./modes.js');
+  modes([['dark-style', ['black', 'dim']]], {}, [], {}, ['--x-ink'], { '--x-ink': 'ink' }, 'd0', 's0');
+  const design = globalThis.exact.design;
+  expect(design({ kind: 'tamber-batch', structure: 's0', base: 'other', design: 'd1', tokens: [] }).live).toBe('stale');
+  // A notice of the design it runs applies nothing; another structure's is refused.
+  expect(design({ kind: 'tamber-batch', structure: 's0', base: 'd0', design: 'd0', tokens: [] }).live).toBe('applied');
+  expect(design({ kind: 'tamber-snapshot', structure: 's1', base: null, design: 'd9', tokens: [{ name: 'ink', prop: '--x-ink', css: ['#000', '#000'] }] }).live).toBe('structure');
+  const batch = { kind: 'tamber-batch', structure: 's0', base: 'd0', design: 'd1', tokens: [{ name: 'ink', value: '#ff0000ff', slices: [], prop: '--x-ink', css: ['#ff0000ff', '#00ff00ff'] }] };
+  expect(design(batch).live).toBe('applied');
+  expect(black.style.map.get('--x-ink')).toBe('#ff0000ff');
+  expect(dim.style.map.get('--x-ink')).toBe('#00ff00ff');
+  // Its accent companion follows, where the token is a colour of its own.
+  expect(accent.style.map.get('--exact-accent')).toBe('#00ff00ff');
+  // Its base is past now; a snapshot applies whatever this page ran.
+  expect(design(batch).live).toBe('stale');
+  expect(design({ ...batch, kind: 'tamber-snapshot', base: null, design: 'd2', tokens: [{ ...batch.tokens[0], css: ['#000000ff', '#111111ff'] }] }).live).toBe('applied');
+  expect(dim.style.map.get('--x-ink')).toBe('#111111ff');
+});
+
+// A development build with no axes gives its boundaries the empty tuple,
+// whose rule declares every token there (a token naming the accent then
+// resolves in the boundary's own accent).
+test('a development build with no axes puts its boundaries in the empty tuple', async () => {
+  const document = createDocument();
+  Object.assign(globalThis, { document, __exactRender: true });
+  const { modes } = await import('./modes.js');
+  const root = document.getElementById('exact-root');
+  const b = document.createElement('div');
+  b.setAttribute('data-x-b', '127');
+  root.append(b);
+  modes([], {}, [], {}, ['--x-ink'], { '--x-ink': 'ink' }, 'd0', 's0');
+  for (const f of After) f();
+  expect(document.documentElement.getAttribute('data-x-modes')).toBe('');
+  expect(b.getAttribute('data-x-modes')).toBe('');
+});
+
+// A release build copies modes.js without the live table (build.mjs
+// `withoutDev`): no `exact.design`, whatever the call passes, and the
+// modes still work.
+test('a release copy of modes.js has no live entry point', async () => {
+  const { withoutDev } = await import('./module.mjs');
+  const { mkdtempSync, readFileSync, writeFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const release = withoutDev(readFileSync(new URL('./modes.js', import.meta.url), 'utf8'));
+  for (const live of ['function design(', 'tupleRules', 'tupleKey', 'designDigest', 'dev-only']) expect(release).not.toContain(live);
+  const dir = mkdtempSync(join((await import('node:os')).tmpdir(), 'exact-modes-release-'));
+  writeFileSync(join(dir, 'rt.js'), 'export const After = [], PropHooks = {}, inflight = { n: 0 }, say = () => {};\n');
+  writeFileSync(join(dir, 'modes.js'), release);
+  const document = createDocument();
+  Object.assign(globalThis, { document, __exactRender: true, exact: {} });
+  const { modes } = await import(join(dir, 'modes.js'));
+  modes([['dark-style', ['black', 'dim']]], {}, [], {}, [], {}, 'd0', 's0');
+  expect(globalThis.exact.design).toBeUndefined();
+  expect(globalThis.exact.modes).toBeDefined();
+});

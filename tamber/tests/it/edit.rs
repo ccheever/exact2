@@ -716,6 +716,7 @@ fn a_plan_counts_its_hunk_names_each_change_by_file_and_skips_a_file_left_alone(
         &[set("brand.tamber", "#202020"), set("app.tamber", "#111111")],
         &vocab(),
         false,
+        Default::default(),
     )
     .unwrap();
     let changed: Vec<(&str, &str)> = planned
@@ -738,8 +739,14 @@ fn a_plan_counts_its_hunk_names_each_change_by_file_and_skips_a_file_left_alone(
         "-  ink = #101010\n\\ No newline at end of file\n+  ink = #202020\n\\ No newline at end of file\n"
     ));
     // Setting a value it already has writes nothing.
-    let same =
-        exact_tamber::plan(&files, &[set("app.tamber", "#000000")], &vocab(), false).unwrap();
+    let same = exact_tamber::plan(
+        &files,
+        &[set("app.tamber", "#000000")],
+        &vocab(),
+        false,
+        Default::default(),
+    )
+    .unwrap();
     assert!(same.files.is_empty() && same.diff.is_empty());
 }
 
@@ -772,4 +779,70 @@ fn an_axis_goes_after_the_axes_there_are_or_in_a_new_block_after_the_header() {
         done.text,
         "tamber t\n// the brand\n\naxes\n  theme = default | blue\n\ntheme\n  ink = #000000\n"
     );
+}
+
+/// The app's synthetic tokens re-fold with their file: one that changes is
+/// in the answer with its new values; an edit after which one no longer
+/// folds (the build would refuse it) is rebuild.
+#[test]
+fn plan_refolds_the_synthetic_tokens_and_a_lost_one_is_rebuild() {
+    let files = vec![(
+        "app.tamber".to_string(),
+        "tamber app\n\ntheme\n  brand = #c8102e\n".to_string(),
+    )];
+    // As a state's literal: dropped where it does not fold.
+    let exprs = vec![("color-mix(in srgb, brand 60%, white)".to_string(), false)];
+    let synthetic = exact_tamber::Synthetic {
+        file: "app.tamber",
+        exprs: &exprs,
+    };
+    let set = |value: &str| {
+        vec![(
+            "app.tamber".to_string(),
+            Op::SetToken {
+                name: "brand".into(),
+                when: Vec::new(),
+                value: value.into(),
+                at: None,
+                comment: None,
+            },
+        )]
+    };
+    let live = exact_tamber::plan(&files, &set("#0a7aff"), &vocab(), false, synthetic).unwrap();
+    assert_eq!(live.class, exact_tamber::Class::Live);
+    assert_eq!(live.synthetic.len(), 1);
+    assert_eq!(live.synthetic[0].0, exprs[0].0);
+    assert!(live.changed.iter().all(|(_, t)| !t.starts_with('~')));
+    // Over a host's colour the mix no longer folds at build.
+    let lost = exact_tamber::plan(&files, &set("AccentColor"), &vocab(), false, synthetic).unwrap();
+    assert_eq!(lost.class, exact_tamber::Class::Rebuild);
+    // And one that comes to fold is a rebuild too: the plan's table gains it.
+    let host = vec![(
+        "app.tamber".to_string(),
+        "tamber app\n\ntheme\n  brand = AccentColor\n".to_string(),
+    )];
+    let gained = exact_tamber::plan(&host, &set("#0a7aff"), &vocab(), false, synthetic).unwrap();
+    assert_eq!(gained.class, exact_tamber::Class::Rebuild);
+    // A colour row's own expression must fold: one that does not on either
+    // side is the build's refusal, never a live edit.
+    let strict = vec![(exprs[0].0.clone(), true)];
+    let row = exact_tamber::Synthetic {
+        file: "app.tamber",
+        exprs: &strict,
+    };
+    let refused = exact_tamber::plan(&host, &set("CanvasText"), &vocab(), false, row).unwrap();
+    assert_eq!(refused.class, exact_tamber::Class::Rebuild);
+    // A profile's colour is the compiler's to resolve: rebuild, either side.
+    let profiled = vec![(
+        "app.tamber".to_string(),
+        "tamber app\n\ntheme\n  brand = #c8102e\n".to_string(),
+    )];
+    let to_profile = exact_tamber::plan(
+        &profiled,
+        &set("color(--brand 0.1 0.2 0.3)"),
+        &vocab(),
+        false,
+        synthetic,
+    );
+    assert!(to_profile.is_err() || to_profile.unwrap().class == exact_tamber::Class::Rebuild);
 }

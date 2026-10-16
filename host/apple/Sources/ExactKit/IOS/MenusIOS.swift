@@ -58,6 +58,9 @@ final class MenuHost {
         let order: Int
         let ancestor: String?
         let layer = TopLayer(frame: .zero)
+        #if os(iOS)
+        var relay: MountRelay?
+        #endif
         init(source: UInt32?, popover: NodeView, order: Int, ancestor: String?) {
             self.source = source; self.popover = popover; self.order = order; self.ancestor = ancestor
             parent = popover.superview
@@ -113,10 +116,17 @@ final class MenuHost {
         /// it, and whether it could be chosen.
         final class Presented {
             weak var node: NodeView?
-            let title: String, enabled: Bool
+            let title: String
+            /// A prompt's follows its action as the fields are typed in
+            /// (`followPrompt`), as a hand-built rename's Save does.
+            var enabled: Bool
             init(_ node: NodeView, title: String, enabled: Bool) { self.node = node; self.title = title; self.enabled = enabled }
         }
         let actions: [Presented]
+        /// The alert's buttons for `actions`, in order.
+        var buttons: [UIAlertAction] = []
+        /// A prompt's text fields (`PromptFieldIOS.swift`).
+        var fields: [PromptField] = []
         init(host: MenuHost, source: NodeView?, popover: NodeView, modal: Bool, actions: [Presented], style: Style, title: String?, message: String?) {
             self.host = host; self.source = source; self.popover = popover; self.modal = modal; self.actions = actions; self.style = style
             sourced = source != nil; invoked = source.map { host.opens($0, popover) } ?? false
@@ -170,6 +180,7 @@ final class MenuHost {
             let observer = PopoverTouch(host: self)
             surface.addGestureRecognizer(observer); touchObserver = observer
         }
+        if let owner = confirmation, !owner.fields.isEmpty { followPrompt(owner) }
         if let owner = confirmation, !valid(owner) { resetConfirmation() }
         sheets.sync()
         var popovers: [String: NodeView] = [:]
@@ -289,9 +300,21 @@ final class MenuHost {
     }
     /// D13: activation finished; now read the surviving control's live target.
     func invoke(_ source: NodeView) {
-        guard source.isNativeButton || closesPresentedContent(source), eligible(source),
+        // A bar item's `command="show-modal"` (`BarPress`): the page hides
+        // its button while the bar shows it, and what it opens presents with
+        // no invoker, as a pull-down's confirmation does. A bar item that
+        // opens a popover is its pull-down (`pullDown`), never this.
+        let barModal = !eligible(source) && eligible(source, inBar: true)
+            && presenter?.invocation(of: source)?.action == .showModal
+        guard source.isNativeButton || barModal || closesPresentedContent(source), barModal || eligible(source),
               let invocation = presenter?.invocation(of: source), let name = invocation.target.props["id"] else { return }
         let pop = invocation.target, action = invocation.action
+        if barModal {
+            if isConfirmation(pop), openModally(pop) == nil, !sheets.owns(pop) {
+                _ = openConfirmation(from: nil, popover: pop, modal: true, dispatchPress: false)
+            }
+            return
+        }
         if isConfirmation(pop) {
             let modally = openModally(pop), open = modally != nil
             // HTML's dialog commands act only on a modal dialog, and its
@@ -427,11 +450,30 @@ final class MenuHost {
         guard let pop = owner.popover, let entry = owner.actions.first(where: { $0.node === action }) else { return false }
         return entry.enabled && presented(owner, entry) && choosable(action, in: pop)
     }
+    /// A prompt follows the page as its field is typed in: an action its
+    /// author disables while the name is empty is dimmed, as a hand-built
+    /// rename's Save is, rather than a change that withdraws it. A field the
+    /// page swapped for another (an `if` over two inputs) withdraws it: the
+    /// field shown is no longer the input's.
+    private func followPrompt(_ owner: Confirmation) {
+        guard let pop = owner.popover, !owner.finishing else { return }
+        let shown = pop.container.subviews.compactMap { $0 as? NodeView }.filter(\.isPromptField)
+        guard shown.count == owner.fields.count, zip(shown, owner.fields).allSatisfy({ $0 === $1.node }) else {
+            resetConfirmation()
+            return
+        }
+        for (entry, button) in zip(owner.actions, owner.buttons) {
+            guard let node = entry.node, live(node) else { continue }
+            entry.enabled = choosable(node, in: pop)
+            button.isEnabled = entry.enabled
+        }
+    }
     private func cancelled(_ owner: Confirmation) {
         // UIKit also delivers this after a selected action's handler. That
         // notification must not cancel the action awaiting the next turn.
         guard confirmation === owner, !owner.finishing else { return }
         owner.finishing = true
+        owner.fields.forEach { $0.end() }
         confirmation = nil
         owner.popover?.queueDialogClose()
         if let pop = owner.popover { presenter?.popoverEvents.changed(pop, open: false) }
@@ -440,6 +482,8 @@ final class MenuHost {
     private func finish(_ owner: Confirmation, chosen: NodeView?) {
         guard confirmation === owner, !owner.finishing else { return }
         owner.finishing = true
+        // A field's `change` before the action's press, as a blur's before a click.
+        owner.fields.forEach { $0.end() }
         owner.chosen = chosen
         if let pop = owner.popover { presenter?.popoverEvents.changed(pop, open: false) }
         // UIKit drops a dismissal during presentation. Its completion below
@@ -482,6 +526,7 @@ final class MenuHost {
         confirmation = nil
         if !owner.finishing, let pop = owner.popover { presenter?.popoverEvents.changed(pop, open: false) }
         owner.finishing = true
+        owner.fields.forEach { $0.end() }
         // Only this session's alert; never dismiss through a containing app's
         // root controller, which might now present something unrelated.
         owner.alert.dismiss(animated: false) { _ = owner }
@@ -535,6 +580,9 @@ final class MenuHost {
     /// the modal's view.
     private func lift(_ entry: Lifted) {
         guard let presenter, let pop = entry.popover else { return }
+        #if os(iOS)
+        if entry.relay == nil { entry.relay = MountRelay(presenter, mount: entry.layer) }
+        #endif
         let host: UIView = presenter.modals.coordinateView ?? presenter.viewport
         if entry.layer.superview !== host || host.subviews.last !== entry.layer { host.addSubview(entry.layer) }
         entry.layer.setPaintForeground()
@@ -829,18 +877,40 @@ final class MenuHost {
         let (children, actions, cancels) = rows(of: pop, modal: modal)
         if actions.isEmpty { return "no action (a button with press)" }
         if cancels.count > 1 { return "\(cancels.count) cancels; at most one hide-only button" }
-        if !children.allSatisfy({ child in child.kind == "text" || actions.contains { $0 === child } || cancels.contains { $0 === child } }) {
-            return "only text, actions and one cancel may be its rows"
+        // Only an alertdialog is a prompt; a plain `dialog` with a field is a
+        // form, its sheet (DialogSheetIOS.swift).
+        let asks = pop.props["accessibilityRole"] == "alertdialog"
+        if !children.allSatisfy({ child in child.kind == "text" || asks && child.isPromptField || actions.contains { $0 === child } || cancels.contains { $0 === child } }) {
+            return "only text, text fields, actions and one cancel may be its rows"
         }
         if !actions.allSatisfy({ closes($0, pop, modal: modal) }) {
             return modal && isDialog(pop) ? "each action must also close it (command=close)" : "each action must also hide it (popovertargetaction=hide)"
         }
+        // A prompt's field counts with its text: what it asks explains it.
+        // It asks one thing, as lowering holds it to (rules/DEFERRED.md).
+        let fields = asks ? children.filter(\.isPromptField).count : 0
+        if fields > 1 { return "a prompt has one text field" }
+        let alert = ConfirmationShape.isAlert(texts: children.filter { $0.kind == "text" && !title(of: $0).isEmpty }.count + fields,
+                                              actions: actions.count, cancels: cancels.count)
+        // Only an alert takes text fields; an action sheet or popover has none.
+        if fields > 0, !alert || isDialog(pop) && pop.props["closedby"] == "any" {
+            return "a text field is only an alert's (a prompt: one cancel, at most three buttons, no closedby=any)"
+        }
         guard isDialog(pop), pop.props["closedby"] != "any" else { return nil }
         let closedby = pop.props["closedby"] ?? "closerequest"
         if closedby == "none" { return "closedby is none: an alert always has its Cancel" }
-        let texts = children.filter { $0.kind == "text" && !title(of: $0).isEmpty }.count
-        return ConfirmationShape.isAlert(texts: texts, actions: actions.count, cancels: cancels.count)
-            ? nil : "closedby is \(closedby), and only an alert has no outside"
+        return alert ? nil : "closedby is \(closedby), and only an alert has no outside"
+    }
+    /// The input `node`'s props were written: the prompt field standing in
+    /// for it, if one shows, takes them (`PromptField.write`).
+    func promptInputChanged(_ node: NodeView) {
+        confirmation?.fields.first { $0.node === node }?.write()
+    }
+    /// A prompt: an alertdialog with a text field (`PromptField`). Every
+    /// action may be disabled while it opens (Save, until a name is typed):
+    /// its field and its cancel are still there.
+    private func prompts(_ pop: NodeView) -> Bool {
+        pop.props["accessibilityRole"] == "alertdialog" && pop.container.subviews.contains { ($0 as? NodeView)?.isPromptField == true }
     }
     /// LLP 1115.000 D11.5: a `dialog` that is not a confirmation by its rows
     /// is a sheet, its content laid out by the kernel (DialogSheetIOS.swift).
@@ -886,7 +956,7 @@ final class MenuHost {
         }
         if confirmation?.finishing == true {
             guard !isOpen(pop), showable(pop), source.map({ eligible($0) }) ?? true,
-                  unconfirmable(pop, modal: modal) == nil, rows(of: pop, modal: modal).actions.contains(where: { choosable($0, in: pop) }) else { return false }
+                  unconfirmable(pop, modal: modal) == nil, prompts(pop) || rows(of: pop, modal: modal).actions.contains(where: { choosable($0, in: pop) }) else { return false }
             if let previous = pendingConfirmation { presenter?.popoverEvents.changed(previous.popover, open: false) }
             pendingConfirmation = PendingConfirmation(pop, source, modal: modal)
             presenter?.popoverEvents.changed(pop, open: true)
@@ -914,12 +984,13 @@ final class MenuHost {
         let (children, actions, cancels) = rows(of: pop, modal: modal)
         let boundary = isDialog(pop) ? pop.superview : nil
         // A disabled choice shows dimmed; the others stay choosable.
-        guard actions.contains(where: { eligible($0, inertBoundary: boundary) }) else { return refuse("every action is disabled") }
+        guard prompts(pop) || actions.contains(where: { eligible($0, inertBoundary: boundary) }) else { return refuse("every action is disabled") }
         guard let controller = controller(for: source ?? pop), !busy(controller) else { return false }
         let presented = actions.map { Confirmation.Presented($0, title: title(of: $0), enabled: eligible($0, inertBoundary: boundary)) }
         let texts = children.filter { $0.kind == "text" }.map(title(of:)).filter { !$0.isEmpty }
+        let fields = children.filter(\.isPromptField)
         let label = pop.props["accessibilityLabel"].flatMap { $0.isEmpty ? nil : $0 }
-        let style = Self.style(texts: texts.count, actions: actions.count, cancels: cancels.count,
+        let style = Self.style(texts: texts.count + fields.count, actions: actions.count, cancels: cancels.count,
                                compact: controller.traitCollection.horizontalSizeClass != .regular,
                                outside: isDialog(pop) && pop.props["closedby"] == "any")
         // The alert's title is its aria-label ("Remove book?"), else its
@@ -944,11 +1015,22 @@ final class MenuHost {
             }
             alertAction.isEnabled = entry.enabled
             owner.alert.addAction(alertAction)
+            owner.buttons.append(alertAction)
         }
         if let cancel = cancels.first {
             owner.alert.addAction(UIAlertAction(title: title(of: cancel), style: .cancel) { [weak self, weak owner] _ in
                 if let owner { self?.select(owner, nil) }
             })
+        }
+        // A prompt: each field is UIKit's, standing in for the authored one,
+        // and Return chooses its first action that is not destructive, as a
+        // hand-built rename's Save (`preferredAction`, drawn bold).
+        if style == .alert, let presenter {
+            owner.fields = fields.map { PromptField($0, presenter: presenter) }
+            for field in owner.fields { owner.alert.addTextField { field.attach($0) } }
+            if !fields.isEmpty, let lead = actions.firstIndex(where: { $0.props["destructive"] != "true" }) {
+                owner.alert.preferredAction = owner.buttons[lead]
+            }
         }
         #if !os(tvOS)
         if style == .popover {

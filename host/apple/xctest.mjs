@@ -14,8 +14,9 @@ const read = (cmd, args, opts = {}) => spawnSync(cmd, args, { encoding: 'utf8', 
  *  every process on the Mac shares (the general pasteboard, the active app,
  *  the mouse, a capture of the screen) share one process beside them, one
  *  class after another. A window's key status and first responder belong
- *  to its own process. */
-export async function macTests(pkg, scratch, env) {
+ *  to its own process. The Canvas 2D GPU module (`canvasGpu`) is loaded only
+ *  in its own tests' process: loaded, every canvas draws on the GPU. */
+export async function macTests(pkg, scratch, env, canvasGpu) {
   const listed = read('swift', ['test', '--skip-build', '--list-tests', '--scratch-path', scratch], { cwd: pkg, env });
   if (listed.status !== 0) throw new Error(`swift test --list-tests failed: ${listed.stderr}`);
   const classes = [...new Set(listed.stdout.match(/^ExactKitTests\.\w+(?=\/)/gm) ?? [])];
@@ -25,11 +26,14 @@ export async function macTests(pkg, scratch, env) {
     const source = readFileSync(resolve(pkg, 'tests/ExactKitTests', file), 'utf8');
     if (macWide.test(source)) for (const [, name] of source.matchAll(/class (\w+)\s*:\s*XCTestCase/g)) shared.add(`ExactKitTests.${name}`);
   }
+  const gpuClass = 'ExactKitTests.Canvas2DGpuStressTests';
+  shared.delete(gpuClass);
   const groups = [classes.filter(c => shared.has(c)), ...classes.filter(c => !shared.has(c)).map(c => [c])].filter(g => g.length);
   const bundle = resolve(read('swift', ['build', '--show-bin-path', '--scratch-path', scratch], { cwd: pkg, env }).stdout.trim(), 'ExactKitTests.xctest');
   const failed = [];
   const one = (group) => new Promise((done) => {
-    const child = spawn('xcrun', ['xctest', '-XCTest', group.join(','), bundle], { cwd: pkg, env, stdio: ['ignore', 'pipe', 'pipe'] });
+    const gpu = group.includes(gpuClass) ? { EXACT_CANVAS_GPU_DYLIB: canvasGpu } : {};
+    const child = spawn('xcrun', ['xctest', '-XCTest', group.join(','), bundle], { cwd: pkg, env: { ...env, ...gpu }, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
     child.stdout.on('data', (d) => { out += d; });
     child.stderr.on('data', (d) => { out += d; });

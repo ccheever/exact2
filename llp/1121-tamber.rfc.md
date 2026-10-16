@@ -2247,3 +2247,182 @@ D13 named this reference, and stage 3 didn't write it. It now describes `tamber/
 
 Each stage that changes the wire changes this page in the same commit. Stage 4 adds the live
 table and the build channel (LLP 1122 D4).
+
+### Stage 4, commit 1: reclaimable `Wide` storage (`5624bb911`, reviews `3e06b2776`)
+
+LLP 1121 §5 stage 4 and D13 said "reference-counted". **It is built as mark and sweep instead.**
+`ColorValue` is `Copy`, and `Wide` ids are copied into rows, composite rows, transitions,
+keyframes and the runner's token values, so a count would have meant un-`Copy`ing it
+everywhere.
+- **Ids carry a generation.** Each u16 holds the slot in its low 12 bits (the cap is 4,096) and
+  the slot's generation in the top 4. A stale id reads as nothing, never as another colour. In a
+  debug build a stale read asserts and writes a journal line, since it means a missed holder.
+  Generations wrap after 16 sweeps of one slot, which is acceptable only because of that
+  assertion.
+- **Holders publish marks.** Only kernels and runners hold ids.
+  - **A kernel** publishes a 4,096-bit mark at the end of each commit that changed it, from the
+    shared style table's cached union. It costs 0.16 µs, and nothing while the table is empty.
+    Measured on a 1,000-row P3 list, the Dim switch, a one-text commit and a window shift are all
+    within noise of main.
+  - **A `Keep`** stands beside anything else that keeps ids across a commit: role overrides, a
+    runner's saved overrides and queued reorders, its kernel-free document, a decoded export.
+  - **An idle holder** answers from its last mark, so it never holds a sweep up.
+  - **A painting host's accent scope** is not a holder. It lasts only within a paint of a
+    borrowed kernel, whose mark covers it.
+- **Ids in flight** stand in for theme1's "ids minted after the sweep's request are kept",
+  because the sweep runs at once in `intern`, from the marks already published.
+  - A kernel thread's batch protects everything interned since its last publish, up to `SPAN` =
+    3,072 interns. Export decode and the document fold open a `wide::Batch` explicitly.
+  - Anything else is protected by recency: nothing interned within the last `GRACE` = 1,024 is
+    freed.
+  - An id in flight past both is a missed holder. **Invariant:** outside an open batch, no path
+    holds an id unmarked across more than `GRACE` interns.
+- **The sweep** runs when fewer than a quarter of the slots are free. With no holder registered
+  (a compiler, a tool), nothing is swept.
+- **A full table** of held colours refuses the new colour: the row keeps its value, and the
+  refusal is counted (`wide::refusals()`, for commit 4's `unsupported` report) and journaled.
+  A refusal ages the table as an intern does.
+- **No host holds an id.** Apple and the web take text. The Linux host converts what it retains
+  at capture:
+  - svg scenes become 8-bit colours or `light-dark()` pairs;
+  - paragraph sources keep both appearances resolved;
+  - lookahead scratch ops drop their colours;
+  - gradients keep their stops' values (`wide::Values`), read through `placed_with` and
+    `resolved_with`, rather than 8-bit stops, which would move a polar ramp's hue.
+
+### Stage 4, commit 2: live or rebuild by the whole closure (`bfa479e88`..`a99331d5f`, reviews `c180f8c04`, reference `687419133`)
+
+- **`propose` and transactions now re-fold the app's synthetic tokens** with the design. The
+  compiler records every candidate, and whether a colour row writes it
+  (`contract_lower::synthetic_candidates`); the server caches that list per Contract sources,
+  import resolution and design token names.
+- **An edit is `live`** when the shape is unchanged, no role override is reached, and the same
+  synthetic tokens fold on both sides. The synthetic tokens whose values change are returned
+  per tuple (`synthetic`) for the batch.
+- **An edit is `rebuild`** when it changes a role override or anything one reaches (hosts take
+  role tables at boot), gains or loses a synthetic token, leaves a strict one unfoldable,
+  involves a profile colour, has an unknown closure (the app's build stops before its design),
+  or changes structure.
+- `propose`'s answer is now the closure's, not the design's shape alone.
+
+### Stage 4, commits 3 and 4: the live table (`ad6c46d1b`, review rounds `f133acb13`..`e27941bf9`, records `a7483ba86`)
+
+- **The plan's structure** (`Plan::structure`) is its canonical bytes without the design's
+  values. Role-override and profile-colour values stay in it, because hosts take them at boot,
+  and so do the axes, since an axis change renumbers the tuples a batch's slices index (the
+  brief had excluded the axes). The builder interns design values last, so a value-only edit
+  moves no other string's id.
+- **No plan is published** when only `.tamber` files changed and the structure is unchanged. This
+  is decided by content in the wasm loop's `Session`, in the TypeScript producer and in the JS
+  loop, so a hand edit and a server write are one path (the server's writes are not skipped
+  in-process). The wasm loop still writes the plan file, so a host watching it
+  (`EXACT_DEV_PLAN`) restarts as before; only builds connected to the dev URL are live. A
+  Rust-data app's wasm loop says `live: false`.
+- **The batch** is `{kind: "tamber-batch", structure, base, design, tokens: [{name, value,
+  slices}]}`, where a synthetic token is named by its expression.
+  - A snapshot (`GET /__dev/design`) carries every token.
+  - A notice (no tokens) goes out on connect, and in place of a batch over 32 KiB, which native
+    event frames can't carry.
+  - A stale base, or a notice for another design, fetches the snapshot.
+- **`Runner::apply_live`** sets every changed token in one commit with no layout, and refuses in a
+  production build (`admit_live`). It skips role overrides. A colour refused by a full wide table
+  keeps its old value and is reported as `unsupported`.
+- **The hosts:** `exact_design_rows` on the web and Apple ABIs, and `Presenter::apply_live` on
+  Linux (by polling, beside its envelope). Apple re-fetches the snapshot after every generation
+  it applies.
+- **The JS target's development build** makes every non-role token a custom property, and
+  `modes.js` rewrites each tuple's rule in one style update. Its release build was compared
+  byte for byte with the build before, on theme-fixture and the tamber-modes conformance app. The
+  generated JS and CSS (`.gen/app.css`, `.gen/app.js`, `paint.js`, `names.js`, `pages.json`) are
+  identical, and the plans differ only in string pool order, so the plan digest moves. The one
+  code difference is `.gen/modes.js`: it carries the live-table runtime, inert in release because
+  no development design is passed. `8a4f25b53` leaves it out of release builds.
+- **The server:** `hello.live`, writes held until answered (never a 504 and then applied), and a
+  held propose checks the `requires` its client names.
+
+### Stage 4, commit 5: the build channel, LLP 1122 D4 (`e44ee2f97`..`d55792423`, records `2689b877e`)
+
+- **Registration.** Each dev stream's hello carries a nonce (128 random bits). A build answers
+  with one `POST /__dev/report` carrying its stable `id`, host, capabilities, and plan and design
+  digests.
+  - The id is per tab (in `sessionStorage`) on the web, and per process session on Apple and
+    Linux. A duplicated tab whose id is already open takes a fresh one.
+  - A report without a live nonce is refused.
+  - `hello` lists the open builds.
+- **Reports up:** `status` (the effective scheme, contrast, modes and root font size, the digests,
+  the pin revision), `unsupported` and `selected` (its route only, until T2b). Each is an event to
+  the server's clients. Typed, bounded fields; at most 256 streams.
+- **Commands down:** `pin` (scheme, contrast, a mode, the root font size, or none; each pin
+  replaces the whole set). `preview build axis=value` is pin's spelling for one build and one axis.
+  `inspect`, `outline` and `hold` are reserved and answered `unsupported`. Every command is a frame
+  a host dispatches before any generation handling.
+- **Ownership and presence.** A pin belongs to its client while that client is present: a
+  subscription naming it, or a long poll naming it that is open or was answered within 35 s. (The
+  design tool can only long-poll.) A pin from a client that isn't present is 409. When a client
+  stops being present, its pins are handed back on every build. A build that registers again
+  under its id gets its pin, or none, replayed. Pins are journaled with their client.
+- **One source of batches.** The loop that mounts the design server makes every batch and
+  snapshot. Batches name the design's **shape** (axes, and each token's name, role, role value and
+  slice count) rather than the plan structure, so the JS target and a native build of the same
+  sources agree. The plan structure stays the dev loop's own value-only test.
+  - The JS loop's resident `--serve-as` producer mounts no server and makes no batches. It
+    relays the main loop's commands and batches onto its devices' streams, which take their
+    nonces from the main loop.
+- **Linux has no stream.** It polls `GET /__dev/hello`, then `/__dev/commands?nonce&ack`
+  (acknowledged, so a lost answer is resent) beside its envelope, and it is disconnected after 5 s
+  without a poll.
+- **The web pin** is the system layer beneath the app's `setScheme`: a `:root` rule plus
+  `exact.systemScheme`. Status reports the scheme that actually paints, and the app's own
+  `setScheme`, `setMode` and `setRootFontSize` send a status. A contrast pin is answered
+  `unsupported`, since a page can't override the browser's `prefers-contrast`.
+- **Release builds.** The native hosts run no channel under a production compat; that is a runtime
+  gate, not compiled out. The release JS target's `modes.js` still carried the inert live-table
+  runtime here; `8a4f25b53` strips it (`// dev-only` regions, dropped from a build without `--dev`), with a test.
+- **`tamber/1.2`**, with `docs/tamber-protocol.md` listing what 1.2 added.
+
+### D3's `pair=` (`ae6dc3d78`, `cca68e081`; built by LLP 1122's implementer)
+
+- `pair=<token>[,…]` names colour tokens or roles a token is drawn on. Naming itself, nothing of
+  the design, or an empty name is refused (`tamber-pair`).
+- **`tamber-contrast`** warns once per pair, at its lowest tuple and scheme below 4.5:1, naming the
+  tuple, the scheme and the ratio.
+  - The ratio is cut to two places, never rounded up past 4.5.
+  - A residual side is read at its fallback, and the warning says so.
+  - A background that isn't opaque is passed over, since it has no single ratio.
+  - It is a warning, never a refusal.
+- **A rename** rewrites the name inside `pair=` lists, and undo restores the bytes.
+- `describe` gives each token's `pairs` and the design's `warnings`, and the design tool badges
+  each declared pair's ratio per cell.
+- **Importers** proposing pairs (shadcn's `x-foreground`, Astryx's `on-`) are left for later.
+
+### Stage 4, commit 6: `uses`, `resolve` and scrub sessions (`ddaa887e1`..`6d904f998`, records `01ed90b6f`, wording `393a1e9c0`)
+
+- **`uses`** is answered statically, from the plan compiled from the sources and its source map.
+  - Each site is `{site, row, file, line, col, end_col, component, via?}`, where `via` names a
+    token, a synthetic token, a slot or a derive the read goes through.
+  - Only colour rows count. A value that is only compared, and an `#id` reference, is no read.
+  - The JS target's plan and a native bake of the same sources give the same sites (tested), so
+    one answer serves both of the JS loop's plans.
+  - There is no mounted-instance count; that needs a report the channel doesn't carry (a §9
+    candidate).
+  - The clone's `primary_500` has 587 sites, all direct.
+- **`resolve`** is unchanged: the stored form or residual with its fallback, labelled.
+  `resolve-on` comes with LLP 1122 T2b, from a build's `selected` report.
+- **Scrub sessions** (`scrub`, `scrub-release`, `scrub-cancel`, the `scrub` event):
+  - Each update is planned on the scrub's opening files (`propose` with `texts`). The dev loop
+    that mounts the wire compiles the texts as an in-memory overlay of the design, through its
+    own compiler for each target, because the JS target's CSS and profile colours need the real
+    compile. It sends every build the batch from its running design, and JS-loop natives get it
+    by relay.
+  - Updates are coalesced: one preview in flight, and the latest wins.
+  - Opening needs write scope and a present client. A second scrub is 409, naming the opener. A
+    rebuild-class edit has no scrub (409).
+  - Release writes once against the opening digests; a conflict names who moved the file and
+    restores.
+  - A scrub ends without a write on a cancel, any other write or a hand edit (which ends it
+    before it lands), its client no longer present, the server's loss, or 30 s with no update.
+    Each end sends every build the latest committed design. A value-only build landing while a
+    preview still shows is only an ordering case, and it changes only what the end restores.
+- `scopeOf()` grants write to the local token, until pairing (stage 10).
+
+**Stage 4's commits are complete.** The gate run follows.

@@ -4,11 +4,12 @@
 // whose fill is what lies behind it. The host observes (host/web-js/check.js, AgentCheckIOS.swift: its presented
 // boxes, ink, fills, clips and hit tests, and the fill painted under each text, LLP 1116.006 D5); where no fill is
 // known, the background a text stands on is read from a capture's pixels; this file only judges. `check dark` (or `light`) runs it under that `prefers-color-scheme`, `check both` under each.
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { MalformedOperation } from './agent-keys.mjs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { decodePng } from './png.mjs';
+import { decodePng, encodePng, shrink } from './png.mjs';
 
 const SHOWN = 12;
 const OFFSCREEN = 'a column taller than the screen runs past it: let it scroll (`overflow-y: auto`), or give it `flex: 1` and `min-height: 0` under a header instead of `height: 100%`';
@@ -205,7 +206,7 @@ export function report(runs, nodes, host) {
  *  `shots(viewport, scheme)` names a file to keep each capture in (verify's), else they go with the check. */
 export async function checkOp(s, args = [], { shots } = {}) {
   const word = args[0] ?? 'current';
-  if (!['current', 'light', 'dark', 'both'].includes(word) || args.length > 1) throw new Error('check [light|dark|both]: the presented screen, judged in text; `check dark` under prefers-color-scheme dark, `check both` under each');
+  if (!['current', 'light', 'dark', 'both'].includes(word) || args.length > 1) throw new MalformedOperation('check [light|dark|both]: the presented screen, judged in text; `check dark` under prefers-color-scheme dark, `check both` under each');
   if (!['web', 'ios', 'host-ios'].includes(s.host)) throw new Error(`check: the web and iOS hosts carry it, not ${s.host}`);
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-check-'));
   const first = await s.op({ op: 'check' });
@@ -217,9 +218,11 @@ export async function checkOp(s, args = [], { shots } = {}) {
       let obs = first;
       if (scheme !== first.scheme || preferred) { await s.prefer({ 'prefers-color-scheme': scheme }); preferred = scheme; obs = await s.op({ op: 'check' }); }
       const path = shots?.(obs.viewport, scheme) ?? resolve(dir, `${scheme}.png`);
-      await s.carrier.screenshot(path, obs.capture?.window === true); // iOS observes in the window's points: a sheet is not in the viewport's picture
+      const taken = await s.carrier.screenshot(path, obs.capture?.window === true); // iOS observes in the window's points: a sheet is not in the viewport's picture
       const png = decodePng(readFileSync(path));
       runs.push({ scheme: obs.scheme, asked: scheme, target: obs.target, viewport: obs.viewport, findings: judge(obs, png, { host: s.host === 'web' ? 'web' : 'ios' }), ...(obs.advice ? { advice: obs.advice } : {}) });
+      // A capture kept for a person or an agent to look at is a pixel a point once judged, as `agent`'s are: a third of an iPhone's pixels each way.
+      if (shots && taken?.scale > 1) writeFileSync(path, encodePng(shrink(png, Math.round(png.width / taken.scale), Math.round(png.height / taken.scale))));
     }
   } finally {
     if (preferred && preferred !== first.scheme) await s.prefer({ 'prefers-color-scheme': first.scheme }).catch(() => {});

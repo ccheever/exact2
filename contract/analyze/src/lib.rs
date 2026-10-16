@@ -520,7 +520,16 @@ fn check_view(nodes: &[Node], scope: &Scope, view: &View<'_>) -> Result<(), Anal
                 let control = contract_syntax::payload_control(tag, attrs);
                 for a in attrs {
                     if is_handler(&a.name, &a.value) {
-                        check_handler(&a.name, &a.value, scope, a.span, control, view)?;
+                        check_handler(&a.name, &a.value, scope, a.span, control, view).map_err(
+                            |mut e| {
+                                // A hyphenated tag is a native module's (LLP 1024 D1): an
+                                // event's name there is the box's handler, never a prop.
+                                if tag.contains('-') && e.id == "analyze-handler-shape" {
+                                    e.message.push_str(&format!("; on `{tag}` `{}` is an event, so give the module prop another name", a.name));
+                                }
+                                e
+                            },
+                        )?;
                     }
                 }
                 check_view(children, scope, view)?;
@@ -720,4 +729,88 @@ fn check_controls(nodes: &[Node], in_canvas: bool) -> Result<(), AnalyzeError> {
         }
     }
     Ok(())
+}
+
+/// Advice for reactive resource arguments that depend on the frame clock.
+/// State stops the dependency walk: an action samples it once, rather than every frame.
+/// @ref LLP 1086 D12 — EX7 resource freshness diagnostics.
+pub fn resource_clock_warnings(file: &File) -> Vec<AnalyzeError> {
+    fn live(expr: &Expr, names: &BTreeMap<String, bool>) -> bool {
+        use contract_syntax::TemplatePart;
+        match expr {
+            Expr::Call(name, args, _) => {
+                name == "performanceNow"
+                    || names.get(name) == Some(&true)
+                    || args.iter().any(|e| live(e, names))
+            }
+            Expr::Ident(name, _) => names.get(name) == Some(&true),
+            Expr::List(args, _) => args.iter().any(|e| live(e, names)),
+            Expr::Template(parts, _) => parts
+                .iter()
+                .any(|p| matches!(p, TemplatePart::Expr(e) if live(e, names))),
+            Expr::Some(e, _)
+            | Expr::Unary(_, e, _)
+            | Expr::Member(e, _, _)
+            | Expr::NamedArg(_, e, _)
+            | Expr::Typed(e, _, _) => live(e, names),
+            Expr::Binary(_, a, b, _) => live(a, names) || live(b, names),
+            Expr::Ternary(a, b, c, _) => live(a, names) || live(b, names) || live(c, names),
+            Expr::Match {
+                subject,
+                var,
+                some,
+                none,
+                ..
+            } => {
+                let mut inner = names.clone();
+                inner.remove(var);
+                live(subject, names) || live(some, &inner) || live(none, names)
+            }
+            Expr::Arrow { params, body, .. } => {
+                let mut inner = names.clone();
+                for p in params {
+                    inner.remove(p);
+                }
+                live(body, &inner)
+            }
+            Expr::Let {
+                name, value, body, ..
+            } => {
+                let mut inner = names.clone();
+                inner.insert(name.clone(), live(value, names));
+                live(body, &inner)
+            }
+            Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(..) => false,
+        }
+    }
+    let mut functions = BTreeMap::new();
+    // Forward function references and derives settle in at most one pass per declaration.
+    for _ in 0..=file.fns.len() {
+        for f in &file.fns {
+            let mut scope = functions.clone();
+            for param in &f.params {
+                scope.remove(&param.name);
+            }
+            functions.insert(f.name.clone(), live(&f.body, &scope));
+        }
+    }
+    let mut out = Vec::new();
+    for c in &file.components {
+        let mut scope = functions.clone();
+        for binding in &c.states {
+            scope.insert(binding.name.clone(), false);
+        }
+        for _ in 0..=c.derives.len() {
+            for binding in &c.derives {
+                scope.insert(binding.name.clone(), live(&binding.expr, &scope));
+            }
+        }
+        for r in &c.resources {
+            if r.args.iter().any(|e| live(e, &scope)) {
+                out.push(AnalyzeError { id: "analyze-resource-clock", span: r.span, related: Vec::new(),
+                    message: format!("resource `{}`: performanceNow() changes its arguments every frame and re-requests data; sample the clock into state in an action, then pass that state (or refresh on one shared timer)", r.name) });
+            }
+        }
+    }
+    out
 }

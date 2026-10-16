@@ -112,6 +112,15 @@ The schema metadata changes its digest, so producers and hosts re-bake together.
 > (`kernel/src/style/cells.rs`), where CSS's `ch` is the `0` advance of the element's
 > font and `lh` its line height.
 >
+> A layout deviation on iOS and tvOS (LLP 1075.003 §9.12, 2026-10-15): an
+> absolutely positioned tabpanel the navigation root has never selected is laid
+> out as `display: none` (a host cover), as `UITabBarController` loads a tab only
+> when it is first selected; the browser lays it out under `visibility: hidden`.
+> Out of flow, it moves no other box; what differs is the panel's own box and
+> everything in it, which no person can see and no read answers for (they are
+> inactive), and its part in its scroll container's scrollable overflow. A
+> panel in flow is laid out as authored.
+>
 > A structural-read deviation (Charlie, 2026-10-11; LLP 1094 D10): when an
 > id-less child is hit outside its named ancestor's own box, Exact's
 > `elementsFromPoint` includes that ancestor at the child's place, once. Chrome's
@@ -953,7 +962,12 @@ the frame once more per backdrop node. The measured bounds are LLP 1053.000 §3.
   reads an inset (`uses_env`) and says whether any did, so a host lays out only
   when something can move. Zero until the host says otherwise, as a browser
   reports the insets for a page without `viewport-fit=cover` (LLP 1008 §9).
-  `tests/env.rs`.
+  `tests/env.rs`. The layout regions (LLP 1123 D10) are a fifth family of the
+  same kind, Exact's own: `env(-exact-<region>-inset-<edge>)` for the platform's
+  margins, readable width and corner-adapted safe area (wire kind 25, the `Env`'s
+  `regions`). A deviation, declared: a host that reports none (the web, Linux,
+  Windows, Android, the terminal) resolves each to its safe-area inset, where a
+  platform with margins would give more. `tests/regions.rs`.
 - **Comparisons** (2026-10-07; approved by Charlie 2026-10-06).
   Dimension rows accept `calc()`, `min()`, `max()` and `clamp()` over absolute
   lengths, `ch`/`lh`, percentages, viewport units, safe-area insets and viewport

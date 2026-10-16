@@ -239,11 +239,18 @@ impl Parser {
             }
             TokenKind::Eof => Ok(()),
             other => {
-                // `if filter = "all"`: a comparison was meant.
-                let hint = if matches!(other, TokenKind::Punct("=")) {
-                    "; `==` compares, and only a statement assigns"
-                } else {
-                    ""
+                // `if filter = "all"`: a comparison was meant. `x = a if c else b`:
+                // Python's conditional. `save: action(string)`: a typed action prop.
+                let before = self.pos.checked_sub(1).map(|i| &self.tokens[i].kind);
+                let hint = match other {
+                    TokenKind::Punct("=") => "; `==` compares, and only a statement assigns",
+                    TokenKind::Ident(w) if w == "if" => {
+                        "; a value chosen by a condition is `cond ? a : b`"
+                    }
+                    TokenKind::Punct("(") if matches!(before, Some(TokenKind::Ident(w)) if w == "action") => {
+                        "; an action prop is declared `action`, and what it is called with is inferred"
+                    }
+                    _ => "",
                 };
                 self.err(
                     "syntax-expected-newline",
@@ -684,6 +691,26 @@ impl Parser {
         }
         let (name, span) = self.ident()?;
         let mut ty = match name.as_str() {
+            "enum" => {
+                self.expect_punct("<")?;
+                let mut values = Vec::new();
+                loop {
+                    let token = self.next();
+                    let TokenKind::Str(value) = token.kind else {
+                        return self.err("syntax-enum", "enum members are quoted strings");
+                    };
+                    if values.contains(&value) {
+                        return self.err("syntax-enum", "enum members must be distinct");
+                    }
+                    values.push(value);
+                    if self.at_punct(">") {
+                        break;
+                    }
+                    self.expect_punct(",")?;
+                }
+                self.expect_punct(">")?;
+                TypeExpr::Enum(values, span)
+            }
             "option" => {
                 self.expect_punct("<")?;
                 let inner = self.type_expr()?;

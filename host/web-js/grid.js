@@ -5,7 +5,7 @@ function trackCount(s) { let count = 0; for (let i = 0; i < s.length;) { while (
 export function gridValue(kind, value) {
   if (value == null) return value;
   const prop = kind === "tracks" ? "grid-template-columns" : kind === "placement" ? "grid-column" : kind === "flow" ? "grid-auto-flow" : "justify-items", v = normal(prop, String(value));
-  const refuse = why => { say(`unset ${prop}: ${JSON.stringify(value)} (${why})`); return null; };
+  const refuse = why => { say(`unset ${prop}: ${JSON.stringify(value)} (${why})`); return "unset"; };
   if (!v) return refuse("the browser rejected it");
   const lower = v.toLowerCase(), wide = /^(?:inherit|initial|unset|revert|revert-layer)$/;
   if (wide.test(lower)) return refuse("CSS-wide values have no kernel cascade");

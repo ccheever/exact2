@@ -269,6 +269,7 @@ fn drop_on<D: DataSource>(r: &mut Runner<D>, token: ReorderToken, list: &str) ->
 #[test]
 fn a_grouped_list_is_accepted_and_each_refusal_is_whole() {
     contract::compile(BOARD).unwrap();
+    contract::compile(&BOARD.replace("id: string", r#"id: enum<"a1", "b1">"#)).unwrap();
     let refused = |from: &str, to: &str| {
         let e = contract::compile(&BOARD.replace(from, to)).unwrap_err();
         (e.id.clone(), e.message.clone())

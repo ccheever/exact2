@@ -42,7 +42,8 @@ impl<D: DataSource> Presenter<D> {
                 "playSound" | "playSounds" | "stopSounds" => {}
                 // The runner's own too: it laid out at the app's root font size (LLP 1069.000 D3).
                 "setRootFontSize" => {}
-                // Outside a `key` event (`key_event` takes a key's), nothing to prevent or stop.
+                // Outside a bubbling event (a key's, focus's, the pointer's
+                // or a wheel's, which take theirs), nothing to prevent or stop.
                 "preventDefault" | "stopPropagation" => {}
                 // The shell's share sheet; with no shell, refused into the
                 // journal. Held for the agent like every host (LLP 1069.003 D6).
@@ -117,6 +118,7 @@ impl<D: DataSource> Presenter<D> {
                 other => eprintln!("exact: unknown command {other}"),
             }
         }
+        // Selection events are queued tasks: the input's commands run first.
         self.drain_field_select_tasks();
         self.dispatch_toggles();
         if self.pending_update {

@@ -110,6 +110,15 @@ pub(crate) struct SharedStyles {
     default: Rc<StyleProps>,
     table: Interner<StyleProps, Box<[u8]>>,
     scratch: Writer,
+    /// Each held style's wide colour slots, by its allocation, visited once:
+    /// a style is never changed in place, and a dead one's entry no longer
+    /// upgrades (the wide table's sweep, LLP 1121 stage 4).
+    wide: HashMap<usize, (std::rc::Weak<StyleProps>, Box<[u16]>)>,
+    /// Every held style's wide colours, a superset: added to as styles come,
+    /// rebuilt when styles have gone (the table's own sweeps, amortized).
+    wide_all: crate::style::wide::WideMark,
+    /// Styles have gone since `wide_all` was built.
+    wide_stale: bool,
 }
 
 impl Default for SharedStyles {
@@ -118,6 +127,9 @@ impl Default for SharedStyles {
             default: Rc::new(StyleProps::default()),
             table: Interner::default(),
             scratch: Writer::new(),
+            wide: HashMap::new(),
+            wide_all: Default::default(),
+            wide_stale: false,
         }
     }
 }
@@ -154,7 +166,10 @@ impl SharedStyles {
             debug_assert!(*found == style, "an unset row holds its initial value");
             return found;
         }
-        self.table.insert(hash, bytes.into(), style)
+        let held = self.table.len();
+        let style = self.table.insert(hash, bytes.into(), style);
+        self.noted(&style, held);
+        style
     }
 
     /// Look up a patch's result before cloning the full style. Repeated
@@ -184,7 +199,10 @@ impl SharedStyles {
         }
         let mut next = base.clone();
         next.apply_patch(patch);
-        self.table.insert(hash, bytes.into(), next)
+        let held = self.table.len();
+        let next = self.table.insert(hash, bytes.into(), next);
+        self.noted(&next, held);
+        next
     }
 
     /// Look up the remaining rows before materializing a cleared style.
@@ -221,17 +239,99 @@ impl SharedStyles {
         let mut next = base.clone();
         next.clear(cleared);
         next.written = written;
-        self.table.insert(hash, bytes.into(), next)
+        let held = self.table.len();
+        let next = self.table.insert(hash, bytes.into(), next);
+        self.noted(&next, held);
+        next
     }
 
     /// Sweep, then return spare capacity.
     pub(crate) fn trim(&mut self) {
+        self.wide_stale = true;
         self.table.trim();
+        self.wide.retain(|_, (weak, _)| weak.strong_count() > 0);
     }
 
     /// Distinct styles held beyond the initial one.
     pub(crate) fn len(&self) -> usize {
         self.table.len()
+    }
+}
+
+impl<T, K> Interner<T, K> {
+    /// Every value held, whoever else holds it.
+    pub(crate) fn rcs(&self) -> impl Iterator<Item = &Rc<T>> {
+        self.table.values().flatten().map(|(_, v)| v)
+    }
+}
+
+impl SharedStyles {
+    /// A style just held (the table held `before` until then): its wide
+    /// colours join `wide_all`; one the insert's own sweep let go makes it
+    /// stale.
+    fn noted(&mut self, style: &Rc<StyleProps>, before: usize) {
+        if self.table.len() <= before {
+            // The insert swept: forget the dead styles' cached slots too.
+            self.wide_stale = true;
+            self.wide.retain(|_, (weak, _)| weak.strong_count() > 0);
+        }
+        if crate::style::wide::Holder::needed() {
+            let slots = self.slots(style).to_vec();
+            for slot in slots {
+                self.wide_all.slot(slot);
+            }
+        }
+    }
+
+    /// One held style's wide colour slots, visited once.
+    fn slots(&mut self, v: &Rc<StyleProps>) -> &[u16] {
+        use crate::style::wide::Colors;
+        let key = Rc::as_ptr(v) as usize;
+        let fresh = self
+            .wide
+            .get(&key)
+            .is_some_and(|(weak, _)| weak.upgrade().is_some_and(|w| Rc::ptr_eq(&w, v)));
+        if !fresh {
+            let mut own = crate::style::wide::WideMark::default();
+            v.colors(&mut own);
+            self.wide
+                .insert(key, (Rc::downgrade(v), own.slots().into_boxed_slice()));
+        }
+        &self.wide[&key].1
+    }
+
+    /// Every style's colours, each visited (a clone's keep, once).
+    pub(crate) fn visit(&self, m: &mut crate::style::wide::WideMark) {
+        use crate::style::wide::Colors;
+        self.default.colors(m);
+        for v in self.table.rcs() {
+            v.colors(m);
+        }
+    }
+
+    /// Mark the colours the styles hold, the default's and every one in the
+    /// table, whoever else holds it (one handed out again later still holds
+    /// its ids). Every node's style is one of these: production writes go
+    /// through `intern`, `patch` and `clear`. A superset between rebuilds,
+    /// rebuilt once styles have gone.
+    pub(crate) fn wide_colors(&mut self, m: &mut crate::style::wide::WideMark) {
+        use crate::style::wide::Colors;
+        self.default.colors(m);
+        if self.wide_stale {
+            self.table.sweep();
+            self.wide.retain(|_, (weak, _)| weak.strong_count() > 0);
+            let all: Vec<Rc<StyleProps>> = self.table.rcs().cloned().collect();
+            let mut rebuilt = crate::style::wide::WideMark::default();
+            for v in &all {
+                for &slot in self.slots(v) {
+                    rebuilt.slot(slot);
+                }
+            }
+            drop(all);
+            self.wide_all = rebuilt;
+            self.wide_stale = false;
+        }
+        m.union(&self.wide_all);
     }
 }
 

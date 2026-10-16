@@ -111,6 +111,9 @@ pub struct NodeArena {
     pub(crate) fit_scales: IdMap<u32, f32>,
     pub(crate) document_language: String,
     pub(crate) document_style: StyleProps,
+    /// A clone's wide colours, kept while it lives apart from a kernel:
+    /// let go once a kernel holding it publishes its own mark.
+    pub(crate) kept: crate::style::wide::Keep,
     // Current metadata only: O(arena slot high-water), never revision history.
     text_revisions: Vec<TextRevisions>,
     text_domain: TextDomain,
@@ -169,6 +172,7 @@ impl Clone for NodeArena {
             text_revisions: vec![TextRevisions::default(); self.text_revisions.len()],
             text_domain: TextDomain::default(),
             text_serial: 0,
+            kept: crate::style::wide::Keep::of(|m| self.wide_colors_shared(m)),
         }
     }
 }
@@ -1387,5 +1391,28 @@ fn bump(counts: &mut Vec<u32>, index: usize, up: bool) {
         counts[index] += 1;
     } else {
         counts[index] = counts[index].saturating_sub(1);
+    }
+}
+
+impl NodeArena {
+    /// Mark the colours its styles hold: the shared table's, which every
+    /// node's style is one of, and the control and document styles.
+    pub(crate) fn wide_colors(&mut self, m: &mut crate::style::wide::WideMark) {
+        use crate::style::wide::Colors;
+        self.shared.wide_colors(m);
+        if let Some(control) = &self.control_styles {
+            control.colors(m);
+        }
+        self.document_style.colors(m);
+    }
+
+    /// The same, visiting every style (for a clone, once).
+    fn wide_colors_shared(&self, m: &mut crate::style::wide::WideMark) {
+        use crate::style::wide::Colors;
+        self.shared.visit(m);
+        if let Some(control) = &self.control_styles {
+            control.colors(m);
+        }
+        self.document_style.colors(m);
     }
 }

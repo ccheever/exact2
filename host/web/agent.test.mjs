@@ -618,19 +618,19 @@ test('page facts: the platform off the agent, the drive\'s values under it (LLP 
   const listened = [];
   const platform = { document: { visibilityState: 'hidden', addEventListener: name => listened.push(name) }, navigator: { onLine: false, share() {} }, addEventListener: name => listened.push(name) };
   const real = pageReporter(false, platform);
-  expect(real.bits()).toBe(1 | 2 | 4);
+  expect(real.bits()).toBe(1 | 2 | 4 | 32); // no navigation entry is a page the browser navigated to (bits 5–6: 1)
   platform.document.visibilityState = 'visible'; platform.navigator = { onLine: true };
-  expect(real.bits()).toBe(0);
+  expect(real.bits()).toBe(32);
+  expect(pageReporter(false, { ...platform, performance: { getEntriesByType: t => t === 'navigation' ? [{ type: 'reload' }] : [] } }).bits()).toBe(2 << 5);
   // The document pickers (studio diary R31): bit 3 where the browser has them.
-  platform.showOpenFilePicker = () => {};
-  expect(real.bits()).toBe(8);
-  delete platform.showOpenFilePicker; let focused = false; platform.document.hasFocus = () => focused; expect(real.bits()).toBe(16); focused = true; expect(real.bits()).toBe(0); // #114: bit 4 while `document.hasFocus()` is false
+  platform.showOpenFilePicker = () => {}; expect(real.bits()).toBe(32 | 8);
+  delete platform.showOpenFilePicker; let focused = false; platform.document.hasFocus = () => focused; expect(real.bits()).toBe(32 | 16); focused = true; expect(real.bits()).toBe(32); // #114: bit 4 while `document.hasFocus()` is false
   real.onChange(() => {});
   expect(listened).toEqual(['visibilitychange', 'online', 'offline', 'focus', 'blur']);
   const agent = pageReporter(true, new Proxy({}, {get(_, name) { if (name === 'devicePixelRatio') return 2; throw new Error('agent read the platform'); }})); // the display's scale alone is the page's own under the agent too: no drive value stands in for it (LLP 1115.000 D10.3)
-  expect(agent.bits()).toBe(4 | 8);
-  agent.prefer({ 'visibility-state': 'hidden', online: false, 'can-open-files': false, 'has-focus': false }); expect(agent.bits()).toBe(1 | 2 | 4 | 16); agent.prefer({ 'has-focus': 'true' });
-  expect(agent.bits()).toBe(1 | 2 | 4);
+  expect(agent.bits()).toBe(4 | 8 | 32); // the drive navigated to the page: `navigate` (bits 5–6: 1)
+  agent.prefer({ 'visibility-state': 'hidden', online: false, 'can-open-files': false, 'has-focus': false }); expect(agent.bits()).toBe(1 | 2 | 4 | 16 | 32); agent.prefer({ 'has-focus': 'true' });
+  expect(agent.bits()).toBe(1 | 2 | 4 | 32);
   expect(() => agent.prefer({ online: 'maybe', 'can-share': false })).toThrow('prefer: online');
   expect(agent.read()['can-share']).toBe(true); expect(agent.read()['display-scale']).toBe(2); expect(real.displayScale()).toBe(1); agent.prefer({ 'display-scale': 2 }); expect(() => agent.prefer({ 'display-scale': 3 })).toThrow("prefer: display-scale: 3: the page's is 2");
   agent.onChange(() => { throw new Error('agent listened to the platform'); });

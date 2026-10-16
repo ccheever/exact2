@@ -1,6 +1,7 @@
 // Native modules on Apple hosts (@ref LLP 1024 D2–D5, LLP 1067.000): one
 // NativeView arm, one app module artifact behind `dlopen`, loaded after the
-// first painted frame or at the first long call, and a versioned C function
+// first painted frame, at the first long call, or for a first-frame tag
+// before that frame, and a versioned C function
 // table whose tag → factory roster is looked up by name. The artifact's
 // module is instantiated once per session (Q6): its views receive it, and a
 // source's `native.later` calls reach it through the runtime
@@ -11,7 +12,8 @@
 //
 //   0  u32 major            3
 //   4  u32 size             104 or more
-//   8  const char *roster   JSON: {"tag": {"snapshot": bool}, …}
+//   8  const char *roster   JSON: {"tag": {"snapshot": bool, "reuse": bool,
+//                          "firstFrame": bool}, …}
 //  16  create(module, tag, tagLen, props, propsLen, event, reply, ctx, nonce, err, errCap) → handle
 //  24  platform_view(handle) → NSView * / UIView *   (the module keeps ownership)
 //  32  set_props(handle, json, len, err, errCap) → 0 accepted, else refused
@@ -433,7 +435,8 @@ final class NativeViews {
     }
 
     /// A NativeView's create commit: the box exists now; the module attaches
-    /// at the paint gate, or at once when the gate has opened (D3).
+    /// at the paint gate, or at once when the gate has opened (D3), or at the
+    /// end of its batch for a first-frame tag.
     func create(owner: NodeView) {
         entries[owner.id] = NativeEntry(owner: owner)
     }
@@ -446,11 +449,22 @@ final class NativeViews {
         for entry in entries.values.sorted(by: { $0.id < $1.id }) where entry.state == "loading" && !entry.name.isEmpty { attach(entry) }
     }
 
+    /// The tags whose factory says they belong in the frame their node first
+    /// shows in (`firstFrame`, LLP 1024 D3): a cheap view such as a boot
+    /// splash, which would otherwise start a frame late over a bare one. The
+    /// build reads them from the roster into Info.plist, so no other tag
+    /// loads the module before first pixel. A node of one attaches at the end
+    /// of the batch that made it, before that batch's commit: the artifact
+    /// loads and the module is made then, its hatches called after first
+    /// pixel (`activateHatches`).
+    var firstFrameTags = Set(ExactEnv.appMetadata["ExactFirstFrameModules"] as? [String] ?? [])
+
     /// Views wait for activation's frame to commit, so a slow view (a map
     /// takes tens of ms) does not delay that frame or pending input.
     private var activationRan = false
     func activated() {
         activationRan = true
+        activateHatches()
         loadIfNeeded()
     }
 
@@ -477,11 +491,16 @@ final class NativeViews {
         CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
     }
 
+    /// When, for the log: "12.3 ms after first pixel", or before it (a
+    /// first frame's roster read, or its first-frame tag's module).
+    private var sincePixel: String {
+        session?.firstDrawMs.map { String(format: "%.1f ms after first pixel", ExactEnv.wall() - $0) } ?? "before first pixel"
+    }
+
     private func table() -> Result<NativeTable, NativeFailure> {
         if let loaded = NativeProcess.table { return loaded }
         let path = NativeViews.modulePath(session: session)
-        let after = session?.firstDrawMs.map { String(format: "%.1f", ExactEnv.wall() - $0) } ?? "?"
-        log("loading \(path) \(after) ms after first pixel")
+        log("loading \(path) \(sincePixel)")
         let started = CFAbsoluteTimeGetCurrent()
         let loaded = NativeTable.load(path: path)
         NativeProcess.table = loaded
@@ -534,16 +553,31 @@ final class NativeViews {
             return .failure(failure)
         }
         instance = made
-        log("module instance made (agent \(ExactEnv.agentMode))")
+        log("module instance made (agent \(ExactEnv.agentMode)) \(sincePixel)")
         if Self.hatchesOff { log("hatches: off (EXACT_HATCHES=off); no hatch is connected or called") }
         if !Self.hatchesOff, let connect = table.connect, let navigation = table.navigationHatch, let route = table.routeHatch {
             let tabs = table.tabsHatch.flatMap { tabs in table.tabContainerHatch.map { (tabs, $0) } }
-            connectHatches(connect, navigation, route, tabs, table.elementHatch, table.toolbarHatch, made)
+            // The module's side of the table, and with it its frame clock, at
+            // once; the hatches are called from first pixel on (LLP
+            // 1075.003.000.001 D5), so a first-frame tag's module waits.
+            openHatches(connect, made)
             hatchClock.natives = self
             hatchClock.call = table.tickHatch
-            connectScopes(app: table.appHatch, window: table.windowHatch)
+            pendingHatches = { [weak self] in
+                self?.connectHatches(navigation, route, tabs, table.elementHatch, table.toolbarHatch)
+                self?.connectScopes(app: table.appHatch, window: table.windowHatch)
+            }
+            if session.firstDrawMs != nil { activateHatches() }
         }
         return .success(made)
+    }
+
+    private var pendingHatches: (() -> Void)?
+    /// Connects the hatches of a module made before first pixel.
+    private func activateHatches() {
+        guard let pending = pendingHatches else { return }
+        pendingHatches = nil
+        pending()
     }
 
     /// Where the module keeps its files: the app's roots, as the runtime
@@ -585,6 +619,7 @@ final class NativeViews {
     /// A first load of a freshly built dylib took 164 ms inside a call's
     /// 100 ms budget (the sample host, 2026-09-27).
     func prepareAppModule() {
+        activateHatches()
         guard hasAppModule, instance == nil, case .success(let table) = self.table() else { return }
         _ = module(table)
     }
@@ -664,6 +699,7 @@ final class NativeViews {
         #endif
         endScopes()
         hatchClock.reset()
+        pendingHatches = nil
         guard let instance, case .success(let table)? = NativeProcess.table else { return }
         self.instance = nil
         hatchesConnected = false
@@ -812,7 +848,12 @@ final class NativeViews {
         if entry.name.isEmpty, entry.state == "loading" {
             entry.name = owner.props["nativeViewModuleName"] ?? ""
             log("\(entry.name) #\(owner.id): loading")
-            if gateOpen, canReuse(entry.name) || holds?(owner) != true { attach(entry) }
+            if gateOpen, canReuse(entry.name) || holds?(owner) != true { attach(entry) } else if !gateOpen, firstFrameTags.contains(entry.name) {
+                owner.presenter?.afterBatch { [weak self, weak entry] in
+                    guard let self, let entry, self.entries[entry.id] === entry, entry.handle == nil, entry.state == "loading" else { return }
+                    self.attach(entry)
+                }
+            }
             return
         }
         guard let handle = entry.handle, case .success(let table)? = NativeProcess.table else { return }
@@ -1026,6 +1067,42 @@ final class NativeViews {
     }
 
     #if os(iOS) || os(tvOS)
+    /// Whether `owner`'s module view declined a touch at `point` that it
+    /// covers, so the touch goes to what is under the box, as it does past a
+    /// UIView whose hit test returns nil: the view takes touches but its own
+    /// hit test (a `point(inside:)` that follows a drawn shape) answered
+    /// nil there. A view that takes none (`isUserInteractionEnabled` false)
+    /// is not declining, and its box answers, as a UIKit superview would; so
+    /// does a box with a handler a touch on it runs (`press`).
+    func declined(_ owner: NodeView, at point: CGPoint, with event: UIEvent?) -> Bool {
+        guard let entry = entries[owner.id], entry.owner === owner, let view = entry.view, view.superview === owner,
+              !view.isHidden, view.alpha > 0.01, view.isUserInteractionEnabled, view.frame.contains(point),
+              owner.handlers.isSubset(of: Self.reported) else { return false }
+        return view.hitTest(owner.convert(point, to: view), with: event) == nil
+    }
+    /// Whether `owner`'s module view says something to accessibility itself:
+    /// it or a view in it is an element, or has elements of its own
+    /// (`accessibilityElements`, or `accessibilityElementCount()` and
+    /// `accessibilityElement(at:)`). Then those are what VoiceOver reads, not
+    /// the box.
+    func speaksForItself(_ owner: NodeView) -> Bool {
+        guard let entry = entries[owner.id], entry.owner === owner, let view = entry.view, view.superview === owner else { return false }
+        func speaks(_ view: UIView) -> Bool {
+            guard !view.isHidden, !view.accessibilityElementsHidden else { return false }
+            if view.isAccessibilityElement { return true }
+            // A list the view gives is UIKit's answer, an empty one too: its
+            // subviews are then not what VoiceOver reads.
+            if let elements = view.accessibilityElements { return !elements.isEmpty }
+            // A container that answers by count and index (a drawn chart's virtual elements).
+            let count = view.accessibilityElementCount()
+            if count > 0, count != NSNotFound { return true }
+            return view.subviews.contains(where: speaks)
+        }
+        return speaks(view)
+    }
+    /// The handlers a module's own events run (its `ExactNativeEvents`), not a touch on the box.
+    private static let reported: Set<String> = ["change", "hover", "focus", "blur", "key", "submit", "load", "message"]
+
     func refreshWorldGeometry() {
         for entry in entries.values {
             guard let view = entry.view else { continue }

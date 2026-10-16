@@ -14,12 +14,14 @@
 import { spawn } from 'node:child_process';
 import { createServer, request } from 'node:http';
 import { existsSync, lstatSync, readFileSync, rmSync, statSync, watch, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, relative, resolve } from 'node:path';
 import { acceptsHTML, appDocumentPath, webRequestURL } from '../../scripts/origin.mjs';
-import { compilerWarnings, INPUT_TREE, OUTPUT } from '../../scripts/agent-launch.mjs';
+import { compilerWarnings, INPUT_TREE, OUTPUT, listenOn } from '../../scripts/agent-launch.mjs';
 import { appManifestDigest, buildFileCards, buildTreeFile, replaceBuild, saveTrace, sendStaticBody, watchLauncher, webContentType } from '../web/serve.mjs';
 import { localInstaller } from '../web/local-install.mjs';
 import { designPath, tamberServer } from '../../scripts/tamber-server.mjs';
+import { serveCommands, serveReport } from '../../scripts/tamber-builds.mjs';
+import { webCompiler } from './module.mjs';
 
 const CHECKPOINT_BYTES = 16 * 1024 * 1024, CHECKPOINTS = 8;
 
@@ -37,10 +39,18 @@ function devPackages(stage) {
   } catch { return { trees: [], shallow: [], sources: [] }; }
 }
 
+/** The development build's design (`exact-web-js --dev-reload`'s
+ * `dev-design.json`: structure, digest, tokens), or null. */
+function devDesign(stage) {
+  try { return JSON.parse(readFileSync(resolve(stage, '.gen', 'dev-design.json'), 'utf8')); } catch { return null; }
+}
+
 /** One build of `app` into `dist` through a stage under the app's ignored
  * target/ (as the wasm build stages); resolves to null or the build's
- * errors (what the JS target refused, or a compile error). */
-function build(app, dist) {
+ * errors (what the JS target refused, or a compile error). `keep(design,
+ * logic)`, when it says so, keeps the build in `dist` (a value-only design
+ * edit, LLP 1121 stage 4: the page takes a batch instead). */
+function build(app, dist, keep = () => false) {
   const stage = resolve(app.target, 'web-js-dev-stage');
   rmSync(stage, { recursive: true, force: true });
   return new Promise((done) => {
@@ -59,16 +69,18 @@ function build(app, dist) {
       if (types) console.log(types);
       if (code !== 0) { rmSync(stage, { recursive: true, force: true }); return done({ packages, error: log.split('\n').filter((l) => l.trim() && !/^\s*(Compiling|Finished|Running|warning)/.test(l) && !compilerWarnings(l).length).slice(-12).join('\n') || `build exited ${code}` }); }
       const logic = readFileSync(resolve(stage, '.exact-dev-logic.json'), 'utf8').trim();
+      const design = devDesign(stage);
+      if (keep(design, logic)) { rmSync(stage, { recursive: true, force: true }); return done({ error: null, logic, packages, design, kept: true, warnings: compilerWarnings(log) }); }
       writeFileSync(resolve(stage, '.exact-build.json'), JSON.stringify({ exactBuild: 1, target: 'js', app: { id: app.id, name: app.displayName },
         manifestSha256: appManifestDigest(app), files: buildFileCards(stage) }) + '\n');
       replaceBuild(stage, dist);
-      done({ error: null, logic, packages, warnings: compilerWarnings(log) });
+      done({ error: null, logic, packages, design, warnings: compilerWarnings(log) });
     });
   });
 }
 
 /** Build `app` on the JS target and serve it with reload, until the process ends. */
-export async function devJs({ app, dist, port, host, origins, gate, lan, allowHosts = [] }) {
+export async function devJs({ app, dist, port, host, origins, gate, lan, allowHosts = [], residentPort = 0 }) {
   const budget = /\|\s*Dev restart[^|]*\|\s*([^|\n]+)/.exec(readFileSync(resolve(root, 'rules/RULES.md'), 'utf8'))?.[1].trim() ?? '?';
   const t0 = Date.now();
   // A first build that fails (a refusal or a compile error) serves its
@@ -86,17 +98,84 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   else console.log(`JS target: ${app.name} built in ${Date.now() - t0} ms`);
   warn(built.warnings);
   console.log('plan ready');
+  // The design server's wire, once made below (a rebuild may come first).
+  let tamber = null;
   const clients = new Set();
   const push = (m) => { for (const res of clients) res.write(`data: ${JSON.stringify(m)}\n\n`); };
+  // The live table (LLP 1121 stage 4): the design the page in dist was built
+  // with, and the one the pages run after value-only edits since.
+  let design = built.design ?? null, snapshot = null;
+  const notice = (s) => ({ kind: 'tamber-batch', structure: s.structure, base: s.design, design: s.design, tokens: [] });
+  // A batch larger than this, in UTF-8 bytes, goes as the snapshot's notice
+  // instead, as the resident loop sends it (host/web/dev.mjs DESIGN_FRAME):
+  // a native host's event frames are bounded (PlanURL.swift's 64 KiB).
+  const framed = (batch) => (Buffer.byteLength(JSON.stringify(batch)) > 32 * 1024 ? notice(snapshot) : batch);
+  const same = (a, b) => a.value === b.value && a.slices.length === b.slices.length && a.slices.every((s, i) => s === b.slices[i]);
+  // A scrub (LLP 1121 stage 4, commit 6): the design the pages run while it
+  // previews, and the snapshot it put aside; the next build, or its end,
+  // sends them on from it.
+  // `released`: that scrub is being written; the build of what it writes
+  // goes from it, and ends it.
+  let scrubbed = null, aside = null, released = false;
+  // The files edited since the last build, by path: only design files may
+  // be a value-only edit.
+  const edited = new Set(), appeared = new Set();
   let seq = 1, saved = 0, again = false, timer = null, since = t0;
   const pending = new Map(); // seq -> the save it answers
   const rebuild = async () => {
     if (building) { again = true; return; }
     const at = saved, t = since = Date.now();
-    built = await build(app, dist); error = built.error;
+    // A path that existed during the save and is gone by now (an editor's
+    // or sed's temporary file) edited nothing; one already gone when its
+    // event came (a deleted asset) is an edit.
+    const designs = [...edited].filter((path) => path.endsWith('.tamber'));
+    const designOnly = designs.length > 0 && [...edited].every((path) => path.endsWith('.tamber') || (!existsSync(path) && appeared.has(path)));
+    // Kept until a build lands: a failed one's edits are the next build's too.
+    const pendingEdits = [...edited], pendingAppeared = [...appeared];
+    edited.clear(); appeared.clear();
+    const keep = (next, logic) => designOnly && design && next && logic === logicRevision
+      && next.structure === design.structure && next.tokens.length === design.tokens.length
+      && next.tokens.every((t, i) => t.name === design.tokens[i].name && String(t.accent) === String(design.tokens[i].accent));
+    built = await build(app, dist, keep); error = built.error;
+    // The design the pages run now (a scrub's preview, or its end, may have
+    // come while it built).
+    const from = scrubbed ?? design;
     watchPackages(built.packages);
-    if (error) { console.log(`build failed in ${Date.now() - t} ms; the page keeps the last good build\n${error}`); push({ error }); }
+    if (error) {
+      for (const p of pendingEdits) edited.add(p);
+      for (const p of pendingAppeared) appeared.add(p);
+      console.log(`build failed in ${Date.now() - t} ms; the page keeps the last good build\n${error}`); push({ error });
+    }
+    else if (built.kept) {
+      const tokens = built.design.tokens.filter((t, i) => !same(t, from.tokens[i]));
+      design = built.design;
+      const committed = { kind: 'tamber-snapshot', structure: design.shape, base: null, design: design.digest, tokens: design.tokens };
+      // While a scrub previews the pages stay on it: this changes only what
+      // its end restores. A released scrub's build goes from it, and ends it.
+      if (scrubbed && released) { scrubbed = null; aside = null; released = false; }
+      if (scrubbed) aside = committed; else snapshot = committed;
+      if (tokens.length && !scrubbed) {
+        console.log(`edit → batch ready ${Date.now() - at} ms (built in ${Date.now() - t} ms) · ${tokens.length} token${tokens.length === 1 ? '' : 's'} to ${clients.size} page${clients.size === 1 ? '' : 's'}, no reload`);
+        const batch = framed({ kind: 'tamber-batch', structure: design.shape, base: from.digest, design: design.digest, tokens });
+        push(batch);
+        // The one source of batches: the resident loop's devices and Linux
+        // take them through the channel's polled streams.
+        tamber?.channel.broadcast(batch);
+      }
+    }
     else {
+      // A reload ends a scrub's preview: the pages boot the committed design.
+      scrubbed = null; aside = null; released = false;
+      const next = built.design ?? null;
+      // The page reloads; a native build on the resident producer, whose
+      // plan this edit may leave as it was (an accent's companion rules are
+      // the JS target's own), takes the values as a batch when the design's
+      // shape held, and the snapshot stays its to fetch.
+      const shaped = from && next && from.shape === next.shape && from.tokens.length === next.tokens.length && next.tokens.every((tk, i) => tk.name === from.tokens[i].name);
+      design = next;
+      snapshot = shaped ? { kind: 'tamber-snapshot', structure: next.shape, base: null, design: next.digest, tokens: next.tokens } : null;
+      const changedTokens = shaped ? next.tokens.filter((tk, i) => !same(tk, from.tokens[i])) : [];
+      if (changedTokens.length) tamber?.channel.broadcast(framed({ kind: 'tamber-batch', structure: next.shape, base: from.digest, design: next.digest, tokens: changedTokens }));
       logicRevision = built.logic;
       pending.set(++seq, at);
       console.log(`edit → plan ready ${Date.now() - at} ms (rebuilt in ${Date.now() - t} ms) · ${clients.size} page${clients.size === 1 ? '' : 's'} reloading`);
@@ -122,6 +201,9 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     // is new, though its target is not.
     try { if (fresh && name && lstatSync(resolve(base, String(name))).mtimeMs < since) return; } catch { /* removed: an edit */ }
     if (!timer) saved = Date.now();
+    const path = resolve(base, String(name ?? ''));
+    edited.add(path);
+    if (existsSync(path)) appeared.add(path);
     clearTimeout(timer);
     // An editor's save is one burst of events, well inside 5 ms; an event
     // after the build starts builds again (`again`).
@@ -157,7 +239,10 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   // The one TypeScript configuration app.ts is checked with (js/bake/src/typescript.mjs).
   watchers.push(watch(resolve(root, 'js/bake/src/typescript.mjs'), changed(resolve(root, 'js/bake/src'))));
   // The page's side: reload on a new build, the errors of a failed one in an
-  // overlay, and a beacon when the reloaded page's runtime is up.
+  // overlay, and a beacon when the reloaded page's runtime is up. Its build
+  // channel (as host/web/dev.js's): a pin's scheme is the system's, a rule
+  // beneath the app's `setScheme`; its status is what paints, sent again
+  // once a turn when the app's own commands move it.
   const client = (n, revision) => `<script>(()=>{const seq=${n},logicRevision=${JSON.stringify(revision)},es=new EventSource('/__dev/page');let o,reloading=false;
 const show=t=>{if(!t){o?.remove();o=null;return}o??=document.body.appendChild(Object.assign(document.createElement('pre'),{style:'position:fixed;left:0;right:0;bottom:0;margin:0;padding:12px;background:#300;color:#fdd;font:12px/1.4 ui-monospace,monospace;white-space:pre-wrap;z-index:2147483647',onclick:()=>show()}));o.textContent=t+'\\n(click to dismiss)'};
 const encode=v=>typeof v==='number'&&(!Number.isFinite(v)||Object.is(v,-0))?{$exactNumber:Object.is(v,-0)?'-0':String(v)}:Array.isArray(v)?v.map(encode):v;
@@ -166,14 +251,74 @@ const capture=logic=>{const x=globalThis.exact,active=document.activeElement?.cl
 const restored=document.querySelector('script[type="application/vnd.exact.dev-checkpoint"]'),q=new URLSearchParams(location.search),devKeys=new Set(['agent','seed','locale','timeZone','epoch','storage']),admission=q.has('agent')?[...q].filter(([k])=>devKeys.has(k)):null;
 if(restored){const restoredSeq=Number(restored.dataset.seq);console.info('exact dev reload: restored',restoredSeq);const t=setInterval(()=>{const b=document.getElementById('exact-root')?.dataset.bootMs;if(b!=null){clearInterval(t);Promise.resolve(globalThis.exact?.ready).then(()=>{console.info('exact dev reload: runtime up',restoredSeq);fetch('/__dev/reloaded?seq='+restoredSeq+'&boot='+b+'&at='+Date.now(),{method:'POST'})})}},2)}
 const ready=()=>globalThis.exact?Promise.resolve(globalThis.exact.ready):new Promise(ok=>{const t=setInterval(()=>{if(globalThis.exact){clearInterval(t);Promise.resolve(globalThis.exact.ready).then(ok)}},2)});
-es.onmessage=e=>{const m=JSON.parse(e.data);if(m.error!==undefined)show(m.error);if(m.reload>seq&&!reloading){reloading=true;if(!globalThis.exact){location.reload();return}ready().then(async()=>{const checkpoint=capture(m.revision!==logicRevision),id=crypto.getRandomValues(new Uint32Array(4)).join('-');console.info('exact dev reload: checkpoint',m.reload);const saved=await fetch('/__dev/checkpoint?id='+id+'&seq='+m.reload+'&revision='+encodeURIComponent(m.revision??''),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(checkpoint)});if(!saved.ok)throw new Error('checkpoint handoff answered '+saved.status);const next=new URL(location.href);next.searchParams.set('__exactDev',id);if(admission)for(const [k,v]of admission)if(!next.searchParams.has(k))next.searchParams.set(k,v);location.replace(next.href)}).catch(e=>{reloading=false;console.error('exact dev reload: current page retained; checkpoint handoff failed',e)})}}})()</script>`;
+let liveQ=Promise.resolve();const live=m=>{liveQ=liveQ.then(async()=>{const x=await ready().then(()=>globalThis.exact),was=x?.designDigest;const out=x?.design?.(m);if(out?.live==='stale'){const r=await fetch('/__dev/design',{cache:'no-store'});if(r.status===200)x.design(await r.json())}if(x?.designDigest!==was&&ch.nonce)status()}).catch(e=>console.error('exact dev:',e))};
+const ch={nonce:null,registered:null,revision:null,before:null,told:null},bid=(async()=>{const fresh=()=>'web-js-'+crypto.getRandomValues(new Uint32Array(2)).join('');let i;try{i=sessionStorage.getItem('exact.dev.build')}catch{return fresh()}const t=typeof BroadcastChannel==='function'?new BroadcastChannel('exact.dev.build'):null;if(i&&t){const mine=i;if(await new Promise(done=>{t.onmessage=e=>{if(e.data==='taken:'+mine)done(true)};t.postMessage('who:'+mine);setTimeout(()=>done(false),60)}))i=null}i??=fresh();if(t){const own=i;t.onmessage=e=>{if(e.data==='who:'+own)t.postMessage('taken:'+own)}}try{sessionStorage.setItem('exact.dev.build',i)}catch{}return i})(),post=(n,b)=>fetch('/__dev/report',{method:'POST',body:JSON.stringify({nonce:n,...b})}),rep=async b=>{const{nonce:n,registered:r}=ch;if(!n||!(await r)||ch.nonce!==n||ch.registered!==r)return;await post(n,b).catch(()=>{})};
+const facts=()=>{const s=getComputedStyle(document.documentElement),cs=s.colorScheme,x=globalThis.exact;return{kind:'status',scheme:/dark/.test(cs)&&!/light/.test(cs)?'dark':/light/.test(cs)&&!/dark/.test(cs)?'light':x?.systemScheme??(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'),contrast:matchMedia('(prefers-contrast: more)').matches?'more':matchMedia('(prefers-contrast: less)').matches?'less':'no-preference',mode:x?.modes?.read?.()??null,rootFontSize:parseFloat(s.fontSize),plan:null,design:x?.designDigest??null,revision:ch.revision}},status=()=>{const b=facts();ch.told=JSON.stringify(b);rep(b)};for(const q of['(prefers-color-scheme: dark)','(prefers-contrast: more)','(prefers-contrast: less)'])matchMedia(q).addEventListener?.('change',()=>{if(ch.nonce)status()});
+let due=false;const moved=()=>{if(due||!ch.nonce)return;due=true;setTimeout(()=>{due=false;const b=facts();if(JSON.stringify(b)!==ch.told){ch.told=JSON.stringify(b);rep(b)}},0)},seen=new MutationObserver(moved);seen.observe(document.documentElement,{attributes:true,attributeFilter:['style','data-x-modes']});seen.observe(document.head,{childList:true,subtree:true,characterData:true});
+const pin=m=>{liveQ=liveQ.then(async()=>{await ready();const r=document.documentElement.style,p=m.pin,x=globalThis.exact;ch.before??={fontSize:r.fontSize,hostFont:r.getPropertyValue('--exact-host-font-size'),mode:x?.modes?.read?.()??{}};const sh=document.getElementById('exact-dev-pin')??document.head.appendChild(Object.assign(document.createElement('style'),{id:'exact-dev-pin'}));sh.textContent=p?.scheme?':root{color-scheme:'+p.scheme+'}':'';if((x.systemScheme??null)!==(p?.scheme??null)){x.systemScheme=p?.scheme??null;dispatchEvent(new Event('resize'))}r.fontSize=p?.rootFontSize?p.rootFontSize+'px':ch.before.fontSize;if(p?.rootFontSize)r.setProperty('--exact-host-font-size',r.fontSize);else if(ch.before.hostFont)r.setProperty('--exact-host-font-size',ch.before.hostFont);else r.removeProperty('--exact-host-font-size');const mode=Object.entries({...ch.before.mode,...(p?.mode??{})});if(mode.length&&x?.modes?.set){const why=x.modes.set(mode);if(why){rep({kind:'unsupported',what:'pin.mode',detail:why});x.modes.set(Object.entries(ch.before.mode))}}if(p?.contrast)rep({kind:'unsupported',what:'pin.contrast',detail:"a web page cannot pin the browser's contrast"});if(!p)ch.before=null;ch.revision=m.revision;status()}).catch(e=>console.error('exact dev:',e))};
+es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==='tamber-snapshot'){live(m);return}if(m.kind==='pin'){pin(m);return}if(m.kind==='inspect'||m.kind==='outline'||m.kind==='hold'){rep({kind:'unsupported',what:m.kind});return}if(m.nonce&&m.nonce!==ch.nonce){const n=ch.nonce=m.nonce;ch.registered=ready().then(async()=>(await post(n,{kind:'register',id:await bid,host:'web-js',capabilities:['pin'],plan:null,design:globalThis.exact?.designDigest??null})).ok).catch(()=>false);status()}if(m.error!==undefined)show(m.error);if(m.reload>seq&&!reloading){reloading=true;if(!globalThis.exact){location.reload();return}ready().then(async()=>{const checkpoint=capture(m.revision!==logicRevision),id=crypto.getRandomValues(new Uint32Array(4)).join('-');console.info('exact dev reload: checkpoint',m.reload);const saved=await fetch('/__dev/checkpoint?id='+id+'&seq='+m.reload+'&revision='+encodeURIComponent(m.revision??''),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(checkpoint)});if(!saved.ok)throw new Error('checkpoint handoff answered '+saved.status);const next=new URL(location.href);next.searchParams.set('__exactDev',id);if(admission)for(const [k,v]of admission)if(!next.searchParams.has(k))next.searchParams.set(k,v);location.replace(next.href)}).catch(e=>{reloading=false;console.error('exact dev reload: current page retained; checkpoint handoff failed',e)})}}})()</script>`;
   const checkpoints = new Map();
+  /** A scrub's design: the compiler's (`exact-web-js design`) with its text,
+   * on stdin, in place of the design file's; written nowhere. */
+  const scrubDesign = (text) => new Promise((done) => {
+    const compiler = webCompiler();
+    const child = spawn(compiler.cmd, [...compiler.pre, 'design', resolve(app.dir, 'app.contract'), '-'], { cwd: root, stdio: ['pipe', 'pipe', 'pipe'] });
+    child.stdin.on('error', () => {});
+    child.stdin.end(text);
+    let out = '', err = '';
+    child.stdout.on('data', (d) => { out += d; });
+    child.stderr.on('data', (d) => { err += d; });
+    child.on('exit', (code) => {
+      try { done(code === 0 ? JSON.parse(out) : { error: err.trim().split('\n').slice(-6).join('\n') || `the compiler exited ${code}` }); } catch (e) { done({ error: e.message }); }
+    });
+  });
+  /** Preview a scrub's texts: a batch from the design the pages run, as a
+   * value-only edit sends one, and its snapshot for a page that asks. */
+  async function scrubPreview(texts) {
+    const file = relative(app.dir, designPath(app.dir));
+    // Texts that leave the design file as it is: the committed design.
+    if (!(file in texts)) { scrubRestore(); return {}; }
+    const next = await scrubDesign(texts[file]);
+    if (next.error) return next;
+    const from = scrubbed ?? design;
+    if (!from || from.shape !== next.shape || from.tokens.length !== next.tokens.length
+      || next.tokens.some((t, i) => t.name !== from.tokens[i].name || String(t.accent) !== String(from.tokens[i].accent))) return { error: 'it changes the design\'s shape: a rebuild applies on release' };
+    if (!scrubbed) aside = snapshot;
+    // A new preview is no released scrub's.
+    scrubbed = next;
+    released = false;
+    snapshot = { kind: 'tamber-snapshot', structure: next.shape, base: null, design: next.digest, tokens: next.tokens };
+    const tokens = next.tokens.filter((t, i) => !same(t, from.tokens[i]));
+    if (tokens.length) {
+      const batch = framed({ kind: 'tamber-batch', structure: next.shape, base: from.digest, design: next.digest, tokens });
+      push(batch);
+      tamber?.channel.broadcast(batch);
+    }
+    return {};
+  }
+  /** A scrub ended without its write: the pages back on the committed design. */
+  function scrubRestore() {
+    released = false;
+    if (!scrubbed || !design) return;
+    const from = scrubbed;
+    scrubbed = null;
+    // The committed design's snapshot (a page fetching it applies nothing new).
+    snapshot = aside ?? { kind: 'tamber-snapshot', structure: design.shape, base: null, design: design.digest, tokens: design.tokens };
+    aside = null;
+    const tokens = design.tokens.filter((t, i) => !same(t, from.tokens[i]));
+    if (!tokens.length) return;
+    const batch = framed({ kind: 'tamber-batch', structure: design.shape, base: from.digest, design: design.digest, tokens });
+    push(batch);
+    tamber?.channel.broadcast(batch);
+  }
   // The install pages (LLP 1030.003 D6a) and, from a loopback page on a Mac,
   // the local iOS build (D6b): this server's, since only it sees the real
   // peer (a forwarded request's is loopback).
   const installer = localInstaller({ app: () => app, origins, port, gate, listener: { host, port } });
   // The design server's wire (LLP 1121 D13), when the app has a design.
-  const tamber = designPath(app.dir) ? tamberServer({ appDir: app.dir }) : null;
+  tamber = designPath(app.dir) ? tamberServer({ appDir: app.dir, live: true, scrub: { preview: scrubPreview, restore: scrubRestore, released: () => { released = scrubbed != null; } } }) : null;
+  // A polled stream (Linux, the resident loop's relay) is told the design to run.
+  tamber?.channel.greet(() => snapshot && notice(snapshot));
   const server = createServer(async (req, res) => {
     const access = gate.check(req);
     if (!access.allowed) { res.writeHead(421, { 'cache-control': 'no-store' }); res.end(); return; }
@@ -181,12 +326,35 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.error!==undefined)show(m.error)
     if (!url) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
     if (tamber && await tamber.handle(req, res, url, access)) return;
     if (await installer.handle(req, res, url, access)) return;
+    // The build channel (LLP 1122 D4): the page's stream gives it a nonce;
+    // reports come up by POST; a build with no stream here (the resident
+    // loop's devices, Linux) opens a polled one.
+    if (url.pathname === '/__dev/report' && req.method === 'POST') {
+      if (!tamber) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
+      await serveReport(tamber.channel, req, res);
+      return;
+    }
+    if ((url.pathname === '/__dev/hello' || url.pathname === '/__dev/commands') && req.method === 'GET') {
+      if (!tamber) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
+      serveCommands(tamber.channel, url, res);
+      return;
+    }
     if (url.pathname === '/__dev/page') {
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
-      res.write(`data: ${JSON.stringify(error ? { error, reload: seq, revision: logicRevision } : { reload: seq, revision: logicRevision })}\n\n`);
+      const opened = tamber?.channel.open(frame => res.write(`data: ${JSON.stringify(frame)}\n\n`));
+      req.on('close', () => opened?.close());
+      res.write(`data: ${JSON.stringify({ ...(error ? { error } : {}), reload: seq, revision: logicRevision, ...(opened ? { nonce: opened.nonce } : {}) })}\n\n`);
+      // The design the pages run, after value-only edits since the build.
+      if (snapshot) res.write(`data: ${JSON.stringify(notice(snapshot))}\n\n`);
       clients.add(res);
       console.log(`page connected (${clients.size})`);
       req.on('close', () => clients.delete(res));
+      return;
+    }
+    if (url.pathname === '/__dev/design' && (req.method === 'GET' || req.method === 'HEAD')) {
+      if (!snapshot) { res.writeHead(204, { 'cache-control': 'no-store' }); res.end(); return; }
+      res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+      res.end(req.method === 'HEAD' ? undefined : JSON.stringify(snapshot));
       return;
     }
     if (url.pathname === '/__dev/checkpoint' && req.method === 'POST') {
@@ -252,7 +420,9 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.error!==undefined)show(m.error)
   // the pages it serves name this URL). Its wasm build is internal.
   let resident = null, residentChild = null;
   const residentLoop = () => resident ??= new Promise((ok, fail) => {
-    const probe = createServer().listen(0, '127.0.0.1', () => {
+    // A named port's next one (an assigned range holds both), else a free one.
+    const probe = createServer();
+    listenOn(probe, residentPort).then(() => {
       const internal = probe.address().port;
       probe.close(() => {
         console.log(`native client: starting the resident loop's producers (loopback :${internal})`);
@@ -265,13 +435,20 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.error!==undefined)show(m.error)
         });
         residentChild.on('exit', (code) => { resident = null; residentChild = null; fail(new Error(`the resident loop exited ${code}`)); });
       });
-    });
+    }).catch(error => { resident = null; fail(error); });
   });
-  const forward = (req, res) => residentLoop().then((internal) => {
-    const out = request({ host: '127.0.0.1', port: internal, method: req.method, path: req.url, headers: req.headers }, (answer) => { res.writeHead(answer.statusCode, answer.headers); answer.pipe(res); });
-    out.on('error', () => { if (!res.headersSent) res.writeHead(502); res.end(); });
-    req.pipe(out);
-  }, (e) => { res.writeHead(503, { 'content-type': 'text/plain', 'cache-control': 'no-store' }); res.end(`${e.message}\n`); });
+  const forward = (req, res) => {
+    // A device gone ends its forwarded stream too (the resident's relay
+    // stops), and one gone while the resident loop starts opens none.
+    let out = null, gone = false;
+    res.on('close', () => { gone = true; out?.destroy(); });
+    residentLoop().then((internal) => {
+      if (gone || res.destroyed) return;
+      out = request({ host: '127.0.0.1', port: internal, method: req.method, path: req.url, headers: req.headers }, (answer) => { res.writeHead(answer.statusCode, answer.headers); answer.pipe(res); });
+      out.on('error', () => { if (!res.headersSent) res.writeHead(502); res.end(); });
+      req.pipe(out);
+    }, (e) => { if (gone) return; res.writeHead(503, { 'content-type': 'text/plain', 'cache-control': 'no-store' }); res.end(`${e.message}\n`); });
+  };
   const stop = async () => {
     for (const w of watchers) w.close(); building?.kill('SIGKILL'); residentChild?.kill('SIGTERM'); server.close();
     // The design server lets go of its lock before this exits.

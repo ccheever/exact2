@@ -284,13 +284,17 @@ extension NativeViews {
     /// After the session's module is made: hand it the host's callbacks
     /// when its table has hatches, then let the presenter replay the objects
     /// it built before (a cold launch's, LLP 1075.003 Q3 (c)).
-    func connectHatches(_ connect: HatchConnectFn, _ navigation: HatchNavigationFn, _ route: HatchRouteFn,
-                      _ tabs: (HatchTabsFn, HatchTabContainerFn)?, _ element: HatchElementFn?, _ toolbar: HatchToolbarFn?,
-                      _ module: UnsafeMutableRawPointer) {
+    /// The module's side of the hatch table, given before any hatch is
+    /// called: its frame clock and diagnostics work from here.
+    func openHatches(_ connect: HatchConnectFn, _ module: UnsafeMutableRawPointer) {
         // A new module is a new incarnation: its counts start at nothing.
         session?.hatchDiagnostics.reset()
         takeBreadcrumb()
         connect(module, hatchHostTable)
+    }
+
+    func connectHatches(_ navigation: HatchNavigationFn, _ route: HatchRouteFn, _ tabs: (HatchTabsFn, HatchTabContainerFn)?,
+                        _ element: HatchElementFn?, _ toolbar: HatchToolbarFn?) {
         hatchCalls = (navigation, route)
         tabCalls = tabs
         elementCall = element

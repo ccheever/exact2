@@ -56,8 +56,8 @@ state
 PASS state focus agrees with tree
 PASS title and Play are the initial UI
 PASS no world or loaded GPU module on the title
-screenshot /home/ccheever/lanes/game/exact2-wt-game/game/games/greybox/artifacts/greybox-title.png
-{"screenshot":"/home/ccheever/lanes/game/exact2-wt-game/game/games/greybox/artifacts/greybox-title.png","w":1280,"h":720,"epoch":1,"incarnation":1,"clock":0}
+screenshot $HOME/lanes/game/exact2-wt-game/game/games/greybox/artifacts/greybox-title.png
+{"screenshot":"$HOME/lanes/game/exact2-wt-game/game/games/greybox/artifacts/greybox-title.png","w":1280,"h":720,"epoch":1,"incarnation":1,"clock":0}
 tap play
 {"tapped":4,"at":[640,400],"epoch":2,"incarnation":1,"clock":0,"target":"play","delivery":"platform","carrier":"linux","mode":"agent"}
 tree 
@@ -512,7 +512,7 @@ layout world [1,1]
 {"device":false,"reason":"canvas picks require a device","unavailable":true,"epoch":2,"incarnation":1,"clock":1500}
 PASS headless pick is explicitly unavailable
 PASS headless occlusion is explicitly unavailable
-screenshot /home/ccheever/lanes/game/exact2-wt-game/game/games/greybox/artifacts/unavailable.png world
+screenshot $HOME/lanes/game/exact2-wt-game/game/games/greybox/artifacts/unavailable.png world
 {"device":false,"reason":"canvas pixels require a device","unavailable":true,"epoch":2,"incarnation":1,"clock":1500}
 PASS headless canvas capture is explicitly unavailable
 SKIP entity pick and entity tap on linux: canvas picks require a device; held contacts are unsupported
@@ -1616,8 +1616,8 @@ state world:*
 PASS pause + 2 seconds preserves the simulation snapshot with W held
 type world {"phase":"up","key":"KeyW"}
 {"typed":6,"delivery":"recognized","epoch":4,"incarnation":1,"clock":8050,"target":"world","carrier":"linux","mode":"agent"}
-screenshot /home/ccheever/lanes/game/exact2-wt-game/game/games/greybox/artifacts/greybox-web.png
-{"h":720,"note":"Contract painted; canvas rectangles are flat (no device)","screenshot":"/home/ccheever/lanes/game/exact2-wt-game/game/games/greybox/artifacts/greybox-web.png","w":1280,"epoch":4,"incarnation":1,"clock":8050}
+screenshot $HOME/lanes/game/exact2-wt-game/game/games/greybox/artifacts/greybox-web.png
+{"h":720,"note":"Contract painted; canvas rectangles are flat (no device)","screenshot":"$HOME/lanes/game/exact2-wt-game/game/games/greybox/artifacts/greybox-web.png","w":1280,"epoch":4,"incarnation":1,"clock":8050}
 tree 
 epoch 4 · incarnation 1 · clock 8050 ms · 5 nodes
 View#1
@@ -2831,8 +2831,8 @@ state world:*
   "incarnation": 1,
   "clock": 500
 }
-screenshot /home/ccheever/lanes/game/exact2-wt-game/game/games/greybox/artifacts/checkpoint.world world save
-{"bytes":3141,"hash":"0xc5efd0271c6bf469","tick":30,"epoch":2,"incarnation":1,"clock":500,"screenshot":"/home/ccheever/lanes/game/exact2-wt-game/game/games/greybox/artifacts/checkpoint.world"}
+screenshot $HOME/lanes/game/exact2-wt-game/game/games/greybox/artifacts/checkpoint.world world save
+{"bytes":3141,"hash":"0xc5efd0271c6bf469","tick":30,"epoch":2,"incarnation":1,"clock":500,"screenshot":"$HOME/lanes/game/exact2-wt-game/game/games/greybox/artifacts/checkpoint.world"}
 clock +500
 {"clock":1000,"world":[{"canvas":6,"changing":["player.Player","player.Transform","camera.Transform"],"hash":"0x26e545105083c07a","quiescent":false,"settleAt":1100,"tick":60}],"epoch":2,"incarnation":1}
 state world:player
@@ -3309,8 +3309,8 @@ state world:*
   "incarnation": 1,
   "clock": 2000
 }
-screenshot /home/ccheever/lanes/game/exact2-wt-game/game/games/greybox/artifacts/original.world world save
-{"bytes":3141,"hash":"0x328c33eb29d5b172","tick":120,"epoch":2,"incarnation":1,"clock":2000,"screenshot":"/home/ccheever/lanes/game/exact2-wt-game/game/games/greybox/artifacts/original.world"}
+screenshot $HOME/lanes/game/exact2-wt-game/game/games/greybox/artifacts/original.world world save
+{"bytes":3141,"hash":"0x328c33eb29d5b172","tick":120,"epoch":2,"incarnation":1,"clock":2000,"screenshot":"$HOME/lanes/game/exact2-wt-game/game/games/greybox/artifacts/original.world"}
 CLOSED original browser/process before restoring
 tree 
 epoch 1 · incarnation 1 · clock 0 ms · 5 nodes
@@ -4385,8 +4385,8 @@ state world:*
   "incarnation": 1,
   "clock": 1500
 }
-screenshot /home/ccheever/lanes/game/exact2-wt-game/game/games/greybox/artifacts/restored.world world save
-{"bytes":3141,"hash":"0x328c33eb29d5b172","tick":120,"epoch":2,"incarnation":1,"clock":1500,"screenshot":"/home/ccheever/lanes/game/exact2-wt-game/game/games/greybox/artifacts/restored.world"}
+screenshot $HOME/lanes/game/exact2-wt-game/game/games/greybox/artifacts/restored.world world save
+{"bytes":3141,"hash":"0x328c33eb29d5b172","tick":120,"epoch":2,"incarnation":1,"clock":1500,"screenshot":"$HOME/lanes/game/exact2-wt-game/game/games/greybox/artifacts/restored.world"}
 PASS D6 two sessions continue to the same simulation snapshot
 PASS D6 entire Sim save is byte-identical, including held input, queue, clock, journal and publications
 PASS the operation creating the canvas reports its restore refusal: "restore refused: unsupported simulation save format (expected EXSIM v5; saw [69, 6e, 76, 61, 6c, 69, 64, 20])"

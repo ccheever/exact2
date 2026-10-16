@@ -1,4 +1,5 @@
-#!/usr/bin/env bun
+#!/bin/sh
+':' //; if [ -n "$BUN" ]; then exec "$BUN" "$0" "$@"; elif [ -x "$HOME/.bun-1.4.2/bin/bun" ]; then exec "$HOME/.bun-1.4.2/bin/bun" "$0" "$@"; else exec bun "$0" "$@"; fi
 // exact — run an Exact app from a terminal on macOS, and install one so it
 // keeps running from a terminal after you close the laptop.
 //
@@ -9,6 +10,8 @@
 //   exact list                   the apps this repo has, and what is installed
 //   exact new <path> [--update]  an app outside this repo, ready to run
 //   exact new <path> --game      a game outside this repo, ready to run
+//   exact new <path> --snapback  an app wired to the Snapback backend above it
+//   exact snapback <app>         wire an app to that backend (its exact.mjs's `snapback`)
 //
 // The two things this exists to get right, because they are the two that make
 // a Mac GUI app awkward from a shell:
@@ -37,7 +40,7 @@ import { BINARYEN } from '../host/web/stages.mjs';
 import { basename, delimiter, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { cargoEnvironment, executableName, HERMES_INSTALLER, hermesBundle, hermesTarget, resolveApp, WEB_TOOLCHAIN, webToolchainEnv } from './app.mjs';
-import { applyPattern, createApp, createGame, patternList } from '../game/new.mjs';
+import { applyPattern, createApp, createGame, patternList, wireSnapback } from '../game/new.mjs';
 import { sdkFetch } from '../game/app/shells.mjs';
 import { appleArtifacts, assertAppleIdentity, stripForDistribution } from '../host/apple/build.mjs';
 import { closeFilesystemReader } from './filesystem.mjs';
@@ -45,6 +48,7 @@ import { builtAppMatches, jsTargetBuild } from '../host/web/serve.mjs';
 import { signRelease } from '../host/apple/assets.mjs';
 import { chromium } from './agent-launch.mjs';
 import { guardFlags, helpText } from './help.mjs';
+import { devicePreflight } from '../snapback4/web/device-build.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const APPLICATIONS = resolve(homedir(), 'Applications');
@@ -509,14 +513,30 @@ export function printReport(rows, {onlyMissing = false} = {}) {
  * Debug, as the guides use it; the pinned toolchain whatever rustup would pick
  * from the caller's directory; exact2's own target/, never an inherited one
  * (an app's, or another checkout's). */
-export function contract(args, env = process.env) {
+/** Cargo with the pinned toolchain, in this checkout's own target, on the Contract compiler: `run` or `build`. */
+function compilerCargo(verb, env = process.env) {
   const pin = Bun.TOML.parse(readFileSync(resolve(ROOT, 'rust-toolchain.toml'), 'utf8')).toolchain.channel;
   const clean = cargoEnvironment(env);
   delete clean.RUSTUP_TOOLCHAIN;
   delete clean.CARGO_TARGET_DIR;
-  const binary = resolve(ROOT, 'target/debug', process.platform === 'win32' ? 'contract.exe' : 'contract');
-  if (!existsSync(binary)) console.error('exact contract: building the Contract compiler once (a few minutes on a cold checkout)…');
-  const result = spawnSync('cargo', [`+${pin}`, 'run', '-q', '--manifest-path', resolve(ROOT, 'Cargo.toml'), '-p', 'contract', '--', ...args], {stdio: 'inherit', env: clean});
+  return { args: [`+${pin}`, verb, '-q', '--manifest-path', resolve(ROOT, 'Cargo.toml'), '-p', 'contract'], env: clean };
+}
+const COMPILER = resolve(ROOT, 'target/debug', process.platform === 'win32' ? 'contract.exe' : 'contract');
+
+/** `exact new` starts the compiler's build apart from this shell, so the builder's first `contract vocab` or
+ * `contract build` does not wait the minute a cold one takes (a port's first lookup, 67 s). A fresh one is a no-op. */
+function prebuildCompiler() {
+  const { args, env } = compilerCargo('build');
+  const child = spawn('cargo', args, { detached: true, stdio: 'ignore', env });
+  child.on('error', () => {});
+  child.unref();
+  if (!existsSync(COMPILER)) console.log(`\nBuilding the Contract compiler in the background (pid ${child.pid}), so \`contract\` answers at once when you need it.`);
+}
+
+export function contract(args, env = process.env) {
+  const cargo = compilerCargo('run', env), binary = COMPILER;
+  if (!existsSync(binary)) console.error('exact contract: building the Contract compiler once (about a minute on a cold checkout; `exact new` starts it in the background)…');
+  const result = spawnSync('cargo', [...cargo.args, '--', ...args], {stdio: 'inherit', env: cargo.env});
   if (result.error) throw new Error(`cargo: ${result.error.message} (install rustup from https://rustup.rs)`);
   // A build of an app's `app.contract` refreshes the types its `app.ts` imports (LLP 1116.001 D4.5).
   const input = args[0] === 'build' ? args.slice(1).find((arg, i, rest) => !arg.startsWith('-') && rest[i - 1] !== '-o') : null;
@@ -545,7 +565,7 @@ export function refreshTypes(dir, binary = resolve(ROOT, 'target/debug', process
 
 /** `exact new`: check the machine first, since a missing Cargo fails the
  * scaffold itself; then write the app and say what its builds will still need. */
-function newApp(path, {update = false, game = false, assets = false} = {}) {
+function newApp(path, {update = false, game = false, assets = false, snapback = null} = {}) {
   if (update) {
     console.log(createApp(path, {update}));
     // A file names what it uses (LLP 1091 D1): an app written before module
@@ -561,7 +581,8 @@ function newApp(path, {update = false, game = false, assets = false} = {}) {
     throw new Error('exact new needs Cargo (rustup) to resolve the new app; install it, then run exact new again');
   }
   // A game is a path here, as an app is: `game/new.mjs` alone takes a bare name for game/games.
-  console.log(game ? createGame(resolve(path), undefined, {assets}) : createApp(path));
+  console.log(game ? createGame(resolve(path), undefined, {assets}) : createApp(path, {snapback}));
+  prebuildCompiler();
   if (report.some(row => !row.ok)) {
     // Builders read a bare "still needs" list as the reason a later command failed (bench diaries,
     // 2026-10-07/08): say when nothing on it blocks the app.
@@ -587,6 +608,13 @@ const USAGE = `exact — run an Exact app from the command line (macOS)
   exact list                   the apps in this repo
   exact new <path> [--update]  a new app outside this repo, using this checkout;
                                --update follows a moved checkout or a new patch
+  exact new <path> --snapback [--port <n>] [--online]
+                               a new app wired to a Snapback backend in the
+                               directory above (a guestbook to start from; the
+                               origin's port, 4400 unless --port)
+  exact snapback <app> [--port <n>] [--online] [--rebuild [--artifact-only]]
+                               wire an app to the backend above it; --port moves
+                               its loopback origin, grants and test fetch prefixes
   exact new <path> --game      a new game (game/README.md): a Rust world under
                                Contract's menus, with the same exact.mjs verbs;
                                --assets declares game.assets
@@ -876,9 +904,11 @@ export function pattern(args, say = console.log) {
   say(next);
 }
 
-function main(argv) {
+async function main(argv) {
   const [verb, name, ...rest] = argv;
   if (!verb || verb === '--help' || verb === '-h' || verb === 'help') return console.log(USAGE);
+  // Help before any work (`setup --help` installed, `new --help` wrote an app); the compiler answers its own.
+  if (verb !== 'contract' && argv.some(arg => arg === '--help' || arg === '-h')) return console.log(helpText(verb) ?? USAGE);
   if (verb === 'setup') return setup({check: name === '--check'});
   if (verb === 'list') return list();
   // The compiler parses its own flags; its help is printed here, so asking compiles nothing (LLP 1116 D4).
@@ -895,8 +925,39 @@ function main(argv) {
   if (verb === 'pattern') return pattern(guardFlags('pattern', argv.slice(1)));
   if (verb === 'new') {
     // Flags may come before the path: `exact new --game ./my-game`.
-    const args = guardFlags(argv.includes('--update') ? 'update' : 'new', argv.slice(1)), path = args.find(arg => !arg.startsWith('--'));
-    return newApp(path, {update: args.includes('--update'), game: args.includes('--game'), assets: args.includes('--assets')});
+    const args = guardFlags(argv.includes('--update') ? 'update' : 'new', argv.slice(1)), port = args.indexOf('--port'), path = args.find((arg, i) => !arg.startsWith('--') && (port < 0 || i !== port + 1));
+    if (args.includes('--online') && !args.includes('--snapback')) throw new Error('exact new: --online requires --snapback and an existing backend schema');
+    if (port >= 0 && !args.includes('--snapback')) throw new Error('exact new: --port is the Snapback origin’s, with --snapback');
+    const snapback = args.includes('--snapback') ? { port: port >= 0 ? args[port + 1] : undefined, online: args.includes('--online') } : null;
+    return newApp(path, {update: args.includes('--update'), game: args.includes('--game'), assets: args.includes('--assets'), snapback});
+  }
+  if (verb === 'backend') {
+    const dir = resolve(name), parent = resolve(dir, '..');
+    const source = readFileSync(resolve(dir, 'app.ts'), 'utf8');
+    const origin = /const origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(source)?.[1];
+    if (!origin) throw new Error('exact backend: app.ts needs a literal const origin (bun exact.mjs snapback --port N writes it)');
+    const url = new URL(origin);
+    if (!['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname)) throw new Error('exact backend: the origin must be loopback to launch a local server');
+    const args = argv.slice(2);
+    if (!args.length) args.push('dev');
+    if (args.includes('--port')) throw new Error('exact backend: set the origin once with bun exact.mjs snapback --port N');
+    const result = spawnSync(process.execPath, [resolve(parent, 'node_modules/snapback4/bin/snapback4.js'), ...args, '--port', url.port || (url.protocol === 'https:' ? '443' : '80')], { cwd: parent, stdio: 'inherit' });
+    if (result.error) throw result.error;
+    process.exitCode = result.status ?? 1;
+    return;
+  }
+  if (verb === 'snapback') {
+    if (!name) { console.error('exact snapback: name the app\'s directory (its exact.mjs passes it: bun exact.mjs snapback)'); process.exit(2); }
+    if (argv.includes('--artifact-only') && !argv.includes('--rebuild')) throw new Error('exact snapback: --artifact-only requires --rebuild');
+    const args = guardFlags('snapback', argv.slice(1)), port = args.indexOf('--port');
+    const dir = resolve(args[0]), app = { dir, manifest: JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')) };
+    // Always ask Cargo to validate its inputs; cached or unstamped bytes never block repair.
+    console.log(wireSnapback(dir, { port: port < 0 ? null : args[port + 1] ?? '', online: args.includes('--online') ? true : null, artifactOnly: args.includes('--artifact-only') }));
+    app.manifest = JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8'));
+    const updated = readFileSync(resolve(dir, 'app.ts'), 'utf8');
+    const nextOrigin = /const origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(updated)?.[1];
+    await devicePreflight(app, nextOrigin ? [nextOrigin] : []);
+    return;
   }
   if (!['run', 'install', 'uninstall', 'release'].includes(verb)) { console.error(`exact: no verb ${verb}\n\n${USAGE}`); process.exit(2); }
   if (!name) { console.error(`exact ${verb}: name an app (exact list)`); process.exit(2); }

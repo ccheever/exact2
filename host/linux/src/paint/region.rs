@@ -100,7 +100,8 @@ enum Payload {
     Image(Arc<Bitmap>, ObjectFit, Option<[u8; 4]>),
     Text(Rc<Paragraph>, Vec<RunPaint>),
     /// An `svg`'s scene as resolved at capture (LLP 1055.000 §4: SVG in a
-    /// retained region; the instant is the capture's).
+    /// retained region; the instant is the capture's), its wide colours
+    /// settled for the capture's appearance (LLP 1121 stage 4).
     Svg(Rc<exact_kernel::svg::Scene>),
 }
 struct NodePaint {
@@ -281,11 +282,11 @@ impl Picture {
                             super::image_tint(&node, &(scene.presented)(id), painter.dark),
                         )
                     }),
-                    NodeType::Svg => Payload::Svg(Rc::new(super::svg::resolve_svg(
-                        scene,
-                        &node,
-                        geometry.content,
-                    ))),
+                    NodeType::Svg => {
+                        let mut svg = super::svg::resolve_svg(scene, &node, geometry.content);
+                        exact_kernel::style::wide::Settle::settle(&mut svg);
+                        Payload::Svg(Rc::new(svg))
+                    }
                     _ => Payload::Empty,
                 }
             };

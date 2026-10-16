@@ -68,6 +68,8 @@ inductive Instr where
   | filter (off : Nat)
   /-- `failure(x)` (LLP 1109 D3): `none`, or `some` of why it failed. -/
   | failureResource (r : Nat)
+  | failedMutation (m : Nat)
+  | failureMutation (m : Nat)
   deriving Repr, BEq, Inhabited, DecidableEq
 
 abbrev Code := List Instr
@@ -121,10 +123,11 @@ structure Env where
   mutationSlots : List Nat := []
   pendingResources : List Bool := []
   failedResources : List Bool := []
-  /-- Why each failed resource failed, (code, message), as the runner's
-  `failed_why`: read only while `failedResources` holds. -/
-  failures : List (Option (String × String)) := []
+  /-- Why each failed resource failed, (code, message, reason), as the
+  runner's `failed_why`: read only while `failedResources` holds. -/
+  failures : List (Option (String × String × String)) := []
   pendingMutations : List Bool := []
+  mutationFailures : List (Option (String × String × String)) := []
   /-- The route table the router verbs read (the runner's `Routing`). -/
   routes : Route.Table := []
   /-- The strings tables `t` reads (the plan's `locales`). -/
@@ -232,15 +235,22 @@ def popN (n : Nat) (s : List Value) : Option (List Value × List Value) :=
   if s.length < n then Option.none else Option.some ((s.take n).reverse, s.drop n)
 
 /-- What `FailureResource r` pushes once `r` settled: `none` until it
-failed, then the compiler's `Failure` record, `{ code, message }`, the
-runner's `error`/`it failed` where it has no reason (vm.rs
+failed, then the compiler's `Failure` record, `{ code, message, reason }`,
+the runner's `error`/`it failed`/empty where it has no reason (vm.rs
 `resource_failure`). -/
 def failureValue (env : Env) (r : Nat) : Value :=
   if env.failedResources[r]?.getD false then
     .some (.record "Failure" (match env.failures[r]? with
-      | Option.some (Option.some (c, msg)) => [.str c, .str msg]
-      | _ => [.str "error", .str "it failed"]))
+      | Option.some (Option.some (c, msg, why)) => [.str (if why == "" then c else why), .str msg, .str why]
+      | _ => [.str "error", .str "it failed", .str ""]))
   else .none
+
+/-- The latest admitted mutation failure, independent of its standing result. -/
+def mutationFailureValue (env : Env) (k : Nat) : Value :=
+  match env.mutationFailures[k]?.getD .none with
+  | Option.some (c, msg, why) => .some (.record "Failure" [.str (if why == "" then c else why), .str msg, .str why])
+  | _ => .none
+
 
 /-- Run the instruction `i` at `m.pc` (in code of `size` instructions). -/
 def exec (size : Nat) (env : Env) (i : Instr) (m : Machine) : Out :=
@@ -387,6 +397,8 @@ def exec (size : Nat) (env : Env) (i : Instr) (m : Machine) : Out :=
     | Option.some (Option.some _) => push (failureValue env r)
     | _ => .error .pending
   | .pendingMutation k => push (.bool (env.pendingMutations[k]?.getD false))
+  | .failedMutation k => push (.bool (env.mutationFailures[k]?.getD .none).isSome)
+  | .failureMutation k => push (mutationFailureValue env k)
   | .pop => do let (_, s) ← pop1 m.stack; next s
   | .bindLocal => do
     let (v, s) ← pop1 m.stack
@@ -499,7 +511,7 @@ def opcodes : List (String × List Operand) :=
    ("DropLocal", []), ("Return", []), ("Send", [.idx, .str, .u16]), ("Refresh", [.idx]),
    ("PendingResource", [.idx]), ("PendingMutation", [.idx]), ("FailedResource", [.idx]),
    ("NativeProps", [.u32]), ("LoadIndex", [.u16]), ("Map", [.u32]), ("Filter", [.u32]),
-   ("FailureResource", [.idx])]
+   ("FailureResource", [.idx]), ("FailedMutation", [.idx]), ("FailureMutation", [.idx])]
 
 /-- What decoding needs from the plan besides the bytes: its string pool,
 each type's (name, field count), and the roster in wire order with each
@@ -611,6 +623,8 @@ def decode (pool : Pool) (bs : ByteArray) : Except String Code := do
       | "PendingMutation" => pure (.pendingMutation a0)
       | "FailedResource" => pure (.failedResource a0)
       | "FailureResource" => pure (.failureResource a0)
+      | "FailedMutation" => pure (.failedMutation a0)
+      | "FailureMutation" => pure (.failureMutation a0)
       | "NativeProps" => pure (.nativeProps a0)
       | "Map" => do pure (.map (← off a0))
       | "Filter" => do pure (.filter (← off a0))
@@ -644,5 +658,7 @@ def Instr.text : Instr → String
   | .failedResource r => s!"FailedResource {r}" | .nativeProps n => s!"NativeProps {n}"
   | .map o => s!"Map +{o}" | .filter o => s!"Filter +{o}"
   | .failureResource r => s!"FailureResource {r}"
+  | .failedMutation m => s!"FailedMutation {m}"
+  | .failureMutation m => s!"FailureMutation {m}"
 
 end Contract.Vm

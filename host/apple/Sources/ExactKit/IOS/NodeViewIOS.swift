@@ -291,7 +291,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         }
     }
     /// Off the accessibility tree: projected away, inert, or `aria-hidden`.
-    private var hidesAccessibility: Bool {
+    var hidesAccessibility: Bool {
         placementHidden || props["inert"] == "true" || props["accessibilityElementsHidden"] == "true"
     }
     /// An image node's picture, once loaded (decoded off the main thread),
@@ -346,8 +346,22 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// A hidden element is not exposed. Children stay in the tree: this is
     /// not `accessibilityElementsHidden`, which would hide them too.
     package override var isAccessibilityElement: Bool {
-        get { accessibilityExposed && super.isAccessibilityElement }
+        get {
+            guard kind == "native" else { return accessibilityExposed && super.isAccessibilityElement }
+            // A native module's box (LLP 1024): the module's own elements
+            // when its view has some; else the box, named by the Contract.
+            return accessibilityExposed && (super.isAccessibilityElement || authoredLabel != nil) && presenter?.session?.natives.speaksForItself(self) != true
+        }
         set { super.isAccessibilityElement = newValue }
+    }
+    /// A native module's box whose view has elements of its own, named by
+    /// the Contract (`aria-label`): VoiceOver says the name entering them.
+    package override var accessibilityContainerType: UIAccessibilityContainerType {
+        get {
+            guard kind == "native", authoredLabel != nil, presenter?.session?.natives.speaksForItself(self) == true else { return super.accessibilityContainerType }
+            return .semanticGroup
+        }
+        set { super.accessibilityContainerType = newValue }
     }
     /// It hears focus, blur, keys or clipboard events (`focusEvents`), names a tabindex, or is a canvas taking input
     private var asksForFocus: Bool { explicitTabIndex != nil || canvases?.wantsInput(id) == true || !handlers.isDisjoint(with: Self.focusEvents) }
@@ -705,6 +719,9 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         presenter?.collections.animationEnded(id, dragging: true)
         presenter?.collections.userIntent(id, travel: true)
         retainedScrollTop = nil
+        #if os(iOS)
+        if swipeOwner { presenter?.swipeActions.painted.began(self) }
+        #endif
     }
 
     /// A scroll under a canvas repaints it (LLP 1014 D4 c).
@@ -717,6 +734,9 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         let room = extras?.nativeScrollContentInsets ?? .zero
         presenter?.onScrolled?(id, Double(scrollView.contentOffset.x + room.left), Double(scrollView.contentOffset.y + room.top))
         presenter?.stickies.scrolled(id); presenter?.collections.changed(id, user: true)
+        #if os(iOS)
+        if swipeOwner, scrollView.isTracking { presenter?.swipeActions.painted.scrolled(self) }
+        #endif
         presenter?.transformGeometry.changed()
         presenter?.videoVisibility?.changed()
         presenter?.reaimFixedGradients()
@@ -862,6 +882,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             // that sets `auto` again is still a target.
             if passesThrough { return nil }
             guard bounds.contains(point) else { return nil }
+            if kind == "native", presenter?.session?.natives.declined(self, at: point, with: event) == true { return nil }
             if event?.type == .touches, isParagraph { touchedText() } // selectable text takes its interaction for this touch
             // Interactive glass (a pressable glass box) answers a finger
             // itself, swelling and lighting under it, only for touches that
@@ -1092,6 +1113,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             default: f.returnKeyType = type == "search" ? .search : .default
             }
             f.isEnabled = !disabled
+            if headerField != nil { presenter?.menus.promptInputChanged(self) } // a prompt's field stands in for it (PromptFieldIOS.swift)
             if isNativeTextControl { styleNativeField() }
             updateNumberStepper() // the platform's stepping control for `type="number"` (LLP 1116.007 D4)
         }

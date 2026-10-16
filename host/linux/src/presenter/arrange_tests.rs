@@ -828,3 +828,74 @@ fn keys_lift_step_across_lists_and_drop_with_focus_following_the_row() {
         assert_eq!(p.focus, Some(moved), "focus follows the row that landed");
     }
 }
+
+#[test]
+#[cfg(not(windows))]
+fn scroll_end_waits_for_owned_edge_scrolling_to_stop() {
+    let source = APP
+        .replace(
+            "  state grips = true",
+            "  state ends = 0\n  action ended\n    ends = ends + 1\n  state grips = true",
+        )
+        .replace("reorderdrop=drop", "reorderdrop=drop scrollend=ended");
+    let mut p = boot_source(&source);
+    start(&mut p);
+    p.pointer_move(10., 175., 20.).unwrap();
+    p.tick(100.);
+    assert!(p.scroll_of(id(&p, "list")).1 > 0.);
+    assert_eq!(p.host.runner().slot("ends"), Some(&AppValue::Number(0.)));
+    p.pointer_move(10., 90., 110.).unwrap();
+    p.tick(110.);
+    assert_eq!(p.host.runner().slot("ends"), Some(&AppValue::Number(1.)));
+    p.tick(210.);
+    assert_eq!(p.host.runner().slot("ends"), Some(&AppValue::Number(1.)));
+}
+
+#[test]
+#[cfg(not(windows))]
+fn scroll_end_at_the_arrange_boundary_completes_once() {
+    let source = APP
+        .replace(
+            "  state grips = true",
+            "  state ends = 0\n  action ended\n    ends = ends + 1\n  state grips = true",
+        )
+        .replace("reorderdrop=drop", "reorderdrop=drop scrollend=ended");
+    let mut p = boot_source(&source);
+    start(&mut p);
+    p.pointer_move(10., 175., 20.).unwrap();
+    let list = id(&p, "list");
+    for tick in 1..=400 {
+        p.tick(tick as f64 * 50.);
+        if p.arrange_edge().is_none() {
+            break;
+        }
+    }
+    assert_eq!(p.scroll_of(list).1, p.collection_scroll_limits()[&list]);
+    assert_eq!(p.host.runner().slot("ends"), Some(&AppValue::Number(1.)));
+}
+
+#[test]
+#[cfg(not(windows))]
+fn scroll_end_at_the_group_boundary_completes_once() {
+    let source = BOARD
+        .replace(
+            "  state log = \"\"",
+            "  state ends = 0\n  action ended\n    ends = ends + 1\n  state log = \"\"",
+        )
+        .replace(
+            "scroll testId=\"board\"",
+            "scroll scrollend=ended testId=\"board\"",
+        )
+        .replace("every(200, flush)", "after(100000, flush)");
+    let mut p = board_source(&source);
+    let board = id(&p, "board");
+    let r = p.rect_of(board).unwrap();
+    carry(&mut p, "a2", (r.0 + r.2 - 70., r.1 + 30.), 0.);
+    p.pointer_move(r.0 + r.2 - 8., r.1 + 30., 30.).unwrap();
+    for tick in 1..=20 {
+        p.tick(tick as f64 * 50.);
+    }
+    assert_eq!(p.scroll_of(board).0, 60.);
+    assert_eq!(p.group_edge(), None);
+    assert_eq!(p.host.runner().slot("ends"), Some(&AppValue::Number(1.)));
+}

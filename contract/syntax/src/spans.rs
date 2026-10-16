@@ -128,7 +128,7 @@ record_variants! {
     Step {
         Tap { target, form, modifiers, span }, Drag { target, dx, dy, to, from, mouse, press, over, hold, during, span },
         Size { width, height, span }, Epoch { value, span }, TimeZone { zone, span },
-        Locale { tag, span }, Seed { seed, span }, BeforeData { span }, FailFetch { prefix, times, span }, PassFetch { prefix, span }, Request { method, path, body, persona, status, span }, Type { target, text, append, span }, Key { target, key, phase, duration, span },
+        Locale { tag, span }, Seed { seed, span }, Fresh { seed, span }, BeforeData { span }, FailFetch { prefix, times, span }, PassFetch { prefix, span }, Request { method, path, body, persona, status, span }, Type { target, text, append, span }, Key { target, key, phase, duration, span },
         Pick { target, paths, span }, Clipboard { target, edit, text, span },
         Clock { arg, span }, Reload { span }, Close { span }, Back { span }, Resize { width, height, span }, Screenshot { path, span }, ExpectTree { target, present, span }, ExpectDisabled { target, disabled, span },
         ExpectText { target, value, span }, ExpectState { name, value, span },
@@ -155,7 +155,7 @@ record_variants! {
 impl VisitSpans for TypeExpr {
     fn visit_spans(&mut self, visit: &mut impl FnMut(&mut Span)) {
         match self {
-            Self::Named(_, span) => visit(span),
+            Self::Enum(_, span) | Self::Named(_, span) => visit(span),
             Self::Option(inner, span) | Self::List(inner, span) => {
                 inner.visit_spans(visit);
                 visit(span);

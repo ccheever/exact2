@@ -652,6 +652,48 @@ fn a_document_path_reads_and_writes_the_chosen_file_under_its_grant() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
+/// LLP 1069.010.000 D2a: a write that expects the stat it read is refused
+/// `ECHANGED`, writing nothing, once another writer changed the file, and
+/// lands while the file is as read.
+#[test]
+fn a_write_that_expects_what_it_read_is_refused_once_the_file_changed() {
+    let dir = std::env::temp_dir().join(format!("exact-doc-expect-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("drawing.json");
+    std::fs::write(&file, "one").unwrap();
+    let doc = exact_data::documents::mint(&file, 9004).unwrap();
+    let run = |op: &str, args: serde_json::Value| {
+        let payload =
+            serde_json::to_vec(&serde_json::json!({"version":1,"op":op,"args":args})).unwrap();
+        storage::response(super::native::run(
+            None,
+            "fs.read doc:/\nfs.write doc:/",
+            &payload,
+            9004,
+        ))
+    };
+    let read = run("fs.stat", serde_json::json!({"path": doc})).unwrap();
+    let expect = serde_json::json!({"modifiedMs": read["modifiedMs"], "size": read["size"]});
+    // Another program saves a longer file.
+    std::fs::write(&file, "another program's").unwrap();
+    let refused = run(
+        "fs.atomicWriteFile",
+        serde_json::json!({"path": doc, "text": "mine", "expect": expect}),
+    );
+    assert!(refused.unwrap_err().starts_with("document ECHANGED: "));
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "another program's");
+    let now = run("fs.stat", serde_json::json!({"path": doc})).unwrap();
+    let expect = serde_json::json!({"modifiedMs": now["modifiedMs"], "size": now["size"]});
+    run(
+        "fs.atomicWriteFile",
+        serde_json::json!({"path": doc, "text": "mine", "expect": expect}),
+    )
+    .unwrap();
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "mine");
+    exact_data::documents::forget(9004);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 /// Exercise the activated Rust storage continuation, not only path resolution.
 #[test]
 #[cfg(unix)]

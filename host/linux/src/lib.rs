@@ -45,6 +45,7 @@ pub mod android;
 #[cfg(target_os = "android")]
 pub mod android_hint;
 pub mod app;
+mod build_channel;
 #[cfg(target_os = "android")]
 pub mod canvas;
 mod canvas2d;
@@ -52,6 +53,7 @@ pub mod content_region;
 pub mod delivery;
 #[cfg(target_os = "linux")]
 pub mod display;
+mod doc_watch;
 pub mod executor;
 pub mod fetch;
 pub mod fields;
