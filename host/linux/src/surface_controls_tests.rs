@@ -1243,3 +1243,20 @@ fn agent_primary_mouse_after_touch_preserves_device_identity_and_refusal_atomici
     p.pointer_lost(1.).unwrap();
     done(p, path);
 }
+
+#[test]
+fn a_finger_drag_focuses_its_input_canvas_at_down() {
+    let (mut p, path) = boot(
+        "component App\n  view\n    canvas testId=\"world\" tabindex=0 width=100 height=100\n",
+        &["world"],
+    );
+    let world = find(&p, "world");
+    p.set_pointer_kind(crate::presenter::PointerKind::Touch);
+    assert!(p.pointer_down(20., 20., 0.).unwrap());
+    assert_eq!(p.focus(), Some(world));
+    assert!(p.pointer_move(50., 20., 1.).unwrap());
+    assert_eq!(p.focus(), Some(world));
+    assert!(p.pointer_up(50., 20., 2.).unwrap());
+    assert_eq!(p.focus(), Some(world));
+    done(p, path);
+}

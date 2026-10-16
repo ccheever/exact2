@@ -1125,7 +1125,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       return r.scrolled ? { from: r.from, to: r.to } : null;
     },
     /** The held contact's next phase (LLP 1035.003 D1): `move` to `{x, y}` in the viewport or `by` `{dx, dy}`,
-     * over `ms` of real time on platform carriers or seekable time on Linux's presenter; `hold` for `ms`; `up`; `cancel`.
+     * over `ms` of real time on platform carriers or event timestamps on Linux, without seeking its runner; `hold` for `ms`; `up`; `cancel`.
      * The platform owns hit-testing, recognition, scrolling and animation: the app receives whatever it delivers,
      * and a carrier that cannot hold a contact answers `delivery: "unsupported"` rather than faking one. */
     async pointer(phase, opts = {}) {

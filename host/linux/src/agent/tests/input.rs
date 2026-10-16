@@ -284,6 +284,97 @@ fn a_mouse_contact_goes_down_holds_and_lifts() {
 }
 
 #[test]
+fn a_drag_keeps_runner_time_and_measures_pan_velocity_on_event_time() {
+    let json = |s: String| serde_json::from_str::<serde_json::Value>(&s).unwrap();
+    let plan = contract::compile(
+        r#"component App
+  state x = 0
+  state y = 0
+  state vx = 0
+  state vy = 0
+  state eventTime = -1
+  state stepped = 0
+  task ticks mount
+    every(16, step)
+  action step
+    stepped = performanceNow()
+  action moved(dx: number, dy: number)
+    x = x + dx
+    y = y + dy
+    eventTime = performanceNow()
+  action released(sx: number, sy: number)
+    vx = sx
+    vy = sy
+    eventTime = performanceNow()
+  view
+    box testId="pad" width=400 height=300 pan=moved panrelease=released touch-action="none"
+"#,
+    )
+    .unwrap();
+    for (ms, hold) in [(80., 0.), (160., 0.), (80., 100.)] {
+        let (mut p, error) = Presenter::boot_with(
+            &plan.encode(),
+            (),
+            (400., 300.),
+            1.,
+            std::path::PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert!(error.is_none(), "{error:?}");
+        assert!(p.clock(32.).1.is_none());
+        let k = p.host().kernel();
+        let pad = k.node_by_key(k.find_by_test_id("pad")[0]).unwrap().id;
+        let reply = json(handle(
+            &mut p,
+            &format!(r#"{{"op":"tap","phase":"down","id":{pad}}}"#),
+        ));
+        assert!(reply.get("error").is_none(), "{reply}");
+        // A second move continues the event timeline while the runner stays put.
+        for (dx, dy, duration) in [(80., -32., ms), (20., -8., ms / 4.)] {
+            let reply = json(handle(
+                &mut p,
+                &format!(r#"{{"op":"tap","phase":"move","dx":{dx},"dy":{dy},"ms":{duration}}}"#),
+            ));
+            assert!(reply.get("error").is_none(), "{reply}");
+            assert_eq!(reply["clock"], 32.);
+            assert_eq!(p.host().now(), 32.);
+            let slots = json(handle(&mut p, r#"{"op":"state"}"#))["slots"].clone();
+            assert_eq!(slots["eventTime"], 32.);
+            assert_eq!(slots["stepped"], 32.);
+        }
+        if hold > 0. {
+            let reply = json(handle(
+                &mut p,
+                &format!(r#"{{"op":"tap","phase":"hold","ms":{hold},"virtual":true}}"#),
+            ));
+            assert!(reply.get("error").is_none(), "{reply}");
+            assert_eq!(reply["clock"], 32. + hold);
+        }
+        let reply = json(handle(&mut p, r#"{"op":"tap","phase":"up"}"#));
+        assert!(reply.get("error").is_none(), "{reply}");
+        assert_eq!(reply["clock"], 32. + hold);
+        assert_eq!(reply["contact"], false);
+        let slots = json(handle(&mut p, r#"{"op":"state"}"#))["slots"].clone();
+        assert_eq!(slots["x"], 100.);
+        assert_eq!(slots["y"], -40.);
+        assert_eq!(slots["eventTime"], 32. + hold);
+        let vx = slots["vx"].as_f64().unwrap();
+        let vy = slots["vy"].as_f64().unwrap();
+        if hold == 0. {
+            // The stationary lift 8 ms later lowers the estimate below travel speed.
+            let speed = 80_000. / ms;
+            assert!(vx > speed * 0.85 && vx < speed * 0.99, "{slots}");
+            assert!((vy + vx * 0.4).abs() < 0.01, "{slots}");
+            assert_eq!(slots["stepped"], 32.);
+        } else {
+            assert_eq!((vx, vy), (0., 0.));
+            assert_eq!(slots["stepped"], 128.);
+        }
+    }
+}
+
+#[test]
 fn driver_key_uses_the_web_vocabulary() {
     assert_eq!(driver_key("p"), Some(("KeyP", "p")));
     assert_eq!(driver_key("P"), Some(("KeyP", "P")));

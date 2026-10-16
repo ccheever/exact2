@@ -1277,6 +1277,9 @@ impl<D: DataSource> Presenter<D> {
     pub(crate) fn agent_finger(&mut self, on: bool) {
         self.surfaces.finger = on;
     }
+    pub(crate) fn contact_is_direct(&self) -> bool {
+        self.direct() || self.surfaces.finger
+    }
     pub(crate) fn has_raw_motion(&self) -> bool {
         self.surfaces.motion.is_some()
     }

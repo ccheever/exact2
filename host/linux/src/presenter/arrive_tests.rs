@@ -73,8 +73,12 @@ component App
 "#;
 
 fn boot() -> Presenter<()> {
+    boot_source(APP)
+}
+
+fn boot_source(source: &str) -> Presenter<()> {
     let (mut p, error) = Presenter::boot_with(
-        &crate::test_plan(APP),
+        &crate::test_plan(source),
         (),
         (400., 800.),
         1.,
@@ -238,4 +242,31 @@ fn another_tabs_stack_is_no_arrival() {
     assert_eq!(focused(&p), "tab-other", "the focus stays on its tab");
     click(&mut p, "tab-home");
     assert_eq!(focused(&p), "tab-home");
+}
+
+#[test]
+fn a_long_mouse_press_notes_its_activation_before_the_route_arrives() {
+    for scale in ["", "-exact-press-scale=0.9"] {
+        let source = APP.replace("testId=\"open\"", &format!("testId=\"open\" {scale}"));
+        let mut p = boot_source(&source);
+        let open = id(&p, "open");
+        assert!(p.set_focus(Some(open), 0.).is_none());
+        p.note_press(open, false);
+        let (x, y, w, h) = p.rect_of(open).unwrap();
+        let (x, y) = (x + w / 2., y + h / 2.);
+        p.pointer_down(x, y, 0.).unwrap();
+        // Age the wall-clock record without sleeping or changing the app clock.
+        let pressed = p.route_focus.pressed.as_mut().unwrap();
+        pressed.at = pressed.at.checked_sub(RECENT).unwrap();
+        p.pointer_up(x, y, 0.).unwrap();
+        settle(&mut p);
+        assert_eq!(focused(&p), "detail-title", "{scale}");
+        assert_eq!(p.brush.ringless, Some(id(&p, "detail-title")));
+        click(&mut p, "back");
+        assert_eq!(
+            focused(&p),
+            "open",
+            "{scale}: the route remembers its origin"
+        );
+    }
 }

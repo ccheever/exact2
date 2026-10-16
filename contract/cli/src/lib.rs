@@ -25,6 +25,8 @@ mod sources;
 mod strings;
 mod surface;
 mod symbols;
+/// `uses` (LLP 1121 stage 4, commit 6): where the app reads a token.
+pub mod tamber_uses;
 pub mod terminal;
 mod typescript;
 pub use contract_lower::vocab::collection_edge_refusal;
@@ -37,7 +39,7 @@ pub use manifest::Manifest;
 pub use map::{plan_digest, SourceMap};
 pub use resolve::Origin;
 pub use rust::rust;
-pub use sources::{design_path, Package, Source, SourceGraph};
+pub use sources::{design_path, with_design_text, Package, Source, SourceGraph};
 pub use symbols::symbols_json;
 pub use typescript::typescript;
 /// The app's strings tables (LLP 1060 D1), `None` for an app without a
