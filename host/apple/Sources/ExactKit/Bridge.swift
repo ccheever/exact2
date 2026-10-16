@@ -24,6 +24,8 @@ public struct Batch {
     /// @ref LLP 1043.000 §3 D8 — absolute runner deadline, absent without timers.
     public var timerDueMs: Double? = nil
     public var pending = false
+    /// A module generation refused while requests are in flight: ask again (LLP 1007 §6).
+    public var requests = false
     /// What moves changes place or size: the panel's full rate (LLP 1061 D4).
     public var spatial = false
     /// A 2D canvas wants the next display frame (LLP 1056 D5).
@@ -223,13 +225,14 @@ package final class Runtime {
         }
     }
     func commitPlan() -> Batch { islands(on { read(exact_commit_plan(rt)) }) }
-    func prepareModule(_ plan: Data, module: ExactModule, token: UInt64 = 0, width: CGFloat, height: CGFloat) -> Batch {
+    /// `letGo`: the dev loop's, past its settle window: requests in flight do not refuse it (LLP 1007 §6).
+    func prepareModule(_ plan: Data, module: ExactModule, token: UInt64 = 0, width: CGFloat, height: CGFloat, letGo: Bool = false) -> Batch {
         return on {
             var payload = plan
             payload.append(module.receipt)
             payload.append(module.bytecode)
             _ = write(payload)
-            return read(exact_prepare_module(rt, token, plan.count, module.receipt.count, module.bytecode.count, Float(width), Float(height)))
+            return read(exact_prepare_module(rt, token, plan.count, module.receipt.count, module.bytecode.count, Float(width), Float(height), letGo ? 1 : 0))
         }
     }
     func dataReady() -> Batch { on { read(exact_data_ready(rt)) } }

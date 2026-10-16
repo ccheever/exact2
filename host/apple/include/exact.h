@@ -367,8 +367,10 @@ uint32_t exact_prepare_plan(ExactRuntime rt, uint64_t token, size_t len, float w
 uint32_t exact_commit_plan(ExactRuntime rt);
 /* Admitted generation: concatenated plan, pairing receipt, compiled module.
  * A nonzero token supplies signed delivery facts. Identity and grants match
- * the binary; the caller admits the development origin or signed assets. */
-uint32_t exact_prepare_module(ExactRuntime rt, uint64_t token, size_t plan, size_t receipt, size_t module, float width, float height);
+ * the binary; the caller admits the development origin or signed assets.
+ * Requests in flight refuse it (`"requests":true`) unless let_go, nonzero
+ * only for a dev generation past its settle window (LLP 1007 §6). */
+uint32_t exact_prepare_module(ExactRuntime rt, uint64_t token, size_t plan, size_t receipt, size_t module, float width, float height, uint32_t let_go);
 /* Call after first pixel, never as a prerequisite to painting the baked frame. */
 uint32_t exact_data_ready(ExactRuntime rt);
 void exact_discard_plan(ExactRuntime rt);

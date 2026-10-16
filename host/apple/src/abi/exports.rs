@@ -307,9 +307,10 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.data_ready(), |n| n)
         }
 
-        /// Prepare an admitted module generation, optionally carrying a delivery token.
+        /// Prepare an admitted module generation, optionally carrying a delivery token;
+        /// `let_go`: the dev loop's, with requests in flight too (LLP 1007 §6).
         #[no_mangle]
-        pub extern "C" fn exact_prepare_module(rt: u32, token: u64, plan: usize, receipt: usize, module: usize, width: f32, height: f32) -> u32 {
+        pub extern "C" fn exact_prepare_module(rt: u32, token: u64, plan: usize, receipt: usize, module: usize, width: f32, height: f32, let_go: u32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, hooks| {
                 b.set_compat($compat);
                 if let Some(refusal) = b.refuse_analysis() { return refusal; }
@@ -317,7 +318,7 @@ macro_rules! host {
                 let delivery: ::std::option::Option<&'static $crate::delivery::Hooks> = $delivery;
                 let facts = delivery.and_then(|h| (h.candidate_delivery)(token, $compat));
                 if token != 0 && facts.is_none() { return b.refuse_preparation("unknown composition generation"); }
-                b.prepare_module_with_delivery([plan, receipt, module], ($new)(), hooks, width, height, facts)
+                b.prepare_module_with_delivery([plan, receipt, module], ($new)(), hooks, width, height, facts, let_go != 0)
             }, |n| n)
         }
 

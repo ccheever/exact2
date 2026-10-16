@@ -203,7 +203,7 @@ The browser uses the same generation protocol:
   The dev loop's replacement waits 1 s instead, then swaps whether or not
   they drained (LLP 1007 §6, 2026-10-16): an app may always have a request
   out. What is still out is let go as a plan restart lets it go, and the
-  journal names how many.
+  journal names how many. The native hosts' dev generations do the same.
   Initial module readiness alone does not imply those requests have drained.
   Omitted names have no embedded or previous-generation fallback.
   Failure preserves the old page, resources, and current generation. An

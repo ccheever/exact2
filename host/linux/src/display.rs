@@ -372,6 +372,8 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
         trace_on_signal();
     }
     let mut plan_seen = config.dev_plan.as_deref().and_then(mtime);
+    // Since when the dev plan has waited on requests in flight.
+    let mut held: Option<Instant> = None;
     // First pixel is the first frame presented (LLP 1026 D11); the update
     // check follows two seconds after it, off the boot path.
     let mut first_pixel: Option<Instant> = None;
@@ -568,9 +570,10 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
                 if let Ok(bytes) = std::fs::read(path) {
                     let t = Instant::now();
                     let module = crate::delivery::Module::local(path, &config.compat);
+                    let let_go = held.is_some_and(|t| t.elapsed() >= crate::host::LET_GO_AFTER);
                     match module
                         .map_err(crate::host::HostError::Asset)
-                        .and_then(|module| p.reload_module(&bytes, D::default(), module))
+                        .and_then(|module| p.reload_module(&bytes, D::default(), module, let_go))
                     {
                         Ok(e) => println!(
                             "reloaded {} in {:.1} ms{}",
@@ -581,7 +584,15 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
                             e.map(|e| format!(" — {e}")).unwrap_or_default()
                         ),
                         Err(crate::host::HostError::PreparingModule) => plan_seen = None,
+                        // Asked again each turn; after a second it lets the requests go (LLP 1007 §6).
+                        Err(crate::host::HostError::RequestsPending) => {
+                            plan_seen = None;
+                            held.get_or_insert_with(Instant::now);
+                        }
                         Err(e) => eprintln!("exact: reload: {e}"),
+                    }
+                    if plan_seen.is_some() {
+                        held = None;
                     }
                 }
             }

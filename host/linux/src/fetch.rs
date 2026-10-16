@@ -125,6 +125,8 @@ pub(crate) struct Poller {
     pub link: Option<crate::build_channel::Link>,
     channel: Option<std::sync::mpsc::Receiver<crate::build_channel::Answer>>,
     channel_due: std::time::Instant,
+    /// Since when the generation it fetched has waited on requests in flight.
+    pub held_since: Option<std::time::Instant>,
 }
 
 type Tick = (FetchOutcome, Option<Option<String>>);
@@ -147,6 +149,7 @@ impl Poller {
             worker: None,
             asked_design: false,
             design: None,
+            held_since: None,
             link,
             channel: None,
             channel_due: now,

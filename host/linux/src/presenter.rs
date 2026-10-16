@@ -530,11 +530,10 @@ impl<D: DataSource> Presenter<D> {
         Ok((p, error.or(e)))
     }
 
-    /// The dev loop's restart: boot the new plan with state carried; every
-    /// picture and offset goes, and focus stays at its place (`restore_focus`)
-    /// (LLP 1007 §6).
+    /// The dev loop's restart: boot the new plan with state carried; every picture
+    /// and offset goes, and focus stays at its place (`restore_focus`, LLP 1007 §6).
     pub fn reload(&mut self, plan: &[u8], data: D) -> Result<Option<String>, HostError> {
-        self.reload_module(plan, data, self.module.clone())
+        self.reload_module(plan, data, self.module.clone(), false)
     }
 
     /// Replace a local development pair transactionally, carrying compatible state.
@@ -543,6 +542,7 @@ impl<D: DataSource> Presenter<D> {
         plan: &[u8],
         data: D,
         module: Option<crate::delivery::Module>,
+        let_go: bool,
     ) -> Result<Option<String>, HostError> {
         if self.content_registration.is_some() {
             return Err(HostError::Layout(
@@ -565,6 +565,7 @@ impl<D: DataSource> Presenter<D> {
             &candidate_text,
             &mut carried,
             self.host.runner().delivery(),
+            let_go,
         )?;
         let (mut host, error) = Host::boot_with(
             plan,

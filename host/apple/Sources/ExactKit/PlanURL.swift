@@ -365,7 +365,7 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
 
     /// The app owns the identity: replacing a connection must not restart an
     /// already current app, while another kind of apply invalidates the identity.
-    static func open(_ page: String, program: String? = nil, acceptProgram: @escaping (String?) -> Bool, current: @escaping () -> String?, plan: @escaping () -> String? = { nil }, waiting: @escaping () -> Bool = { false }, design: @escaping (String) -> String = { _ in "unsupported" }, channel: @escaping ([String: Any]) -> Void = { _ in }, apply: @escaping (Generation, String) -> Bool) -> PlanURL? {
+    static func open(_ page: String, program: String? = nil, acceptProgram: @escaping (String?) -> Bool, current: @escaping () -> String?, plan: @escaping () -> String? = { nil }, waiting: @escaping () -> Bool = { false }, design: @escaping (String) -> String = { _ in "unsupported" }, channel: @escaping ([String: Any]) -> Void = { _ in }, apply: @escaping (Generation, String, Bool) -> Bool) -> PlanURL? {
         guard let u = URL(string: page), u.host != nil, sameOrigin(u, u) else {
             fputs("exact url: not an HTTP app URL: \(page)\n", stderr)
             return nil
@@ -381,7 +381,8 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
     let page: URL
     private let currentGeneration: () -> String?
     private let runningPlan: () -> String?
-    private let applyGeneration: (Generation, String) -> Bool
+    /// The candidate, its label, and `letGo` (requests in flight do not hold it back).
+    private let applyGeneration: (Generation, String, Bool) -> Bool
     /// A live design batch or snapshot (LLP 1121 stage 4) applied to the
     /// app; answers applied, stale, structure or refused.
     private let applyDesign: (String) -> String
@@ -412,7 +413,7 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
         return URLSession(configuration: config, delegate: self, delegateQueue: .main)
     }()
 
-    private init(_ page: URL, acceptProgram: @escaping (String?) -> Bool, current: @escaping () -> String?, plan: @escaping () -> String?, waiting: @escaping () -> Bool = { false }, design: @escaping (String) -> String, channel: @escaping ([String: Any]) -> Void, apply: @escaping (Generation, String) -> Bool) {
+    private init(_ page: URL, acceptProgram: @escaping (String?) -> Bool, current: @escaping () -> String?, plan: @escaping () -> String?, waiting: @escaping () -> Bool = { false }, design: @escaping (String) -> String, channel: @escaping ([String: Any]) -> Void, apply: @escaping (Generation, String, Bool) -> Bool) {
         self.page = page
         self.acceptProgram = acceptProgram
         currentGeneration = current
@@ -717,13 +718,18 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
                         let candidate = Generation(identity: identity, plan: payloads[0], assets: resolver, module: logic)
                         payloads.removeAll()
                         let fetched = ProcessInfo.processInfo.systemUptime
+                        // Asked again while the host is preparing, or while requests are in flight;
+                        // after a second those are let go, as the web's dev loop does (LLP 1007 §6).
+                        var heldSince: TimeInterval?
                         func commitCandidate() {
                             guard !self.closed, self.terminal == nil, generation == self.resolution else { return }
-                            if applyGeneration(candidate, "generation ← " + (page.host ?? "")) {
+                            let letGo = heldSince.map { ProcessInfo.processInfo.systemUptime - $0 >= 1 } ?? false
+                            if applyGeneration(candidate, "generation ← " + (page.host ?? ""), letGo) {
                                 // Its plan carries its own design; value-only edits since are the server's.
                                 syncDesign()
                                 status(String(format: "generation %@: envelope %.1f ms, payloads %.1f ms, preparation %.1f ms", String(identity.prefix(12)), envelopeMs, (fetched - payloadStarted) * 1000, (ProcessInfo.processInfo.systemUptime - fetched) * 1000))
                             } else if preparationPending() {
+                                heldSince = heldSince ?? ProcessInfo.processInfo.systemUptime
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: commitCandidate)
                             } else {
                                 status("the host refused the generation; keeping the running app")

@@ -1,4 +1,6 @@
 use super::*;
+use crate::host::LET_GO_AFTER;
+use std::time::Instant;
 
 impl<D: DataSource> Presenter<D> {
     /// Attach the update store (LLP 1026 D9): what it has to say reaches
@@ -40,7 +42,12 @@ impl<D: DataSource> Presenter<D> {
         // commands dispatched before any generation is handled.
         self.serve_build_channel();
         if let Some(generation) = self.pending_dev.take() {
-            match self.reload_module(&generation.plan, data(), generation.module.clone()) {
+            let let_go = self
+                .dev
+                .as_ref()
+                .and_then(|dev| dev.held_since)
+                .is_some_and(|t| t.elapsed() >= LET_GO_AFTER);
+            match self.reload_module(&generation.plan, data(), generation.module.clone(), let_go) {
                 Ok(_) => {
                     let dev = self.dev.as_mut().unwrap();
                     dev.identity = Some(generation.identity);
@@ -54,7 +61,18 @@ impl<D: DataSource> Presenter<D> {
                     self.report_status();
                 }
                 Err(HostError::PreparingModule) => self.pending_dev = Some(generation),
+                Err(HostError::RequestsPending) => {
+                    self.dev
+                        .as_mut()
+                        .unwrap()
+                        .held_since
+                        .get_or_insert_with(Instant::now);
+                    self.pending_dev = Some(generation);
+                }
                 Err(error) => eprintln!("exact url: candidate refused: {error}"),
+            }
+            if self.pending_dev.is_none() {
+                self.dev.as_mut().unwrap().held_since = None;
             }
         }
         // The live table: the snapshot and the commands poll's batches.
@@ -63,6 +81,7 @@ impl<D: DataSource> Presenter<D> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn prepare_logic(
         &self,
         plan: &[u8],
@@ -71,14 +90,13 @@ impl<D: DataSource> Presenter<D> {
         text: &Shared,
         carried: &mut exact_runner::Carried,
         delivery: &exact_runner::Delivery,
+        let_go: bool,
     ) -> Result<D, HostError> {
         let Some(module) = module else {
             return Ok(admitted);
         };
-        if self.host.runner().has_pending() {
-            return Err(HostError::Asset(
-                "Rust replacement waits for pending requests; retry after they settle".into(),
-            ));
+        if !let_go && self.host.runner().has_pending() {
+            return Err(HostError::RequestsPending);
         }
         let data = module
             .replacement(plan, &admitted)
@@ -211,6 +229,7 @@ impl<D: DataSource> Presenter<D> {
             &text,
             &mut carried,
             &delivery,
+            false,
         )?;
         let (mut host, error) = Host::boot_with(
             &candidate.plan,
@@ -398,3 +417,7 @@ mod tests {
         assert_eq!(p.brush.rank_passes, passes + 1);
     }
 }
+
+#[cfg(test)]
+#[path = "delivery_tests.rs"]
+mod let_go_tests;
