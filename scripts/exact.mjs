@@ -509,14 +509,30 @@ export function printReport(rows, {onlyMissing = false} = {}) {
  * Debug, as the guides use it; the pinned toolchain whatever rustup would pick
  * from the caller's directory; exact2's own target/, never an inherited one
  * (an app's, or another checkout's). */
-export function contract(args, env = process.env) {
+/** Cargo with the pinned toolchain, in this checkout's own target, on the Contract compiler: `run` or `build`. */
+function compilerCargo(verb, env = process.env) {
   const pin = Bun.TOML.parse(readFileSync(resolve(ROOT, 'rust-toolchain.toml'), 'utf8')).toolchain.channel;
   const clean = cargoEnvironment(env);
   delete clean.RUSTUP_TOOLCHAIN;
   delete clean.CARGO_TARGET_DIR;
-  const binary = resolve(ROOT, 'target/debug', process.platform === 'win32' ? 'contract.exe' : 'contract');
-  if (!existsSync(binary)) console.error('exact contract: building the Contract compiler once (a few minutes on a cold checkout)…');
-  const result = spawnSync('cargo', [`+${pin}`, 'run', '-q', '--manifest-path', resolve(ROOT, 'Cargo.toml'), '-p', 'contract', '--', ...args], {stdio: 'inherit', env: clean});
+  return { args: [`+${pin}`, verb, '-q', '--manifest-path', resolve(ROOT, 'Cargo.toml'), '-p', 'contract'], env: clean };
+}
+const COMPILER = resolve(ROOT, 'target/debug', process.platform === 'win32' ? 'contract.exe' : 'contract');
+
+/** `exact new` starts the compiler's build apart from this shell, so the builder's first `contract vocab` or
+ * `contract build` does not wait the minute a cold one takes (a port's first lookup, 67 s). A fresh one is a no-op. */
+function prebuildCompiler() {
+  const { args, env } = compilerCargo('build');
+  const child = spawn('cargo', args, { detached: true, stdio: 'ignore', env });
+  child.on('error', () => {});
+  child.unref();
+  if (!existsSync(COMPILER)) console.log(`\nBuilding the Contract compiler in the background (pid ${child.pid}), so \`contract\` answers at once when you need it.`);
+}
+
+export function contract(args, env = process.env) {
+  const cargo = compilerCargo('run', env), binary = COMPILER;
+  if (!existsSync(binary)) console.error('exact contract: building the Contract compiler once (about a minute on a cold checkout; `exact new` starts it in the background)…');
+  const result = spawnSync('cargo', [...cargo.args, '--', ...args], {stdio: 'inherit', env: cargo.env});
   if (result.error) throw new Error(`cargo: ${result.error.message} (install rustup from https://rustup.rs)`);
   // A build of an app's `app.contract` refreshes the types its `app.ts` imports (LLP 1116.001 D4.5).
   const input = args[0] === 'build' ? args.slice(1).find((arg, i, rest) => !arg.startsWith('-') && rest[i - 1] !== '-o') : null;
@@ -562,6 +578,7 @@ function newApp(path, {update = false, game = false, assets = false} = {}) {
   }
   // A game is a path here, as an app is: `game/new.mjs` alone takes a bare name for game/games.
   console.log(game ? createGame(resolve(path), undefined, {assets}) : createApp(path));
+  prebuildCompiler();
   if (report.some(row => !row.ok)) {
     // Builders read a bare "still needs" list as the reason a later command failed (bench diaries,
     // 2026-10-07/08): say when nothing on it blocks the app.
