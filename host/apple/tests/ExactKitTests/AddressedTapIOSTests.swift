@@ -215,20 +215,24 @@ final class AddressedTapIOSTests: XCTestCase {
         XCTAssertNotNil(heard["unreached"], "says the module's control heard nothing: \(heard)")
     }
 
-    /// Under `--touch platform` a menu's row is UIKit's, found by its place
-    /// in the menu the popover gave UIKit (LLP 1080.000 §13): UIKit puts no
-    /// identifier on the element it shows, so the menu is the one run of
-    /// shown rows that reads as what was given. A duplicate title, a label
-    /// that is another's prefix or another open menu picks nothing else; a
-    /// closed menu's row and two matching menus are refused.
-    func testAMenuRowIsTheRowAtItsPlaceInTheMenuUIKitShows() throws {
+    /// Under `--touch platform` a menu's row is UIKit's, found by its
+    /// popover and place (LLP 1080.000 §13): UIKit puts no identifier on the
+    /// element it shows, so the row's popover must be the menu UIKit was last
+    /// given to present, and its rows must read as one run of the shown
+    /// rows. A duplicate title or a label that is another's prefix picks
+    /// nothing else; another popover's row, however alike its rows read, a
+    /// menu shown twice and a menu that scrolls past the screen are refused.
+    func testAMenuRowIsItsPlaceInThePresentedMenu() throws {
         let (session, agent, _) = rows()
         let window = try XCTUnwrap(self.window)
         let p = session.presenter
         let node = { (id: UInt32) in p.views[id]! }
+        let present = { (ids: [UInt32]) in p.menus.presentedMenu = Dictionary(uniqueKeysWithValues: ids.map { ($0, node($0).incarnation) }) }
         p.menus.given[2] = [GivenRow(node(3), title: "Rename", subtitle: nil), GivenRow(node(5), title: "Delete", subtitle: nil), GivenRow(node(7), title: "Delete", subtitle: nil)]
         p.menus.given[4] = [GivenRow(node(9), title: "Copy", subtitle: nil), GivenRow(node(6), title: "Copy", subtitle: "link")]
-        func menu(_ labels: [String], at origin: CGPoint) -> UIScrollView {
+        // Popover 8 gives the same rows as popover 2.
+        p.menus.given[8] = [GivenRow(node(1), title: "Rename", subtitle: nil), GivenRow(node(4), title: "Delete", subtitle: nil), GivenRow(node(2), title: "Delete", subtitle: nil)]
+        func menu(_ labels: [String], at origin: CGPoint, scrolls: Bool = false) -> UIScrollView {
             let list = UIScrollView(frame: CGRect(origin: origin, size: CGSize(width: 200, height: CGFloat(labels.count) * 40)))
             // Added last row first: a list's subviews are not in reading order.
             for (i, label) in labels.enumerated().reversed() {
@@ -237,27 +241,48 @@ final class AddressedTapIOSTests: XCTestCase {
                 cell.accessibilityLabel = label
                 list.addSubview(cell)
             }
+            list.contentSize = CGSize(width: 200, height: CGFloat(labels.count + (scrolls ? 4 : 0)) * 40)
             window.addSubview(list)
             return list
         }
         let why = { (r: Result<CGRect, AimRefusal>) -> String in if case .failure(let f) = r { return f.why }; return "" }
-        XCTAssertTrue(why(agent.shownRow(node(5), of: node(2), in: window)).contains("not open"), "no menu shows")
+        XCTAssertTrue(why(agent.shownRow(node(5), of: node(2), in: window)).contains("not the menu UIKit shows"), "no menu presented")
+        present([2])
+        XCTAssertTrue(why(agent.shownRow(node(5), of: node(2), in: window)).contains("does not show its rows"), "presented, not yet shown")
         XCTAssertFalse(agent.menuShown(in: window))
         let a = menu(["Rename", "Delete", "Delete"], at: CGPoint(x: 20, y: 100))
         XCTAssertTrue(agent.menuShown(in: window))
         XCTAssertEqual(try agent.shownRow(node(7), of: node(2), in: window).get(), CGRect(x: 20, y: 180, width: 200, height: 40), "the second Delete, by its place")
         XCTAssertEqual(try agent.shownRow(node(5), of: node(2), in: window).get(), CGRect(x: 20, y: 140, width: 200, height: 40))
-        XCTAssertTrue(why(agent.shownRow(node(9), of: node(4), in: window)).contains("not open"), "another menu's row")
+        // Popover 2's menu was dismissed and popover 8's, reading the same, is up: 2's row is not in it.
+        present([8])
+        XCTAssertTrue(why(agent.shownRow(node(5), of: node(2), in: window)).contains("not the menu UIKit shows"), "a dismissed menu's row")
+        XCTAssertEqual(try agent.shownRow(node(2), of: node(8), in: window).get(), CGRect(x: 20, y: 180, width: 200, height: 40))
+        // Two popovers of the presented menu (a menu and its submenu) that read the same.
+        present([2, 8])
+        XCTAssertTrue(why(agent.shownRow(node(5), of: node(2), in: window)).contains("read the same"))
+        present([4])
         let b = menu(["Copy", "Copy, link"], at: CGPoint(x: 20, y: 400))
         XCTAssertEqual(try agent.shownRow(node(9), of: node(4), in: window).get(), CGRect(x: 20, y: 400, width: 200, height: 40), "Copy, not Copy, link")
         XCTAssertEqual(try agent.shownRow(node(6), of: node(4), in: window).get(), CGRect(x: 20, y: 440, width: 200, height: 40))
+        present([2])
         let twin = menu(["Rename", "Delete", "Delete"], at: CGPoint(x: 220, y: 100))
-        XCTAssertTrue(why(agent.shownRow(node(3), of: node(2), in: window)).contains("2 menus"), "two menus read the same")
-        // A row the node no longer is (a reused view): its menu is not open.
-        p.menus.given[2] = [GivenRow(node(3), title: "Rename", subtitle: nil)]
-        XCTAssertTrue(why(agent.shownRow(node(5), of: node(2), in: window)).contains("not open"))
+        XCTAssertTrue(why(agent.shownRow(node(3), of: node(2), in: window)).contains("2 places"), "the menu shown twice")
         for v in [a, b, twin] { v.removeFromSuperview() }
         XCTAssertFalse(agent.menuShown(in: window))
+        // A menu that scrolls shows a slice of its rows: one shown is picked;
+        // one scrolled out is refused, naming the way that works.
+        let long = menu(["Rename", "Delete"], at: CGPoint(x: 20, y: 100), scrolls: true)
+        XCTAssertTrue(agent.menuShown(in: window))
+        XCTAssertEqual(try agent.shownRow(node(5), of: node(2), in: window).get(), CGRect(x: 20, y: 140, width: 200, height: 40))
+        XCTAssertTrue(why(agent.shownRow(node(7), of: node(2), in: window)).contains("scrolled out"))
+        long.removeFromSuperview()
+        let tail = menu(["Delete"], at: CGPoint(x: 20, y: 100), scrolls: true)
+        XCTAssertTrue(why(agent.shownRow(node(7), of: node(2), in: window)).contains("2 places"), "one Delete shown, two it could be")
+        tail.removeFromSuperview()
+        // A row the node no longer is (a reused view): not in the presented menu.
+        p.menus.given[2] = [GivenRow(node(3), title: "Rename", subtitle: nil)]
+        XCTAssertTrue(why(agent.shownRow(node(5), of: node(2), in: window)).contains("not the menu UIKit shows"))
     }
 }
 #endif

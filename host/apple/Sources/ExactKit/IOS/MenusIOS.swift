@@ -253,8 +253,9 @@ final class MenuHost {
                 if native.popover !== pop { native.dismissMenu() }
                 native.popover = pop
             }
-            (button as? MenuButton)?.toggled = { [weak presenter, weak pop] open in
+            (button as? MenuButton)?.toggled = { [weak self, weak presenter, weak pop] open in
                 if let pop { presenter?.popoverEvents.changed(pop, open: open) }
+                if !open, let pop, self?.presentedMenu[pop.id] != nil { self?.presentedMenu = [:] }
             }
             #endif
             if button.superview !== v { v.addSubview(button) }
@@ -826,6 +827,13 @@ final class MenuHost {
     /// shows (`Agent.shownRow`). UIKit puts no identifier of an action on
     /// the element it shows, so a row is its place among these.
     var given: [UInt32: [GivenRow]] = [:]
+    /// Under the agent, the popovers (by id, with their incarnations) of
+    /// the menu UIKit was last given to present: the one a menu opened
+    /// with, and its submenus. A row of any other popover is not in the menu
+    /// UIKit shows, however alike their rows read. Emptied when an
+    /// invoker's menu ends; a bar item's pull-down reports no end, and its
+    /// rows no longer showing is the refusal then.
+    var presentedMenu: [UInt32: UInt64] = [:]
     private static func autofocus(in view: UIView) -> NodeView? {
         for sub in view.subviews {
             if let node = sub as? NodeView, let value = node.props["autofocus"], value != "false" { return node }
@@ -1249,6 +1257,11 @@ final class MenuHost {
         // Under the agent, what UIKit was given, in order (`given`).
         var rows: [GivenRow] = []
         defer { if ExactEnv.agentMode { given[pop.id] = rows } }
+        // A menu's own items (not a submenu's) begin what UIKit presents.
+        if ExactEnv.agentMode {
+            if path.isEmpty { presentedMenu = [:] }
+            presentedMenu[pop.id] = pop.incarnation
+        }
         for case let row as NodeView in pop.container.subviews {
             // A context menu's preview (§5.1) is not one of its items.
             if row.props["contextPreview"] == "true" { continue }

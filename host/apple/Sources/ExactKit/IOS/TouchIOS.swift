@@ -295,37 +295,62 @@ extension Agent {
 
     /// Where UIKit shows `row` of the menu it presents for `pop`, or why a
     /// finger cannot pick it. UIKit puts no identifier on the element it
-    /// shows for an action, so the menu is found by what it was given
-    /// (`MenuHost.given`): the one run of shown rows whose labels are those,
-    /// in order, and the row is the one at its place there. Another open
-    /// menu, a duplicate title or a label that is a prefix of another picks
-    /// nothing else; two runs that match are refused as ambiguous.
+    /// shows for an action, so the row is found by its popover and place:
+    /// `pop` must be the menu UIKit was last given to present, or one of its
+    /// submenus (`MenuHost.presentedMenu`), and its rows (`MenuHost.given`) must
+    /// read as exactly one run of the rows shown (in a menu that scrolls,
+    /// the rows it shows as one slice of them); the row is the one at its
+    /// place there. A row of another popover, however alike its rows read,
+    /// is refused, and so are two popovers of the presented menu that read
+    /// the same, a menu shown twice, and a row scrolled out of its menu.
     func shownRow(_ row: NodeView, of pop: NodeView, in window: UIWindow) -> Result<CGRect, AimRefusal> {
-        let name = "popover #\(pop.id)\(pop.props["id"].map { " (\($0))" } ?? "")"
-        guard let given = presenter.menus.given[pop.id], let place = given.firstIndex(where: { $0.row == row.id && $0.incarnation == row.incarnation }) else {
-            return .failure(AimRefusal(why: "it is a row of the menu UIKit shows for \(name), which is not open: tap its invoker first"))
+        let menus = presenter.menus, name = Agent.popoverName(pop)
+        guard let given = menus.given[pop.id], menus.presentedMenu[pop.id] == pop.incarnation,
+              let place = given.firstIndex(where: { $0.row == row.id && $0.incarnation == row.incarnation }) else {
+            let shown = menus.presentedMenu.keys.sorted().first.flatMap { presenter.views[$0] }.map { " (UIKit was last given \(Agent.popoverName($0))'s)" } ?? ""
+            return .failure(AimRefusal(why: "it is a row of the menu of \(name), which is not the menu UIKit shows\(shown): tap its invoker first"))
         }
         let labels = given.map(\.label)
-        let runs = Agent.menuGroups(in: window).flatMap { group in
-            group.indices.filter { $0 + labels.count <= group.count && zip(group[$0...], labels).allSatisfy { $0.label == $1 } }
-                .map { Array(group[$0..<$0 + labels.count]) }
+        if let twin = menus.presentedMenu.keys.sorted().first(where: { $0 != pop.id && menus.given[$0]?.map(\.label) == labels }) {
+            return .failure(AimRefusal(why: "\(name) and popover #\(twin) are both in the menu UIKit shows and read the same; give their rows different titles"))
         }
-        guard runs.count == 1 else {
-            return .failure(AimRefusal(why: runs.isEmpty
-                ? "it is a row of the menu UIKit shows for \(name), which is not open, or shows other rows: tap its invoker first"
-                : "\(runs.count) menus UIKit shows have the rows of \(name); close the others first"))
+        // Where the menu shows: a run of all its rows, or, in a list that
+        // scrolls, the rows the list shows as one slice of them (`first`:
+        // the place of the slice's first row).
+        var found: [(rows: [(label: String, box: CGRect)], first: Int)] = []
+        for group in Agent.menuGroups(in: window) {
+            if group.scrolls, !group.rows.isEmpty, group.rows.count <= labels.count {
+                for k in 0...(labels.count - group.rows.count) where zip(group.rows, labels[k...]).allSatisfy({ $0.label == $1 }) { found.append((group.rows, k)) }
+                continue
+            }
+            for i in group.rows.indices where i + labels.count <= group.rows.count && zip(group.rows[i...], labels).allSatisfy({ $0.label == $1 }) {
+                found.append((Array(group.rows[i..<i + labels.count]), 0))
+            }
         }
-        return .success(runs[0][place].box)
+        guard found.count == 1 else {
+            return .failure(AimRefusal(why: found.isEmpty
+                ? "the menu of \(name) does not show its rows: tap its invoker first, then `clock settle`"
+                : "\(found.count) places UIKit shows read as the menu of \(name) (another menu, or a scrolled slice whose rows repeat); close the others first, or drive it without --touch platform"))
+        }
+        let (rows, first) = found[0]
+        guard place >= first, place < first + rows.count else {
+            return .failure(AimRefusal(why: "its row is scrolled out of the menu of \(name), and the agent's finger picks only rows the menu shows: drive it without --touch platform, where `tap` opens the menu painted"))
+        }
+        return .success(rows[place - first].box)
     }
 
-    /// Whether UIKit shows a menu one of the session's popovers gave it
-    /// (`shownRow`'s match), whatever presents it: a pull-down, a popover.
+    static func popoverName(_ pop: NodeView) -> String { "popover #\(pop.id)\(pop.props["id"].map { " (\($0))" } ?? "")" }
+
+    /// Whether UIKit shows the menu it was last given (`shownRow`'s match),
+    /// whatever presents it: a pull-down, a popover.
     func menuShown(in window: UIWindow) -> Bool {
-        let groups = Agent.menuGroups(in: window).map { $0.map(\.label) }
-        return presenter.menus.given.values.contains { given in
-            let labels = given.map(\.label)
-            return !labels.isEmpty && groups.contains { group in
-                group.indices.contains { $0 + labels.count <= group.count && Array(group[$0..<$0 + labels.count]) == labels }
+        let groups = Agent.menuGroups(in: window).map { ($0.scrolls, $0.rows.map(\.label)) }
+        return presenter.menus.presentedMenu.keys.contains { id in
+            guard let labels = presenter.menus.given[id]?.map(\.label), !labels.isEmpty else { return false }
+            return groups.contains { scrolls, group in
+                // All of its rows; in a list that scrolls, a slice of them.
+                let (whole, part) = scrolls ? (labels, group) : (group, labels)
+                return !part.isEmpty && whole.indices.contains { $0 + part.count <= whole.count && Array(whole[$0..<$0 + part.count]) == part }
             }
         }
     }
@@ -333,24 +358,30 @@ extension Agent {
     /// The labelled accessibility elements the window shows outside every
     /// session, as VoiceOver finds them (none inside another), grouped by
     /// the scroll view that holds them (a menu's list) and in reading order
-    /// within each: what a menu UIKit shows reads as.
-    static func menuGroups(in window: UIWindow) -> [[(label: String, box: CGRect)]] {
-        var groups: [ObjectIdentifier: [(label: String, box: CGRect)]] = [:], order: [ObjectIdentifier] = []
+    /// within each: what a menu UIKit shows reads as. `scrolls`: the list
+    /// holds more than it shows, and rows off the screen are not among these.
+    static func menuGroups(in window: UIWindow) -> [(scrolls: Bool, rows: [(label: String, box: CGRect)])] {
+        var groups: [ObjectIdentifier: (list: UIView, rows: [(label: String, box: CGRect)])] = [:], order: [ObjectIdentifier] = []
         func visit(_ v: UIView, in list: UIView) {
             guard !v.isHidden, v.alpha > 0.01, !(v is NodeView), !routes.contains(where: { shows($0.1, v) }) else { return }
             if v.isAccessibilityElement {
-                let box = v.convert(v.bounds, to: window)
+                let box = v.convert(v.bounds, to: window), middle = CGPoint(x: box.midX, y: box.midY)
+                // In a list, only a row it shows: not one scrolled under its edge.
+                let shown = (list as? UIScrollView).map { $0.convert($0.bounds, to: window) } ?? window.bounds
                 guard let label = v.accessibilityLabel, !label.isEmpty, box.width > 0, box.height > 0,
-                      window.bounds.contains(CGPoint(x: box.midX, y: box.midY)) else { return }
+                      window.bounds.contains(middle), shown.contains(middle) else { return }
                 let key = ObjectIdentifier(list)
-                if groups[key] == nil { order.append(key) }
-                groups[key, default: []].append((label, box))
+                if groups[key] == nil { order.append(key); groups[key] = (list, []) }
+                groups[key]?.rows.append((label, box))
                 return
             }
             for sub in v.subviews { visit(sub, in: v is UIScrollView ? v : list) }
         }
         for sub in window.subviews where !routes.contains(where: { $0.1.view.map { $0.isDescendant(of: sub) } == true }) { visit(sub, in: sub) }
-        return order.compactMap { groups[$0]?.sorted { ($0.box.minY, $0.box.minX) < ($1.box.minY, $1.box.minX) } }
+        return order.compactMap { groups[$0] }.map { group in
+            let scrolls = (group.list as? UIScrollView).map { $0.contentSize.height > $0.bounds.height + 1 } ?? false
+            return (scrolls, group.rows.sorted { ($0.box.minY, $0.box.minX) < ($1.box.minY, $1.box.minX) })
+        }
     }
 }
 
