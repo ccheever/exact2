@@ -318,7 +318,7 @@ impl<D: DataSource> Bridge<D> {
         });
         match booted {
             Ok((host, batch)) => {
-                self.host = Some(host);
+                let batch = Host::ending(self.host.replace(host), batch);
                 self.give_clock();
                 self.emit(batch)
             }
@@ -353,7 +353,7 @@ impl<D: DataSource> Bridge<D> {
         });
         match booted {
             Ok((host, batch)) => {
-                self.host = Some(host);
+                let batch = Host::ending(self.host.replace(host), batch);
                 self.give_clock();
                 self.emit(batch)
             }

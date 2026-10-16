@@ -48,7 +48,7 @@ function installMidi({ log, origin, deliver, nav = globalThis.navigator, now = (
       asking = null;
       if (silent) return;
       state = 'denied';
-      log(`midi: access refused: ${e?.message ?? e}`);
+      log(`midi: access denied: ${e?.message ?? e}`);
       deliver({ ports: { state: 'denied' } });
     });
     return asking;
@@ -92,6 +92,16 @@ function installMidi({ log, origin, deliver, nav = globalThis.navigator, now = (
     }
     if (held.length) timer = setTimeout(pump, Math.max(0, held[0].at - HOLD - t));
   }
+  /** A new runner: what an earlier one left held is let go, but a note-off or a Stop goes now, so no note is left sounding
+   * and no device follows a dead clock. */
+  function end() {
+    clearTimeout(timer); timer = null;
+    for (const m of held.splice(0)) {
+      const [s, , v] = m.data, off = (s & 0xf0) === 0x80 || ((s & 0xf0) === 0x90 && v === 0) || s === 0xfc;
+      const output = off ? access?.outputs?.get?.(m.output) : null;
+      if (output && output.state !== 'disconnected') try { output.send(m.data); } catch (e) { log(`midi: message ${m.id} not sent: ${e.message}`); }
+    }
+  }
   const handlers = {
     send(op) {
       const i = held.findIndex(m => m.at > op.at || (m.at === op.at && m.id > op.id));
@@ -105,7 +115,7 @@ function installMidi({ log, origin, deliver, nav = globalThis.navigator, now = (
   return {
     /** The runner's ops, in order; `boot`: a new runner, so what an earlier one left held is forgotten. */
     ops(list, boot) {
-      if (boot) { held = []; clearTimeout(timer); timer = null; }
+      if (boot) end();
       for (const op of list ?? []) handlers[op.op]?.(op);
     },
     /** The output's own account, beside the runner's record. */

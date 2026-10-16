@@ -588,6 +588,11 @@ impl Batch {
         self.ops.push(s);
     }
 
+    /// This batch's ops, for another batch to carry (`Host::ending`).
+    pub(crate) fn into_ops(self) -> Vec<String> {
+        self.ops
+    }
+
     /// The runner's timed outputs since the last take (LLP 1096 D7, LLP
     /// 1125 D7): the voice table's `sound` op and the MIDI queue's `midi`
     /// op; at a `boot`, the files to decode and whether MIDI's arm loads.

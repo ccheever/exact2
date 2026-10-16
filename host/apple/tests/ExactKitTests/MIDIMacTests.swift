@@ -4,7 +4,9 @@
 // its destination on its time, never more than the hold early; a retraction
 // before the hold sends nothing; an input is stamped with its packet's time
 // and its bytes come through MIDIOutput as the runner's JSON; a replugged
-// endpoint keeps its unique-ID id. macOS only: a simulator has no MIDIServer.
+// endpoint keeps its unique-ID id; inputs opened before the request are heard
+// once it is granted; a new runner's boot hands a held note-off at once and
+// lets the rest go. macOS only: a simulator has no MIDIServer.
 #if os(macOS)
 import CoreMIDI
 import QuartzCore
@@ -114,6 +116,51 @@ final class MIDIMacTests: XCTestCase {
         MIDIObjectSetIntegerProperty(source, kMIDIPropertyUniqueID, id)
         wait(1) { delivered.last?.contains(input) == true }
         XCTAssertTrue(try XCTUnwrap(delivered.last).contains("\"id\":\"\(input)\""))
+        output.shutdown()
+    }
+
+    /// One note-on from the test's virtual source, stamped now.
+    private func play() {
+        var buffer = [UInt8](repeating: 0, count: 256)
+        buffer.withUnsafeMutableBytes { raw in
+            let list = raw.baseAddress!.assumingMemoryBound(to: MIDIEventList.self)
+            var word: UInt32 = 0x2090_3C64
+            var packet = MIDIEventListInit(list, ._1_0)
+            packet = MIDIEventListAdd(list, 256, packet, 0, 1, &word)
+            XCTAssertEqual(MIDIReceivedEventList(source, list), noErr)
+        }
+    }
+
+    /// Review round 1, A5: inputs a mounted listener opened before the
+    /// request are listened to once the session joins.
+    func testInputsOpenedBeforeTheRequestAreHeard() throws {
+        let library = try library()
+        var delivered: [String] = []
+        let output = MIDIOutput(log: { _ in }, deliver: { delivered.append($0) }, library: { library })
+        let input = String(uid(source))
+        output.apply(["ops": [["op": "open", "inputs": [input]], ["op": "request"]]])
+        wait(2) { delivered.contains { $0.contains(input) } }
+        wait(0.2)
+        play()
+        wait(1) { delivered.last?.hasPrefix("{\"messages\"") == true }
+        XCTAssertTrue(try XCTUnwrap(delivered.last).hasPrefix("{\"messages\":[[\"\(input)\","))
+        output.shutdown()
+    }
+
+    /// Review round 1, A1: a new runner's boot settles what the old one left
+    /// held: its note-off goes now, its note-on is let go.
+    func testABootHandsAHeldNoteOffNowAndLetsTheRestGo() throws {
+        let library = try library()
+        var delivered: [String] = []
+        let output = MIDIOutput(log: { _ in }, deliver: { delivered.append($0) }, library: { library })
+        output.apply(["ops": [["op": "request"]]])
+        wait(2) { delivered.contains { $0.contains("\(self.uid(self.destination))") } }
+        let now = (CACurrentMediaTime() - ExactEnv.t0) * 1000, out = String(uid(destination))
+        output.apply(["ops": [["op": "send", "id": 1, "output": out, "data": [0x90, 61, 100], "at": now + 2000],
+                              ["op": "send", "id": 2, "output": out, "data": [0x80, 60, 0], "at": now + 2000]]])
+        output.apply(["boot": true, "ops": []])
+        wait(0.3)
+        XCTAssertEqual(lock.withLock { arrived }.map(\.status), [0x80], "the note-off at once, the note-on never")
         output.shutdown()
     }
 

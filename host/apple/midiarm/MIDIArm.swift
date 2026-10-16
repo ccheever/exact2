@@ -14,9 +14,13 @@
 //   due (`HOLD`), stamped with its host time, so a retraction can still take
 //   it back; `MIDIFlushOutput` is never called, since it empties a whole
 //   destination. A message handed out plays.
-// - An input's MIDI 1.0 messages (UMP types 1 and 2) are passed on with the
-//   packet's host time, stamped in CoreMIDI's read callback; Clock and Active
-//   Sensing are dropped (they feed clock in, stage 4).
+// - An input's MIDI 1.0 messages (UMP types 1 and 2) are stamped with the
+//   packet's host time in CoreMIDI's receive block, which runs on CoreMIDI's
+//   realtime thread: it only copies them into a preallocated lock-free ring
+//   (midi_ring.h) and wakes this thread, which passes them on. Clock and
+//   Active Sensing are dropped (they feed clock in, stage 4).
+// - Everything else that touches CoreMIDI's ports or this arm's state runs
+//   on this thread, setup notifications included.
 import CoreMIDI
 import Foundation
 import QuartzCore
@@ -24,7 +28,7 @@ import QuartzCore
 /// A line of text for the host: a log line or the ports' JSON.
 public typealias MIDIText = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, Int) -> Void
 /// One input message: the input's unique ID, its host time in seconds
-/// (CACurrentMediaTime's timebase), its bytes. Called on CoreMIDI's thread.
+/// (CACurrentMediaTime's timebase), its bytes. Called on the arm's thread.
 public typealias MIDIInput = @convention(c) (UnsafeMutableRawPointer?, Int32, Double, UnsafePointer<UInt8>?, Int) -> Void
 
 /// How long before its time a held message is handed to CoreMIDI, seconds.
@@ -45,6 +49,19 @@ private func ticks(_ seconds: Double) -> MIDITimeStamp {
 private func seconds(_ stamp: MIDITimeStamp) -> Double {
     Double(stamp) * Double(timebase.numer) / Double(timebase.denom) / 1e9
 }
+
+/// A UMP message's words by its type (UMP 1.1 §2.1.4).
+private func umpWords(_ type: UInt32) -> Int {
+    switch type {
+    case 3, 4, 8, 9, 10: return 2
+    case 11, 12: return 3
+    case 5, 13, 14, 15: return 4
+    default: return 1
+    }
+}
+
+/// Where a packet's words start.
+private let wordsOffset = MemoryLayout<MIDIEventPacket>.offset(of: \MIDIEventPacket.words)!
 
 /// A MIDI 1.0 message's length from its status byte; 0 for none.
 private func length(_ status: UInt8) -> Int {
@@ -75,6 +92,10 @@ private final class MIDIArm {
     private var lastReport: String?
     private var lastSend = -Double.infinity
     private var closed = false
+    /// Input from CoreMIDI's realtime thread, popped here; the source that
+    /// wakes this run loop for it.
+    private let ring: UnsafeMutablePointer<exact_midi_ring> = calloc(1, MemoryLayout<exact_midi_ring>.size)!.assumingMemoryBound(to: exact_midi_ring.self)
+    private var wake: CFRunLoopSource!
 
     init(context: UnsafeMutableRawPointer?, log: MIDIText?, ports: MIDIText?, input: MIDIInput?) {
         self.context = context; self.log = log; self.ports = ports; self.input = input
@@ -88,10 +109,16 @@ private final class MIDIArm {
 
     private func run() {
         loop = CFRunLoopGetCurrent()
-        // A source keeps the run loop running with nothing else to do.
+        // A source keeps the run loop running with nothing else to do, and
+        // the receive block signals it when input arrives.
         var ctx = CFRunLoopSourceContext()
-        let keep = CFRunLoopSourceCreate(nil, 0, &ctx)
-        CFRunLoopAddSource(loop, keep, .defaultMode)
+        ctx.info = Unmanaged.passUnretained(self).toOpaque()
+        ctx.perform = { info in
+            guard let info else { return }
+            Unmanaged<MIDIArm>.fromOpaque(info).takeUnretainedValue().drain()
+        }
+        wake = CFRunLoopSourceCreate(nil, 0, &ctx)
+        CFRunLoopAddSource(loop, wake, .defaultMode)
         started.signal()
         perform { self.setUp() }
         while !closed { CFRunLoopRunInMode(.defaultMode, 1e9, false) }
@@ -109,9 +136,12 @@ private final class MIDIArm {
     }
 
     private func setUp() {
+        // The notifications come on a thread of CoreMIDI's choosing: the
+        // enumeration runs here, where every other change to the ports does.
         var status = MIDIClientCreateWithBlock("exact" as CFString, &client) { [weak self] note in
             switch note.pointee.messageID {
-            case .msgSetupChanged, .msgObjectAdded, .msgObjectRemoved, .msgPropertyChanged: self?.enumerate()
+            case .msgSetupChanged, .msgObjectAdded, .msgObjectRemoved, .msgPropertyChanged:
+                self?.perform { self?.enumerate() }
             default: break
             }
         }
@@ -175,6 +205,7 @@ private final class MIDIArm {
     /// The ports present now, reported when they changed; the wanted inputs
     /// connected again by unique ID (a replugged device has a new ref).
     func enumerate() {
+        guard !closed else { return }
         let inputs = (0..<MIDIGetNumberOfSources()).compactMap { Self.port(MIDIGetSource($0)) }
         let outputs = (0..<MIDIGetNumberOfDestinations()).compactMap { Self.port(MIDIGetDestination($0)) }
         connect()
@@ -196,7 +227,7 @@ private final class MIDIArm {
     /// Each wanted input connected (its unique ID the refCon), each other
     /// one let go.
     private func connect() {
-        guard inPort != 0 else { return }
+        guard inPort != 0, !closed else { return }
         for (uid, source) in connected where !wanted.contains(uid) || Self.endpoint(uid, .source) != source {
             MIDIPortDisconnectSource(inPort, source)
             connected[uid] = nil
@@ -207,24 +238,42 @@ private final class MIDIArm {
         }
     }
 
-    /// An event list's MIDI 1.0 messages, passed on stamped (CoreMIDI's thread).
+    /// An event list's MIDI 1.0 messages, stamped, into the ring; this
+    /// thread woken for them. CoreMIDI's realtime thread: no allocation, no
+    /// lock.
     private func received(_ list: UnsafePointer<MIDIEventList>, uid: Int32) {
+        var any = false
         for packet in list.unsafeSequence() {
             let stamp = packet.pointee.timeStamp
             let at = seconds(stamp == 0 ? mach_absolute_time() : stamp)
-            let words = Array(packet.words())
+            let count = Int(packet.pointee.wordCount)
+            let words = UnsafeRawPointer(packet).advanced(by: wordsOffset).assumingMemoryBound(to: UInt32.self)
             var i = 0
-            while i < words.count {
+            while i < count {
                 let w = words[i], type = w >> 28
-                // A UMP message is 1, 2 or 4 words by its type.
-                i += [1, 1, 1, 2, 2, 4, 1, 1, 2, 2, 2, 3, 3, 4, 4, 4][Int(type)]
+                i += umpWords(type)
                 guard type == 1 || type == 2 else { continue }
                 let status = UInt8((w >> 16) & 0xFF), n = length(status)
                 guard n > 0, status != 0xF8, status != 0xFE else { continue }
-                let bytes = [status, UInt8((w >> 8) & 0x7F), UInt8(w & 0x7F)].prefix(n)
-                Array(bytes).withUnsafeBufferPointer { input?(context, uid, at, $0.baseAddress, $0.count) }
+                any = exact_midi_ring_push(ring, uid, at, status, UInt8((w >> 8) & 0x7F), UInt8(w & 0x7F), UInt8(n)) != 0 || any
             }
         }
+        if any, exact_midi_ring_wake(ring) != 0 {
+            CFRunLoopSourceSignal(wake)
+            CFRunLoopWakeUp(loop)
+        }
+    }
+
+    /// What the ring holds, passed on in order (this thread).
+    private func drain() {
+        exact_midi_ring_looked(ring)
+        var m = exact_midi_in()
+        while exact_midi_ring_pop(ring, &m) != 0 {
+            let bytes = [m.bytes.0, m.bytes.1, m.bytes.2].prefix(Int(m.count))
+            Array(bytes).withUnsafeBufferPointer { input?(context, m.uid, m.at, $0.baseAddress, $0.count) }
+        }
+        let dropped = exact_midi_ring_dropped(ring)
+        if dropped > 0 { say("midi: \(dropped) input messages dropped: they came faster than they were passed on") }
     }
 
     /// Hold a message until 50 ms before `at` (host seconds).
@@ -239,9 +288,16 @@ private final class MIDIArm {
         schedule()
     }
 
-    /// A new boot: what an earlier runner left held is forgotten.
-    func forget() {
-        held = []
+    /// A session's runner is replaced or closed (`id` is one of its held
+    /// messages): a note-off or a Stop is handed now, so no note is left
+    /// sounding and no device follows a dead clock; anything else is let go.
+    func settle(id: UInt64) {
+        guard let i = held.firstIndex(where: { $0.id == id }) else { return }
+        let m = held.remove(at: i)
+        let s = m.bytes.first ?? 0
+        if s & 0xF0 == 0x80 || (s & 0xF0 == 0x90 && m.bytes.count == 3 && m.bytes[2] == 0) || s == 0xFC {
+            hand(m.uid, CACurrentMediaTime(), m.bytes)
+        }
         schedule()
     }
 
@@ -303,8 +359,8 @@ public func exact_midi_open(_ context: UnsafeMutableRawPointer?, _ log: MIDIText
 }
 
 /// `kind` 1 holds `bytes` (one message) for output `uid` until 50 ms before
-/// host second `at`; 2 takes held message `id` back; 3 forgets every held
-/// message (a new boot).
+/// host second `at`; 2 takes held message `id` back; 3 settles held message
+/// `id` (its runner is gone): a note-off or Stop goes now, else it is let go.
 @_cdecl("exact_midi_op")
 public func exact_midi_op(_ handle: UnsafeMutableRawPointer?, _ kind: UInt32, _ id: UInt64, _ uid: Int32, _ at: Double, _ bytes: UnsafePointer<UInt8>?, _ count: Int) {
     guard let handle else { return }
@@ -314,7 +370,7 @@ public func exact_midi_op(_ handle: UnsafeMutableRawPointer?, _ kind: UInt32, _ 
         switch kind {
         case 1: arm.send(id: id, uid: uid, at: at, bytes: data)
         case 2: arm.retract(id: id)
-        default: arm.forget()
+        default: arm.settle(id: id)
         }
     }
 }

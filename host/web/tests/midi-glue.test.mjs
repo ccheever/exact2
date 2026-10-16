@@ -3,7 +3,8 @@
 // request granted or refused; a message held until 50 ms before it is due
 // and handed with its timestamp; a retraction before the hold; inputs
 // opened and let go; a frame's input one delivery, Clock left out; ports
-// reported again on a state change; a boot forgets what was held.
+// reported again on a state change; a boot forgets what was held but its
+// note-offs and Stop, which go at once.
 import { test, expect } from 'bun:test';
 import '../midi-glue.js';
 
@@ -88,7 +89,7 @@ test('a refused request is denied', async () => {
   m.out.ops([{ op: 'request' }]);
   await settle(); await settle();
   expect(m.delivered).toEqual([{ ports: { state: 'denied' } }]);
-  expect(m.lines.some(l => l.startsWith('midi: access refused'))).toBe(true);
+  expect(m.lines.some(l => l.startsWith('midi: access denied'))).toBe(true);
   m.c.restore();
 });
 
@@ -114,13 +115,16 @@ test('a message is held until 50 ms before it is due and handed with its time', 
   m.c.restore();
 });
 
-test('a boot forgets what an earlier runner left held', async () => {
+test('a boot forgets what an earlier runner left held, but sends its note-offs and Stop now', async () => {
   const m = midi({ permission: 'granted' });
   await settle(); await settle();
-  m.out.ops([{ op: 'send', id: 1, output: 'out', data: [0x90, 60, 100], at: 500 }]);
+  m.out.ops([{ op: 'send', id: 1, output: 'out', data: [0x90, 60, 100], at: 500 }, { op: 'send', id: 2, output: 'out', data: [0x80, 60, 0], at: 600 },
+    { op: 'send', id: 3, output: 'out', data: [0x90, 61, 0], at: 600 }, { op: 'send', id: 4, output: 'out', data: [0xfc], at: 700 }]);
   m.out.ops([], true);
+  // Sent at once, with no timestamp: no note is left sounding when the old runner's note-on was handed.
+  expect(m.sent).toEqual([['out', [0x80, 60, 0], undefined], ['out', [0x90, 61, 0], undefined], ['out', [0xfc], undefined]]);
   m.c.advance(1000);
-  expect(m.sent).toEqual([]);
+  expect(m.sent.length).toBe(3);
   expect(m.out.state().held).toBe(0);
   m.c.restore();
 });

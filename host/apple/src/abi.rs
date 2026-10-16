@@ -590,7 +590,7 @@ impl<D: DataSource> Bridge<D> {
                 }
                 self.presenter_hooks(&mut host, &hooks);
                 self.executor = executor;
-                self.host = Some(host);
+                let batch = Host::ending(self.host.replace(host), batch);
                 self.parked.clear();
                 Ok(batch)
             }
@@ -947,10 +947,10 @@ impl<D: DataSource> Bridge<D> {
         }
         self.presenter_hooks(&mut candidate.host, &candidate.hooks);
         self.executor = executor;
-        self.host = Some(candidate.host);
+        let batch = Host::ending(self.host.replace(candidate.host), candidate.batch);
         self.adopt_app_module();
         self.parked.clear();
-        self.emit(candidate.batch)
+        self.emit(batch)
     }
 
     /// Drop an uncommitted candidate and retain the live host and executor.

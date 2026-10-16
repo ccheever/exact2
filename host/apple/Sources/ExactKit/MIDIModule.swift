@@ -59,7 +59,7 @@ final class MIDIHub {
     private final class Weak { weak var output: MIDIOutput?; init(_ o: MIDIOutput) { output = o } }
     /// The last ports the arm reported, as `exactMIDI`'s JSON.
     private(set) var ports: String?
-    /// Input messages from CoreMIDI's thread, drained on the main queue.
+    /// Input messages from the arm's thread, drained on the main queue.
     private let lock = NSLock()
     private var heard: [Heard] = []
     private var draining = false
@@ -103,10 +103,13 @@ final class MIDIHub {
 
     func refresh() { if let handle { library.refresh(handle) } }
 
+    /// A session that asked: it hears the ports, and the inputs it opened
+    /// before it asked are listened to now.
     func join(_ output: MIDIOutput) {
         outputs.removeAll { $0.output == nil || $0.output === output }
         outputs.append(Weak(output))
         if let ports { output.reported(ports) }
+        listen()
     }
 
     func leave(_ output: MIDIOutput) {
@@ -189,22 +192,23 @@ final class MIDIOutput {
 
     deinit { hub?.leave(self) }
 
-    /// The session is destroyed: its held messages are taken back and its
-    /// inputs closed.
+    /// The session is destroyed: its held messages are settled (a note-off
+    /// or Stop goes now, the rest is let go) and its inputs closed.
     func shutdown() {
-        for id in ids.values { hub?.op(2, id, 0, 0, []) }
+        for id in ids.values { hub?.op(3, id, 0, 0, []) }
         ids = [:]
         open = []
         hub?.leave(self)
         hub = nil
     }
 
-    /// A batch's `midi` op: a boot (what an earlier runner held is taken
-    /// back), then its ops in order.
+    /// A batch's `midi` op: a boot (what an earlier runner held is settled:
+    /// its note-offs and Stop go now, the rest is let go), then its ops in
+    /// order.
     func apply(_ payload: [String: Any]) {
         guard !ExactEnv.agentMode else { return }
         if payload["boot"] as? Bool == true {
-            for id in ids.values { hub?.op(2, id, 0, 0, []) }
+            for id in ids.values { hub?.op(3, id, 0, 0, []) }
             ids = [:]
         }
         for op in payload["ops"] as? [[String: Any]] ?? [] {

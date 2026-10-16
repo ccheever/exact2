@@ -896,6 +896,25 @@ are binding and two of them amend the text:
   passes: a send arrives on its time and never early, a retraction holds, an
   input is stamped right, a replugged source keeps its id; a probe measured a
   send 0.06 ms after its `at`.
+- **After review** (Astra, Grok; round 1): a `reload` command ends the
+  queue as a stop does, every waiting note-off handed at once, in the runner
+  and the JS twin; a host that replaces its runner (a boot, a new
+  generation) first ends the old runner's voices and notes and sends that
+  batch before the new boot's, and a boot or a session's end settles what
+  the output still holds: a note-off or Stop goes now, the rest is let go
+  (Apple's arm, midi-glue.js). A note-on due within the hold takes no
+  waiting place, so a full queue never blocks a note that is due (a fill
+  blocked at it had woken at its own time forever). No tick goes before the
+  last Stop's time, so a restart's Start reaches the device after the old
+  clock's Stop; a waiting Start an edit takes back is sent again. Apple: the
+  setup notifications enumerate on the arm's thread, where every other
+  change to the ports runs; the receive block only copies messages into a
+  preallocated lock-free ring (`midiarm/midi_ring.h`) that the arm's thread
+  drains; inputs a listener opened before the request are listened to once
+  it is granted. The JS twin answers `exactTransport` before `exactMIDI` at
+  one time, as the runner does (conformance `midi-order`), and a listener's
+  refusal is `tap midi`'s refusal there too. midi-glue.js journals a refused
+  request as `access denied`.
 - **Not done here.** No real device or IAC bus was available, so nothing was
   sent to hardware from the Mac, and Chrome's Web MIDI was not tried by
   hand. The watchdog and iOS foreground re-enumeration are not exercised by a
