@@ -204,6 +204,33 @@ all times share one monotonic origin. Include `engine_version`, `interpolation`,
 
 ## Dated receipts
 
+### Phone — cubes on a Pixel 5, 2026-10-16
+
+`phone.mjs` on a Pixel 5 (Snapdragon 765G, Adreno 620, Android 14), charging over USB,
+60 Hz held, full screen at device pixels (Exact 1080×2340; WebView 1078×2340; Chrome
+1078×1982 under its URL bar), 4× MSAA everywhere, thermal status 0 and battery 31–34 °C
+throughout. System WebView 136 (not updated), Chrome 155. Rows in `results/phone.jsonl`.
+
+| N | Exact native | three.js instanced, WebView | instanced, Chrome | Mesh each, WebView |
+|---|---|---|---|---|
+| 1 | 59.7 | | | |
+| 500 | 22.6 | | | 59.3 |
+| 2,000 | 14.8 | 59.9 | 59.9 | 59.7 |
+| 8,000 | 8.6 | 59.9 | 59.9 | 26.0 |
+| 32,000 | 3.9 | 59.7 | 59.9 | |
+| 64,000 | | 51.8 | 52.1 | |
+
+Frames per second: gfxinfo's for Exact and the WebView (it agreed with the page's own
+rAF count to within 3 fps on every WebView run), the page's for Chrome. Old WebView and
+current Chrome are alike here. Exact's frames are bound by the GPU, not the CPU: a
+Perfetto trace at 32,000 has the `exact` thread blocked in `QueueSubmit` (~118 ms a
+frame) and the RenderThread waiting in `queueBuffer`, while simpleperf counts ~0.75 s
+of the app's CPU in 4 s (the game's `tick` and storage `Lease::drop` lead). The cost
+follows the pixels the cubes cover: one cube holds 60, a quarter-size canvas holds 60
+at 2,000, and the reader's window path (`gpubuf=0`) is no faster than its buffers
+(21 against 16 fps at 2,000). Exact's forward shading costs roughly ten times three.js's
+`MeshStandardMaterial` per covered pixel on this GPU (QUEUE.md).
+
 #### Sitting #2 — landmark re-score, 2026-09-18T20-36-09-882Z
 
 All 15 attempts satisfy the existing input/focus validity rules; all are provisional

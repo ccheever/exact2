@@ -8,7 +8,10 @@ const q = new URLSearchParams(location.search);
 const n = Number(q.get('n') ?? 10000), mode = q.get('mode') ?? 'instanced';
 const seconds = Number(q.get('seconds') ?? 10), warmup = Number(q.get('warmup') ?? 2);
 const which = q.get('renderer') ?? 'webgl';
-const fit = q.get('fit') === 'screen', W = fit ? innerWidth : 1280, H = fit ? innerHeight : 720;
+const fit = q.get('fit') === 'screen';
+// A browser may run the page before it has a viewport (Chrome opening a tab): wait for one.
+while (fit && !(innerWidth && innerHeight)) await new Promise((done) => setTimeout(done, 50));
+const W = fit ? innerWidth : 1280, H = fit ? innerHeight : 720;
 const THREE = await import(which === 'webgpu' ? 'three/webgpu' : 'three');
 
 const renderer = which === 'webgpu' ? new THREE.WebGPURenderer({ antialias: true }) : new THREE.WebGLRenderer({ antialias: true });
