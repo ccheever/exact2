@@ -175,9 +175,10 @@ extension Presenter {
     /// A key event's route, for the session's local monitor and the agent
     /// alike, in the web's order: the shortcuts (input-glue's capture
     /// listener), the focus's `key` handlers, then the key's defaults here —
-    /// Escape closing a popover or dialog, a dialog's Tab — which a prevented
-    /// key never reaches. True when taken. `focused`: the window's focus is
-    /// in this session (the shortcuts and handlers are its).
+    /// Escape closing a popover or dialog, a dialog's Tab, Tab from a window
+    /// that is its own first responder — which a prevented key never
+    /// reaches. True when taken. `focused`: the window's focus is in this
+    /// session (the shortcuts and handlers are its).
     func routeKey(_ event: NSEvent, focused: Bool, in window: NSWindow? = nil) -> Bool {
         if focused {
             keyboardUsed(event, in: window)
@@ -187,7 +188,7 @@ extension Presenter {
             if keyDown(event, in: window) { return true }
             if contextMenuKey(event, in: window) { return true }
         }
-        return menus.key(event) || dialogs.key(event) || tabFromStart(event, in: window)
+        return menus.key(event) || dialogs.key(event) || tabFromStart(event, focused: focused, in: window)
     }
     /// A keydown at the window's first responder, before AppKit delivers
     /// it: true when a handler prevented its default, and the caller drops

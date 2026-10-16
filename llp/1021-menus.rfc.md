@@ -597,21 +597,21 @@ the Apple style encoder, which leaves margins out of every other box's
 dictionary (the kernel placed the box), carries the four on a popover
 with a `position-area` other than `none`, as it carries a dialog's insets.
 The iOS sheet ignores them: UIKit places it.
-The iOS sheet (`role="alertdialog"`, a `UIAlertController` popover) takes a
-side from it: a `top` area permits only a down arrow, which UIKit places
-above the source, `bottom` only an up arrow; a centred area anchors at the
-whole invoker rather than its label, which UIKit centres on where it fits.
-`center` anchors at the whole invoker too, with no arrow permitted and
-`canOverlapSourceViewRect`, `none`'s arrowless presentation: UIKit centres
-the sheet across the invoker (the probe above: anchored to the full row,
-Block centres at x=81) and picks its vertical position itself, as for
-`none`, shifted to stay on screen. It is not centred over the invoker in
-both axes as CSS's `center` is; no public API does that short of a custom
-`popoverBackgroundViewClass`.
+The iOS sheet (`role="alertdialog"`, a `UIAlertController` popover) is
+anchored at the whole invoker. `none` keeps UIKit's defaults for a sheet
+presented from a control: an arrow on the side UIKit picks, never over the
+invoker. A `top` area permits only a down arrow, which UIKit places above
+the source, `bottom` only an up arrow, and UIKit centres it on the invoker
+where it fits. `center` permits no arrow and allows
+`canOverlapSourceViewRect`: UIKit centres the sheet across the invoker
+(the probe above: anchored to the full row, Block centres at x=81) and
+picks its vertical position itself, shifted to stay on screen. It is not
+centred over the invoker in both axes as CSS's `center` is; no public API
+does that short of a custom `popoverBackgroundViewClass`.
 A permitted direction makes UIKit draw its arrow toward the invoker; no
 public API places a popover on a side without one short of a custom
 `popoverBackgroundViewClass`, which this does not take on.
-`none` keeps the arrowless placement measured above. `UIMenu` exposes no
+`UIMenu` exposes no
 public placement control: a menu-shaped popover presented as the system
 menu is placed by UIKit whatever its `position-area`. Linux has no popover
 presentation yet (`POPOVER_UNSUPPORTED`), so nothing there reads the row.

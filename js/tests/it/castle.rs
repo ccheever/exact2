@@ -563,7 +563,7 @@ fn a_failed_fetch_is_a_fetch_error_the_module_turns_into_its_own_words() {
 
 /// Hermes watches a fetch's signal through Ibex's abort hooks, which an
 /// app's listener cannot stop, and leaves no listener behind (review r4a
-/// 7, 8; the browser realm's listener is js/web/tests/browser.rs's).
+/// 7, 8; the browser realm's listener is js/web/tests/it/browser.rs's).
 #[test]
 fn a_reused_signal_gains_no_listener_per_fetch() {
     let mut m = module();

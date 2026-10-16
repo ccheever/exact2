@@ -1261,6 +1261,14 @@ component A
   view
     text toString(length(xs))
 ---
+== syntax-method-shadowed
+# LLP 1116.016 D2: a method call is the built-in, which a `fn` of its name would capture.
+fn trim(s: string): string = "x"
+component A
+  state s = " a "
+  view
+    text s.trim()
+---
 == syntax-list-type
 # LLP 1116.015 D2: a list type is `T[]`.
 shape S

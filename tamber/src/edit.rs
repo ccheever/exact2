@@ -990,7 +990,7 @@ fn same_conds(a: &[(String, String)], b: &[(String, String)]) -> bool {
 }
 
 /// A metadata word as a token line writes it, quoting a value that needs it.
-fn meta_word(k: &str, v: &str) -> String {
+pub(crate) fn meta_word(k: &str, v: &str) -> String {
     match v
         .chars()
         .all(|c| c.is_ascii_alphanumeric() || "-_.%#".contains(c))

@@ -433,11 +433,16 @@ extension NSTextView {
 /// `controlTextDidEndEditing`, which AppKit sends whenever the editor leaves.
 /// Its cell serves the node's ARIA attributes (`FieldCell`, Accessibility.swift).
 final class Field: NSTextField {
-    private var numberOwner: NodeView? {
+    /// A `type="number"` input's node: the field is AppKit's stepper (incrementor) to accessibility.
+    var numberOwner: NodeView? {
         guard let node = delegate as? NodeView, node.props["type"]?.lowercased() == "number" else { return nil }
         return node
     }
-    override func accessibilityRole() -> NSAccessibility.Role? { numberOwner != nil ? .incrementor : super.accessibilityRole() }
+    /// Once overridden, this is the role another process (VoiceOver) is
+    /// served, and `super`'s is `NSView`'s `AXUnknown`: an `NSTextField`'s
+    /// role is its cell's (`AXTextField`), so that is the answer for any
+    /// field but a number's.
+    override func accessibilityRole() -> NSAccessibility.Role? { numberOwner != nil ? .incrementor : cell?.accessibilityRole() ?? super.accessibilityRole() }
     override func accessibilityMinValue() -> Any? {
         guard let owner = numberOwner else { return super.accessibilityMinValue() }
         return NumberStepping(owner.props).min.map { NSDecimalNumber(decimal: $0) }

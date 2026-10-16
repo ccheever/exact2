@@ -98,9 +98,13 @@ const EDITS_APPS = /\/dev-scheduler\.test\.mjs$/;
 export function glueWorkers(cores = availableParallelism(), load = loadavg()[0]) {
   return Math.max(1, Math.floor((cores - load) / 2));
 }
+// Glue files left out: `bundle-size` reads RealWorld's production app.js (`EXACT_REALWORLD_JS`), which no step prepares
+// before the glue; `document-agent` fails here (QUEUE.md, "The page's frames drop to one a second")
+const LEFT_OUT = /^host\/web-js\/(bundle-size|document-agent)\.test\.mjs$/;
 export function glueTests(root) {
-  const files = [...new Bun.Glob('host/web/**/*.test.mjs').scanSync({ cwd: root, onlyFiles: true })].sort().map(file => `./${file}`);
-  return [...files, ...['app-workspace', 'app-bake', 'app-apple', 'app-manifest', 'agent', 'agent-launch', 'tamber-server'].map(name => `./scripts/${name}.test.mjs`), './scripts/deploy-paths.test.mjs', './scripts/async-inputs.test.mjs', './scripts/coverage.test.mjs'];
+  const files = ['host/web', 'host/web-js'].flatMap(dir => [...new Bun.Glob(`${dir}/**/*.test.{mjs,js}`).scanSync({ cwd: root, onlyFiles: true })])
+    .filter(file => !LEFT_OUT.test(file)).sort().map(file => `./${file}`);
+  return [...files, ...['app-workspace', 'app-bake', 'app-apple', 'app-manifest', 'agent', 'agent-launch', 'tamber-server', 'design-tool'].map(name => `./scripts/${name}.test.mjs`), './scripts/deploy-paths.test.mjs', './scripts/async-inputs.test.mjs', './scripts/coverage.test.mjs'];
 }
 export function checks(sha, since, selection = {}) {
   if (TIER === 2) return tierTwoChecks();

@@ -4,7 +4,7 @@
 
 use exact_tamber::check;
 
-mod common;
+use crate::common;
 
 /// The folded text and fallback of `t = <value>`.
 fn fold(value: &str) -> (String, String) {

@@ -148,6 +148,20 @@
         "browser"
       ]
     },
+    "orientation": {
+      "type": "string",
+      "description": "The Web App Manifest's default screen orientation (Screen Orientation API values). The web manifest carries it; the iPhone and Android lock to it; iPad keeps every orientation, as its multitasking requires.",
+      "enum": [
+        "any",
+        "natural",
+        "landscape",
+        "landscape-primary",
+        "landscape-secondary",
+        "portrait",
+        "portrait-primary",
+        "portrait-secondary"
+      ]
+    },
     "theme_color": {
       "type": "string"
     },

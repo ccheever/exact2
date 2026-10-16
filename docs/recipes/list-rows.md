@@ -50,10 +50,10 @@ test "search, then swipe to delete"
 ```
 
 - A `list` with no `appearance` is the plain list: its children are rows, with the platform's
-  separators and press. Draw neither. A child that is no row says `border-bottom="none"`;
-  rows of your own say `appearance="none"`.
+  separators and press. Draw neither. A non-row child says `border-bottom="none"`; rows
+  of your own say `appearance="none"`.
 - The swipe is a horizontal snap scroll naming its content and its trailing action (on iOS
-  UIKit's own; a full swipe performs the first). In a grouped list: no `width` on the
+  UIKit's own, not your paint; a full swipe runs the first). In a grouped list: no `width` on the
   scroll, `padding-right=0` on it (its padding is in its port, where the action would show),
   `padding-right=16` on the content.
 - A filter: a `row role="radiogroup"` of `button role="radio"` above the list

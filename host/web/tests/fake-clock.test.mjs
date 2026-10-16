@@ -95,8 +95,8 @@ check('the app starts under clock.install, and runFor and fastForward fire its t
     await page.clock.runFor(61_000);
     await until('ticks', '1');
     await until('day', '2026-10-09');
-    await page.clock.fastForward(120_000); // the runner catches up the two minutes it missed
-    await until('ticks', '3');
+    await page.clock.fastForward(120_000); // the minute repeat's two missed beats fire once
+    await until('ticks', '2');
     expect(errors).toEqual([]);
   } finally { await close(); }
 }, 60_000);

@@ -1,7 +1,7 @@
 import { renderMarkup, reportPlace, onSelection, textField, editMenu, settleRadios, installFits, contextAt } from "./navigation.js"; export { animationClocks, launchLocation } from "./navigation.js"; export { fontFamily } from './font-family.js'; // synced animations (LLP 1055.002, emit.rs `clocks`)
 import { Docs, Head, head, markDocument, projectRoots } from "./document.js"; export { Head }; import { conforms, eq, equal, failureCode, failureReason } from "./shape.js"; import { pointer, record } from "./pointer.js"; import { commands } from "./commands.js"; import { autofocus, press } from "./focus.js";
 let Paint; export function usePaint(pass) { Paint = pass; } export { conforms, eq, equal }; // the compiler installs `Paint` only when a plan can layer boxes
-import * as Ov from "./overlay.js"; // optimistic writes shown over answers (the runner's writes.rs)
+import * as Ov from "./overlay.js"; import { beatAfter } from "./beat.js"; // optimistic writes shown over answers (the runner's writes.rs)
 export const writeRecords = () => Ov.Writes.list.map(w => ({ id: w.id, mutation: w.m.name, landed: !!w.landed })); // the agent's `state.writes`
 let Media = null; export function useMedia(m) { Media = m; } // and media.js only where a plan has a `video` or `audio`
 // The JS target's runtime: fine-grained DOM signals for a plan compiled ahead by `exact-web-js`. Everything here is imported
@@ -211,7 +211,7 @@ export function commit(f, what = "commit") {
     clock.epoch++; Store.persist();
     for (const go of out) go(); if (Open.size) closeLetGo(); for (const c of cmds) command(...c); Sounds.apply?.(cmds); if (!Booting) { autofocus(); Input?.arrive(); } // after its focus commands, as the wasm host (focus.js); then the focus follows the route (input-glue.js; LLP 1115.000 D4.2)
     // An answer's `then` is armed, due now, once however many land: the next advance runs it as its own commit (LLP 1016.001 D3).
-    for (const m of landed) if (m.then) { m.due = clock.now; if (!clock.agent) drive(); }
+    for (const m of landed) if (m.then) { m.due = armedAt(); if (!clock.agent) drive(); }
     Sched?.scan(true); // a free queue's waiting send is due (LLP 1092 D3)
     return true;
   };
@@ -284,12 +284,11 @@ export const clock = { now: 0, timers: [], agent: false, epoch: 0 };
 // re-evaluated at each commit made at a later time, as the runner marks the clock read dirty
 // (instance/deps.rs), and never by the clock moving alone. Not a write: no commit counts it as a change.
 const Now = node(null, 0);
-let Timing = false;
+let Timing = false, Instant = null; export const armedAt = () => Instant ?? clock.now; // where a `then` or queue `next` armed now is due: on the wall clock, a callback's own place (the timers RFC, D2)
 // A commit takes its time first (`time`); its clock readers see it once the body has run (`tick`): the body reads the pre-state.
 export function time() { if (!clock.agent && !Timing && start) clock.now = Math.max(clock.now, performance.now() - start); }
 function tick() { if (Now.v !== clock.now) { Now.v = clock.now; for (const o of Now.obs) stale(o, DIRTY); } }
-// A release build never enters agent mode (LLP 1069.007 D2): its build
-// writes this false, as the wasm host's files are gated.
+// A release build never enters agent mode (LLP 1069.007 D2): its build writes this false, as the wasm host's files are gated.
 const AGENT_ADMITTED = true;
 /** A timer: `every(ms, action, once)`, due from mount; `i` its plan order, which breaks ties (schedule.js inserts by it). */
 let Order = 0; export const order = () => Order++, Tasks = []; // every task, for the agent's `state.tasks`
@@ -326,17 +325,19 @@ export function advance(to, wall, stop, timers = true) {
     if (head) then = null;
     if (!next && !then && !head) break;
     if (fired === 4096) return say("refused advance: 4096 commits in one advance (TIMER_FIRE_LIMIT)"), journal.at(-1);
+    // On the wall clock (the timers RFC, D2, D3) a repeat that missed beats fires once, its firing consumed first; each callback observes the clock as it runs and as it ends, and what it arms takes its place; a repeat's next beat is the first of its phase after the end, unless its callback dropped it, or re-armed it (a gate's step) from there.
+    const at = head ? head.next : then ? then.due : next.due, repeat = wall && !head && !then && !next.once && !next.frame && !next.hatch, gen = next?.gen;
     if (head) clock.now = Math.max(clock.now, head.next);
     else if (then) { clock.now = Math.max(clock.now, then.due); then.due = Infinity; }
-    else { clock.now = next.due; if (next.once) clock.timers.splice(clock.timers.indexOf(next), 1); else if (!next.hatch) next.due = next.frame ? vf(next.base, ++next.k) : next.due + next.ms; }
-    if (fire(head ? () => Sched.next(head) : then ? () => commit(then.then, `${then.name} then`) : next.action) !== true) return journal.at(-1);
+    else { clock.now = wall ? Math.max(clock.now, next.due) : next.due; if (next.once) clock.timers.splice(clock.timers.indexOf(next), 1); else if (!next.hatch) next.due = next.frame ? vf(next.base, ++next.k) : repeat ? beatAfter(at, next.ms, Math.max(clock.now, to)) : next.due + next.ms; }
+    const due = next?.due, sample = () => { if (wall) clock.now = Math.max(clock.now, performance.now() - start); }; sample(); Instant = wall ? at : null; const ok = fire(head ? () => Sched.next(head) : then ? () => commit(then.then, `${then.name} then`) : next.action); Instant = null; sample();
+    if (repeat && clock.timers.includes(next)) next.due = next.gen === gen && next.due === due ? beatAfter(at, next.ms, Math.max(clock.now, to)) : clock.now + next.ms; if (ok !== true) return journal.at(-1);
     if (head || then || !next.hatch) fired++; // a hatch's instant is no commit: it has its own caps
     if (stop?.()) { stopped = true; break; }
   }
   if (!stopped) clock.now = Math.max(clock.now, to);
   for (const f of Clocked) f();
-  // Under the agent only: this journal is not a ring, and a page's own
-  // clock would add a line a tick.
+  // Under the agent only: this journal is not a ring, and a page's own clock would add a line a tick.
   if (fired && clock.agent) say(`advance → ${fired} timer${fired === 1 ? "" : "s"} fired, epoch ${clock.epoch}`);
   return stopped;
 }
@@ -1444,8 +1445,7 @@ export function checkpoint() {
   Checkpoint.time = clock.now = driven ? 0 : cp.time || 0;
   return Checkpoint;
 }
-/** A checkpoint value (`push_value`, host/web/src/page.rs) as a runtime value:
- * lists and records are arrays, unit and `none` null, `some(v)` v. */
+/** A checkpoint value (`push_value`, host/web/src/page.rs) as a runtime value: lists and records are arrays, unit and `none` null, `some(v)` v. */
 const value_ = v => v === null || typeof v !== "object" ? v : Array.isArray(v) ? v.map(value_) : "r" in v ? v.r.map(value_) : "s" in v ? value_(v.s) : "n" in v ? Number(v.n) : null;
 // ---------------------------------------------------------------- the roster (runner/src/stdlib.rs)
 // Read untracked (an action's body, a handler's curried argument evaluated as the event arrives) it is the clock now:

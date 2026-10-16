@@ -55,6 +55,7 @@ final class NativeButtonMac: NSButton {
         var selected: Bool
         var expanded: String?
         var pressed: String?
+        var role: NSAccessibility.Role
         var appearance: String
         var interactive: Bool
         var toolTip: String?
@@ -232,7 +233,7 @@ extension ControlHost {
             label: owner.authoredLabel ?? face.title, testId: owner.props["testId"],
             selected: owner.props["accessibilitySelected"] == "true" || owner.checkedRole.map { $0.role == "radio" && $0.checked } == true,
             expanded: owner.props["accessibilityExpanded"],
-            pressed: owner.pressedState, appearance: owner.effectiveAppearance.name.rawValue,
+            pressed: owner.pressedState, role: owner.isMenuItem ? .menuItem : .button, appearance: owner.effectiveAppearance.name.rawValue,
             interactive: owner.style["pointer_events"]?.string != "none",
             // HTML's `title`, else an icon-only button's label: AppKit's help
             // tag, as a toolbar item's label is (LLP 1115 wave 1).
@@ -249,7 +250,8 @@ extension ControlHost {
         if button.toolTip != written.toolTip { button.toolTip = written.toolTip }
         button.setAccessibilitySelected(written.selected)
         if let expanded = written.expanded { button.setAccessibilityExpanded(expanded == "true") }
-        button.setAccessibilityToggle(written.pressed, else: .button)
+        // A menu's row is AppKit's menu item, as a custom button's is (`NodeView.buttonRole`).
+        button.setAccessibilityToggle(written.pressed, else: written.role)
         // A `radio` is AXRadioButton, its value whether it is checked (a radio group's segment kept as authored).
         if let checked = owner.checkedRole, checked.role == "radio" { button.setAccessibilityChecked(checked.role, checked.checked) }
         button.drawn = look

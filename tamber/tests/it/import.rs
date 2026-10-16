@@ -3,11 +3,10 @@
 //! the transaction applies to a design that checks; and re-importing the
 //! unchanged source proposes nothing.
 
+use crate::common;
 use common::vocab;
 use exact_tamber::import::{shadcn, Import};
 use exact_tamber::{apply_all, check, parse, Op};
-
-mod common;
 
 const EMPTY: &str = "tamber app\n";
 
@@ -1440,4 +1439,19 @@ fn astryx_reports_a_second_variable_to_one_token() {
         .why
         .contains("its token is `--color-data-blue-5`'s"));
     accepted(EMPTY, &import);
+}
+
+#[test]
+fn two_themes_or_resolver_documents_are_refused_named() {
+    use exact_tamber::import::dtcg;
+    let themes = r##"{"$themes": [], "a": {"ink": {"$type": "color", "$value": "#000000"}}}"##;
+    let files = vec![
+        ("one.json".to_string(), themes.to_string()),
+        ("two.json".to_string(), themes.to_string()),
+    ];
+    let refused = dtcg::import(&files, "ts", &parse(EMPTY).unwrap()).unwrap_err();
+    assert!(
+        refused[0].message.contains("one.json, two.json"),
+        "{refused:?}"
+    );
 }

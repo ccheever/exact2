@@ -375,8 +375,10 @@ component Cart
   its parameters and standard calls (including `performanceNow()`), without component-state
   capture or recursion. Pass an app value in; do not invent an ambient reference.
   A `fn` named like a standard function (`fn indexOf`) shadows it in every
-  expression of the app, so a standard function added later never breaks an
+  free call of the app, so a standard function added later never breaks an
   app that had the name first; an action or a host command keeps its own rule.
+  A method call (`xs.indexOf(x)`) is always the built-in: calling one whose name
+  the file also declares is refused (`syntax-method-shadowed`).
 - Named arguments belong to component uses, record constructors,
   `t("key", placeholder=value)`, `empty(field=value)`, canvas `surface=` bindings,
   and the commands `share(…)`, `showNotification(…)`, `scrollIntoView(…)`, `playSound(…)` and
@@ -1659,7 +1661,10 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   of the header still projects. A title button keeps its contents; an authored Back
   replaces UIKit’s Back. Search or a header tablist can opt out on that element
   (a tab button alone does not opt its parent out of segments). Tabs retain their
-  panels and stacks; other styling alone does not opt a header out.
+  panels and stacks; other styling alone does not opt a header out. On iOS 26 and
+  later neighbouring bar items share one glass capsule, as UIKit groups them;
+  `buttonStyle="glass"` on a header button gives that item a capsule of its own
+  (`sharesBackground = false`).
 - Each tab names its panel with `aria-controls`; the panels are the stacks, and every
   tab's stack stays mounted, so a pushed screen, a draft and a scroll offset survive
   a visit to another tab. A tab is `select(nav, name)`; selecting the shown tab
@@ -1699,6 +1704,10 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
 - A modal route (`navigationPresentation="modal"`) is opaque: its unsaid
   `background-color` is `-exact-background` (the grouped one when it scrolls a grouped
   list), so the route under it, dimmed, never shows through; write one to say another.
+  Its corners are UIKit's: on iOS 26 and later a large sheet is rounded like the
+  display and inset from the bottom edge, as Apple's own are. A `border-radius` on the
+  route is the sheet's corner radius (its top-left one; `preferredCornerRadius`), which
+  also seats a large sheet flat on the bottom edge.
   One pushed over a sheet (a confirmation over a dialog)
   is a sheet over that sheet, on iOS presented from it; Back returns to the sheet
   under it, and popping both closes both. Under the agent's frozen timing (the
