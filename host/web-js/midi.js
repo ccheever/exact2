@@ -13,7 +13,7 @@
 // - `midimessage` (rt.js `onMIDI`): every connected element whose
 //   `data-exact-midiinputs` lists the input hears each message, in document
 //   order, a commit each.
-import { journal, clock, Sounds, Mutations, Resources, R, data, commit } from './rt.js';
+import { journal, clock, Sounds, Mutations, Resources, R, data, commit, time } from './rt.js';
 import { plain } from './format.js';
 
 const HOLD = 50, QUEUED = 1024, RECORD = 1024, SHOWN = 64;
@@ -60,7 +60,7 @@ const offOfHanded = (s, t) => s.onAt != null && s.onAt - HOLD <= t;
 const stateOf = (s, t) => s.by != null ? 'retracted' : s.at - HOLD > t ? 'waiting' : 'handed';
 
 let Ports = { access: 'prompt', inputs: [], outputs: [] }, Granted = false, Uses = false;
-let Queue = [], Next = 0, Received = [], Heard = 0, Ops = [], Open = [], Clock = null, Ticks = 0, Played = null, ClockFloor = -Infinity;
+let Queue = [], Next = 0, Received = [], Heard = 0, Ops = [], Open = [], OpenClock = [], Clock = null, Ticks = 0, Played = null, ClockFloor = -Infinity;
 let Preferred = { access: 'granted', inputs: [], outputs: [] }, Readers = {}, Glue = null, Output = null, Boot = true;
 const Listening = () => Sounds.midi ?? []; // [element, handler] pairs from rt.js `onMIDI`, registered as the view is built
 const Answer = { name: 'midi', requests: 0, e: () => null, due: Infinity, next: Infinity, then: () => { Answer.due = Infinity; for (const r of Resources) if (r.source === 'exactMIDI') R(r); } };
@@ -172,10 +172,11 @@ export const Midi = {
     push({ output, data: [0x80 | (on[0] & 0x0F), on[1], 0], at: offAt, stepAt, seq: true, onAt }, t);
     return 'done';
   },
-  retractSeq(t) {
+  // An edit at `t`, or a clock's new anchor (`by` 'clock', LLP 1125 D9): what waits, for a step from `from`.
+  retractSeq(t, from = t, by = 'edit') {
     let n = 0;
-    for (const s of [...Queue]) if (s.seq && waits(s, t) && s.stepAt >= t && !offOfHanded(s, t)) { if (s.tick != null && Clock) Clock.next = Math.min(Clock.next, s.tick); else n++; retract(s, 'edit'); }
-    if (n) say(`midi retracted: ${n} (edit)`);
+    for (const s of [...Queue]) if (s.seq && waits(s, t) && s.stepAt >= from && !offOfHanded(s, t)) { if (s.tick != null && Clock) Clock.next = Math.min(Clock.next, s.tick); else n++; retract(s, by); }
+    if (n) say(`midi retracted: ${n} (${by})`);
   },
   stopSeq(t) {
     let n = 0; const moved = [];
@@ -222,11 +223,15 @@ function listeners(input) {
   }
   return out.sort(([[a]], [[b]]) => a === b ? 0 : a.compareDocumentPosition(b) & 4 ? -1 : 1);
 }
+// The inputs the listeners name, then the one a sequence follows (LLP 1125 D9), opened with or without a listener.
 function inputsHeard() {
-  const open = [];
+  const open = [], clockIn = Sounds.clockInput?.();
   for (const [, inputs] of listeners(null)) for (const i of inputs) if (!open.includes(i)) open.push(i);
+  if (clockIn != null && !open.includes(clockIn)) open.push(clockIn);
   return open;
 }
+// One whole message clock in reads: Timing Clock, Start, Continue, Stop, or Song Position (the runner's `clock_message`).
+const clockMessage = d => d.length === 1 && [0xF8, 0xFA, 0xFB, 0xFC].includes(d[0]) || d.length === 3 && d[0] === 0xF2 && d[1] < 0x80 && d[2] < 0x80;
 // One host delivery, coalesced (midi.rs `coalesce`).
 function coalesce(batch) {
   const out = [], latest = [], coalesced = [];
@@ -249,17 +254,25 @@ function coalesce(batch) {
   for (const [input, n] of coalesced) say(`midi coalesced: ${n} (${input})`);
   return out.filter(Boolean);
 }
-// One host delivery of input messages, each to every listener, a commit each (the runner's `midi_input`); a refusal does
+// One host delivery of input messages (the runner's `midi_input`): the followed input's clock messages to the transport
+// first (D9), then each message to every listener, a commit each, one no element hears dropped unrecorded; a refusal does
 // not stop the rest, and the first is returned.
 function hear(batch) {
+  const clockIn = Sounds.clockInput?.();
+  if (clockIn != null && connectedInput(clockIn)) {
+    const msgs = batch.filter(m => m.input === clockIn && clockMessage(m.data)).map(m => [m.timeStamp, m.data]);
+    if (msgs.length) { time(); Sounds.clockIn(msgs); }
+  }
   let first = null;
   for (const m of coalesce(batch)) {
     if (!connectedInput(m.input)) { say(`midi in dropped: ${m.input} is not a connected input`); continue; }
+    const heard = listeners(m.input);
+    if (!heard.length) continue;
     const beat = Sounds.beatAt ? Sounds.beatAt(m.timeStamp) : -1;
     say(`midi in ${m.input} ${hex(m.data)} at ${num(m.timeStamp)} beat ${num(beat)}`);
     Heard++; Received.push({ input: m.input, data: m.data, timeStamp: m.timeStamp, beat, at: clock.now }); if (Received.length > RECORD) Received.shift();
     const record = [m.input, m.data, m.timeStamp, beat];
-    for (const [pair] of listeners(m.input)) if (pair[0].isConnected && pair[1](record) !== true) first ??= (journal.findLast(l => / refused /.test(l)) ?? 'refused').replace(/^t=\S+ /, '');
+    for (const [pair] of heard) if (pair[0].isConnected && pair[1](record) !== true) first ??= (journal.findLast(l => / refused /.test(l)) ?? 'refused').replace(/^t=\S+ /, '');
   }
   return first;
 }
@@ -283,13 +296,34 @@ function prefer(m) {
   return reply();
 }
 // `tap midi "<input>" 90 3c 64`: one delivery of the messages the bytes make (the runner's `midi_tap`).
+const unconnected = input => connectedInput(input) ? null : { error: `tap midi: ${Ports.access === 'granted' ? `${JSON.stringify(input)} is not a connected input (prefer midi.inputs)` : `MIDI access is ${Ports.access} (requestMIDIAccess, prefer midi.state)`}` };
+// Its clock form (D9): one delivery from the input a sequence follows, stamps rising from its last tick to now.
+function tapClock(input, list) {
+  const f = Sounds.follower?.();
+  if (!f || f.input !== input) return { error: `tap midi: no sequence follows ${JSON.stringify(input)} (clock=)` };
+  let last = f.lastTick ?? -Infinity;
+  const no = unconnected(input); if (no) return no;
+  const batch = [];
+  for (const e of Array.isArray(list) ? list : []) {
+    const a = Array.isArray(e) ? e : [], d7 = k => Number.isInteger(a[k]) && a[k] >= 0 && a[k] < 128;
+    const data = a.length === 2 && [0xF8, 0xFA, 0xFB, 0xFC].includes(a[1]) ? [a[1]] : a.length === 4 && a[1] === 0xF2 && d7(2) && d7(3) ? [0xF2, a[2], a[3]] : null;
+    if (!data) return { error: 'tap midi: a clock message is [stamp, f8|fa|fb|fc] or [stamp, f2, lsb, msb]' };
+    const stamp = typeof a[0] === 'number' ? a[0] : NaN;
+    if (!(stamp >= last && stamp <= clock.now)) return { error: `tap midi: clock stamps rise from the last tick to now (${num(clock.now)}), not ${num(stamp)}` };
+    last = stamp; batch.push({ input, timeStamp: stamp, data });
+  }
+  const refused = hear(batch);
+  return refused ? { error: `tap midi: ${refused}` } : reply();
+}
 function tap(req) {
-  const input = typeof req.input === 'string' ? req.input : '', data = Array.isArray(req.data) && req.data.length && req.data.every(b => Number.isInteger(b) && b >= 0 && b < 256) ? req.data : null;
+  const input = typeof req.input === 'string' ? req.input : '';
+  if (req.clock !== undefined) return tapClock(input, req.clock);
+  const data = Array.isArray(req.data) && req.data.length && req.data.every(b => Number.isInteger(b) && b >= 0 && b < 256) ? req.data : null;
   if (!data) return { error: 'tap midi: the bytes are whole numbers 0–255' };
   const parts = split(data);
   if (parts.why) return { error: `tap midi: ${parts.why}` };
-  if (!connectedInput(input)) return { error: `tap midi: ${Ports.access === 'granted' ? `${JSON.stringify(input)} is not a connected input (prefer midi.inputs)` : `MIDI access is ${Ports.access} (requestMIDIAccess, prefer midi.state)`}` };
-  if (!listeners(input).length) return { error: `tap midi: no mounted element with a midimessage handler lists ${JSON.stringify(input)} in midiinputs` };
+  const no = unconnected(input); if (no) return no;
+  if (!listeners(input).length && Sounds.clockInput?.() !== input) return { error: `tap midi: no mounted element with a midimessage handler lists ${JSON.stringify(input)} in midiinputs` };
   const refused = hear(parts.map(d => ({ input, timeStamp: clock.now, data: d })));
   return refused ? { error: `tap midi: ${refused}` } : reply();
 }
@@ -303,8 +337,8 @@ function load() {
     .catch(err => say(`midi: unavailable: ${err.message}`));
 }
 function flush() {
-  const open = inputsHeard();
-  if (open.join('\n') !== Open.join('\n') || open.length !== Open.length) { Ops.push({ op: 'open', inputs: open }); Open = open; }
+  const open = inputsHeard(), clockIn = Sounds.clockInput?.(), forward = clockIn != null ? [clockIn] : [];
+  if (open.join('\n') !== Open.join('\n') || open.length !== Open.length || forward.join('\n') !== OpenClock.join('\n')) { Ops.push({ op: 'open', inputs: open, clock: forward }); Open = open; OpenClock = forward; }
   if (clock.agent) Ops = [];
   else if (Output) { if (Ops.length || Boot) { Output.ops(Ops.splice(0), Boot); Boot = false; } }
   else load();

@@ -14,7 +14,7 @@ import { plain } from './format.js';
 const LIVE = 32, WAITING = 256, RECORD = 1024, HAPTICS = 1024, SHOWN = 64, OWN = new Set(['playSound', 'playSounds', 'stopSounds']);
 const say = line => journal.push(`t=${clock.now} ${line}`);
 let Table = [], Voices = [], Next = 0, Evicted = 0, EvictedThrough = 0, Ops = [], Glue = null, Output = null, Haptics = [], NextHaptic = 0;
-const sounds = by => by !== 'cut' && by !== 'cancelled' && by !== 'edit';
+const sounds = by => by !== 'cut' && by !== 'cancelled' && by !== 'edit' && by !== 'clock';
 const live = (v, t) => sounds(v.by) && v.ends > t;
 const sounding = (v, t) => sounds(v.by) && v.at <= t && v.ends > t;
 const waits = (v, t) => sounds(v.by) && v.at > t;
@@ -93,10 +93,10 @@ function batch(f) {
   queue(before, firstNew);
   return out;
 }
-// Haptics waiting at `t` (`at >= t`) retracted with why (an edit's only those for a step at or after `t`); one line when any was.
-function retractHaptics(t, by) {
+// Haptics waiting at `t` (`at >= t`) for a step at or after `from`, retracted with why; one line when any was.
+function retractHaptics(t, from, by) {
   let n = 0;
-  for (const h of Haptics) if (h.by == null && h.at >= t && (by !== 'edit' || h.stepAt >= t)) { h.by = by; Ops.push({ op: 'unhaptic', id: h.id }); n++; }
+  for (const h of Haptics) if (h.by == null && h.at >= t && h.stepAt >= from) { h.by = by; Ops.push({ op: 'unhaptic', id: h.id }); n++; }
   if (n) say(`haptics retracted: ${n} (${by})`);
 }
 /** One commit's commands, at its time, once it stood (rt.js); a `reload` ends every live voice. */
@@ -112,7 +112,7 @@ function apply(commands) {
     }
     if (Table.length && commands.some(([name]) => name === 'reload')) say(`sounds stopped: ${endLive(t, null, false)} (reload)`);
   });
-  if (Table.length && commands.some(([name]) => name === 'reload')) retractHaptics(t, 'cancelled');
+  if (Table.length && commands.some(([name]) => name === 'reload')) retractHaptics(t, -Infinity, 'cancelled');
   flush();
 }
 // A sequence's side of the table (LLP 1125 D3), as the runner's `Sounds::issue`, `issue_haptic`, `retract_seq` and
@@ -129,17 +129,18 @@ const Seq = {
     // The last HAPTICS, the oldest played or retracted first: one still to come is kept for its retraction.
     while (Haptics.length > HAPTICS) { const i = Haptics.findIndex(h => h.by != null || h.at < t); if (i < 0) break; Haptics.splice(i, 1); }
   },
-  retract(t) {
+  // An edit at `t`, or a clock's new anchor (`by` 'clock', LLP 1125 D9): what has not started, for a step from `from`.
+  retract(t, from = t, by = 'edit') {
     let n = 0;
-    for (const v of Voices) if (v.seq && sounds(v.by) && v.at >= t && v.stepAt >= t) { v.ends = v.at; v.by = 'edit'; n++; }
-    say(`sounds retracted: ${n} (edit)`);
-    retractHaptics(t, 'edit');
+    for (const v of Voices) if (v.seq && sounds(v.by) && v.at >= t && v.stepAt >= from) { v.ends = v.at; v.by = by; n++; }
+    say(`sounds retracted: ${n} (${by})`);
+    retractHaptics(t, from, by);
   },
   stop(t, name) {
     let n = 0;
     for (const v of Voices) if (v.seq && live(v, t)) { n++; if (v.at < t) { v.ends = t; v.by = 'stop'; } else { v.ends = v.at; v.by = 'cancelled'; } }
     say(`sounds stopped: ${n} (sequence ${name})`);
-    retractHaptics(t, 'cancelled');
+    retractHaptics(t, -Infinity, 'cancelled');
   },
   // `state.transport.haptics` (runner/src/agent/transport.rs): the last 64.
   haptics: () => Haptics.slice(-64).map(h => ({ id: h.id, kind: h.kind, at: h.at, state: h.by ?? (clock.now < h.at ? 'waiting' : 'played') })),

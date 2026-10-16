@@ -1,0 +1,31 @@
+# Clock in (LLP 1125 D9): a sequence that follows `clk` waits; ticks at 125
+# give it a tempo; Start counts in two beats and plays; a tempo change to 100
+# re-anchors (a tick a delivery, so hits are taken back by `clock`); a gap
+# starts the window over; Stop leaves it waiting (heard by the handler); Song
+# Position and Continue resume at beat 4; a key restart waits again; the
+# gate stops it.
+prefer midi.outputs synth midi.inputs clk
+tap ask
+tap start
+midi clk clock 125 1000
+midi clk fa
+midi clk clock 125 2000
+midi clk clock 100 1000
+clock +25
+midi clk f8
+clock +25
+midi clk f8
+clock +25
+midi clk f8
+clock +700
+midi clk clock 100 400
+midi clk fc
+midi clk f2 10 00
+midi clk fb
+midi clk clock 100 1000
+tap restart
+midi clk clock 100 200
+midi clk fa
+midi clk clock 100 300
+tap stop
+clock +500
