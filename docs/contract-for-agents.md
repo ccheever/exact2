@@ -1498,7 +1498,27 @@ of `gain`, `ends`, `playbackRate`, `pan` and `by end|group|cut|stop|cancelled|ed
 `expect sound missing …`; a sequence's steps are voices like any other, so `clock
 +2000` then `expect sound has "assets/click.wav" at 1500` works with no audio, and
 `expect state transport.state == "playing"` reads the transport.
-`state sounds` lists the last 64 voices, `state transport` the transport. `audio` stays HTML's player for long media
+`state sounds` lists the last 64 voices, `state transport` the transport.
+
+MIDI is Web MIDI's, and the runner keeps its queue as it keeps the voices (LLP
+1125 D6–D8). Grant `device.midi purpose.midi` (the data source's `grants()`, the
+text in `strings/en.json`). Read the ports with `resource midi = exactMIDI() as
+shape MIDI` (`state`: `prompt`, `granted`, `denied`, `unavailable`; `outputs` and
+`inputs`, each `{id, name, manufacturer, state}`), ask for them from a press with
+`requestMIDIAccess()`, and let the person pick an output (a `select` of
+`midi.outputs` by `id`). Then a step's `note` plays on its track's `output` (a
+note-on, and a note-off `duration` beats later), `clockOut=output` on `play`
+sends clock, Start and Stop, and `sendMIDI(output, [144, 60, 100], at=…)` sends
+whole messages from an action. Hear a controller with `midimessage=heard
+midiinputs=[id]` (the action may take a `MIDIMessageEvent`: `input`, `data`,
+`timeStamp`, `beat`). Nothing to schedule by hand: a host hands each message to the
+device 50 ms before it is due, so an edit or a stop takes back what has not gone.
+Test it with no device: `prefer midi.outputs "OP-XY"` then `tap "connect"`, and
+`expect midi sent "OP-XY" 99 4c 7f at 0` (bytes in hex) or `expect midi missing …`;
+`tap midi "keys" 90 3c 64` is a message from an input; `state midi` lists the
+queue ([Metronome](../apps/metronome/app.contract) is whole).
+
+`audio` stays HTML's player for long media
 (a song, a podcast: `video`'s props and events with no picture, LLP 1042 §8).
 
 A media source is the string an `image` takes, `app:/data` files included: an

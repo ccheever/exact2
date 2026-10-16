@@ -275,9 +275,14 @@ only the root declares one (`type-child-resource`). The arguments are read
 again after every commit that stands: an equal value changes nothing, and a
 different one ends the sequence's voices that have not started (`by edit`)
 and plays the new value from that commit, a new `bpm` without a jump in
-phase. `clock=` and `clockOut=` (MIDI, LLP 1125 stages 3 and 4) are refused
-for now (`lower-sequence-clock`, `lower-sequence-clock-out`), and a step's
-MIDI fields and a track's `offset` and `output` play nothing yet. One
+phase. A step whose `note` is not −1, on a track whose `output` names a MIDI
+output, is a note-on there (`velocity` 1–127, `channel` 0–15) and a note-off
+`duration` beats later; a track's `offset` (within ±500 ms) moves its
+samples', notes' and haptics' times, as a latency is lined up by ear.
+`clockOut="<output id>"` sends Timing Clock 24 times a beat, Start before the
+first tick at a beat at or after 0, and Stop at the stop or the end
+([MIDI](#midi-exactmidi-sendmidi-midimessage)); `clock=` (following a clock,
+LLP 1125 stage 4) is refused for now (`lower-sequence-clock`). One
 sequence plays at a time; leaving the foreground on iOS stops it (reason
 `background`) unless `audio_session` is `playback` with `audio` in
 `host.ios.backgroundModes`. `resource t = exactTransport() as shape T` reads
@@ -286,6 +291,40 @@ it: `state` (`stopped`, `countin`, `playing`), `reason` (`gate`, `ended`,
 now is `anchorBeat + (performanceNow() - anchorAt) * bpm / 60000`) and
 `clock` (`internal`); it is answered by a commit of its own after each
 change, as an answer's `then` runs.
+
+### MIDI: `exactMIDI`, `sendMIDI`, `midimessage`
+
+MIDI is Web MIDI's, by its names (LLP 1125 D6–D8), and needs the grant line
+`device.midi <strings key>` on every host (`Permissions-Policy: midi` on the
+web); without it `state` is `denied` and a request is refused by name.
+`resource m = exactMIDI() as shape M` reads `state` (`prompt` until
+`requestMIDIAccess()` asks, then `granted`, `denied`, or `unavailable` where
+there is none: WebKit, tvOS, Linux and Windows), `inputs` and `outputs`, each
+a list of a port shape of `id` (stable across replug), `name`,
+`manufacturer` and `state` (`connected`, `disconnected`; a port seen stays
+listed) — any other field is refused at the bake (`bake-midi-field`). It
+changes by itself as ports come and go. `requestMIDIAccess()` takes no
+arguments (`type-request-midi-access`). `sendMIDI(output, data, at=)` sends
+`data`, the bytes of one or more whole MIDI 1.0 messages (no running status,
+no SysEx; a literal one is checked, `type-send-midi`), to an output by `id`
+at `at` on the runner's clock (the commit's time by default, and the past is
+now); what is not well-formed, an output not connected, or the 1,025th
+message waiting is dropped and journaled (note-offs and Stop never are). The
+runner keeps the queue: a host hands a message to its output 50 ms before it
+is due and holds it until then, so an edit or a stop takes back what is
+still held, and a note already handed still gets its note-off. A sequence's
+notes and clock go through the same queue.
+
+`midimessage=action` on an element with `midiinputs=["<input id>", …]` hears
+each message from those inputs; every mounted element that declares it hears
+it, in tree order, each in its own commit. Its action may take a
+`MIDIMessageEvent`: `input`, `data` (`number[]`), `timeStamp` (runner
+milliseconds) and `beat` (the sequence's beat then, −1 while stopped).
+Control Change, pitch bend and pressure keep only their latest value within
+one delivery, never across a note of the same input and channel; notes and
+transport messages are never dropped or reordered; Timing Clock and Active
+Sensing are not dispatched. `onMIDIMessage` and `midiInputs` are refused with
+these names.
 
 `else if c` is `else` around one nested `if c`, in an action and in a view
 alike: the same tree, so the same plan. A view refuses `when` and `each`
@@ -607,7 +646,15 @@ runner milliseconds), its `gain`, its end (`ends`), its `playbackRate` and `pan`
 (a voice that set neither has 1 and 0), and how it ended (`by
 end|group|cut|stop|cancelled`); `missing` is the negation. A dropped call is not
 a voice, and a test that asks about a voice the 1,024-voice record no longer
-holds fails and says so. `tap "audio" mediasession "seekforward"` calls the
+holds fails and says so. MIDI's steps (LLP 1125 §4): `prefer midi.state
+granted midi.outputs "OP-XY, IAC" midi.inputs "keys"` sets what a request
+finds under the driver (granted unless named) and the ports, by name (a port
+named no longer is disconnected); `tap midi "keys" 90 3c 64` is one delivery
+from that input now, refused unless the input is connected and a mounted
+element hears it; `expect midi sent "OP-XY" 99 4c 7f at 500` passes when the
+runner queued that message for that output and has not taken it back (at
+that time, when given), `missing` the negation. Each byte is two hex digits.
+`tap "audio" mediasession "seekforward"` calls the
 handler the platform would call for that media session action ([LLP
 1098](../llp/1098-the-media-session.rfc.md) D10): `play`, `pause` or one of the
 six; its number is a seek's `seekOffset` (absent: the element's own) and
@@ -955,7 +1002,7 @@ has each host's lock.
 ## Events
 
 An event binding is an action reference or partially applied action. Captured
-arguments precede the event payload. The table contains all 60 handler names.
+arguments precede the event payload. The table contains all 61 handler names.
 Numeric multi-argument payload ordering should be copied from the feature's
 working fixture, not inferred from JavaScript's Event interface.
 
@@ -1001,6 +1048,7 @@ wheel's scroll, and a stopped `pointerdown` or `pointerup` leaves the click's
 | Zero or one `Selection` (the action takes it or leaves it) | `selectionchange`, on a `text` ([text selection](#text-selection)) |
 | Zero or one `InputEvent` | `selectionchange` and `beforeinput`, on a plain text field |
 | Zero or one `MediaSessionActionDetails` (the action takes it or leaves it) | `seekbackward`, `seekforward`, `seekto`, `previoustrack`, `nexttrack`, `stop`, on an `audio` or `video` with `metadata=` ([media session](#media-session)) |
+| Zero or one `MIDIMessageEvent` (the action takes it or leaves it) | `midimessage`, on an element with `midiinputs=` ([MIDI](#midi-exactmidi-sendmidi-midimessage)) |
 | Zero or one `MouseEvent` (the action takes it or leaves it) | `press`: the modifier keys held, `shiftKey`, `ctrlKey`, `altKey`, `metaKey` (a shift-click, a ⌘-click; all false from a keyboard or assistive activation) |
 | None | `beforeunload`, `cancel`, `close`, `scrollend`, `focus`, `blur`, `submit`, `load`, `dblclick`, `swiperight`, `refresh`, `loadedmetadata`, `play`, `playing`, `pause`, `ended`, `waiting`, `seeking`, `seeked`, `ratechange`, `volumechange`, `canplay`, `reachstart`, `reachend` |
 
@@ -1716,7 +1764,7 @@ The current command name inventory is:
 `load`, `openURL`, `removeAllRanges`, `selectText`, `setSelectionRange`, `setRangeText`, `setScheme`, `setRootFontSize`, `showPicker`, `share`, `saveFile`,
 `showOpenFilePicker`, `showDirectoryPicker`, `showSaveFilePicker`, `scrollIntoView`, `scrollBy`, `showModal`,
 `showNotification`, `closeNotification`, `haptic`, `postMessage`, `reload`, `relaunch`, `close`,
-`playSound`, `playSounds`, `stopSounds`
+`playSound`, `playSounds`, `stopSounds`, `requestMIDIAccess`, `sendMIDI`
 ([pointer](#pointer): a window's `beforeunload`), `preventDefault` ([keys](#keys)) and
 `stopPropagation` ([events](#events)).
 
@@ -1749,6 +1797,7 @@ argument validation. Use the working implementation when selecting arguments:
 | `fastSeek(id, seconds)`, `load(id)`: a `video` or `audio`, by HTML's method names (LLP 1042 §3). `fastSeek` seeks each time it runs, where a bound `currentTime` seeks only when its value changes; every host seeks to the exact time, which HTML's approximate-for-speed allows. `load` loads the source again, as a changed `src` does: the bound `currentTime` waits for its metadata and a bound `paused` false plays | [media tests](../contract/cli/tests/it/media.rs), [media conformance plan](../host/web-js/conformance/media.contract) |
 | `deliveryCheck`, `deliveryActivate` | [delivery corpus](../contract/corpus/delivery.contract) |
 | `playSound(src, at=, gain=, group=, playbackRate=, pan=)`: a new voice of a declared sound (a literal `src` must be declared, `type-sound-undeclared`), starting at `at` on the runner's clock (`performanceNow()`'s milliseconds; the past and the default are the commit's time), at a linear `gain` 0–1 (default 1; a literal outside is refused, a computed one clamped), in a `group` that is monophonic by start time, read at `playbackRate` 0.25–4 (default 1; pitch and length move together, so the voice lasts its file's length divided by it) and placed at `pan` −1 to 1 (default 0, centred; Web Audio's equal-power `StereoPannerNode`), each refused as a literal outside its range and clamped when computed, as `gain` is (LLP 1125 D10). `playSounds(hits)`: one voice per item of a list of a shape whose fields are, in order, `src: string`, `at: number`, `gain: number`, `group: string`, then optionally `playbackRate: number` and then `pan: number`. `stopSounds()`, `stopSounds(group=)`: what sounds stops, what waits is cancelled. The runner keeps the voice table (`state sounds`); the web and Apple play it, Linux and Windows keep the record (LLP 1096) | [sound tests](../contract/cli/tests/it/sound.rs), [sounds conformance](../host/web-js/conformance/sounds/app.contract) |
+| `requestMIDIAccess()`, `sendMIDI(output, data, at=)`: ask for the MIDI ports `exactMIDI()` answers; send whole MIDI 1.0 messages to an output by `id` at `at` on the runner's clock. The runner keeps the queue (`state midi`); a host hands each message to its output 50 ms before it is due ([MIDI](#midi-exactmidi-sendmidi-midimessage), LLP 1125 D6, D7) | [MIDI tests](../contract/cli/tests/it/midi.rs), [MIDI conformance](../host/web-js/conformance/midi/app.contract), [Metronome](../apps/metronome/app.contract) |
 
 The web (its JS target) and the Apple hosts carry every command. The
 headless Linux host has no browser, clipboard, editor or dev menu: its

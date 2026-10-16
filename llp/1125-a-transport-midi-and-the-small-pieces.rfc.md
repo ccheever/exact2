@@ -770,6 +770,139 @@ otherwise.
   sends its haptic ops through the sound batch, which the Apple bake's
   sound arm need not load for; that path was not driven.
 
+## As built (stage 3, 2026-10-16)
+
+D6–D8, MIDI steps, track `offset` and `clockOut=` (D2, D7), as written,
+except where this says otherwise; clock in (D9) stays refused
+(`lower-sequence-clock`). The orchestrator's fifteen rulings for the stage
+are binding and two of them amend the text:
+
+- **D8, "each mounted handler hears it in that one commit":** each
+  listening element hears a message in a commit of its own, in tree order, at
+  the same instant (as `beforeunload` is heard). A refusal in one does not
+  stop the next, nor the next message (a note-off still arrives).
+- **D1, "`ExactMIDI`, linking CoreMIDI only when used":** Apple's MIDI is a
+  loaded arm, `libexact_midi.dylib` (the `ExactMIDI` framework on iOS), as the
+  sound arm is, carried by use: reading `exactMIDI`, `sendMIDI` or
+  `requestMIDIAccess`, a `midimessage` handler, or `play` with `clockOut=`
+  (the bake's `loads` names `midi`). A sequence's notes alone load nothing:
+  without access no note is sent.
+
+- **Compiler.** `requestMIDIAccess()` and `sendMIDI(output, data, at=)` are
+  host commands the runner keeps (`type-request-midi-access`,
+  `type-send-midi`, which holds a literal `data` to MIDI 1.0); `midimessage`
+  is an event whose action may take `MIDIMessageEvent {input, data,
+  timeStamp, beat}`; `midiinputs=[…]` is the kernel prop `midiInputs` (269),
+  newline-joined (`onMIDIMessage`, `midiInputs` are refused with these
+  names); `exactMIDI` is a runner-owned source whose fields and port fields
+  the bake checks (`bake-midi-field`); the grant row `device.midi` maps to
+  `Permissions-Policy: midi` and asks for nothing on Apple. Contract has no
+  hex literals, so an app writes `[144, 60, 100]`.
+- **Runner** (`runner/src/midi.rs`, `runner/src/runner/midi.rs`). One queue
+  of timed messages, a sequence's notes and ticks included; a message is
+  *handed* once `at − 50 ≤ t`, a rule rather than a host's report, and a
+  retraction takes back only what is not handed. At most 1,024 wait;
+  note-offs, Stop and ticks are exempt. Ports merge: one seen stays listed as
+  `disconnected` for the session. A host's report re-answers the `exactMIDI`
+  readers in one commit. On a seek clock (the driver, a test) a request is
+  answered by the runner from the drive's `prefer midi.*` (granted unless it
+  names a state) in a commit of its own, as `exactTransport`'s answer is;
+  on a live clock it is a `request` op to the host. Without the grant the
+  state is `denied` and the request is journaled by name. Input deliveries
+  coalesce Control Change, pitch bend and both pressures within one delivery,
+  never across a note or transport message of the same input and channel;
+  `e.beat` is −1 only while stopped (an app reads `exactTransport().state`
+  to tell a count-in's negative beats apart).
+- **Sequence.** A step whose `note` is not −1 on a track with an `output` is
+  a note-on (`0x90 | channel`) and a note-off `duration` beats later. An edit
+  at `t` takes back the waiting messages whose step is at or after `t`, but a
+  note-off whose note-on was handed stays; a stop takes back every waiting
+  one and moves such a note-off to the later of `t` and its note-on; a second
+  note-on of one output, channel and note moves the earlier note's waiting
+  note-off to it, sent first. A track's `offset` shifts its samples', notes'
+  and haptics' times, never which hits a window holds: at the arming an
+  output before the commit plays at it, at an edit it is skipped (it played
+  already), on a live clock one past at a fill is late. Clock out ticks on
+  the beats `k/24` from the arming's (the count-in's included), sends Start
+  before the first tick at a beat ≥ 0, Stop at a stop no earlier than the
+  last tick handed, Stop then Start at a key restart, and Stop at the end
+  (`ended=`, whose waiting note-offs stay). Ticks are counted in
+  `state.midi.clock`, not listed.
+- **Rules beyond the text and the rulings** (each the simplest deterministic
+  one, in the module's comment):
+  - An edit's MIDI starts 50 ms after it: a note due within the hold counts
+    as played, since re-issuing it would double a note already handed.
+  - Retraction is keyed by the step's time, not the output's, for voices,
+    haptics and MIDI alike, so an unchanged positive offset loses nothing at
+    an edit. An edit of `offset` itself may play a step twice or not at all
+    within the change's size: a declared limit (rulings #8).
+  - An overlap moves only a waiting note-off; a handed one is left.
+  - Start is sent only once the clock reaches a beat ≥ 0, and Stop only
+    after a Start. A `clockOut` changed while playing stops the old output's
+    clock; the new one starts with Start before its next tick at or after
+    beat 0. Clock out above 1,000 ticks a second (a tempo over 2,500) is
+    dropped and journaled.
+  - A step's MIDI fields are checked only when `note` is not −1 (whole
+    0–127, velocity 1–127, channel 0–15, duration above 0) and a track whose
+    `offset` is beyond ±500 ms is dropped, each journaled; notes the value
+    cannot send (no access, an output not connected) are journaled once per
+    value read and skipped.
+  - Any channel message that is not continuous bounds its channel's
+    coalescing; any system message bounds its input's.
+  - `tap midi`'s bytes may hold several messages, one delivery, so a drive
+    coalesces as an arm's delivery does.
+  - A dev reload ends the queue as a stop does, then hands every other
+    waiting note-off at once.
+  - `state.midi` (and the JS target's midi.js) is there for a plan that uses
+    MIDI or declares a sequence (`uses::keeps_midi`).
+  - The journal's lines avoid the word "refused", which the differential
+    driver reads as a refused commit.
+- **JS target** (`host/web-js/midi.js`): the runner's rules line for line;
+  `onMIDI` registers listeners as the view is built, `Sounds.midiApply`
+  applies the commit's MIDI commands after the voice table's, and the grants,
+  which come with the data module and may land after the first frame, ask
+  the readers again when they do. Conformance found two of sounds.js's own:
+  it now applies only its three commands and says `state.sounds` only for a
+  plan that declares a sound, as the runner does.
+- **Hosts.** Every host takes a `{"op":"midi","boot"?,"ops":[send, retract,
+  open, request]}` batch op and hands back the ports or one delivery of
+  input through one export, `exact_midi`. Apple: CoreMIDI on the arm's own
+  thread and run loop, made at the first request (no CoreMIDI client before
+  it: `prompt`), ports by `kMIDIPropertyUniqueID`, sends held on that thread
+  and sent with `MIDISendEventList` in host time (never `MIDIFlushOutput`),
+  inputs stamped from the packet, a 3 s watchdog while a port is in use and
+  re-enumeration at the foreground; tvOS is `unavailable`. Web:
+  midi-glue.js for both targets, `granted` without asking when the
+  permission holds, held sends on the page's timer (late ones counted),
+  input batched per frame. Linux and Windows keep the record; off the agent a
+  request finds `unavailable`. No MIDI loads under the agent.
+- **The driver.** `prefer midi.state|inputs|outputs`, `tap midi "<input>"
+  <hex…>`, and the test steps `prefer midi.…` (a step beyond the RFC: a
+  test needs ports), `tap midi …` and `expect midi sent|missing "<output>"
+  <hex…> [at N]`, a byte two hex digits rebuilt from the tokens that touch.
+- **Consumer.** The metronome gains a MIDI output picker (a `select` of
+  `exactMIDI().outputs`), "Send MIDI clock", and General MIDI percussion notes
+  on channel 10 for the clicks (wood blocks 76, 77) and the drums (36, 38, 42,
+  39) when an output is chosen; it grants `device.midi` and gains a Linux host
+  so conformance can drive MIDI on all three runners.
+- **Measured.** Conformance `midi` (ports, a request, `sendMIDI`'s `at=`, a
+  late and a malformed one, notes on a connected and a missing output, clock
+  out, a tempo and an offset edit, a key restart, the gate's stop, `ended=`,
+  a coalesced delivery heard by two elements, an output pulled): 35 of 35
+  steps equal on wasm, JS and Linux, journal lines and `state.midi` included;
+  `transport` 34/34, `sounds` 33/33, `gates` 19/19, `frames` 9/9, `clock`
+  10/10 still equal. The metronome's eight tests pass on the web, macOS, the
+  iOS 27 simulator and Linux. The macOS loopback XCTest (virtual endpoints)
+  passes: a send arrives on its time and never early, a retraction holds, an
+  input is stamped right, a replugged source keeps its id; a probe measured a
+  send 0.06 ms after its `at`.
+- **Not done here.** No real device or IAC bus was available, so nothing was
+  sent to hardware from the Mac, and Chrome's Web MIDI was not tried by
+  hand. The watchdog and iOS foreground re-enumeration are not exercised by a
+  test. The Lean semantics were not run (not installed); the corpus's
+  `send-midi` agrees between the runner and the JS target. euxy's port has
+  not yet deleted its scheduler or `MidiManager.swift`.
+
 ## As built (stage 5, 2026-10-16)
 
 D12 as written, except where this says otherwise.

@@ -921,6 +921,39 @@ when the app goes to the background (`exactTransport().reason` is
 that last played, how far its hits are issued (`issuedTo`), its last 16 tempo
 segments, and its last 64 haptics with their states.
 
+**MIDI** (`exactMIDI()`, `requestMIDIAccess()`, `sendMIDI`, a step's note and
+`clockOut=`, `midimessage`; LLP 1125 D6–D8) needs the grant `device.midi` on
+every host. The runner keeps one queue for every message, a sequence's notes and
+clock ticks included, and a host hands each to its output 50 ms before it is due
+and holds it until then: CoreMIDI could take it early and flush, but
+`MIDIFlushOutput` empties the whole destination and Chromium has no
+`MIDIOutput.clear()`. So an edit or a stop takes back what is held, and a note
+already handed gets its note-off (a stop moves it to the stop). At most 1,024
+messages wait; note-offs, Stop and ticks are never refused. Per host:
+
+- **Apple** (macOS 14, iOS 17): a loaded arm, `libexact_midi.dylib` (the
+  `ExactMIDI` framework on iOS), built only for a plan that uses MIDI. CoreMIDI
+  runs on the arm's own thread and run loop, made at the first
+  `requestMIDIAccess()` (no prompt: the state is `prompt` until then), so its
+  notifications arrive and a cold MIDIServer never blocks the main thread. Port
+  ids are `kMIDIPropertyUniqueID`, so a replugged device keeps its id; sends
+  hold on the arm's thread (a main-thread stall does not delay them) and go out
+  with `MIDISendEventList` stamped in host time; inputs are stamped from the
+  packet's own time. It enumerates again when the app comes to the foreground
+  and on a 3 s watchdog while a port is in use. tvOS: `unavailable`.
+- **Web**: Web MIDI through midi-glue.js, loaded after the first frame for a
+  plan that uses MIDI; `granted` without asking when the permission already
+  holds; held sends on the page's timer, so a main-thread stall over 50 ms makes
+  those messages late (a declared limit, counted in `state.midi.output.late`).
+  WebKit, and so every iOS browser, is `unavailable`. SysEx is never asked for.
+- **Linux, Windows**: the record; a request finds `unavailable`.
+
+Under the driver nothing is sent: `prefer midi.*` names the ports a request
+finds, `tap midi` delivers a message, and `state.midi` is the record — the ports,
+the inputs the listeners open, how many messages wait, the last 64 queued with
+their states (`waiting`, `handed`, `retracted` and why), the last 64 heard with
+their beat, and clock out's tick count.
+
 ### Media session
 
 An `audio` or `video` with `metadata=MediaMetadata(…)` claims the platform's

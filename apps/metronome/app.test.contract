@@ -64,3 +64,41 @@ test "stop ends what waits, and the transport says why"
   expect sound has "assets/click-low.wav" at 1500 by cancelled
   clock +2000
   expect sound missing "assets/click-high.wav" at 2000
+
+test "with an output chosen, each click is a note there, on the clock it sends"
+  prefer midi.outputs "OP-XY, IAC"
+  tap "connect"
+  type "output" "OP-XY"
+  tap "clock"
+  tap "count-in"
+  tap "toggle"
+  clock +1000
+  expect midi sent "OP-XY" fa at 0
+  expect midi sent "OP-XY" 99 4c 7f at 0
+  expect midi sent "OP-XY" 89 4c 00 at 50
+  expect midi sent "OP-XY" 99 4d 4c at 500
+  expect midi missing "IAC" 99 4c 7f
+  tap "toggle"
+  expect midi sent "OP-XY" fc
+
+test "the drum pattern's notes follow its tracks"
+  prefer midi.outputs "OP-XY"
+  tap "connect"
+  type "output" "OP-XY"
+  tap "count-in"
+  tap "groove"
+  tap "toggle"
+  clock +2000
+  expect midi sent "OP-XY" 99 24 7f at 0
+  expect midi sent "OP-XY" 99 26 72 at 500
+  expect midi sent "OP-XY" 99 2a 2c at 250
+  expect midi sent "OP-XY" 99 27 59 at 1000
+  expect midi missing "OP-XY" fa
+
+test "with no output chosen nothing is sent"
+  prefer midi.outputs "OP-XY"
+  tap "connect"
+  tap "count-in"
+  tap "toggle"
+  clock +1000
+  expect midi missing "OP-XY" 99 4c 7f at 0
