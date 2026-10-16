@@ -357,9 +357,10 @@ runtime.disable-library-validation Helpers/node/bin/node
 The exceptions are `allow-jit`, `allow-unsigned-executable-memory` and
 `disable-library-validation`; `exact release` signs that executable with
 `com.apple.security.cs.<exception>` and nothing else in the bundle with it.
-The target `app` grants the exception to the app's own executable. A target
-must be a Mach-O executable inside a `host.macos.resources` destination, not
-reached through a link; a nested `.app`'s executable gives its grant to that
+Only helpers take an exception: a line naming `app`, the app's own executable,
+is refused (deferred until it has a consumer). A target must be a Mach-O
+executable inside a `host.macos.resources` destination, not reached through a
+link; a nested `.app`'s executable gives its grant to that
 bundle. `mac --bundle` refuses one that is not, and other hosts ignore the
 lines. Adding a line changes the grant ceiling, so the deploy classifier calls
 for a binary release.

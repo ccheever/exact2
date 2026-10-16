@@ -893,7 +893,7 @@ mod tests {
             .contains("multiple host-work kinds"));
         assert_eq!(
             io_grants(
-                "fs.read app:/data\nsurface.read world\ndevice.microphone p\nruntime.allow-jit app\nsurface.write world\nauth.session https://x.test\nauth.callback a.b:/c"
+                "fs.read app:/data\nsurface.read world\ndevice.microphone p\nruntime.allow-jit Helpers/node/bin/node\nsurface.write world\nauth.session https://x.test\nauth.callback a.b:/c"
             ),
             "fs.read app:/data"
         );

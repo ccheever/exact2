@@ -456,6 +456,11 @@ names no take; `:focus-within` remains out.
   hydration, route payloads and cache policies are on the doing-list (the
   entry above). Still refused: progressive forms and server-driven UI.
 - Aquifer data tier, durable worker tier, capability capsules, durable capability grants.
+- A hardened-runtime exception on the app's own executable (Charlie, 2026-10-15):
+  `runtime.*` grants name helper executables only (LLP 1069.008 D9), until the
+  main executable has a consumer. The likely first, an in-process wasmtime loader
+  (LLP 1028), would need only `allow-jit` or `allow-unsigned-executable-memory`,
+  never `disable-library-validation`.
 - ~~Snapback / update economy.~~ Moved 2026-09-03 (Charlie: "you can pull out snapback
   for now"), in LLP 1026 D11's minimal form only: an installed app fetches a signed
   bundle of static files from a baked-in origin, after first pixel, into an on-disk

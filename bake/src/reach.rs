@@ -5,8 +5,8 @@
 //! @ref LLP 1069.008 D1 (a missing purpose key refuses the bake, every one
 //! in one run) / D4 (the derived `Info.plist` keys and entitlements) / D5
 //! (`grantPurposes` in the compatibility id) / D7 (the reach table, with an
-//! "enforced by" column) / D9 (runtime exceptions, each scoped to the app or
-//! to one helper executable)
+//! "enforced by" column) / D9 (runtime exceptions, each scoped to one helper
+//! executable)
 //!
 //! The result rides beside the id in `compat.json` as `reach`, never in it:
 //! `host/apple/build.mjs` writes the plists from it, `exact release` signs
@@ -16,7 +16,7 @@
 
 use crate::compat::{canonical, compatibility_digest, Compat};
 use exact_runner::device::{device_grants, Device};
-use exact_runner::hardened::{runtime_grants, APP};
+use exact_runner::hardened::runtime_grants;
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -127,7 +127,7 @@ pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Res
                 (Some(g), _) => device_enforcement(g.device, declared(line)),
                 (_, Some(g)) => format!(
                     "hardened runtime (a macOS release signs {} with {}); declared by {}",
-                    if g.target == APP { "the app" } else { g.target },
+                    g.target,
                     g.exception.entitlement,
                     declared(line)
                 ),
@@ -177,17 +177,14 @@ pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Res
                 .or_insert_with(|| json!(purposes[grant.purpose]));
         }
     }
-    // A runtime exception (D9) is macOS's alone: the app's joins its own
-    // entitlements, and a helper's is signed onto that executable only.
+    // A runtime exception (D9) is macOS's alone, signed onto the one helper
+    // it names and never joining the app's own entitlements.
     let mut helpers: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
     for grant in exceptions.iter().filter(|_| platform == "macos") {
-        match grant.target {
-            APP => entitlements.push(grant.exception.entitlement),
-            path => helpers
-                .entry(path)
-                .or_default()
-                .push(grant.exception.entitlement),
-        }
+        helpers
+            .entry(grant.target)
+            .or_default()
+            .push(grant.exception.entitlement);
     }
     for keys in helpers.values_mut() {
         keys.sort_unstable();
@@ -538,21 +535,21 @@ mod tests {
     #[test]
     fn runtime_exceptions_sign_their_own_executable_on_macos_only() {
         // LLP 1069.008 D9.
-        let grants = "runtime.allow-jit Helpers/node/bin/node\nruntime.disable-library-validation Helpers/node/bin/node\nruntime.allow-unsigned-executable-memory app\nnet.fetch https://x/";
+        let grants = "runtime.allow-jit Helpers/node/bin/node\nruntime.disable-library-validation Helpers/node/bin/node\nruntime.allow-unsigned-executable-memory Helpers/tool/run\nnet.fetch https://x/";
         let dir = tempdir::Dir::new();
         let mut mac = compat(grants);
         derive(&dir.0, "macos", &mut mac).unwrap();
         assert_eq!(mac.id, "old", "no purpose, no id move");
-        assert_eq!(
-            mac.reach["entitlements"],
-            json!(["com.apple.security.cs.allow-unsigned-executable-memory"])
-        );
+        assert_eq!(mac.reach["entitlements"], json!([]), "never the app's");
         assert_eq!(
             mac.reach["helperEntitlements"],
-            json!({"Helpers/node/bin/node": [
-                "com.apple.security.cs.allow-jit",
-                "com.apple.security.cs.disable-library-validation"
-            ]})
+            json!({
+                "Helpers/node/bin/node": [
+                    "com.apple.security.cs.allow-jit",
+                    "com.apple.security.cs.disable-library-validation"
+                ],
+                "Helpers/tool/run": ["com.apple.security.cs.allow-unsigned-executable-memory"]
+            })
         );
         assert!(mac.reach["rows"][0]["enforced"]
             .as_str()
@@ -565,11 +562,15 @@ mod tests {
         let error = derive(
             &dir.0,
             "macos",
-            &mut compat("runtime.allow-jit MacOS/Exact\ndevice.lidar p"),
+            &mut compat("runtime.allow-jit MacOS/Exact\ndevice.lidar p\nruntime.allow-jit app"),
         )
         .unwrap_err();
-        assert_eq!(error.lines().count(), 2, "{error}");
-        assert!(error.lines().nth(1).unwrap().starts_with("grant-runtime: "));
+        assert_eq!(error.lines().count(), 3, "{error}");
+        assert!(error
+            .lines()
+            .skip(1)
+            .all(|l| l.starts_with("grant-runtime: ")));
+        assert!(error.contains("only helper executables are admitted"));
     }
 
     #[test]

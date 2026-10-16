@@ -1,9 +1,10 @@
 //! Hardened-runtime exception grants: one line admits one exception for one
-//! executable that a macOS release signs, and the release derives its
+//! helper executable that a macOS release signs, and the release derives its
 //! `com.apple.security.cs.*` entitlement from the line.
 //!
-//! @ref LLP 1069.008 D9 (`runtime.<exception> <executable>`, scoped to the
-//! app or to one executable under `host.macos.resources`)
+//! @ref LLP 1069.008 D9 (`runtime.<exception> <helper>`, scoped to one
+//! executable under `host.macos.resources`; the app's own executable is
+//! deferred until it has a consumer)
 //!
 //! Like `device.*`, this is an exact2 grant: `io_grants` strips it before
 //! `ibex2` parses the rest, and no runtime check reads it. The OS enforces
@@ -41,17 +42,13 @@ pub const EXCEPTIONS: &[Exception] = &[
     },
 ];
 
-/// The target naming the app's own executable; any other target is a path
-/// under the bundle's `Contents`.
-pub const APP: &str = "app";
-
 /// One `runtime.<name> <target>` line.
 #[derive(Debug, PartialEq, Eq)]
 pub struct RuntimeGrant<'a> {
     /// The table's row.
     pub exception: &'static Exception,
-    /// [`APP`], or the executable's path under `Contents`, inside a
-    /// `host.macos.resources` destination (`Helpers/node/bin/node`).
+    /// The helper's path under `Contents`, inside a `host.macos.resources`
+    /// destination (`Helpers/node/bin/node`).
     pub target: &'a str,
 }
 
@@ -90,13 +87,19 @@ pub fn runtime_grants(spec: &str) -> Result<Vec<RuntimeGrant<'_>>, Vec<String>> 
         };
         let (Some(target), None) = (words.next(), words.next()) else {
             errors.push(format!(
-                "`{line}`: a runtime exception names one executable, `{APP}` or its path under Contents, as in `runtime.{name} Helpers/node/bin/node`"
+                "`{line}`: a runtime exception names one helper executable by its path under Contents, as in `runtime.{name} Helpers/node/bin/node`"
             ));
             continue;
         };
-        if target != APP && !helper_path(target) {
+        if target == "app" {
             errors.push(format!(
-                "`{line}`: the target is `{APP}` or a path under Resources/, Helpers/ or Frameworks/ inside a `host.macos.resources` destination"
+                "`{line}`: only helper executables are admitted (LLP 1069.008 D9); the app's own executable takes no runtime exception"
+            ));
+            continue;
+        }
+        if !helper_path(target) {
+            errors.push(format!(
+                "`{line}`: the target is a helper's path under Resources/, Helpers/ or Frameworks/ inside a `host.macos.resources` destination"
             ));
             continue;
         }
@@ -118,7 +121,7 @@ mod tests {
 
     #[test]
     fn a_runtime_line_names_a_row_and_one_executable() {
-        let spec = "net.fetch https://x/\nruntime.allow-jit Helpers/node/bin/node\nruntime.disable-library-validation app\nruntime.allow-jit Helpers/node/bin/node";
+        let spec = "net.fetch https://x/\nruntime.allow-jit Helpers/node/bin/node\nruntime.disable-library-validation Helpers/node/bin/node\nruntime.allow-jit Helpers/node/bin/node";
         let all = runtime_grants(spec).unwrap();
         assert_eq!(
             all.iter()
@@ -126,18 +129,34 @@ mod tests {
                 .collect::<Vec<_>>(),
             [
                 ("com.apple.security.cs.allow-jit", "Helpers/node/bin/node"),
-                ("com.apple.security.cs.disable-library-validation", "app")
+                (
+                    "com.apple.security.cs.disable-library-validation",
+                    "Helpers/node/bin/node"
+                )
             ]
         );
         let errors = runtime_grants(
-            "runtime.debugger app\nruntime.allow-jit\nruntime.allow-jit app extra\nruntime.allow-jit MacOS/Exact\nruntime.allow-jit Helpers/../MacOS/Exact\nruntime.allow-jit Helpers\nruntime.allow-jit /Helpers/x",
+            "runtime.debugger Helpers/x/y\nruntime.allow-jit\nruntime.allow-jit Helpers/x/y extra\nruntime.allow-jit MacOS/Exact\nruntime.allow-jit Helpers/../MacOS/Exact\nruntime.allow-jit Helpers\nruntime.allow-jit /Helpers/x",
         )
         .unwrap_err();
         assert_eq!(errors.len(), 7, "{errors:?}");
         assert!(errors[0].contains("not a runtime exception"));
         assert!(errors[1..3]
             .iter()
-            .all(|e| e.contains("names one executable")));
+            .all(|e| e.contains("names one helper executable")));
         assert!(errors[3..].iter().all(|e| e.contains("the target is")));
+    }
+
+    #[test]
+    fn the_app_s_own_executable_is_refused_with_every_other_bad_line() {
+        let errors = runtime_grants(
+            "runtime.allow-jit app\nruntime.allow-jit Helpers/node/bin/node\nruntime.disable-library-validation app\nruntime.allow-jit MacOS/Exact",
+        )
+        .unwrap_err();
+        assert_eq!(errors.len(), 3, "{errors:?}");
+        assert!(errors[..2]
+            .iter()
+            .all(|e| e.contains("only helper executables are admitted (LLP 1069.008 D9)")));
+        assert!(errors[2].contains("the target is"));
     }
 }

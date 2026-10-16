@@ -237,8 +237,9 @@ test.skipIf(!tools)('release signs each helper a runtime grant names with exactl
   writeFileSync(resolve(app, 'Contents/Resources/stamp/channel'), 'beta\n');
   const manifest = { host: { macos: { resources: [{ from: 'node', to: 'Helpers/node' }, { from: 'tool', to: 'Helpers/Tool.app' }, { from: 'stamp', to: 'Resources/stamp' }, { from: 'trick', to: 'Helpers/Trick.app' }] } } };
   const [jit, memory, library] = ['allow-jit', 'allow-unsigned-executable-memory', 'disable-library-validation'].map((name) => `com.apple.security.cs.${name}`);
-  const compat = { reach: { entitlements: [library], helperEntitlements: {
-    'Helpers/node/bin/node': [jit, memory], 'Helpers/Tool.app/Contents/MacOS/Tool': [jit] } } };
+  const microphone = 'com.apple.security.device.audio-input'; // the app's own, from a device grant
+  const compat = { reach: { entitlements: [microphone], helperEntitlements: {
+    'Helpers/node/bin/node': [jit, memory], 'Helpers/Tool.app/Contents/MacOS/Tool': [jit, library] } } };
   const sign = (c) => signRelease(app, { compat: c, manifest, identity: '-', id: 'dev.exact.fixture', scratch: dir, timestamp: ['--timestamp=none'] });
   const keys = (path) => {
     const r = spawnSync('codesign', ['-d', '--entitlements', '-', '--xml', resolve(app, path)], { encoding: 'utf8' });
@@ -251,8 +252,8 @@ test.skipIf(!tools)('release signs each helper a runtime grant names with exactl
   const verify = spawnSync('codesign', ['--verify', '--deep', '--strict', app], { encoding: 'utf8' });
   assert.equal(verify.status, 0, verify.stderr);
   assert.deepEqual(keys('Contents/Helpers/node/bin/node'), [jit, memory]);
-  assert.deepEqual(keys('Contents/Helpers/Tool.app'), [jit], 'a nested app carries its executable\'s grant');
-  assert.deepEqual(keys('.'), [library]);
+  assert.deepEqual(keys('Contents/Helpers/Tool.app'), [jit, library], 'a nested app carries its executable\'s grant');
+  assert.deepEqual(keys('.'), [microphone], 'no runtime exception reaches the app');
   for (const path of ['Contents/Helpers/node/bin/npx', 'Contents/Helpers/node/lib/addon.dylib']) assert.deepEqual(keys(path), [], path);
   for (const path of ['Contents/Helpers/node/bin/node', 'Contents/Helpers/node/bin/npx', 'Contents/Helpers/Tool.app'])
     assert.match(spawnSync('codesign', ['-dv', resolve(app, path)], { encoding: 'utf8' }).stderr, /flags=0x10002\(adhoc,runtime\)/, path);
@@ -260,7 +261,7 @@ test.skipIf(!tools)('release signs each helper a runtime grant names with exactl
   assert.equal(runs('Contents/Helpers/node/bin/node'), 0);
   assert.equal(runs('Contents/Helpers/Tool.app/Contents/MacOS/Tool'), 0);
   assert.equal(runs('Contents/Helpers/node/bin/npx'), 1);
-  assert.equal(runs('Contents/MacOS/Fixture'), 1, 'the app was granted library validation off, not JIT');
+  assert.equal(runs('Contents/MacOS/Fixture'), 1, 'the app carries no runtime exception');
   writeFileSync(resolve(app, 'Contents/Resources/stamp/channel'), 'stable\n');
   assert.notEqual(spawnSync('codesign', ['--verify', '--deep', '--strict', app]).status, 0, 'the stamp is inside the seal');
 
@@ -276,12 +277,13 @@ test.skipIf(!tools)('release signs each helper a runtime grant names with exactl
   cc('Contents/Helpers/Trick.app/Contents/MacOS/Granted', '-Wl,-no_adhoc_codesign');
   cc('Contents/Helpers/Trick.app/Contents/MacOS/Other', '-Wl,-no_adhoc_codesign');
   writeFileSync(resolve(app, 'Contents/Helpers/Trick.app/Contents/Info.plist'), plist('Other').replace('<dict>', '<dict><!-- <key>CFBundleExecutable</key><string>Granted</string> -->'));
-  const bad = Object.fromEntries(['Helpers/node/lib/addon.dylib', 'Helpers/node/bin/missing', 'Helpers/node/bin/link', 'Frameworks/node/bin/node', 'Helpers/Trick.app/Contents/MacOS/Granted'].map((path) => [path, [jit]]));
+  const bad = Object.fromEntries(['Helpers/node/lib/addon.dylib', 'Helpers/node/bin/missing', 'Helpers/node/bin/link', 'Frameworks/node/bin/node', 'Helpers/Trick.app/Contents/MacOS/Granted', 'app'].map((path) => [path, [jit]]));
   assert.throws(() => sign({ reach: { helperEntitlements: bad } }), (error) => {
     assert.deepEqual(error.message.split('\n').map((line) => line.replace(/^runtime grant: Contents\/\S+ /, '')), [
       'is not a Mach-O executable', 'is not a file in the bundle', 'is not a file in the bundle',
       'is not inside a host.macos.resources destination (Helpers/node, Helpers/Tool.app, Resources/stamp, Helpers/Trick.app)',
-      'is not code the release signs']);
+      'is not code the release signs',
+      'is not inside a host.macos.resources destination (Helpers/node, Helpers/Tool.app, Resources/stamp, Helpers/Trick.app)']);
     return true;
   });
   assert.deepEqual(keys('Contents/Helpers/node/bin/node'), [], 'a refusal signs nothing');
