@@ -51,27 +51,32 @@ async function askToken(): Promise<{ token: string | null; error: string }> {
   }
 }
 
-/** One `tamber/1` request: its reply, or the words to show. A token the
- * server no longer knows (it restarted) is asked for again, once, for a
- * read; a write is not sent on to whatever server now holds the port. */
-async function call(path: string, body: unknown, timeout = 15000, renew = true): Promise<{ error: string; reply: Reply }> {
+/** One `tamber/1` request: its reply (and the token it went with), or the
+ * words to show. A token the server no longer knows (it restarted: a bare
+ * not-found, which an operation's own refusal never is) is asked for again,
+ * once, for a read. A write goes with the token of the server run it
+ * belongs to (`bound`: the one its review, or its inverse, came from), and
+ * never with another, so it cannot reach whatever server holds the port
+ * since: that is a refusal, the server restarted. */
+async function call(path: string, body: unknown, timeout = 15000, bound?: string): Promise<{ error: string; reply: Reply; used: string }> {
   for (let attempt = 0; attempt < 2; attempt++) {
-    const got = await tokenOf();
-    if (!got.token) return { error: got.error, reply: {} };
+    const got = bound ? { token: bound, error: '' } : await tokenOf();
+    if (!got.token) return { error: got.error, reply: {}, used: '' };
     try {
       const res = await fetch(`${API}${path}`, { method: 'POST', exactTimeout: timeout, redirect: 'error', body: JSON.stringify(body),
         headers: { 'content-type': 'application/json', 'x-exact-tamber-token': got.token } });
-      if (res.status === 404 && attempt === 0 && !renew) { token = null; return { error: RESTARTED, reply: {} }; }
-      if (res.status === 404 && attempt === 0) { token = null; continue; }
       const reply = (await res.json().catch(() => ({}))) as Reply;
-      if (res.ok) return { error: '', reply };
-      return { error: refusal(reply.error, res.status), reply };
+      const unknown = res.status === 404 && !reply.error;
+      if (unknown && bound) { if (token === bound) token = null; return { error: RESTARTED, reply: {}, used: bound }; }
+      if (unknown && attempt === 0) { token = null; continue; }
+      if (res.ok) return { error: '', reply, used: got.token };
+      return { error: refusal(reply.error, res.status), reply, used: got.token };
     } catch (e) {
       if ((e as { code?: string }).code === 'bake') throw e;
-      return { error: NO_SERVER, reply: {} };
+      return { error: NO_SERVER, reply: {}, used: '' };
     }
   }
-  return { error: NO_SERVER, reply: {} };
+  return { error: NO_SERVER, reply: {}, used: '' };
 }
 
 const files = (digests: Record<string, string> = {}) => Object.entries(digests).map(([path, digest]) => ({ path, digest }));
@@ -380,26 +385,15 @@ const keyOf = (file: string, kind: string, target: string, when: string, value: 
 // another app's server on the port) has none of these inverses, and a redo
 // there would write this app's edit into that one, so a new epoch empties
 // them, and `session` counts those.
-type Entry = { inverse: string; ops: Record<string, unknown>[]; label: string };
+// Each with the token of the server run that issued its inverse.
+type Entry = { inverse: string; ops: Record<string, unknown>[]; label: string; token: string };
 const undoStack: Entry[] = [], redoStack: Entry[] = [];
 let session = 0;
-// The run of the server (its epoch) the stacks and reviews are of.
-let minted = '';
 /** The stacks emptied: another run of the server has none of their
- * inverses. */
-function forget(epoch: string) {
-  undoStack.length = 0; redoStack.length = 0; session += 1; minted = epoch;
-}
-/** Before a write: the server is the run this session's stacks are of (by
- * its hello's epoch), else they are emptied and the write refused; and the
- * files' digests now. */
-async function sameRun(): Promise<{ error: string; files: Record<string, string> }> {
-  const hello = await call('/__tamber', { method: 'hello' }, 15000, false);
-  if (hello.error) { if (hello.error === RESTARTED) forget(''); return { error: hello.error, files: {} }; }
-  const epoch = String(hello.reply.ok?.epoch ?? '');
-  if (minted && epoch !== minted) { forget(epoch); return { error: RESTARTED, files: {} }; }
-  minted = epoch;
-  return { error: '', files: hello.reply.ok?.files ?? {} };
+ * inverses. `session` counts these, and an operation that began before one
+ * changes neither stack when it ends. */
+function forget() {
+  undoStack.length = 0; redoStack.length = 0; session += 1;
 }
 const stacks = (ok: boolean, error: string, last: string, key = '') => ({ ok, error, undo: undoStack.length, redo: redoStack.length, last, key, session });
 /** Who moved a file a refused write or undo found moved: its client, or
@@ -502,40 +496,38 @@ const sources: Sources = {
     const idle = { ok: true, error: '', active: false, chip: '', diff: '', tokens: [], key, review: '' };
     if (!kind || !target) return idle;
     if (kind !== 'remove-token' && !value) return { ...idle, ok: false, error: 'Give it a value.' };
-    const { error, reply } = await call('/__tamber', { method: 'propose', ops: [opOf(file, kind, target, when, value)] });
+    const { error, reply, used } = await call('/__tamber', { method: 'propose', ops: [opOf(file, kind, target, when, value)] });
     if (error) return { ...idle, ok: false, error };
     const ok = reply.ok as { diff: string; class: string; files: Record<string, string>; changed: { token: string }[] };
     // What Apply writes: this edit, against the digests this proposal read,
-    // carried on the proposal itself, so what is shown is what is written.
-    return { ok: true, error: '', active: true, chip: ok.class === 'live' && liveTable ? 'live' : 'rebuild', diff: ok.diff, tokens: ok.changed.map(c => c.token), key, review: JSON.stringify({ key, files: ok.files, diff: ok.diff, epoch: place.epoch }) };
+    // to the server run that read them (its token), carried on the proposal
+    // itself, so what is shown is what is written, and where.
+    return { ok: true, error: '', active: true, chip: ok.class === 'live' && liveTable ? 'live' : 'rebuild', diff: ok.diff, tokens: ok.changed.map(c => c.token), key, review: JSON.stringify({ key, files: ok.files, diff: ok.diff, token: used }) };
   },
   writeEdit: async ([file, kind, target, when, value, client, review]) => {
-    const key = keyOf(file, kind, target, when, value);
-    let read: { key?: string; files?: Record<string, string>; diff?: string; epoch?: string } = {};
-    try { read = JSON.parse(review || '{}'); } catch { /* none */ }
-    if (read.key !== key || !read.files) return stacks(false, 'Review the change before applying it.', '');
-    const run = await sameRun();
-    if (run.error) return stacks(false, run.error, '');
-    if (read.epoch && read.epoch !== minted) return stacks(false, 'The design server restarted since this change was reviewed: review it again.', '');
-    const op = opOf(file, kind, target, when, value);
     const at = session;
+    const key = keyOf(file, kind, target, when, value);
+    let read: { key?: string; files?: Record<string, string>; diff?: string; token?: string } = {};
+    try { read = JSON.parse(review || '{}'); } catch { /* none */ }
+    if (read.key !== key || !read.files || !read.token) return stacks(false, 'Review the change before applying it.', '');
+    const op = opOf(file, kind, target, when, value);
     // Every file's digest as the proposal read it: the server checks the
     // ones the edit writes, whichever file the app's design is.
-    const { error, reply } = await call('/__tamber', { method: 'transaction', client, files: read.files, ops: [op] }, WRITE_WAIT, false);
+    const { error, reply } = await call('/__tamber', { method: 'transaction', client, files: read.files, ops: [op] }, WRITE_WAIT, read.token);
+    if (error === RESTARTED) forget();
     if (session !== at) return stacks(false, RESTARTED, '');
     if (error) return stacks(false, byWhom(reply) ? `Not written: ${byWhom(reply)} since you reviewed it.` : error, '');
     const inverse = (reply.ok as { inverse: string | null }).inverse;
     // A write that changed no byte has no inverse, and leaves redo be.
-    if (inverse) { undoStack.push({ inverse, ops: [op], label: label(kind, target, when, value) }); redoStack.length = 0; }
+    if (inverse) { undoStack.push({ inverse, ops: [op], label: label(kind, target, when, value), token: read.token }); redoStack.length = 0; }
     return stacks(true, '', kind.split('-')[0], key);
   },
   undoLast: async ([client]) => {
+    const at = session;
     const top = undoStack.at(-1);
     if (!top) return stacks(false, 'Nothing to undo.', '');
-    const run = await sameRun();
-    if (run.error) return stacks(false, run.error, '');
-    const at = session;
-    const { error, reply } = await call('/__tamber', { method: 'undo', client, inverse: top.inverse }, WRITE_WAIT, false);
+    const { error, reply } = await call('/__tamber', { method: 'undo', client, inverse: top.inverse }, WRITE_WAIT, top.token);
+    if (error === RESTARTED) forget();
     if (session !== at) return stacks(false, RESTARTED, '');
     if (error) {
       // Refused for a conflict, it can't apply while the file stays as it
@@ -556,14 +548,17 @@ const sources: Sources = {
     return stacks(true, '', 'undo');
   },
   redoLast: async ([client]) => {
+    const at = session;
     const top = redoStack.at(-1);
     if (!top) return stacks(false, 'Nothing to redo.', '');
     // The original transaction again, against the files as they are now,
-    // on the run of the server it was undone on.
-    const run = await sameRun();
-    if (run.error) return stacks(false, run.error, '');
-    const at = session;
-    const { error, reply } = await call('/__tamber', { method: 'transaction', client, files: run.files, ops: top.ops }, WRITE_WAIT, false);
+    // on the run of the server it was undone on (its token).
+    const hello = await call('/__tamber', { method: 'hello' }, 15000, top.token);
+    if (hello.error === RESTARTED) forget();
+    if (session !== at) return stacks(false, RESTARTED, '');
+    if (hello.error) return stacks(false, hello.error, '');
+    const { error, reply } = await call('/__tamber', { method: 'transaction', client, files: hello.reply.ok?.files ?? {}, ops: top.ops }, WRITE_WAIT, top.token);
+    if (error === RESTARTED) forget();
     if (session !== at) return stacks(false, RESTARTED, '');
     if (error) {
       if (!conflict(reply)) return stacks(false, `Can't redo ${top.label}: ${error}`, '');
@@ -589,7 +584,7 @@ const sources: Sources = {
   waitChanges: async ([since, epoch]) => {
     // Up to 25 s with nothing new, and the server answers once there is.
     // The first asks, at once, from the start of what the server keeps.
-    const { error, reply } = await call('/__tamber/events', epoch ? { after: since, epoch } : { after: 0, wait: false }, 40000);
+    const { error, reply, used } = await call('/__tamber/events', epoch ? { after: since, epoch } : { after: 0, wait: false }, 40000);
     answers += 1;
     const state = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, recent, undo: undoStack.length, redo: redoStack.length, session });
     if (error) return { ok: false, error, missed: false, ...state() };
@@ -598,7 +593,7 @@ const sources: Sources = {
     // missed than it keeps: its sequence numbers start again, or the list
     // has a gap, so the list starts again. Another run has none of this
     // session's inverses: undo and redo start again too.
-    if (place.epoch && r.epoch !== place.epoch) forget(String(r.epoch ?? ''));
+    if (place.epoch && r.epoch !== place.epoch) forget();
     if ((place.epoch && r.epoch !== place.epoch) || r.missed) recent = [];
     const fresh = (r.events ?? []).map(change).filter((c): c is Change => c !== null).reverse();
     recent = [...fresh, ...recent].slice(0, 50);

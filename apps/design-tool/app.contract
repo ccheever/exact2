@@ -195,9 +195,13 @@ component DesignTool
   // One slot for a write, an undo or a redo: its reply holds the stacks.
   mutation written as shape Written refreshes design then afterWrite
   // The stacks as the last write left them, unless a new run of the
-  // server has emptied them since.
-  derive stack = match written { case some(w) => (w.session == changes.session ? w : Written(ok=true, error="", undo=changes.undo, redo=changes.redo, last="", key="", session=changes.session)), case none => Written(ok=true, error="", undo=changes.undo, redo=changes.redo, last="", key="", session=changes.session) }
+  // server has emptied them since (a write that found the restart itself is
+  // newer than the poll, and says so).
+  derive stack = match written { case some(w) => (w.session >= changes.session ? w : Written(ok=true, error="", undo=changes.undo, redo=changes.redo, last="", key="", session=changes.session)), case none => Written(ok=true, error="", undo=changes.undo, redo=changes.redo, last="", key="", session=changes.session) }
   derive draftKey = `${file}␟${editKind}␟${editTarget}␟${editWhen}␟${editValue}`
+  // A cell's edit whose branch the grid no longer shows (another client
+  // changed it): not applied, lest it make a `when` no one asked for.
+  derive draftStale = editKind == "set-token" and not scopeOwn and (branch.token != editTarget or branch.when != editWhen)
 
   // Each answer asks again: at once after one, after 3 s after a failure.
   task follow when not pending(changes) and changes.ok key=changes.answer
@@ -294,7 +298,7 @@ component DesignTool
     scopeOwn = false
   action apply
     // Only the proposal shown, for the edit drafted, is written.
-    if proposal.ok and proposal.active and not pending(proposal) and proposal.key == draftKey and not pending(written)
+    if proposal.ok and proposal.active and not pending(proposal) and proposal.key == draftKey and not draftStale and not pending(written)
       send written = writeEdit(file, editKind, editTarget, editWhen, editValue, client, proposal.review)
   action afterWrite
     // The draft written is done with; one drafted since stays.
@@ -377,7 +381,7 @@ component DesignTool
                 button press=reloadDesign buttonStyle="bordered" testId="reload-design"
                   text "Try Again"
             // The design read, and nothing of it before or after a refusal.
-            if design.ok and design.answer != 0
+            if design.ok and design.answer != 0 and design.file == file
               column gap=12 testId="dials"
                 text "Dials" role="heading" aria-level=2
                 if design.groups.length == 0
@@ -463,6 +467,8 @@ component DesignTool
                     text "Add"
               if editKind != ""
                 column gap=8 padding=12 border-radius=10 background-color="-exact-secondary-background" testId="proposal"
+                  if draftStale
+                    text "The branch this edit was for has changed: choose the cell and type it again." color="-exact-system-orange" testId="draft-stale"
                   if not proposal.ok
                     text proposal.error color="-exact-system-red" white-space="pre-wrap" testId="proposal-error"
                   else if proposal.active
@@ -471,7 +477,7 @@ component DesignTool
                       text proposal.tokens.join(", ") color="-exact-secondary-label" font="-exact-footnote" flex=1 testId="proposal-tokens"
                     text proposal.diff font="-exact-caption1" font-family="ui-monospace, monospace" white-space="pre" testId="proposal-diff"
                   row gap=8
-                    button press=apply disabled=(not proposal.ok or not proposal.active or pending(proposal) or proposal.key != draftKey or pending(written)) buttonStyle="filled" testId="apply"
+                    button press=apply disabled=(not proposal.ok or not proposal.active or pending(proposal) or proposal.key != draftKey or draftStale or pending(written)) buttonStyle="filled" testId="apply"
                       text "Apply"
                     button press=cancelEdit testId="cancel-edit"
                       text "Cancel"

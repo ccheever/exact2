@@ -11,7 +11,8 @@ import { API } from '../app.ts';
 import DIALS from './dials.json';
 
 const DB = process.env.DB ?? '.exact/tamber-stub.json';
-const TOKEN = 'stub-token';
+// A run's token: a restart issues another, as the server does.
+let TOKEN = 'stub-token';
 let EPOCH = 'stub-epoch', restarts = 0, writes = 0;
 let FILES: Record<string, string> = { 'app.tamber': 'a'.repeat(64), 'brand.tamber': 'b'.repeat(64) };
 type Event = Record<string, unknown> & { seq: number };
@@ -69,6 +70,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
     POST: (req) => {
       if (!driver(req)) return send({ message: 'Not found.' }, 404);
       EPOCH = `stub-epoch-${++restarts}`;
+      TOKEN = `stub-token-${restarts}`;
       log.length = 0;
       save();
       return send({ ok: true });
