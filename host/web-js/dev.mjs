@@ -21,7 +21,7 @@ import { appManifestDigest, buildFileCards, buildTreeFile, replaceBuild, saveTra
 import { localInstaller } from '../web/local-install.mjs';
 import { designPath, tamberServer } from '../../scripts/tamber-server.mjs';
 import { serveCommands, serveReport } from '../../scripts/tamber-builds.mjs';
-import { webCompiler } from './module.mjs';
+import { fresh, webCompiler } from './module.mjs';
 
 const CHECKPOINT_BYTES = 16 * 1024 * 1024, CHECKPOINTS = 8;
 
@@ -125,13 +125,30 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   const buildTool = () => {
     tool.ready = false;
     tool.child?.kill();
-    const child = tool.child = spawn('cargo', ['build', '-q', '--profile', 'host-dev', '-p', 'exact-web-js'], { cwd: root, stdio: 'ignore' });
-    child.on('exit', (code) => { if (tool.child === child) { tool.child = null; tool.ready = code === 0 && existsSync(tool.path); } });
+    const child = tool.child = spawn('cargo', ['build', '-q', '--profile', 'host-dev', '-p', 'exact-web-js'], { cwd: root, stdio: ['ignore', 'ignore', 'pipe'] });
+    let err = '';
+    child.stderr.on('data', (d) => { err = (err + d).slice(-2000); });
+    child.on('error', () => { if (tool.child === child) tool.child = null; });
+    child.on('exit', (code, signal) => {
+      if (tool.child !== child) return;
+      tool.child = null;
+      tool.ready = code === 0 && existsSync(tool.path);
+      if (!tool.ready && !signal) console.log(`the design reader did not build (design edits take the full build):\n${err.trim().split('\n').slice(-4).join('\n')}`);
+    });
+  };
+  // Ready, and built from the compiler's sources as they are (a compiler
+  // edit the loop does not watch, under contract/ or kernel/, rebuilds it).
+  const toolFresh = () => {
+    if (!tool.ready) return false;
+    if (fresh(tool.path, `${tool.path}.d`)) return true;
+    buildTool();
+    return false;
   };
   buildTool();
   const designOf = (text) => new Promise((done) => {
     const compiler = tool.ready ? { cmd: tool.path, pre: [] } : webCompiler();
     const child = spawn(compiler.cmd, [...compiler.pre, 'design', resolve(app.dir, 'app.contract'), '-'], { cwd: root, stdio: ['pipe', 'pipe', 'pipe'] });
+    child.on('error', (e) => done({ error: e.message }));
     child.stdin.on('error', () => {});
     child.stdin.end(text);
     let out = '', err = '';
@@ -141,7 +158,9 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
       try { done(code === 0 ? JSON.parse(out) : { error: err.trim().split('\n').slice(-6).join('\n') || `the compiler exited ${code}` }); } catch (e) { done({ error: e.message }); }
     });
   });
-  const sameShape = (from, next) => from && next && from.shape === next.shape && from.tokens.length === next.tokens.length
+  // The design's shape and the plan's structure (a profile colour's value
+  // is in it) as a kept build requires, and each token's accent.
+  const sameShape = (from, next) => from && next && from.shape === next.shape && from.structure === next.structure && from.tokens.length === next.tokens.length
     && next.tokens.every((t, i) => t.name === from.tokens[i].name && String(t.accent) === String(from.tokens[i].accent));
   let designing = false;
   // The files edited since the last build, by path: only design files may
@@ -151,7 +170,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   const pending = new Map(); // seq -> the save it answers
   const rebuild = async () => {
     if (building || designing) { again = true; return; }
-    const at = saved, t = since = Date.now();
+    const at = saved, t = Date.now();
     // A path that existed during the save and is gone by now (an editor's
     // or sed's temporary file) edited nothing; one already gone when its
     // event came (a deleted asset) is an edit.
@@ -163,12 +182,14 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     // A value-only design edit (LLP 1121 stage 4): its design from the
     // compiler, no build, sent as a batch; the page in dist stays, as a kept
     // build's does. One that moves the design's shape (or fails) builds.
-    if (designOnly && design && tool.ready) {
+    // Only the app's own design: another .tamber may be any build's input.
+    const file = designPath(app.dir);
+    if (designOnly && design && designs.every((path) => path === file) && toolFresh()) {
       designing = true;
-      const file = designPath(app.dir);
-      const next = file && existsSync(file) ? await designOf(readFileSync(file, 'utf8')) : { error: 'no design' };
-      designing = false;
+      let next;
+      try { next = existsSync(file) ? await designOf(readFileSync(file, 'utf8')) : { error: 'no design' }; } catch (e) { next = { error: e.message }; } finally { designing = false; }
       if (!next.error && sameShape(design, next)) {
+        error = null;
         const from = scrubbed ?? design;
         design = next;
         const committed = { kind: 'tamber-snapshot', structure: design.shape, base: null, design: design.digest, tokens: design.tokens };
@@ -187,6 +208,8 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     }
     // Anything else may move the compiler: the design tool is built again.
     if (!designOnly) buildTool();
+    // What a full build reads from disk is what changed since it began.
+    since = t;
     const keep = (next, logic) => designOnly && design && next && logic === logicRevision
       && next.structure === design.structure && next.tokens.length === design.tokens.length
       && next.tokens.every((t, i) => t.name === design.tokens[i].name && String(t.accent) === String(design.tokens[i].accent));
@@ -492,7 +515,7 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
     }, (e) => { if (gone) return; res.writeHead(503, { 'content-type': 'text/plain', 'cache-control': 'no-store' }); res.end(`${e.message}\n`); });
   };
   const stop = async () => {
-    for (const w of watchers) w.close(); building?.kill('SIGKILL'); residentChild?.kill('SIGTERM'); server.close();
+    for (const w of watchers) w.close(); building?.kill('SIGKILL'); tool.child?.kill('SIGTERM'); residentChild?.kill('SIGTERM'); server.close();
     // The design server lets go of its lock before this exits.
     await tamber?.close();
     // A local iOS build in flight is stopped and waited for, as the resident loop does.
