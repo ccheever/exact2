@@ -1,3 +1,5 @@
+import { ReleaseTracker, type ReleaseSnapshot } from './release.ts';
+export type { ReleaseSnapshot } from './release.ts';
 // @ref LLP 1086 D12 — server-only operations: no device, partition, or wasm import.
 export interface Refusal { code: string; message: string; family?: string; retryable?: boolean }
 export interface Op<A = Record<string, unknown>, R = unknown> {
@@ -73,6 +75,21 @@ const nameOf = (op: string | Op<unknown, unknown>): string => typeof op === 'str
  * Never retry it automatically: the server may already have committed it. */
 export class Snapback {
   constructor(private readonly options: Options) {}
+  private releases = new ReleaseTracker();
+  /** Observed generation changes, from release() or ordinary traffic; unsubscribe on teardown. */
+  subscribeGeneration(listener: (generation: number) => void): () => void { return this.releases.subscribe(listener); }
+  /** Authenticated served catalog. Offline/malformed/stale catalogs keep every available() gate closed. */
+  async release(): Promise<ReleaseSnapshot> {
+    const check = this.fence(), headers = this.headers(), key = this.releases.identity(headers);
+    let response: Response;
+    try { response = await fetch(this.options.origin.replace(/\/+$/, '') + '/', {headers}); }
+    catch { check(); return {loading: true}; }
+    const value = await response.json().catch(() => null);
+    check();
+    this.releases.observe(response, key);
+    return this.releases.decode(response.ok || value?.denied ? value : null, key);
+  }
+
   private headers(): Record<string, string> {
     const headers: Record<string, string> = {};
     for (const [key, value] of Object.entries(this.options.headers?.() ?? {})) if (value !== undefined) headers[key] = value;
@@ -196,11 +213,13 @@ export class Snapback {
   private async exchange(path: string, args: unknown): Promise<Record<string, unknown>> {
     const check = this.fence(), token = this.session?.token;
     const headers = { ...this.headers(), 'content-type': 'application/json' };
+    const releaseKey = this.releases.identity(this.headers());
     let response: Response;
     try { response = await fetch(this.options.origin.replace(/\/+$/, '') + path, { method: 'POST', headers, body: JSON.stringify({ args }) }); }
     catch (error) { const why = unreached(error); throw refused({...why, message: `${why.message}. A write may already have committed; read its state before retrying.`}); }
     const body = await response.json().catch(() => null) as Record<string, unknown> | null;
     check();
+    this.releases.observe(response, releaseKey);
     if ((body?.denied as Refusal | undefined)?.code === 'E_AUTH' || (body?.why as Refusal | undefined)?.code === 'E_AUTH') await this.rejectSession(token, check);
     if (!body || typeof body !== 'object' || Array.isArray(body)) throw refused({ code: 'E_SERVER', message: `Invalid reply (HTTP ${response.status}); read state before retrying a write.` });
     if (!response.ok && !body.denied && !(body.state === 'failed' && body.why)) throw refused({ code: 'E_SERVER', message: `HTTP ${response.status}; read state before retrying a write.` });

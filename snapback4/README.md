@@ -888,6 +888,48 @@ in `app.ts`: install the package, not types by hand). Rows still map onto
 the Contract shape field by field: the generated row has fields (`at`,
 `pending`) the shape may not.
 
+### One view across a rollback
+
+Both adapters expose `release(): Promise<ReleaseSnapshot>` and
+`subscribeGeneration(generation => …)` (returns an unsubscribe function).
+`release()` uses authenticated `GET /` with the same credentials as data traffic.
+A subscription reports generations observed by requests; it starts no timer.
+Keep a Contract refresh running even when every operation gate is closed:
+
+```ts
+// Inside a source, using the same db as reads and writes:
+const release = await db.release();
+return {canPost: api.post.available(release)};
+```
+
+```contract
+shape Features
+  canPost: bool
+component App
+  state draft = ""
+  resource features = features() as shape Features else empty()
+  task catalog mount
+    every(1000, refreshFeatures)
+  action refreshFeatures
+    refresh features
+  action edit(value: string)
+    draft = value
+  view
+    column
+      input value=draft input=edit testId="draft"
+      when features.canPost
+        text "Posting available" testId="available"
+      else
+        text "Posting unavailable in this release" testId="unavailable"
+```
+
+Use that same gate on the posting control. Keep draft/selection state above the
+gate: rolling back removes the control without remounting the view or losing the
+draft. A rollback has a new generation; an older in-flight catalog cannot reopen
+its gate. Loading/offline catalogs close it. Availability can race a deployment,
+so still handle `E_OP`/`E_INPUT` from the write. Subscriptions can trigger an
+embedding's refresh; Contract apps normally use the task above.
+
 ### Open, sync, read, write
 
 ```ts

@@ -1,3 +1,5 @@
+import { ReleaseTracker, type ReleaseSnapshot } from './release.ts';
+export type { ReleaseSnapshot } from './release.ts';
 // Snapback4 for an Exact app's TypeScript: the client in Rust
 // (`exact-snapback4-client`), driven here over `fetch`. Natively it is the
 // app's native module (`exact_snapback4::Module` behind `native.call`); on
@@ -320,6 +322,21 @@ async function retirePartition(partition: Partition): Promise<void> {
 
 export class Snapback {
   private closed = false;
+  private releases = new ReleaseTracker();
+  /** Observed generation changes, from release() or ordinary traffic; unsubscribe on teardown. */
+  subscribeGeneration(listener: (generation: number) => void): () => void { return this.releases.subscribe(listener); }
+  /** Authenticated served catalog. Offline/malformed/stale catalogs keep every available() gate closed. */
+  async release(): Promise<ReleaseSnapshot> {
+    const check = this.fence(), headers = this.headers(), key = this.releases.identity(headers);
+    let response: Response;
+    try { response = await fetch(this.options.origin.replace(/\/+$/, '') + '/', {headers}); }
+    catch { check(); return {loading: true}; }
+    const value = await response.json().catch(() => null);
+    check();
+    this.releases.observe(response, key);
+    return this.releases.decode(response.ok || value?.denied ? value : null, key);
+  }
+
   private constructor(private held: Partition | undefined, readonly options: Options, private baseName = options.name) {}
   private get partition(): Partition {
     if (this.closed) throw new Error('Snapback4: this client is closed');
@@ -504,7 +521,7 @@ export class Snapback {
         if (partition?.origin === this.options.origin && partition.viewer === principal && !partition.cleaned)
           await retirePartition(partition);
       }
-      await this.release(true); this.closed = false; this.held = undefined;
+      await this.releaseHandle(true); this.closed = false; this.held = undefined;
       this.options.name = this.baseName;
       this.options.viewer = undefined;
     }
@@ -831,9 +848,9 @@ export class Snapback {
   /** Close this client. It refuses every call from now on and says it is not
    * open. The partition closes with the last client that has it open;
    * closing that one again retries a cleanup that failed. */
-  async close(): Promise<void> { await this.release(false); }
+  async close(): Promise<void> { await this.releaseHandle(false); }
 
-  private async release(force: boolean): Promise<void> {
+  private async releaseHandle(force: boolean): Promise<void> {
     const partition = this.held;
     if (!partition) { this.closed = true; return; }
     if (!this.closed) {
@@ -918,6 +935,7 @@ export class Snapback {
   private async exchange(fetchRequest: Request): Promise<Request> {
     const { method, path, body } = fetchRequest as { method: string; path: string; body?: Json };
     const headers = this.headers();
+    const releaseKey = this.releases.identity(headers);
     for (const key of Object.keys(headers)) if (key.toLowerCase() === 'x-snapback-device') delete headers[key];
     Object.assign(headers, fetchRequest.headers ?? {});
     if (body !== undefined) headers['content-type'] = 'application/json';
@@ -928,6 +946,7 @@ export class Snapback {
     }
     try {
       const response = await fetch(`${this.options.origin.replace(/\/+$/, '')}${path}`, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+      this.releases.observe(response, releaseKey);
       const text = await response.text();
       let parsed: Json = null;
       try { parsed = JSON.parse(text) as Json; } catch { parsed = null; }
