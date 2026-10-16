@@ -742,7 +742,6 @@ const LINUX_APART = {
   messages: ['tap conversation-maya', 'its data sources write drafts and reads to storage on the Linux host, where the page refuses storage in agent mode without --storage (QUEUE)'],
   // Pointer phases and drags reach Linux since LLP 1094 D12; where its delivery
   // still differs from the page's, the comparison stops there (QUEUE, batch 6).
-  'synthetic-reorder': ['drag grip-5 0 -300 500', "a drag past the list's top autoscrolls on the page and not on the Linux host, so the row lands elsewhere"],
   'interaction-gallery': ['drag sheet-handle 0 -150 300', "a height drag ends 3 px apart (518 on the page, 521 on the Linux host)"],
   'synthetic-native-buttons': ['tap open-dialog', 'the Linux host does not present dialogs (LLP 1001, LLP 1021 D2): it refuses a `commandfor` press, so the opener keeps the focus'],
   textflow: ['tap scene-orbs', "the orbs' positions are its data crate's sines and collisions, which the page runs as wasm (Rust's libm) and the Linux host natively (the system's libm), so their last digits differ"],

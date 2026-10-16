@@ -13,8 +13,7 @@ use exact_kernel::NodeKey;
 use exact_motion::spring::SpringConfig;
 use exact_runner::{ReorderBinding, ReorderEnding, ReorderPhase, ReorderStep, ReorderToken};
 
-/// The edge band an autoscroll starts in, and its top speed (points, per
-/// second): the in-list Arrange's.
+/// The grouped drag's edge band (points) and top speed (points per second).
 const BAND: f32 = 24.;
 const SPEED: f32 = 300.;
 /// The lifted look, the same on every host (D6).

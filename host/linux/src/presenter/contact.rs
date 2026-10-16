@@ -239,6 +239,30 @@ impl<D: DataSource> Presenter<D> {
             contact.event_ms += ms;
         }
     }
+    /// A held Arrange's preview again where the contact is, after an edge
+    /// scroll moved the list under it (the page's `sampleMove` after its
+    /// scroll): no pointer event, and no second edge step.
+    pub(super) fn resample_arrange(&mut self, now_ms: f64) -> Result<bool, String> {
+        let Some(mut contact) = self.contact.take() else {
+            return Ok(false);
+        };
+        let Some(held) = contact
+            .hold
+            .as_mut()
+            .filter(|h| matches!(h.kind, HeldKind::Arrange(_)))
+        else {
+            self.contact = Some(contact);
+            return Ok(false);
+        };
+        let dy = contact.position.1 as f64 - contact.origin.1 as f64;
+        let result = self.sample_arrange(held, dy, contact.position, now_ms);
+        if self.contact_live(&contact) {
+            self.contact = Some(contact);
+        } else {
+            let _ = self.end_contact(contact.hold.as_ref().unwrap(), HoldEnd::Cancel, now_ms);
+        }
+        result
+    }
 
     /// Every candidate of a contact on `hit`: innermost first, then reorder >
     /// transform > height > pan > swipe on one node (LLP 1057.001 §1).
@@ -757,9 +781,13 @@ impl<D: DataSource> Presenter<D> {
         }
         let held = contact.hold.as_mut().unwrap();
         let result = match held.kind {
-            HeldKind::Arrange(_) => {
-                self.move_arrange(held, y as f64 - contact.origin.1 as f64, (x, y), now_ms)
-            }
+            HeldKind::Arrange(_) => self.move_arrange(
+                held,
+                y as f64 - contact.origin.1 as f64,
+                (x, y),
+                now_ms,
+                event_ms,
+            ),
             HeldKind::Transform { .. } => self.move_transform_drag(
                 held,
                 Value {

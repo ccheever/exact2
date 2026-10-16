@@ -24,7 +24,7 @@ pub(super) struct State {
     phase: Phase,
     // Last actual pointer point, not an app resource or a destination pin.
     point: (f32, f32),
-    edge_clock: f64,
+    edge_clock: Option<f64>,
 }
 impl<D: DataSource> Presenter<D> {
     pub(super) fn arrange_candidate(&self, hit: NodeKey) -> Option<Candidate> {
@@ -158,7 +158,7 @@ impl<D: DataSource> Presenter<D> {
             scroll: self.scroll_of(list).1,
             phase: Phase::Active,
             point: (0., 0.),
-            edge_clock: now,
+            edge_clock: None,
         });
         self.brush.lift.arrange = Some((binding.list, binding.wrapper));
         let mut velocity = VelocityTracker::new();
@@ -179,6 +179,31 @@ impl<D: DataSource> Presenter<D> {
         }))
     }
     pub(super) fn move_arrange(
+        &mut self,
+        held: &mut Hold,
+        dy: f64,
+        point: (f32, f32),
+        now: f64,
+        event_ms: f64,
+    ) -> Result<bool, String> {
+        let accepted = self.sample_arrange(held, dy, point, now)?;
+        // The page's edge scroll runs on animation frames. A live move's frames
+        // are `tick`'s; an agent drag's moves carry their own times while the
+        // runner's clock stands and no frame runs, so each stands for the
+        // frames the page runs between two of the driver's events.
+        if event_ms > now && self.step_arrange(event_ms) {
+            return self.sample_arrange(held, dy, point, now);
+        }
+        // Out of the band, the edge's clock stops, as the page's pump does at
+        // its next frame: coming back starts it again.
+        if self.arrange_edge().is_none() {
+            if let Some(s) = self.arrange.as_mut() {
+                s.edge_clock = None;
+            }
+        }
+        Ok(accepted)
+    }
+    pub(super) fn sample_arrange(
         &mut self,
         held: &mut Hold,
         dy: f64,
@@ -225,28 +250,9 @@ impl<D: DataSource> Presenter<D> {
         held.velocity.push(now / 1000., visual);
         let s = self.arrange.as_mut().unwrap();
         s.point = point;
-        s.edge_clock = now;
         let port = s.mapping.port;
-        let clip = s.mapping.clip;
         let g = self.host.runner().reorder_geometry(b.list).unwrap();
-        let height = self
-            .host
-            .kernel()
-            .node_by_key(b.wrapper)
-            .unwrap()
-            .frame
-            .height as f64;
-        // An offport final point must invalidate the old certification even when
-        // the source's center happens to remain visible after a distant catch.
-        let inside = point.0 >= clip.0
-            && point.0 <= clip.0 + clip.2
-            && point.1 >= clip.1
-            && point.1 <= clip.1 + clip.3;
-        let y = if inside {
-            visual.y + height / 2. - port.1 as f64 + g.scroll_top
-        } else {
-            g.scroll_top + g.port_height + 1.
-        };
+        let y = point.1 as f64 - port.1 as f64 + g.scroll_top;
         let accepted = self.host.arrange_preview(token, g, y)?;
         self.dirty = true;
         Ok(accepted)
@@ -305,6 +311,7 @@ impl<D: DataSource> Presenter<D> {
             return Err("invalid Arrange capture".into());
         }
         self.arrange.as_mut().unwrap().phase = Phase::Committing;
+        self.arrange.as_mut().unwrap().edge_clock = None;
         let mut error = None;
         let accepted = if drop && live {
             let g = self.host.runner().reorder_geometry(token.list()).unwrap();
@@ -394,54 +401,86 @@ impl<D: DataSource> Presenter<D> {
             || self.arrange_edge().is_some()
             || self.group_needs_frame()
     }
-    pub(super) fn arrange_edge(&self) -> Option<(ViewId, f32)> {
+    pub(super) fn arrange_edge(&self) -> Option<(ViewId, f64, f64)> {
         let s = self.arrange.as_ref()?;
         if !self.arrange_live(s.token) {
             return None;
         }
         let id = self.host.kernel().node_by_key(s.binding.list)?.id;
-        let c = s.mapping.clip;
-        let y = s.point.1;
-        if s.point.0 < c.0 || s.point.0 > c.0 + c.2 || y < c.1 - 24. || y > c.1 + c.3 + 24. {
-            return None;
-        }
-        let speed = if y < c.1 + 24. {
-            -300. * ((c.1 + 24. - y) / 24.).min(1.)
-        } else if y > c.1 + c.3 - 24. {
-            300. * ((y - (c.1 + c.3 - 24.)) / 24.).min(1.)
+        let g = self.host.runner().reorder_geometry(s.binding.list)?;
+        let offset = s.point.1 as f64 - s.mapping.port.1 as f64;
+        let direction = if offset < 32. {
+            -1.
+        } else if offset > g.port_height - 32. {
+            1.
         } else {
-            0.
+            return None;
         };
+        // The page's room, within what this scrollport can actually scroll to:
+        // a step that would land where it is (a remainder `f32` cannot add)
+        // is no room.
         let top = self.scroll_of(id).1;
         let max = *self.collection_scroll_limits().get(&id)?;
-        ((speed < 0. && top > 0.) || (speed > 0. && top < max)).then_some((id, speed))
+        let available = if direction < 0. {
+            g.scroll_top.min(top as f64)
+        } else {
+            (g.total_extent - g.port_height - g.scroll_top).min((max - top) as f64)
+        };
+        let reaches = ((top as f64 + direction * available) as f32).clamp(0., max) != top;
+        (available > 0. && reaches).then_some((id, direction, available))
     }
     pub(super) fn tick_arrange(&mut self, now: f64) {
         self.retire_pointer();
         self.arrange_settled();
         self.tick_group(now);
-        let Some((id, speed)) = self.arrange_edge() else {
+        if !self.step_arrange(now) {
             return;
+        }
+        if let Err(e) = self.resample_arrange(now) {
+            self.host.log(e);
+        }
+    }
+    fn step_arrange(&mut self, at: f64) -> bool {
+        let Some((id, direction, available)) = self.arrange_edge() else {
+            if let Some(s) = self.arrange.as_mut() {
+                s.edge_clock = None;
+            }
+            return false;
         };
-        let s = self.arrange.as_ref().unwrap();
+        if !at.is_finite() {
+            return false;
+        }
+        let s = self.arrange.as_mut().unwrap();
         let owner = s.token;
-        let dt = ((now - s.edge_clock) / 1000.).clamp(0., 0.05) as f32;
+        // Frames run on the runner's clock, which an agent drag's event clock
+        // runs ahead of: a time at or before the last step counts nothing.
+        let dt = match s.edge_clock {
+            Some(last) if at <= last => return false,
+            Some(last) => (at - last).min(32.),
+            None => 0.,
+        };
+        s.edge_clock = Some(at);
+        if dt == 0. {
+            return false;
+        }
         let max = self.collection_scroll_limits()[&id];
         let old = self.scroll_of(id).1;
-        let next = (old + speed * dt).clamp(0., max);
-        self.arrange.as_mut().unwrap().edge_clock = now;
+        let next = (old as f64 + direction * available.min(720. * dt / 1000.)) as f32;
+        let next = next.clamp(0., max);
         if next == old {
-            return;
+            self.arrange.as_mut().unwrap().edge_clock = None;
+            return false;
         }
         self.scroll.entry(id).or_default().1 = next;
         self.scroll_end_moved(id, Completion::Edge(owner));
         self.publish_scroll();
         self.collection_scrolled_by_arrange(id);
-        if let Some(point) = self.contact_position() {
-            if let Err(e) = self.pointer_move(point.0, point.1, now) {
-                self.host.log(e);
+        if self.arrange_edge().is_none() {
+            if let Some(s) = self.arrange.as_mut() {
+                s.edge_clock = None;
             }
         }
+        true
     }
 
     pub(super) fn scroll_edge_owned(&self, token: ReorderToken) -> bool {
