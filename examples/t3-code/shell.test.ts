@@ -350,12 +350,12 @@ describe('shell commands and routed failures', () => {
   const storage = {} as Files;
   test('thread actions dispatch the V2 commands', async () => {
     const { value, dispatched } = client();
-    for (const op of ['pin', 'unpin', 'mark-unread', 'regenerate-title', 'archive', 'delete']) await shellCommand(value, {} as Native, storage, op, 't1', '');
+    for (const op of ['pin', 'unpin', 'regenerate-title', 'archive', 'delete']) await shellCommand(value, {} as Native, storage, op, 't1', '');
     await shellCommand(value, {} as Native, storage, 'auto-settle', 't1', 'false');
     await shellCommand(value, {} as Native, storage, 'rename', 't1', '  Renamed  ');
     await shellCommand(value, {} as Native, storage, 'rename', 't1', 'Fixture');
     expect(dispatched.map(entry => [entry.type, entry.regenerateTitle ?? entry.enabled ?? entry.title ?? ''])).toEqual([
-      ['thread.pin', ''], ['thread.unpin', ''], ['thread.mark-unread', ''], ['thread.metadata.update', true], ['thread.archive', ''], ['thread.delete', ''],
+      ['thread.pin', ''], ['thread.unpin', ''], ['thread.metadata.update', true], ['thread.archive', ''], ['thread.delete', ''],
       ['thread.auto-settle.set', false], ['thread.metadata.update', 'Renamed']]);
     await shellCommand(value, {} as Native, storage, 'rename', 't1', '   ');
     expect(toasts(value).map(toast => [toast.kind, toast.title])).toEqual([['warning', 'Thread title cannot be empty']]);

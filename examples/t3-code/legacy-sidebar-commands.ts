@@ -19,7 +19,7 @@ import { emptyDialog, expansionKeys, legacyGroups, legacySession, previewCount, 
 import { openBranchDraft, openRowPullRequest, rowThread } from './legacy-sidebar-links';
 import { startRename } from './sidebar-rename-wait';
 import { openRowPort } from './legacy-sidebar-ports';
-import { archiveBackground, backgroundProjectThreads, backgroundRef, backgroundThreadPath, forgetBackgroundDrafts, isBackground, markUnreadBackground,
+import { archiveBackground, backgroundProjectThreads, backgroundRef, backgroundThreadPath, forgetBackgroundDrafts, isBackground,
   openBackgroundDraft, renameBackground, writeBackgroundProject } from './legacy-sidebar-fleet';
 import { letGo } from './let-go';
 
@@ -160,7 +160,7 @@ async function threadMenu(client: T3Client, native: Native, storage: Files, id: 
     const ids = selection.selection.filter(key => !!threadOf(client, key)), threads = ids.map(key => threadOf(client, key)!);
     const choice = await showMenu(client, native, buildMultiSelectThreadContextMenuItems({ count: selection.selection.length, hasRunningThread: threads.some(thread => !canArchive(thread)) }));
     if (choice === 'mark-unread') {
-      for (const threadId of ids) await markUnreadRow(client, native, threadId);
+      for (const threadId of ids) await markUnread(client, native, threadId);
       selection.selection = [];
     } else if (choice === 'archive') {
       if (settings?.confirmThreadArchive) { legacySession(client).dialog = { ...emptyDialog(), kind: 'archive-many', ids }; return ''; }
@@ -186,7 +186,7 @@ async function threadMenu(client: T3Client, native: Native, storage: Files, id: 
       return 'sidebar:new-thread';
     }
     case 'rename': selection.renameId = id; selection.renameTitle = str(thread.title); return '';
-    case 'mark-unread': await markUnreadRow(client, native, id); return '';
+    case 'mark-unread': await markUnread(client, native, id); return '';
     case 'copy-path': {
       const path = background ? backgroundThreadPath(client, id) : str(thread.worktreePath) || str(client.shell.projects.find(project => project.id === thread.projectId)?.workspaceRoot);
       if (!path) { pushToast(client, { kind: 'error', title: 'Path unavailable', description: 'This thread does not have a workspace path to copy.', stacked: true }); return ''; }
@@ -259,13 +259,8 @@ async function newThread(client: T3Client, native: Native, key: string): Promise
   return 'sidebar:new-thread';
 }
 
-/** Archive, mark unread and settings on any row: the focused environment's through sidebar-commands, a background one's through its own transport. */
+/** Archive on any row: the focused environment's through sidebar-commands, a background one's through its own transport. */
 const archiveRow = (client: T3Client, native: Native, id: string): Promise<void> => isBackground(client, id) ? archiveBackground(client, native, id, remember) : archive(client, native, id);
-/** useMarkThreadUnread uses reportFailure:false; a thread without a completed run can be refused silently. */
-async function markUnreadRow(client: T3Client, native: Native, id: string): Promise<void> {
-  try { await (isBackground(client, id) ? markUnreadBackground(client, native, id) : markUnread(client, native, id)); }
-  catch (error) { if (letGo(error)) throw error; }
-}
 /**
  * "Project settings" (/projects/$projectKey → Settings › Projects scoped to the logical project): the focused
  * environment stays; a background member is named by its `fleet:` id, which Settings › Projects finds among every
