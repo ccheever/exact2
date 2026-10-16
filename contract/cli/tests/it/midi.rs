@@ -25,7 +25,9 @@ fn midi_commands_events_and_inputs_compile() {
         let src = app("requestMIDIAccess()", view);
         match contract::compile(&src) {
             Ok(_) => {}
-            Err(e) if view.contains("onMIDIMessage") => assert!(e.message.contains("midimessage"), "{e}"),
+            Err(e) if view.contains("onMIDIMessage") => {
+                assert!(e.message.contains("midimessage"), "{e}")
+            }
             Err(e) => panic!("{view}: {e}"),
         }
     }

@@ -687,7 +687,9 @@ impl Midi {
     /// the agent's environment (rulings #3), else asked of the host.
     pub(crate) fn request(&mut self, t: f64, seek: bool, log: &mut Vec<String>) {
         if !self.granted {
-            log.push("midi access: denied, the grants name no device.midi (requestMIDIAccess)".into());
+            log.push(
+                "midi access: denied, the grants name no device.midi (requestMIDIAccess)".into(),
+            );
             return;
         }
         if seek {
