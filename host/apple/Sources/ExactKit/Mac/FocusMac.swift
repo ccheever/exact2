@@ -53,8 +53,7 @@ extension NodeView {
     }
     /// A shown `menu` the batch takes out of the window says it closed as it
     /// goes, while it is still an element to post on: once out, a post on it
-    /// reaches no client (measured), and one on the page sent VoiceOver to
-    /// "scroll area" (realinput-1016g row 10).
+    /// reaches no client (measured).
     package override func viewWillMove(toWindow newWindow: NSWindow?) {
         if newWindow == nil, window != nil, let presenter, let index = presenter.shownMenus.firstIndex(where: { $0 === self }) {
             presenter.shownMenus.remove(at: index)

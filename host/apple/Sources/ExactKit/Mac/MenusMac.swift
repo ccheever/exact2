@@ -379,6 +379,7 @@ final class MenuHost: NSObject {
         // window's focus back by itself.
         if !hadFocus, let window, let source = entry.source, let presenter, focusOwner(window) === entry.previous {
             presenter.landing.invoker = source
+            presenter.landing.invokerFocus = entry.previous
             presenter.scheduleLanding()
         }
         entries.remove(at: index)

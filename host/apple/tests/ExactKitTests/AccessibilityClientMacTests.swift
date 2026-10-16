@@ -243,12 +243,11 @@ final class AccessibilityClientMacTests: XCTestCase {
     }
 
     /// VoiceOver lands on the element the opening commit's `focus()`
-    /// chose, the commit's commands run, not on the alertdialog the batch
-    /// left with no focus in it, and nothing is announced: AppKit tells a
-    /// dialog by the focus in it (`NSAlert`, a sheet, a panel; measured).
-    /// Chosen before `focus()` ran, VoiceOver stayed on the dialog's group
-    /// or spoke only "Cancel, button" after a cut-off announcement
-    /// (realinput-1016g row 14).
+    /// chose, once the commit's commands have run, not on the alertdialog
+    /// the batch left with no focus in it; then the dialog's title and
+    /// message are queued after the button's words, at low priority, so
+    /// neither cuts the other off, as an `NSAlert` is read by its title and
+    /// message.
     func testAnAlertDialogLandsVoiceOverOnTheButtonItsCommitFocused() throws {
         let p = try fixture([])
         let client = AXClient()
@@ -270,7 +269,10 @@ final class AccessibilityClientMacTests: XCTestCase {
         XCTAssertTrue(p.focusedNode === p.views[12], "focus() took the focus")
         let heard = client.notifications().map { "\($0.name) \(client.value(of: $0.element, "AXIdentifier") ?? "")"
             + ((($0.info["AXUIElementsKey"] as? [AXUIElement])?.compactMap { AXClient.value($0, "AXIdentifier") as? String }).map { " \($0)" } ?? "") }
-        XCTAssertEqual(heard, ["AXLayoutChanged  [\"cancel\"]", "AXFocusedUIElementChanged cancel"])
+        XCTAssertEqual(heard, ["AXLayoutChanged  [\"cancel\"]", "AXFocusedUIElementChanged cancel", "AXAnnouncementRequested confirm"])
+        let named = try XCTUnwrap(client.notifications(after: 0).last)
+        XCTAssertEqual(named.info["AXAnnouncementKey"] as? String, "Remove Lane Third from this device?, dialog, This forgets its pairing.")
+        XCTAssertEqual(named.info["AXPriorityKey"] as? Int, NSAccessibilityPriorityLevel.low.rawValue)
         let dialog = try XCTUnwrap(client.attributes(of: "confirm", ["AXRole", "AXSubrole", "AXRoleDescription", "AXDescription", "AXHelp"]))
         XCTAssertEqual(dialog, ["AXRole": "AXGroup", "AXSubrole": "AXApplicationAlertDialog", "AXRoleDescription": "dialog",
                                 "AXDescription": "Remove Lane Third from this device?", "AXHelp": "This forgets its pairing."])
@@ -280,22 +282,29 @@ final class AccessibilityClientMacTests: XCTestCase {
     /// drawn in the page) sends VoiceOver to the focus its closing commit
     /// gave back, in the modal now in front, as AppKit's sheet over a sheet
     /// ends with the focus change of the first responder under it
-    /// (measured). Chosen before that `focus()` ran, VoiceOver went to the
-    /// page behind the sheet (realinput-1016g row 3).
+    /// (measured), and the sheet, named as it opened, is not named again.
+    /// Chosen before that `focus()` ran, VoiceOver went to the page behind
+    /// the sheet.
     func testADialogClosedOverAModalSendsVoiceOverToTheFocusGivenBack() throws {
         let p = try fixture([
             ["op": "create", "id": 20, "kind": "view", "props": ["accessibilityRole": "dialog", "accessibilityModal": "true", "accessibilityLabel": "Right panel", "testId": "sheet"]],
             ["op": "create", "id": 21, "kind": "button", "handlers": ["press"], "props": ["accessibilityLabel": "Git action options", "testId": "chevron", "id": "chevron"]],
-            ["op": "create", "id": 10, "kind": "view", "props": ["accessibilityRole": "dialog", "accessibilityModal": "true", "accessibilityLabel": "Commit changes", "testId": "commit"]],
-            ["op": "create", "id": 11, "kind": "input", "handlers": ["input"], "props": ["value": "", "accessibilityLabel": "Commit message", "testId": "message", "autofocus": "true"]],
             ["op": "children", "id": 20, "ids": [21]],
-            ["op": "children", "id": 10, "ids": [11]],
-            ["op": "children", "id": 1, "ids": [2, 20, 10]],
+            ["op": "children", "id": 1, "ids": [2, 20]],
             ["op": "frame", "id": 20, "x": 100.0, "y": 0.0, "w": 300.0, "h": 300.0],
             ["op": "frame", "id": 21, "x": 10.0, "y": 10.0, "w": 120.0, "h": 30.0],
+        ])
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        p.apply(wireBatch([
+            ["op": "create", "id": 10, "kind": "view", "props": ["accessibilityRole": "dialog", "accessibilityModal": "true", "accessibilityLabel": "Commit changes", "testId": "commit"]],
+            ["op": "create", "id": 11, "kind": "input", "handlers": ["input"], "props": ["value": "", "accessibilityLabel": "Commit message", "testId": "message", "autofocus": "true"]],
+            ["op": "children", "id": 10, "ids": [11]],
+            ["op": "children", "id": 1, "ids": [2, 20, 10]],
             ["op": "frame", "id": 10, "x": 120.0, "y": 60.0, "w": 260.0, "h": 120.0],
             ["op": "frame", "id": 11, "x": 10.0, "y": 10.0, "w": 240.0, "h": 24.0],
-        ])
+        ]))
+        p.syncAccessibility()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         XCTAssertTrue(p.macAccessibilityModal === p.views[10], "the Commit dialog is the modal")
         XCTAssertTrue(p.focusedNode === p.views[11])
         let client = AXClient()
@@ -413,7 +422,7 @@ final class AccessibilityClientMacTests: XCTestCase {
         // and closed by Escape: the menu says it closed and no focus is
         // told, as AppKit's `NSMenu` (measured), so VoiceOver stays where
         // it was; told the focus left elsewhere, it went to a switch beside
-        // the trigger (realinput-1016g row 10).
+        // the trigger.
         p.menus.show(try XCTUnwrap(p.views[20]), from: try XCTUnwrap(p.views[2]))
         p.syncAccessibility()
         XCTAssertEqual(heard(), ["AXMenuOpened menu"])
@@ -516,8 +525,8 @@ final class AccessibilityClientMacTests: XCTestCase {
         // Opened by VO-Space with the keyboard focus elsewhere (a switch
         // below the trigger) and closed by Escape with no focus ever in it:
         // VoiceOver goes back to the trigger it pressed, as from an
-        // `NSMenu`, and the focus stays where it was. Sent to the focus, it
-        // read "Local environment, on, switch" (realinput-1016g row 10).
+        // `NSMenu`, and the focus stays where it was, not to the switch
+        // that holds the focus.
         XCTAssertTrue(window.makeFirstResponder(p.views[6]))
         p.menus.show(try XCTUnwrap(p.views[20]), from: try XCTUnwrap(p.views[2]))
         p.syncAccessibility()
@@ -533,7 +542,7 @@ final class AccessibilityClientMacTests: XCTestCase {
         // Closed by the app instead: the batch takes the menu away and its
         // command gives the focus back. VoiceOver is sent to the trigger the
         // command focused, not to the page the batch left the focus on
-        // (realinput-1016g row 10: "scroll area").
+        // ("scroll area").
         p.menus.show(try XCTUnwrap(p.views[20]), from: try XCTUnwrap(p.views[2]))
         XCTAssertTrue(window.makeFirstResponder(p.views[11]))
         p.syncAccessibility()
@@ -545,18 +554,33 @@ final class AccessibilityClientMacTests: XCTestCase {
         XCTAssertEqual(heard().filter { !$0.hasPrefix("AXUIElementDestroyed") },
                        ["AXMenuClosed menu", "AXLayoutChanged  page-button", "AXFocusedUIElementChanged page-button"])
 
+        // Opened with the focus on the trigger and moving none, then taken
+        // away by a batch whose command focuses another control: VoiceOver
+        // goes to that control, not to the trigger the popover closed on.
+        p.views[6]?.props["id"] = "switch"
+        p.apply(wireBatch([["op": "children", "id": 4, "ids": [2, 6, 20]]]))
+        p.menus.show(try XCTUnwrap(p.views[20]), from: try XCTUnwrap(p.views[2]))
+        p.syncAccessibility()
+        _ = heard()
+        p.apply(wireBatch([["op": "children", "id": 4, "ids": [2, 6]]]))
+        p.focusElement(["switch"])
+        XCTAssertTrue(window.firstResponder === p.views[6])
+        XCTAssertEqual(heard().filter { !$0.hasPrefix("AXUIElementDestroyed") },
+                       ["AXMenuClosed menu", "AXLayoutChanged  switch", "AXFocusedUIElementChanged switch"])
+
         // The page no longer inert, its button is VoiceOver's again.
         p.apply(wireBatch([["op": "props", "id": 3, "set": [:], "clear": ["inert"]]]))
         p.syncAccessibility()
         XCTAssertTrue(client.identifiers().contains("thread-title"))
     }
 
-    /// A dialog drawn in the page is told as AppKit tells a sheet whose
-    /// field takes the focus: by the field's focus change, last, with no
-    /// announcement (measured here: the sheet's creation, then the field's
-    /// focus). Announced, it cut the field off (realinput-1016g rows 5, 11
-    /// and 12: "Rename project, dialog", never "Project title, edit text").
-    func testADialogIsToldByTheFocusInItAsASheetIs() throws {
+    /// A dialog drawn in the page whose field takes the focus sends
+    /// VoiceOver to the field, then is named, queued after the field's
+    /// words: AppKit tells a sheet by its creation, then the focus in it
+    /// (measured here), and the sheet's title is read from its window,
+    /// which a group in the page does not have. Announced before the focus,
+    /// at high priority, the dialog's name cut the field's off.
+    func testADialogIsNamedAfterTheFocusInIt() throws {
         let p = try fixture([])
         let client = AXClient()
         try client.listen(["AXAnnouncementRequested", "AXLayoutChanged", "AXFocusedUIElementChanged", "AXSheetCreated"])
@@ -595,9 +619,16 @@ final class AccessibilityClientMacTests: XCTestCase {
         ]))
         p.syncAccessibility()
         XCTAssertTrue(p.focusedNode === p.views[11], "the field took the focus")
-        XCTAssertEqual(heard(), ["AXLayoutChanged AXScrollArea Project title", "AXFocusedUIElementChanged AXTextField Project title"])
+        let opened = client.notifications()
+        XCTAssertEqual(heard(), ["AXLayoutChanged AXScrollArea Project title", "AXFocusedUIElementChanged AXTextField Project title",
+                                 "AXAnnouncementRequested AXGroup Rename project"])
+        XCTAssertEqual(opened.last?.info["AXAnnouncementKey"] as? String, "Rename project, dialog")
+        XCTAssertEqual(opened.last?.info["AXPriorityKey"] as? Int, NSAccessibilityPriorityLevel.low.rawValue)
 
-        // An alert dialog over it, then closed: neither is announced, and the field is told again as the modal it is in comes back.
+        // An alert dialog over it with no focus in it is read where VoiceOver
+        // lands, on it, and not named again; closed, the field is told
+        // again as the modal it is in comes back, and that dialog, still
+        // up, is not named again.
         p.apply(wireBatch([
             ["op": "create", "id": 30, "kind": "view",
              "props": ["accessibilityRole": "alertdialog", "accessibilityModal": "true", "accessibilityLabel": "Discard this environment?"]],
@@ -608,6 +639,51 @@ final class AccessibilityClientMacTests: XCTestCase {
         XCTAssertEqual(heard(), ["AXLayoutChanged AXScrollArea Discard this environment?"], "no focus in it: VoiceOver goes to the dialog")
         p.apply(wireBatch([["op": "children", "id": 1, "ids": [2, 10]]]))
         XCTAssertEqual(heard(), ["AXLayoutChanged AXScrollArea Project title", "AXFocusedUIElementChanged AXTextField Project title"])
+    }
+
+    /// AppKit posts the focus change itself as a view becomes the first
+    /// responder of the active application's key window (measured), and the
+    /// landing then posts only its layout change. A window that is key in
+    /// an application that is not active hears nothing from AppKit, so the
+    /// landing tells the focus, once.
+    func testTheFocusIsToldOnceWhenAppKitDoesNotTellIt() throws {
+        let p = try fixture([])
+        p.views[2]?.props["id"] = "trigger"
+        // A test process is not the active application.
+        final class KeyWindow: NSWindow { override var isKeyWindow: Bool { true } }
+        window.orderOut(nil)
+        window = KeyWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = p.viewport
+        window.orderFront(nil)
+        let client = AXClient()
+        try client.listen(["AXLayoutChanged", "AXFocusedUIElementChanged"])
+        func heard() -> [String] {
+            defer { client.clear() }
+            return client.notifications().map { note in
+                let named = (note.info["AXUIElementsKey"] as? [AXUIElement])?.compactMap { AXClient.value($0, "AXDescription") as? String } ?? []
+                return ([note.name, client.value(of: note.element, "AXRole") ?? "", client.value(of: note.element, "AXDescription") ?? ""] + named)
+                    .filter { !$0.isEmpty }.joined(separator: " ")
+            }
+        }
+        p.apply(wireBatch([
+            ["op": "create", "id": 10, "kind": "view",
+             "props": ["accessibilityRole": "dialog", "accessibilityModal": "true", "accessibilityLabel": "Rename project", "testId": "rename"]],
+            ["op": "create", "id": 11, "kind": "input", "handlers": ["input"], "props": ["value": "", "accessibilityLabel": "Project title", "autofocus": "true"]],
+            ["op": "children", "id": 10, "ids": [11]],
+            ["op": "children", "id": 1, "ids": [2, 10]],
+            ["op": "frame", "id": 10, "x": 50.0, "y": 50.0, "w": 300.0, "h": 150.0],
+            ["op": "frame", "id": 11, "x": 10.0, "y": 10.0, "w": 280.0, "h": 24.0],
+        ]))
+        p.syncAccessibility()
+        XCTAssertFalse(NSApp.isActive)
+        XCTAssertTrue(p.focusedNode === p.views[11], "the field took the focus")
+        XCTAssertEqual(heard().filter { !$0.hasPrefix("AXAnnouncement") },
+                       ["AXLayoutChanged AXScrollArea Project title", "AXFocusedUIElementChanged AXTextField Project title"])
+        // Closed, its commit's `focus()` gives the trigger the focus back.
+        p.apply(wireBatch([["op": "children", "id": 1, "ids": [2]]]))
+        p.focusElement(["trigger"])
+        XCTAssertEqual(heard(), ["AXLayoutChanged AXScrollArea More actions", "AXFocusedUIElementChanged AXButton More actions"])
     }
 
     /// A dialog in a popover whose field autofocuses (the font picker) sends
