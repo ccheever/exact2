@@ -807,9 +807,9 @@ final class MenuHost {
         return painted.contains { pop in node === pop || node.isDescendant(of: pop) || (pop.props["id"] != nil && target(of: node) == pop.props["id"]) }
     }
     /// Under native presentation (`--touch platform`), the popover `node`
-    /// is a row of, which UIKit shows as its menu (D3), and the title UIKit's
-    /// row shows for it: what a finger picks. Nil for anything else.
-    func nativeRow(_ node: NodeView) -> (popover: NodeView, title: String)? {
+    /// is a row of, which UIKit shows as its menu (D3), and the row: what a
+    /// finger picks. Nil for anything else.
+    func nativeRow(_ node: NodeView) -> (popover: NodeView, row: NodeView)? {
         guard ExactEnv.agentMode, !ExactEnv.agentPaints, let presenter else { return nil }
         // The innermost popover holding it: a submenu's rows are its own.
         let holding = presenter.carrying("popover").filter { pop in
@@ -819,8 +819,13 @@ final class MenuHost {
         var at: UIView = node
         while let up = at.superview, up !== pop.container { at = up }
         guard let row = at as? NodeView, row.superview === pop.container, row.props["popover"] == nil else { return nil }
-        return (pop, title(of: row))
+        return (pop, row)
     }
+    /// Under the agent, the rows each popover's menu was last given, in
+    /// order, by popover id: where a finger finds a row in the menu UIKit
+    /// shows (`Agent.shownRow`). UIKit puts no identifier of an action on
+    /// the element it shows, so a row is its place among these.
+    var given: [UInt32: [GivenRow]] = [:]
     private static func autofocus(in view: UIView) -> NodeView? {
         for sub in view.subviews {
             if let node = sub as? NodeView, let value = node.props["autofocus"], value != "false" { return node }
@@ -1241,6 +1246,9 @@ final class MenuHost {
     /// popovers above `pop`, whose rows opened it.
     func items(of pop: NodeView, path: [NodeView] = []) -> [UIMenuElement] {
         var sections: [[UIMenuElement]] = [[]]
+        // Under the agent, what UIKit was given, in order (`given`).
+        var rows: [GivenRow] = []
+        defer { if ExactEnv.agentMode { given[pop.id] = rows } }
         for case let row as NodeView in pop.container.subviews {
             // A context menu's preview (§5.1) is not one of its items.
             if row.props["contextPreview"] == "true" { continue }
@@ -1253,6 +1261,7 @@ final class MenuHost {
                     : UIMenu(title: title(of: row), image: image(of: row), children: children)
                 element.subtitle = row.isNativeButton ? row.face?.subtitle : nil
                 sections[sections.count - 1].append(element)
+                rows.append(GivenRow(row, title: element.title, subtitle: element.subtitle))
             } else if row.handlers.contains("press") || opensConfirmation(row) {
                 let id = row.id, token = row.incarnation
                 let image = image(of: row)
@@ -1284,6 +1293,7 @@ final class MenuHost {
                 if row.props["disabled"] == "true" { action.attributes.insert(.disabled) }
                 if row.props["destructive"] == "true" { action.attributes.insert(.destructive) }
                 sections[sections.count - 1].append(action)
+                rows.append(GivenRow(row, title: action.title, subtitle: action.subtitle))
             } else if !(sections.last?.isEmpty ?? true) {
                 sections.append([])
             }

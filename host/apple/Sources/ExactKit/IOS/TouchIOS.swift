@@ -157,13 +157,17 @@ extension Agent {
         }
         // A row of a menu UIKit shows (native presentation): the finger
         // aims at UIKit's row, never at the hidden node.
-        if let (pop, title) = presenter.menus.nativeRow(v) {
-            guard let row = Agent.shownMenuRow(title, in: win), let space = scene?.coordinateSpace else {
-                return ["error": "tap #\(v.id): it is a row of the menu UIKit shows for popover #\(pop.id)\(pop.props["id"].map { " (\($0))" } ?? ""), which is not open: tap its invoker first"]
+        if let (pop, row) = presenter.menus.nativeRow(v) {
+            guard let space = scene?.coordinateSpace else { return ["error": "tap #\(v.id): no scene"] }
+            let box: CGRect
+            switch shownRow(row, of: pop, in: win) {
+            case .failure(let refusal): return ["error": "tap #\(v.id): \(refusal.why)"]
+            case .success(let shown): box = shown
             }
-            let p = CGPoint(x: row.midX, y: row.midY), vp = presenter.viewport, q = vp.convert(p, from: nil)
+            let p = CGPoint(x: box.midX, y: box.midY), vp = presenter.viewport, q = vp.convert(p, from: nil)
+            let label = presenter.menus.given[pop.id]?.first { $0.row == row.id }?.label ?? ""
             return aimed(v, at: p, local: CGPoint(x: q.x - vp.contentOffset.x, y: q.y - vp.contentOffset.y), in: win, space: space,
-                         hit: nil, native: ["kind": "menuItem", "label": title])
+                         hit: nil, native: ["kind": "menuItem", "label": label, "row": Int(row.id)])
         }
         // The point: the request's, else the middle of the target — of a
         // visible shaped fragment for an inline id, as `tap` aims.
@@ -287,24 +291,78 @@ extension Agent {
         return ["aim": aim]
     }
 
-    /// A row of a menu UIKit shows over the app, by its title (nil: any
-    /// row): the box in the window of the accessibility element VoiceOver
-    /// reads for it, outside every session (never a node with that text),
-    /// or nil while none shows. Found as VoiceOver finds it, not by UIKit's
-    /// classes.
-    static func shownMenuRow(_ title: String?, in window: UIWindow) -> CGRect? {
-        var pending = window.subviews.filter { sub in !routes.contains { $0.1.view.map { $0.isDescendant(of: sub) } == true } }
-        while !pending.isEmpty {
-            let v = pending.removeFirst()
-            guard !v.isHidden, v.alpha > 0.01, !(v is NodeView), !routes.contains(where: { shows($0.1, v) }) else { continue }
-            // A row with a subtitle reads "Title, Subtitle".
-            if v.isAccessibilityElement, let label = v.accessibilityLabel, !label.isEmpty, title.map({ label == $0 || label.hasPrefix($0 + ",") }) ?? true {
-                let box = v.convert(v.bounds, to: window)
-                if box.width > 0, box.height > 0, window.bounds.contains(CGPoint(x: box.midX, y: box.midY)) { return box }
-            }
-            pending.append(contentsOf: v.subviews)
+    /// Where UIKit shows `row` of the menu it presents for `pop`, or why a
+    /// finger cannot pick it. UIKit puts no identifier on the element it
+    /// shows for an action, so the menu is found by what it was given
+    /// (`MenuHost.given`): the one run of shown rows whose labels are those,
+    /// in order, and the row is the one at its place there. Another open
+    /// menu, a duplicate title or a label that is a prefix of another picks
+    /// nothing else; two runs that match are refused as ambiguous.
+    func shownRow(_ row: NodeView, of pop: NodeView, in window: UIWindow) -> Result<CGRect, AimRefusal> {
+        let name = "popover #\(pop.id)\(pop.props["id"].map { " (\($0))" } ?? "")"
+        guard let given = presenter.menus.given[pop.id], let place = given.firstIndex(where: { $0.row == row.id && $0.incarnation == row.incarnation }) else {
+            return .failure(AimRefusal(why: "it is a row of the menu UIKit shows for \(name), which is not open: tap its invoker first"))
         }
-        return nil
+        let labels = given.map(\.label)
+        let runs = Agent.menuGroups(in: window).flatMap { group in
+            group.indices.filter { $0 + labels.count <= group.count && zip(group[$0...], labels).allSatisfy { $0.label == $1 } }
+                .map { Array(group[$0..<$0 + labels.count]) }
+        }
+        guard runs.count == 1 else {
+            return .failure(AimRefusal(why: runs.isEmpty
+                ? "it is a row of the menu UIKit shows for \(name), which is not open, or shows other rows: tap its invoker first"
+                : "\(runs.count) menus UIKit shows have the rows of \(name); close the others first"))
+        }
+        return .success(runs[0][place].box)
+    }
+
+    /// Whether UIKit shows a menu one of the session's popovers gave it
+    /// (`shownRow`'s match), whatever presents it: a pull-down, a popover.
+    func menuShown(in window: UIWindow) -> Bool {
+        let groups = Agent.menuGroups(in: window).map { $0.map(\.label) }
+        return presenter.menus.given.values.contains { given in
+            let labels = given.map(\.label)
+            return !labels.isEmpty && groups.contains { group in
+                group.indices.contains { $0 + labels.count <= group.count && Array(group[$0..<$0 + labels.count]) == labels }
+            }
+        }
+    }
+
+    /// The labelled accessibility elements the window shows outside every
+    /// session, as VoiceOver finds them (none inside another), grouped by
+    /// the scroll view that holds them (a menu's list) and in reading order
+    /// within each: what a menu UIKit shows reads as.
+    static func menuGroups(in window: UIWindow) -> [[(label: String, box: CGRect)]] {
+        var groups: [ObjectIdentifier: [(label: String, box: CGRect)]] = [:], order: [ObjectIdentifier] = []
+        func visit(_ v: UIView, in list: UIView) {
+            guard !v.isHidden, v.alpha > 0.01, !(v is NodeView), !routes.contains(where: { shows($0.1, v) }) else { return }
+            if v.isAccessibilityElement {
+                let box = v.convert(v.bounds, to: window)
+                guard let label = v.accessibilityLabel, !label.isEmpty, box.width > 0, box.height > 0,
+                      window.bounds.contains(CGPoint(x: box.midX, y: box.midY)) else { return }
+                let key = ObjectIdentifier(list)
+                if groups[key] == nil { order.append(key) }
+                groups[key, default: []].append((label, box))
+                return
+            }
+            for sub in v.subviews { visit(sub, in: v is UIScrollView ? v : list) }
+        }
+        for sub in window.subviews where !routes.contains(where: { $0.1.view.map { $0.isDescendant(of: sub) } == true }) { visit(sub, in: sub) }
+        return order.compactMap { groups[$0]?.sorted { ($0.box.minY, $0.box.minX) < ($1.box.minY, $1.box.minX) } }
     }
 }
+
+/// A row given to a menu UIKit shows: its node, and the label UIKit's row
+/// reads (its title, then its subtitle after a comma).
+struct GivenRow {
+    let row: UInt32, incarnation: UInt64, label: String
+    init(_ node: NodeView, title: String, subtitle: String?) {
+        row = node.id; incarnation = node.incarnation
+        label = subtitle.map { $0.isEmpty ? title : "\(title), \($0)" } ?? title
+    }
+}
+
+/// Why a finger cannot aim at what UIKit shows for a node (a menu's row,
+/// a tab's item).
+struct AimRefusal: Error { let why: String }
 #endif

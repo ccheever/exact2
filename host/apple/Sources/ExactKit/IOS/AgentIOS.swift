@@ -1202,8 +1202,8 @@ extension Agent {
         return r
     }
 
-    /// What UIKit has presented over the app's window, by what a person calls it: "alert", "action sheet", "popover" or
-    /// "sheet" (a presented route); nil with nothing presented. The innermost one: a sheet's own alert reads as the alert.
+    /// What UIKit has presented over the app's window, by what a person calls it: "alert", "action sheet", "menu",
+    /// "popover" or "sheet" (a presented route); nil with nothing presented. The innermost one: a sheet's own alert reads as the alert.
     func presentedOverApp() -> String? {
         var found: UIViewController?
         func visit(_ c: UIViewController) {
@@ -1213,13 +1213,15 @@ extension Agent {
         }
         guard let window = presenter.viewport.window, let root = window.rootViewController else { return nil }
         visit(root)
+        if let alert = found as? UIAlertController { return alert.preferredStyle == .alert ? "alert" : "action sheet" }
+        // A menu one of the popovers gave UIKit (`--touch platform`), however
+        // UIKit presents it; tvOS has no menus or popovers.
+        #if !os(tvOS)
+        if menuShown(in: window) { return "menu" }
+        #endif
         guard let top = found else { return nil }
-        if let alert = top as? UIAlertController { return alert.preferredStyle == .alert ? "alert" : "action sheet" }
-        // tvOS has no popovers or menus.
         #if !os(tvOS)
         if top.modalPresentationStyle == .popover { return "popover" }
-        // UIKit presents a menu as a controller with no sheet of its own.
-        if top.sheetPresentationController == nil, Agent.shownMenuRow(nil, in: window) != nil { return "menu" }
         #endif
         return "sheet"
     }
