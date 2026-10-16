@@ -60,7 +60,9 @@ impl<D: DataSource> Runner<D> {
             crate::bridge::edit_token(&self.plan, name, value, slices);
         }
         // What a binding reads moved (`Tamber::inputs`).
-        self.design_moves += 1;
+        if !edits.is_empty() {
+            self.design_moves += 1;
+        }
         // Rows below parse under the new overrides; what the host drew from
         // the old ones it re-presents (`roles_moved`).
         if !roles.is_empty() {

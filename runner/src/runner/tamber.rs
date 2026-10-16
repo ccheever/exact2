@@ -105,8 +105,9 @@ impl<D: DataSource> Tamber<'_, D> {
     /// What a binding at `place` reads besides the token's name, as one
     /// number that moves when any of it does: its app tuple (`setMode`, a
     /// pin above), the design's values (a token edit, a live batch, a role
-    /// override's), its scheme (the window's, a `color-scheme` above), the
-    /// contrast, and the root font size. A host compares it after each batch
+    /// override's), the platform's colours a role reads (a system accent),
+    /// its scheme (the window's, a `color-scheme` above), the contrast, and
+    /// the root font size. A host compares it after each batch
     /// to tell its observers (`observe`); it costs no walk of the design.
     pub fn inputs(&self, place: Place) -> u64 {
         use std::hash::{Hash, Hasher};
@@ -114,7 +115,12 @@ impl<D: DataSource> Tamber<'_, D> {
         let mut h = std::collections::hash_map::DefaultHasher::new();
         self.tuple(place).hash(&mut h);
         runner.design_moves.hash(&mut h);
-        runner.roles().generation().hash(&mut h);
+        // The session's role overrides and the platform's reported colours
+        // (a system accent moved), as a host compares them to re-present.
+        {
+            let _roles = runner.bind_roles();
+            exact_kernel::style::roles::generation().hash(&mut h);
+        }
         self.dark(place).hash(&mut h);
         format!("{:?}", runner.viewport().preferences.contrast).hash(&mut h);
         runner.root_font_size().to_bits().hash(&mut h);

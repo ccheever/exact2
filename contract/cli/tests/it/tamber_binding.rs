@@ -135,6 +135,14 @@ fn inputs_move_on_every_input_and_only_then() {
     moved(&mut r, "a role override's edit");
     r.set_token("ink", "#123456", &[]).unwrap();
     moved(&mut r, "a token's edit");
+    let accent = exact_kernel::style::roles::role("AccentColor").unwrap();
+    exact_kernel::style::roles::set_reported([(
+        ColorValue::Role(accent),
+        false,
+        exact_kernel::Color::parse("#ff9500").unwrap(),
+    )]);
+    moved(&mut r, "a platform colour reported");
+    r.set_tokens(&[]).unwrap();
     assert_eq!(r.tamber().inputs(place), last, "nothing moved");
     // A batch that moves nothing a binding reads (a mode it has already).
     r.set_modes(&[("dark-style", "dim")]).unwrap();
