@@ -115,7 +115,10 @@ its parent by the padding (`lower-width-padding`), screens swapped by an `if` in
 (`lower-count-plural`), a row of the app's records that searches another table of them,
 `users.filter(u => u.id == p.userId)` in `for p in posts` (`lower-row-lookup`), a
 symbol by an alias, not its role (`lower-symbol-alias`), a
-`performanceNow()` time sent to a source (`type-performance-now-persisted`), a
+`performanceNow()` time sent to a source (`type-performance-now-persisted`), the
+launch's `time.epochAtZero` or `time.seed` as a resource's identifying argument, which
+keeps its kept answer from ever showing at launch: pass it after `with`
+(`lower-resource-launch-identity`), a
 state read after its own action assigned it (`analyze-read-after-assign`), a
 literal colour that stays the same in dark mode (`lower-colour-one-scheme`, every
 site past the cap), and a name or key a host would refuse or ignore at run time: a
@@ -616,7 +619,10 @@ the last answer the runner kept for it (asked with the same identifying
 arguments, and at most 256 KiB counting them; `with` values are not counted), so
 the form's states take those fields. A larger answer is not kept, and an older one
 kept for the resource is forgotten, so a launch never shows an answer since replaced;
-`logs` says `too big to keep` once, naming the resource and what to do.
+`logs` says `too big to keep` once, naming the resource and what to do. An
+identifying argument that changes every launch (the launch's time or seed) never
+matches the kept one: pass it after `with`, as `resource lib = library() with
+time.epochAtZero`; the compiler and `logs` both say so.
 Keep a first screen's resources small and move their bulk into a resource the first
 frame does not need. A write the resource does not hear about (a file or database save from
 a mutation without `refreshes saved`, not a `store` write it reads) leaves that

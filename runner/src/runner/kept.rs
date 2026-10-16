@@ -27,6 +27,8 @@ pub(super) const MAX_KEPT_BYTES: usize = KEPT_DATA_BYTES + 5;
 pub(super) struct Keeping {
     pub(super) on: bool,
     pub(super) too_big: Vec<usize>,
+    /// The resources said to be kept under an argument of this launch's own, once each
+    pub(super) of_launch: Vec<usize>,
     /// Kept answers this boot refused, by resource, with why: journaled
     /// with the ones it shows, so a refusal is never silent.
     pub(super) refused: Vec<(usize, String)>,
@@ -304,7 +306,45 @@ impl<D: DataSource> Runner<D> {
             }
             return;
         }
+        self.say_of_launch(i, args);
         self.store.keep(&name, encode(args, value));
+    }
+
+    /// Say once that resource `i` is kept under an identifying argument of
+    /// this launch's own — a time since its clock began, or its seed — so
+    /// the next launch never matches it (LLP 1027.005). The compiler names
+    /// the argument where it is written as the epoch or the seed; a time
+    /// made from the epoch is found here, by its value.
+    fn say_of_launch(&mut self, i: usize, args: &[Value]) {
+        if self.keeping.of_launch.contains(&i) {
+            return;
+        }
+        let epoch = self.time.epoch_at_zero;
+        let seed = self.place().seed;
+        let Some((k, what)) = args.iter().enumerate().find_map(|(k, arg)| {
+            let &Value::Number(v) = arg else { return None };
+            if epoch > 0.0 && (epoch..=epoch + self.now_ms + 1000.0).contains(&v) {
+                Some((
+                    k,
+                    "a time of this launch (`epochAtZero`, or a time made from it)",
+                ))
+            } else if seed > 0.0 && v == seed {
+                Some((k, "this launch's `seed`"))
+            } else {
+                None
+            }
+        }) else {
+            return;
+        };
+        self.keeping.of_launch.push(i);
+        let row = &self.plan.resources[i];
+        let line = format!(
+            "`{name}`'s kept answer is never shown at launch because its identifying argument {n} is {what}, which changes every launch; pass it after `with` (`resource {name} = {source}(…) with …`), which still reaches the source but is not counted (LLP 1027.005)",
+            name = self.plan.str(row.name),
+            source = self.plan.str(row.source),
+            n = k + 1,
+        );
+        self.log(line);
     }
 
     /// The data source is ready — a host loaded its TypeScript module after

@@ -375,6 +375,43 @@ fn a_launch_relative_time_in_a_persisted_state_is_named() {
     assert_eq!(warned(src), [(PERSISTED.to_string(), 5)]);
 }
 
+#[test]
+fn an_identifying_argument_of_the_launch_is_named_with_with() {
+    let library = |call: &str| {
+        format!("shape Time\n  epochAtZero: number\n  seed: number\n  utcOffset: number\nshape Library\n  ready: bool\ncomponent App\n  resource time = exactTime() as shape Time\n  derive origin = time.epochAtZero\n  state minute = 0\n  resource lib = {call} as shape Library\n  view\n    text \"x\"\n")
+    };
+    for (call, said, rest) in [
+        ("library(time.epochAtZero)", "time.epochAtZero", ""),
+        ("library(time.seed)", "time.seed", ""),
+        ("library(origin)", "origin", ""),
+        ("library(minute, time.epochAtZero)", "time.epochAtZero", "…"),
+    ] {
+        let (result, warnings) = contract::compile_warned(&library(call));
+        result.unwrap();
+        let ids: Vec<_> = warnings
+            .iter()
+            .map(|w| (w.id.as_str(), w.span.line))
+            .collect();
+        assert_eq!(ids, [("lower-resource-launch-identity", 11)], "{call}");
+        let message = &warnings[0].message;
+        assert!(
+            message.contains(&format!("because `{said}` changes every launch"))
+                && message.contains(&format!("`resource lib = library({rest}) with {said} …`")),
+            "{message}"
+        );
+    }
+    // After `with`, a time made from the epoch, and what stays from one
+    // launch to the next are not named.
+    for call in [
+        "library() with time.epochAtZero, time.seed",
+        "library(time.epochAtZero + minute)",
+        "library(time.utcOffset)",
+        "library(minute)",
+    ] {
+        assert_eq!(warned(&library(call)), [], "{call}");
+    }
+}
+
 const ONE_SCHEME: &str = "lower-colour-one-scheme";
 
 /// One screen, its view's lines at 5 on, with a style, a `fn` and a derive

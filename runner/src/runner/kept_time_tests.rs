@@ -88,3 +88,60 @@ fn a_kept_answer_keyed_on_the_offset_is_admitted_when_the_boot_knows_it() {
         assert!(!r.journal().any(|l| l.contains("shows its kept answer")));
     }
 }
+
+/// `time = exactTime()` and `answer(time.<field>)`, kept, over the parent's source.
+fn keyed_on(field: u16) -> Plan {
+    let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+    let string = b.primitive(TypeKind::String);
+    let number = b.primitive(TypeKind::Number);
+    let shape = b.record("Time", &[("epochAtZero", number), ("utcOffset", number)]);
+    let time = b.resource("time", crate::time::SOURCE, &[], shape, None);
+    let mut k = Asm::new();
+    k.load_resource(time).field(field);
+    let k = b.code(k);
+    let answer = b.resource(
+        "answer",
+        "answer",
+        &[k],
+        string,
+        Some(&Value::str("loading")),
+    );
+    b.set_resource_reader(answer, true);
+    b.set_resource_initial_args(answer, &[Value::Number(0.)]);
+    b.node(NodeType::View as u8, None, None, 0, &[], &[], None);
+    b.finish().unwrap()
+}
+
+#[test]
+fn an_answer_kept_under_the_launchs_clock_is_said_never_to_be_shown() {
+    let said = |field| {
+        let mut r = launching(at(-420.), || {
+            Runner::boot_stored(
+                keyed_on(field),
+                super::Source::default(),
+                Kernel::with_monospace(),
+                Vec::new(),
+                Default::default(),
+                "/",
+            )
+        })
+        .unwrap();
+        r.data.ready = true;
+        r.data_ready().unwrap();
+        assert!(r.store.kept(&kept::kept_name("answer")).is_some());
+        r.journal()
+            .filter(|l| l.contains("kept answer is never shown at launch"))
+            .map(str::to_string)
+            .collect::<Vec<_>>()
+    };
+    let lines = said(0);
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(
+        lines[0].contains("`answer`'s kept answer is never shown at launch because its identifying argument 1 is a time of this launch")
+            && lines[0].contains("pass it after `with` (`resource answer = answer(…) with …`)"),
+        "{}",
+        lines[0]
+    );
+    // The zone's offset is the same at the next launch: its answer is shown then.
+    assert_eq!(said(1), Vec::<String>::new());
+}
