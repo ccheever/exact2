@@ -72,8 +72,9 @@ class T3ComposerChipElement: NSAccessibilityElement {
 /// `AXScrollArea` of its own, which VoiceOver read as "empty, scroll area" and stepped into only by interacting; so it
 /// stands aside (not an element), and the text area, then its chips, are children of the composer's enclosing element:
 /// VO-Right reads "Message, edit text", then each chip, as it reads Chromium's contenteditable chips one by one.
-/// The scroll view's children are always written whole: AppKit keeps an explicit nil as no children, which hid the text
-/// area once the last chip had gone.
+/// It stands aside with no chip too, so the text area's parent never changes under VoiceOver's cursor, which lost the
+/// focused text area and went to the window's first element when the last chip went. The scroll view's children are
+/// always written whole: AppKit keeps an explicit nil as no children, which hid the text area once the last chip had gone.
 enum T3ComposerChipOrder {
     static func expose(_ elements: [T3ComposerChipElement], beside view: NSTextView) {
         guard let scroll = view.enclosingScrollView, scroll.documentView === view else {

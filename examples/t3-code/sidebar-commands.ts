@@ -347,7 +347,13 @@ async function copy(client: T3Client, nativeHandle: Native, text: string, title:
 // The effect runs whenever the open thread's shell changes, so it is asked after every refresh too: a thread
 // opened on a background environment arrives by the reconnect to that environment, not by openSelected, and
 // a turn completing on the open thread lands as a shell event.
-const visits = new WeakMap<T3Client, { key: string; at: number }>();
+//
+// The throttle is for one thread's mid-turn bumps. The reference's applies across threads too, with a trailing timer
+// that sends the newly opened thread's visit at the window's end; a data source has no clock to run that timer on
+// (`wall` moves only with commands), so a visit for another thread than the last one sent goes at once. Dropped, it
+// left the dedupe key on the thread visited before, so that thread, marked unread meanwhile, stayed unread when it
+// was opened again.
+const visits = new WeakMap<T3Client, { key: string; thread: string; at: number }>();
 export function visitOpenThread(client: T3Client, nativeHandle: Native): void {
   const thread = threadOf(client, client.threadId);
   if (!thread || !client.ready) return;
@@ -358,12 +364,12 @@ export function visitOpenThread(client: T3Client, nativeHandle: Native): void {
   if (Number.isFinite(seen) && seen >= updated) return;
   if (!tracked) { prefs.visited[str(thread.id)] = str(thread.updatedAt); return; }
   // routeThreadKey: the same thread id on another environment is another thread.
-  const key = `${client.environmentId}:${str(thread.id)}:${str(thread.updatedAt)}`, last = visits.get(client) ?? { key: '', at: 0 };
+  const route = `${client.environmentId}:${str(thread.id)}`, key = `${route}:${str(thread.updatedAt)}`, last = visits.get(client) ?? { key: '', thread: '', at: 0 };
   if (last.key === key || !client.writable) return;
   const completed = Date.parse(str(latestRun(thread)?.completedAt));
   const unseen = Number.isFinite(completed) && (!Number.isFinite(seen) || completed > seen);
-  if (!unseen && wall(client) - last.at < 10_000) return;
-  visits.set(client, { key, at: wall(client) });
+  if (!unseen && last.thread === route && wall(client) - last.at < 10_000) return;
+  visits.set(client, { key, thread: route, at: wall(client) });
   void dispatch(client, nativeHandle, { type: 'thread.visit', threadId: str(thread.id), visitedAt: str(thread.updatedAt) }).catch(() => undefined);
 }
 

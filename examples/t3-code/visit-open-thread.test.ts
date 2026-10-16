@@ -90,6 +90,29 @@ describe('opening a background environment\'s thread visits it there', () => {
     expect(dispatched).toHaveLength(1);
   });
 
+  test('another thread\'s visit inside the throttle\'s window is sent, so a thread visited before, then marked unread, is visited when opened again', async () => {
+    // The window's wall time moves only with commands: here it stays where the first open put it.
+    setRuntimeClock(() => NOW);
+    const background = markedUnread('t-bg');
+    // A thread on the other environment that was never visited and has no run: no unseen completion to send at once.
+    const third: Obj = { ...markedUnread('t-third'), title: 'Shared notes on third', latestRunId: null, latestRunCompletedAt: null, lastVisitedAt: null, updatedAt: iso(5_000) };
+    const { client, dispatched } = focused('env-second', [background], 't-bg');
+    const open = async (environmentId: string, threadId: string, threads: Obj[]) => {
+      Object.assign(client, { environmentId, threadId });
+      client.shell.threads = threads;
+      await sidebarRefreshed(client, native);
+      await settle();
+    };
+    await open('env-second', 't-bg', [background]);
+    await open('env-third', 't-third', [third]);
+    // One thread's mid-turn bump inside the window is still held back.
+    await open('env-third', 't-third', [{ ...third, lastVisitedAt: iso(5_000), updatedAt: iso(6_000) }]);
+    // Mark unread on the background thread (the rewind leaves updatedAt), then open it again.
+    await open('env-second', 't-bg', [background]);
+    expect(strip(dispatched).map(payload => `${String(payload.environmentId)}:${String(payload.threadId)}:${String(payload.visitedAt)}`))
+      .toEqual([`env-second:t-bg:${iso(37_374)}`, `env-third:t-third:${iso(5_000)}`, `env-second:t-bg:${iso(37_374)}`]);
+  });
+
   test('no thread open, or a read-only connection: nothing is sent', async () => {
     const none = focused('env-second', [markedUnread('t-bg')], '');
     await sidebarRefreshed(none.client, native);
