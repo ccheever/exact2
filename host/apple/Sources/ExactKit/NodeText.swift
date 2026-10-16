@@ -66,6 +66,7 @@ extension NodeView {
         #if os(macOS)
         textRasterPending = false
         #else
+        if let presenter, presenter.applying { presenter.changedText.insert(id) }
         presenter?.requestTextPublication()
         #endif
     }

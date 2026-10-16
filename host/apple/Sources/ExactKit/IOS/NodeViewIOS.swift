@@ -37,6 +37,9 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     var textRaster: CGImage?
     var textRasterLayer: CALayer?
     var textRasterFrame = CGRect.zero
+    /// The words and style `textRaster` paints, which the paragraph's may
+    /// have left behind since (`invalidateText` keeps the old pixels up).
+    var textRasterSpec: Spec?
     var textRasterScale: CGFloat = 1
     var textRasterReady = false
     var textRasterFailed = false
