@@ -170,7 +170,8 @@ with `ERROR`. `state` prints one line a section (`slots {"count":1}`) and leaves
 the empty ones (null, `[]`, `{}`). `--json` prints every field of every reply.
 `--scale <n>` shrinks each screenshot to n pixels a point: an iPhone's are
 1206×2622 at its own 3, 402×874 with `--scale 1`, one pixel a point as on the
-web, at about a ninth of the pixels. Use `--scale 1` unless you check fine pixels.
+web, at about a ninth of the pixels. An app's `bun exact.mjs agent ios|macos`
+takes `--scale 1` unless told otherwise; ask for more only to check fine pixels.
 
 Inside the exact2 checkout, for Caltrain:
 
@@ -1668,10 +1669,10 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   again pops it to its root.
 - On iOS the panels become a `UITabBarController`: a tab of one symbol over its label
   is its bar item, a filled box holding a text is the item's badge, and the
-  tablist's `accent-color` (inherited, as in CSS) tints the selected item. Under the
-  agent the authored tablist and header paint and take taps instead; `tap tab-…` works on
-  every host. To see and drive what a person sees, pass `--chrome platform` (a drive or
-  a test on an iOS simulator): UIKit's tab bar, navigation bars and sheets show,
+  tablist's `accent-color` (inherited, as in CSS) tints the selected item; `tap tab-…`
+  works on every host. An app's `bun exact.mjs agent ios` and `test ios` drive what a
+  person sees (`--chrome platform`; `--chrome agent` paints the authored tablist and
+  header instead, as `scripts/agent.mjs` does by default): UIKit's tab bar, navigation bars and sheets show,
   `screenshot "file" window` draws them, and a tap naming a tab or a header control
   presses it through its bar (`native: "tab-bar-item"`, `"bar-button-item"`). The
   bars' own motion runs on real time (`clock +300 real` before a screenshot); the

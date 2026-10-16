@@ -16,18 +16,19 @@ exact.mjs ios` once (a real build), then `verify ios`.
 ```sh
 bun exact.mjs ios --prebuild                   # the first build, apart from this shell
 bun exact.mjs verify ios                       # the tests, check light and dark, a relaunch
-bun exact.mjs agent ios --storage s1 --chrome platform "tap add-item" "clock settle" \
+bun exact.mjs agent ios --storage s1 "tap add-item" "clock settle" \
   "type add-title Milk" "tap add-save" "clock data" "clock settle" "screenshot .exact/ios-saved.png window"
 ```
 
 | Flag or op | What it does |
 | --- | --- |
 | `check`, `check dark`, `check both` | What is wrong with the screen, one line each: clipped text, a control covered (a bar, the keyboard, a sheet) or overlapping, a target under 44 pt, a view past the screen's side, low contrast, a card that does not show. |
-| `--chrome platform` | UIKit's navigation bar, tab bar and sheets, as a person sees them. Without it the authored header and tablist paint instead; a `tap` or `expect` on a node the bar would not show fails. |
+| `--chrome platform` (the default) | UIKit's navigation bar, tab bar and sheets, as the app shows them. `--chrome agent` paints the authored header and tablist instead; a `tap` or `expect` on a node the bar would not show fails. |
+| `--scale <n>` | A screenshot's pixels a point: `agent` takes 1 (402×874 on an iPhone, a ninth of its pixels); `--scale 3` for the device's own. |
 | `screenshot <file> window` | The whole screen, bars included; a plain one is the window's too while an alert or sheet is up. |
 | `clock settle` | Ends a push's, sheet's or alert's transition: after opening or closing one, and before tapping inside an alert. |
 | `--timing platform`, `--touch platform` | UIKit's own transition timing (default: frozen); every tap and drag a real touch through XCTest, aimed where UIKit draws the target. |
-| `--sim <udid\|name>` (`EXACT_SIM`), `--device`, `--phone <udid\|name>` | Which simulator (several booted iPhones are refused), or a connected iPhone after `bun exact.mjs ios --device`. |
+| `--sim <udid\|name>` (`EXACT_SIM`), `--device`, `--phone <udid\|name>` | Which simulator (of several booted iPhones, the one the app is installed on), or a connected iPhone after `bun exact.mjs ios --device`. |
 
 - Drive by `testId`, never by coordinates; on a bar button, the search field, a segment or a tab
   it is the `accessibilityIdentifier`.
