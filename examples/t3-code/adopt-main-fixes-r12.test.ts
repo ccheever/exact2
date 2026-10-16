@@ -18,7 +18,7 @@ describe('the Mac\'s own presentations main gives what the clone writes stay the
 
   test('every popover keeps the painted layer (LLP 1115.002 D7.3): `popover="auto"` and an authored fallback row', async () => {
     const popovers = (await contracts()).flatMap(({ lines }) => lines.filter(line => code(line) && /\bpopover="/.test(line)));
-    expect(popovers.length).toBe(69); // the archived row's and the pull request number's context popovers, the project scripts and Open in menus, the file subheader's two, a linked pull request's
+    expect(popovers.length).toBe(70); // the archived row's and the pull request number's context popovers, the project scripts and Open in menus, the file subheader's two, a linked pull request's, an approval's
     for (const line of popovers) {
       expect(line).toContain('popover="auto"');
       expect(line).toMatch(/\sposition-try-fallbacks=/);
@@ -95,6 +95,7 @@ const reviewed: Record<string, Site[]> = {
     ['R4FileEditorsMenu', 'id="file-editors-menu"', q('bottom span-left'), FLIP, 'chat/OpenInPicker.tsx:429 end (compact, anchored at the chevron)'],
   ],
   'r6-polish.contract': [['R6ScriptMenu', 'id="details-scripts-menu"', q('bottom span-left'), FLIP, 'ProjectScriptsControl.tsx:346 end, anchor the row']],
+  'requests.contract': [['ApprovalActions', 'id=`approval-menu-${approval.id}`', q('top span-left'), FLIP, 'chat/ComposerPendingApprovalActions.tsx:78 top/end']],
   'r6-pr.contract': [['R6ChecksPopover', 'id=row.r6.popId', q('bottom span-right'), FLIP, 'pullRequest/PullRequestChecksPopover.tsx:197 start']],
   'settings-a-fonts.contract': [['FontFamilyPicker', 'id=`font-picker-${rowId}`', q('bottom span-left'), FLIP, 'settings/FontFamilyPicker.tsx:219 end']],
   'settings-a-hosts.contract': [['HostRowView', 'id=`device-host-tools-${host.id}`', q('bottom span-left'), FLIP, 'device/DeviceToolVersions.tsx:48 end']],

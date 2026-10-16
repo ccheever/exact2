@@ -196,6 +196,7 @@ describe('public popover triggers execute one ordered command sequence', () => {
     ['providers-setup.contract', 'ProviderAccountRow', 'triggerKey'], ['r4-git.contract', 'R4GitRows', 'gitMenuKey'],
     ['pages-usage-prices.contract', 'UsagePricesApply', 'triggerKey'], ['r6-polish.contract', 'R6ScriptRow', 'triggerKey'],
     ['shell-details.contract', 'OpenInRow', 'triggerKey'], ['r4-surfaces-files.contract', 'R4FileHeader', 'editorsKey'],
+    ['requests.contract', 'ApprovalActions', 'menuKey'],
   ];
   test('the inventory includes every opener and no retired invoker, focus redirect, watcher or counter remains', async () => {
     const found: string[] = [];
@@ -219,7 +220,7 @@ describe('public popover triggers execute one ordered command sequence', () => {
     const scope: Env = { ...await helpers, ...effects(calls), [itemName]: items, section: 'models', rowId: 'model', rowRef: 'repo:42',
       selectId: 'select', menuId: 'popup', popId: 'row-popup', idPrefix: 'account-', t: { id: 'thread' }, row: { id: 'row' },
       environment: { environmentId: 'env' }, account: { instanceId: 'instance' }, message: { id: 'message' },
-      host: { id: 'host', menuId: 'host-popup' }, item: { id: 'task', environmentId: 'task-env' } };
+      host: { id: 'host', menuId: 'host-popup' }, item: { id: 'task', environmentId: 'task-env' }, approval: { id: 'approval' } };
     const popup = value(command[1]!, scope), sourceId = value(command[2]!, scope);
     expect(sourceId).not.toBe(popup);
     const triggerOwner = name === 'ThreadRow' ? await component(file, 'SidebarCardActions') : body;
@@ -289,9 +290,6 @@ describe('↓ and ↑ on a closed trigger open its menu at the first or the last
     // An action reads the state as it began, so the end comes from the key itself, not from the state it just set.
     const title = await component('chat.contract', 'ChatHeader');
     expect(title).toContain('action titleKey(k: string, e: KeyboardEvent)\n    titleEnd = kmKeyEnd(k)\n    if kmArrow(k) and not e.metaKey and not e.ctrlKey and not e.altKey\n      preventDefault()\n      title("open", "")\n      focus(kmOpenTarget("title-menu-keys", kmKeyEnd(k)))');
-    expect(await source('requests.contract')).toContain('      menuOpen = true\n      focus(kmOpenTarget(`approval-menu-${approval.id}-keys`, kmKeyEnd(k)))');
-    // A press that toggles reads the state as it began: the focus moves in only when the menu opens.
-    expect(await source('requests.contract')).toContain('    menuOpen = not menuOpen\n    // An action reads the state as it began: `not menuOpen` is the menu opening.\n    if not menuOpen\n');
     // Menus the data module mounts: the trigger's keys ask for the end, its taking the focus clears it (no `pointerdown`: that would
     // keep the press from the window's light-dismiss count), and the menu reads it as it mounts.
     const rail = await component('r6-device.contract', 'R6RailButton');
