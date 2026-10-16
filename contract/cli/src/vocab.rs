@@ -541,6 +541,9 @@ fn prop_type(p: PropId) -> String {
     format!("{:?}", tags::prop_ty(p)).to_lowercase()
 }
 
+/// What a long press (a right click) opens: the menu `contextPopover` names.
+const CONTEXTMENU: &str = "a long press on iOS, a right click elsewhere: `contextmenu=aim(id)` notes which item it was and `contextPopover=\"<menu id>\"` names the `popover=\"auto\" role=\"menu\"` column it opens (iOS: a UIMenu over the item). See `contract vocab menu`; a test opens it with `tap \"<testId>\" contextmenu`";
+
 /// What `metadata=` takes (LLP 1098 D1): the Media Session's record.
 const METADATA: &str = "MediaMetadata(title=, artist=, album=, artwork=), each a string";
 
@@ -616,7 +619,12 @@ fn attr_json(name: &str, a: &AttrTarget) -> Value {
                 doc["accepts"] = accepts.into();
             }
         }
-        AttrTarget::Handler(event) => doc["event"] = (*event).into(),
+        AttrTarget::Handler(event) => {
+            doc["event"] = (*event).into();
+            if name == "contextmenu" {
+                doc["note"] = CONTEXTMENU.into();
+            }
+        }
         AttrTarget::Surface => {}
         AttrTarget::MediaMetadata => {
             doc["type"] = METADATA.into();
@@ -775,6 +783,9 @@ fn attr_detail(name: &str, a: &AttrTarget) -> Vec<String> {
         }
         AttrTarget::InvertedBoolProp(p) => {
             vec![format!("prop {}, bool, set to the inverse", p.name())]
+        }
+        AttrTarget::Handler(event) if name == "contextmenu" => {
+            vec![format!("event {event}"), CONTEXTMENU.into()]
         }
         AttrTarget::Handler(event) => vec![format!("event {event}")],
         AttrTarget::Surface => vec!["a canvas's surface binding: surface=name(args)".into()],

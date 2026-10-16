@@ -25,7 +25,8 @@ The only required reading; the rest is lookup.
 4. **Compose as the platform does:** a row pushes its detail; create and edit are sheets; a
    phone gets one column, a wide window two (`responsive-columns`). Tabs (a sidebar) and a
    list whose rows push (beside its detail) need no code; one number and its buttons: a
-   centred column (`max-width=420`).
+   centred column (`max-width=420`). The rows of a list the person deletes from swipe to
+   delete and open a menu on a long press (`list-detail`, `contract vocab swipe`).
 
 ## The workflow
 
