@@ -371,7 +371,9 @@ const configuredLibrary=(file)=>{
 export function configure(stage, incremental=false, parse) {
   const app=capturedOrigins(stage).at(-1)[1], modulePath=resolve(stage,'app.ts');
   if (existsSync(modulePath)) {
-    const before=readFileSync(modulePath,'utf8'), after=injectBackendOrigin(before,backendOrigin(app),parse);
+    const before=readFileSync(modulePath,'utf8'), original=resolve(stage,'__exact_backend_source.json');
+    const authored=existsSync(original) ? JSON.parse(readFileSync(original,'utf8')) : before;
+    const after=injectBackendOrigin(authored,backendOrigin(app),parse);
     if (before!==after) writeFileSync(modulePath,after);
   }
   const inside = (path) => {

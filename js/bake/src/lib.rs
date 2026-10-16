@@ -878,6 +878,7 @@ fn bake_in(
     }
     if [
         "__exact_entry.ts",
+        "__exact_backend_source.json",
         "__exact_tsconfig.json",
         "__exact_config.mjs",
         "__exact_paths.json",
@@ -947,6 +948,12 @@ fn bake_in(
             .collect::<Vec<_>>()
             .join("\n")
     })?;
+    write_changed(
+        &stage.join("__exact_backend_source.json"),
+        serde_json::to_string(&String::from_utf8_lossy(&captured[Path::new("app.ts")]))
+            .map_err(|e| e.to_string())?
+            .as_bytes(),
+    )?;
     let mut declarations = contract::typescript(&plan)?;
     // Canvas 2D (LLP 1056 D1): a module that exports `draw` and `surfaces`
     // speaks ABI 2, and only it carries the recorder.

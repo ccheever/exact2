@@ -413,3 +413,26 @@ test('authored-test clock advances once per mutation request, not per input repl
   clock.reset(); requests=1;
   expect(await clock.advance(session)).toBe(1);
 });
+
+test('a reused captured stage restores the authored backend after an override is removed',async()=>{
+  const {configure}=await import('../js/bake/src/typescript.mjs');
+  const {parseSync}=await import('rolldown/utils');
+  const {mkdtempSync,mkdirSync,writeFileSync,readFileSync,rmSync}=await import('node:fs');
+  const {tmpdir}=await import('node:os');const {join}=await import('node:path');
+  const root=mkdtempSync(join(tmpdir(),'exact-backend-stage-')),app=join(root,'app'),stage=join(root,'stage');
+  const env=process.env.EXACT_BACKEND_ORIGIN; delete process.env.EXACT_BACKEND_ORIGIN;
+  try {
+    mkdirSync(app);mkdirSync(stage);mkdirSync(join(app,'.exact'));
+    const source="const origin='http://127.0.0.1:4400'; export const grants=`net.fetch ${origin}`;";
+    writeFileSync(join(stage,'app.ts'),source);writeFileSync(join(stage,'__exact_backend_source.json'),JSON.stringify(source));
+    writeFileSync(join(stage,'__exact_paths.json'),JSON.stringify({app,mounts:[]}));
+    writeFileSync(join(app,'.exact/backend-origin'),'http://127.0.0.1:4412');
+    configure(stage,true,parseSync);
+    expect(readFileSync(join(stage,'app.ts'),'utf8')).toContain('4412');
+    rmSync(join(app,'.exact/backend-origin'));configure(stage,true,parseSync);
+    expect(readFileSync(join(stage,'app.ts'),'utf8')).toBe(source);
+    // An authored edit equal to the previous injection is still a new captured source.
+    const edited=source.replace('4400','4412');writeFileSync(join(stage,'__exact_backend_source.json'),JSON.stringify(edited));
+    configure(stage,true,parseSync);expect(readFileSync(join(stage,'app.ts'),'utf8')).toBe(edited);
+  } finally {if(env!==undefined) process.env.EXACT_BACKEND_ORIGIN=env;rmSync(root,{recursive:true,force:true});}
+});
