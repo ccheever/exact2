@@ -50,6 +50,14 @@ extension Presenter {
         return view.superview
     }
 
+    /// What a touch's listeners (a pointer observer, a long press, a double
+    /// tap) are reached through after `view`: `touchParent`, and out of a
+    /// dialog's sheet or a lifted popover to its authored parent, as their
+    /// `MountRelay`s reach them. A press keeps to `touchParent`.
+    func listenerParent(of view: UIView) -> UIView? {
+        (view as? NodeView).flatMap { menus.sheets.authoredParent(of: $0) } ?? menus.logicalParent(of: view) ?? touchParent(of: view)
+    }
+
     /// The view a press on `target`, reached from `start` (`touchParent`),
     /// must land in: the target, or, when the walk left a sheet's mount for a
     /// logical ancestor in another mount, whose own box is not under the

@@ -58,6 +58,9 @@ final class MenuHost {
         let order: Int
         let ancestor: String?
         let layer = TopLayer(frame: .zero)
+        #if os(iOS)
+        var relay: MountRelay?
+        #endif
         init(source: UInt32?, popover: NodeView, order: Int, ancestor: String?) {
             self.source = source; self.popover = popover; self.order = order; self.ancestor = ancestor
             parent = popover.superview
@@ -577,6 +580,9 @@ final class MenuHost {
     /// the modal's view.
     private func lift(_ entry: Lifted) {
         guard let presenter, let pop = entry.popover else { return }
+        #if os(iOS)
+        if entry.relay == nil { entry.relay = MountRelay(presenter, mount: entry.layer) }
+        #endif
         let host: UIView = presenter.modals.coordinateView ?? presenter.viewport
         if entry.layer.superview !== host || host.subviews.last !== entry.layer { host.addSubview(entry.layer) }
         entry.layer.setPaintForeground()

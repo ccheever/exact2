@@ -647,13 +647,13 @@ extension Agent {
                         let handled = target.handlers.contains(event)
                         if handled { presenter.contextmenu(target.id) }
                         // A node with only a popover that cannot open it is not the target.
-                        if !presenter.menus.agentContext(target) && !handled { next = presenter.touchParent(of: node); continue }
+                        // One behind a modal hears it, but its popover would open inert.
+                        if target.inert || !presenter.menus.agentContext(target), !handled { next = presenter.listenerParent(of: node); continue }
                     } else { presenter.dblclick(target.id) }
                     return ["tapped": Int(target.id), "event": event, "injected": true, "at": at].merging(selection.map { ["selection": $0] } ?? [:]) { a, _ in a }
                 }
-                // What a finger reaches, out of a route's or a dialog's
-                // sheet too (`MountRelay`)
-                next = (node as? NodeView).flatMap { presenter.menus.sheets.authoredParent(of: $0) } ?? presenter.touchParent(of: node)
+                // What a finger reaches, out of a sheet or a lifted popover too (`MountRelay`)
+                next = presenter.listenerParent(of: node)
             }
             if let selection { return ["tapped": Int((hit as? NodeView)?.id ?? v.id), "event": event, "delivery": "recognized", "selection": selection, "at": at] }
             return ["error": "no \(event) handler at view \(v.id)"]
