@@ -39,6 +39,20 @@ whose design the port serves.
   `scrub-cancel`; an end the server makes (another write, idle 30 s, the
   tool gone) is said. An edit that rebuilds, or a tool with no dev loop,
   offers no scrub, and says why.
+- The inspector (T2b, LLP 1122 D5): Inspect turns inspect mode on every
+  build that can (the wasm page now); a click in one selects a view, and the
+  server's `selection` shows here: its source and component call sites, its
+  modes, and each row with where its value comes from. A row the node itself
+  sets to a token offers that token's cell in the grid, on the branch that
+  won for the selected copy (its modes, and the node's own `color-scheme`,
+  else its build's scheme), with T1's edits and T2's scrubs; an inherited or
+  derived row links its token; a style's or the tag's row says it comes with
+  template editing (T5). A selection stops being current, and offers
+  nothing, when its build goes, reloads or moves on (a pin, a mode, a new
+  plan or design), its page leaves inspect mode, or the design's axes
+  change; it stays so until a new selection. A token's impact is its
+  `uses`, static source sites, and Outline shows them on every build in
+  inspect mode, naming the builds told.
 - `app.ts` is the `tamber/1` client: the token from `GET /__tamber/token`
   once, every request a `POST /__tamber`, and changes followed by the long
   poll, `POST /__tamber/events`. Its grants name the tool's one origin.

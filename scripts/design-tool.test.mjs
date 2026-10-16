@@ -915,6 +915,62 @@ test('T2: a scrub chosen on a token previews on the frame\'s build with no reloa
   }
 }, 900_000);
 
+test('T2b: inspect from the tool selects a view in the canvas frame, shows its source and rows, and opens its token on the branch that won', async () => {
+  const listener = (await import('node:http')).createServer();
+  await new Promise(ok => listener.listen(0, '127.0.0.1', ok));
+  const port = listener.address().port;
+  await new Promise(ok => listener.close(ok));
+  const dist = mkdtempSync(join(tmpdir(), 'exact-design-tool-inspect-dist-'));
+  const dev = spawn(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--app', 'theme-fixture', '--wasm', '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const { chromium } = await import('playwright-core');
+  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  let tool;
+  try {
+    const base = `http://127.0.0.1:${port}`;
+    const devSaid = lines(dev);
+    await devSaid.until(l => l.includes('plan ready'), 600_000);
+    tool = spawn(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', resolve(ROOT, 'apps/theme-fixture'), '--via', base, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+    const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000);
+    const page = await browser.newPage({ viewport: { width: 1400, height: 1200 } });
+    await page.goto(url);
+    await page.locator('[data-testid="name"]').fill('Ada');
+    await page.locator('[data-testid="save-name"]').click();
+    await page.locator('[data-testid^="build-web-"]').first().waitFor({ timeout: 60_000 });
+    await page.locator('[data-testid="inspect-toggle"]').click();
+    await page.locator('[data-testid="inspect-result"]').waitFor();
+    expect(await page.locator('[data-testid="inspect-result"]').innerText()).toMatch(/^Inspecting on 1 build\(s\)/);
+    // The frame shows the banner; a click on Swap pins there (through the
+    // page's cover, at its place) selects it.
+    const frame = page.frames().find(f => f.url().startsWith(base));
+    await frame.locator('#exact-inspect').waitFor();
+    const at = await frame.locator('[data-testid="swap"]').boundingBox();
+    await page.mouse.click(at.x + at.width / 2, at.y + at.height / 2);
+    const line = readFileSync(resolve(ROOT, 'apps/theme-fixture/app.contract'), 'utf8').split('\n').findIndex(l => l.includes('text "Swap pins"')) + 1;
+    await page.locator('[data-testid="selection-source"]').waitFor({ timeout: 60_000 });
+    expect(await page.locator('[data-testid="selection-source"]').innerText()).toBe(`app.contract:${line} · App`);
+    // Its colour is inherited: a link to the page's token, not its edit;
+    // opened, the grid's cell for it, in the column the copy shows.
+    expect(await page.locator('[data-testid="selrow-link-color"]').innerText()).toBe('Open text.primary');
+    expect(await page.locator('[data-testid="selrow-edit-color"]').count()).toBe(0);
+    // The page is light (headless Chrome's default) in Black: the light
+    // column, its default branch.
+    expect(await page.locator('[data-testid="selection-build"]').innerText()).toMatch(/ · Light$/);
+    await page.locator('[data-testid="selrow-link-color"]').click();
+    await page.waitForFunction(() => /source site\(s\)/.test(document.querySelector('[data-testid="impact-count"]')?.innerText ?? ''), null, { timeout: 60_000 });
+    expect(await page.locator('[data-testid="impact-count"]').innerText()).toMatch(/^text\.primary: read at [1-9]\d* source site\(s\), statically/);
+    await page.locator('[data-testid="branch-label"]').waitFor();
+    expect(await page.locator('[data-testid="branch-label"]').innerText()).toBe('text.primary · default (Light)');
+    // Stop: the frame leaves inspect mode.
+    await page.locator('[data-testid="inspect-toggle"]').click();
+    await frame.locator('#exact-inspect').waitFor({ state: 'detached' });
+  } finally {
+    await browser.close();
+    if (tool) await stop(tool);
+    await stop(dev);
+    rmSync(dist, { recursive: true, force: true });
+  }
+}, 900_000);
+
 test('controls from metadata that does not fit, steps, select values, column labels, branches, inputs and contrast over a background', async () => {
   const { controlOf, columnsOf, contrast, branchOf, inputsOf } = await import('../apps/design-tool/app.ts');
   const dial = (kind, meta, value = kind === 'color' ? '#1083feff' : '0.001', range = kind === 'color' ? null : ['0', '0.005']) => controlOf({ name: 'd', kind, value, range, meta });

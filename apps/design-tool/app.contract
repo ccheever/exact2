@@ -129,6 +129,54 @@ shape AxisChoice
 shape AppAxes
   axes: AxisChoice[]
 
+// One row of an inspected node (LLP 1122 D5): its value, where it comes
+// from, and what the inspector offers: the token rung (`rung` "token", the
+// token and the grid column of the branch that won), a token it links, or
+// why it is read-only.
+shape SelRow
+  name: string
+  value: string
+  source: string
+  rung: string
+  token: string
+  reason: string
+  column: string
+
+// The latest node a build's inspect mode selected, joined to source.
+shape Inspected
+  has: bool
+  // Why it is no longer current (its page left inspect mode, its build
+  // went or moved on, changes were missed, the axes changed, its scheme is
+  // not known): it offers no edit then.
+  stale: string
+  build: string
+  node: number
+  readOnly: string
+  source: string
+  chain: string[]
+  // The grid column of the branch that won for it (its modes and scheme),
+  // and that column's place, whole (every axis's value, the scheme).
+  modes: string
+  place: string
+  rows: SelRow[]
+  trimmed: bool
+  // Whether this tool has inspect mode on a build, as the server and the
+  // pages tell it.
+  inspecting: bool
+
+// A token's static source sites (`uses`): the impact of editing it.
+shape UseSite
+  file: string
+  line: number
+  col: number
+  text: string
+
+shape Uses
+  ok: bool
+  error: string
+  token: string
+  sites: UseSite[]
+
 // What a pin did.
 shape Pinned
   ok: bool
@@ -244,6 +292,8 @@ shape Branch
   error: string
   token: string
   column: string
+  // The column's place, whole: its scheme and every axis's value.
+  place: string
   label: string
   when: string
   value: string
@@ -392,6 +442,13 @@ component DesignTool
   state pinMode: string[] = []
   state pinFont = 0
   mutation pinned as shape Pinned
+  // Inspect mode on the builds (LLP 1122 D4, D5), and the token whose
+  // impact the inspector shows.
+  resource inspected = loadSelection(changes.answer, design.answer) as shape Inspected else empty()
+  mutation inspectSent as shape Pinned refreshes inspected
+  state impactToken = ""
+  resource uses = loadUses(impactToken, changes.answer) as shape Uses else empty(ok=true)
+  mutation outlined as shape Pinned
   state draftName = ""
   // The long poll's place: the last sequence number seen, in which run, and
   // one more ask per answer, so an answer with nothing new asks again.
@@ -420,6 +477,9 @@ component DesignTool
   // default) and the value. Nothing is written until Apply.
   state selToken = ""
   state selColumn = ""
+  // The place the inspector put the cell at: a design read since with
+  // other axes puts another tuple at that column, refused.
+  state selPlace = ""
   state pinning = false
   // "Only this mode" chosen for the cell's edit, and a dial an expression's
   // input pointed to.
@@ -546,6 +606,31 @@ component DesignTool
     editTarget = name
     editWhen = ""
     editValue = v.trim()
+  action toggleInspect
+    if not pending(inspectSent)
+      send inspectSent = sendInspect(client, not inspected.inspecting)
+  // A row's token, on the branch that won for the selected copy: the grid's
+  // cell editor, its edits and scrubs, scoped to that branch.
+  action editFromSelection(token: string, column: string, place: string)
+    if scrubShown
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = cancelScrub(scrubAsk)
+    // The app's own design: the one the running app resolved it in.
+    file = ""
+    selToken = token
+    selColumn = column
+    selPlace = place
+    pinning = false
+    scopeOwn = false
+    focusDial = ""
+    editKind = ""
+    impactToken = token
+  action showImpact(token: string)
+    impactToken = token
+  action outlineImpact
+    if impactToken != "" and not pending(outlined)
+      send outlined = outlineUses(client, impactToken)
   action selectCell(token: string, column: string)
     // A scrub open is of another edit: it ends first.
     if scrubShown
@@ -554,6 +639,7 @@ component DesignTool
       send written = cancelScrub(scrubAsk)
     selToken = token
     selColumn = column
+    selPlace = ""
     pinning = false
     scopeOwn = false
     focusDial = ""
@@ -737,6 +823,7 @@ component DesignTool
     editKind = ""
     selToken = ""
     selColumn = ""
+    selPlace = ""
     pinning = false
     scopeOwn = false
     focusDial = ""
@@ -800,6 +887,59 @@ component DesignTool
             // The builds (LLP 1122 D4): every running copy, its effective
             // facts from its own report, and pins, which last while the tool
             // runs (its long poll names it) and are handed back when it stops.
+            // The inspector (LLP 1122 D5): inspect mode on the builds, the node
+            // a click in one selected, where each row's value comes from, and
+            // what may be edited from here (failing closed).
+            column gap=8 testId="inspector"
+              row gap=8 align-items="center"
+                text "Inspector" role="heading" aria-level=2 flex=1
+                button press=toggleInspect disabled=pending(inspectSent) buttonStyle=(inspected.inspecting ? "filled" : "bordered") testId="inspect-toggle"
+                  text (inspected.inspecting ? "Stop inspecting" : "Inspect")
+              match inspectSent
+                case some(i)
+                  text (i.ok ? i.note : i.error) color=(i.ok ? "-exact-secondary-label" : "-exact-system-red") font="-exact-footnote" testId="inspect-result"
+                case none
+                  text "" display="none"
+              if not inspected.has
+                text "Turn on Inspect, then click a view in the canvas or on a device: its source, rows and tokens show here." color="-exact-secondary-label" testId="no-selection"
+              else
+                column gap=4 testId="selection"
+                  text inspected.source font="-exact-headline" testId="selection-source"
+                  for c in inspected.chain key=c
+                    text `in ${c}` color="-exact-secondary-label" font="-exact-footnote"
+                  text `${inspected.build}${inspected.modes != "" ? ` · ${inspected.modes}` : ""}` color="-exact-secondary-label" font="-exact-footnote" testId="selection-build"
+                  if inspected.stale != ""
+                    text `No longer current: ${inspected.stale}. Select it again to edit from here.` color="-exact-system-orange" testId="selection-stale"
+                  if inspected.readOnly != ""
+                    text `Read-only: ${inspected.readOnly}` color="-exact-system-orange" testId="selection-readonly"
+                  if inspected.trimmed
+                    text "Some rows were left out: the report was too large." color="-exact-secondary-label" font="-exact-footnote"
+                  for r in inspected.rows key=r.name
+                    row gap=8 align-items="center" flex-wrap="wrap" testId=`selrow-${r.name}`
+                      text r.name font="-exact-footnote" width="9rem"
+                      text r.value font="-exact-caption1" font-family="ui-monospace, monospace" flex=1 min-width=0
+                      text r.source color="-exact-secondary-label" font="-exact-caption1" testId=`selrow-source-${r.name}`
+                      if r.rung == "token"
+                        button press=editFromSelection(r.token, r.column, inspected.place) buttonStyle="bordered" testId=`selrow-edit-${r.name}`
+                          text `Edit ${r.token}`
+                      else if r.token != ""
+                        button press=editFromSelection(r.token, r.column, inspected.place) testId=`selrow-link-${r.name}`
+                          text `Open ${r.token}`
+                      if r.rung != "token" and r.reason != ""
+                        text r.reason color="-exact-secondary-label" font="-exact-caption1" testId=`selrow-reason-${r.name}`
+              if impactToken != ""
+                column gap=2 testId="impact"
+                  row gap=8 align-items="center"
+                    text (pending(uses) or uses.token != impactToken ? `${impactToken}: reading its uses…` : uses.ok ? `${impactToken}: read at ${uses.sites.length} source site(s), statically (not a count of mounted copies)` : uses.error) font="-exact-footnote" flex=1 testId="impact-count"
+                    button press=outlineImpact disabled=(pending(outlined) or not inspected.inspecting) testId="impact-outline"
+                      text "Outline"
+                  match outlined
+                    case some(o)
+                      text (o.ok ? o.note : o.error) color=(o.ok ? "-exact-secondary-label" : "-exact-system-red") font="-exact-caption1" testId="impact-outlined"
+                    case none
+                      text "" display="none"
+                  for u in (uses.token == impactToken ? uses.sites : []) key=`${u.file}:${u.line}:${u.col}`
+                    text u.text color="-exact-secondary-label" font="-exact-caption1"
             column gap=8 testId="builds"
               text "Builds" role="heading" aria-level=2
               if changes.builds.length == 0
@@ -908,7 +1048,9 @@ component DesignTool
                               for b in cell.pairs key=b.name
                                 text `${b.ratio} on ${b.name}` font="-exact-caption2" color=(b.low ? "-exact-system-red" : "-exact-secondary-label") line-clamp=1 testId=`pair-${t.name}-${cell.column}-${b.name}`
               // The branch of the cell chosen, read of the grid shown.
-              if selToken != "" and branch.ok and branch.token == selToken and branch.column == selColumn and branch.answer == design.answer and not pending(branch)
+              if selPlace != "" and branch.ok and branch.token == selToken and branch.column == selColumn and branch.answer == design.answer and not pending(branch) and branch.place != selPlace
+                text "The design's axes changed since that copy was selected, so this column is another branch now: select it again." color="-exact-system-orange" testId="branch-moved"
+              if selToken != "" and branch.ok and branch.token == selToken and branch.column == selColumn and branch.answer == design.answer and not pending(branch) and (selPlace == "" or branch.place == selPlace)
                 column gap=8 padding=12 border-radius=10 background-color="-exact-secondary-background" testId="branch"
                   text (scopeOwn ? `${branch.token} · ${branch.own} (only this mode)` : branch.label) role="heading" aria-level=3 testId="branch-label"
                   if branch.expression and not pinning

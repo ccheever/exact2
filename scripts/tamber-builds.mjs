@@ -319,6 +319,9 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null 
         if (refresh) frame(t, { kind: 'inspect', refresh: true });
         else { const seq = ++inspects; inspectSeq.set(t, seq); frame(t, { kind: 'inspect', on: !!on, seq }); if (on) inspectors.set(t, client); else inspectors.delete(t); }
       }
+      // Off everywhere is off on a build of this client's that is away too:
+      // its registration is told off, not replayed on.
+      if (id == null && !on && !refresh) for (const [t, owner] of inspectors) if (owner === client && !can.includes(t)) { inspectors.delete(t); inspectSeq.set(t, ++inspects); }
       log(`tamber: ${client} ${refresh ? 'refreshed inspect' : `inspect ${on ? 'on' : 'off'}`} on ${can.join(', ') || 'no build'}`);
       return { builds: can, unsupported: targets.map(b => b.id).filter(t => !can.includes(t)) };
     },

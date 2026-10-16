@@ -412,4 +412,12 @@ test('inspect goes to the builds that can, refresh asks for the selection again,
   const again = stream(channel);
   report(channel, { nonce: again.nonce, kind: 'register', id: 'web-1', host: 'web', capabilities: ['pin', 'inspect'] });
   expect(again.frames).toContainEqual({ kind: 'inspect', on: true, seq: 5 });
+  // Turned off everywhere while the build is away: it registers again
+  // told off, not on.
+  again.close();
+  expect(channel.inspect('tool', null, { on: false }).builds).toEqual([]);
+  const back = stream(channel);
+  report(channel, { nonce: back.nonce, kind: 'register', id: 'web-1', host: 'web', capabilities: ['pin', 'inspect'] });
+  expect(back.frames).toContainEqual({ kind: 'inspect', on: false, seq: 6 });
+  expect(channel.owners()).toEqual([]);
 });

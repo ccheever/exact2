@@ -736,7 +736,9 @@ The tool drives no input into an app; a command changes only what `prefer` would
   sends
   `inspect` to a build, or to every build that can. Answered `{builds, unsupported}`: the builds
   it went to, and those that can't inspect. Inspect mode is its client's: when the client stops
-  being present, it is turned off where it turned it on.
+  being present, it is turned off where it turned it on. Turned off with no `build`, it is off
+  on that client's builds that are away too (not in `builds`): one that registers again is told
+  off, not on.
 - **`pin`** `{client, build?, pin}` (write scope, as the wire's POSTs are) sends one to a build, or
   to every registered build without `build`. `preview` `{client, build, axis, value}` is the
   same as pinning that build's mode for that axis (it replaces that build's pin, as any pin

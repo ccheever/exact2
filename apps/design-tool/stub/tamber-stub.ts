@@ -35,7 +35,9 @@ const present = new Set<string>();
 // edit of the warmth dial is rebuild-class (as if it fed a role override),
 // both proposed and scrubbed.
 const REBUILDS = new Set(['warmth']);
-let LIVE = false, refuseRelease = '', previewMs = 0;
+// The design's axes in the other order, as a test reorders them
+// (`/__stub/reverse-axes`): describe says so from then on.
+let LIVE = false, refuseRelease = '', previewMs = 0, reversed = false;
 const changedOf = (ops: { name?: string }[]) => ops.map(o => ({ file: 'app.tamber', token: o.name }));
 // A run's sessions (a restart starts their ids again, as a new server's do).
 const sessions = () => scrubSessions({
@@ -95,6 +97,18 @@ Bun.serve({ hostname, port: Number(port), routes: {
       }
       // Any other write ends a scrub first, as the server's do.
       if (['transaction', 'undo', 'accept'].includes(request.method)) scrubs.compete();
+      // Inspect goes to the builds that say they can (LLP 1122 D4); `uses`
+      // is canned for surface.card; `outline` answers with its sites.
+      if (request.method === 'inspect') {
+        if (!present.has(request.client)) return send({ error: { message: `inspect: \`${request.client}\` is not present` } }, 409);
+        const can = BUILDS.filter(b => (b.capabilities ?? []).includes('inspect')).map(b => b.id);
+        return send({ ok: { builds: can, unsupported: BUILDS.map(b => b.id).filter(id => !can.includes(id)) } });
+      }
+      if (request.method === 'uses') return send({ ok: { token: request.token, plan: 'p1', sites: request.token === 'surface.card' ? [
+        { site: 3, row: 'background_color', file: '/stub/app.contract', line: 12, col: 5, end_col: 9, component: 'App' },
+        { site: 7, row: 'background_color', file: '/stub/card.contract', line: 4, col: 7, end_col: 11, component: 'Card', via: { token: 'surface.raised' } },
+      ] : [], aliases: [], files: FILES } });
+      if (request.method === 'outline') return send({ ok: { sites: (request.at ?? []).map((_: unknown, i: number) => i), builds: BUILDS.filter(b => (b.capabilities ?? []).includes('inspect')).map(b => b.id) } });
       // A pin names a present client, and a build the server lists.
       if (request.method === 'pin' || request.method === 'preview') {
         if (!present.has(request.client)) return send({ error: { message: `\`${request.client}\` is not present: a client's pins live while its subscription or long poll does` } }, 409);
@@ -114,14 +128,17 @@ Bun.serve({ hostname, port: Number(port), routes: {
       // server refuses a design that does not check.
       if (['describe', 'resolve', 'explain', 'propose'].includes(request.method) && (request.file ?? 'app.tamber') !== 'app.tamber') return send({ error: { message: `the stub has no design in ${request.file}` } }, 400);
       // Its digests are the stub's own, which hello and the events carry.
-      if (request.method === 'describe') return send({ ok: { ...DIALS.describe, files: FILES } });
+      if (request.method === 'describe') return send({ ok: { ...DIALS.describe, ...(reversed ? { ir: { ...DIALS.describe.ir, axes: [...DIALS.describe.ir.axes].reverse() } } : {}), files: FILES } });
+      // Reordered axes put each tuple at its index in the new order.
+      const at = (modes: Record<string, string>) => [...DIALS.describe.ir.axes].reverse().reduce((n: number, a: { name: string; values: string[] }) => n * a.values.length + a.values.indexOf(modes[a.name]), 0);
+      const order = (tuples: { modes: Record<string, string> }[]) => !reversed ? tuples : [...tuples].sort((x, y) => at(x.modes) - at(y.modes));
       // surface.card's dark side moves once app.tamber does (an event's
       // `files`), so a change to it has cells that moved.
       if (request.method === 'resolve' && request.token === 'surface.card' && FILES['app.tamber'] !== 'a'.repeat(64)) {
         const card = DIALS.resolve['surface.card'];
-        return send({ ok: { ...card, files: FILES, tuples: card.tuples.map((t: Record<string, unknown>) => ({ ...t, dark: `#${FILES['app.tamber'].slice(0, 6)}ff` })) } });
+        return send({ ok: { ...card, files: FILES, tuples: order(card.tuples).map((t: Record<string, unknown>) => ({ ...t, dark: `#${FILES['app.tamber'].slice(0, 6)}ff` })) } });
       }
-      if (request.method === 'resolve') return DIALS.resolve[request.token] ? send({ ok: { ...DIALS.resolve[request.token], files: FILES } }) : send({ error: { message: `no token \`${request.token}\`` } }, 400);
+      if (request.method === 'resolve') return DIALS.resolve[request.token] ? send({ ok: { ...DIALS.resolve[request.token], tuples: order(DIALS.resolve[request.token].tuples), files: FILES } }) : send({ error: { message: `no token \`${request.token}\`` } }, 400);
       if (request.method === 'explain') return DIALS.explain[request.token] ? send({ ok: { ...DIALS.explain[request.token], files: FILES } }) : send({ error: { message: `no token \`${request.token}\`` } }, 400);
       // A write is not applied: canned answers in its shape, enough for the
       // tool's own flow (its edits are tested on a real server).
@@ -187,6 +204,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       held = [];
       holds = 0;
       BUILDS = [];
+      reversed = false;
       pins = 0;
       present.clear();
       scrubs.lost();
@@ -240,6 +258,13 @@ Bun.serve({ hostname, port: Number(port), routes: {
       return send({ ok: true });
     },
   },
+  '/__stub/reverse-axes': {
+    POST: (req) => {
+      if (!driver(req)) return send({ message: 'Not found.' }, 404);
+      reversed = true;
+      return send({ ok: true });
+    },
+  },
   '/__stub/miss': {
     POST: (req) => {
       if (!driver(req)) return send({ message: 'Not found.' }, 404);
@@ -257,16 +282,19 @@ Bun.serve({ hostname, port: Number(port), routes: {
   '/__stub/event': {
     POST: async (req) => {
       if (!driver(req)) return send({ message: 'Not found.' }, 404);
-      const e = await req.json().catch(() => ({}));
-      // An event's `files` are the digests from then on.
-      if (e.files) FILES = { ...FILES, ...e.files };
-      // A `builds` event is the list hello gives from then on, and a
-      // `build-status` one that build's entry.
-      // (A record is the server's: its last refusal kept on it.)
-      if (e.event === 'builds') BUILDS = (e.builds ?? []).map((b: Record<string, unknown>) => ({ ...b }));
-      if (e.event === 'build-status') BUILDS = BUILDS.map(b => b.id === e.build?.id ? { ...b, ...e.build } : b);
-      if (e.event === 'unsupported') BUILDS = BUILDS.map(b => b.id === e.build ? { ...b, unsupported: { what: e.what, detail: e.detail ?? null } } : b);
-      log.push({ event: 'changed', epoch: EPOCH, client: null, changed: [], edited: [], ...e, files: FILES, seq: seq() + 1 });
+      const body = await req.json().catch(() => ({}));
+      // `{events: [...]}`: several, logged at once (one answer of the poll).
+      for (const e of body.events ?? [body]) {
+        // An event's `files` are the digests from then on.
+        if (e.files) FILES = { ...FILES, ...e.files };
+        // A `builds` event is the list hello gives from then on, and a
+        // `build-status` one that build's entry.
+        // (A record is the server's: its last refusal kept on it.)
+        if (e.event === 'builds') BUILDS = (e.builds ?? []).map((b: Record<string, unknown>) => ({ ...b }));
+        if (e.event === 'build-status') BUILDS = BUILDS.map(b => b.id === e.build?.id ? { ...b, ...e.build } : b);
+        if (e.event === 'unsupported') BUILDS = BUILDS.map(b => b.id === e.build ? { ...b, unsupported: { what: e.what, detail: e.detail ?? null } } : b);
+        log.push({ event: 'changed', epoch: EPOCH, client: null, changed: [], edited: [], ...e, files: FILES, seq: seq() + 1 });
+      }
       save();
       return send({ ok: true });
     },

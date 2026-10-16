@@ -7,6 +7,7 @@
 // body whole, so it cannot follow the server-sent stream. A failure is
 // words in the answer, never a throw.
 import type { Answer, Result, Sources } from './app.contract.d.ts';
+import { buildKey, placeOf, schemeOf, selectionView, staleness, type Selected } from './inspector';
 
 export const appId = 'com.exact.design-tool';
 // The tool's own local URL: `tamber tool` serves it here, and a grant names
@@ -334,7 +335,9 @@ export function inputsOf(value: string, names: string[], dials: string[]): { tok
 type Stored = { css: string; srgb: string; residual: boolean; note: string; value: string };
 type Snapshot = { file: string; axes: Axis[]; columns: Column[]; stored: Map<string, Stored[][]>; dials: Map<string, { group: string; more: boolean }>; digests: string };
 const snapshots = new Map<number, Snapshot>();
-let issued = 0;
+// Design reads, and reads of the app design's axes (either kind): only the
+// newest of the second sets the axes a selection is placed by.
+let issued = 0, axesReads = 0;
 // Whether running apps take a value edit with no reload: a server says so
 // in its hello once it has the live table (LLP 1121 stage 4). Until then
 // every edit reaches them through the dev loop's reload.
@@ -532,8 +535,16 @@ function wroteMine(ok: { write?: number; diff?: string }, redoneBy = '') {
 // gap, a new run), then the build events. Each with the revision of the
 // last pin frame it was sent (`pinRevision`, whoever sent it), and the last
 // command it could not apply, kept while that pin is its pin.
-type BuildState = { id: string; host: string; status: any; pin: any; pinRevision: number; unsupported: { what: string; detail: string | null } | null };
+type BuildState = { id: string; host: string; status: any; plan: string | null; design: string | null; pin: any; pinRevision: number; unsupported: { what: string; detail: string | null } | null };
 let buildsNow = new Map<string, BuildState>();
+// The latest selection (the server's join, LLP 1122 D5) with what it was
+// made under; a stale one stays stale until a fresh selection (a reload back
+// to the same facts is another document). And the builds this tool turned
+// inspect mode on, as the server and the pages tell it.
+let selectionNow: Selected | null = null;
+let designAxes: Axis[] = [];
+const inspectOn = new Set<string>();
+const latch = () => { if (selectionNow && !selectionNow.stale) selectionNow.stale = staleness(selectionNow, buildsNow.get(String(selectionNow.e.build)), designAxes); };
 // The poll now (a newer one replaces it), and whether the build list must
 // be read again from hello (the poll started again, and no read has
 // succeeded since).
@@ -554,7 +565,7 @@ const buildRows = () => [...buildsNow.values()].map(b => {
     unsupported: b.unsupported ? `${b.unsupported.what}${b.unsupported.detail ? `: ${b.unsupported.detail}` : ''}` : '',
   };
 });
-const buildOf = (b: any, was?: BuildState): BuildState => ({ id: String(b.id), host: String(b.host ?? was?.host ?? ''), status: b.status ?? null, pin: b.pin ?? null, pinRevision: Number(b.pinRevision ?? 0), unsupported: b.unsupported ?? null });
+const buildOf = (b: any, was?: BuildState): BuildState => ({ id: String(b.id), host: String(b.host ?? was?.host ?? ''), status: b.status ?? null, plan: b.plan ?? null, design: b.design ?? null, pin: b.pin ?? null, pinRevision: Number(b.pinRevision ?? 0), unsupported: b.unsupported ?? null });
 /** The server's list, whole: a build it no longer lists is gone. */
 const takeBuilds = (list: any[]) => {
   buildsNow = new Map((list ?? []).map(b => [String(b.id), buildOf(b)]));
@@ -779,7 +790,7 @@ const sources: Sources = {
     return { ok: true, error: '', protocol: String(ok.protocol ?? ''), format: Number(ok.format ?? 0), app: String(ok.app ?? ''), files: files(ok.files), page: pageOf(ok.page), live: liveTable };
   },
   loadDesign: async ([file]) => {
-    const number = ++issued;
+    const number = ++issued, axesAt = !file || file === designFile ? ++axesReads : -1;
     try {
       const read = await readDesign(file);
       if (read.error) return noDesign(read.error);
@@ -846,6 +857,8 @@ const sources: Sources = {
       for (const g of panel) for (const [list, more] of [[g.dials, false], [g.more, true]] as const) for (const c of list) dials.set(c.name, { group: g.name, more });
       // Overtaken: never shown, so nothing to keep.
       if (number === issued) {
+        // The app design's axes, of the newest read only.
+        if (axesAt === axesReads) designAxes = axes;
         snapshots.set(number, { file, axes, columns, stored, dials, digests: digestKey(read.files) });
         for (const old of snapshots.keys()) if (old < number - 4) snapshots.delete(old);
         reads.set(`${named(file)}|${read.files?.[named(file)] ?? ''}`, { stored, axes, columns });
@@ -863,7 +876,7 @@ const sources: Sources = {
     }
   },
   loadBranch: async ([file, token, column, answer]) => {
-    const none = { ok: true, error: '', token: '', column: '', label: '', when: '', value: '', expression: false, inputs: [], dials: [], roles: [], exact: true, own: '', answer };
+    const none = { ok: true, error: '', token: '', column: '', place: '', label: '', when: '', value: '', expression: false, inputs: [], dials: [], roles: [], exact: true, own: '', answer };
     const snap = snapshots.get(answer);
     const col = snap?.columns.find(c => c.id === column);
     if (!token || !col || !snap || snap.file !== file) return none;
@@ -881,7 +894,7 @@ const sources: Sources = {
     // A dial with no control (`control=none`) is said, not offered.
     const dials = inputs.dials.map(name => ({ name, group: snap.dials.get(name)?.group ?? '', more: snap.dials.get(name)?.more ?? false, hidden: !snap.dials.has(name) }));
     return {
-      ok: true, error: '', token, column, label: `${token} · ${b.when || 'default'} (${col.label})`, when: b.when, value,
+      ok: true, error: '', token, column, place: placeOf(snap.axes, col), label: `${token} · ${b.when || 'default'} (${col.label})`, when: b.when, value,
       expression: inputs.tokens.length + inputs.dials.length + inputs.roles.length > 0, inputs: inputs.tokens, dials, roles: inputs.roles, exact: b.own === '' || b.when === b.own, own: b.own, answer,
     };
   },
@@ -1083,9 +1096,11 @@ const sources: Sources = {
     // changeset starts again with it.
     // Another run of the server has none of this run's scrub: it ended
     // there, and a new one is chosen again.
-    if (place.epoch && r.epoch !== place.epoch) { forget(placeRun, [...undoStack, ...redoStack].some(e => e.token !== used)); changeset = []; reads.clear(); buildsNow = new Map(); endedIds.clear(); if (scrubbing) endScrub(scrubbing, scrubEndText('server lost')); }
+    if (place.epoch && r.epoch !== place.epoch) { forget(placeRun, [...undoStack, ...redoStack].some(e => e.token !== used)); changeset = []; reads.clear(); buildsNow = new Map(); selectionNow = null; inspectOn.clear(); endedIds.clear(); if (scrubbing) endScrub(scrubbing, scrubEndText('server lost')); }
     // Events missed: an end among them would be lost, so a scrub open is
     // ended here (cancelled, if the server still has it).
+    // Missed, inspect mode's state is not known either: Inspect sends it again.
+    if (epoch && r.missed) { if (selectionNow) selectionNow.stale = 'some changes were missed'; inspectOn.clear(); }
     if (epoch && r.missed && r.epoch === place.epoch && scrubbing) {
       const s = scrubbing;
       endScrub(s, 'The scrub was ended: some changes were missed, so its state was not known. Nothing was written.');
@@ -1105,15 +1120,29 @@ const sources: Sources = {
     if (epoch && !r.missed) for (const e of (r.events ?? []) as any[]) noted(e);
     // The builds, as their events tell them.
     for (const e of (r.events ?? []) as any[]) {
-      if (e.event === 'builds') takeBuilds(e.builds);
-      else if (e.event === 'build-status' && e.build?.id) buildsNow.set(String(e.build.id), buildOf(e.build, buildsNow.get(String(e.build.id))));
+      // Each as it comes, so a reload told in one answer still ends a
+      // selection (a build that went keeps its inspect mode at the server,
+      // which tells it again when it is back).
+      if (e.event === 'builds') { takeBuilds(e.builds); latch(); }
+      else if (e.event === 'build-status' && e.build?.id) { buildsNow.set(String(e.build.id), buildOf(e.build, buildsNow.get(String(e.build.id)))); latch(); }
       // This tool's scrub, ended by the server (another write, idle, the
       // tool gone, the server lost): said, and a new one is chosen again.
       else if (e.event === 'scrub' && !['opened', 'released', 'cancelled'].includes(e.reason)) {
         if (e.client === client) { endedIds.set(String(e.scrub), String(e.reason)); if (endedIds.size > 32) endedIds.delete(endedIds.keys().next().value!); }
         if (scrubbing?.id && e.scrub === scrubbing.id) endScrub(scrubbing, scrubEndText(String(e.reason)));
       }
-      else if (e.event === 'unsupported') { const b = buildsNow.get(String(e.build)); if (b) b.unsupported = { what: String(e.what ?? ''), detail: e.detail ?? null }; }
+      else if (e.event === 'unsupported') {
+        const b = buildsNow.get(String(e.build)); if (b) b.unsupported = { what: String(e.what ?? ''), detail: e.detail ?? null };
+        if (e.what === 'inspect' && selectionNow && String(selectionNow.e.build) === String(e.build)) selectionNow.stale ||= `its page could not inspect it${e.detail ? ` (${e.detail})` : ''}`;
+      }
+      // A selection joined to source, with what it was made under.
+      else if (e.event === 'selection') { const b = buildsNow.get(String(e.build)); selectionNow = { e, at: buildKey(b), axes: JSON.stringify(designAxes), scheme: schemeOf(e, b), stale: '' }; }
+      // A page that left inspect mode itself: its selection is no longer
+      // current, and the tool no longer inspects there.
+      else if (e.event === 'selected' && e.selected === null) {
+        inspectOn.delete(String(e.build));
+        if (selectionNow && String(selectionNow.e.build) === String(e.build)) selectionNow.stale = 'its page left inspect mode';
+      }
     }
     // Starting again, the builds are the server's list now (its events
     // before this answer are not sent): read at once, not a poll later, and
@@ -1122,7 +1151,7 @@ const sources: Sources = {
     if (resync) {
       const now = await call('/__tamber', { method: 'hello' });
       if (gen !== polls) return { ok: true, error: '', missed: false, ...state() };
-      if (!now.error) { takeBuilds((now.reply.ok as { builds?: any[] })?.builds ?? []); resync = false; }
+      if (!now.error) { takeBuilds((now.reply.ok as { builds?: any[] })?.builds ?? []); latch(); resync = false; }
     }
     const fresh = (r.events ?? []).map(change).filter((c): c is Change => c !== null).reverse();
     recent = [...fresh, ...recent].slice(0, 50);
@@ -1354,9 +1383,43 @@ const sources: Sources = {
     // read again as the changes move (the open file's read is the app's
     // when none is open).
     if (!file) return { axes: [] };
-    const { error, reply } = await call('/__tamber', { method: 'describe' });
+    const axesAt = ++axesReads, { error, reply } = await call('/__tamber', { method: 'describe' });
     const axes = error ? [] : (((reply.ok as { ir?: { axes?: Axis[] } })?.ir?.axes) ?? []);
+    // Also the axes a selection is placed by, while this file is open.
+    if (!error && axesAt === axesReads) designAxes = axes;
     return { axes: axes.map(a => ({ name: a.name, values: a.values })) };
+  },
+  loadSelection: async () => { latch(); return selectionView(selectionNow, selectionNow?.stale ?? '', designAxes, columnsOf(designAxes), inspectOn.size > 0); },
+  sendInspect: async ([client, on]) => {
+    // Inspect mode on every build that can (LLP 1122 D4), or off.
+    const { error, reply } = await call('/__tamber', { method: 'inspect', client, on });
+    if (error) return { ok: false, error, note: '' };
+    const ok = reply.ok as { builds: string[]; unsupported: string[] };
+    // Off is off on every build this client had, one gone included (the
+    // server forgets it there too, so it is not replayed on).
+    if (on) for (const id of ok.builds ?? []) inspectOn.add(id); else inspectOn.clear();
+    const none = ok.unsupported?.length ? ` ${ok.unsupported.join(', ')} cannot inspect.` : '';
+    return { ok: true, error: '', note: on ? `Inspecting on ${ok.builds.length} build(s): click a view in one.${none}` : `Inspect mode off on ${ok.builds.length} build(s).` };
+  },
+  loadUses: async ([token, answer]) => {
+    // Where the app reads a token, statically (the server's `uses`): the
+    // impact of an edit to it, as source sites, not mounted copies.
+    if (!token) return { ok: true, error: '', token: '', sites: [] };
+    const { error, reply } = await call('/__tamber', { method: 'uses', token });
+    if (error) return { ok: false, error, token, sites: [] };
+    const via = (v: any) => !v ? '' : v.token ? ` · through ${v.token}` : v.synthetic ? ` · through ${v.synthetic}` : v.slot ? ` · through the slot ${v.slot}` : v.derive ? ` · through the derive ${v.derive}` : '';
+    const sites = ((reply.ok as { sites?: any[] }).sites ?? []).map(x => ({ file: String(x.file), line: Number(x.line), col: Number(x.col), text: `${String(x.file).split('/').pop()}:${x.line} · ${x.component}${via(x.via)}` }));
+    return { ok: true, error: '', token, sites };
+  },
+  outlineUses: async ([client, token]) => {
+    // A token's sites outlined on every build in inspect mode (`outline`).
+    const { error, reply } = await call('/__tamber', { method: 'uses', token });
+    if (error) return { ok: false, error, note: '' };
+    const at = ((reply.ok as { sites?: any[] }).sites ?? []).map(x => ({ file: x.file, line: x.line, col: x.col }));
+    const out = await call('/__tamber', { method: 'outline', client, at });
+    if (out.error) return { ok: false, error: out.error, note: '' };
+    const done = out.reply.ok as { sites: number[]; builds: string[] };
+    return { ok: true, error: '', note: done.builds?.length ? `Sent ${token}'s ${done.sites.length} site(s) to ${done.builds.join(', ')}; a build in inspect mode on that plan outlines them.` : `No build can inspect: ${token}'s sites were outlined nowhere.` };
   },
   sendPin: async ([client, build, scheme, contrast, mode, rootFontSize, preview, handBack]) => {
     // A pin on one build ("" every build): the facts `prefer` pins, each
