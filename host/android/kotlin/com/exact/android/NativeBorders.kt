@@ -11,6 +11,8 @@ import android.graphics.Path
 internal class NativeBorders {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val ring = Path()
+    private var nativeStrokeWidth = 0f
+    private var nativeStrokeRadius = 0f
     private var sides: Array<Path>? = null
     private var partitionsDirty = true
     private val inner = FloatArray(8)
@@ -28,7 +30,12 @@ internal class NativeBorders {
         val first = (0..3).first { widths[it] > 0f }
         if ((0..3).all { widths[it] <= 0f || colors[it] == colors[first] }) {
             paint.color = colors[first]
-            canvas.drawPath(ring, paint)
+            if (nativeStrokeWidth > 0f) {
+                val inset = nativeStrokeWidth * .5f
+                paint.style = Paint.Style.STROKE; paint.strokeWidth = nativeStrokeWidth
+                try { canvas.drawRoundRect(inset, inset, width - inset, height - inset, nativeStrokeRadius, nativeStrokeRadius, paint) }
+                finally { paint.style = Paint.Style.FILL }
+            } else canvas.drawPath(ring, paint)
         } else {
             val partitions = partitions(width, height, widths)
             for (side in 0..3) {
@@ -42,6 +49,11 @@ internal class NativeBorders {
     private fun rebuild(width: Float, height: Float, widths: FloatArray, radii: FloatArray) {
         ring.reset()
         partitionsDirty = true
+        val border = widths[0]; val radius = radii[0]
+        nativeStrokeWidth = if (border.isFinite() && radius.isFinite() && border > 0f && radius >= border &&
+            widths.all { it == border } && radii.all { it == radius } &&
+            radius.toDouble() * 2 <= minOf(width, height).toDouble()) border else 0f
+        nativeStrokeRadius = radius - nativeStrokeWidth * .5f
         occupied = width > 0f && height > 0f && widths.any { it > 0f }
         if (!occupied) return
         val top = widths[0].coerceIn(0f, height)

@@ -638,3 +638,48 @@ All planned phases/attempts are retained, and source/APK/native/ART/work/PID/the
 and restore checks pass. Earlier failed preflights contain no measured phases.
 Native parity is still not achieved in slow CPU or memory; no frame-drop claim is
 inferred from callbacks, incomplete Window metrics or these CPU measurements.
+
+
+### Native uniform border stroke (Redmi, 2026-10-16)
+
+Uniform solid borders with equal positive widths and fitting circular radii
+at least as large as the border width use
+`Canvas.drawRoundRect` with `Paint.Style.STROKE`. Its centerline is inset by half
+of the border width, preserving the authored outer radius and inner radius.
+Asymmetric, mixed-color and normalizing-radius cases keep the existing path.
+The native Views, scene, layout, text backend, JNI and image payload are unchanged.
+
+A separate release AB/BA cohort has four pairs per speed (16 processes), with ART
+`speed` compilation, 1.5 s warmup and an 8 s measurement window. No profiler, video
+or forced GC runs in this cohort. The table reports arithmetic means; CPU 100% is
+one core. PSS comes from the external post-window snapshot and is not peak memory.
+
+| Metric | Slow: before | Slow: stroke | Fast: before | Fast: stroke |
+|---|---:|---:|---:|---:|
+| Process CPU | 72.174% | 72.247% | 148.844% | 147.549% |
+| UI CPU | 18.716% | 19.237% | 68.599% | 68.815% |
+| External PSS | 88.504 MiB | 81.671 MiB | 100.531 MiB | 90.708 MiB |
+
+PSS decreases in every pair: 6.68–7.04 MiB slow and 8.65–10.82 MiB fast.
+Graphics accounts for most of the saving and is already included in PSS. Process
+CPU is nearly unchanged; slow UI CPU is 2.8% higher. Fast endpoint overscan graphs
+differ in two pairs, despite matching workload gates and the final visible row.
+FPS is withheld because the Redmi WindowFrameMetrics observer loses callbacks.
+
+A separate diagnostic profile explains the memory result: 844 px path-mask
+uploads fall from 260 to 104, including all 67 tall masks, and mask-worker CPU
+falls from 107.37 to 27.96 ms per 8 s window. Prepare-tree and replay CPU stay
+similar. These two profiles have small pacing/endpoint differences and do not
+establish a statistical CPU improvement.
+
+On the physical Redmi, 888 states match direct public Android drawing on both
+software and hardware canvases; all 745 fallback states, including 86 with a
+zero-width side, retain the old pixels exactly. Supported thin strokes use the
+platform's stroke antialiasing, which differs from the old even-odd fill.
+The retained SDK tests, including the new stroke/fallback checks, pass in the
+minified release APK on API 36; build, tests, Clippy, fmt, caps and boot pass.
+Evidence is under ignored `target/android-redmi-structural-20261015/` in
+`native-uniform-border-stroke-r1-normal-n4-r1`,
+`normal-uniform-stroke-fast-attribution-r1`,
+`native-uniform-border-stroke-sdk-diagnostic-verify-r2` and
+`native-uniform-border-stroke-retained-emulator-verify-r1`.
