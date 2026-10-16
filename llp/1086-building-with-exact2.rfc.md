@@ -551,8 +551,9 @@ clock one millisecond; the backend's clock remains its own.
 Both adapters expose stored, fenced guest sessions and public auth configuration.
 The mixed identity recipe tests guest admission, optional send arguments, persona
 selection resetting to signed out on reload, and password-session restoration.
-Mutation sources throw `refused(why)`; a literal `{ok:false}` returned along a
-Snapback mutation source path is refused at bake with that rewrite. The refusal’s
+Mutation sources throw `refused(why)`. The compiler emits mutation source names
+from the plan; the Snapback bake constrains their bool `ok` result fields to
+`true` through TypeScript, so returned failures are refused with that rewrite. The refusal’s
 code and message remain separate, including in the web agent’s mutation failures.
 Roster scaffolds write explicit-id seed rows for `insert <- deny` tables and use
 `fresh "seed.json"`; unsupported field types require an authored backend seed.

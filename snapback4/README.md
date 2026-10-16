@@ -1174,6 +1174,13 @@ column is required: handle `row.parentField ?? fallback` at that boundary.
 The guestbook's shared `ack(sent)` also accepts `Sent<null>`; a void mutation
 needs no invented result object.
 
+For a Snapback mutation, `Result<'post'>` constrains a bool `ok` field to `true`:
+a false answer must throw `refused(why)` to populate `failure(posted)`. Give a
+helper that result annotation, as `ack` does, or preserve an inferred success
+literal with `ok: true as const`. Handled failures inside helpers are ordinary
+values; resource result types retain their bool fields. The compiler supplies
+mutation source names from the plan, including calls in imported actions.
+
 ### One view across a rollback
 
 Both adapters expose `release(): Promise<ReleaseSnapshot>` and
@@ -1302,8 +1309,9 @@ const renewed = await db.refreshSession(now);          // near expiresAt: keep r
   `readAll` throws a page's (where `read` answers `denied`), and a first
   read that cannot reach the server throws `E_OFFLINE`. A mutation's
   refusal is the outcome's `why`: throw `refused(fate.why)` from the source
-  to fill `failure(slot)`. The Snapback bake refuses a literal `{ok: false}`
-  answer on this mutation path and names that rewrite. A mutation source's
+  to fill `failure(slot)`. For a mutation whose shape has a bool `ok`, the
+  Snapback bake requires `ok: true` in its TypeScript result. A failed result
+  must throw `refused(why)`. A mutation source's
   answer outside its shape (a field the shape does not declare) is refused
   too: the slot keeps what it had and its `then` never runs. A failing
   `test web` expect and an `agent` drive name it (``mutation posted's reply
