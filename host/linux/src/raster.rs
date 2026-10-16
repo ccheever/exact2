@@ -46,7 +46,7 @@ pub struct Raster {
     scale: f32,
     width: u32,
     height: u32,
-    clips: Vec<Rc<Mask>>,
+    clips: Vec<Option<Rc<Mask>>>,
     text_clips: Vec<Rect4>,
     rectangular_damage: Option<(usize, Rect)>,
     layers: Vec<(Pixmap, f32)>,
@@ -71,6 +71,10 @@ impl Raster {
             transparent: true,
             ..Self::default()
         }
+    }
+
+    fn active_clip(&self) -> Option<&Rc<Mask>> {
+        self.clips.last().and_then(Option::as_ref)
     }
 
     fn device(&self, ts: Transform) -> Transform {
@@ -207,7 +211,7 @@ impl Raster {
 
     #[cfg(test)]
     pub(crate) fn clip_weak(&self) -> std::rc::Weak<Mask> {
-        self.clips.last().map(Rc::downgrade).unwrap_or_default()
+        self.active_clip().map(Rc::downgrade).unwrap_or_default()
     }
 
     // Conservative device bounds of the actual rounded path, including its
@@ -253,7 +257,7 @@ impl Raster {
     /// The current clip intersected with more shapes, as a mask of its own.
     fn mask_with(&self, shapes: &[Shape], ts: Transform) -> Option<Mask> {
         let dev = self.device(ts);
-        let mut m = match self.clips.last() {
+        let mut m = match self.active_clip() {
             Some(c) => {
                 if let Some((depth, rect)) = self.rectangular_damage {
                     if depth == self.clips.len() {
@@ -288,6 +292,13 @@ impl Raster {
             }
             None => {
                 let mut m = self.new_clip_mask()?;
+                if !self.clips.is_empty() {
+                    m.data_mut().fill(255);
+                    for path in shapes.iter().filter_map(rounded_rect) {
+                        m.intersect_path(&path, FillRule::Winding, true, dev);
+                    }
+                    return Some(m);
+                }
                 let first = rounded_rect(shapes.first()?)?;
                 m.fill_path(&first, FillRule::Winding, true, dev);
                 return Some(
@@ -480,7 +491,7 @@ impl Backend for Raster {
             bounds.3 = bounds.3.max(y + h);
         }
         self.target = Some(target);
-        self.clips.push(Rc::new(mask));
+        self.clips.push(Some(Rc::new(mask)));
         // A containing input rectangle proves the binary union is rectangular.
         // Integer device edges allow opaque integer fills to use that rectangle
         // directly, without changing antialiasing or alpha rounding at an edge.
@@ -522,6 +533,12 @@ impl Backend for Raster {
     }
 
     fn fill(&mut self, shape: &Shape, color: [u8; 4], ts: Transform) {
+        if color[3] == 255 && self.active_clip().is_none() && self.viewport_clip(shape, ts) {
+            if let Some(target) = self.target.as_mut() {
+                target.fill(Color::from_rgba8(color[0], color[1], color[2], color[3]));
+            }
+            return;
+        }
         let Some(mut path) = rounded_rect(shape) else {
             return;
         };
@@ -616,7 +633,7 @@ impl Backend for Raster {
                 }
             }
         }
-        let mask = self.clips.last().cloned();
+        let mask = self.active_clip().cloned();
         if let Some(t) = self.target.as_mut() {
             t.fill_path(
                 &path,
@@ -643,7 +660,7 @@ impl Backend for Raster {
             return;
         };
         let dev = self.device(ts);
-        let mask = self.clips.last().cloned();
+        let mask = self.active_clip().cloned();
         let Some(t) = self.target.as_mut() else {
             return;
         };
@@ -814,7 +831,7 @@ impl Backend for Raster {
             ..Paint::default()
         };
         let dev = self.device(ts);
-        let mask = self.clips.last().cloned();
+        let mask = self.active_clip().cloned();
         if let Some(t) = self.target.as_mut() {
             t.fill_path(&path, &paint, FillRule::Winding, dev, mask.as_deref());
         }
@@ -825,7 +842,7 @@ impl Backend for Raster {
             return;
         };
         let dev = self.device(ts);
-        let parent = self.clips.last().cloned();
+        let parent = self.active_clip().cloned();
         // A clipped part: its quadrilaterals as a mask, under whatever clip
         // is already in force. Only rounded multicolour borders have one.
         let clipped = match &part.clip {
@@ -922,7 +939,7 @@ impl Backend for Raster {
         if nw <= 0.0 || nh <= 0.0 || dst.2 <= 0.0 || dst.3 <= 0.0 {
             return;
         }
-        let mask = self.clips.last().cloned();
+        let mask = self.active_clip().cloned();
         let dev = self
             .device(ts)
             .pre_concat(Transform::from_translate(dst.0, dst.1).pre_scale(dst.2 / nw, dst.3 / nh));
@@ -981,8 +998,7 @@ impl Backend for Raster {
                 .iter()
                 .any(|c| c.rect != dst || c.radii != [(0., 0.); 4] || c.corners.is_some())
             || self
-                .clips
-                .last()
+                .active_clip()
                 .is_some_and(|m| m.data().iter().any(|&a| a != 255))
         {
             return false;
@@ -1019,7 +1035,7 @@ impl Backend for Raster {
     ) {
         let dev = self.device(ts);
         let scale = self.scale;
-        let mask = self.clips.last().cloned();
+        let mask = self.active_clip().cloned();
         let clip = self.text_clips.last().copied().unwrap_or((
             0.0,
             0.0,
@@ -1052,6 +1068,11 @@ impl Backend for Raster {
 
     fn push_clip(&mut self, shape: &Shape, ts: Transform) {
         let bounds = self.text_clip(shape, ts);
+        if self.viewport_clip(shape, ts) {
+            self.clips.push(self.active_clip().cloned());
+            self.text_clips.push(bounds);
+            return;
+        }
         let first = self.clips.is_empty() && !self.first_clip_used;
         let key = if first {
             // Even an uncacheable first request consumes this frame's slot.
@@ -1059,7 +1080,7 @@ impl Backend for Raster {
             let key = self.clip_key(shape, ts);
             if let Some((old, mask)) = self.cached_clip.as_ref() {
                 if Some(*old) == key {
-                    self.clips.push(mask.clone());
+                    self.clips.push(Some(mask.clone()));
                     self.text_clips.push(bounds);
                     return;
                 }
@@ -1077,13 +1098,13 @@ impl Backend for Raster {
                 if let Some(key) = key {
                     self.cached_clip = Some((key, mask.clone()));
                 }
-                self.clips.push(mask);
+                self.clips.push(Some(mask));
                 self.text_clips.push(bounds);
             }
             None => {
                 // Nothing can show inside an empty box; an empty mask says so.
                 if let Some(m) = self.new_clip_mask() {
-                    self.clips.push(Rc::new(m));
+                    self.clips.push(Some(Rc::new(m)));
                     self.text_clips.push((0.0, 0.0, 0.0, 0.0));
                 }
             }
@@ -1113,10 +1134,10 @@ impl Backend for Raster {
             exact_kernel::FillRule::Nonzero => FillRule::Winding,
         };
         mask.fill_path(&path, rule, true, self.device(ts));
-        if let Some(parent) = self.clips.last() {
+        if let Some(parent) = self.active_clip() {
             intersect_mask(&mut mask, parent, &path, self.device(ts));
         }
-        self.clips.push(Rc::new(mask));
+        self.clips.push(Some(Rc::new(mask)));
         self.text_clips
             .push(self.text_clips.last().copied().unwrap_or((
                 0.,
@@ -1167,10 +1188,10 @@ impl Backend for Raster {
         let Some(mut mask) = union(self, clip, dev) else {
             return 0;
         };
-        if let Some(parent) = self.clips.last() {
+        if let Some(parent) = self.active_clip() {
             multiply(&mut mask, parent);
         }
-        self.clips.push(Rc::new(mask));
+        self.clips.push(Some(Rc::new(mask)));
         self.text_clips
             .push(self.text_clips.last().copied().unwrap_or((
                 0.,
@@ -1367,7 +1388,7 @@ fn css_clip_intersection_matches_full_mask_for_curves_transforms_and_tiling() {
 fn nested_shape_masks_match_original_intersections() {
     fn original(raster: &Raster, shapes: &[Shape], ts: Transform) -> Option<Mask> {
         let dev = raster.device(ts);
-        let (mut mask, remaining) = if let Some(parent) = raster.clips.last() {
+        let (mut mask, remaining) = if let Some(parent) = raster.active_clip() {
             ((**parent).clone(), shapes)
         } else {
             let mut mask = Mask::new(raster.width, raster.height)?;
@@ -1423,7 +1444,7 @@ fn nested_shape_masks_match_original_intersections() {
                                 }
                             };
                         }
-                        raster.clips.push(Rc::new(parent));
+                        raster.clips.push(Some(Rc::new(parent)));
                     }
                     if kind >= 4 {
                         let (x, y, w, h) = match kind {
@@ -1443,7 +1464,7 @@ fn nested_shape_masks_match_original_intersections() {
                             raster.push_clip(&second, ts);
                         }
                     }
-                    let parent_bytes = raster.clips.last().map(|p| p.data().to_vec());
+                    let parent_bytes = raster.active_clip().map(|p| p.data().to_vec());
                     for shapes in sets {
                         let expected = original(&raster, shapes, ts);
                         let allocations = raster.clip_allocations.get();
@@ -1457,7 +1478,7 @@ fn nested_shape_masks_match_original_intersections() {
                             shapes.len()
                         );
                         assert_eq!(
-                            raster.clips.last().map(|p| p.data()),
+                            raster.active_clip().map(|p| p.data()),
                             parent_bytes.as_deref()
                         );
                     }

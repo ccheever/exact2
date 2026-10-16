@@ -2,6 +2,87 @@ use super::*;
 use exact_game::{SocketFollow, SpotLight};
 
 #[test]
+fn primitive_changes_preserve_model_records_but_model_changes_rebuild_them() {
+    let mut w = World::new(60, 0);
+    let model = w.spawn((Transform::default(), Mesh::asset("first.model")));
+    let mut f = Feed::default();
+    let mut r = Recording {
+        models: vec![(MeshId(99), crate::MaterialId(0), glam::Mat4::IDENTITY, None)],
+        ..Default::default()
+    };
+    f.feed_to(&w, &mut r).unwrap();
+    assert_eq!(r.instance_writes, 1);
+    let effect = w.spawn((Transform::default(), Mesh::cube(1.)));
+    f.feed_to(&w, &mut r).unwrap();
+    assert_eq!(r.instance_writes, 1);
+    assert!(r.slots.contains(&effect.index()));
+    assert!(r.batches.iter().any(|b| b.mesh == MeshId(99)));
+    w.insert(effect, Mesh::cube(2.));
+    f.feed_to(&w, &mut r).unwrap();
+    w.despawn(effect);
+    f.feed_to(&w, &mut r).unwrap();
+    assert_eq!(r.instance_writes, 1);
+    w.insert(model, Mesh::asset("second.model"));
+    f.feed_to(&w, &mut r).unwrap();
+    assert_eq!(r.instance_writes, 2);
+    w.insert(model, Visible(false));
+    f.feed_to(&w, &mut r).unwrap();
+    assert_eq!(r.instance_writes, 3);
+    assert!(r.instances.is_empty());
+    w.remove::<Visible>(model);
+    f.feed_to(&w, &mut r).unwrap();
+    assert_eq!(r.instance_writes, 4);
+    f.reset();
+    f.feed_to(&w, &mut r).unwrap();
+    assert_eq!(r.instance_writes, 5);
+    assert_eq!(r.instances.len(), 1, "reset must restore model records");
+}
+
+#[test]
+fn nondrawing_entities_and_unchanged_visibility_do_not_rebuild_draws() {
+    let mut w = World::new(60, 0);
+    let parent = w.spawn(Transform::default());
+    let cube = w.spawn((Transform::default(), Parent(parent), Mesh::cube(1.)));
+    let mut f = Feed::default();
+    let mut r = Recording::default();
+    w.propagate();
+    f.feed_to(&w, &mut r).unwrap();
+    r.calls.clear();
+    let helper = w.spawn(Transform::default());
+    w.insert(parent, Visible(true));
+    w.propagate();
+    f.feed_to(&w, &mut r).unwrap();
+    assert!(!r.calls.contains(&Call::Batches));
+    assert_eq!(r.slots, [cube.index()]);
+    w.despawn(helper);
+    w.remove::<Visible>(parent);
+    f.feed_to(&w, &mut r).unwrap();
+    assert!(!r.calls.contains(&Call::Batches));
+    // A disappearing non-drawable parent still hides its child, including
+    // before a propagation step removes the dangling descendant.
+    w.despawn(parent);
+    f.feed_to(&w, &mut r).unwrap();
+    assert!(r.calls.contains(&Call::Batches));
+    assert!(r.slots.is_empty());
+}
+
+#[test]
+fn a_hidden_mesh_gaining_a_transform_keeps_its_material_dimensions() {
+    let mut w = World::new(60, 0);
+    let cube = w.spawn((Mesh::cube(3.), Visible(false)));
+    let mut f = Feed::default();
+    let mut r = Recording::default();
+    f.feed_to(&w, &mut r).unwrap();
+    w.insert(cube, Transform::default());
+    f.feed_to(&w, &mut r).unwrap();
+    w.insert(cube, Visible(true));
+    f.feed_to(&w, &mut r).unwrap();
+    assert_eq!(r.slots, [cube.index()]);
+    let at = cube.index() as usize * 12 + 9;
+    assert_eq!(&r.materials[at..at + 3], &[3.; 3]);
+}
+
+#[test]
 fn paused_reparenting_rebuilds_primitive_and_model_draw_and_shadow_batches() {
     let mut w = World::new(60, 0);
     let shown = w.spawn(Transform::default());

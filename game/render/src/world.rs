@@ -400,6 +400,7 @@ pub struct Feed {
     groups: Vec<Group>,
     shapes: BTreeMap<(Shape, bool), usize>,
     batches: Vec<Batch>,
+    draw_entities: Vec<(exact_game::Entity, bool)>,
     slots: Vec<u32>,
     page_scratch: Box<[f32; PAGE * 12]>,
     dimensions: Vec<[f32; 3]>,
@@ -439,6 +440,7 @@ impl Default for Feed {
             groups: Vec::new(),
             shapes: BTreeMap::new(),
             batches: Vec::new(),
+            draw_entities: Vec::new(),
             slots: Vec::new(),
             page_scratch: Box::new([0.0; PAGE * 12]),
             dimensions: Vec::new(),
@@ -492,8 +494,7 @@ impl Feed {
         self.override_cursor = None;
         self.buffer_cursors = [None; 2];
         self.model_cursor = None;
-        self.assets.records.clear();
-        self.assets.entities.clear();
+        self.assets.reset();
     }
 
     /// Feed one completed tick. With Sim::advance_with, call only when ticks_left < 2.
@@ -574,6 +575,25 @@ impl Feed {
             || next.lod != old.lod
             || next.live != old.live
             || next.membership != old.membership;
+        let draw_entities = if batches {
+            // Entity/parent/visibility revisions include cameras, particles and
+            // gameplay-only rows. Rebuild draw records only if their effective
+            // membership changed, or a draw's own mesh/LOD/assets changed.
+            let entities: Vec<_> = w
+                .query::<(&Mesh, &Transform)>()
+                .iter()
+                .map(|(entity, _)| (entity, w.is_visible(entity)))
+                .collect();
+            batches = initial
+                || next.assets != old.assets
+                || next.mesh != old.mesh
+                || next.viewmodel != old.viewmodel
+                || next.lod != old.lod
+                || entities != self.draw_entities;
+            Some(entities)
+        } else {
+            None
+        };
         // Present rewrites looks every tick: patch changed content in place.
         if !batches && looks_changed && !self.assets.patch_looks(w, r)? {
             batches = true;
@@ -986,6 +1006,9 @@ impl Feed {
         );
         self.tick = w.tick();
         self.versions = Some(next);
+        if let Some(entities) = draw_entities {
+            self.draw_entities = entities;
+        }
         Ok(())
     }
 }

@@ -3,6 +3,23 @@
 use super::*;
 
 impl Raster {
+    // The target already clips at these exact integer device edges. Preserve
+    // stack depth and any parent mask without allocating or scanning a mask
+    // whose every coverage byte would be 255.
+    pub(super) fn viewport_clip(&self, shape: &Shape, ts: Transform) -> bool {
+        ts.is_identity()
+            && self.width <= 8191
+            && self.height <= 8191
+            && self.scale.is_finite()
+            && self.scale > 0.
+            && shape.rect.0 == 0.
+            && shape.rect.1 == 0.
+            && shape.rect.2 * self.scale == self.width as f32
+            && shape.rect.3 * self.scale == self.height as f32
+            && shape.radii == [(0., 0.); 4]
+            && shape.corners.is_none()
+    }
+
     pub(super) fn copy_opaque_canvas(
         &mut self,
         image: &Arc<Pixmap>,
@@ -33,11 +50,15 @@ impl Raster {
             || clips.iter().any(|clip| {
                 clip.rect != dst || clip.radii != [(0., 0.); 4] || clip.corners.is_some()
             })
-            || self.clips.last().is_some_and(|mask| {
-                mask.width() != target.width()
-                    || mask.height() != target.height()
-                    || mask.data().iter().any(|&a| a != 255)
-            })
+            || self
+                .clips
+                .last()
+                .and_then(Option::as_ref)
+                .is_some_and(|mask| {
+                    mask.width() != target.width()
+                        || mask.height() != target.height()
+                        || mask.data().iter().any(|&a| a != 255)
+                })
             || image.data().chunks_exact(4).any(|pixel| pixel[3] != 255)
         {
             return false;
@@ -76,6 +97,60 @@ impl Raster {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn viewport_clips_match_masks_and_restore_nested_parents() {
+        let identity = Transform::identity();
+        for scale in [1., 1.25, 1.5, 2.] {
+            for parent in [false, true] {
+                let mut actual = raster(scale);
+                let mut reference = raster(scale);
+                let full = Shape::rect((0., 0., 40., 24.));
+                if parent {
+                    let mut rounded = Shape::rect((3.25, 2.5, 20., 16.));
+                    rounded.radii = [(3., 3.); 4];
+                    actual.push_clip(&rounded, identity);
+                    reference.push_clip(&rounded, identity);
+                }
+                let allocations = actual.clip_allocations.get();
+                for _ in 0..2 {
+                    actual.push_clip(&full, identity);
+                    let bounds = reference.text_clip(&full, identity);
+                    let mask = reference.mask_with(&[full.clone()], identity).unwrap();
+                    reference.clips.push(Some(Rc::new(mask)));
+                    reference.text_clips.push(bounds);
+                }
+                assert_eq!(actual.clip_allocations.get(), allocations);
+                let child = Shape::rect((7.5, 4.25, 18., 8.));
+                actual.push_clip(&child, identity);
+                reference.push_clip(&child, identity);
+                for color in [[130, 70, 210, 127], [20, 160, 30, 83], [80, 50, 180, 255]] {
+                    actual.fill(&full, color, identity);
+                    reference.fill(&full, color, identity);
+                    actual.pop_clip();
+                    reference.pop_clip();
+                }
+                actual.fill(&full, [190, 23, 80, 111], identity);
+                reference.fill(&full, [190, 23, 80, 111], identity);
+                assert_eq!(
+                    actual.finish().unwrap().data(),
+                    reference.finish().unwrap().data()
+                );
+            }
+        }
+        let mut r = raster(1.);
+        let full = Shape::rect((0., 0., 40., 24.));
+        assert!(r.viewport_clip(&full, identity));
+        assert!(!r.viewport_clip(&full, Transform::from_translate(0.25, 0.)));
+        let mut rounded = full.clone();
+        rounded.radii = [(1., 1.); 4];
+        assert!(!r.viewport_clip(&rounded, identity));
+        assert!(!r.viewport_clip(&Shape::rect((0., 0., 39.75, 24.)), identity));
+        r.push_clip(&full, identity);
+        r.begin(20., 12., 1.);
+        assert!(!r.viewport_clip(&full, identity));
+        assert!(r.clips.is_empty());
+    }
+
     fn image(w: u32, h: u32) -> Arc<Pixmap> {
         let mut p = Pixmap::new(w, h).unwrap();
         for (i, pixel) in p.data_mut().chunks_exact_mut(4).enumerate() {
@@ -151,8 +226,8 @@ mod tests {
                     let mut mask = Mask::new(40, 24).unwrap();
                     mask.data_mut().fill(255);
                     *mask.data_mut().last_mut().unwrap() = 254;
-                    actual.clips.push(Rc::new(mask.clone()));
-                    reference.clips.push(Rc::new(mask));
+                    actual.clips.push(Some(Rc::new(mask.clone())));
+                    reference.clips.push(Some(Rc::new(mask)));
                 }
                 4 => clips[0].rect = (0., 0., 39., 24.),
                 5 => clips[0] = Shape::new(dst, [2.; 4]),
@@ -171,8 +246,8 @@ mod tests {
                     let mut mask = Mask::new(40, 24).unwrap();
                     mask.data_mut().fill(255);
                     mask.data_mut()[0] = 0;
-                    actual.clips.push(Rc::new(mask.clone()));
-                    reference.clips.push(Rc::new(mask));
+                    actual.clips.push(Some(Rc::new(mask.clone())));
+                    reference.clips.push(Some(Rc::new(mask)));
                 }
                 14 => dst.1 = -0.5,
                 _ => unreachable!(),

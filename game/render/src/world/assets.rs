@@ -16,6 +16,12 @@ pub(super) struct Assets {
     // Each drawn entity's records and part looks, and its looks' content digest.
     ranges: BTreeMap<u32, Range>,
     digests: BTreeMap<u32, u64>,
+    structure: Option<Structure>,
+}
+#[derive(PartialEq)]
+struct Structure {
+    models: Vec<(exact_game::Entity, String)>,
+    revisions: [u64; 3],
 }
 struct Range {
     entity: exact_game::Entity,
@@ -25,6 +31,12 @@ struct Range {
     part_count: usize,
 }
 impl Assets {
+    pub fn reset(&mut self) {
+        self.structure = None;
+        self.records.clear();
+        self.entities.clear();
+    }
+
     pub fn batches(
         &mut self,
         w: &World,
@@ -32,6 +44,28 @@ impl Assets {
         batches: &mut Vec<Batch>,
         slots: &mut Vec<u32>,
     ) -> Result<(), RenderError> {
+        let structure = Structure {
+            models: w
+                .query::<(&Mesh, &Transform)>()
+                .iter()
+                .filter_map(|(entity, (mesh, _))| match mesh {
+                    Mesh::Asset(name) if w.is_visible(entity) => Some((entity, name.clone())),
+                    _ => None,
+                })
+                .collect(),
+            revisions: [
+                r.assets_revision(),
+                w.revision::<ViewModel>(),
+                w.revision::<exact_game::ModelLod>(),
+            ],
+        };
+        // Primitive effects can change the combined draw list every tick.
+        // Keep the model records, skinning bindings and part looks when their
+        // own inputs are unchanged; only append their existing batch ranges.
+        if self.structure.as_ref() == Some(&structure) && self.patch_looks(w, r)? {
+            self.append_batches(batches, slots);
+            return Ok(());
+        }
         self.records.clear();
         self.entities.clear();
         self.part_bases.clear();
@@ -53,6 +87,12 @@ impl Assets {
         r.part_looks(&self.part_bases, &self.part_looks);
         r.levels(&self.levels, &self.lods);
         r.instances(&self.records)?;
+        self.structure = Some(structure);
+        self.append_batches(batches, slots);
+        Ok(())
+    }
+
+    fn append_batches(&self, batches: &mut Vec<Batch>, slots: &mut Vec<u32>) {
         for (&(mesh, _, _, viewmodel, level), list) in &self.groups {
             if list.is_empty() {
                 continue;
@@ -63,7 +103,6 @@ impl Assets {
             batch.level = level;
             batches.push(if viewmodel { batch.viewmodel() } else { batch });
         }
-        Ok(())
     }
     /// Write changed `NodeMaterials`/`MaterialOverrides` content into the
     /// existing records in place: a pulsing glow costs its own entities, not

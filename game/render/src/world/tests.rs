@@ -24,6 +24,7 @@ struct Recording {
     record: bool,
     models: Vec<crate::models::ModelNode>,
     instances: Vec<crate::DrawInstance>,
+    instance_writes: usize,
     custom: std::collections::BTreeSet<crate::MaterialId>,
 }
 impl Default for Recording {
@@ -40,6 +41,7 @@ impl Default for Recording {
             record: true,
             models: Vec::new(),
             instances: Vec::new(),
+            instance_writes: 0,
             custom: Default::default(),
         }
     }
@@ -75,6 +77,7 @@ impl Writes for Recording {
         })
     }
     fn instances(&mut self, records: &[crate::DrawInstance]) -> Result<(), RenderError> {
+        self.instance_writes += 1;
         self.instances = records.to_vec();
         Ok(())
     }

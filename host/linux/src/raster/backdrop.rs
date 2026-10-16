@@ -106,7 +106,7 @@ impl Raster {
             anti_alias: true,
             ..Paint::default()
         };
-        let mask = self.clips.last().cloned();
+        let mask = self.clips.last().and_then(Option::as_ref).cloned();
         target.fill_path(&path, &paint, FillRule::Winding, dev, mask.as_deref());
     }
 }
