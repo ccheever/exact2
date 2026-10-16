@@ -18,7 +18,7 @@ describe('the Mac\'s own presentations main gives what the clone writes stay the
 
   test('every popover keeps the painted layer (LLP 1115.002 D7.3): `popover="auto"` and an authored fallback row', async () => {
     const popovers = (await contracts()).flatMap(({ lines }) => lines.filter(line => code(line) && /\bpopover="/.test(line)));
-    expect(popovers.length).toBe(70); // the archived row's and the pull request number's context popovers, the project scripts and Open in menus, the file subheader's two, a linked pull request's, an approval's
+    expect(popovers.length).toBe(72); // the archived row's and the pull request number's context popovers, the project scripts and Open in menus, the file subheader's two, a linked pull request's, an approval's, the diff scope's and its Turn submenu
     for (const line of popovers) {
       expect(line).toContain('popover="auto"');
       expect(line).toMatch(/\sposition-try-fallbacks=/);
@@ -43,7 +43,11 @@ const reviewed: Record<string, Site[]> = {
     ['BrowserAddItem', 'id="r4-browser-profiles"', q('right span-bottom'), q('flip-inline'), 'RightPanelTabs.tsx:1275 MenuSubPopup'],
     ['BrowserLauncherProfiles', 'id="launcher-browser-profiles"', q('bottom span-left'), FLIP, 'RightPanelTabs.tsx:539 end, offset 6'],
   ],
-  'diff.contract': [['DiffBasePicker', 'id="diff-base-menu"', q('bottom span-right'), FLIP, 'DiffPanel.tsx:753 Combobox start']],
+  'diff.contract': [
+    ['DiffScopeMenu', 'id="diff-scope-menu"', q('bottom span-right'), FLIP, 'DiffPanel.tsx:676 DropdownMenuContent start'],
+    ['DiffTurnsItem', 'id="diff-turns-menu"', q('right span-bottom'), q('flip-inline'), 'DiffPanel.tsx:690 DropdownMenuSubContent'],
+    ['DiffBasePicker', 'id="diff-base-menu"', q('bottom span-right'), FLIP, 'DiffPanel.tsx:753 Combobox start'],
+  ],
   'legacy-sidebar.contract': [['LegacyOptions', 'id="legacy-sidebar-options"', q('bottom span-left'), FLIP, 'LegacySidebar.tsx:2761 end']],
   'markdown.contract': [['TerminalContextChip', 'id=popupId', q('top'), q('flip-block'), 'contextChipParts.tsx:88 top/center']],
   'pages-hero.contract': [['HeroPicker', 'id="hero-project-menu"', q('bottom'), q('flip-block'), 'chat/DraftHeroHeadline.tsx:252 center']],

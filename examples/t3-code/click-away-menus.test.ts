@@ -21,7 +21,7 @@ const kmTriggerKey = (k: string) => ['ArrowDown', 'ArrowUp', 'Enter', ' ', 'Spac
 describe('no menu keeps a click-away layer of its own', () => {
   test('the menus that had one are popovers, light-dismissed', async () => {
     const files = readdirSync(dir).filter(name => name.endsWith('.contract'));
-    const gone = ['details-editors-backdrop', 'file-editors-backdrop', 'crumb-menu-backdrop'];
+    const gone = ['details-editors-backdrop', 'file-editors-backdrop', 'crumb-menu-backdrop', 'linked-pr-menu-backdrop', 'approval-menu-dismiss', 'Close diff scope menu'];
     for (const file of files) {
       const text = await source(file);
       for (const testId of gone) expect(`${file}: ${text.includes(testId)}`).toBe(`${file}: false`);
