@@ -26,6 +26,9 @@ struct ChipFace: Equatable {
         case text(String, UIFont, [[Double]]?)
     }
     let parts: [Part]
+    /// Each part's opacity: its own and its ancestors' below the button
+    /// (a view's alpha, a flat leaf's `opacity`), as CSS multiplies them.
+    let opacities: [CGFloat]
     let gap: CGFloat
     /// The scheme it is drawn in. A bar item sized from one variant of a
     /// light/dark image asset kept that size for the other (a dark capsule
@@ -43,13 +46,13 @@ struct ChipFace: Equatable {
     init?(_ button: NodeView, engine: TextEngine? = nil) {
         guard !button.isNativeButton, let engine = engine ?? button.text else { return nil }
         let bold = button.traitCollection.legibilityWeight == .bold
-        var parts: [Part] = [], dotted = false, typed = false, gap: CGFloat?
+        var parts: [Part] = [], opacities: [CGFloat] = [], dotted = false, typed = false, gap: CGFloat?
         func pair(_ node: NodeView, _ key: String) -> [[Double]] {
             [node.channels(key, dark: false) ?? [0, 0, 0, 1], node.channels(key, dark: true) ?? [1, 1, 1, 1]]
         }
         // A childless box (often a flat leaf, a layer and no view,
         // FlatLeavesIOS) with no authored size in points has none to draw.
-        func dot(_ style: NodeStyle) {
+        func dot(_ style: NodeStyle, _ alpha: CGFloat) {
             guard let width = style["width"]?.number, let height = style["height"]?.number, width > 0, height > 0,
                   let fill = style["background_color"] else { return }
             let size = CGSize(width: width, height: height)
@@ -57,9 +60,10 @@ struct ChipFace: Equatable {
             let rect = CGRect(origin: .zero, size: size)
             parts.append(.dot(size, [fill.channels(dark: false) ?? [0, 0, 0, 0], fill.channels(dark: true) ?? [0, 0, 0, 0]],
                               BorderPaint.reduced(BorderPaint.radii(style, in: rect), in: rect)))
+            opacities.append(alpha)
         }
         // `inked`: an ancestor up to the button wrote the colour its text inherits.
-        func walk(_ node: NodeView, fonted: Bool, inked: Bool) {
+        func walk(_ node: NodeView, fonted: Bool, inked: Bool, alpha: CGFloat) {
             let presenter = node.presenter
             let ids = presenter?.flats.children(of: node.id) ?? node.container.subviews.compactMap { ($0 as? NodeView)?.id }
             let kids: [Either] = ids.compactMap { id in
@@ -70,11 +74,12 @@ struct ChipFace: Equatable {
             if kids.count > 1, gap == nil, let g = node.style["column_gap"]?.number { gap = CGFloat(g) }
             for kid in kids {
                 guard case .view(let child) = kid else {
-                    if case .leaf(let leaf) = kid { dot(leaf.style) }
+                    if case .leaf(let leaf) = kid { dot(leaf.style, alpha * CGFloat(leaf.opacity)) }
                     continue
                 }
                 let fonted = fonted || ["font_family", "font_size", "font_weight"].contains(where: child.wrote)
                 let inked = inked || child.wrote("text_color")
+                let alpha = alpha * child.alpha
                 if child.isParagraph {
                     let text = child.accessibleText
                     guard !text.isEmpty else { continue }
@@ -86,19 +91,22 @@ struct ChipFace: Equatable {
                     let font = engine.font(size: child.number("font_size", PageFacts.defaultRootFontSize), weight: min(900, weight),
                                            family: family, italic: child.style["font_style"]?.string == "italic")
                     parts.append(.text(text, font, inked ? pair(child, "text_color") : nil))
+                    opacities.append(alpha)
                 } else if child.kind == "image", let name = child.props["symbolName"], !name.isEmpty {
                     let tinted = inked || child.wrote("tint_color")
                     parts.append(.symbol(name, child.number("font_size", PageFacts.defaultRootFontSize), tinted ? pair(child, "tint_color") : nil))
+                    opacities.append(alpha)
                 } else if child.container.subviews.isEmpty, child.style["background_color"] != nil {
-                    dot(child.style)
+                    dot(child.style, alpha)
                 } else {
-                    walk(child, fonted: fonted, inked: inked)
+                    walk(child, fonted: fonted, inked: inked, alpha: alpha)
                 }
             }
         }
-        walk(button, fonted: ["font_family", "font_size", "font_weight"].contains(where: button.wrote), inked: button.wrote("text_color"))
+        walk(button, fonted: ["font_family", "font_size", "font_weight"].contains(where: button.wrote), inked: button.wrote("text_color"), alpha: 1)
         guard !parts.isEmpty, dotted || typed else { return nil }
         self.parts = parts
+        self.opacities = opacities
         self.gap = gap ?? 0
         dark = button.drawsDark
         self.bold = bold
@@ -112,7 +120,7 @@ struct ChipFace: Equatable {
             case .symbol(let name, let points, let tint): return "s\(name)\(points)\(tint)"
             case .text(let text, let font, let color): return "t\(text)\(font.fontName)\(font.pointSize)\(color)"
             }
-        }.joined(separator: "|") + "|\(gap)|\(dark)|\(bold)"
+        }.joined(separator: "|") + "|\(opacities)|\(gap)|\(dark)|\(bold)"
     }
 
     /// The face drawn, its unwritten ink the bar's (`tint`, what a plain
@@ -143,10 +151,13 @@ struct ChipFace: Equatable {
         }
         let height = drawn.map(\.0.height).max() ?? 0
         let width = drawn.map(\.0.width).reduce(0, +) + gap * CGFloat(max(0, drawn.count - 1))
-        return UIGraphicsImageRenderer(size: CGSize(width: max(1, width), height: max(1, height))).image { _ in
+        return UIGraphicsImageRenderer(size: CGSize(width: max(1, width), height: max(1, height))).image { context in
             var x: CGFloat = 0
-            for (size, paint) in drawn {
+            for ((size, paint), alpha) in zip(drawn, opacities) {
+                context.cgContext.saveGState()
+                context.cgContext.setAlpha(alpha)
                 paint(CGRect(x: x, y: (height - size.height) / 2, width: size.width, height: size.height))
+                context.cgContext.restoreGState()
                 x += size.width + gap
             }
         }

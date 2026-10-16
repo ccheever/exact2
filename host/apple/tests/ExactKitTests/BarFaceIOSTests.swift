@@ -78,5 +78,19 @@ final class BarFaceIOSTests: XCTestCase {
         XCTAssertNil(ChipFace(page, engine: engine), "the page's type: UIKit's title")
         withExtendedLifetime((fonted, plain, unsized)) {}
     }
+
+    /// Each part is drawn at its authored opacity (a view's alpha), and the
+    /// face's source says it, so the bar draws it again when it changes.
+    func testAPartsOpacityIsDrawnAndInTheSource() throws {
+        let (p, node) = button([dot, label(["written": ["font_size"]])])
+        let engine = TextEngine(resolve: { _ in nil })
+        let shown = try XCTUnwrap(ChipFace(node, engine: engine))
+        try XCTUnwrap(p.views[4]).alpha = 0
+        let faded = try XCTUnwrap(ChipFace(node, engine: engine))
+        withExtendedLifetime(p) {}
+        XCTAssertEqual(shown.opacities.last, 1)
+        XCTAssertEqual(faded.opacities.last, 0, "opacity 0: drawn clear, its room kept")
+        XCTAssertNotEqual(shown.source, faded.source)
+    }
 }
 #endif
