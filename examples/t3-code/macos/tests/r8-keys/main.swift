@@ -239,18 +239,23 @@ final class R8KeysTests: XCTestCase {
         XCTAssertFalse(T3Composer.launcherLetter(key("f", 3, [.option], window: window), letters: "FLD", live: true))
         XCTAssertFalse(T3Composer.launcherLetter(key("f", 3, [], window: window), letters: "FLD", live: false))
         // A letter the launcher does not list still goes to the composer (ChatView's type-to-focus), as does every
-        // letter once the launcher is hidden or gone.
-        window.makeFirstResponder(nil)
-        XCTAssertNil(composer.handle(key("x", 7, [], window: window, at: time + 1)))
+        // letter once the launcher is hidden or gone: the composer takes the focus and the key goes on to it, as
+        // the window then delivers it.
+        func typeToFocus(_ event: NSEvent) {
+            window.makeFirstResponder(nil)
+            let passed = composer.handle(event)
+            XCTAssertTrue(passed === event, "the key goes on")
+            XCTAssertTrue(window.firstResponder === text, "to the composer")
+            if let passed { text.keyDown(with: passed) }
+        }
+        typeToFocus(key("x", 7, [], window: window, at: time + 1))
         XCTAssertEqual(text.string, "x")
         launcherView.isHidden = true
-        window.makeFirstResponder(nil)
-        XCTAssertNil(composer.handle(key("f", 3, [], window: window, at: time + 2)))
+        typeToFocus(key("f", 3, [], window: window, at: time + 2))
         XCTAssertEqual(text.string, "xf")
         launcherView.isHidden = false
         composer.remove(element)
-        window.makeFirstResponder(nil)
-        XCTAssertNil(composer.handle(key("d", 2, [], window: window, at: time + 3)))
+        typeToFocus(key("d", 2, [], window: window, at: time + 3))
         XCTAssertEqual(text.string, "xfd")
         composer.destroy()
     }
