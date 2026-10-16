@@ -895,9 +895,10 @@ lands with or after the Tamber stage it needs.
 - **`revert`** proposes, held, the inverse of a past commit as semantic operations
   (`set-token`, `unset-token-when`, `add-token`, `remove-token`, axis values), planned on
   today's files. It is never a byte restore, since a client can't send one.
-  - **Refused, with the reason,** for a commit with no inverse: one that created or removed a
-    design file, added or removed a dial, reordered or removed an axis, or changed a kind,
-    range or metadata.
+  - **Refused, naming each edit and why,** where an edit has no inverse operation: the commit
+    created or removed a design file, added or removed a dial, added an axis, reordered an
+    axis's values, changed an axis's `under`, or changed a kind, a range, metadata, the
+    design's name or its exports. A removed axis is restored with `add-axis`.
   - **Accepted after its files moved,** it is planned again from the commit, never replayed. A
     partial revert keeps its selection when planned again.
   - A client can't forge a revert's review. A removed dial counts as restored only with its

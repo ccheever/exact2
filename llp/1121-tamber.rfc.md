@@ -2245,5 +2245,5 @@ D13 named this reference, and stage 3 didn't write it. It now describes `tamber/
 - the change stream's events;
 - what the later stages add.
 
-Each stage that changes the wire changes this page in the same commit. Stage 4 commit 5 adds the
-build channel.
+Each stage that changes the wire changes this page in the same commit. Stage 4 adds the live
+table and the build channel (LLP 1122 D4).
