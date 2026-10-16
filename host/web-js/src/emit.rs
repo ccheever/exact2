@@ -189,7 +189,7 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
     // A development build makes every token a property (LLP 1121 stage 4).
     let _every = crate::modes::every(dev_reload);
     // @ref LLP 1095 D4 — the roles the theme replaces, as the runner sets them.
-    let _ = exact_runner::bridge::set_role_overrides(plan);
+    let _roles = exact_runner::bridge::set_role_overrides(plan);
     let fonts = crate::faces::fonts(plan)?;
     let sites = Sites::new(plan)?;
     let mut warnings = Vec::new();

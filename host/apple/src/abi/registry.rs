@@ -170,6 +170,10 @@ pub fn with_entry<D: DataSource>(
     let entry = registry.with(|r| r.borrow().get(rt));
     if let Some(entry) = entry {
         if let Ok(mut e) = entry.try_borrow_mut() {
+            // Its session's role overrides, not another's on this thread
+            // (LLP 1121 stage 5): an embedded session's resolve as its own.
+            let roles = e.bridge.roles();
+            let _roles = roles.as_ref().map(exact_kernel::style::roles::bind);
             f(&mut e);
         }
     }

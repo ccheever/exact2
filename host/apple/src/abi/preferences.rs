@@ -9,6 +9,12 @@ use super::{not_booted, Bridge};
 use exact_runner::DataSource;
 
 impl<D: DataSource> Bridge<D> {
+    /// The running session's role overrides (LLP 1121 stage 5), bound
+    /// around each call to it (`registry::with_entry`).
+    pub fn roles(&self) -> Option<std::rc::Rc<exact_kernel::style::roles::Roles>> {
+        self.host.as_ref().map(|h| h.runner().roles().clone())
+    }
+
     /// App modes, `axis=value` pins comma-separated in the input buffer
     /// (LLP 1121 D5), set in one commit; after a `?`, only checked.
     pub fn set_mode(&mut self, len: usize) -> u32 {
