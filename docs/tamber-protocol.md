@@ -110,8 +110,7 @@ Each request is `POST /__tamber` with `{"method": "…", …}`.
 - `builds`: the connected development builds, each with an id. This is empty until LLP 1121
   stage 4's build channel;
 - `files`;
-- `app`: the app's directory, absolute (*1.1*);
-- `epoch`: this run of the server, the same value its events carry (*1.1*).
+- `app`: the app's directory, absolute (*1.1*).
 
 A `client` given in a hello is not a write's attribution (see `transaction`).
 
@@ -131,26 +130,21 @@ A `client` given in a hello is not a write's attribution (see `transaction`).
 
 **`resolve`** `{token, file?}` gives the token's value **as the build stores it**, per app-mode
 tuple:
-- **The reply** is `{token, tuples, files}`.
-  - `files` gives the digests it read, so a client reading many tokens can tell one revision from
-    two (*1.1*).
-- **A constant tuple** is `{modes, value, light, dark, srgb}`:
+- **The reply** is `{token, tuples}`.
+- **A constant tuple** is `{modes, value, light, dark}`:
   - `modes` is `{axis: value}`;
   - `value` is the folded CSS (`#rrggbbaa`, `light-dark(…)`, or a wide colour's serialization);
-  - `light` and `dark` are each side's CSS, equal for a one-scheme colour;
-  - `srgb` is `{light, dark}`, each side clipped to 8-bit sRGB `#rrggbbaa`, which is what a
-    contrast ratio is taken on (*1.1*).
+  - `light` and `dark` are each side's CSS, equal for a one-scheme colour.
 - **A residual** (a role, a platform colour) is `{modes, value, residual: true, fallback}`, with no
-  `light`, `dark` or `srgb`.
+  `light` or `dark`.
   - `fallback` is `{light, dark}`, labelled as a fallback, never as the value.
   - `fallback` is null when the vocabulary has none.
 
-**`explain`** `{token, file?}` answers `{token, value, whens, dials, names, files}`:
+**`explain`** `{token, file?}` answers `{token, value, whens, dials, names}`:
 - `value` and each `whens[].value` are source text, as written;
 - `whens` is `[{when: [{axis, value}], value}]`;
 - `dials` lists the dials it depends on, and `names` the tokens its values name, as the checker
-  resolved them;
-- `files` is *1.1*.
+  resolved them.
 
 **A design that doesn't check** answers `{"message": "the design is refused", "diagnostics":
 [{file, line, col, id, message}]}`.
