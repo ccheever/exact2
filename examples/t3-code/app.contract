@@ -461,6 +461,10 @@ component T3Code
           focus("composer")
       case none
   state commandPending = false
+  // A row's double-click while its first click's open runs: the rename (its op and row) starts once the open lands,
+  // on the environment it focused, as Sidebar.tsx's onDoubleClick renames after that click navigated.
+  state renameAfterOp = ""
+  state renameAfterId = ""
   state pendingModal = ""
   state modalError = ""
   state connecting = false
@@ -778,7 +782,7 @@ component T3Code
           focus("app-confirm-cancel")
         if result.message == "terminal:focus-composer"
           focus("composer")
-        if result.message.startsWith("focus:") and (result.message != "focus:composer" or data.sidebar.renameId == "") // an opening rename owns focus over its row's late thread-open result
+        if result.message.startsWith("focus:") and (result.message != "focus:composer" or (data.sidebar.renameId == "" and renameAfterOp == "")) // an opening rename owns focus over its row's late thread-open result
           focus(result.message.slice(6))
         if result.message.startsWith("sidebar:pr-page:") // with no thread open, the pull request on the Pull Requests page (before any branch below sets utilityPage: openPage reads it)
           openPage("pull-requests")
@@ -815,6 +819,9 @@ component T3Code
       case none
     pendingModal = ""
     commandPending = false
+    if renameAfterOp != ""
+      send localChanged = command(`sidebarlocal:${renameAfterOp}`, renameAfterId, "", 0)
+      renameAfterOp = ""
   action command(op: string, id: string, value: string, n: number)
     if op == "chatlocal:item-detail"
       send timelineDisclosureChanged = command(op, id, value, n)
@@ -1173,7 +1180,11 @@ component T3Code
       jumpRequest = jumpRequest + 1
       utilityPage = ""
   action sidebarLocal(op: string, id: string, value: string)
-    send localChanged = command(`sidebarlocal:${op}`, id, value, 0)
+    if (op == "rename-start" or op == "legacy-rename-start") and commandPending
+      renameAfterOp = op
+      renameAfterId = id
+    else
+      send localChanged = command(`sidebarlocal:${op}`, id, value, 0)
   action sidebarRun(op: string, id: string, value: string)
     if composerFocused and (op == "menu-choice" or op == "draft-choice" or op == "legacy-thread-menu")
       blur()
