@@ -566,10 +566,10 @@ pub fn uses_midi(plan: &Plan) -> bool {
                 .iter()
                 .any(|h| plan.handler(h).event == exact_plan::EventKind::Midimessage)
         })
-        || plan
-            .sequences
-            .iter()
-            .any(|q| constant_str(plan, plan.code(q.clock_out)) != Some(""))
+        || plan.sequences.iter().any(|q| {
+            constant_str(plan, plan.code(q.clock_out)) != Some("")
+                || constant_str(plan, plan.code(q.clock)) != Some("")
+        })
 }
 
 /// Whether the runner keeps a MIDI queue the agent shows (`state.midi`):

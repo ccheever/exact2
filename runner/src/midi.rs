@@ -404,10 +404,13 @@ pub enum MidiOp {
         /// The message.
         id: u64,
     },
-    /// Listen to exactly these inputs, by id.
+    /// Listen to exactly these inputs, by id; forward Timing Clock only
+    /// from those in `clock`, which a sequence follows (LLP 1125 D9).
     Open {
         /// The inputs.
         inputs: Vec<String>,
+        /// The inputs whose clock ticks are delivered.
+        clock: Vec<String>,
     },
     /// `requestMIDIAccess()`: ask the platform, then report the ports.
     Request,
@@ -417,7 +420,8 @@ pub enum MidiOp {
 /// plan uses MIDI (the host loads its arm, and forgets what an earlier
 /// runner left held), then the ops — `{"op":"send","id","output","data":
 /// [bytes],"at"}` in runner ms, `{"op":"retract","id"}`, `{"op":"open",
-/// "inputs":[…]}`, `{"op":"request"}`. `None` when there is nothing to say.
+/// "inputs":[…],"clock":[…]}`, `{"op":"request"}`. `None` when there is
+/// nothing to say.
 pub fn batch_op(ops: &[MidiOp], boot: bool) -> Option<String> {
     if ops.is_empty() && !boot {
         return None;
@@ -450,13 +454,16 @@ pub fn batch_op(ops: &[MidiOp], boot: bool) -> Option<String> {
                 s.push_str(&format!("],\"at\":{}}}", num(*at)));
             }
             MidiOp::Retract { id } => s.push_str(&format!("{{\"op\":\"retract\",\"id\":{id}}}")),
-            MidiOp::Open { inputs } => {
+            MidiOp::Open { inputs, clock } => {
                 s.push_str("{\"op\":\"open\",\"inputs\":[");
-                for (k, input) in inputs.iter().enumerate() {
-                    if k > 0 {
-                        s.push(',');
+                for (key, list) in [("", inputs), ("],\"clock\":[", clock)] {
+                    s.push_str(key);
+                    for (k, input) in list.iter().enumerate() {
+                        if k > 0 {
+                            s.push(',');
+                        }
+                        crate::agent::quote(input, &mut s);
                     }
-                    crate::agent::quote(input, &mut s);
                 }
                 s.push_str("]}");
             }
@@ -507,8 +514,9 @@ pub struct Midi {
     received: VecDeque<Received>,
     heard: u64,
     ops: Vec<MidiOp>,
-    /// The inputs a host was last told to open.
-    open: Vec<String>,
+    /// The inputs a host was last told to open, and those of them whose
+    /// clock it forwards.
+    open: (Vec<String>, Vec<String>),
     clock: Option<Clock>,
     ticks: u64,
     /// The last tick handed and let go from the queue: its index and time.
@@ -539,7 +547,7 @@ impl Midi {
             received: VecDeque::new(),
             heard: 0,
             ops: Vec::new(),
-            open: Vec::new(),
+            open: (Vec::new(), Vec::new()),
             clock: None,
             ticks: 0,
             played: None,
@@ -572,7 +580,7 @@ impl Midi {
 
     /// The inputs a host was last told to open.
     pub fn open(&self) -> &[String] {
-        &self.open
+        &self.open.0
     }
 
     /// Clock out's output while it plays, and the ticks ever queued.
@@ -603,13 +611,15 @@ impl Midi {
         std::mem::take(&mut self.ops)
     }
 
-    /// The inputs a host should listen to now; an `Open` when they changed.
-    pub(crate) fn set_open(&mut self, inputs: Vec<String>) {
-        if inputs != self.open {
+    /// The inputs a host should listen to now, and those whose clock it
+    /// forwards; an `Open` when they changed.
+    pub(crate) fn set_open(&mut self, inputs: Vec<String>, clock: Vec<String>) {
+        if (&inputs, &clock) != (&self.open.0, &self.open.1) {
             self.ops.push(MidiOp::Open {
                 inputs: inputs.clone(),
+                clock: clock.clone(),
             });
-            self.open = inputs;
+            self.open = (inputs, clock);
         }
     }
 
@@ -943,22 +953,29 @@ impl Midi {
     /// An edit at `t` (LLP 1125 D3, D7): every waiting message the sequence
     /// queued for a step at or after `t` is taken back, but a note-off whose
     /// note-on was handed stays (rulings #6); the clock goes on from its
-    /// first tick taken back.
-    pub(crate) fn retract_seq(&mut self, t: f64, log: &mut Vec<String>) {
+    /// first tick taken back. A clock's new anchor (D9) takes back those for
+    /// a step at or after `from` the same way, `by` `clock`.
+    pub(crate) fn retract_seq(
+        &mut self,
+        t: f64,
+        from: f64,
+        by: &'static str,
+        log: &mut Vec<String>,
+    ) {
         let mut n = 0;
         for i in 0..self.queue.len() {
             let s = &self.queue[i];
-            if s.seq && s.waits(t) && s.step_at >= t && !s.off_of_handed(t) {
+            if s.seq && s.waits(t) && s.step_at >= from && !s.off_of_handed(t) {
                 if let (Some(k), Some(c)) = (s.tick, self.clock.as_mut()) {
                     c.next = c.next.min(k);
                 } else {
                     n += 1;
                 }
-                self.retract(i, "edit");
+                self.retract(i, by);
             }
         }
         if n > 0 {
-            log.push(format!("midi retracted: {n} (edit)"));
+            log.push(format!("midi retracted: {n} ({by})"));
         }
     }
 
@@ -1207,8 +1224,9 @@ pub struct Incoming {
 /// the latest of its input, channel and controller or note, never across a
 /// note or transport message of the same input and channel (a transport
 /// message has none, so it bounds every channel of its input). Clock and
-/// Active Sensing are left out (they are clock in's, stage 4); what is not
-/// one whole message is dropped and journaled. Returns the messages to
+/// Active Sensing are left out (clock in took its input's ticks first,
+/// `crate::transport::clock`); what is not one whole message is dropped
+/// and journaled. Returns the messages to
 /// dispatch, in order, and how many each input coalesced.
 pub fn coalesce(batch: Vec<Incoming>, log: &mut Vec<String>) -> Vec<Incoming> {
     let mut out: Vec<Option<Incoming>> = Vec::with_capacity(batch.len());

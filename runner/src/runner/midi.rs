@@ -18,6 +18,16 @@ pub(super) fn queue<D: DataSource>(plan: &exact_plan::Plan, data: &D) -> Midi {
     Midi::new(readers, crate::device::granted(data.grants(), "midi"))
 }
 
+/// Whether `data` is one whole message clock in reads (LLP 1125 D9):
+/// Timing Clock, Start, Continue, Stop, or Song Position.
+fn clock_message(data: &[u8]) -> bool {
+    match data {
+        [0xF8 | 0xFA | 0xFB | 0xFC] => true,
+        [0xF2, lsb, msb] => *lsb < 0x80 && *msb < 0x80,
+        _ => false,
+    }
+}
+
 /// What a `midimessage` handler's action hears (LLP 1125 D8): Web MIDI's
 /// `MIDIMessageEvent`, with the input, runner time and the transport's beat.
 #[derive(Clone, Debug, PartialEq)]
@@ -154,7 +164,9 @@ impl<D: DataSource> Runner<D> {
             .collect()
     }
 
-    /// The inputs the mounted listeners name, each once, in tree order.
+    /// The inputs the mounted listeners name, each once, in tree order, then
+    /// the input a sequence follows (LLP 1125 D9), opened with or without a
+    /// listener.
     pub fn midi_inputs(&self) -> Vec<String> {
         let mut open: Vec<String> = Vec::new();
         for (_, inputs) in self.midi_listeners(None) {
@@ -164,13 +176,20 @@ impl<D: DataSource> Runner<D> {
                 }
             }
         }
+        if let Some(i) = self.transport.clock_input() {
+            if !open.iter().any(|o| o == i) {
+                open.push(i.to_string());
+            }
+        }
         open
     }
 
-    /// [`Runner::midi_inputs`] for the host: an `Open` when they changed.
+    /// [`Runner::midi_inputs`] for the host, with the input whose clock it
+    /// forwards: an `Open` when they changed.
     pub(super) fn midi_open(&mut self) {
         let open = self.midi_inputs();
-        self.midi.set_open(open);
+        let clock = self.transport.clock_input().map(str::to_string);
+        self.midi.set_open(open, clock.into_iter().collect());
     }
 
     /// What MIDI does since the last take: sends and retractions, the
@@ -180,14 +199,29 @@ impl<D: DataSource> Runner<D> {
         self.midi.take()
     }
 
-    /// One host delivery of input messages (D8): coalesced, then each
-    /// dispatched, in arrival order, to every element that hears its input,
-    /// a commit each. A refusal does not stop the rest (a note-off still
-    /// arrives); the first is returned.
+    /// One host delivery of input messages (D8): the followed input's clock
+    /// and transport messages to the transport first, in arrival order (D9),
+    /// then the delivery coalesced and each message dispatched, in arrival
+    /// order, to every element that hears its input, a commit each; one no
+    /// element hears is dropped unrecorded. A refusal does not stop the rest
+    /// (a note-off still arrives); the first is returned.
     pub fn midi_input(
         &mut self,
         batch: Vec<Incoming>,
     ) -> (Vec<CommitReceipt>, Option<RunnerError>) {
+        let clock: Vec<(f64, Vec<u8>)> = match self.transport.clock_input() {
+            Some(input) if self.midi.ports().connected_input(input) => batch
+                .iter()
+                .filter(|m| m.input == input && clock_message(&m.data))
+                .map(|m| (m.time_stamp, m.data.clone()))
+                .collect(),
+            _ => Vec::new(),
+        };
+        if !clock.is_empty() {
+            // The delivery's runner time is the host's now, not the last commit's.
+            self.sample();
+            self.transport_clock(&clock);
+        }
         let mut lines = Vec::new();
         let batch = coalesce(batch, &mut lines);
         lines.into_iter().for_each(|l| self.log(l));
@@ -198,6 +232,10 @@ impl<D: DataSource> Runner<D> {
                     "midi in dropped: {} is not a connected input",
                     m.input
                 ));
+                continue;
+            }
+            let listeners = self.midi_listeners(Some(&m.input));
+            if listeners.is_empty() {
                 continue;
             }
             let beat = self.transport.beat_at(m.time_stamp);
@@ -222,7 +260,7 @@ impl<D: DataSource> Runner<D> {
                 time_stamp: m.time_stamp,
                 beat,
             };
-            for (view, _) in self.midi_listeners(Some(&message.input)) {
+            for (view, _) in listeners {
                 // An earlier handler's commit may have unmounted it.
                 if self.find(view).is_none() {
                     continue;
@@ -344,9 +382,15 @@ impl<D: DataSource> Runner<D> {
 
     /// `tap midi "<input>" 90 3c 64`: one delivery of the messages the bytes
     /// make, refused by name unless they are whole, the input is connected
-    /// and a mounted element hears it.
+    /// and a mounted element hears it or a sequence follows it. With
+    /// `"clock":[[stamp, byte, (lsb, msb)?]…]` instead (the driver's `tap
+    /// midi "<input>" clock <bpm> <ms>`, a slice at a time), one delivery of
+    /// clock and transport messages at those stamps (LLP 1125 D9).
     fn midi_tap(&mut self, v: &serde_json::Value) -> (Vec<CommitReceipt>, Result<String, String>) {
         let input = v.get("input").and_then(|i| i.as_str()).unwrap_or("");
+        if let Some(list) = v.get("clock") {
+            return self.midi_tap_clock(input, list);
+        }
         let data: Option<Vec<u8>> = v.get("data").and_then(|d| d.as_array()).and_then(|d| {
             d.iter()
                 .map(|b| b.as_u64().filter(|b| *b < 256).map(|b| b as u8))
@@ -363,19 +407,12 @@ impl<D: DataSource> Runner<D> {
             Ok(m) => m,
             Err(why) => return (Vec::new(), Err(format!("tap midi: {why}"))),
         };
-        if !self.midi.ports().connected_input(input) {
-            let why = match self.midi.ports().access {
-                Access::Granted => {
-                    format!("{input:?} is not a connected input (prefer midi.inputs)")
-                }
-                a => format!(
-                    "MIDI access is {} (requestMIDIAccess, prefer midi.state)",
-                    a.word()
-                ),
-            };
-            return (Vec::new(), Err(format!("tap midi: {why}")));
+        if let Some(why) = self.midi_unconnected(input) {
+            return (Vec::new(), Err(why));
         }
-        if self.midi_listeners(Some(input)).is_empty() {
+        if self.midi_listeners(Some(input)).is_empty()
+            && self.transport.clock_input() != Some(input)
+        {
             return (
                 Vec::new(),
                 Err(format!(
@@ -392,6 +429,78 @@ impl<D: DataSource> Runner<D> {
                 data,
             })
             .collect();
+        let (receipts, error) = self.midi_input(batch);
+        match error {
+            Some(e) => (receipts, Err(format!("tap midi: {e:?}"))),
+            None => (receipts, Ok(self.midi_reply())),
+        }
+    }
+
+    /// Why `tap midi` cannot deliver from `input`, unless it can.
+    fn midi_unconnected(&self, input: &str) -> Option<String> {
+        if self.midi.ports().connected_input(input) {
+            return None;
+        }
+        let why = match self.midi.ports().access {
+            Access::Granted => format!("{input:?} is not a connected input (prefer midi.inputs)"),
+            a => format!(
+                "MIDI access is {} (requestMIDIAccess, prefer midi.state)",
+                a.word()
+            ),
+        };
+        Some(format!("tap midi: {why}"))
+    }
+
+    /// `tap midi`'s clock form: one delivery from the input a sequence
+    /// follows, stamps rising from its last tick to now.
+    fn midi_tap_clock(
+        &mut self,
+        input: &str,
+        list: &serde_json::Value,
+    ) -> (Vec<CommitReceipt>, Result<String, String>) {
+        let Some(follow) = self.transport.follower().filter(|f| f.input == input) else {
+            return (
+                Vec::new(),
+                Err(format!("tap midi: no sequence follows {input:?} (clock=)")),
+            );
+        };
+        let mut last = follow.last_tick().unwrap_or(f64::NEG_INFINITY);
+        if let Some(why) = self.midi_unconnected(input) {
+            return (Vec::new(), Err(why));
+        }
+        let now = self.now_ms;
+        let mut batch = Vec::new();
+        for m in list.as_array().map_or(&[][..], Vec::as_slice) {
+            let f = |k: usize| m.get(k).and_then(serde_json::Value::as_f64);
+            let byte = |k: usize| f(k).filter(|b| b.fract() == 0.0 && (0.0..128.0).contains(b));
+            let data = match (f(1), byte(2), byte(3)) {
+                (Some(b), None, None) if [248.0, 250.0, 251.0, 252.0].contains(&b) => vec![b as u8],
+                (Some(242.0), Some(lsb), Some(msb)) => vec![0xF2, lsb as u8, msb as u8],
+                _ => {
+                    return (
+                        Vec::new(),
+                        Err("tap midi: a clock message is [stamp, f8|fa|fb|fc] or [stamp, f2, lsb, msb]".into()),
+                    )
+                }
+            };
+            let stamp = f(0).unwrap_or(f64::NAN);
+            if !(stamp >= last && stamp <= now) {
+                return (
+                    Vec::new(),
+                    Err(format!(
+                        "tap midi: clock stamps rise from the last tick to now ({}), not {}",
+                        crate::agent::num(now),
+                        crate::agent::num(stamp)
+                    )),
+                );
+            }
+            last = stamp;
+            batch.push(Incoming {
+                input: input.to_string(),
+                time_stamp: stamp,
+                data,
+            });
+        }
         let (receipts, error) = self.midi_input(batch);
         match error {
             Some(e) => (receipts, Err(format!("tap midi: {e:?}"))),

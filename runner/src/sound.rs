@@ -103,6 +103,10 @@ pub enum By {
     /// Its sequence was edited before it started (LLP 1125 D3): it never
     /// sounds, and the new value is expanded in its place.
     Edit,
+    /// Its sequence follows a MIDI clock whose new tempo or phase moved its
+    /// time (LLP 1125 D9): it never sounds, and is issued again at the new
+    /// time.
+    Clock,
 }
 
 impl By {
@@ -115,12 +119,13 @@ impl By {
             By::Stop => "stop",
             By::Cancelled => "cancelled",
             By::Edit => "edit",
+            By::Clock => "clock",
         }
     }
 
     /// Whether a voice that ended this way ever sounds.
     fn sounds(self) -> bool {
-        !matches!(self, By::Cut | By::Cancelled | By::Edit)
+        !matches!(self, By::Cut | By::Cancelled | By::Edit | By::Clock)
     }
 }
 
@@ -192,8 +197,8 @@ pub struct Haptic {
     pub kind: String,
     /// When it plays.
     pub at: f64,
-    /// Why it was retracted before its time, if it was: `edit`, or
-    /// `cancelled` (a stop or a reload).
+    /// Why it was retracted before its time, if it was: `edit`, `clock`
+    /// (LLP 1125 D9), or `cancelled` (a stop or a reload).
     pub by: Option<&'static str>,
     /// The step it is for, before its track's offset.
     step_at: f64,
@@ -345,7 +350,7 @@ impl Sounds {
             let n = s.end_live(t, None, false);
             log.push(format!("sounds stopped: {n} (reload)"));
         });
-        self.retract_haptics(t, "cancelled", log);
+        self.retract_haptics(t, f64::NEG_INFINITY, "cancelled", log);
     }
 
     /// Changes made by `f`, whose ops for the output are queued once, at the
@@ -408,12 +413,18 @@ impl Sounds {
         }
     }
 
-    /// Haptics still waiting at `t` (`at >= t`), retracted with why (an
-    /// edit's only those for a step at or after `t`); one line when any was.
-    pub(crate) fn retract_haptics(&mut self, t: f64, by: &'static str, log: &mut Vec<String>) {
+    /// Haptics still waiting at `t` (`at >= t`) for a step at or after
+    /// `from`, retracted with why; one line when any was.
+    pub(crate) fn retract_haptics(
+        &mut self,
+        t: f64,
+        from: f64,
+        by: &'static str,
+        log: &mut Vec<String>,
+    ) {
         let mut n = 0;
         for h in self.haptics.iter_mut() {
-            if h.by.is_none() && h.at >= t && (by != "edit" || h.step_at >= t) {
+            if h.by.is_none() && h.at >= t && h.step_at >= from {
                 h.by = Some(by);
                 self.ops.push(SoundOp::Unhaptic { id: h.id });
                 n += 1;
@@ -424,21 +435,22 @@ impl Sounds {
         }
     }
 
-    /// An edit at `t` (LLP 1125 D3): every sequence voice not started by `t`
-    /// for a step at or after `t` ends as `edit` at its start, and so leaves
-    /// the bound; so do its haptics still to come (a track's offset can put
-    /// an earlier step's output after `t`: it stays, LLP 1125 D7). Inside
-    /// [`Sounds::batch`].
-    pub(crate) fn retract_seq(&mut self, t: f64, log: &mut Vec<String>) {
+    /// An edit at `t` (LLP 1125 D3; `from` is `t`, `by` [`By::Edit`]), or a
+    /// clock's new anchor (D9; `by` [`By::Clock`]): every sequence voice not
+    /// started by `t` for a step at or after `from` ends as `by` at its
+    /// start, and so leaves the bound; so do its haptics still to come (a
+    /// track's offset can put an earlier step's output after `from`: it
+    /// stays, LLP 1125 D7). Inside [`Sounds::batch`].
+    pub(crate) fn retract_seq(&mut self, t: f64, from: f64, by: By, log: &mut Vec<String>) {
         let mut n = 0;
         for v in self.voices.iter_mut() {
-            if v.seq && v.by.sounds() && v.at >= t && v.step_at >= t {
-                (v.ends, v.by) = (v.at, By::Edit);
+            if v.seq && v.by.sounds() && v.at >= t && v.step_at >= from {
+                (v.ends, v.by) = (v.at, by);
                 n += 1;
             }
         }
-        log.push(format!("sounds retracted: {n} (edit)"));
-        self.retract_haptics(t, "edit", log);
+        log.push(format!("sounds retracted: {n} ({})", by.word()));
+        self.retract_haptics(t, from, by.word(), log);
     }
 
     /// The sequence stops at `t` (LLP 1125 D4): its voices end as
@@ -457,7 +469,7 @@ impl Sounds {
             }
         }
         log.push(format!("sounds stopped: {n} (sequence {name})"));
-        self.retract_haptics(t, "cancelled", log);
+        self.retract_haptics(t, f64::NEG_INFINITY, "cancelled", log);
     }
 
     fn queue(&mut self, before: Vec<(u64, f64)>, first_new: u64) {

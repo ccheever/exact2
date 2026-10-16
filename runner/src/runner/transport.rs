@@ -5,6 +5,7 @@
 //! Its own wakes (a fill, the count-in's end) run no action and make no
 //! commit; its end runs `ended=` as a timer runs; and what `exactTransport`
 //! answers is published by a commit of its own, as an answer's `then` is.
+//! A clock in's deliveries (LLP 1125 D9) come through `midi_input`.
 
 use super::*;
 use crate::transport::{Answer, Out, Seen, SOURCE};
@@ -82,6 +83,7 @@ impl<D: DataSource> Runner<D> {
     /// when what it answers changed.
     fn transport_said(&mut self, lines: Vec<String>, before: Answer) {
         lines.into_iter().for_each(|l| self.log(l));
+        self.transport.publish();
         if !self.transport.readers.is_empty() && self.transport.answer() != before {
             self.transport.answer_due = self.transport.answer_due.min(self.now_ms);
         }
@@ -99,6 +101,21 @@ impl<D: DataSource> Runner<D> {
         };
         self.transport
             .wake(&self.plan, &mut out, at, live, &mut lines);
+        self.transport_said(lines, before);
+    }
+
+    /// One delivery's clock messages from the followed input (LLP 1125 D9),
+    /// `(stamp, bytes)` each in arrival order: no action, no commit.
+    pub(super) fn transport_clock(&mut self, msgs: &[(f64, Vec<u8>)]) {
+        let before = self.transport.answer();
+        let (now, live) = (self.now_ms, self.clock_live());
+        let mut lines = Vec::new();
+        let mut out = Out {
+            sounds: &mut self.sounds,
+            midi: &mut self.midi,
+        };
+        self.transport
+            .follow(&self.plan, &mut out, now, live, msgs, &mut lines);
         self.transport_said(lines, before);
     }
 
