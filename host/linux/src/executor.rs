@@ -7,8 +7,11 @@ use std::io::{Read, Write};
 use std::os::unix::io::{AsRawFd, RawFd};
 #[path = "../../apple/src/executor_core.rs"]
 mod core;
-/// A new executor waits for a native-worker slot only under test (the core's `reserve`).
-const WAIT_FOR_SLOT: bool = cfg!(test);
+/// A new executor waits for a native-worker slot under test: the crate's own
+/// tests, and the integration binaries, whose every test's presenters share
+/// one process's bound (`test-wait`, which only the dev-dependency on this
+/// crate turns on). A presenter's executor is refused at the bound instead.
+const WAIT_FOR_SLOT: bool = cfg!(any(test, feature = "test-wait"));
 
 /// Ordered native work plus explicitly independent HTTP, with a poll wake.
 pub struct Executor {

@@ -308,7 +308,7 @@ impl Core {
         // Every test in the binary shares the process's bound, one core per
         // test thread: a test waits for a slot rather than being refused.
         // The including crate says when (`WAIT_FOR_SLOT`): its own tests,
-        // and an integration test's build of it (render's `test-wait`).
+        // and an integration test's build of it (render's, Linux's `test-wait`).
         if super::WAIT_FOR_SLOT {
             for _ in 0..5000 {
                 if reserved {

@@ -1356,6 +1356,7 @@ dependencies = [
  "exact-data",
  "exact-grants",
  "exact-kernel",
+ "exact-linux",
  "exact-markdown",
  "exact-motion",
  "exact-plan",
