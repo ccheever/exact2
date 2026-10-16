@@ -12,6 +12,7 @@ import type { T3Client } from './client';
 import { canSnooze, capabilities, effectiveSnoozed, sectionOf, type Caps } from './sidebar-model';
 import { sidebarPrefs, sidebarSession } from './sidebar-state';
 import { snoozePresets } from './sidebar-presentation';
+import { fleet, parseFleetThreadId, type EnvironmentFleet } from './settings-b-fleet';
 
 export interface MenuItem {
   id: string; label: string;
@@ -27,10 +28,21 @@ export interface ThreadMenuState {
   isRegeneratingTitle: boolean; isRunning: boolean; caps: Caps; presets: MenuPreset[];
 }
 
+/**
+ * The config of the environment a sidebar row's thread lives on (Sidebar.tsx `serverConfigs.get(thread.environmentId)`):
+ * a background environment's row (`fleet:<environment>:<id>`) reads that environment's capabilities, and none while it is
+ * not connected.
+ */
+export function rowConfig(client: T3Client, thread: Obj, source: EnvironmentFleet = fleet): Obj {
+  const ref = parseFleetThreadId(str(thread.id));
+  if (!ref || ref.environmentId === client.environmentId) return client.config;
+  return [...source.entries.values()].find(entry => entry.environmentId === ref.environmentId)?.config ?? {};
+}
+
 type Scope = { key: string; name: string; ids: Set<string> };
 /** handleThreadContextMenu's state for one thread; `scopes` are the sidebar's project groups (projectScopes). */
 export function threadMenuState(client: T3Client, thread: Obj, header: boolean, scopes: Scope[], now: number): ThreadMenuState & { scope: Scope | undefined } {
-  const caps = capabilities(client.config), prefs = sidebarPrefs(client);
+  const caps = capabilities(rowConfig(client, thread)), prefs = sidebarPrefs(client);
   const scope = scopes.find(group => group.ids.has(str(thread.projectId)));
   const section = sectionOf(thread, caps, now, client.local.clientSettings?.sidebarWorkingShelfEnabled === true);
   return {
@@ -102,14 +114,14 @@ export function bulkMenuItems(state: BulkMenuState): MenuItem[] {
   return items;
 }
 
-/** handleMultiSelectContextMenu over the selected rows painted now (`threads`). */
+/** handleMultiSelectContextMenu over the selected rows painted now (`threads`), each by its own environment's capabilities. */
 export function bulkMenuState(client: T3Client, threads: Obj[], now: number) {
-  const caps = capabilities(client.config), session = sidebarSession(client);
+  const session = sidebarSession(client), caps = (thread: Obj) => capabilities(rowConfig(client, thread));
   const presets = snoozePresets(now, client.local.deviceSettings.timestampFormat);
-  const pinned = caps.pinning ? threads.filter(thread => thread.pinnedAt != null) : [];
-  const supported = caps.titleRegeneration ? threads : [];
+  const pinned = threads.filter(thread => caps(thread).pinning && thread.pinnedAt != null);
+  const supported = threads.filter(thread => caps(thread).titleRegeneration);
   const regeneratable = supported.filter(thread => thread.titleRegeneration == null && !session.regenerating.has(str(thread.id)));
-  const items = bulkMenuItems({ count: threads.length, pinnedCount: pinned.length, canSnooze: caps.snooze && threads.every(thread => canSnooze(thread, now)),
+  const items = bulkMenuItems({ count: threads.length, pinnedCount: pinned.length, canSnooze: threads.every(thread => caps(thread).snooze && canSnooze(thread, now)),
     regeneratable: regeneratable.length, regenerationSupported: supported.length, presets });
   return { items, presets, pinned, regeneratable, ids: threads.map(thread => str(thread.id)) };
 }
