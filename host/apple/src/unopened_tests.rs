@@ -269,12 +269,7 @@ fn a_waiting_tab_is_built_with_its_presented_colour() {
 /// siblings, so the layout never depends on which tabs were visited.
 #[test]
 fn a_waiting_panel_in_flow_keeps_its_place_in_the_layout() {
-    let app = APP
-        .replace(
-            r#"testId=`panel-${t.name}` position="absolute" inset=0"#,
-            r#"testId=`panel-${t.name}` height=200"#,
-        )
-        .replace(r#"column flex=1 position="relative""#, "column flex=1");
+    let app = in_flow(APP);
     let frames = |wait: bool| {
         let (host, ops) = boot_app(&app, wait);
         let held = named(&host, &ops, "create", "title-saved").is_empty();
@@ -361,44 +356,89 @@ fn a_skipped_tabs_route_takes_its_scroll_position_when_built() {
     );
 }
 
-/// A 2D canvas that drew while its tab waited is given what it drew when
-/// the tab is built, from the draw that made its bitmap fresh; one in a
-/// panel laid out while it waits (in flow) drew at its real size.
+/// The recipe's panels moved into flow: `IN_FLOW`.
+fn in_flow(app: &str) -> String {
+    app.replace(
+        r#"testId=`panel-${t.name}` position="absolute" inset=0"#,
+        r#"testId=`panel-${t.name}` height=200"#,
+    )
+    .replace(r#"column flex=1 position="relative""#, "column flex=1")
+}
+
+/// What the saved route holds, with `extra` after its faded box.
+fn with(app: &str, extra: &str) -> String {
+    let faded = "                  box opacity=0.5 width=10 height=10 testId=\"faded\"\n";
+    app.replace(faded, &format!("{faded}{extra}"))
+}
+
+/// A tab holding a 2D canvas is built at once, at boot or in the commit
+/// that makes the canvas, before it draws: a canvas draws onto its bitmap,
+/// and what it drew while it waited could not be drawn again.
 #[test]
-fn a_waiting_2d_canvas_gets_its_drawing_when_its_tab_is_built() {
+fn a_tab_holding_a_2d_canvas_is_built_at_once() {
     let spark = "                  canvas surface=spark(1) width=10 height=10 testId=\"spark\"\n";
-    let in_flow = APP
+    let (host, boot) = boot_app(&with(APP, spark), true);
+    for made in ["spark", "title-saved"] {
+        assert_eq!(named(&host, &boot, "create", made).len(), 1, "{made}");
+    }
+    assert!(!named(&host, &boot, "canvas2d", "spark").is_empty());
+    let later = "                  if not shown\n    canvas surface=spark(1) width=10 height=10 testId=\"spark\"\n";
+    let later = later.replace("\n    canvas", "\n                    canvas");
+    let (mut host, boot) = boot_app(&with(APP, &later), true);
+    assert!(named(&host, &boot, "create", "title-saved").is_empty());
+    let renamed = press(&mut host, "rename", 10.0);
+    let view = id(&host, "spark");
+    let made = renamed
+        .iter()
+        .position(|o| o["op"] == "create" && o["id"] == view);
+    let drawn = renamed
+        .iter()
+        .position(|o| o["op"] == "canvas2d" && o["id"] == view);
+    assert!(
+        made.is_some_and(|m| drawn.is_some_and(|d| d > m)),
+        "{renamed:?}"
+    );
+    assert_eq!(named(&host, &renamed, "create", "title-saved").len(), 1);
+}
+
+/// An `svg` whose scene was published while it waited (its colour moving
+/// with a route's in a panel laid out in flow) is sent its scene when its
+/// view is made, though the scene did not change.
+#[test]
+fn a_waiting_svg_is_sent_its_scene_when_built() {
+    let svg = "                  svg width=10 height=10 viewBox=\"0 0 10 10\" testId=\"mark\"\n                    polyline points=\"0,0 10,10\" fill=\"none\" stroke=\"currentcolor\"\n";
+    let (mut host, _) = boot_app(&with(&in_flow(APP), svg), true);
+    press(&mut host, "rename", 10.0);
+    host.advance(1100.0);
+    let opened = press(&mut host, "tab-saved", 1200.0);
+    assert_eq!(
+        named(&host, &opened, "create", "mark").len(),
+        1,
+        "{opened:?}"
+    );
+    assert_eq!(named(&host, &opened, "svg", "mark").len(), 1, "{opened:?}");
+}
+
+/// A panel moved from out of flow into flow while it waits keeps the
+/// scroll positions it owes its routes: its layout was skipped when they
+/// were first given.
+#[test]
+fn a_waiting_panel_moved_into_flow_still_owes_its_scroll_positions() {
+    let app = APP
+        .replace(
+            "testId=`route-${e.name}` position=\"absolute\" inset=0",
+            "testId=`route-${e.name}` position=\"absolute\" inset=0 overflow=\"auto\" scrollTop=40",
+        )
         .replace(
             r#"testId=`panel-${t.name}` position="absolute" inset=0"#,
-            r#"testId=`panel-${t.name}` height=200"#,
-        )
-        .replace(r#"column flex=1 position="relative""#, "column flex=1");
-    for app in [APP.to_string(), in_flow] {
-        let app = app.replace(
-            "                  box opacity=0.5 width=10 height=10 testId=\"faded\"\n",
-            &format!(
-                "                  box opacity=0.5 width=10 height=10 testId=\"faded\"\n{spark}"
-            ),
+            r#"testId=`panel-${t.name}` position=(shown ? "absolute" : "relative") inset=0"#,
         );
-        let (mut host, boot) = boot_app(&app, true);
-        assert!(named(&host, &boot, "canvas2d", "spark").is_empty());
-        let opened = press(&mut host, "tab-saved", 20.0);
-        let view = id(&host, "spark");
-        let made = opened
-            .iter()
-            .position(|o| o["op"] == "create" && o["id"] == view);
-        let drawn: Vec<usize> = (0..opened.len())
-            .filter(|i| opened[*i]["op"] == "canvas2d" && opened[*i]["id"] == view)
-            .collect();
-        assert!(
-            made.is_some_and(|m| drawn.first().is_some_and(|d| *d > m)),
-            "{opened:?}"
-        );
-        let last = &opened[*drawn.last().unwrap()];
-        assert!(last["w"].as_f64().unwrap() > 0.0, "{opened:?}");
-        assert!(
-            drawn.iter().any(|i| opened[*i]["fresh"] == true),
-            "{opened:?}"
-        );
-    }
+    let (mut host, _) = boot_app(&app, true);
+    press(&mut host, "rename", 10.0);
+    let opened = press(&mut host, "tab-saved", 20.0);
+    let props = named(&host, &opened, "props", "route-saved");
+    assert!(
+        props.iter().any(|o| o["set"]["scrollTop"] == "40"),
+        "{opened:?}"
+    );
 }

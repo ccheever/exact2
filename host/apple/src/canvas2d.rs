@@ -48,11 +48,8 @@ impl<D: DataSource> Host<D> {
             return;
         }
         self.runner.layout_canvases(scale());
-        let (held, waiting) = (&self.canvas_held, &self.unopened);
-        batch.canvas_owed(
-            self.runner
-                .canvas_owed(&|v| !held.contains(&v) && !waiting.holds(v)),
-        );
+        let held = &self.canvas_held;
+        batch.canvas_owed(self.runner.canvas_owed(&|v| !held.contains(&v)));
     }
 
     /// Where draws are deferred, a turn of canvas work alone: geometry, due
@@ -76,13 +73,9 @@ impl<D: DataSource> Host<D> {
             return;
         }
         self.runner.layout_canvases(scale());
-        // A canvas in a tab not yet selected draws for no frame
-        // (`unopened.rs`), and its lists wait with it.
-        let (held, waiting) = (&self.canvas_held, &self.unopened);
-        self.runner
-            .draw_canvases(&|v| !held.contains(&v) && !waiting.holds(v));
+        let held = &self.canvas_held;
+        self.runner.draw_canvases(&|v| !held.contains(&v));
         let lists = self.runner.take_canvas_lists();
-        let lists = self.hold_canvas_lists(lists);
         for c in &lists {
             batch.canvas2d(c);
         }

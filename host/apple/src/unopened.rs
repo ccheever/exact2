@@ -9,13 +9,14 @@
 //! Selected once, a tab stays built, as `UITabBarController` keeps a loaded
 //! tab. The panel's contents arrive in the batch that selects it, before
 //! UIKit shows it, with what the presenter would have heard meanwhile: the
-//! GPU surfaces' inputs, the 2D canvases' drawing and the presented motion
-//! and paint values. A tab inside a waiting tab waits for its own selection.
+//! GPU surfaces' inputs and the presented motion and paint values. A tab
+//! inside a waiting tab waits for its own selection. A tab holding a 2D
+//! canvas is built at once: a canvas draws onto its bitmap, so a drawing
+//! it made while it waited is not one it can make again.
 //!
 //! A waiting panel that is absolutely positioned is also laid out as covered
 //! whole (`display: none`), measuring nothing in it: out of flow, it moves
-//! no other box (LLP 1001 declares what it leaves out); its routes take
-//! their scroll positions again once it is laid out. A panel in flow is
+//! no other box (LLP 1001 declares what it leaves out). A panel in flow is
 //! laid out as authored, since its size can move its siblings.
 
 use super::*;
@@ -30,15 +31,8 @@ pub(crate) struct Unopened {
     held_ids: IdSet<ViewId>,
     /// The last surface inputs of each held GPU canvas.
     surfaces: IdMap<ViewId, exact_runner::SurfaceUpdate>,
-    /// Each held 2D canvas's lists since its bitmap was last made fresh.
-    canvases: IdMap<ViewId, Vec<exact_runner::CanvasList>>,
-}
-
-impl Unopened {
-    /// Whether the presenter has not been given `id`.
-    pub(crate) fn holds(&self, id: ViewId) -> bool {
-        self.held_ids.contains(&id)
-    }
+    /// The waiting panels a 2D canvas was made in: built in that commit.
+    drawn: Vec<ViewId>,
 }
 
 #[cfg(test)]
@@ -75,7 +69,6 @@ impl<D: DataSource> Host<D> {
             if let Some(id) = unopened.held.remove(key) {
                 unopened.held_ids.remove(&id);
                 unopened.surfaces.remove(&id);
-                unopened.canvases.remove(&id);
             }
         }
         if !tabs_wait() {
@@ -104,8 +97,18 @@ impl<D: DataSource> Host<D> {
     }
 
     fn close(&mut self, panels: &[ViewId]) {
+        let kernel = self.runner.kernel();
         for &panel in panels {
-            if let Some(key) = self.runner.kernel().node(panel).map(|n| n.key) {
+            let Some(key) = kernel.node(panel).map(|n| n.key) else {
+                continue;
+            };
+            let mut stack = vec![panel];
+            let mut draws = false;
+            while let Some(id) = stack.pop() {
+                draws |= self.runner.is_canvas_2d(id);
+                stack.extend(kernel.node(id).map(|n| n.children()).unwrap_or_default());
+            }
+            if !draws {
                 self.unopened.panels.push((panel, key, false));
             }
         }
@@ -133,7 +136,7 @@ impl<D: DataSource> Host<D> {
 
     /// Whether the presenter has not been given `id`.
     pub(crate) fn held(&self, id: ViewId) -> bool {
-        self.unopened.holds(id)
+        self.unopened.held_ids.contains(&id)
     }
 
     /// At a view's creation: whether it lies under a route of a tab not yet
@@ -147,18 +150,25 @@ impl<D: DataSource> Host<D> {
         let Some(node) = kernel.node(id) else {
             return false;
         };
-        let (key, mut child, mut parent) = (node.key, id, node.parent);
+        let draws = self.runner.is_canvas_2d(id);
+        let (key, mut child, mut parent, mut held) = (node.key, id, node.parent, false);
         while let Some(at) = parent {
             // A panel's own children (its routes) are views.
             if child != id && self.unopened.panels.iter().any(|(p, _, _)| *p == at) {
-                self.unopened.held.insert(key, id);
-                self.unopened.held_ids.insert(id);
-                return true;
+                held = true;
+                if !draws {
+                    break;
+                }
+                self.unopened.drawn.push(at);
             }
             child = at;
             parent = kernel.node(at).and_then(|n| n.parent);
         }
-        false
+        if held {
+            self.unopened.held.insert(key, id);
+            self.unopened.held_ids.insert(id);
+        }
+        held
     }
 
     /// The commits' GPU surface inputs: a held canvas's latest is kept
@@ -173,32 +183,11 @@ impl<D: DataSource> Host<D> {
         }
     }
 
-    /// A draw's 2D canvas lists: a held canvas's are kept for its tab's
-    /// opening, from the last that made its bitmap fresh, as the bitmap
-    /// they paint is not drawn again; the rest are the presenter's now.
-    pub(crate) fn hold_canvas_lists(
-        &mut self,
-        lists: Vec<exact_runner::CanvasList>,
-    ) -> Vec<exact_runner::CanvasList> {
-        let mut sent = Vec::with_capacity(lists.len());
-        for c in lists {
-            if self.held(c.view) {
-                let kept = self.unopened.canvases.entry(c.view).or_default();
-                if c.fresh {
-                    kept.clear();
-                }
-                kept.push(c);
-            } else {
-                sent.push(c);
-            }
-        }
-        sent
-    }
-
-    /// After a commit's views: each waiting tab the root now selects is
-    /// built — its views made, its children placed, its surfaces' inputs and
-    /// presented values sent — and laid out from now on. A tab that left the
-    /// tree stops waiting.
+    /// After a commit's views, before its canvases draw: each waiting tab
+    /// the root now selects, or a 2D canvas was made in, is built — its
+    /// views made, its children placed, its surfaces' inputs and presented
+    /// values sent — and laid out from now on. A tab that left the tree
+    /// stops waiting.
     pub(crate) fn open_selected_tabs(&mut self, batch: &mut Batch) {
         if self.unopened.panels.is_empty() {
             return;
@@ -208,9 +197,10 @@ impl<D: DataSource> Host<D> {
             .panels
             .retain(|(_, key, _)| kernel.node_by_key(*key).is_some());
         let off = self.runner.unselected_tabs();
+        let drawn = std::mem::take(&mut self.unopened.drawn);
         let (open, wait): (Vec<_>, Vec<_>) = std::mem::take(&mut self.unopened.panels)
             .into_iter()
-            .partition(|(panel, _, _)| !off.contains(panel));
+            .partition(|(panel, _, _)| !off.contains(panel) || drawn.contains(panel));
         self.unopened.panels = wait;
         self.skip_waiting_layout();
         for (panel, _, skipped) in open {
@@ -255,6 +245,8 @@ impl<D: DataSource> Host<D> {
         }
         let handlers = self.runner.handlers();
         for &id in &order {
+            // A scene published while its `svg` had no view is sent again.
+            self.svg.unsend(id);
             self.create(id, handlers.get(&id).map_or(&[], Vec::as_slice), batch);
         }
         for &id in routes.iter().chain(&order) {
@@ -267,26 +259,18 @@ impl<D: DataSource> Host<D> {
             if let Some(s) = self.unopened.surfaces.remove(&id) {
                 batch.surface(&s);
             }
-            if let Some(lists) = self.unopened.canvases.remove(&id) {
-                for c in &lists {
-                    batch.canvas2d(c);
-                }
-                // Alive until the presenter has read them (`Batch::canvas2d`).
-                self.canvas_kept[1].extend(lists);
-            }
             self.present_settled(id, batch);
         }
-        // A skipped panel's scrollers took their authored positions with no
-        // content to scroll: they take them again, now that it is laid out.
-        if skipped {
-            for &id in std::iter::once(&panel).chain(&routes) {
-                let set: Vec<(&str, String)> = ["scrollTop", "scrollLeft"]
-                    .into_iter()
-                    .filter_map(|k| Some((k, self.mirror.get(&id)?.props.get(k)?.clone())))
-                    .collect();
-                if !set.is_empty() {
-                    batch.props(id, &set, &[]);
-                }
+        // The panel's and its routes' scrollers may have taken their
+        // authored positions while its layout was skipped, with nothing to
+        // scroll: they take them again, now that it is laid out.
+        for &id in std::iter::once(&panel).chain(&routes) {
+            let set: Vec<(&str, String)> = ["scrollTop", "scrollLeft"]
+                .into_iter()
+                .filter_map(|k| Some((k, self.mirror.get(&id)?.props.get(k)?.clone())))
+                .collect();
+            if !set.is_empty() {
+                batch.props(id, &set, &[]);
             }
         }
         for id in above.into_iter().rev().chain(routes).chain(order) {
