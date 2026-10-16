@@ -16,7 +16,7 @@
 // title it is the selected route's header's heading, else the app's name
 // (navigation.js `pageTitle`, both web targets': LLP 1115.000 D4.1).
 import { unselected, unselectedForHead, pageTitle, panelsOf } from "./navigation.js";
-import { scope, owner, onEnd } from "./rt.js";
+import { scope, owner, onEnd, adopting } from "./rt.js";
 
 /** The active head's fields by prop name (`headTitle` …): what a renderer
  * reads (render.mjs), and the agent's `state.head`. */
@@ -98,9 +98,16 @@ export function markDocument() {
 // `commit` runs `openTabs`), before its paint. The selection is the projection's: the panel whose
 // routes hold the root's `navigationKey`; while no built panel holds it, the
 // panel whose tab is `aria-selected` is built, else the first waiting one.
+// A page rendered ahead holds every panel, as its renderer builds them all
+// (`Runner::build_every_tab`; a render here likewise): the boot that adopts
+// it builds every one, and none waits for the page's life.
 const Waiting = new Map();
+let Every = false;
 /** Panel `e` waits; `build` makes its contents, in the scope in force here, when it is first selected. */
-export function tp(e, build) { const up = owner(); Waiting.set(e, () => scope(build, up)); onEnd(() => Waiting.delete(e)); }
+export function tp(e, build) {
+  if ((Every ||= !!globalThis.__exactRender || adopting())) return scope(build, owner());
+  const up = owner(); Waiting.set(e, () => scope(build, up)); onEnd(() => Waiting.delete(e));
+}
 /** Whether `e` is a panel whose tab has never been selected: the agent's `unopened`. */
 export const unopened = e => Waiting.has(e);
 /** Build each waiting panel its root now selects, and any no root's tablist names. */

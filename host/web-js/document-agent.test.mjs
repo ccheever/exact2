@@ -101,9 +101,9 @@ component SplitDocumentAgent
   }
 }, 30000);
 
-// @ref LLP 1075.003 §9.14 — an adopted page's selected tab shows its rendered routes before the runtime has
-// built that panel: the first commit builds it over them, wiring its presses, and the other tab waits.
-test('an adopted page builds its selected tab over the rendered one', async () => {
+// @ref LLP 1075.003 §9.14 — a page rendered ahead holds every tab panel, and the boot that adopts it builds
+// every one over what was rendered, wiring each panel's presses; none waits on that page.
+test('an adopted page builds every tab over the rendered ones', async () => {
   if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
   const root = resolve(import.meta.dir, '../..'), dir = mkdtempSync(resolve(root, 'target/tabs-document-agent-test-'));
   let browser, server;
@@ -140,21 +140,31 @@ component TabsDocument
     });
     const [status, stdout, stderr] = await Promise.all([build.exited, new Response(build.stdout).text(), new Response(build.stderr).text()]);
     expect({ status, error: status ? stdout + stderr : '' }).toEqual({ status: 0, error: '' });
-    expect(readFileSync(resolve(dist, 'index.html'), 'utf8')).toContain('data-testid="bump-a"');
+    const html = readFileSync(resolve(dist, 'index.html'), 'utf8');
+    expect(html).toContain('data-testid="bump-a"');
+    expect(html).toContain('data-testid="bump-b"');
     server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
       const path = new URL(req.url).pathname;
-      return new Response(Bun.file(resolve(dist, path === '/' ? 'index.html' : path.slice(1))));
+      // `/b` is served the page rendered for `/`, which selects tab A.
+      return new Response(Bun.file(resolve(dist, path === '/' || path === '/b' ? 'index.html' : path.slice(1))));
     } });
     browser = await open({ host: 'web', url: server.url.href, size: [420, 900] });
     expect(await browser.carrier.evaluate('exact.journal.some(l => l.endsWith("adopted the document"))')).toBe(true);
     const panels = async () => Object.fromEntries((await browser.tree()).nodes.filter(n => n.props.accessibilityRole === 'tabpanel').map(n => [n.props.testId, !!n.unopened]));
-    expect(await panels()).toEqual({ 'panel-a': false, 'panel-b': true });
+    expect(await panels()).toEqual({ 'panel-a': false, 'panel-b': false });
     await browser.tap('bump-a');
     expect((await browser.state()).slots).toMatchObject({ n: 1 });
     await browser.tap('tab-b');
     await browser.tap('bump-b');
     expect((await browser.state()).slots).toMatchObject({ n: 2 });
     expect(await panels()).toEqual({ 'panel-a': false, 'panel-b': false });
+    // A launch that selects B over the page rendered with A selected adopts it, B's panel included.
+    await browser.close();
+    browser = await open({ host: 'web', url: new URL('b', server.url).href, size: [420, 900] });
+    expect(await browser.carrier.evaluate('exact.journal.some(l => l.endsWith("adopted the document"))')).toBe(true);
+    expect((await browser.state()).navigation).toMatchObject({ url: '/b' });
+    await browser.tap('bump-b');
+    expect((await browser.state()).slots).toMatchObject({ n: 1 });
   } finally {
     await browser?.close(); server?.stop(true); rmSync(dir, { recursive: true, force: true });
   }

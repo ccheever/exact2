@@ -628,6 +628,14 @@ impl<D: DataSource> Runner<D> {
         .map(Runner::linking_every_device)
     }
 
+    /// Build every tab panel now and from now on, none waiting for its first
+    /// selection (LLP 1075.003 §9.14): a page rendered ahead of its runtime
+    /// holds every panel, which the JS target adopts at boot.
+    pub fn build_every_tab(&mut self) -> Result<CommitReceipt, RunnerError> {
+        self.sites.build_every_tab();
+        self.update_tree(true, |tree, u| tree.open_every_tab(u))
+    }
+
     /// Everything a reload keeps.
     pub fn carry(&self) -> Carried {
         Carried {

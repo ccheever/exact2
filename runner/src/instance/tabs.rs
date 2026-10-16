@@ -179,10 +179,30 @@ pub(super) struct Waiting {
     zone: Vec<ViewId>,
 }
 
+impl SiteIndex {
+    /// From now on no tab panel waits for its selection.
+    pub(crate) fn build_every_tab(&mut self) {
+        self.panels.clear();
+    }
+}
+
 impl Tree {
     /// The tab panels whose contents wait for their first selection.
     pub(crate) fn waiting(&self) -> &[ViewId] {
         &self.tabs.panels
+    }
+
+    /// Build every waiting panel now; with [`SiteIndex::build_every_tab`],
+    /// none waits again (a page rendered ahead of its runtime, which adopts
+    /// it whole).
+    pub(crate) fn open_every_tab(&mut self, u: &mut Update<'_>) -> Result<(), InstanceError> {
+        while !self.tabs.panels.is_empty() {
+            let open = std::mem::take(&mut self.tabs.panels);
+            let mut left = open.len();
+            open_in(u, &mut self.children, &[], &open, &mut left)?;
+            self.tabs.panels.append(&mut u.waiting);
+        }
+        Ok(())
     }
 
     /// Make the contents of each waiting panel its root now selects, in

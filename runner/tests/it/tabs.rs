@@ -161,6 +161,19 @@ fn a_panel_no_tab_names_is_built_at_once() {
     assert!(!unopened(&tree, "c") && has(&tree, "bump-c"));
 }
 
+/// A page rendered ahead of its runtime holds every tab panel: the render
+/// host's runner builds each one, and waits for none afterwards.
+#[test]
+fn a_rendered_page_builds_every_tab() {
+    let mut r = boot(&source(ARIA), "/");
+    assert!(unopened(&agent::tree(&r), "b"));
+    r.build_every_tab().unwrap();
+    let tree = agent::tree(&r);
+    assert!(!unopened(&tree, "b") && !unopened(&tree, "c"), "{tree}");
+    assert!(has(&tree, "bump-b") && has(&tree, "bump-c"));
+    assert!(r.unopened_tabs().is_empty());
+}
+
 /// A panel whose tab leaves the tablist is no navigation tab any more: it
 /// is built then, as one no tab names is at once.
 #[test]
