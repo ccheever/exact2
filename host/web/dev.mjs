@@ -84,6 +84,10 @@ const origins = installBrowserOrigins({ host: lan ? '0.0.0.0' : '127.0.0.1', por
 const allowHosts = allowHostArgs(argv);
 const gate = developmentGate(origins, servedAs ?? port, allowHosts);
 const root = resolve(new URL('../..', import.meta.url).pathname);
+// An outside app's wasm loop builds apart from the JS target's `target/web-dist`,
+// so `web` and `web --wasm` can run at once without one serving the other's files.
+if (argv.includes('--wasm') && servedAs == null && process.env.EXACT_APP_DIR && !process.env.EXACT_WEB_DIST)
+  process.env.EXACT_WEB_DIST = buildEnv.EXACT_WEB_DIST = resolve(app.target, 'web-dist-wasm');
 const dist = webDist();
 const source = resolve(app.dir, 'app.contract');
 // The JS target (LLP 1071): the runtime the app ships, rebuilt and reloaded
