@@ -79,6 +79,7 @@ impl<D: DataSource> Presenter<D> {
         if self.booting || !self.tracks_scroll_end(view) {
             return;
         }
+        self.scroll_end.model.remove(&view);
         let Some(key) = self.host.kernel().node(view).map(|n| n.key) else {
             return;
         };
@@ -139,8 +140,11 @@ impl<D: DataSource> Presenter<D> {
         }
         if let Some(model) = self.pending_model_scroll(view) {
             self.scroll_end.model.insert(view, (model, completion));
-        } else if self.scroll_of(view) != before {
-            self.scroll_end_moved(view, completion);
+        } else {
+            self.scroll_end.model.remove(&view);
+            if self.scroll_of(view) != before {
+                self.scroll_end_moved(view, completion);
+            }
         }
     }
 
@@ -151,6 +155,7 @@ impl<D: DataSource> Presenter<D> {
         before: Option<collection::ModelScroll>,
     ) {
         let Some(current) = self.pending_model_scroll(view) else {
+            self.scroll_end.model.remove(&view);
             return;
         };
         if let Some((model, _)) = self.scroll_end.model.get_mut(&view) {
@@ -159,7 +164,17 @@ impl<D: DataSource> Presenter<D> {
             {
                 *model = current;
             }
+            if *model != current {
+                self.scroll_end.model.remove(&view);
+            }
         }
+    }
+
+    fn retire_model_scroll_ends(&mut self) {
+        // Cursor advances and sequence changes can invalidate an unpainted request.
+        let mut models = std::mem::take(&mut self.scroll_end.model);
+        models.retain(|view, (model, _)| self.pending_model_scroll(*view) == Some(*model));
+        self.scroll_end.model = models;
     }
 
     #[cfg(any(target_os = "linux", target_os = "android", test))]
@@ -228,6 +243,7 @@ impl<D: DataSource> Presenter<D> {
         for id in gone {
             self.scroll_end.forget(id);
         }
+        self.retire_model_scroll_ends();
     }
 
     pub(crate) fn timer_or_scroll_due_ms(&self) -> Option<f64> {
@@ -369,6 +385,7 @@ impl<D: DataSource> Presenter<D> {
 impl<D: DataSource + Default> Presenter<D> {
     pub(crate) fn settle_scroll_commands(&mut self, line: &str, mut reply: String) -> String {
         use exact_runner::agent::{field_bool, field_str};
+        self.retire_model_scroll_ends();
         if (self.scroll_end.pending.is_empty()
             && self.scroll_end.completed.is_empty()
             && self.scroll_end.model.is_empty()
@@ -395,6 +412,7 @@ impl<D: DataSource + Default> Presenter<D> {
             self.run_commands(D::default);
         }
         // A frame must acknowledge model writes and release deferred scrolls.
+        self.retire_model_scroll_ends();
         if (!self.scroll_end.pending.is_empty()
             || !self.scroll_end.completed.is_empty()
             || !self.scroll_end.model.is_empty()

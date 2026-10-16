@@ -855,7 +855,10 @@ sits on that list carries the trade it would take.
   point (deferred notches share one completion after their frame's `scroll`),
   reader samples after 100 ms quiet, and owned edge scrolling when it stops.
   Lifetime cancellation and agent settle are covered; apps without handlers retain
-  main's behavior. Remaining: the full deadline-before-later-timers rule and its
+  main's behavior. Declared gap: viewport resize can classify end-follow layout
+  movement as a new scroll. A 100 px scroller with `scrollFollowEnd`, a child of
+  height `100vh`, and a viewport growing from 500 to 600 px emits a completion.
+  Remaining: the full deadline-before-later-timers rule and its
   snapshot/reentry budgets, plus Android device qualification. The first step keeps
   Host's catch-up and shell call order. The earlier full implementation remains
   parked on `q1013/scrollend-impl`; use the no-handler differential harness at

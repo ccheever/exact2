@@ -1399,3 +1399,38 @@ component App
         assert_eq!(number(&p, "ends"), if modal { 1. } else { 0. });
     }
 }
+
+#[test]
+fn a_wheel_supersedes_an_unacknowledged_model_completions_wait() {
+    user_scroll_supersedes_model(false);
+}
+
+#[test]
+fn a_reader_sample_supersedes_an_unacknowledged_model_completions_wait() {
+    user_scroll_supersedes_model(true);
+}
+
+fn user_scroll_supersedes_model(is_reader: bool) {
+    let mut p = boot(true);
+    let first = p.display_frame().unwrap();
+    assert!(p.display_complete(&first));
+    press(&mut p, "jump", 50.);
+    let port = named(&p, "port");
+    assert!(p.pending_model_scroll(port).is_some());
+    let jump = p.display_frame().unwrap();
+    if is_reader {
+        reader(&mut p, 50., 20.);
+    } else {
+        p.wheel(port, 0., 20.).unwrap();
+    }
+    assert!(p.pending_model_scroll(port).is_none());
+    assert!(p.display_complete(&jump));
+    assert_eq!(p.scroll_of(port).1, 20.);
+    let reply = settled(&mut p);
+    assert_eq!(number(&p, "ends"), 1.);
+    assert_eq!(text(&p, "order"), "se");
+    assert_eq!(reply["settled"], true, "{reply}");
+    assert_eq!(reply["clock"], if is_reader { 150. } else { 50. });
+    assert_eq!(settled(&mut p)["settled"], true);
+    assert_eq!(number(&p, "ends"), 1.);
+}
