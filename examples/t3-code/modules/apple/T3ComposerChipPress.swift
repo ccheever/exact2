@@ -58,6 +58,8 @@ final class T3ComposerChipPress {
     private var link = ""
     private var observers: [NSObjectProtocol] = []
     private var elements: [T3ComposerChipElement] = []
+    /// The text view whose scroll view stands aside for it (`T3ComposerChipOrder`).
+    private weak var exposed: NSTextView?
     private var monitor: Any?
 
     init(styler: T3ComposerStyler) { self.styler = styler }
@@ -367,15 +369,17 @@ final class T3ComposerChipPress {
     /// Every chip's element (a citation's link and comment button), in text order after the text area (`T3ComposerChipOrder`).
     func refreshAccessibility() {
         guard let styler, let view = styler.view else { elements = []; return }
-        if styler.chips.isEmpty && elements.isEmpty { return }
+        if exposed === view, styler.chips.isEmpty, elements.isEmpty { return }
         elements = T3ComposerChipNames.elements(styler, view: view)
         T3ComposerChipOrder.expose(elements, beside: view)
+        exposed = view
     }
 
     func detach() {
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
-        if let view = styler?.view, !elements.isEmpty { T3ComposerChipOrder.withdraw(beside: view) }
+        if let view = exposed { T3ComposerChipOrder.withdraw(beside: view) }
+        exposed = nil
         elements = []
         acted = nil
         close()

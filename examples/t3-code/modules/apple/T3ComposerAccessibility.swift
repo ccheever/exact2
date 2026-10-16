@@ -67,12 +67,13 @@ class T3ComposerChipElement: NSAccessibilityElement {
     }
 }
 
-/// Where the chips' elements stand. VoiceOver reads a text area as one stop: VO-Right moves past it, and interacting
-/// with it moves through its text, so chips that were the text view's children were reached only through the Item
-/// Chooser. They are the text area's siblings instead, right after it in text order, as VO-Right reads Chromium's
-/// contenteditable chips one by one. Exact's text area sits in its scroll view (`TextAreaScroll`), an `AXScrollArea`
-/// of its own; while chips are listed it stands aside (not an element), so the text area and its chips are children of
-/// the composer's enclosing element, in that order, and the scroll view's other children (its scrollers) follow.
+/// Where the text area and the chips' elements stand. The reference's prompt is a contenteditable, which Chromium serves
+/// as an `AXTextArea` with nothing around it. Exact's text area sits in its scroll view (`TextAreaScroll`), an
+/// `AXScrollArea` of its own, which VoiceOver read as "empty, scroll area" and stepped into only by interacting; so it
+/// stands aside (not an element), and the text area, then its chips, are children of the composer's enclosing element:
+/// VO-Right reads "Message, edit text", then each chip, as it reads Chromium's contenteditable chips one by one.
+/// The scroll view's children are always written whole: AppKit keeps an explicit nil as no children, which hid the text
+/// area once the last chip had gone.
 enum T3ComposerChipOrder {
     static func expose(_ elements: [T3ComposerChipElement], beside view: NSTextView) {
         guard let scroll = view.enclosingScrollView, scroll.documentView === view else {
@@ -80,18 +81,16 @@ enum T3ComposerChipOrder {
             return
         }
         view.setAccessibilityChildren(nil)
-        scroll.setAccessibilityChildren(nil)
-        guard !elements.isEmpty else { scroll.setAccessibilityElement(true); return }
         for element in elements { element.container = scroll }
-        let own = (scroll.accessibilityChildren() ?? []).filter { $0 as AnyObject !== view }
         scroll.setAccessibilityElement(false)
-        scroll.setAccessibilityChildren([view] + elements + own)
+        scroll.setAccessibilityChildren([view] + elements)
     }
 
+    /// The scroll view as AppKit made it: an element holding the text area.
     static func withdraw(beside view: NSTextView) {
         view.setAccessibilityChildren(nil)
         guard let scroll = view.enclosingScrollView, scroll.documentView === view else { return }
-        scroll.setAccessibilityChildren(nil)
+        scroll.setAccessibilityChildren([view])
         scroll.setAccessibilityElement(true)
     }
 }
