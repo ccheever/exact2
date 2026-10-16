@@ -255,6 +255,29 @@ the order they finish with three on the GPU at most. Rendering the cull's pose
 once a frame for the vertex shader, culling on the CPU, a `SurfaceView` and
 mailbox presentation were each measured and cost more than they saved.
 
+**Memory and CPU at 60 Hz**, the same day: ten seconds of Perfetto (scheduling and
+CPU frequency) and `dumpsys meminfo` after it, each engine at each size, both at the
+refresh rate throughout. The WebView's page runs in a sandboxed renderer process of
+its own; Exact's game is one process. CPU is milliseconds of running a second
+summed over cores, and gigacycles a second (time × the core's clock: closer to
+energy). SurfaceFlinger is reported apart because each engine's frames cost it.
+
+| | WebView 2k | 32k | 64k | Exact 2k | 32k | 64k |
+|---|---|---|---|---|---|---|
+| PSS, MB (app + renderer) | 115 + 80 | 126 + 101 | 133 + 109 | 205 | 222 | 239 |
+| of it EGL (graphics) memory, MB | 40 | 40 | 40 | 160 | 160 | 160 |
+| CPU ms/s (app + renderer) | 829 | 1,035 | 1,194 | 423 | 553 | 664 |
+| Gcycles/s (app + renderer) | 0.81 | 1.36 | 1.93 | 0.33 | 0.45 | 0.61 |
+| SurfaceFlinger ms/s | 213 | 171 | 173 | 313 | 294 | 287 |
+
+Total memory is about equal; Exact's is graphics memory where the WebView's is
+JavaScript and renderer heap: the six-buffer ring at device pixels (6 × 10 MB) and
+the direct path's 4× MSAA colour and depth (about 80 MB, allocated as ordinary
+memory, QUEUE.md). Exact spends half the CPU time and a third of the cycles; its
+SurfaceFlinger time is about 100 ms/s higher, on little cores at the same cycles.
+The battery was full on USB power and the Pixel 5 has no power rails, so power was
+not measured; the GPU's clock was not readable without root.
+
 #### Sitting #2 — landmark re-score, 2026-09-18T20-36-09-882Z
 
 All 15 attempts satisfy the existing input/focus validity rules; all are provisional
