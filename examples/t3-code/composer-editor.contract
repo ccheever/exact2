@@ -343,6 +343,15 @@ component ImageDraftTile
     remove: action
     ask: action
     command: action
+    // Where the focus goes when its focused Remove removes it (snapshot.contract draftFocusAfter).
+    after: string
+  state removeFocused = false
+  action removeFocus(on: bool)
+    removeFocused = on
+  action removeNow
+    remove(id)
+    if removeFocused
+      focus(after)
   view
     column position="relative" width="4rem" height="4rem" flex-shrink=0 box-sizing="border-box" overflow="hidden" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7cc, #ffffff0d)" background-color="light-dark(#fcfcfc, #0a0a0a)" testId=`image-draft-${id}`
       ImagePreviewButton(id=id, name=name, command=command)
@@ -351,7 +360,7 @@ component ImageDraftTile
           button press=ask("ui:confirm", id, "remove-snapshot", `Remove ${name} from the message?`, "It is referenced in your text; removing it also removes every reference.", true) disabled=disabled aria-label=`Remove ${name}` testId=`remove-snapshot-${id}` width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 box-shadow="0 1px 2px #0000000d, 0 0 0 1px #ffffff33" background-color="#000000a6" display="flex" align-items="center" justify-content="center" title=""
             StashGlyph(name="x", size=14, color="#ffffff")
         else
-          button press=remove(id) disabled=disabled aria-label=`Remove ${name}` testId=`remove-snapshot-${id}` width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 box-shadow="0 1px 2px #0000000d, 0 0 0 1px #ffffff33" background-color="#000000a6" display="flex" align-items="center" justify-content="center" title=""
+          button press=removeNow focus=removeFocus(true) blur=removeFocus(false) disabled=disabled aria-label=`Remove ${name}` testId=`remove-snapshot-${id}` width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 box-shadow="0 1px 2px #0000000d, 0 0 0 1px #ffffff33" background-color="#000000a6" display="flex" align-items="center" justify-content="center" title=""
             StashGlyph(name="x", size=14, color="#ffffff")
 
 // The draft image's thumbnail as its "Preview <name>" button (ChatComposer's

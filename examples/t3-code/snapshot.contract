@@ -227,9 +227,18 @@ component SnapshotTile
     // Removing an image whose chip is in the prompt asks first (app.contract titleMenuPick's "ui:confirm").
     ask: action
     command: action
+    after: string
   state hovering = false
   action setHover(over: bool)
     hovering = over
+  state removeFocused = false
+  action removeFocus(on: bool)
+    hovering = on
+    removeFocused = on
+  action removeNow
+    remove(image.id)
+    if removeFocused
+      focus(after)
   view
     column hover=setHover position="relative" width="13rem" max-width="100%" height="7rem" flex-shrink=0 box-sizing="border-box" overflow="hidden" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7cc, #ffffff0d)" background-color="light-dark(#fcfcfc, #0a0a0a)" testId=`snapshot-draft-${image.id}`
       button press=command("editorlocal:chip-image-open", image.id, "", 0) focus=setHover(true) blur=setHover(false) aria-label=`Preview ${image.name}` testId=`preview-image-${image.id}` id=`preview-image-${image.id}` position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" cursor="zoom-in" title=""
@@ -255,8 +264,15 @@ component SnapshotTile
           button press=ask("ui:confirm", image.id, "remove-snapshot", `Remove ${image.name} from the message?`, "It is referenced in your text; removing it also removes every reference.", true) focus=setHover(true) blur=setHover(false) disabled=disabled aria-label=`Remove ${image.name}` testId=`remove-snapshot-${image.id}` width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 box-shadow="0 1px 2px #0000000d, 0 0 0 1px #ffffff33" background-color="#000000a6" display="flex" align-items="center" justify-content="center" title=""
             SnapIcon(name="x", size=14, color="#ffffff")
         else
-          button press=remove(image.id) focus=setHover(true) blur=setHover(false) disabled=disabled aria-label=`Remove ${image.name}` testId=`remove-snapshot-${image.id}` width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 box-shadow="0 1px 2px #0000000d, 0 0 0 1px #ffffff33" background-color="#000000a6" display="flex" align-items="center" justify-content="center" title=""
+          button press=removeNow focus=removeFocus(true) blur=removeFocus(false) disabled=disabled aria-label=`Remove ${image.name}` testId=`remove-snapshot-${image.id}` width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 box-shadow="0 1px 2px #0000000d, 0 0 0 1px #ffffff33" background-color="#000000a6" display="flex" align-items="center" justify-content="center" title=""
             SnapIcon(name="x", size=14, color="#ffffff")
+
+// The element after a tile's Remove in Tab order: the next tile's first button, else the prompt. When a Remove holding
+// the focus (VoiceOver's VO-Space, a keyboard press) removes its tile, the focus goes there. ChatComposer leaves the
+// focus on the body, from where Chrome's next Tab goes on to that element (measured on the reference build); on macOS a
+// focused view removed leaves the window's focus on no element and VoiceOver on the removed button.
+fn draftFocusAfter(images: SnapshotDraft[], videos: ComposerVideo[], at: number): string = images.slice(at + 1, at + 2).map((image) => `preview-image-${image.id}`).concat(videos.slice(0, 1).map((video) => `play-video-${video.id}`)).concat(["composer"]).slice(0, 1).join("")
+fn videoFocusAfter(videos: ComposerVideo[], at: number): string = videos.slice(at + 1, at + 2).map((video) => `play-video-${video.id}`).concat(["composer"]).slice(0, 1).join("")
 
 component SnapshotDrafts
   props
@@ -273,13 +289,13 @@ component SnapshotDrafts
     // area stands between the prompt and the thumbnails for VoiceOver.
     if images.length > 0 or videos.length > 0
       row width="100%" gap="0.5rem" flex-wrap=(snapshots ? "nowrap" : "wrap") overflow-x=(snapshots ? "scroll" : "visible") padding-bottom=(snapshots ? "0.25rem" : "0px") box-sizing="border-box" testId="snapshot-drafts"
-        for image in images key=image.id
+        for image, i in images key=image.id
           if image.snapshot
-            SnapshotTile(image=image, disabled=disabled, remove=remove, ask=ask, command=command)
+            SnapshotTile(image=image, disabled=disabled, remove=remove, ask=ask, command=command, after=draftFocusAfter(images, videos, i))
           else
-            ImageDraftTile(id=image.id, name=image.name, referenced=image.referenced, disabled=disabled, remove=remove, ask=ask, command=command)
-        for video in videos key=video.id
-          VideoDraftTile(video=video, disabled=disabled, command=command)
+            ImageDraftTile(id=image.id, name=image.name, referenced=image.referenced, disabled=disabled, remove=remove, ask=ask, command=command, after=draftFocusAfter(images, videos, i))
+        for video, i in videos key=video.id
+          VideoDraftTile(video=video, disabled=disabled, command=command, after=videoFocusAfter(videos, i))
 
 // SnapShotSetupDialog (macOS direct): Access, then Shortcut. The Shortcut step
 // opens once the saved choice is On, access is ready and the shortcut is
