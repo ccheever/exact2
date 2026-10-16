@@ -233,7 +233,6 @@ pub struct Host<D: DataSource> {
     facts_told: Option<(f64, Vec<(String, String)>)>,
     /// Whether the wake lock was held as a batch last said it (`Host::wakelock_moved`).
     wakelock_told: Option<bool>,
-    unopened: layout::unopened::Unopened,
     /// The top-layer boxes covered while closed (`closed.rs`).
     closed: layout::closed::Closed,
 }
@@ -541,12 +540,10 @@ impl<D: DataSource> Host<D> {
             colors_seen: None,
             facts_told: None,
             wakelock_told: None,
-            unopened: Default::default(),
             closed: Default::default(),
         };
         let mut batch = Batch::new();
         host.native_prepare_candidate().map_err(HostError::Layout)?;
-        host.close_unopened_tabs();
         let order = host.preorder();
         host.close_top_layer(&order);
         let handlers = host.runner.handlers();
@@ -562,7 +559,9 @@ impl<D: DataSource> Host<D> {
         host.emit_title(&mut batch);
         host.emit_language(&mut batch);
         colors::emit_roles(&mut batch);
-        host.emit_surfaces(&mut batch);
+        for s in host.runner.take_surface_updates() {
+            batch.surface(&s);
+        }
         // @ref LLP 1038 D7 — drain once, after all commits in this batch.
         if let Some(change) = host.runner.take_router_change() {
             batch.router(&change);
@@ -1237,7 +1236,6 @@ impl<D: DataSource> Host<D> {
             .sum::<usize>()
             > 1)
         .then(|| self.runner.handlers());
-        self.close_new_tabs(receipts);
         self.close_new_top_layer(receipts);
         for t in receipts {
             let r = &t.receipt;
@@ -1290,7 +1288,6 @@ impl<D: DataSource> Host<D> {
                 }
             }
         }
-        self.open_selected_tabs(&mut batch);
         self.emit_paragraphs(&mut batch);
         let roots = self.runner.roots();
         if roots != self.roots {
@@ -1352,7 +1349,9 @@ impl<D: DataSource> Host<D> {
             self.emit_ranks(&mut batch);
         }
         self.canvas_turn(&mut batch);
-        self.emit_surfaces(&mut batch);
+        for s in self.runner.take_surface_updates() {
+            batch.surface(&s);
+        }
         // The capabilities the actions called, after their commits, in order.
         // @ref LLP 1038 D7 — drain once, after all commits in this batch.
         if let Some(change) = self.runner.take_router_change() {

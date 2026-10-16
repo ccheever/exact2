@@ -2,11 +2,6 @@
 use super::*;
 #[path = "closed.rs"]
 pub(super) mod closed;
-#[path = "unopened.rs"]
-pub(super) mod unopened;
-#[cfg(test)]
-#[path = "unopened_tests.rs"]
-mod unopened_tests;
 
 impl<D: DataSource> Host<D> {
     /// Writes `batch` for the presenter; every batch with ops is written
@@ -171,9 +166,6 @@ impl<D: DataSource> Host<D> {
             let Some(node) = kernel.node_by_key(key) else {
                 continue;
             };
-            if self.held(node.id) {
-                continue;
-            }
             if let Some(c) = kernel.sticky_constraint(key) {
                 if self.layout_withheld || self.stickies.get(&node.id) != Some(&c) {
                     batch.sticky(node.id, Some(&c));
@@ -202,9 +194,6 @@ impl<D: DataSource> Host<D> {
             let Some(node) = kernel.node_by_key(key) else {
                 continue;
             };
-            if self.held(node.id) {
-                continue;
-            }
             let record = crate::batch::fragments_json(kernel.fragments(key), kernel.columns(key));
             if self.layout_withheld || self.fragments.get(&node.id) != Some(&record) {
                 batch.fragments(node.id, &record);
@@ -222,9 +211,6 @@ impl<D: DataSource> Host<D> {
     /// LLP 1083.000 D4: publish ranks independently of geometry, including zero.
     pub(super) fn emit_ranks(&mut self, batch: &mut Batch) {
         for (id, placed) in self.runner.kernel().paint_order() {
-            if self.held(id) {
-                continue;
-            }
             if self.ranks.insert(id, placed.rank) != Some(placed.rank) {
                 batch.rank(id, placed.rank);
             }
@@ -249,9 +235,6 @@ impl<D: DataSource> Host<D> {
                 continue;
             };
             let id = node.id;
-            if self.held(id) {
-                continue;
-            }
             let native_protected = self.native_protected_id(id);
             let kernel = self.runner.kernel();
             let Some(node) = kernel.node(id) else {

@@ -7,9 +7,9 @@
 // tab the bar selects presses its authored tab, so selection, history and
 // reselect-pops-to-root stay the router's (LLP 1038 D4, D12). Under the
 // agent the authored tablist paints and the bar stays hidden. A tab not yet
-// selected holds its routes with nothing in them, as UIKit loads a tab's
-// view when it is first selected (host/apple/src/unopened.rs). Which tabs a
-// root has is NavigationTabs.swift's; what a tab shows, TabFace.swift's.
+// selected has no routes: the runner builds a tab when it is first selected,
+// as UIKit loads a tab's view (LLP 1075.003 §3.7). Which tabs a root has is
+// NavigationTabs.swift's; what a tab shows, TabFace.swift's.
 #if os(iOS) || os(tvOS)
 import UIKit
 
@@ -197,17 +197,29 @@ extension NavigationHost {
         }
         let navs = tabs.panels.compactMap { tabNavigations[$0.id] }
         guard navs.count == tabs.panels.count else { return }
+        // A tab's stack is empty until the runner builds the tab, when it is
+        // first selected (LLP 1075.003 §3.7): its first routes arrive here,
+        // unanimated, and its bar shows as its first route says, as a stack
+        // built with them would (`makeNavigation`).
+        let fill = { (nav: UINavigationController, stack: [RouteController]) in
+            guard nav.viewControllers.isEmpty, let first = stack.first else { return }
+            nav.setNavigationBarHidden(!(self.barShows(nav) && self.bar(of: first.node, pushed: false) != .hidden), animated: false)
+            self.prepareRoutes(stack, in: nav)
+            nav.setViewControllers(stack, animated: false)
+            self.recordOwned(nav)
+        }
         for (index, nav) in navs.enumerated() where index != p.at {
             let stack = base(p.wanted[index])
+            fill(nav, stack)
             prepareRoutes(stack, in: nav)
             if nav.viewControllers.count != stack.count || !zip(nav.viewControllers, stack).allSatisfy({ $0 === $1 }) {
                 nav.setViewControllers(stack, animated: false)
                 recordOwned(nav)
             }
         }
-        // A tab selected for the first time brings what its routes hold
-        // (host/apple/src/unopened.rs): its bar is projected before it is
-        // shown, where nothing animates in.
+        // A tab selected for the first time brings its routes: its bar is
+        // projected before it is shown, where nothing animates in.
+        fill(navs[p.at], base(p.wanted[p.at]))
         if routerTab != p.at { prepareRoutes(base(p.wanted[p.at]), in: navs[p.at]) }
         // @ref LLP 1038 D6 — a tab change swaps immediately.
         if let container = tabController, container.selectedIndex != p.at { container.selectedIndex = p.at }

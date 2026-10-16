@@ -15,11 +15,10 @@ impl<D: DataSource> Host<D> {
             };
         }
         // A native content region's frames are the host's, not the kernel's
-        // (LLP 1080.001 D2), and a tab not yet selected has no views
-        // (`unopened.rs`): `layout agree` must not compare them.
+        // (LLP 1080.001 D2): `layout agree` must not compare them.
         if exact_runner::agent::field_str(request, "op").as_deref() == Some("frames") {
             return exact_runner::agent::frames(&self.runner, request, &|id| {
-                self.native_protected_id(id) || self.held(id)
+                self.native_protected_id(id)
             });
         }
         let mut reply = exact_runner::agent::handle(&self.runner, request);

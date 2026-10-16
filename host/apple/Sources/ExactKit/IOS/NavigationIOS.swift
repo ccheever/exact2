@@ -78,6 +78,7 @@ final class RouteController: UIViewController {
         view = UIView()
         paintBackdrop()
         view.addSubview(node)
+        host?.presenter.session?.natives.routeLoaded(node)
     }
 
     /// The backdrop's colours last written, light and dark.
