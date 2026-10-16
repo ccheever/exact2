@@ -50,6 +50,7 @@ pub(crate) trait Writes {
         _: bool,
         _: crate::models::Moved<'_>,
         _: &[PreparedPose],
+        _: Option<&[(u32, [f32; 10])]>,
     ) {
     }
     fn quads(&mut self, _: &World, _: bool, _: bool, _: bool) -> Result<(), RenderError> {
@@ -148,9 +149,10 @@ impl<const ASSETS: bool> Writes for crate::renderer::RendererWithAssets<ASSETS> 
         initial: bool,
         moved: crate::models::Moved<'_>,
         poses: &[PreparedPose],
+        resets: Option<&[(u32, [f32; 10])]>,
     ) {
         if ASSETS {
-            self.model_poses(w, entities, initial, moved, poses);
+            self.model_poses(w, entities, initial, moved, poses, resets);
         }
     }
     fn quads(
@@ -405,6 +407,7 @@ pub struct Feed {
     batches: Vec<Batch>,
     draw_entities: Vec<(exact_game::Entity, bool)>,
     visibility: visibility::Visibility,
+    parent_changes: visibility::ParentChanges,
     slots: Vec<u32>,
     page_scratch: Box<[f32; PAGE * 12]>,
     dimensions: Vec<[f32; 3]>,
@@ -447,6 +450,7 @@ impl Default for Feed {
             batches: Vec::new(),
             draw_entities: Vec::new(),
             visibility: Default::default(),
+            parent_changes: Default::default(),
             slots: Vec::new(),
             page_scratch: Box::new([0.0; PAGE * 12]),
             dimensions: Vec::new(),
@@ -496,6 +500,7 @@ impl Feed {
         }
         self.materials.reset();
         self.parents.clear();
+        self.parent_changes.reset();
         self.previous.clear();
         self.override_pages.clear();
         self.occupants.clear();
@@ -619,6 +624,9 @@ impl Feed {
         }
         let parent_changed = next.parent != old.parent;
         let offset_changed = next.offset != old.offset;
+        if initial || parent_changed {
+            self.parent_changes.begin(w);
+        }
         if moved || (self.history_pending && w.tick() != self.tick) {
             self.previous.clear();
             r.begin_tick();
@@ -795,14 +803,20 @@ impl Feed {
                     })
                 {
                     let (e, t) = (pose.entity, pose.values);
-                    if !w.is_fresh(e) && scene::snap(w, e, parent_changed) {
+                    if !w.is_fresh(e)
+                        && if parent_changed {
+                            self.parent_changes.get(w, e)
+                        } else {
+                            scene::snap(w, e, false)
+                        }
+                    {
                         self.previous.push((e.index(), t));
                         self.transforms[1 - self.current].invalidate(e.index() as usize / PAGE);
                     }
                 }
                 if parent_changed {
                     for &e in &self.parents {
-                        if !w.has::<Parent>(e) {
+                        if !w.has::<Parent>(e) && self.parent_changes.get(w, e) {
                             if let Some(t) = world_pose(e) {
                                 self.previous.push((e.index(), floats(t)));
                                 self.transforms[1 - self.current]
@@ -1014,9 +1028,10 @@ impl Feed {
             r.model_poses(
                 w,
                 &self.assets.entities,
-                initial || parent_changed,
+                initial,
                 moved,
                 &self.overrides,
+                Some(&self.previous),
             );
         }
         if initial || next.opacity != old.opacity || next.live != old.live || parent_changed {
@@ -1068,6 +1083,9 @@ impl Feed {
         );
         self.tick = w.tick();
         self.versions = Some(next);
+        if initial || parent_changed {
+            self.parent_changes.commit();
+        }
         if let Some(entities) = draw_entities {
             self.draw_entities = entities;
         }
