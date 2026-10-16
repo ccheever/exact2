@@ -250,6 +250,47 @@ fn a_block_that_changes_lays_out_its_subtree_alone() {
     );
 }
 
+/// A route with a block inside a box the host replaced whole (a tab not
+/// yet built, LLP 1075.003 §9.12) is not laid out: none of its text is
+/// measured. Given back, it is laid out as one never replaced is.
+#[test]
+fn a_block_in_a_box_replaced_whole_waits_for_the_box() {
+    let counts = Rc::new(RefCell::new(BTreeMap::new()));
+    let mut k = page(&counts);
+    k.set_host_cover(3, Some(HostCover::Whole)).unwrap();
+    for (route, _) in ROUTES {
+        k.set_host_block(route, is(300.0, 500.0)).unwrap();
+    }
+    k.compute_layout(1, OFFER).unwrap();
+    assert_eq!(
+        counts.borrow().keys().copied().collect::<String>(),
+        "P",
+        "{:?}",
+        counts.borrow()
+    );
+    k.set_host_cover(3, None).unwrap();
+    counts.borrow_mut().clear();
+    k.compute_layout(1, OFFER).unwrap();
+    assert_eq!(
+        counts.borrow().keys().copied().collect::<String>(),
+        "ABS",
+        "{:?}",
+        counts.borrow()
+    );
+    let mut fresh = page(&Rc::new(RefCell::new(BTreeMap::new())));
+    for (route, _) in ROUTES {
+        fresh.set_host_block(route, is(300.0, 500.0)).unwrap();
+    }
+    fresh.compute_layout(1, OFFER).unwrap();
+    for (route, _) in ROUTES {
+        for id in std::iter::once(route).chain(rows_of(route)) {
+            let (a, b) = (k.node(id).unwrap().frame, fresh.node(id).unwrap().frame);
+            assert!(a.bits_eq(b), "{id}: {a:?} {b:?}");
+        }
+        assert_eq!(k.host_block_size(route), fresh.host_block_size(route));
+    }
+}
+
 fn laid_out(ops: Vec<Op>) -> Kernel {
     let mut k = Kernel::with_monospace();
     k.apply(0, 1, &ops).unwrap();

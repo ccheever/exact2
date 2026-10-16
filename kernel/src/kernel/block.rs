@@ -254,10 +254,22 @@ impl Kernel {
     }
 
     /// The blocks under `root`, each with its offer: the lengths the host
-    /// gave, which a maximum's root is sized inside (`apply`).
+    /// gave, which a maximum's root is sized inside (`apply`). A block in a
+    /// box a host replaced whole is left out: that box is `display: none`,
+    /// so nothing in it has a box (a tab not yet built, LLP 1075.003 §9.12).
     fn blocks_under(&self, root: u32) -> Vec<(u32, Offer)> {
         let arena = &self.arena;
-        let under = |slot: u32| slot != root && arena.is_ancestor(root, slot);
+        let replaced = |slot: u32| {
+            let mut at = Some(slot);
+            while let Some(s) = at.filter(|s| *s != root) {
+                if arena.cover(s) == Some(super::HostCover::Whole) {
+                    return true;
+                }
+                at = arena.parent(s);
+            }
+            false
+        };
+        let under = |slot: u32| slot != root && arena.is_ancestor(root, slot) && !replaced(slot);
         let offer = |b: HostBlock| Offer::definite(b.width.length(), b.height.length());
         let held = arena.blocks.0.iter().filter(|b| under(b.0));
         held.map(|b| (b.0, offer(b.1))).collect()
