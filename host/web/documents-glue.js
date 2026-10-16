@@ -63,7 +63,7 @@ const STAT_DIR = { size: 0, isFile: false, isDirectory: true, modifiedMs: 0 };
  * or empty folder, `mkdir` with its parents, `rename`, `copyFile` and
  * `realpath` refused. A Rust source reaches it through storage-request.js,
  * a TypeScript one through `files`. */
-async function operate(op, path, bytes, scope) {
+async function operate(op, path, bytes, scope, expect = null) {
   if (['rename', 'copyFile', 'realpath'].includes(op)) throw failure(`fs.${op} is not available on a document; read its bytes and write them`);
   const write = ['writeFile', 'atomicWriteFile', 'appendFile', 'mkdir', 'rm'].includes(op), grant = write ? 'fs.write' : 'fs.read';
   if (!coversPath(scope, grant, path)) throw failure(`denied: fs.${op} ${path}: needs \`${grant} doc:/\``, 'denied');
@@ -99,6 +99,12 @@ async function operate(op, path, bytes, scope) {
         // A writable commits on close, which is what makes it atomic here.
         // The chosen folder itself is a folder, as `readFile` says (review B6).
         if (found.entry?.kind === 'directory') throw failure(`fs.${op} ${path}: it is a folder`, 'EISDIR');
+        // A write that expects what it read (LLP 1069.010.000 D2a): the
+        // writable has no precondition, so the file is compared first.
+        if (expect) {
+          const now = await (found.entry ?? await found.folder.getFileHandle(found.name)).getFile();
+          if (now.lastModified !== expect.modifiedMs || now.size !== expect.size) throw failure(`document ECHANGED: ${path} changed on disk since it was read`, 'ECHANGED');
+        }
         const h = found.entry ?? await found.folder.getFileHandle(found.name, { create: true });
         const w = await h.createWritable({ keepExistingData: op === 'appendFile' });
         if (op === 'appendFile') await w.seek((await h.getFile()).size);
@@ -121,7 +127,7 @@ function base64(bytes) { let text = ''; for (let i = 0; i < bytes.length; i += 1
 
 /** A storage request's operation (storage-request.js, a Rust source's). */
 async function run(op, args, bytes, scope) {
-  const value = await operate(op.replace(/^fs\./, ''), args.path, bytes, scope);
+  const value = await operate(op.replace(/^fs\./, ''), args.path, bytes, scope, args.expect ?? null);
   return value instanceof ArrayBuffer ? { base64: base64(new Uint8Array(value)) } : value;
 }
 
@@ -130,7 +136,29 @@ async function run(op, args, bytes, scope) {
 function files(scope) {
   const copy = (data) => ArrayBuffer.isView(data) ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength).slice() : new Uint8Array(ArrayBuffer.prototype.slice.call(data, 0));
   return Object.freeze(Object.fromEntries(['readFile', 'writeFile', 'atomicWriteFile', 'appendFile', 'readdir', 'mkdir', 'rm', 'stat', 'rename', 'copyFile', 'realpath']
-    .map((op) => [op, (path, data) => operate(op, String(path), ['writeFile', 'atomicWriteFile', 'appendFile'].includes(op) ? copy(data) : null, scope)])));
+    .map((op) => [op, (path, data, options) => {
+      const writes = ['writeFile', 'atomicWriteFile', 'appendFile'].includes(op);
+      return operate(op, String(path), writes ? copy(data) : null, scope, writes ? options?.expect ?? null : null);
+    }])));
+}
+
+// Document watches (LLP 1069.010.000 D1, D2): the browser's
+// `FileSystemObserver` on the handle a watched path names, one per path and
+// scope; each change calls `changed` and the source's answer is asked
+// again. A browser without it accepts a watch that never fires, as
+// `exactPage().canWatchFiles` says.
+const observers = new Map(); // `${recursive} ${path}` -> FileSystemObserver
+async function observe(path, recursive, scope, changed) {
+  const key = `${recursive} ${path}`;
+  if (observers.has(key) || typeof globalThis.FileSystemObserver !== 'function' || !coversPath(scope, 'fs.read', path)) return;
+  observers.set(key, null);
+  try {
+    const found = await locate('watch', path);
+    const handle = found.root !== undefined ? found.handle : await entry(found);
+    const observer = new globalThis.FileSystemObserver(() => changed());
+    await observer.observe(handle, { recursive });
+    observers.set(key, observer);
+  } catch { observers.delete(key); }
 }
 
 // The driver's files as handles the page keeps (LLP 1069.007 D3): a file's
@@ -196,7 +224,7 @@ function types() {
 }
 
 globalThis.exact.documents = {
-  mint, run, files,
+  mint, run, files, observe,
   install(host) {
     // host: { dispatch(id, kind, payload), log(line), openFile(value) }
     // The files an installed app was launched with (`file_handlers`,

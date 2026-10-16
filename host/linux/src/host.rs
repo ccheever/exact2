@@ -94,6 +94,7 @@ impl PlanBytes<'_> {
 /// One runner, one painter.
 pub struct Host<D: DataSource> {
     runner: Runner<D>,
+    doc_watch: Option<crate::doc_watch::DocWatch>,
     font_sync: Option<(crate::text::Shared, usize)>,
     engine: Engine,
     keys: BTreeMap<NodeKey, ViewId>,
@@ -273,6 +274,7 @@ impl<D: DataSource> Host<D> {
         }
         let mut host = Host {
             runner,
+            doc_watch: None,
             font_sync: font_sync.map(|text| (text, 0)),
             engine: Engine::new(),
             keys: BTreeMap::new(),
@@ -755,6 +757,7 @@ impl<D: DataSource> Host<D> {
         self.preload_wake.set(executor.waker());
         self.runner.listen(executor.waker());
         self.runner.set_socket_reader(executor.socket_reader());
+        self.doc_watch = Some(crate::doc_watch::DocWatch::new(0, &mut self.runner)); // one session (LLP 1069.010 slice 3)
         executor
     }
 
@@ -1244,7 +1247,9 @@ impl<D: DataSource> Host<D> {
     }
 
     fn commit(&mut self, receipts: &[Timed], error: Option<String>) -> Option<String> {
-        crate::traced(c"exact commit", || self.commit_effects(receipts, error).0)
+        let error = crate::traced(c"exact commit", || self.commit_effects(receipts, error).0);
+        crate::doc_watch::sync(&mut self.doc_watch, &mut self.runner);
+        error
     }
 
     fn commit_effects(

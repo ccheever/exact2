@@ -220,6 +220,7 @@ pub struct Host<D: DataSource> {
     data_activated: bool,
     /// The session's wake (`listen`), which a pending activation leaves with the data source.
     preload_wake: exact_runner::PreloadWake,
+    doc_watch: Option<crate::doc_watch::DocWatch>,
     /// The update store's last line this host journaled, so a sync after a check writes it once.
     update_line: Option<String>,
     delivery: Option<&'static crate::delivery::Hooks>,
@@ -524,6 +525,7 @@ impl<D: DataSource> Host<D> {
             now_ms: 0.0,
             data_activated: false,
             preload_wake: Default::default(),
+            doc_watch: None,
             secrets,
             update_line: None,
             delivery,
@@ -721,8 +723,10 @@ impl<D: DataSource> Host<D> {
         self.runner.listen(wake);
     }
 
-    /// [`Host::listen`] to `io`, and read sockets' buffered bytes from it (D7).
-    pub fn listen_io(&mut self, io: &dyn crate::executor::Io) {
+    /// [`Host::listen`] to `io`, and read sockets' buffered bytes from it
+    /// (D7); watch the documents the answers watch, as `owner`'s (LLP 1069.010.000 D1).
+    pub fn listen_io(&mut self, io: &dyn crate::executor::Io, owner: u64) {
+        self.doc_watch = Some(crate::doc_watch::DocWatch::new(owner, &mut self.runner));
         self.listen(io.waker());
         self.runner.set_socket_reader(io.socket_reader());
     }
@@ -1185,6 +1189,7 @@ impl<D: DataSource> Host<D> {
     }
 
     fn finish(&mut self, batch: Batch, error: Option<String>) -> String {
+        crate::doc_watch::sync(&mut self.doc_watch, &mut self.runner);
         let (mut batch, error) = self.resize_rounds(batch, error);
         self.state_onto(&mut batch);
         self.write(batch, error.as_deref())

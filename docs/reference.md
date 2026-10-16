@@ -975,6 +975,34 @@ picker panel (a drive's held pickers still answer), so outside a drive only
 `open-file` delivers one there. The handles end with the
 session: nothing about a document is remembered across launches.
 
+**A change on disk asks the answer again** (LLP 1069.010.000 D1). An answer
+that calls `storage.fs.watch(path)` is asked again when the file, a folder's
+own entries, or with `{ recursive: true }` everything beneath it, is created,
+written, removed or renamed by any process, this app included. The change
+carries nothing: the answer reads again, as LLP 1016.002's `native.watch`.
+Call it inside an answer, on a `doc:` path the app may read (`fs.read
+doc:/`):
+
+```ts
+await storage.fs.watch(folder);                  // its own entries
+return (await storage.fs.readdir(folder)).filter((n) => n.endsWith('.md'));
+```
+
+A Rust source records the same topic:
+`store.observe_topic(&exact_data::documents::watch_topic(path, false))`.
+macOS listens with FSEvents, Linux with inotify, the web with Chromium's
+`FileSystemObserver`; iOS, the Linux host built for macOS and a browser
+without the observer accept a watch that never fires. `state.watches` lists
+the watched paths.
+
+**A write can expect what it read** (D2a). `writeFile`, `atomicWriteFile`
+and `appendFile` on a `doc:` path take `{ expect: stat }`, the `stat` the
+app read: if the file's `modifiedMs` or `size` has changed since, the write
+is refused with code `ECHANGED` and nothing is written (a file that is gone
+refuses `ENOENT`). The comparison and the write are queued together but are
+not one atomic step; what they close is the time an editor spends editing.
+Read the new file and let the person choose.
+
 ### Bake and deliver a TypeScript module
 
 Build an app-local `app.ts` module and bake its Contract through the resulting

@@ -131,14 +131,21 @@ const changed = (r, topic) => {
   if (!t.again) journal.push(`t=${clock.now} changed ${topic}: ticket ${t.id} (${r.name}) lands first, then it is asked again`);
   t.again = true;
 };
+const announce = (topic, why) => commit(() => { const s = watched.get(topic); for (const r of Resources) if (s?.has(r.source)) changed(r, topic); }, `${why} ${topic}`);
+const watch = topic => (watched.get(topic) ?? watched.set(topic, new Set()).get(topic)).add(watching);
+// The documents the answers watch, for the agent's `state.watches`, as the runner lists them.
+(globalThis.exact ??= {}).watchState = () => [...watched.keys()].sort().flatMap(t => {
+  const m = /^doc-watch(-recursive)?:(.*)$/.exec(t);
+  return m ? [{ path: m[2], recursive: !!m[1] }] : [];
+});
 const pageModule = () => page ??= load().then(m => m.pageModule({
   agent: clock.agent, now: () => clock.now,
-  changed: topic => commit(() => { const s = watched.get(topic); for (const r of Resources) if (s?.has(r.source)) changed(r, topic); }, `native ${topic}`),
+  changed: topic => announce(topic, 'native'),
 }));
 const native = Object.freeze({
   get available() { return true; },
   call() { if (overlaying.on) throw inOverlay('native.call()'); throw new Error('native.call: the web has no synchronous module call; use native.later'); },
-  watch(topic) { if (overlaying.on) throw inOverlay('native.watch()'); if (!watching) throw new Error('native.watch outside an answer'); const t = String(topic); (watched.get(t) ?? watched.set(t, new Set()).get(t)).add(watching); },
+  watch(topic) { if (overlaying.on) throw inOverlay('native.watch()'); if (!watching) throw new Error('native.watch outside an answer'); watch(String(topic)); },
   later: request => overlaying.on ? Promise.reject(inOverlay('native.later()')) : pageModule().then(p => p.later(request)),
 });
 // App storage as a source sees it (`storage`, LLP 1027.001): `fs` and
@@ -263,10 +270,25 @@ function storageOf(grants) {
     const limits = { maxDimension: d, maxBytes: b };
     return (admitted ? queued(`compressImage ${from}`, () => files().then(f => f.compressImage(from, to, limits))) : denied('fs.compressImage')).catch(coded);
   };
+  // `fs.watch(path, {recursive})` (LLP 1069.010.000 D1): the answer depends
+  // on a document the person chose; the page's FileSystemObserver announces
+  // its topic, where the browser has one (documents-glue.js `observe`).
+  const watchDocument = (path, options) => {
+    const api = 'storage.fs.watch()';
+    if (overlaying.on) throw inOverlay(api);
+    if (!watching) throw new Error(`${api} outside an answer`);
+    if (typeof path !== 'string' || !path.startsWith('doc:/')) throw new TypeError(`${api}: path must be a doc:/ path`);
+    const recursive = !!options?.recursive, topic = `${recursive ? 'doc-watch-recursive:' : 'doc-watch:'}${path}`;
+    watch(topic);
+    documents().then(() => globalThis.exact.documents.observe(path, recursive, grants, () => announce(topic, 'changed'))).catch(() => {});
+  };
+  const expecting = (m, args) => ['writeFile', 'atomicWriteFile', 'appendFile'].includes(m) && args[2]?.expect;
   return Object.freeze({
     fs: Object.freeze({ directories: Object.freeze({ data: 'app:/data', cache: 'app:/cache', temporary: 'app:/tmp' }),
-      compressImage,
+      compressImage, watch: watchDocument,
       ...Object.fromEntries(methods.map(m => [m, (...args) => {
+        // A write's `expect` (LLP 1069.010.000 D2a) is the glue's, documents only.
+        if (expecting(m, args) && !isDocument(args)) return Promise.reject(new TypeError(`storage.fs.${m}(): expect is for doc:/ paths`));
         const captured = structuredClone(args);
         const run = () => (isDocument(captured) ? documents() : files()).then(f => f[m](...captured));
         return (admitted ? queued(`${m}${typeof args[0] === 'string' ? ` ${args[0]}` : ''}`, run) : denied(`fs.${m}`, isDocument(captured))).catch(coded);

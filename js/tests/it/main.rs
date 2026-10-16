@@ -19,6 +19,7 @@ mod render;
 mod socket;
 mod storage;
 mod superseded;
+mod watch;
 mod windows_lean;
 
 /// What a host runs for `dispatch`: its work, or for a re-ask
