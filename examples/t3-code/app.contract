@@ -461,6 +461,10 @@ component T3Code
           focus("composer")
       case none
   state commandPending = false
+  // A row's double-click while its first click's open runs: the rename (its op and row) starts once the open lands,
+  // on the environment it focused, as Sidebar.tsx's onDoubleClick renames after that click navigated.
+  state renameAfterOp = ""
+  state renameAfterId = ""
   state pendingModal = ""
   state modalError = ""
   state connecting = false
@@ -778,7 +782,7 @@ component T3Code
           focus("app-confirm-cancel")
         if result.message == "terminal:focus-composer"
           focus("composer")
-        if result.message.startsWith("focus:") and (result.message != "focus:composer" or data.sidebar.renameId == "") // an opening rename owns focus over its row's late thread-open result
+        if result.message.startsWith("focus:") and (result.message != "focus:composer" or (data.sidebar.renameId == "" and renameAfterOp == "")) // an opening rename owns focus over its row's late thread-open result
           focus(result.message.slice(6))
         if result.message.startsWith("sidebar:pr-page:") // with no thread open, the pull request on the Pull Requests page (before any branch below sets utilityPage: openPage reads it)
           openPage("pull-requests")
@@ -815,6 +819,9 @@ component T3Code
       case none
     pendingModal = ""
     commandPending = false
+    if renameAfterOp != ""
+      send localChanged = command(`sidebarlocal:${renameAfterOp}`, renameAfterId, "", 0)
+      renameAfterOp = ""
   action command(op: string, id: string, value: string, n: number)
     if op == "chatlocal:item-detail"
       send timelineDisclosureChanged = command(op, id, value, n)
@@ -1173,7 +1180,11 @@ component T3Code
       jumpRequest = jumpRequest + 1
       utilityPage = ""
   action sidebarLocal(op: string, id: string, value: string)
-    send localChanged = command(`sidebarlocal:${op}`, id, value, 0)
+    if (op == "rename-start" or op == "legacy-rename-start") and commandPending
+      renameAfterOp = op
+      renameAfterId = id
+    else
+      send localChanged = command(`sidebarlocal:${op}`, id, value, 0)
   action sidebarRun(op: string, id: string, value: string)
     if composerFocused and (op == "menu-choice" or op == "draft-choice" or op == "legacy-thread-menu")
       blur()
@@ -1478,7 +1489,26 @@ component T3Code
       send changed = command(op == "ui:new-thread" ? "new-thread" : op, target, value, 0)
     else if op == "ui:custom-snooze" // Snooze › Custom… opens the sidebar's Custom snooze for this thread (useThreadActionMenu's requestCustomSnooze)
       sidebarRun("snooze:custom", target, "title")
+  // A removal asked from a focused Remove gives the focus away first, to that Remove on Cancel or to where the
+  // removal leaves it on Confirm, and the dialog goes after the 200 ms its popup takes to leave (Base UI's finalFocus
+  // runs as the dialog closes; dialog-styles.ts' duration-200 exit keeps it mounted meanwhile). VoiceOver, after a
+  // VO-Space destroyed the button its cursor was on with the focus still there, took the cursor and the focus to the
+  // window's first element instead of following the focus given back after the dialog had gone.
+  state confirmHanding = ""
+  task confirmHand when confirmHanding != "" key=confirmHanding
+    after(200, confirmHanded)
+  action confirmHanded
+    let accept = confirmHanding == "accept"
+    confirmHanding = ""
+    confirmClose(accept)
   action confirmUi(accept: bool)
+    if confirmOp == "remove-snapshot" and confirmValue != ""
+      if confirmHanding == ""
+        confirmHanding = accept ? "accept" : "cancel"
+        focus(accept ? confirmValue : `remove-snapshot-${confirmTarget}`)
+    else
+      confirmClose(accept)
+  action confirmClose(accept: bool)
     confirmOp = ""
     if confirmOp == "terminallocal:close" or confirmOp == "terminalpanellocal:close" or confirmOp == "shelllocal:surface-close-confirmed"
       terminalCloseHandled = shell.panel.terminalClose.serial // a terminal close asked while it was open is dropped, as the reference refuses it
