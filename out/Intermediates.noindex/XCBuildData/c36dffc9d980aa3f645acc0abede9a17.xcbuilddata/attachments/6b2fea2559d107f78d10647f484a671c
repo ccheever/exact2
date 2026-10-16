@@ -1,4 +1,0 @@
-module ExactUpdates {
-header "ExactUpdates-Swift.h"
-export *
-}

@@ -1,4 +1,0 @@
-module ExactGroupedLists {
-header "ExactGroupedLists-Swift.h"
-export *
-}

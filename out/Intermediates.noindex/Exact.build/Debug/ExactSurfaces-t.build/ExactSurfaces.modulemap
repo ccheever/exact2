@@ -1,4 +1,0 @@
-module ExactSurfaces {
-header "ExactSurfaces-Swift.h"
-export *
-}

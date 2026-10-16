@@ -1,4 +1,0 @@
-module ExactMarkdown {
-header "ExactMarkdown-Swift.h"
-export *
-}

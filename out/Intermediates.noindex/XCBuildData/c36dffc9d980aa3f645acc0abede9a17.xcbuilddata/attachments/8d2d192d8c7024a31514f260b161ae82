@@ -1,4 +1,0 @@
-module ExactComposition {
-header "ExactComposition-Swift.h"
-export *
-}
