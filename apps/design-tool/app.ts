@@ -13,8 +13,8 @@ export const appId = 'com.exact.design-tool';
 // one origin and port.
 export const API = 'http://127.0.0.1:7740';
 // And the files the person picks to import, which the host copies under
-// app:/tmp/picked/.
-export const grants = `net.fetch ${API}\nfs.read app:/tmp`;
+// app:/tmp/picked/, and nothing else of app:/tmp.
+export const grants = `net.fetch ${API}\nfs.read app:/tmp/picked`;
 
 const RESTARTED = 'The design server restarted (or another took its port) since this session began: nothing was written, and undo and redo start again.';
 // A write's wait: longer than the server's own for a write (two minutes),
@@ -386,7 +386,8 @@ const keyOf = (file: string, kind: string, target: string, when: string, value: 
 // there would write this app's edit into that one, so a new epoch empties
 // them, and `session` counts those.
 // Each with the token of the server run that issued its inverse.
-type Entry = { inverse: string; ops: Record<string, unknown>[]; label: string; token: string };
+// An accepted proposal's keeps its proposer, whose its redo is too.
+type Entry = { inverse: string; ops: Record<string, unknown>[]; label: string; token: string; client?: string };
 const undoStack: Entry[] = [], redoStack: Entry[] = [];
 let session = 0;
 /** The stacks emptied: another run of the server has none of their
@@ -395,7 +396,7 @@ let session = 0;
 function forget() {
   undoStack.length = 0; redoStack.length = 0; mine.length = 0; session += 1;
 }
-const stacks = (ok: boolean, error: string, last: string, key = '') => ({ ok, error, undo: undoStack.length, redo: redoStack.length, last, key, session, note: '' });
+const stacks = (ok: boolean, error: string, last: string, key = '') => ({ ok, error, undo: undoStack.length, redo: redoStack.length, last, key, session, note: '', carried: [] as string[] });
 /** Who moved a file a refused write or undo found moved: its client, or
  * "changed on disk". */
 const byWhom = (reply: Reply) => {
@@ -480,20 +481,38 @@ function reviewOf(p: any) {
   const r = p.review, none = { importer: '', mapped: [], offers: [], unmapped: [], counted: '', countOk: true };
   if (!r?.importer) return none;
   const ops: any[] = (p.ops ?? []).map((o: { op: unknown }) => o.op);
+  // A swatch only for a colour a page can paint: a reference to a token
+  // (`dtcg.color.gray.s900`) is said as written, unpainted.
+  const swatch = (v: string) => (colourLiteral(v, new Set()) ? v : '');
+  const mode = (label: string, mode: number, value: string) => ({ label, mode, value, light: swatch(sides(value)[0]), dark: swatch(sides(value)[1]) });
+  // What the import does before its role overrides, each by its kind: a
+  // token added or set (each mode's value, editable), a mode's value
+  // dropped, an axis added.
   const mapped = ops.slice(0, Number(r.tokens ?? 0)).map((op, index) => {
-    const modes = [{ label: 'default', value: String(op.value ?? '') }, ...(op.whens ?? []).map((w: any) => ({ label: whenText(w.when ?? []), value: String(w.value ?? '') }))];
-    return { index, name: String(op.name ?? ''), modes: modes.map(m => ({ label: m.label, value: m.value, light: sides(m.value)[0], dark: sides(m.value)[1] })) };
+    const name = String(op.name ?? op.axis ?? '');
+    switch (op.op) {
+      case 'add-token':
+        return { index, kind: 'token', name, text: '', modes: [mode('default', 0, String(op.value ?? '')), ...(op.whens ?? []).map((w: any, k: number) => mode(whenText(w.when ?? []), k + 1, String(w.value ?? '')))] };
+      case 'set-token':
+        return { index, kind: 'token', name, text: '', modes: [mode(op.when?.length ? whenText(op.when) : 'default', 0, String(op.value ?? ''))] };
+      case 'add-axis':
+        return { index, kind: 'axis', name, text: `a new axis: ${[].concat(op.values ?? []).join(' | ')}`, modes: [] };
+      case 'unset-token-when':
+        return { index, kind: 'drop', name, text: `its value when ${whenText(op.when ?? [])} is dropped`, modes: [] };
+      default:
+        return { index, kind: 'other', name, text: opText(op), modes: [] };
+    }
   });
-  const c = r.counted ?? {};
+  const c = r.counted ?? {}, recomputed = !!p.replaces || !!r.kept;
   return {
     importer: String(r.importer), mapped,
-    // Off until ticked; in a recomputed import, the ones it kept were
-    // ticked already, so they are on.
-    // An offer with no items is one the importer could not make (its note
-    // says why), or, in a recomputed import, one not chosen: that is left out.
-    offers: (r.offers ?? []).filter((o: any) => (o.items ?? []).length > 0 || (!p.replaces && o.note)).map((o: any) => ({ role: String(o.role), token: String(o.token ?? ''), items: (o.items ?? []).join(','), note: String(o.note ?? ''), on: !!p.replaces })),
-    unmapped: (r.unmapped ?? []).map((u: any) => ({ name: String(u.name), value: String(u.value ?? ''), why: String(u.why ?? ''), derived: u.block === '(derived)' })),
-    counted: `${c.source} source values = ${c.mapped} mapped + ${c.reported} reported`, countOk: c.source === c.mapped + c.reported,
+    // Off until ticked; in a recomputed (or edited) import, the ones it
+    // kept were ticked already, so they are on. One with no items is one
+    // the importer could not make, its note saying why; in a recomputed
+    // import, one with neither was not chosen, and is left out.
+    offers: (r.offers ?? []).filter((o: any) => (o.items ?? []).length > 0 || o.note).map((o: any) => ({ role: String(o.role), token: String(o.token ?? ''), items: (o.items ?? []).join(','), note: String(o.note ?? ''), on: recomputed && (o.items ?? []).length > 0 })),
+    unmapped: (r.unmapped ?? []).map((u: any) => ({ name: String(u.name), value: String(u.value ?? ''), why: String(u.why ?? '') + (u.block === '(derived)' ? ' (derived: outside the count)' : ''), derived: u.block === '(derived)' })),
+    counted: `${recomputed ? 'the source import: ' : ''}${c.source} source values = ${c.mapped} mapped + ${c.reported} reported`, countOk: c.source === c.mapped + c.reported,
   };
 }
 /** An operation in plain words, as a held proposal lists its items. */
@@ -505,10 +524,14 @@ const opText = (o: any): string => {
     : o?.op === 'add-token' ? `add ${o.name} = ${o.value}`
     : o?.op === 'rename-token' ? `rename ${o.from} → ${o.to}`
     : o?.op === 'remove-token' ? `remove ${o.name}`
-    : typeof o?.op === 'string' && /axis/.test(o.op) ? `${o.op.replace(/-/g, ' ')} ${o.name ?? o.axis ?? ''}${o.values ? ` = ${[].concat(o.values).join(' | ')}` : ''}`.trim()
+    : o?.op === 'add-axis' ? `add axis ${o.name ?? o.axis} = ${[].concat(o.values ?? []).join(' | ')}`
+    : o?.op === 'add-axis-value' ? `add ${o.value} to axis ${o.axis ?? o.name}`
+    : o?.op === 'remove-axis-value' ? `remove ${o.value} from axis ${o.axis ?? o.name}`
+    : typeof o?.op === 'string' && /axis/.test(o.op) ? `${o.op.replace(/-/g, ' ')} ${o.name ?? o.axis ?? ''}${o.value ? ` ${o.value}` : ''}${o.values ? ` = ${[].concat(o.values).join(' | ')}` : ''}`.trim()
     : JSON.stringify(o);
-  // The file it edits, when it names one: two items may differ only there.
-  return o?.file ? `${what} (${o.file})` : what;
+  // The file it edits (the design's when it names none): two items may
+  // differ only there.
+  return `${what} (${o?.file || designFile || 'the design'})`;
 };
 
 /** An event as the changeset keeps it. */
@@ -759,7 +782,7 @@ const sources: Sources = {
     if (hello.error === RESTARTED) forget();
     if (session !== at) return stacks(false, RESTARTED, '');
     if (hello.error) return stacks(false, hello.error, '');
-    const { error, reply } = await call('/__tamber', { method: 'transaction', client, files: hello.reply.ok?.files ?? {}, ops: top.ops }, WRITE_WAIT, top.token);
+    const { error, reply } = await call('/__tamber', { method: 'transaction', client: top.client ?? client, files: hello.reply.ok?.files ?? {}, ops: top.ops }, WRITE_WAIT, top.token);
     if (error === RESTARTED) forget();
     if (session !== at) return stacks(false, RESTARTED, '');
     if (error) {
@@ -822,18 +845,48 @@ const sources: Sources = {
     place = { seq: Number(r.seq ?? 0), epoch: String(r.epoch ?? '') };
     return { ok: true, error: '', missed: r.missed === true, ...state() };
   },
-  loadLit: async ([file, , faded, fadedEpoch]) => {
-    // The tokens of this file changed since the highlight last faded (in
-    // this run of the server), each by its latest client, for a short
-    // highlight in its colour: the newest change a read has shown, and
-    // every one before it; a newer one no read has shown waits for one.
-    const f = named(file), since = fadedEpoch === place.epoch ? faded : 0;
+  loadLit: async ([file, answer, faded]) => {
+    // The cells of this file changed since its highlights last faded (in
+    // this run of the server), each by the latest client that changed that
+    // cell, for a short highlight in its colour: the newest change a read
+    // has shown, and each one before it, back to a hand edit no read could
+    // measure (what it changed is not known, so no older client is credited
+    // through it). A change measured between two reads lights the cells
+    // that moved; one not measured, its token's row. They fade oldest first,
+    // one each 3 s, so a busy token never keeps another lit.
+    const f = named(file);
+    let cursor: { epoch?: string; files?: Record<string, number> } = {};
+    try { cursor = JSON.parse(faded || '{}'); } catch { /* none */ }
+    const since = cursor.epoch === place.epoch ? cursor.files?.[f] ?? 0 : 0;
     measure();
+    const snap = snapshots.get(answer);
     const shown = changeset.findIndex(n => n.seq > since && n.files.includes(f) && reads.has(`${f}|${n.after[f]}`));
-    const by = new Map<string, string>();
-    const lit = shown < 0 ? [] : changeset.slice(shown).filter(n => n.seq > since && n.files.includes(f));
-    for (const n of [...lit].reverse()) for (const t of tokensIn(n, f)) by.set(t, n.who);
-    return { seq: lit[0]?.seq ?? since, epoch: place.epoch, names: [...by.keys()], whos: [...by.values()], tints: [...by.values()].map(tintOf) };
+    const lit: Noted[] = [];
+    for (const n of shown < 0 ? [] : changeset.slice(shown)) {
+      if (n.seq <= since || !n.files.includes(f)) continue;
+      if (!tokensIn(n, f).length && !n.values.has(f)) break;
+      lit.push(n);
+    }
+    const cells = new Map<string, string>(), rows = new Map<string, string>();
+    for (const n of [...lit].reverse()) {
+      const a = reads.get(`${f}|${n.before[f]}`), b = reads.get(`${f}|${n.after[f]}`);
+      for (const t of tokensIn(n, f)) {
+        rows.set(t, n.who);
+        const columns = (b ?? snap)?.columns ?? [];
+        for (const c of columns) {
+          const side = c.dark ? 1 : 0;
+          const moved = !a || !b || a.stored.get(t)?.[c.tuple]?.[side]?.css !== b.stored.get(t)?.[c.tuple]?.[side]?.css;
+          if (moved) cells.set(`${t}|${c.id}`, n.who);
+        }
+      }
+    }
+    const oldest = lit.at(-1)?.seq ?? since;
+    const fadeTo = JSON.stringify({ epoch: place.epoch, files: { ...(cursor.epoch === place.epoch ? cursor.files : {}), [f]: oldest } });
+    return {
+      seq: oldest, epoch: place.epoch, file: f, fadeTo,
+      names: [...rows.keys()], whos: [...rows.values()], tints: [...rows.values()].map(tintOf),
+      cells: [...cells.keys()], cellTints: [...cells.values()].map(tintOf),
+    };
   },
   loadScope: async ([client]) => {
     // What a commit would take now (a dry run, of the run the poll is on),
@@ -921,27 +974,36 @@ const sources: Sources = {
     const ok = reply.ok as { recomputed?: boolean; proposal?: string; inverse?: string | null; changed?: { token: string }[] };
     if (ok.recomputed) return { ...stacks(true, '', 'recomputed'), note: `${proposal} was recomputed on the files as they are now, as ${ok.proposal}: review its diff and accept it again.` };
     // Accepted: written as its proposer's, and one step of this session's undo.
-    if (ok.inverse) { undoStack.push({ inverse: ok.inverse, ops, label: `the proposal ${proposal}`, token: heldToken }); redoStack.length = 0; }
+    const proposer = held.find(h => h.proposal === proposal)?.client;
+    if (ok.inverse) { undoStack.push({ inverse: ok.inverse, ops, label: `the proposal ${proposal}`, token: heldToken, client: proposer }); redoStack.length = 0; }
     return { ...stacks(true, '', 'accepted'), note: `Accepted ${proposal}.` };
   },
   importFiles: async ([client, kind, paths, names], _store, storage) => {
     // The picked files' text, sent with `import`: the server runs the
     // importer and holds its proposal, with its review, for the inbox.
     const list = paths.split('\n').filter(Boolean), called = names.split('\n');
-    if (!list.length) return { ok: false, error: 'Choose a file to import.', proposal: '', note: '' };
+    const none = { counted: '', unmapped: [] };
+    if (!list.length) return { ok: false, error: 'Choose a file to import.', proposal: '', note: '', ...none };
+    // A stylesheet's importer reads one sheet; DTCG, a file a mode.
+    if (list.length > 1 && kind !== 'dtcg') return { ok: false, error: `${kind} imports one stylesheet: choose one file (several files are DTCG's, a mode each).`, proposal: '', note: '', ...none };
     let texts: { name: string; text: string }[];
     try {
       texts = await Promise.all(list.map(async (path, i) => ({ name: called[i] || path.split('/').pop()!, text: new TextDecoder().decode(await storage.fs.readFile(path)) })));
     } catch (e) {
       if ((e as { code?: string }).code === 'bake') throw e;
-      return { ok: false, error: `The file could not be read (${(e as { code?: string }).code ?? 'failed'}).`, proposal: '', note: '' };
+      return { ok: false, error: `The file could not be read (${(e as { code?: string }).code ?? 'failed'}).`, proposal: '', note: '', ...none };
     }
     const body = texts.length === 1 ? { source: texts[0].text, name: texts[0].name } : { sources: texts };
     const { error, reply } = await call('/__tamber', { method: 'import', client, kind, ...body }, 60000);
-    if (error) return { ok: false, error, proposal: '', note: '' };
-    const ok = reply.ok as { proposal: string | null; message?: string };
-    if (!ok.proposal) return { ok: true, error: '', proposal: '', note: ok.message ?? 'Nothing to propose.' };
-    return { ok: true, error: '', proposal: ok.proposal, note: `Held for review as ${ok.proposal}.` };
+    if (error) return { ok: false, error, proposal: '', note: '', ...none };
+    const ok = reply.ok as { proposal: string | null; message?: string; review?: unknown };
+    // Nothing to propose still has its report: what it could not map, and
+    // the count.
+    if (!ok.proposal) {
+      const r = reviewOf({ review: ok.review, ops: [] });
+      return { ok: true, error: '', proposal: '', note: ok.message ?? 'Nothing to propose.', counted: r.counted, unmapped: r.unmapped };
+    }
+    return { ok: true, error: '', proposal: ok.proposal, note: `Held for review as ${ok.proposal}.`, ...none };
   },
   acceptImport: async ([client, proposal, picked]) => {
     // The mapped tokens unless unticked, the role overrides only if ticked
@@ -957,17 +1019,29 @@ const sources: Sources = {
     if (!items.length) return { ...stacks(false, 'Nothing is chosen to import.', ''), note: '' };
     return sources.acceptHeld([client, proposal, items.length === ops.length ? '' : items.join(',')], undefined as never, undefined as never, undefined as never);
   },
-  editImport: async ([client, proposal, index, value]) => {
-    // A mapped token's value changed before accepting: the import held again
-    // with it, under the same review, and the old one dropped.
-    const r = heldReview.get(proposal), ops = (heldOps.get(proposal) ?? []).map(o => ({ ...o }));
-    if (!r || !ops[index]) return { ...stacks(false, `No held import \`${proposal}\`.`, ''), note: '' };
-    if (!value.trim()) return { ...stacks(false, 'Give it a value.', ''), note: '' };
-    ops[index].value = value.trim();
-    const held = await call('/__tamber', { method: 'propose', hold: true, client, ops, review: r }, WRITE_WAIT);
-    if (held.error) return { ...stacks(false, held.error, ''), note: '' };
-    await call('/__tamber', { method: 'drop', client, proposal });
-    return { ...stacks(true, '', 'edited'), note: `${ops[index].name} is ${value.trim()} in the import, held again as ${held.reply.ok.proposal}: review it and accept.` };
+  editImport: async ([client, proposal, index, mode, value, picked]) => {
+    // A mapped token's value in one mode changed before accepting: the
+    // import held again with it, under the same review (on the same server
+    // run), and the old one dropped; what was ticked and unticked carries
+    // over to the new one.
+    const at = session;
+    const r = heldReview.get(proposal), ops = (heldOps.get(proposal) ?? []).map(o => ({ ...o, whens: o.whens?.map((w: any) => ({ ...w })) }));
+    const op = ops[index];
+    if (!r || !op || (op.op !== 'add-token' && op.op !== 'set-token')) return { ...stacks(false, `No value to edit in \`${proposal}\`.`, ''), note: '', carried: [] };
+    if (!value.trim()) return { ...stacks(false, 'Give it a value.', ''), note: '', carried: [] };
+    if (mode === 0) op.value = value.trim();
+    else if (op.whens?.[mode - 1]) op.whens[mode - 1].value = value.trim();
+    else return { ...stacks(false, `No such mode in \`${proposal}\`.`, ''), note: '', carried: [] };
+    const recomputed = !!held.find(h => h.proposal === proposal)?.replaces;
+    const made = await call('/__tamber', { method: 'propose', hold: true, client, ops, review: { ...r, kept: r.kept || recomputed } }, WRITE_WAIT, heldToken || undefined);
+    if (made.error === RESTARTED) forget();
+    if (session !== at) return { ...stacks(false, RESTARTED, ''), note: '', carried: [] };
+    if (made.error) return { ...stacks(false, made.error, ''), note: '', carried: [] };
+    const fresh = String(made.reply.ok.proposal);
+    const dropped = await call('/__tamber', { method: 'drop', client, proposal }, 15000, heldToken || undefined);
+    const carried = picked.split(';').filter(x => x.startsWith(`${proposal}:`)).map(x => `${fresh}:${x.slice(proposal.length + 1)}`);
+    const said = `${op.name} is ${value.trim()}${mode ? ` when ${whenText(op.whens[mode - 1].when ?? [])}` : ''} in the import, held again as ${fresh}: review it and accept.`;
+    return { ...stacks(true, '', 'edited'), note: dropped.error ? `${said} The old one, ${proposal}, could not be dropped (${dropped.error}): drop it.` : said, carried };
   },
   dropHeld: async ([client, proposal]) => {
     const { error } = await call('/__tamber', { method: 'drop', client, proposal });

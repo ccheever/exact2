@@ -368,7 +368,7 @@ fn offers(
         if varies(&token, tokens, design, &roles, &mut Vec::new()) {
             out.push(Offer {
                 role: role.into(),
-                note: Some(format!("not offered: `{token}` varies by an app axis, and a role has one value, which the hosts' own surfaces read (LLP 1121 D5)")),
+                note: Some(format!("not offered: `{token}` varies by an app axis, and a role has one value, which the hosts' own surfaces read (LLP 1121 D5; the build refuses it, `tamber-role-axis`)")),
                 token,
                 ops: Vec::new(),
             });

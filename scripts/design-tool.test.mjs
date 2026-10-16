@@ -489,7 +489,7 @@ test('an agent\'s write arrives attributed within one poll, and held proposals a
     // The agent writes just before the tool's first explain; a hand edit
     // lands just before the third accept, so that proposal is stale.
     if (request.method === 'explain' && ++explains === 1) await agentWrite();
-    if (request.method === 'accept' && ++accepts === 3) writeFileSync(join(app, 'app.tamber'), read().replace('tone.warm = oklch(0.7 0.1 warmth)', 'tone.warm = oklch(0.71 0.1 warmth)'));
+    if (request.method === 'accept' && ++accepts === 3) writeFileSync(join(app, 'app.tamber'), read().replace('accent.fill = accent', 'accent.fill = #3070f0'));
   });
   try {
     const { token } = await (await fetch(`${tool.origin}/__tamber/token`)).json();
@@ -509,18 +509,20 @@ test('an agent\'s write arrives attributed within one poll, and held proposals a
       `tap accept-${id(4)}`, 'clock data', 'clock +1', 'clock data', 'state',
       // An accepted proposal is one step: undone, and redone.
       'tap undo', 'clock data', 'clock +1', 'clock data', 'tap redo', 'clock data', 'clock +1', 'clock data', 'state',
-      // And highlights fade after 3 s.
-      'clock +3000', 'clock data', 'state',
+      // And highlights fade, oldest first, one each 3 s.
+      ...Array.from({ length: 8 }, () => ['clock +3000', 'clock data']).flat(), 'state',
     ]);
     const states = replies.filter(r => r.resources);
     const [first, part, whole, stale, fresh, redone, faded] = states;
     expect(first.resources.changeset.entries[0]).toMatchObject({ who: 'agent:codex', mine: false });
     expect(first.resources.changeset.entries[0].text).toBe('app.tamber: surface.card light-dark(#f1f3f5ff, #16181cff) → light-dark(#f1f3f5ff, #17191dff) · agent:codex');
     expect(first.resources.lit).toMatchObject({ names: ['surface.card'], whos: ['agent:codex'] });
+    // Only the cells that moved: the dark side, where the default applies.
+    expect(first.resources.lit.cells).toEqual(['surface.card|0-dark', 'surface.card|1-dark']);
     // Each with the tokens it changes (a role that follows one among them).
     expect(first.resources.changes.held.map(h => [h.proposal, h.client, [...h.tokens].sort(), h.items.map(i => i.text)])).toEqual([
-      [p1, 'agent:codex', ['-exact-label', 'ink.on-brand', 'text.primary'], ['text.primary = light-dark(#101010, #e7e9ea)', 'ink.on-brand = #fefefe']],
-      [p2, 'agent:claude', ['accent.fill'], ['accent.fill = #2070f0']],
+      [p1, 'agent:codex', ['-exact-label', 'ink.on-brand', 'text.primary'], ['text.primary = light-dark(#101010, #e7e9ea) (app.tamber)', 'ink.on-brand = #fefefe (app.tamber)']],
+      [p2, 'agent:claude', ['accent.fill'], ['accent.fill = #2070f0 (app.tamber)']],
     ]);
     expect(part.slots.written.note).toContain(`as ${id(3)}`);
     const recomputed = part.resources.changes.held.find(h => h.proposal === id(3));
@@ -530,19 +532,24 @@ test('an agent\'s write arrives attributed within one poll, and held proposals a
     expect(recomputed.diff).not.toContain('#fefefe');
     expect(whole.slots.written.note).toBe(`Accepted ${id(3)}.`);
     expect(stale.slots.written.note).toContain(`as ${id(4)}`);
-    expect(stale.resources.changes.held.find(h => h.proposal === id(4))).toMatchObject({ replaces: p2, client: 'agent:claude' });
+    const restaled = stale.resources.changes.held.find(h => h.proposal === id(4));
+    expect(restaled).toMatchObject({ replaces: p2, client: 'agent:claude' });
+    // Its diff is the new one, from the hand edit's value.
+    expect(restaled.diff).toContain('-  accent.fill = #3070f0');
     expect(fresh.slots.written.note).toBe(`Accepted ${id(4)}.`);
     expect(fresh.resources.changes.held).toEqual([]);
     expect(tool.writes.map(w => [w.method, w.ok])).toEqual([['accept', true], ['accept', true], ['accept', true], ['accept', true], ['undo', true], ['transaction', true]]);
     expect(tool.writes[4].after).toBe(tool.writes[2].after);
     expect(tool.writes[5].after).toBe(tool.writes[3].after);
     expect(redone.slots.written).toMatchObject({ ok: true, last: 'redo' });
+    // Redone as its proposer's.
+    expect(redone.resources.changeset.entries[0].who).toBe('agent:claude');
     expect(faded.resources.lit.names).toEqual([]);
     const now = read();
     expect(now).toContain('text.primary = light-dark(#101010, #e7e9ea)');
     expect(now).not.toContain('#fefefe');
     expect(now).toContain('accent.fill = #2070f0');
-    expect(now).toContain('oklch(0.71 0.1 warmth)');
+    expect(now).not.toContain('accent.fill = #3070f0');
   } finally {
     await tool.close();
     rmSync(app, { recursive: true, force: true });
@@ -573,37 +580,52 @@ test('T1a: an import reviewed through the file picker, overrides off until ticke
     expect(states[0].slots.picked).toEqual([]);
     expect(review.unmapped.map(u => u.name)).toEqual(['--radius', '--radius-sm', '--radius-md', '--radius-lg', '--radius-xl']);
     expect(review.unmapped[0].why).toBe('kind pending (stage 6): length');
-    const id = review.proposal, next = id.replace(/-(\d+)$/, (_, n) => `-${Number(n) + 1}`);
-    // Tick AccentColor alone and accept: the server holds exactly those
-    // items, its offer kept on, and that is accepted as one transaction.
+    const id = review.proposal, nth = k => id.replace(/-(\d+)$/, (_, n) => `-${Number(n) + k}`);
+    const [edited, kept] = [nth(1), nth(2)];
+    // Tick AccentColor, leave shadcn.foreground out, and edit one value
+    // before accepting: the edit holds the import again, the choices carried
+    // over; Accept takes exactly those items (recomputed, nothing written),
+    // accepted as one transaction; one Undo gives the bytes back.
     const more = await drive(tool.url, `design-tool-import-${process.pid}`, [
       'clock data', 'clock +1', 'clock data',
-      `tap override-${id}-AccentColor`, `tap accept-${id}`, 'clock data', 'clock +1', 'clock data', 'state',
-      `tap accept-${next}`, 'clock data', 'clock +1', 'clock data', 'state',
+      `tap override-${id}-AccentColor`, `tap take-${id}-1`,
+      `type mapped-value-${id}-0-0 light-dark(oklch(0.99 0 0), oklch(0.145 0 0))`, `type mapped-value-${id}-0-0 key Enter`, 'clock data', 'clock +1', 'clock data', 'state',
+      `tap accept-${edited}`, 'clock data', 'clock +1', 'clock data', 'state',
+      `tap accept-${kept}`, 'clock data', 'clock +1', 'clock data', 'state',
       'tap undo', 'clock data', 'clock +1', 'clock data', 'state',
       // Tailwind's default theme, and Figma's export (a file a mode).
       'type import-kind tailwind', 'tap import-choose', `type @import-file ${join(fixtures, 'tailwind-theme.css')}`, 'clock data', 'clock +1', 'clock data', 'state',
       'type import-kind dtcg', 'tap import-choose', `type @import-file ${figma.join('\n')}`, 'clock data', 'clock +1', 'clock data', 'state',
     ]);
     const later = more.filter(r => r.resources);
-    expect(later[0].slots.written.note).toContain(`as ${next}`);
-    const kept = later[0].resources.changes.held.find(h => h.proposal === next);
-    expect(kept).toMatchObject({ importer: 'shadcn', replaces: id });
-    expect(kept.offers.map(o => [o.role, o.on])).toEqual([['AccentColor', true]]);
-    expect(later[1].slots.written.note).toBe(`Accepted ${next}.`);
+    const after = later[0].resources.changes.held.find(h => h.proposal === edited);
+    expect(after.mapped[0].modes[0].value).toBe('light-dark(oklch(0.99 0 0), oklch(0.145 0 0))');
+    expect(later[0].slots.picked.sort()).toEqual([`${edited}:1`, `${edited}:27`, `${id}:1`, `${id}:27`].sort());
+    expect(later[1].slots.written.note).toContain(`as ${kept}`);
+    const recomputed = later[1].resources.changes.held.find(h => h.proposal === kept);
+    expect(recomputed).toMatchObject({ importer: 'shadcn', replaces: edited });
+    expect(recomputed.offers.filter(o => o.items !== '').map(o => [o.role, o.on])).toEqual([['AccentColor', true]]);
+    expect(later[2].slots.written.note).toBe(`Accepted ${kept}.`);
     expect(tool.writes.map(w => [w.method, w.ok])).toEqual([['accept', true], ['accept', true], ['undo', true]]);
+    // The partial accept wrote nothing; the accept wrote what was chosen.
+    expect(tool.writes[0].after).toBe(original);
     const written = tool.writes[1].after;
     expect(written).toContain('AccentColor = shadcn.primary');
-    expect(written).toContain('shadcn.background = light-dark(oklch(1 0 0), oklch(0.145 0 0))');
+    expect(written).toContain('shadcn.background = light-dark(oklch(0.99 0 0), oklch(0.145 0 0))');
+    expect(written).not.toContain('shadcn.foreground =');
     expect(written).not.toContain('-exact-background = shadcn.background');
     // One step back: the bytes as they were.
     expect(tool.writes[2].after).toBe(original);
-    const tailwind = later[3].resources.changes.held.find(h => h.importer === 'tailwind');
+    const tailwind = later[4].resources.changes.held.find(h => h.importer === 'tailwind');
     expect(tailwind.countOk).toBe(true);
     expect(tailwind.mapped.length).toBeGreaterThan(200);
-    const dtcg = later[4].resources.changes.held.find(h => h.importer === 'dtcg');
+    const dtcg = later[5].resources.changes.held.find(h => h.importer === 'dtcg');
     expect(dtcg.counted).toBe('104 source values = 40 mapped + 64 reported');
     expect(dtcg.unmapped).toHaveLength(64);
+    // Its axis is said as an axis, and a token's other modes have their
+    // values, each editable.
+    expect(dtcg.mapped[0]).toMatchObject({ kind: 'axis', modes: [] });
+    expect(dtcg.mapped.some(m => m.modes.length > 1 && m.modes[1].value !== '')).toBe(true);
   } finally {
     await tool.close();
     rmSync(app, { recursive: true, force: true });

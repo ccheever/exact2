@@ -329,6 +329,8 @@ test "held proposals: each with its proposer, diff and items; accepted in part, 
   clock data
   expect tree missing "held-p1"
   expect text "held-replaces-p1-r" == "Recomputed from p1 on the files as they are now: review it again."
+  expect text "held-title-p1-r" == "agent:codex proposes surface.card"
+  expect text "held-diff-p1-r" == "--- app.tamber\n+++ app.tamber\n+  surface.card (kept)\n"
   tap "accept-p1-r"
   clock data
   expect text "write-note" == "Accepted p1-r."
@@ -357,8 +359,8 @@ test "an import's review: tokens in, overrides off until ticked with their notes
   expect text "offer-note-imp--exact-label" == "tamber-role-axis: it would vary by dark-style"
   expect tree missing "override-imp--exact-label"
   expect state picked == []
-  type "mapped-value-imp-0" "light-dark(#fafafa, #222222)"
-  type "mapped-value-imp-0" key "Enter"
+  type "mapped-value-imp-0-0" "light-dark(#fafafa, #222222)"
+  type "mapped-value-imp-0-0" key "Enter"
   clock data
   expect text "write-note" == "shadcn.card is light-dark(#fafafa, #222222) in the import, held again as held-1: review it and accept."
   clock +1

@@ -30,15 +30,17 @@ whose design the port serves.
   token edits; Revert holds a past commit's inverse for review.
 - Agents are clients like the tool (LLP 1122 D10): each change says who
   made it, in that client's colour, and the grid outlines the cells it
-  changed for 3 s. Proposals lists the held proposals, each with its
+  changed (by the latest client to change each), fading oldest first, one
+  each 3 s. Proposals lists the held proposals, each with its
   proposer, diff and items: Accept, Accept picked (some items) or Drop. A
   proposal accepted in part, or whose files moved since it was held, comes
   back recomputed on today's files, to be reviewed and accepted again.
-- Import a theme (T1a, LLP 1122 D11): pick a shadcn CSS file, a Tailwind v4
-  sheet or DTCG JSON (several files, a mode each) and the server's importer
-  holds it as a proposal. Its review lists the mapped tokens with each
-  mode's value and swatches (each in until unticked, its value editable
-  before accepting), the role overrides it offers (each off until ticked;
+- Import a theme (T1a, LLP 1122 D11): pick one shadcn CSS file or Tailwind v4
+  sheet, or DTCG JSON (several files, a mode each) and the server's importer
+  holds it as a proposal. Its review lists what it maps: each token with
+  each mode's value and swatches (a reference to a token said, unpainted),
+  each in until unticked, every mode's value editable before accepting; an
+  axis it adds; a mode's value it drops; the role overrides it offers (each off until ticked;
   one it cannot offer says why), every value it did not map with the
   reason, and the count: source values = mapped + reported. Accepting is
   one transaction, and Undo one step. Astryx's import comes from its CLI

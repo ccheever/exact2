@@ -76,7 +76,9 @@ Bun.serve({ hostname, port: Number(port), routes: {
         held = held.filter(h => h !== p);
         // Some of it: held again as a new proposal of those items.
         if (request.items) {
-          const fresh = { ...p, proposal: `${p.proposal}-r`, replaces: p.proposal, ops: (p.ops as { index: number; op: unknown }[]).filter(o => request.items.includes(o.index)).map((o, index) => ({ index, op: o.op })) };
+          // Its own diff and tokens: the items kept, as the server plans them.
+          const kept = (p.ops as { index: number; op: { name?: string } }[]).filter(o => request.items.includes(o.index));
+          const fresh = { ...p, proposal: `${p.proposal}-r`, replaces: p.proposal, ops: kept.map((o, index) => ({ index, op: o.op })), diff: `--- app.tamber\n+++ app.tamber\n${kept.map(o => `+  ${o.op.name} (kept)`).join('\n')}\n`, changed: kept.map(o => ({ file: 'app.tamber', token: o.op.name })) };
           held.push(fresh);
           return send({ ok: { recomputed: true, replaces: p.proposal, proposal: fresh.proposal } });
         }
