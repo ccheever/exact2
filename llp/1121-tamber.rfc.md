@@ -2545,3 +2545,30 @@ D12's runtime side, under every language's generated names.
 - **Apple** has one ABI entry, `exact_tamber(rt, len)`: `{view, names}` → `{inputs, colors}`.
   Linux and Android's entry comes with commit 5.
 - Two sessions with different designs answer differently, in the runner and through the export.
+
+### Stage 5, commit 4: `tamber gen`, the TypeScript `ColorToken` union, Rust constants, and D7's retention for bindings (`875ad5bc9`..`ce6aef7b7`)
+
+- **`bun exact.mjs tamber gen ts|rust <app> [-o <dir>]`** writes into the app's `.exact/tamber/`.
+  The files are generated and never committed, and an unchanged design isn't rewritten.
+  - `tamber.ts`: the `ColorToken` union, and `tokens.<camelName> = {name, css per tuple}`.
+  - `tamber.css`: `--<camelName>` per tuple, with `:root` the first tuple and `[data-tamber="…"]` each
+    other. Exact roles and platform colours are written as their fallback pair, for pages outside
+    Exact.
+  - `tamber.rs`: `pub const SURFACE_CARD: Token<Color>`, resolved by `session.tamber().get(TOKEN,
+    place)`.
+  - Names map as D12 says. Names that collide after mapping are refused, naming both, and so is a
+    name with no letter, a leading digit, or `__proto__`. Role overrides are named by their role
+    spelling.
+- **The builds' TypeScript declarations** (`contract types`) carry the `ColorToken` union, bounded by
+  `exports`, so a data module returning an unknown token fails `tsc`.
+- **D7's retention for bindings** is one test, `contract_lower::names_tokens_outside_views`. An app
+  that can name tokens outside its views keeps every token, or its `exports` plus what its views
+  name. That means an app with:
+  - `app.ts`, or a Rust data crate;
+  - native modules or hatches;
+  - a seam source the runner doesn't own;
+  - a custom element in its views.
+
+  Other apps prune as before. The clone's plan doesn't change size, since it already kept every
+  token through computed colour rows. Release JS is byte-identical, apart from the declarations
+  gaining the union.
