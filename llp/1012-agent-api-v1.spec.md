@@ -762,3 +762,15 @@ deterministic and a smoke against real credentials leaves nothing behind.
   drag` does), its `pointerup` and then the press a finger lifted there
   makes, if it is still on its target. A drag's contact still asks for a
   `pan` node's alone. `input` on iOS reports `contact` and `hold`.
+
+## Amended (2026-10-16: an iOS screenshot says what it paints)
+
+Under the agent an open popover is painted in the page (LLP 1021 D4), and
+under `--chrome agent` the authored header and tablist are, where the app
+shows UIKit's menu, navigation bar and tab bar. The picture cannot say so,
+so the `screenshot` reply does: `painted` (the open popovers, by id and
+`testId`) with `paintedNote`, and `chrome` (the headers and tablist the
+bars stand for) with `chromeNote`. Under `--chrome platform`, `exact.mjs`'s
+default on iOS, the bars are UIKit's and `screenshot <png> window` draws
+them; a bar item that only opens a menu is refused as `unsupported`, by
+name, since UIKit's pull-down from the bar has no public way to open it.

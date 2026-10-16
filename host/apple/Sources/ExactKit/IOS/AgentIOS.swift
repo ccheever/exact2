@@ -1190,6 +1190,18 @@ extension Agent {
             r["unshown"] = unshown.map { n -> [String: Any] in ["id": Int(n.id), "testId": n.props["testId"] ?? NSNull()] }
             r["unshownNote"] = "struck through in red: \(NavigationHost.unshownReason)"
         }
+        // What the picture shows in the page that the app presents as UIKit's
+        // own, said where the image cannot (euxy port, FRICTION §2).
+        let painted = presenter.menus.presented.filter { $0.window != nil && !$0.isHidden }
+        if !painted.isEmpty {
+            r["painted"] = painted.map { n -> [String: Any] in ["id": Int(n.id), "testId": n.props["testId"] ?? NSNull()] }
+            r["paintedNote"] = "an open popover is painted in the page under the agent, as the web draws it (LLP 1021 D4): the app shows a menu as UIKit's menu at its invoker, a context menu's with its preview"
+        }
+        let bars = presenter.navigation.paintedForBars()
+        if !bars.isEmpty {
+            r["chrome"] = bars.map { n -> [String: Any] in ["id": Int(n.id), "testId": n.props["testId"] ?? NSNull()] }
+            r["chromeNote"] = "--chrome agent paints the authored header and tablist: the app shows UIKit's navigation bar and tab bar for them, which --chrome platform (exact.mjs's default) shows and `screenshot <png> window` draws"
+        }
         // The software keyboard is not in the capture, which UIKit draws in a process of its own, and the app may
         // stand above it (LLP 1102 §3.17): say so, where the image alone reads as a shortened screen. The simulator
         // driver puts the keyboard's pixels in a window capture (`windowTop`, LLP 1116.008 D8; devices.mjs).

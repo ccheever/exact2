@@ -410,6 +410,11 @@ final class NavigationBarIOSTests: XCTestCase {
         let rows = session.presenter.menus.items(of: pop)
         let row = try XCTUnwrap(rows.first as? UIAction)
         XCTAssertEqual(row.title, "Bump from the bar")
+        // The agent's tap on that item says what it cannot do, by name:
+        // UIKit's pull-down opens from the bar alone.
+        let invoker = try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == "menu-item" })
+        let refusal = session.presenter.navigation.activateChrome(invoker)?["error"] as? String
+        XCTAssertTrue(refusal?.hasPrefix("unsupported: bar item") == true, "\(refusal ?? "nil")")
     }
 
     /// LLP 1075.003 §9.6: a header's `input type="search"` is the item's
