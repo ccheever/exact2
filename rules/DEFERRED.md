@@ -280,6 +280,16 @@ Charlie's approval. No new attribute, no title menu, no bar added by a route.
 bar; a header button with it remains authored too (LLP 1075.003 §9.10).
 This uses the existing CSS row, admits no new attribute or apparatus, and
 implements the approved feature ruling rather than inferring from styling.
+**Expanded (Charlie, 2026-10-15: "keep making improvements to exact2 until
+porting euxy … is higher fidelity than the others"):** the chrome euxy's
+original customised. A route's `navigationGrabber` (`visible`, `hidden`,
+`auto`) says a sheet's grabber; an alertdialog with one `input` is the
+platform's text prompt (UIAlertController, NSAlert); a header button whose
+face says more than a symbol or a title (a status dot, an authored font) is
+drawn as written in its bar item; swipe actions whose controls all say
+`appearance="none"` keep their paint. Take: none offered; waived by that
+instruction. Still out: an arbitrary subtree as a bar item, a prompt with
+several fields.
 **Expanded (Charlie, 2026-10-03: "A native grouped-list role mapped to
 UICollectionView list layout"):** `list appearance="auto"` is a grouped list
 (LLP 1084): sections with a header and footer, rows read by shape, UIKit's
