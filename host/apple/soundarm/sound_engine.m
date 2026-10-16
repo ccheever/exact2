@@ -88,6 +88,19 @@ bool exact_sound_engine_stop(AVAudioEngine *engine) {
     }
 }
 
+void exact_sound_engine_dispose(void *engineRef, void *sourceRef) {
+    @try {
+        @autoreleasepool {
+            AVAudioEngine *engine = (__bridge_transfer AVAudioEngine *)engineRef;
+            [engine stop];
+            // Their last releases, and what those autorelease, inside the @try.
+            engine = nil;
+            (void)(__bridge_transfer id)sourceRef;
+        }
+    } @catch (NSException *exception) {
+    }
+}
+
 bool exact_sound_engine_tap(AVAudioEngine *engine, void (^block)(AVAudioPCMBuffer *, AVAudioTime *), char *reason, size_t size) {
     @try {
         if (@available(macOS 27.0, iOS 27.0, tvOS 27.0, *)) {

@@ -62,6 +62,9 @@ bool exact_sound_engine_start(AVAudioEngine *engine, char *reason, size_t size);
 bool exact_sound_engine_pause(AVAudioEngine *engine, char *reason, size_t size);
 /// False when even stopping raised.
 bool exact_sound_engine_stop(AVAudioEngine *engine);
+/// Stops and releases an engine and its source node, each a +1 handed over,
+/// whatever raises: an orphan after a media services reset (QA1749).
+void exact_sound_engine_dispose(void *engine, void *source);
 /// A tap on the main mixer's output (the device check).
 bool exact_sound_engine_tap(AVAudioEngine *engine, void (^block)(AVAudioPCMBuffer *, AVAudioTime *), char *reason, size_t size);
 #endif

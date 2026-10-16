@@ -216,15 +216,29 @@ final class SoundOutputTests: XCTestCase {
     }
 
     /// An interruption's end that never came (the app was suspended) is
-    /// over when the app is active again.
-    func testBecomingActiveEndsAnInterruptionWhoseEndNeverCame() {
+    /// over when the app is active again, unless another app's primary
+    /// audio (a call still under way) plays.
+    func testBecomingActiveEndsAnInterruptionWhoseEndNeverCameOnceNothingElsePlays() {
         let output = output()
         play(output, 1)
         output.interruption(began: true, resume: false)
+        output.becameActive(othersPlaying: true)
         play(output, 2)
-        output.becameActive()
+        XCTAssertEqual(Arm.engine, [0], "the call keeps the interruption: nothing activated")
+        output.becameActive(othersPlaying: false)
         play(output, 3)
         XCTAssertEqual(Arm.plays, [1, 3])
+    }
+
+    /// A boot with other files gives the session back with the engine.
+    func testNewFilesGiveTheSessionBack() {
+        AudioSession.category = .playback
+        let output = output()
+        play(output, 1)
+        XCTAssertEqual(AVAudioSession.sharedInstance().category, .playback)
+        output.apply(["files": ["assets/hat.wav"]])
+        XCTAssertEqual(Arm.closes, 1)
+        XCTAssertEqual(AVAudioSession.sharedInstance().category, .ambient)
     }
 
     func testAMediaServicesResetDisposesOfTheEngine() {
@@ -245,6 +259,17 @@ final class SoundOutputTests: XCTestCase {
         // and touches no audio device.
         XCTAssertFalse(exact_sound_engine_start(AVAudioEngine(), &reason, reason.count))
         XCTAssertTrue(String(cString: reason).hasPrefix("AVAudioEngine raised "), String(cString: reason))
+    }
+
+    /// An orphan's disposal releases the engine handed over, inside its @try.
+    func testDisposingAnOrphanReleasesItsEngine() {
+        weak var gone: AVAudioEngine?
+        autoreleasepool {
+            let engine = AVAudioEngine()
+            gone = engine
+            exact_sound_engine_dispose(Unmanaged.passRetained(engine).toOpaque(), nil)
+        }
+        XCTAssertNil(gone)
     }
 
     #if os(macOS)

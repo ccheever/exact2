@@ -584,24 +584,33 @@ touches `AVAudioSession` or AURemoteIO.
   attempt a second;
 - a failure gives back the output's own hold on the audio session
   (`AudioSession.release`), so a `playback` app's failed output does not
-  keep other apps' audio paused; a running output keeps it, and a destroyed
-  session's output is stopped, let go and gives it back;
+  keep other apps' audio paused; a running output keeps it. A boot naming
+  other files, and a destroyed session, stop and let go of the output and
+  give the hold back; the next `Play` takes both again;
 - an interruption pauses the engine. One that ends with `shouldResume`
   activates the session and starts the engine again, a failure failing the
-  output the same way; one without it (the person started other audio), or
-  whose end never came (over on `didBecomeActive`), is left to the next
-  `Play`. `AudioSession`'s own reactivation at an interruption's end also
-  waits for `shouldResume`. The arm's sounds are effects, so
+  output the same way; one without it (the person started other audio) is
+  left to the next `Play`. One whose end never came (the app was suspended)
+  is taken as over at `didBecomeActive` only when no other app's primary
+  audio plays (`secondaryAudioShouldBeSilencedHint` false), so a call still
+  under way keeps it. `AudioSession`'s own reactivation at an interruption's
+  end also waits for `shouldResume`. The arm's sounds are effects, so
   `silenceSecondaryAudioHint` (for a game's soundtrack, Apple's example)
   does not silence them;
-- an engine found stopped at a `Play` (an
-  `AVAudioEngineConfigurationChange`) is let go and opened again, and one
-  that stops again within a second of any opening (a retry after the
-  cooldown included) is a failure, so a route that keeps stopping it costs
-  one rebuild a second;
+- an engine found stopped at a `Play` (a route or format change; nothing
+  observes `AVAudioEngineConfigurationChange`, whose observer the engine's
+  queue waits on, a deadlock when the main thread is tearing the engine
+  down) is let go and opened again, and one that stops again within a
+  second of any opening (a retry after the cooldown included) is a failure,
+  so a route that keeps stopping it costs one rebuild a second;
+- an arm is released only once its engine is let go safely: a live engine
+  whose stop raised may still render from the mixer, and its deallocation
+  would be outside any `@try`, so that arm is kept for good, engine and
+  mixer included;
 - a media services reset invalidates the engine: following Apple QA1749 it
-  is disposed of, its stop's raise ignored, the engine and its nodes let go
-  before the mixer and sounds are freed, and the next `Play` opens a new one;
+  is disposed of, `sound_engine.m` stopping and releasing the engine and its
+  source node inside one `@try` and ignoring a raise, the mixer and sounds
+  freed after, and the next `Play` opens a new one;
 - `state.sounds.output.state` is otherwise `closed` (nothing opened),
   `running` or `stopped` (an interruption holds it, or the system stopped it).
 

@@ -102,8 +102,8 @@ final class SoundOutput {
 
     deinit { shutdown() }
 
-    /// The session is destroyed: the arm is stopped and let go, and the
-    /// session claim given back.
+    /// The session is destroyed, or a boot names other files: the arm is
+    /// stopped and let go, and the session claim given back.
     func shutdown() {
         close()
         #if os(iOS) || os(tvOS)
@@ -116,7 +116,8 @@ final class SoundOutput {
     func apply(_ payload: [String: Any]) {
         guard !ExactEnv.agentMode else { return }
         if let files = payload["files"] as? [String] {
-            if files != self.files { close(); self.files = files; failure = nil }
+            // New files let the output and its session claim go; the next voice takes both again.
+            if files != self.files { shutdown(); self.files = files; failure = nil }
             else if let arm { library()?.op(arm.handle, 3, 0, 0, 0, 0) }
         }
         for op in payload["ops"] as? [[String: Any]] ?? [] {
@@ -256,8 +257,9 @@ final class SoundOutput {
     /// An interruption pauses the engine. When it ends with `shouldResume`
     /// the session is activated and the engine started again, and a failure
     /// fails the output as a first open's does. Without it (the person
-    /// started other audio), or when the end never comes (the app was
-    /// suspended; over when it is active again), the next voice does that.
+    /// started other audio), the next voice does that. An end that never
+    /// came (the app was suspended) is taken as over when the app is active
+    /// again and no other app's primary audio plays.
     /// Voices due between are not played (D8). A media services reset
     /// invalidates the engine: it is disposed of, and the next voice opens a
     /// new one (Apple QA1749).
@@ -272,7 +274,7 @@ final class SoundOutput {
             self.interruption(began: type == .began, resume: options.contains(.shouldResume))
         }
         center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
-            self?.becameActive()
+            self?.becameActive(othersPlaying: AVAudioSession.sharedInstance().secondaryAudioShouldBeSilencedHint)
         }
         center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main) { [weak self] _ in
             self?.mediaServicesWereReset()
@@ -292,9 +294,11 @@ final class SoundOutput {
         if resume, let failed = start(arm) { fail(failed); close() }
     }
 
-    /// Internal for tests: an interruption whose end never came is over.
-    func becameActive() {
-        guard interrupted else { return }
+    /// Internal for tests: an interruption whose end never came is over
+    /// once no other app's primary audio plays; a call still under way keeps
+    /// it, so the next voice does not take the session from the call.
+    func becameActive(othersPlaying: Bool) {
+        guard interrupted, !othersPlaying else { return }
         interrupted = false
         reactivate = true
     }

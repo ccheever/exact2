@@ -33,7 +33,6 @@ private final class SoundArm {
     var started: [UInt64: Double] = [:]
     var checking = false
     var silentFor = 1.0
-    var changed: NSObjectProtocol?
     /// The media services were reset: the engine is invalid (Apple QA1749),
     /// so a raise from its disposal is ignored rather than kept as a reason
     /// to leave the mixer allocated.
@@ -57,8 +56,30 @@ private final class SoundArm {
         guard let format = AVAudioFormat(standardFormatWithSampleRate: rate, channels: channels),
               let mixer = exact_sound_mixer(channels, rate) else { return (nil, "the output's format (\(rate) Hz, \(channels) channels) is not one the mixer takes") }
         let arm = SoundArm(engine: engine, format: format, mixer: mixer, context: context, log: log)
-        if let failure = arm.build(paths, began: began) ?? (start ? arm.start() : nil) { return (nil, failure) }
+        if let failure = arm.build(paths, began: began) ?? (start ? arm.start() : nil) { letGo(arm); return (nil, failure) }
         return (arm, nil)
+    }
+
+    /// Releases `arm` once its engine is let go safely; otherwise keeps it,
+    /// engine and mixer included, for good.
+    static func letGo(_ arm: SoundArm) {
+        if !arm.dispose() { _ = Unmanaged.passRetained(arm) }
+    }
+
+    /// Lets the engine go before the arm is released: false for a live
+    /// engine whose stop raised, which may still render from the mixer and
+    /// whose deallocation would be outside any @try; that arm is kept (rare
+    /// enough that the kit left behind costs less than a crash). An orphan
+    /// is disposed of whatever its stop says (QA1749: dispose of orphaned
+    /// objects, then make new ones), its engine and source node stopped and
+    /// released inside sound_engine.m's @try.
+    func dispose() -> Bool {
+        guard orphaned else { return exact_sound_engine_stop(engine) }
+        let engine = Unmanaged.passRetained(engine!).toOpaque(), source = source.map { Unmanaged.passRetained($0).toOpaque() }
+        self.engine = nil
+        self.source = nil
+        exact_sound_engine_dispose(engine, source)
+        return true
     }
 
     /// Reads the sounds, connects the source and prepares the engine: nil, or why not.
@@ -76,24 +97,17 @@ private final class SoundArm {
         var reason = [CChar](repeating: 0, count: 512)
         guard let source = exact_sound_engine_connect(engine, mixer, format.sampleRate, format.channelCount, &reason, reason.count) else { return text(reason) }
         self.source = source
-        // A route or format change stops the engine (AVAudioEngineConfigurationChangeNotification);
-        // the session's next voice finds it stopped and opens a new one in the new format.
-        changed = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
-            self?.say("sound: the output changed and its engine stopped; the next sound opens it again")
-        }
+        // A route or format change stops the engine; the next voice finds it
+        // stopped and opens a new one in the new format. Nothing observes
+        // AVAudioEngineConfigurationChangeNotification: an observer waited on
+        // by the engine's queue while the main thread tears the engine down
+        // is the deadlock AVAudioEngine.h warns of.
         say(String(format: "sound: the output was made at %.0f Hz, %u channels, in %.0f ms (%d sounds read in %.0f ms)", format.sampleRate, format.channelCount, (CACurrentMediaTime() - began) * 1000, planes.count, (read - output) * 1000))
         return nil
     }
 
+    /// Reached only after `dispose`: the engine is stopped or gone.
     deinit {
-        if let changed { NotificationCenter.default.removeObserver(changed) }
-        // A live engine that raised even on stop may still render from the
-        // mixer, so the mixer and planes are left allocated: rare enough that
-        // the kit left behind costs less than a crash. An orphan's engine is
-        // disposed whatever its stop says (QA1749: dispose of orphaned
-        // objects, then make new ones), and the engine and its source node
-        // are let go before the mixer is freed.
-        guard exact_sound_engine_stop(engine) || orphaned else { return }
         source = nil
         engine = nil
         exact_sound_mixer_free(mixer)
@@ -232,8 +246,8 @@ public func exact_sound_counts(_ handle: UnsafeMutableRawPointer?, _ out: Unsafe
 
 /// 0 pauses the engine (an interruption began), 1 starts it, 2 starts the
 /// device check, 3 marks it orphaned (the media services were reset), so its
-/// close disposes of it whatever stopping it raises: false, with why in
-/// `reason`, when it failed.
+/// close disposes of it inside a @try: false, with why in `reason`, when it
+/// failed.
 @_cdecl("exact_sound_engine")
 public func exact_sound_engine(_ handle: UnsafeMutableRawPointer?, _ what: UInt32, _ reason: UnsafeMutablePointer<CChar>?, _ size: Int) -> Bool {
     guard let handle else { return false }
@@ -247,5 +261,5 @@ public func exact_sound_engine(_ handle: UnsafeMutableRawPointer?, _ what: UInt3
 @_cdecl("exact_sound_close")
 public func exact_sound_close(_ handle: UnsafeMutableRawPointer?) {
     guard let handle else { return }
-    Unmanaged<SoundArm>.fromOpaque(handle).release()
+    SoundArm.letGo(Unmanaged<SoundArm>.fromOpaque(handle).takeRetainedValue())
 }
