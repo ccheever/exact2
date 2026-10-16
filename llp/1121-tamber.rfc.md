@@ -2339,3 +2339,43 @@ everywhere.
   no development design is passed. A follow-up leaves it out of release builds.
 - **The server:** `hello.live`, writes held until answered (never a 504 and then applied), and a
   held propose checks the `requires` its client names.
+
+### Stage 4, commit 5: the build channel, LLP 1122 D4 (`e44ee2f97`..`d55792423`, records `2689b877e`)
+
+- **Registration.** Each dev stream's hello carries a nonce (128 random bits). A build answers
+  with one `POST /__dev/report` carrying its stable `id`, host, capabilities, and plan and design
+  digests.
+  - The id is per tab (in `sessionStorage`) on the web, and per process session on Apple and
+    Linux. A duplicated tab whose id is already open takes a fresh one.
+  - A report without a live nonce is refused.
+  - `hello` lists the open builds.
+- **Reports up:** `status` (the effective scheme, contrast, modes and root font size, the digests,
+  the pin revision), `unsupported` and `selected` (its route only, until T2b). Each is an event to
+  the server's clients. Typed, bounded fields; at most 256 streams.
+- **Commands down:** `pin` (scheme, contrast, a mode, the root font size, or none; each pin
+  replaces the whole set). `preview build axis=value` is pin's spelling for one build and one axis.
+  `inspect`, `outline` and `hold` are reserved and answered `unsupported`. Every command is a frame
+  a host dispatches before any generation handling.
+- **Ownership and presence.** A pin belongs to its client while that client is present: a
+  subscription naming it, or a long poll naming it that is open or was answered within 35 s. (The
+  design tool can only long-poll.) A pin from a client that isn't present is 409. When a client
+  stops being present, its pins are handed back on every build. A build that registers again
+  under its id gets its pin, or none, replayed. Pins are journaled with their client.
+- **One source of batches.** The loop that mounts the design server makes every batch and
+  snapshot. Batches name the design's **shape** (axes, and each token's name, role, role value and
+  slice count) rather than the plan structure, so the JS target and a native build of the same
+  sources agree. The plan structure stays the dev loop's own value-only test.
+  - The JS loop's resident `--serve-as` producer mounts no server and makes no batches. It
+    relays the main loop's commands and batches onto its devices' streams, which take their
+    nonces from the main loop.
+- **Linux has no stream.** It polls `GET /__dev/hello`, then `/__dev/commands?nonce&ack`
+  (acknowledged, so a lost answer is resent) beside its envelope, and it is disconnected after 5 s
+  without a poll.
+- **The web pin** is the system layer beneath the app's `setScheme`: a `:root` rule plus
+  `exact.systemScheme`. Status reports the scheme that actually paints, and the app's own
+  `setScheme`, `setMode` and `setRootFontSize` send a status. A contrast pin is answered
+  `unsupported`, since a page can't override the browser's `prefers-contrast`.
+- **Release builds.** The native hosts run no channel under a production compat; that is a runtime
+  gate, not compiled out. The release JS target's `modes.js` still carried the inert live-table
+  runtime here; a follow-up removes it.
+- **`tamber/1.2`**, with `docs/tamber-protocol.md` listing what 1.2 added.
