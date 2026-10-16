@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { spawnSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { capturedLockDrift, gameDefaults, gameShells } from './app/shells.mjs';
@@ -137,7 +137,48 @@ export function createApp(destination, options = {}) {
     throw error;
   }
   // The app stands; what wiring could not do (no server installed yet, a cold device build that failed) it says.
-  return `${created}${existingBackend ? '\nThe backend already has a schema: kept the greeting app until generated operations are available; online wiring replaces it with one query and mutation. No guestbook was substituted.' : ''}\n${wireSnapback(dir, { build: options.snapback.build ?? true, port, online: options.snapback.online ?? false })}`;
+  const wired = wireSnapback(dir, { build: options.snapback.build ?? true, port, online: options.snapback.online ?? false });
+  const roster = seedRoster(dir);
+  return `${created}${existingBackend ? '\nThe backend already has a schema: kept the greeting app until generated operations are available; online wiring replaces it with one query and mutation. No guestbook was substituted.' : ''}\n${wired}${roster ? '\nseed.json: sample roster rows; review the persona, role and field values before testing. app.test.contract uses fresh "seed.json".' : ''}`;
+}
+
+/** Development fixtures are examples: schema types cannot determine an app's intended privileges. */
+export function rosterSeeds(schema) {
+  const persona = /^use personas\s+([\w-]+)/m.exec(schema)?.[1];
+  const tables = [...schema.matchAll(/^table (\w+):\s*\n((?:[ \t]+[^\n]*\n|\n)*)/gm)]
+    .filter(m => /^\s+insert\s*<-\s*deny\s*$/m.test(m[2]));
+  return tables.map(([, table, body]) => {
+    let bits = BigInt(`0x${createHash('sha256').update(table).digest('hex').slice(0,32)}`), id = '';
+    const alphabet = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+    do { id = alphabet[Number(bits & 31n)] + id; bits >>= 5n; } while (bits);
+    const row = {id: id.padStart(26, '0')};
+    for (const [, field, raw] of body.matchAll(/^  (\w+):\s*([^\n]+)/gm)) {
+      const type = raw.replace(/\s+--.*$/, '').trim();
+      if (/\?|\bdefault\b/.test(type)) continue;
+      if (type === 'principal') {
+        if (!persona) throw new Error(`seed.json: ${table}.${field} needs an authenticated principal; create a backend seed.json with [{table,row}] before scaffolding`);
+        row[field] = `dev:${persona}`;
+      } else if (/^enum\(/.test(type)) row[field] = /['"]([^'"]+)['"]/.exec(type)?.[1];
+      else if (/^text\b/.test(type)) row[field] = 'example'.padEnd(Number(/text\s+(\d+)\.\./.exec(type)?.[1] ?? 1), 'x').slice(0, Number(/(?:\.\.|<=)\s*(\d+)/.exec(type)?.[1] ?? 80));
+      else if (type === 'bool') row[field] = true;
+      else if (type === 'time') row[field] = Date.now();
+      else if (/^(?:int|number)\b/.test(type)) row[field] = Number(/(-?\d+)\.\./.exec(type)?.[1] ?? 0);
+      else throw new Error(`seed.json: cannot infer ${table}.${field}: ${type}; create a backend seed.json with [{table,row}] before scaffolding`);
+    }
+    return {table, row};
+  });
+}
+
+function seedRoster(dir) {
+  const schema = readFileSync(resolve(dir, '../snapback/schema.q'), 'utf8');
+  if (!/^\s+insert\s*<-\s*deny\s*$/m.test(schema)) return false;
+  const fixture = resolve(dir, '../seed.json');
+  const rows = existsSync(fixture) ? JSON.parse(readFileSync(fixture, 'utf8')) : rosterSeeds(schema);
+  if (!Array.isArray(rows) || rows.some(r => typeof r?.table !== 'string' || !r.row || Array.isArray(r.row) || typeof r.row !== 'object')) throw new Error('backend seed.json must be a list of {table,row}');
+  writeFileSync(resolve(dir, 'seed.json'), JSON.stringify(rows, null, 2) + '\n');
+  const test = resolve(dir, 'app.test.contract');
+  writeFileSync(test, `fresh "seed.json"\n${readFileSync(test, 'utf8').replace(/^fresh(?:\s+"[^"]*")?\s*\n/m, '')}`);
+  return true;
 }
 
 /** The Snapback origin's port `--port` names (`snapback4 dev`'s default, 4400, else). */
@@ -248,6 +289,8 @@ component ${title.replaceAll(' ', '')}
           button appearance="auto" press=postNote disabled=(draft.trim() == "") testId="post"
             text "Post"
         text notice testId="notice"
+        if failed(posted)
+          text (match failure(posted) { case some(f) => f.message, case none => "" }) testId="post-error"
         text board.latest testId="latest"
         for note, i in board.notes key=note.id
           text \`\${note.author}: \${note.body}\${note.pending ? " (sending)" : ""}\` testId=\`note-\${i}\`
@@ -266,7 +309,7 @@ const personas = Snapback.switcher((persona: string) => ({ app: appId, name: \`$
   viewer: \`dev:\${persona}\`, headers: () => ({ 'x-snapback-persona': persona }) }));
 
 function ack(fate: Sent<{id: string} | null>): Result<'post'> {
-  if (fate.state === 'failed') return {ok: false, message: \`Refused: \${fate.why.code}\`, id: ''};
+  if (fate.state === 'failed') throw refused(fate.why);
   if (fate.state === 'sent') return {ok: true, message: 'Posted.', id: fate.result?.id ?? ''};
   return {ok: true, message: 'Saved on this device; it sends when online.', id: ''};
 }
@@ -465,7 +508,7 @@ export function wireSnapback(dir, { build = true, port = null, online = null, ar
     mkdirSync(resolve(dir,'.exact'), {recursive:true});
     const selected = `http://127.0.0.1:${port}`;
     writeFileSync(resolve(dir,'.exact/backend-origin'), selected + '\n');
-    said.push(`Snapback origin: ${selected} (.exact/backend-origin; EXACT_BACKEND_ORIGIN overrides it at build). Authored sources kept.`);
+    said.push(`Snapback origin: ${selected}; app.ts's origin constant is overridden at bake by .exact/backend-origin (EXACT_BACKEND_ORIGIN takes precedence).`);
   }
   const cli = resolve(parent, 'node_modules/.bin/snapback4'), generated = resolve(parent, 'snapback/generated/api.ts');
   if (!existsSync(resolve(parent, 'snapback/schema.q'))) said.push(`No backend above: ${parent}/snapback/schema.q is missing. Write one there (snapback4/README.md's guestbook is a start), then run this again.`);
@@ -504,6 +547,8 @@ export function wireSnapback(dir, { build = true, port = null, online = null, ar
   said.push(`Before \`bun exact.mjs test web\`: \`bunx snapback4 dev --port ${at}\` in ${parent} (snapback4@${version}).`);
   // The notes' backend paragraph now describes a wired app.
   if (existsSync(resolve(dir, 'AGENTS.md'))) updateNotes(dir, basename(dir));
+  if (rebuild && port === null && sources.backend && appId === app.app?.id && existsSync(cli))
+    return `Snapback rebuilt: ./snapback4 → ${sources.snapback4}; ./backend → ${sources.backend}${online ? ' (online)' : '; assets/snapback4.wasm'}.`;
   return said.join('\n');
 }
 

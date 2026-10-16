@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { outsideWorkspaceProblems, pathFrom, readManifest } from '../scripts/app.mjs';
 import { appVerbs } from '../scripts/app-cli.mjs';
-import { applyPattern, createApp, createGame, patternFiles, patterns, wireSnapback } from './new.mjs';
+import { applyPattern, createApp, createGame, patternFiles, patterns, rosterSeeds, wireSnapback } from './new.mjs';
 
 /** A fake exact2 at `sdk` runs the real app-cli.mjs that an app's exact.mjs hands its verb to (LLP 1116.006 D7), and the
  * verify.mjs whose server `test` runs for an app that has one (LLP 1116.007 D2). */
@@ -523,7 +523,9 @@ writeFileSync('snapback/generated/api.ts', 'export const api = {};');`);
     writeFileSync(resolve(dir, 'app.ts'), readFileSync(resolve(dir, 'app.ts'), 'utf8') + '\n// Another service: net.fetch http://127.0.0.1:44100\n');
     mkdirSync(resolve(dir, 'tests/nested'), { recursive: true });
     writeFileSync(resolve(dir, 'tests/nested/offline.test.contract'), 'fail fetch "http://127.0.0.1:4410/sync"\n');
-    assert.match(wireSnapback(dir, { build: false, port: 4411 }), /dev --port 4411/);
+    const changedPort = wireSnapback(dir, { build: false, port: 4411 });
+    assert.match(changedPort, /dev --port 4411/);
+    assert.match(changedPort, /app.ts's origin constant is overridden at bake by .exact\/backend-origin/);
     assert.match(readFileSync(resolve(dir, 'app.ts'), 'utf8'), /const origin = 'http:\/\/127\.0\.0\.1:4410'/);
     assert.match(readFileSync(resolve(dir, 'app.test.contract'), 'utf8'), /fail fetch "backend"/);
     assert.match(readFileSync(resolve(dir, 'tests/nested/offline.test.contract'), 'utf8'), /4410\/sync/);
@@ -560,6 +562,9 @@ writeFileSync('snapback/generated/api.ts', 'export const api = {};');`);
     createApp(plainOnline);
     wireSnapback(plainOnline, {build: false, online: true, port: 4414});
     assert.ok(!readFileSync(resolve(plainOnline, 'app.ts'), 'utf8').includes('sqlite.open'));
+    const rebuilt = wireSnapback(plainOnline, {build:false,rebuild:true});
+    assert.equal(rebuilt.split('\n').length, 1);
+    assert.match(rebuilt, /^Snapback rebuilt: \.\/snapback4 → .*snapback4\/online; \.\/backend → \.\.\/snapback\/generated \(online\)\.$/);
     const onlineManifest = JSON.parse(readFileSync(resolve(online, 'app.json'), 'utf8'));
     onlineManifest.typescript.sources.snapback4 = '..\\moved\\snapback4\\online';
     writeFileSync(resolve(online, 'app.json'), JSON.stringify(onlineManifest));
@@ -627,6 +632,39 @@ test('the online scaffold calls existing generated query/mutation handles and pr
     assert.match(readFileSync(resolve(plain, 'app.ts'), 'utf8'), /db.send\(api.create, args\)/);
   } finally {rmSync(parent, {recursive: true, force: true});}
 });
+
+test('roster scaffolds seed fresh from a test-relative file and preserve backend fixtures', () => {
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-roster-'));
+  const schema = `use personas alice, bob
+table owners:
+  person: principal
+  role: enum('owner', 'reader')
+  label: text 2..80
+  enabled: bool
+  insert <- deny
+  update <- deny
+`;
+  try {
+    mkdirSync(resolve(parent, 'snapback'), {recursive: true});
+    writeFileSync(resolve(parent, 'snapback/schema.q'), schema);
+    const sample = rosterSeeds(schema);
+    assert.match(sample[0].row.id, /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/);
+    assert.deepEqual(sample, [{table:'owners', row:{id:sample[0].row.id,person:'dev:alice',role:'owner',label:'example',enabled:true}}]);
+    assert.deepEqual(rosterSeeds(schema), sample);
+    const app = resolve(parent, 'roster');
+    const said = createApp(app, {snapback:{online:true,build:false}});
+    assert.match(said, /review the persona, role and field values/);
+    assert.match(readFileSync(resolve(app,'app.test.contract'),'utf8'), /^fresh "seed.json"\n/);
+    assert.deepEqual(JSON.parse(readFileSync(resolve(app,'seed.json'),'utf8')), rosterSeeds(schema));
+    const fixture = [{table:'owners',row:{id:'00000000000000000000000001',person:'dev:bob',role:'reader',label:'Bob',enabled:false}}];
+    writeFileSync(resolve(parent,'seed.json'),JSON.stringify(fixture));
+    const copied = resolve(parent,'copied');
+    createApp(copied,{snapback:{online:true,build:false}});
+    assert.deepEqual(JSON.parse(readFileSync(resolve(copied,'seed.json'),'utf8')),fixture);
+    assert.throws(() => rosterSeeds(schema.replace('person: principal','person: people')), /cannot infer owners.person/);
+    assert.throws(() => rosterSeeds(schema.replace('use personas alice, bob','use identity')), /needs an authenticated principal/);
+  } finally { rmSync(parent,{recursive:true,force:true}); }
+}, 90_000);
 
 test('launchers and generated own commands find pinned Bun with an old PATH', () => {
   const old = resolve(process.env.HOME, '.bun/bin/bun');

@@ -42,6 +42,7 @@ driver, generated operations and device. The origin defaults to 4400.
 `bun exact.mjs snapback` wires an existing app. With an existing schema, the
 untouched greeting becomes a typed query and mutation explorer with `--online`.
 `snapback --port <n>` records an ignored local backend selection.
+At bake, `.exact/backend-origin` overrides `app.ts`'s `origin` constant.
 `EXACT_BACKEND_ORIGIN` or `test web --backend <url>` selects the origin and matching
 grant at bake time without editing authored source or tests. Password sign-in, stored sessions and refresh with Contract time are
 in [the adapter guide](../snapback4/README.md#personas-and-password-accounts).
@@ -51,6 +52,11 @@ grants. A computed origin or grants declaration needs an explicit edit.
 After upgrading Snapback4, run `bun exact.mjs snapback --rebuild`.
 `bun exact.mjs update` also rebuilds a mounted device after updating Exact.
 Custom mounts: add `--artifact-only` to rebuild without rewiring.
+`app.json`'s `typescript.sources` are virtual import mounts: `./backend/api.ts`
+resolves through `backend` to `../snapback/generated/api.ts`, and
+`./snapback4/snapback.ts` resolves through `snapback4` to the selected adapter.
+These directories need not exist inside the app. A healthy `snapback --rebuild`
+prints the resolved mappings and exits successfully.
 The device's embedded `snapback4.engine` section records its identity;
 `assets/snapback4.wasm.json` is derived diagnostic output.
 `snapback`, `contract build`, `test web` and `agent web` refuse a stale device;
@@ -71,7 +77,8 @@ want checked or captured is a test's end; a drive takes any others (`resize`, `p
 Create seam types once with `bun exact.mjs contract types app.contract -o app.contract.d.ts`.
 `contract build` refreshes that declaration after a successful compile and reports
 the change on stderr. `contract types --check app.contract` checks freshness without writing.
-Keep scratch files in `.exact/` (any other new file makes the build stale).
+Keep scratch files in `.exact/`. Files there and a test-only `seed.json` do not
+make the build stale; a JSON file imported by `app.ts` remains a build input.
 
 `agent ios` is the app as a person sees it, UIKit's bars included, with screenshots a pixel a
 point (`--scale 3`: the device's): no other simulator tool is needed. `--touch platform` makes
@@ -251,6 +258,16 @@ Each test opens empty app storage; backend rows survive tests and runs unless
 test. This uses `POST /dev/reset` (Snapback4 **0.4.29**, `dev` only).
 `fresh "seed.json"` then seeds it with `[{"table": …, "row": {…}}]`, from a path
 relative to the test file. A server lacking reset fails the test.
+Each seed row includes a stable 26-character Crockford base32 `id` (digits
+and capital letters except I, L, O and U); the scaffold supplies these ids.
+Tables with `insert <- deny` are commonly role rosters provisioned outside the
+app: bare `fresh` removes them too, so privileged operations will refuse.
+Use `fresh "seed.json"` and seed those roster rows for each test. A `--snapback`
+scaffold writes sample roster rows (or copies the backend's `seed.json`);
+review their persona, role and field values before using them.
+The runner warns when the drive epoch differs from the backend clock by more
+than a day, including an explicitly chosen epoch. `epoch now` follows real time;
+an intentional clock test must arrange both clocks.
 
 Server ids are unique, not ordered. Sort by time; tests can reach rows by text
 or position (`each t, i in tasks key=t.id`, ``testId=`task-${i}` ``).

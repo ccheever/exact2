@@ -189,6 +189,24 @@ export async function backendHead(origin, ms = 1000) {
     return Number.isInteger(changes?.seq) ? changes.seq : null;
   } catch { return null; }
 }
+export async function backendClock(origin, ms = 1000) {
+  try {
+    const response = await fetch(`${origin}/dev/status`, {signal: AbortSignal.timeout(ms)});
+    const status = response.ok ? await response.json() : null;
+    return typeof status?.storeId === 'string' && Number.isFinite(status.now) ? status.now : null;
+  } catch { return null; }
+}
+export function backendClockNote(epoch, now, origin) {
+  if (!Number.isFinite(epoch) || !Number.isFinite(now) || Math.abs(epoch - now) <= 86_400_000) return null;
+  return `drive epoch ${new Date(epoch).toISOString()} differs from the backend clock at ${origin} (${new Date(now).toISOString()}) by more than a day; deadlines, ages and windows use different clocks. Write \`epoch now\` to follow real time, or set both clocks deliberately.`;
+}
+
+export function rosterRefusalNote(reset, schema, refusals) {
+  if (!reset || reset.seed != null || !refusals?.size || !/^\s+insert\s*<-\s*deny\s*$/m.test(schema)) return null;
+  const authorization = /\b(?:E_RULE|E_AUTH|E_PERMISSION|E_FORBIDDEN|FORBIDDEN|DENIED|NOT_(?:OWNER|ADMIN|MANAGER|MEMBER|STAFF|AUTHORIZED|ALLOWED))\b/;
+  if (![...refusals.values()].every(why => authorization.test(why))) return null;
+  return `possible cause: every privileged operation refused after \`fresh\`: seed roster tables. Authorization refusals: ${[...refusals.values()].map(why => authorization.exec(why)[0]).join(', ')}. Bare \`fresh\` removed the insert <- deny rows; use \`fresh "seed.json"\` with [{"table":"…","row":{…}}], resolved from the test file’s directory.`;
+}
 // @ref LLP 1086 D13 — `fresh` (the author's ruling of 2026-10-12, via the sb4 app farm): a test file's per-test reset.
 /** Before a test opens, each snapback4 dev server the app fetches is emptied through its development door, `POST
  * /dev/reset` (dev only: the app's tables and derived data emptied; a body of `[{table, row}]` seeds it after; it answers
@@ -217,7 +235,7 @@ export function freshRows(file, seed) {
   if (seed == null) return null;
   const path = resolve(dirname(resolve(file)), seed);
   let rows; try { rows = JSON.parse(readFileSync(path, 'utf8')); } catch (e) { throw new Error(`fresh ${JSON.stringify(seed)}: ${path}: ${e.code === 'ENOENT' ? 'no such file' : e.message}`); }
-  if (!Array.isArray(rows) || rows.some((r) => typeof r?.table !== 'string' || r.row === null || typeof r.row !== 'object')) throw new Error(`fresh ${JSON.stringify(seed)}: ${path} is not a list of {"table": "…", "row": {…}}`);
+  if (!Array.isArray(rows) || rows.some((r) => typeof r?.table !== 'string' || r.row === null || Array.isArray(r.row) || typeof r.row !== 'object')) throw new Error(`fresh ${JSON.stringify(seed)}: ${path} is not a list of {"table": "…", "row": {…}}`);
   return rows;
 }
 /** The note a failed test gets when the backend held commits as it began: from before the run, from earlier tests. */
@@ -265,12 +283,20 @@ const replyNote = (name, why) => `mutation ${name}'s reply was refused: ${why}; 
  * after each op with the op's name, and with `end` when the drive ends. The web reads after each input; a native
  * carrier, whose reads could be slow, at the end; both at a read before the clock first moved. Advice only: bounded,
  * and never fails a drive. */
-export function driveNotes(s, { host, storage }) {
+export function driveNotes(s, { host, storage, origins = [] }) {
   const INPUTS = ['tap', 'type', 'clock'], READS = ['tree', 'screenshot', 'layout'];
   const said = new Set(), note = (key, text) => { if (!said.has(key)) { said.add(key); console.error(`note: ${text}`); } };
   const bounded = (p, ms) => Promise.race([p.catch(() => null), new Promise((done) => setTimeout(() => done(null), ms))]);
-  let peek = 0, probes = 0, clocked = false, replies = 0;
+  let peek = 0, probes = 0, clocked = false, replies = 0, checkedClock = false;
   return async (op) => {
+    if (!checkedClock) {
+      checkedClock = true;
+      const clocks = await Promise.all(origins.map(origin => backendClock(origin)));
+      for (const [i, origin] of origins.entries()) {
+        const warning = backendClockNote(s.launchFacts?.epoch, clocks[i], origin);
+        if (warning) note(`clock ${origin}`, warning);
+      }
+    }
     const end = op === 'end', early = READS.includes(op) && !clocked && !said.has('early');
     if (op === 'clock') clocked = true;
     if (!(end || early || (host === 'web' && INPUTS.includes(op)))) return;
@@ -337,8 +363,12 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
   // A fetch prefix outside every grant fails nothing (sb4 farm wave 4, lane 070: an origin moved in app.ts only).
   const granted = host === 'web' && !url ? fetchOrigins(resolve(webDist ?? defaultWebDist())) : [];
   // The Snapback dev servers the tests share, and each one's head before the first test (`backendHead`).
-  const shared = host === 'web' && !url && mountsSnapback(resolveApp(app)) ? loopbackOrigins(resolve(webDist ?? defaultWebDist())) : [];
+  const snapback = Object.values(resolveApp(app).manifest?.typescript?.sources ?? {}).some(p => /(?:^|\/)snapback4\/(?:ts|online)\/?$/.test(p));
+  const shared = host === 'web' && !url && snapback ? loopbackOrigins(resolve(webDist ?? defaultWebDist())) : [];
   const atStart = await Promise.all(shared.map((o) => backendHead(o)));
+  const clocks = await Promise.all(shared.map(o => backendClock(o)));
+  let schema = '';
+  try { schema = readFileSync(resolve(resolveApp(app).dir, '../snapback/schema.q'), 'utf8'); } catch { /* No schema beside this app. */ }
   // What `fresh` resets: every loopback origin the app's web build fetches (its net.fetch grants).
   const backends = url ? [] : loopbackOrigins(resolve(webDist ?? defaultWebDist()));
   // Cargo owns target selection and freshness, including CARGO_TARGET_DIR.
@@ -389,10 +419,13 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     // A zone or locale the driver refuses fails this test at its line, not the run. `epoch now` is read here, once
     // a test, so a `reload` relaunches from the same date on every host. `facts.epoch` is the date at the clock's zero
     // of the launch now running: a `reload` moves it on by the virtual time that launch reached (LLP 1116.009 D1).
-    const fixedDate = facts.epoch == null;
     try { facts.epoch = launchFacts({ ...facts, env: env ?? {} }).epoch; } catch (e) {
       results.push({ name: t.name, failures: [`${t.name}: ${lines.length ? `line ${lines.join(', ')}` : "the drive's launch flags"}: ${e.message}`] });
       continue;
+    }
+    for (const [i, origin] of shared.entries()) {
+      const warning = backendClockNote(facts.epoch, clocks[i], origin);
+      if (warning) notes.push(warning);
     }
     // `fresh`: the backend emptied (and seeded) before the app opens; a refusal fails this test at its line.
     if (reset) try { await resetBackends(backends, freshRows(file, reset.seed)); } catch (e) {
@@ -635,6 +668,10 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       // A failed test shows what the data module logged, the last lines of it (sb4 farm wave 7, E1: 093 rendered
       // values into the view to see them; `logs` had them all along). Advice only.
       if (failures.length && closedAt == null) try {
+        const state = await s.state();
+        const mutations = new Map(Object.entries(state.mutationFailures ?? {}).map(([name, failure]) => [name, `${failure.code}: ${failure.message}`]));
+        const refusal = rosterRefusalNote(reset, schema, mutations.size ? mutations : refusedReplies((await s.op({op: 'logs', since: 0}))?.lines));
+        if (refusal) notes.push(refusal);
         const logs = await Promise.race([s.logs(), new Promise((done) => setTimeout(() => done(null), 3000))]);
         const said = (logs?.host ?? []).filter((l) => /^console\.\w+: /.test(l));
         if (said.length) notes.push(`the data module logged${said.length > 8 ? ` (the last 8 of ${said.length})` : ''}: ${said.slice(-8).join(' | ')}`);
@@ -644,8 +681,6 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       await s.close().catch((e) => { if (closedAt == null) throw e; });
     }
     if (failures.length && !reset) shared.forEach((o, i) => { if (heads[i] > 0 && atStart[i] != null) notes.push(sharedBackendNote(o, atStart[i], heads[i] - atStart[i])); });
-    // The README says `epoch now` (sb4 farm wave 7, E1: 013 found it only in prose).
-    if (failures.length && fixedDate && atStart.some((h) => h != null)) notes.push('this test ran on the fixed date 2026-01-01T00:00:00Z while snapback4 dev keeps real time: if what failed reads a time (a deadline, an age, a window), the server\'s and the app\'s disagree; write `epoch now` at the top of the test file (snapback4/README.md, "Time")');
     results.push({ name: t.name, failures, notes, ...(shots.length ? { shots } : {}), ...(end ? { end } : {}), ...(end?.keep ? { store } : {}) });
     if (base && !end?.keep) rmSync(resolve(base, store), { recursive: true, force: true });
   }
