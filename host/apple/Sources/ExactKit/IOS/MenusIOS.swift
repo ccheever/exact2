@@ -551,7 +551,6 @@ final class MenuHost {
         laidOut.removeAll()
     }
 
-    /// Whether `node` is an open popover in the top layer (the agent's).
     /// The top-layer boxes given back to layout to show in Exact's views.
     /// The Apple host covers each `dialog` and popover whole while it is
     /// closed (`host/apple/src/closed.rs`), as a browser lays out neither:
@@ -626,6 +625,7 @@ final class MenuHost {
         return false
         #endif
     }
+    /// Whether `node` is an open popover in the top layer (the agent's).
     func lifted(_ node: NodeView) -> Bool {
         #if os(iOS)
         if context.lifts(node) { return true }
