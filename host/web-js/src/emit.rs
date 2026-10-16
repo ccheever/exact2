@@ -245,7 +245,7 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         refs: rows::can_refer(plan),
         site_attrs,
         dev_reload,
-        panels: exact_runner::instance::panel_sites(plan),
+        panels: exact_runner::instance::tabs::panel_sites(plan),
     };
     em.heights = em.height_targets();
     em.transforms = em.transform_targets();

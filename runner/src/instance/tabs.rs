@@ -168,39 +168,67 @@ impl Index {
     }
 }
 
-/// The tab panels that wait, and the views their selection is read from.
+/// The instance tree's tab state, kept in [`Ids`], which lasts the
+/// runner's life and every update reaches.
 #[derive(Debug, Default)]
-pub(super) struct Waiting {
+pub(crate) struct Tabs {
+    /// The plan's [`panel_sites`], found when first asked; none once every
+    /// tab is built ([`Tabs::build_every_tab`]).
+    sites: Option<Vec<NodesId>>,
+    /// The panels the update under way made empty.
+    made: Vec<ViewId>,
+    /// The panels whose contents wait for their first selection.
     panels: Vec<ViewId>,
     /// Each waiting panel's navigation root and what lies between it and its
     /// routes (its tablist and tabs, its panels), sorted: a child list one
     /// of them changes, or one of them destroyed, can change which tab is
     /// a navigation tab or selected.
     zone: Vec<ViewId>,
+    /// What a reload carried ([`CarriedPanels`]), until each panel is built.
+    pub(crate) carried: CarriedPanels,
 }
 
-impl SiteIndex {
+impl Tabs {
+    /// The panels whose contents wait for their first selection.
+    pub(crate) fn waiting(&self) -> &[ViewId] {
+        &self.panels
+    }
+
     /// From now on no tab panel waits for its selection.
     pub(crate) fn build_every_tab(&mut self) {
-        self.panels.clear();
+        self.sites = Some(Vec::new());
     }
+}
+
+/// Whether node `node`'s new view `view` is a tab panel whose contents
+/// wait: then it is noted, and they are not made with it.
+pub(super) fn wait(u: &mut Update<'_>, node: NodesId, view: ViewId) -> bool {
+    let plan = u.env.plan;
+    let tabs = &mut u.ids.tabs;
+    let panel = tabs
+        .sites
+        .get_or_insert_with(|| panel_sites(plan))
+        .binary_search(&node)
+        .is_ok();
+    if panel {
+        tabs.made.push(view);
+    }
+    panel
 }
 
 impl Tree {
-    /// The tab panels whose contents wait for their first selection.
-    pub(crate) fn waiting(&self) -> &[ViewId] {
-        &self.tabs.panels
-    }
-
-    /// Build every waiting panel now; with [`SiteIndex::build_every_tab`],
-    /// none waits again (a page rendered ahead of its runtime, which adopts
-    /// it whole).
+    /// Build every waiting panel now; with [`Tabs::build_every_tab`], none
+    /// waits again (a page rendered ahead of its runtime, which adopts it
+    /// whole).
     pub(crate) fn open_every_tab(&mut self, u: &mut Update<'_>) -> Result<(), InstanceError> {
-        while !self.tabs.panels.is_empty() {
-            let open = std::mem::take(&mut self.tabs.panels);
+        let tabs = &mut u.ids.tabs;
+        tabs.panels.append(&mut tabs.made);
+        while !u.ids.tabs.panels.is_empty() {
+            let open = std::mem::take(&mut u.ids.tabs.panels);
             let mut left = open.len();
             open_in(u, &mut self.children, &[], &open, &mut left)?;
-            self.tabs.panels.append(&mut u.waiting);
+            let tabs = &mut u.ids.tabs;
+            tabs.panels.append(&mut tabs.made);
         }
         Ok(())
     }
@@ -211,111 +239,108 @@ impl Tree {
     /// reads, or changed the children of or destroyed a view of a waiting
     /// panel's root above its routes.
     pub(super) fn open_tabs(&mut self, u: &mut Update<'_>) -> Result<(), InstanceError> {
-        let made = !u.waiting.is_empty();
-        self.tabs.panels.append(&mut u.waiting);
-        let zone = &self.tabs.zone;
+        let tabs = &mut u.ids.tabs;
+        let made = !tabs.made.is_empty();
+        tabs.panels.append(&mut tabs.made);
+        let around = &tabs.zone;
         let read = |op: &Op| match op {
             Op::SetProp { prop, .. } | Op::ClearProp { prop, .. } => READ.contains(prop),
-            Op::SetChildren { id, .. } | Op::DestroyView { id } => zone.binary_search(id).is_ok(),
+            Op::SetChildren { id, .. } | Op::DestroyView { id } => around.binary_search(id).is_ok(),
             _ => false,
         };
         // A detached kernel's update writes no prop ops to read.
-        if self.tabs.panels.is_empty() || !(made || u.discard || u.ops.iter().any(read)) {
+        if tabs.panels.is_empty() || !(made || u.discard || u.ops.iter().any(read)) {
             return Ok(());
         }
         loop {
             let index = Index::of(u.env.plan, &self.children);
-            self.tabs.panels.retain(|w| index.nodes.contains_key(w));
-            let open = self.to_open(&index);
+            let tabs = &mut u.ids.tabs;
+            tabs.panels.retain(|w| index.nodes.contains_key(w));
+            let open = to_open(&index, &tabs.panels);
             if open.is_empty() {
-                self.tabs.zone = self.zone(&index);
+                tabs.zone = zone(&index, &tabs.panels);
                 return Ok(());
             }
-            self.tabs.panels.retain(|w| !open.contains(w));
+            tabs.panels.retain(|w| !open.contains(w));
             let mut left = open.len();
             open_in(u, &mut self.children, &[], &open, &mut left)?;
-            self.tabs.panels.append(&mut u.waiting);
+            let tabs = &mut u.ids.tabs;
+            tabs.panels.append(&mut tabs.made);
         }
     }
+}
 
-    /// [`Waiting::zone`], over `index`.
-    fn zone(&self, index: &Index) -> Vec<ViewId> {
-        let mut zone = Vec::new();
-        let mut stack: Vec<ViewId> = self
-            .tabs
-            .panels
-            .iter()
-            .filter_map(|p| index.root_of(*p))
-            .collect();
-        while let Some(id) = stack.pop() {
-            let Some((_, props, kids)) = index.nodes.get(&id) else {
-                continue;
-            };
-            let route = props.str(PropId::NavigationKey).is_some()
-                && props.str(PropId::NavigationBack).is_none();
-            if route || zone.contains(&id) {
-                continue;
-            }
-            zone.push(id);
-            stack.extend(kids);
+/// [`Tabs::zone`] for the waiting `panels`, over `index`.
+fn zone(index: &Index, panels: &[ViewId]) -> Vec<ViewId> {
+    let mut zone = Vec::new();
+    let mut stack: Vec<ViewId> = panels.iter().filter_map(|p| index.root_of(*p)).collect();
+    while let Some(id) = stack.pop() {
+        let Some((_, props, kids)) = index.nodes.get(&id) else {
+            continue;
+        };
+        let route = props.str(PropId::NavigationKey).is_some()
+            && props.str(PropId::NavigationBack).is_none();
+        if route || zone.contains(&id) {
+            continue;
         }
-        zone.sort_unstable();
-        zone
+        zone.push(id);
+        stack.extend(kids);
     }
+    zone.sort_unstable();
+    zone
+}
 
-    /// The waiting panels to make now: at most one per navigation root.
-    fn to_open(&self, index: &Index) -> Vec<ViewId> {
-        let node = |id| index.node(id);
-        let key_of = |id| {
+/// Of the waiting `waiting`, the panels to make now: at most one per
+/// navigation root.
+fn to_open(index: &Index, waiting: &[ViewId]) -> Vec<ViewId> {
+    let node = |id| index.node(id);
+    let key_of = |id| {
+        index
+            .nodes
+            .get(&id)
+            .and_then(|n| n.1.str(PropId::NavigationKey))
+    };
+    let named: Vec<&str> = index
+        .nodes
+        .values()
+        .filter(|(_, p, _)| p.get(PropId::AccessibilitySelected) == Some(&PropValue::Bool(true)))
+        .filter_map(|(_, p, _)| p.str(PropId::AccessibilityControls))
+        .collect();
+    let (mut open, mut roots) = (Vec::new(), Vec::new());
+    for &w in waiting {
+        let at = index.root_of(w).and_then(|r| Some((r, node(r)?)));
+        let panels = at
+            .as_ref()
+            .map(|(_, at)| tab_panels(&node, &at.2))
+            .unwrap_or_default();
+        let Some((root, at)) = at.filter(|_| panels.contains(&w)) else {
+            open.push(w);
+            continue;
+        };
+        if roots.contains(&root) {
+            continue;
+        }
+        roots.push(root);
+        let key = at.1.str(PropId::NavigationKey);
+        let held = panels.iter().any(|p| {
             index
                 .nodes
-                .get(&id)
-                .and_then(|n| n.1.str(PropId::NavigationKey))
-        };
-        let named: Vec<&str> = index
-            .nodes
-            .values()
-            .filter(|(_, p, _)| {
-                p.get(PropId::AccessibilitySelected) == Some(&PropValue::Bool(true))
-            })
-            .filter_map(|(_, p, _)| p.str(PropId::AccessibilityControls))
-            .collect();
-        let (mut open, mut roots) = (Vec::new(), Vec::new());
-        for &w in &self.tabs.panels {
-            let at = index.root_of(w).and_then(|r| Some((r, node(r)?)));
-            let panels = at
-                .as_ref()
-                .map(|(_, at)| tab_panels(&node, &at.2))
-                .unwrap_or_default();
-            let Some((root, at)) = at.filter(|_| panels.contains(&w)) else {
-                open.push(w);
-                continue;
-            };
-            if roots.contains(&root) {
-                continue;
-            }
-            roots.push(root);
-            let key = at.1.str(PropId::NavigationKey);
-            let held = panels.iter().any(|p| {
-                index
-                    .nodes
-                    .get(p)
-                    .is_some_and(|(_, _, kids)| kids.iter().any(|r| key_of(*r) == key))
-            });
-            if held {
-                continue;
-            }
-            let waiting = || panels.iter().filter(|p| self.tabs.panels.contains(p));
-            let chosen = waiting()
-                .find(|p| {
-                    let id = index.nodes.get(p).and_then(|n| n.1.str(PropId::Id));
-                    id.is_some_and(|id| named.contains(&id))
-                })
-                .or_else(|| waiting().next());
-            open.extend(chosen);
+                .get(p)
+                .is_some_and(|(_, _, kids)| kids.iter().any(|r| key_of(*r) == key))
+        });
+        if held {
+            continue;
         }
-        open
+        let waits = || panels.iter().filter(|p| waiting.contains(p));
+        let chosen = waits()
+            .find(|p| {
+                let id = index.nodes.get(p).and_then(|n| n.1.str(PropId::Id));
+                id.is_some_and(|id| named.contains(&id))
+            })
+            .or_else(|| waits().next());
+        open.extend(chosen);
     }
+    open
 }
 
 /// The state of components in tab panels a reload carries (LLP 1075.003
@@ -358,12 +383,9 @@ fn open_panel(
             }
             let name = plan.str(s.name);
             let carried = id.as_deref().and_then(|id| {
-                let at = u
-                    .ids
-                    .panels
-                    .iter()
-                    .position(|(p, n, _)| p == id && n == name)?;
-                Some(u.ids.panels.remove(at).2)
+                let carried = &mut u.ids.tabs.carried;
+                let at = carried.iter().position(|(p, n, _)| p == id && n == name)?;
+                Some(carried.remove(at).2)
             });
             let v = match carried.filter(|v| v.conforms(plan, s.ty)) {
                 Some(v) => v,

@@ -49,6 +49,7 @@ mod carry;
 mod checkpoint;
 mod collection;
 mod source;
+mod tabs;
 pub use source::{
     Announce, BackgroundState, DataError, DataSource, InFlight, Interrupt, Native, NativeCall,
     NativeHandler, Overlaid, PreloadWake, Target, Write, BACKGROUND,
@@ -361,7 +362,7 @@ pub struct Runner<D: DataSource> {
     derives: Vec<Option<Value>>,
     resources: Vec<Option<ResourceState>>,
     resource_values: Vec<Option<crate::held::Held>>,
-    pub(crate) tree: Option<Tree>,
+    tree: Option<Tree>,
     reorder_owner: Option<exact_kernel::NodeKey>,
     reorder_ops: Vec<exact_kernel::Op>,
     /// The wide colours the queued patches hold, kept from the table's sweep.
@@ -628,14 +629,6 @@ impl<D: DataSource> Runner<D> {
         .map(Runner::linking_every_device)
     }
 
-    /// Build every tab panel now and from now on, none waiting for its first
-    /// selection (LLP 1075.003 §9.14): a page rendered ahead of its runtime
-    /// holds every panel, which the JS target adopts at boot.
-    pub fn build_every_tab(&mut self) -> Result<CommitReceipt, RunnerError> {
-        self.sites.build_every_tab();
-        self.update_tree(true, |tree, u| tree.open_every_tab(u))
-    }
-
     /// Everything a reload keeps.
     pub fn carry(&self) -> Carried {
         Carried {
@@ -650,10 +643,7 @@ impl<D: DataSource> Runner<D> {
                 .filter(|(s, _)| s.owner.is_none())
                 .map(|(s, v)| (self.plan.str(s.name).to_string(), v.clone()))
                 .collect(),
-            panels: self.tree.as_ref().map_or_else(
-                || self.ids.panels.clone(),
-                |tree| tree.carry_panels(&self.plan, &self.ids.panels),
-            ),
+            panels: self.carry_panels(),
             resources: self
                 .plan
                 .resources
@@ -1061,7 +1051,7 @@ impl<D: DataSource> Runner<D> {
         runner.transport_stood();
         // First frame.
         let mut ids = std::mem::take(&mut runner.ids);
-        ids.panels = carried.map(|c| c.panels.clone()).unwrap_or_default();
+        ids.tabs.carried = carried.map(|c| c.panels.clone()).unwrap_or_default();
         let (tree, ops, surfaces, notes, shown) = {
             let mut u = Update::new(runner.env(&[], &[]), &runner.sites, &mut ids);
             u.fonts = Some(runner.fonts.clone());

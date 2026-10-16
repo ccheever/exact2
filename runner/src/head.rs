@@ -81,13 +81,6 @@ impl<D: DataSource> Runner<D> {
     pub fn inactive(&self, id: ViewId) -> bool {
         inactive(self.kernel(), id)
     }
-
-    /// The tab panels whose contents wait for their first selection: empty
-    /// in the runner until their root selects them (LLP 1075.003 §3.7). The
-    /// agent's `tree` marks each `unopened`.
-    pub fn unopened_tabs(&self) -> &[ViewId] {
-        self.tree.as_ref().map_or(&[], |tree| tree.waiting())
-    }
 }
 
 pub(crate) fn inactive(kernel: &Kernel, id: ViewId) -> bool {
