@@ -458,9 +458,9 @@ fn a_prompt_is_the_alert_with_a_text_field() {
     for rows in [
         vec![field, save, cancel],
         vec!["  text \"Enter a new name.\"", field, save, cancel],
+        // One field at a time: arms of one `if` never show together.
         vec![
-            field,
-            "  input type=\"password\" aria-label=\"Password\"",
+            "  if busy\n    input type=\"password\" aria-label=\"Password\"\n  else\n    input aria-label=\"Name\"",
             save,
             cancel,
         ],
@@ -483,6 +483,15 @@ fn a_prompt_is_the_alert_with_a_text_field() {
             "a text field belongs to the alert's shape",
         ),
         (vec![each, save, cancel], "a text field inside `for`"),
+        (
+            vec![
+                field,
+                "  input type=\"password\" aria-label=\"Password\"",
+                save,
+                cancel,
+            ],
+            "a second text field",
+        ),
         (
             vec![
                 "  input type=\"checkbox\" aria-label=\"Again\"",

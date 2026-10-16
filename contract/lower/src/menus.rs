@@ -267,7 +267,7 @@ impl Lowerer<'_> {
             )
         };
         let mut actions = 0;
-        let mut fields: Option<&Row> = None;
+        let mut fields: Vec<&Row> = Vec::new();
         let mut cancels: Vec<&Row> = Vec::new();
         for row in &rows {
             match row.tag {
@@ -276,9 +276,9 @@ impl Lowerer<'_> {
                 // edits are the field's `input` as typing in place is.
                 "input" if text_field(row) => {
                     if row.repeats {
-                        return refuse(row, "a text field inside `for` can repeat; a prompt's fields are written one by one".into());
+                        return refuse(row, "a text field inside `for` can repeat, and a prompt has one".into());
                     }
-                    fields = fields.or(Some(row));
+                    fields.push(row);
                 }
                 // The hosts present buttons only; a `link` is refused as
                 // any other element row is.
@@ -307,7 +307,19 @@ impl Lowerer<'_> {
                 return refuse(later, "a second cancel; there is at most one".into());
             }
         }
-        if let Some(field) = fields.filter(|_| !alert) {
+        // A prompt asks one thing (rules/DEFERRED.md): fields on arms of one
+        // `if` or `match` never show together.
+        if most(&fields, 0) > 1 {
+            let second = fields
+                .iter()
+                .enumerate()
+                .find(|(i, f)| fields[..*i].iter().any(|e| !e.exclusive(f)));
+            return refuse(
+                second.map_or(fields[1], |(_, f)| f),
+                "a second text field; a prompt asks one thing".into(),
+            );
+        }
+        if let Some(field) = fields.first().filter(|_| !alert) {
             return refuse(field, "a text field belongs to the alert's shape, a prompt: with it one cancel and at most three buttons in all, none under `for`".into());
         }
         if actions == 0 {

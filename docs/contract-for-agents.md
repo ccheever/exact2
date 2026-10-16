@@ -1973,7 +1973,7 @@ field's, each keystroke is the input's `input` and the end of editing its
 `change`, so the action's `press` reads what was typed. Return presses the
 first action that is not destructive (bold on iOS), and an action whose
 `disabled` follows the draft dims as it is typed. Only the alert's shape takes
-a field: with one, a cancel and at most three buttons, no `for`
+one field at a time: with it, a cancel and at most three buttons, no `for`
 (`lower-alertdialog` says which row breaks it).
 
 A submenu is a row whose `popovertarget` names another menu popover (`Copy ▸
