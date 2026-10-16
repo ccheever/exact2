@@ -613,7 +613,7 @@ pub(crate) fn painted_accent(c: ColorValue, dark: bool) -> Option<super::Color> 
 /// What a painting host resolves for `c` under the theme: a replaced
 /// role's colour, and for a tint role the theme's `AccentColor` (an
 /// authored accent is the host's to apply).
-pub(crate) fn painted_override(c: ColorValue) -> Option<ColorValue> {
+pub fn painted_override(c: ColorValue) -> Option<ColorValue> {
     let ColorValue::Role(id) = c else { return None };
     let accent = accent();
     let id = if id != accent && tint(id) && overridden(accent).is_some() {

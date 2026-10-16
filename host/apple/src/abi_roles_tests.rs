@@ -104,44 +104,33 @@ fn a_reboot_with_other_overrides_re_presents_them() {
 }
 
 /// A gradient the presenter resolves later, once it knows the box, carries
-/// its session's overrides as their colours, and resolves with none of
-/// another session's.
+/// its session's overrides as their colours (a tint role's as the theme's
+/// accent), and resolves with none of another session's.
 #[test]
 #[allow(unsafe_code)] // The presenter's resolve, over buffers this test owns.
 fn a_boxed_gradient_carries_its_sessions_accent() {
-    let plan = |accent: &str| {
-        contract::compile(&format!(
-            "theme\n  AccentColor = \"{accent}\"\n\ncomponent App\n  view\n    view width=100 height=20 background-image=\"linear-gradient(90deg, AccentColor 0px, transparent 100px)\"\n"
+    let boot = |accent: &str, stop: &str| {
+        let plan = contract::compile(&format!(
+            "theme\n  AccentColor = \"{accent}\"\n\ncomponent App\n  view\n    view width=100 height=20 background-image=\"linear-gradient(90deg, {stop} 0px, transparent 100px)\"\n"
         ))
         .unwrap()
-        .encode()
-    };
-    let boot = |accent: &str| {
+        .encode();
         let rt = RUNTIMES.with(|r| r.borrow_mut().create());
-        let batch = crate::abi::registry::with_runtime(
+        crate::abi::registry::with_runtime(
             &RUNTIMES,
             rt,
             false,
             |b, _| {
-                let len = b.boot(
-                    &plan(accent),
-                    StorageModule::default(),
-                    Hooks::none(),
-                    200.,
-                    200.,
-                );
+                let len = b.boot(&plan, StorageModule::default(), Hooks::none(), 200., 200.);
                 String::from_utf8(b.output_bytes(len as usize).to_vec()).unwrap()
             },
             |_| String::new(),
-        );
-        batch
+        )
     };
-    let first = boot("#ff0000");
-    let second = boot("#0000ff");
-    assert!(first.contains("#ff0000ff 0px"), "{first}");
-    assert!(second.contains("#0000ffff 0px"), "{second}");
-    let css = "linear-gradient(90deg, AccentColor 0px, transparent 100px)";
-    let resolve = || {
+    // What the presenter resolves for the `css` a batch carries.
+    let resolve = |batch: &str| {
+        let at = batch.find(r#""css":""#).expect("a boxed gradient") + 7;
+        let css = &batch[at..at + batch[at..].find('"').unwrap()];
         let mut out = vec![0u8; 4096];
         // SAFETY: both buffers are the lengths given.
         let n = unsafe {
@@ -156,9 +145,19 @@ fn a_boxed_gradient_carries_its_sessions_accent() {
         };
         String::from_utf8(out[..n].to_vec()).unwrap()
     };
-    // The last session installed is the second; its blue is not the
-    // platform's accent.
-    let resolved = resolve();
+    let red = r#""stops":[0,255,0,0,255"#;
+    let first = boot("#ff0000", "AccentColor");
+    let link = boot("#ff0000", "LinkText");
+    let second = boot("#0000ff", "AccentColor");
+    assert!(second.contains("#0000ffff 0px"), "{second}");
+    for batch in [&first, &link] {
+        let resolved = resolve(batch);
+        assert!(resolved.contains(red), "{batch}\n{resolved}");
+    }
+    // A role the session leaves alone resolves as the platform's, though
+    // the session installed last (the second) replaces it.
+    let css = "linear-gradient(90deg, AccentColor 0px, transparent 100px)";
+    let resolved = resolve(&format!(r#""css":"{css}""#));
     assert!(
         !resolved.contains(r#""stops":[0,0,0,255,255"#),
         "{resolved}"

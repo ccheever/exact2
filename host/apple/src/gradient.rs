@@ -93,8 +93,9 @@ pub(crate) fn gradient_json(g: &exact_kernel::gradient::Gradient) -> String {
         // presenter resolves the rest later, outside any (LLP 1121 stage 5).
         let mut g = g.clone();
         for stop in &mut g.stops {
-            if let exact_kernel::ColorValue::Role(id) = stop.color {
-                stop.color = exact_kernel::style::roles::overridden(id).unwrap_or(stop.color);
+            // A tint role (`LinkText`) the theme's `AccentColor` too.
+            if let Some(o) = exact_kernel::style::roles::painted_override(stop.color) {
+                stop.color = o;
             }
         }
         let mut css = String::new();

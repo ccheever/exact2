@@ -100,6 +100,9 @@ final class BlockHost {
     /// hears its used size, now and whenever layout gives it another.
     func show(_ node: NodeView, in container: NSView, block: HostBlock, used: ((CGSize) -> Void)? = nil) {
         guard let presenter, presenter.views[node.id] === node else { return }
+        // Outside the root (a sheet, a popover, a split's pane), still this
+        // presenter's theme (LLP 1121 stage 5).
+        ThemeRoles.adopt(container, from: presenter.root)
         // A node of another runner may have had this id (a restart): its entry is not this node's.
         if entries[node.id]?.node !== node {
             let home = node.superview, siblings = home?.subviews ?? []
