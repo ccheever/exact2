@@ -240,6 +240,17 @@ internal class Player(private val fonts: Map<Int, Font>) {
     private var dash: FloatArray? = null
     /** The last SHADER, for the next shape op; null when it paints its colour. */
     private var shader: android.graphics.Shader? = null
+    /** BLUR (op 44): the sigma the next GLYPHS draws through, and the last mask made for one. */
+    private var glyphBlur = 0f
+    private var blurMask: Pair<Float, android.graphics.BlurMaskFilter>? = null
+    private fun blurFilter(sigma: Float): android.graphics.MaskFilter? {
+        if (sigma <= 0f) return null
+        blurMask?.let { (s, m) -> if (s == sigma) return m }
+        // BlurMaskFilter takes a radius; Skia's sigma is 0.57735 of it, plus half a pixel.
+        val m = android.graphics.BlurMaskFilter(Math.max(0.01f, (sigma - 0.5f) / 0.57735f), android.graphics.BlurMaskFilter.Blur.NORMAL)
+        blurMask = sigma to m
+        return m
+    }
     private var dashPeriod = 0f
     private var dashPhase = 0f
     private val measure = android.graphics.PathMeasure()
@@ -745,6 +756,7 @@ internal class Player(private val fonts: Map<Int, Font>) {
                         glyphPaint.textSize = f(b, i + 2)
                         glyphPaint.color = b.get(i + 3)
                         glyphPaint.textSkewX = f(b, i + 4)
+                        glyphPaint.maskFilter = blurFilter(glyphBlur); glyphBlur = 0f
                         if (glyphIds.size < count) { glyphIds = IntArray(count * 2); positions = FloatArray(count * 4) }
                         var at = i + 6
                         for (g in 0 until count) {
@@ -806,6 +818,7 @@ internal class Player(private val fonts: Map<Int, Font>) {
                     dash = null; stroke.shader = null; shader = null
                 }
                 43 -> { shader = Shaders.read(b, i); i += 2 + b.get(i + 1) }
+                44 -> { glyphBlur = f(b, i + 1); i += 2 }
                 25 -> {
                     val n = b.get(i + 2)
                     val d = FloatArray(n) { f(b, i + 3 + it) }

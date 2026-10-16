@@ -45,6 +45,7 @@
 //!   `box-shadow`: the rounded rect blurred by `sigma` (local units), drawn only
 //!   outside the border box `b…` (`canvas/shadow.rs`)
 //! - `43 SHADER len …` — the next RRECT, PATH or STROKE paints with a gradient shader (`canvas/gradient.rs`)
+//! - `44 BLUR sigma` — the next GLYPHS draws through a blur of `sigma`, local units (`canvas/glyphs.rs`)
 //! - `25 DASH phase n d×n` — the next STROKE is dashed: `n` (even) on/off lengths and the
 //!   offset into them, in the stroke's own units (SVG `stroke-dasharray`, `stroke-dashoffset`)
 //!
@@ -147,6 +148,8 @@ pub use colors::colors;
 mod device;
 #[path = "canvas/field.rs"]
 pub mod field;
+#[path = "canvas/glyphs.rs"]
+mod glyphs;
 #[path = "canvas/gradient.rs"]
 mod gradient;
 #[path = "canvas/input.rs"]
@@ -247,6 +250,8 @@ pub struct Recorder {
     again: Option<slot::Again>,
     /// Nodes the reader animates, apart (`crate::host::lower`).
     layers: layer::Layers,
+    /// The blur the next glyphs are drawn through, local units (`glyphs.rs`).
+    blur: f32,
 }
 
 /// A picture slot recording: its id, the row's ops so far, the row's matrix,
@@ -301,6 +306,7 @@ impl Recorder {
             slot_contexts: HashMap::new(),
             again: None,
             layers: Default::default(),
+            blur: 0.0,
         }
     }
 
@@ -671,38 +677,11 @@ impl Backend for Recorder {
         origin: (f32, f32),
         ts: Transform,
     ) {
-        // Glyphs can overhang their box a little (italics, accents).
-        let bounds = (
-            origin.0 - 2.0,
-            origin.1 - 2.0,
-            paragraph.width + 4.0,
-            paragraph.height + 4.0,
-        );
-        let bounds = clip::map(bounds, ts);
-        if self.culled(bounds) {
-            return;
-        }
-        self.need(bounds);
-        self.transform(ts.pre_translate(origin.0, origin.1));
-        for run in text.glyph_runs(paragraph, palette) {
-            if run.paint.color[3] == 0 {
-                continue;
-            }
-            let Some(file) = run.file.clone().or_else(|| self.face_file(&run.font)) else {
-                continue;
-            };
-            let font = self.font(&file, run.weight, &run.synthesis);
-            self.ops.extend([GLYPHS, font]);
-            self.f(run.size);
-            self.ops.push(Self::color(run.paint.color));
-            self.f(if run.synthetic_italic { -0.25 } else { 0.0 });
-            self.ops.push(run.glyphs.len() as u32);
-            for (id, x, y) in &run.glyphs {
-                self.ops.push(*id);
-                self.f(*x);
-                self.f(*y);
-            }
-        }
+        self.glyphs(text, paragraph, palette, origin, ts);
+    }
+
+    fn text_blur(&mut self, sigma: f32) {
+        self.blur = sigma;
     }
 
     fn svg_path(&mut self, s: &crate::paint::SvgPaint<'_>, ts: Transform) {

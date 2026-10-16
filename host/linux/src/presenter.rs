@@ -1435,7 +1435,8 @@ impl<D: DataSource> Presenter<D> {
         let animating = self.host.motion()
             || self.arrange.is_some()
             || self.group.is_some()
-            || self.focus.is_some();
+            || self.focus.is_some()
+            || self.brush.numerals.rolling();
         if self.host.tick(now_ms) {
             self.hatches.stale = true;
             self.dirty = true;

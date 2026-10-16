@@ -1262,7 +1262,7 @@ impl<D: DataSource> Host<D> {
         for t in receipts {
             let r = &t.receipt;
             self.flow_damage.commit(self.runner.kernel(), r);
-            self.row_dirty.commit(r);
+            self.row_dirty.commit(r, t.at_ms.min(self.now_ms));
             self.values.fields_committed(self.runner.kernel(), r);
             paint |= r.layout_invalidated
                 || !r.created.is_empty()

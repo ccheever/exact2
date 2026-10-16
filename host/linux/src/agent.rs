@@ -864,6 +864,7 @@ fn settle<D: DataSource>(p: &Presenter<D>) -> Option<f64> {
         .into_iter()
         .chain(p.group_settles_at())
         .chain(p.scroll_end_due())
+        .chain(p.brush.numerals.settles_at())
         .reduce(f64::max)
 }
 
@@ -976,6 +977,10 @@ fn clock_within<D: DataSource>(
         // A request in flight is waited for first (LLP 1016): its reply
         // commits, and may start motion, before the fixed point is measured.
         wait_for_replies(p, deadline);
+        // A paint starts the numeric rolls a change owes (LLP 1077 D15).
+        if p.dirty() {
+            let _ = p.frame();
+        }
         to = Some(from.max(settle(p).unwrap_or(from)));
     }
     let Some(mut to) = to.filter(|t| t.is_finite()) else {

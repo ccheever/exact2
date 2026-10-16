@@ -45,6 +45,7 @@ fn end(b: &[u32], i: usize) -> Option<usize> {
         IMAGE_RRECT => i + 18,
         DASH => i + 3 + at(2)?,
         gradient::SHADER => i + 2 + at(1)?,
+        glyphs::BLUR => i + 2,
         ANIMATED => i + 3 + words(at(2)?),
         BACKDROP => i + 14 + 2 * at(1)?,
         NATIVE => i + 16 + words(at(15)?),

@@ -98,6 +98,10 @@ pub trait Backend {
     ) -> bool {
         false
     }
+    /// Draw the glyphs `text` draws from here on through a Gaussian blur of
+    /// `sigma` points, 0 none, where the backend blurs glyphs as it draws
+    /// them (a numeric roll's, LLP 1077 D15); the rest draw them sharp.
+    fn text_blur(&mut self, _sigma: f32) {}
     /// Fill one colour's share of a border (LLP 1053 G2): region even-odd,
     /// clipped by its side (non-zero) and optional ring (even-odd).
     fn fill_border(&mut self, part: &border::BorderFill, ts: Transform);
