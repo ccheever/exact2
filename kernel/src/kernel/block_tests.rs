@@ -291,6 +291,39 @@ fn a_block_in_a_box_replaced_whole_waits_for_the_box() {
     }
 }
 
+/// A block shown, then replaced whole (its root, then the box holding it),
+/// then given back: replaced, its frames and used size are zero and sent;
+/// given back, they are what they were, and sent again.
+#[test]
+fn a_shown_block_replaced_whole_is_hidden_and_given_back_as_it_was() {
+    let mut k = laid_out(small());
+    k.set_host_block(3, at_most(300.0, 200.0)).unwrap();
+    k.compute_layout(1, OFFER).unwrap();
+    let shown = k.node(4).unwrap().frame;
+    assert_eq!(k.host_block_size(3), Some((150.0, 40.0)));
+    let key = k.node(3).unwrap().key;
+    for owner in [3, 2] {
+        k.set_host_cover(owner, Some(HostCover::Whole)).unwrap();
+        let receipt = k.compute_layout(1, OFFER).unwrap();
+        assert_eq!(k.host_block_size(3), Some((0.0, 0.0)), "replaced: {owner}");
+        assert_eq!(k.node(4).unwrap().frame.width, 0.0, "replaced: {owner}");
+        assert_eq!(k.laid_out_frame(k.node(4).unwrap().key), None);
+        assert!(receipt.updated.contains(&key), "replaced: {owner}");
+        k.set_host_cover(owner, None).unwrap();
+        let receipt = k.compute_layout(1, OFFER).unwrap();
+        assert_eq!(
+            k.host_block_size(3),
+            Some((150.0, 40.0)),
+            "given back: {owner}"
+        );
+        assert!(
+            k.node(4).unwrap().frame.bits_eq(shown),
+            "given back: {owner}"
+        );
+        assert!(receipt.updated.contains(&key), "given back: {owner}");
+    }
+}
+
 fn laid_out(ops: Vec<Op>) -> Kernel {
     let mut k = Kernel::with_monospace();
     k.apply(0, 1, &ops).unwrap();

@@ -75,6 +75,11 @@ impl Blocks {
         !self.0.is_empty() && self.0.iter().any(|b| b.0 == slot)
     }
 
+    /// The roots of the blocks.
+    pub(crate) fn roots(&self) -> impl Iterator<Item = u32> + '_ {
+        self.0.iter().map(|b| b.0)
+    }
+
     /// Whether any node has one.
     pub(crate) fn any(&self) -> bool {
         !self.0.is_empty()
@@ -90,11 +95,28 @@ impl Blocks {
     }
 }
 
-/// Whether an ancestor of `slot` is `display: none`.
+/// Whether an ancestor of `slot` is `display: none`, as authored or as a
+/// box a host replaced whole.
 fn hidden_above(arena: &NodeArena, slot: u32) -> bool {
     let mut at = arena.parent(slot);
     while let Some(s) = at {
-        if arena.style(s).display == crate::Display::None {
+        if arena.style(s).display == crate::Display::None || replaced_whole(arena, s) {
+            return true;
+        }
+        at = arena.parent(s);
+    }
+    false
+}
+
+fn replaced_whole(arena: &NodeArena, slot: u32) -> bool {
+    arena.cover(slot) == Some(super::HostCover::Whole)
+}
+
+/// Whether an ancestor of `slot` is a box a host replaced whole.
+fn replaced_above(arena: &NodeArena, slot: u32) -> bool {
+    let mut at = arena.parent(slot);
+    while let Some(s) = at {
+        if replaced_whole(arena, s) {
             return true;
         }
         at = arena.parent(s);
@@ -109,7 +131,7 @@ pub(crate) fn publication_start(arena: &mut NodeArena, root: u32) -> (bool, bool
     if !arena.blocks.holds(root) {
         return (false, false);
     }
-    let hidden = hidden_above(arena, root);
+    let hidden = hidden_above(arena, root) || replaced_whole(arena, root);
     let whole = arena.flags(root).has(NodeFlags::ATTACHED);
     let held = arena.blocks.0.iter_mut().find(|b| b.0 == root);
     let was = held.map(|b| std::mem::replace(&mut b.3, hidden));
@@ -128,10 +150,18 @@ pub(crate) fn publication_start(arena: &mut NodeArena, root: u32) -> (bool, bool
 /// is in flow is laid out as such a box, at its static position. `Fit`
 /// uses the same placement, but supplies a ceiling only for an automatic
 /// size; CSS's own minimum can exceed that ceiling.
+///
+/// A block in a box a host replaced whole (a tab not yet built, LLP
+/// 1075.003 §9.12) is `display: none` as that box is: none of its subtree
+/// is measured, and it is published hidden until the box is given back.
 pub(crate) fn apply(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
     let Some(block) = arena.blocks.get(slot) else {
         return;
     };
+    if replaced_above(arena, slot) {
+        s.display = taffy::style::Display::None;
+        return;
+    }
     let _env = crate::style::LayoutEnv::set(arena.env());
     let in_flow = s.position != Position::Absolute;
     if s.position == Position::Static {
@@ -254,22 +284,10 @@ impl Kernel {
     }
 
     /// The blocks under `root`, each with its offer: the lengths the host
-    /// gave, which a maximum's root is sized inside (`apply`). A block in a
-    /// box a host replaced whole is left out: that box is `display: none`,
-    /// so nothing in it has a box (a tab not yet built, LLP 1075.003 §9.12).
+    /// gave, which a maximum's root is sized inside (`apply`).
     fn blocks_under(&self, root: u32) -> Vec<(u32, Offer)> {
         let arena = &self.arena;
-        let replaced = |slot: u32| {
-            let mut at = Some(slot);
-            while let Some(s) = at.filter(|s| *s != root) {
-                if arena.cover(s) == Some(super::HostCover::Whole) {
-                    return true;
-                }
-                at = arena.parent(s);
-            }
-            false
-        };
-        let under = |slot: u32| slot != root && arena.is_ancestor(root, slot) && !replaced(slot);
+        let under = |slot: u32| slot != root && arena.is_ancestor(root, slot);
         let offer = |b: HostBlock| Offer::definite(b.width.length(), b.height.length());
         let held = arena.blocks.0.iter().filter(|b| under(b.0));
         held.map(|b| (b.0, offer(b.1))).collect()
