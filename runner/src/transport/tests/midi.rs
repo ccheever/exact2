@@ -83,6 +83,10 @@ component M
     from = -1
   action laterOff
     off = 100
+  action shorter
+    length = 0.05
+  action slower
+    bpm = 30
   action sendPair
     sendMIDI("synth", [144, 61, 100], at=performanceNow() + 100)
     sendMIDI("synth", [128, 61, 0], at=performanceNow() + 500)
@@ -611,5 +615,35 @@ fn an_edit_keeps_a_note_a_full_queue_parked() {
     assert!(
         ons.first().is_some_and(|l| l.ends_with("90 3c 64 at 100")),
         "{ons:?}"
+    );
+}
+
+/// The final confirmation of round 3: a parked note issued after a tempo
+/// edit ends in the segment its end falls in, not the newest: at 120 BPM a
+/// 0.05-beat note at offset 100 sounds from 100 to 125 though the tempo
+/// moved to 30 at 40.
+#[test]
+fn a_parked_note_ends_in_the_segment_its_end_falls_in() {
+    let mut r = granted(SOURCE);
+    r.act("floodOn", vec![]).unwrap();
+    r.act("flood", vec![]).unwrap();
+    r.act("laterOff", vec![]).unwrap();
+    r.act("shorter", vec![]).unwrap();
+    r.act("start", vec![]).unwrap();
+    r.advance(40.0).unwrap();
+    r.act("slower", vec![]).unwrap();
+    r.advance(1000.0).unwrap();
+    // The record keeps the waiting flood; the journal keeps the note.
+    let notes: Vec<String> = said(&r)
+        .into_iter()
+        .filter(|l| l.contains(" 3c ") && !l.ends_with("at 10000"))
+        .collect();
+    assert!(
+        notes.iter().any(|l| l.ends_with("90 3c 64 at 100")),
+        "{notes:?}"
+    );
+    assert!(
+        notes.iter().any(|l| l.ends_with("80 3c 00 at 125")),
+        "{notes:?}"
     );
 }

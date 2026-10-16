@@ -143,7 +143,7 @@ function fill(at, how) {
       const skip = how === 'edit' && k + skipped < issued && when - HOLD <= at, on = s.note >= 0 ? place(when) : null, note = skip ? null : on;
       if (note != null && Midi.canSend(output) && Midi.blocks(note, at)) return [k, note - HOLD];
       if (s.src) { const w = place(when); if (w != null && T().issue(at, [s.src, w, s.gain, s.group, s.rate, s.pan], h.at) === 'full') return [k, w]; }
-      if (note != null && Midi.canSend(output)) Midi.note(output, [0x90 | s.channel, s.note, s.velocity], note, Math.max(time(g, h.beat + s.duration) + offset, note), h.at, at);
+      if (note != null && Midi.canSend(output)) Midi.note(output, [0x90 | s.channel, s.note, s.velocity], note, Math.max(timeOf(h.at, h.beat + s.duration) + offset, note), h.at, at);
       else if (note != null) unsent ??= output;
       if (s.haptic) { const w = place(when); if (w != null) T().haptic(s.haptic, w, h.at, at); }
       if (counted > late) late++;
@@ -160,6 +160,13 @@ function fill(at, how) {
 }
 // `p`'s hits in [from, to), each timed by the segment it falls in: a fill an edit restarts before its time reaches back
 // into the tempo before it (the runner's `Transport::hits`).
+// When beat `b` of a hit at `at` falls: in the hit's own segment, or a later one the beat reaches (a note's end past a
+// tempo edit), never across a restart, whose beat goes back (the runner's `time_of` in `fill`).
+function timeOf(at, b) {
+  let j = Math.max(Segments.findLastIndex(g => g.at <= at), 0);
+  while (j + 1 < Segments.length && Segments[j + 1].beat <= b && Segments[j + 1].beat >= Segments[j].beat) j++;
+  return Segments.length ? time(Segments[j], b) : time(seg(), b);
+}
 function hitsAcross(p, from, to) {
   const out = [], first = Math.max(Segments.findLastIndex(g => g.at <= from), 0);
   for (let j = first; j < Segments.length; j++) {

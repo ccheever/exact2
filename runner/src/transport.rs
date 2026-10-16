@@ -1016,6 +1016,17 @@ impl Transport {
         out.midi
             .ticks(|b| seg.time(b), to, end, late_before, at, log);
         let mut hits = self.hits(&play, from, to);
+        // When beat `b` of a hit at `at` falls: in the hit's own segment, or a
+        // later one the beat reaches (a note's end past a tempo edit), never
+        // across a restart, whose beat goes back.
+        let segs: Vec<Segment> = self.segments.iter().copied().collect();
+        let time_of = |hit_at: f64, b: f64| {
+            let mut j = segs.iter().rposition(|g| g.at <= hit_at).unwrap_or(0);
+            while j + 1 < segs.len() && segs[j + 1].beat <= b && segs[j + 1].beat >= segs[j].beat {
+                j += 1;
+            }
+            segs.get(j).map_or(seg.time(b), |g| g.time(b))
+        };
         let skip = std::mem::take(&mut self.skip);
         let skipped = hits.iter().take(skip).take_while(|h| h.at == from).count();
         // The hits an earlier fill issued (an edit fills from its time
@@ -1088,7 +1099,7 @@ impl Transport {
                 // At an edit an issued note within the hold was handed.
                 match note_at {
                     Some(on) if midi.can_send(output) => {
-                        let off = seg.time(hit.beat + step.duration) + offset;
+                        let off = time_of(hit.at, hit.beat + step.duration) + offset;
                         let status = 0x90 | step.channel as u8;
                         let data = [status, step.note as u8, step.velocity as u8];
                         let queued = midi.note(output, data, on, off.max(on), hit.at, at, log);

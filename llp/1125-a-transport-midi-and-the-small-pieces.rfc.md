@@ -929,6 +929,13 @@ are binding and two of them amend the text:
   an edit fills from where a full queue parked the fill when that is
   before its time, hits timed by the segment each falls in, and takes for
   handed (the within-hold skip) only what a fill issued, by beat.
+  After the rounds (the orchestrator): a parked note's note-off is timed
+  by the segment its end beat falls in, not the newest. Still open, both
+  found by the last confirmation and left by the three-round rule
+  (`QUEUE.md`): Apple's arm and midi-glue.js keep about a second of handed
+  note-on ids, so a retraction delayed past that leaves its note sounding;
+  and an edit at the very beat a full queue parked the fill keeps that
+  beat's skip, so a note already retracted there is not issued again.
 - **Not done here.** No real device or IAC bus was available, so nothing was
   sent to hardware from the Mac, and Chrome's Web MIDI was not tried by
   hand. The watchdog and iOS foreground re-enumeration are not exercised by a
