@@ -147,7 +147,7 @@ public final class ExactApp {
     private(set) package var resolver: AssetResolver!
     private var transaction = false
     /// A retryable image preparation; the current sessions remain live.
-    public private(set) var generationPending = false
+    public private(set) var generationPending = false; private(set) var requestsHeld = false
     private var notifications: [() -> Void] = []
     func deliver(_ body: @escaping () -> Void) {
         if transaction { notifications.append(body) } else { body() }
@@ -234,7 +234,7 @@ public final class ExactApp {
             if let old = self.devProgram { return old == program }
             self.devProgram = program
             return true
-        }, current: { [weak self] in self?.devGeneration }, plan: { [weak self] in self?.sessions.first { $0.booted && $0.state != .destroyed }?.runtime.planDigest() }, waiting: { [weak self] in self?.generationPending == true }, design: { [weak self] in self?.design($0) ?? "closed" }, channel: { [weak self] in self?.channel($0) }, apply: { [weak self] candidate, label, letGo in
+        }, current: { [weak self] in self?.devGeneration }, plan: { [weak self] in self?.sessions.first { $0.booted && $0.state != .destroyed }?.runtime.planDigest() }, waiting: { [weak self] in self?.generationPending == true }, held: { [weak self] in self?.requestsHeld == true }, design: { [weak self] in self?.design($0) ?? "closed" }, channel: { [weak self] in self?.channel($0) }, apply: { [weak self] candidate, label, letGo in
             guard let self else { return false }
             let resolver = candidate.assets
             return self.applyTogether(candidate.plan, label: label, resolver: resolver, token: 0, identity: candidate.identity, module: candidate.module, letGo: letGo, commit: { true })
@@ -267,7 +267,7 @@ public final class ExactApp {
     }
 
     private func applyTogether(_ bytes: Data, label: String, resolver candidateResolver: AssetResolver, token: UInt64, identity: String? = nil, module: ExactModule? = nil, letGo: Bool = false, commit: () -> Bool) -> Bool {
-        generationPending = false
+        generationPending = false; requestsHeld = false
         guard !transaction else { return false }
         let module = module ?? lastModule
         let participants = sessions.filter { $0.state != .destroyed }
@@ -282,7 +282,7 @@ public final class ExactApp {
         var prepared: [(ExactSession, ExactSession.Prepared)] = []
         for session in participants {
             guard let candidate = session.prepare(bytes, resolver: candidateResolver, token: token, module: module, letGo: letGo) else {
-                generationPending = session.modulePending || session.requestsPending // asked again; `letGo` (the dev loop's, after a second) lets requests go (LLP 1007 §6)
+                generationPending = session.modulePending || session.requestsPending; requestsHeld = session.requestsPending // asked again; `letGo` (the dev loop's, a second after requests first held it) lets them go (LLP 1007 §6)
                 for (session, _) in prepared { session.runtime.discardPlan() }
                 return false
             }

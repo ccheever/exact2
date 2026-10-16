@@ -70,7 +70,12 @@ fn an_update_refuses_and_a_dev_generation_lets_requests_go_after_its_window() {
     let since = p.dev.as_ref().unwrap().held_since.expect("the wait began");
     p.dev.as_mut().unwrap().held_since = Some(since - crate::host::LET_GO_AFTER);
     p.poll_development(|| Held);
-    assert!(p.pending_dev.is_none(), "installed");
+    assert!(p.pending_dev.is_none());
+    assert_eq!(
+        p.dev.as_ref().unwrap().identity.as_deref(),
+        Some("gen"),
+        "installed"
+    );
     assert!(p.dev.as_ref().unwrap().held_since.is_none());
     assert_eq!(p.host.runner().slot("typed"), Some(&Value::str("ada")));
 }

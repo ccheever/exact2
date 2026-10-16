@@ -528,7 +528,8 @@ picker left open across the swap answers nothing: its view id is the old
 runner's. The native hosts do the same for a dev generation (2026-10-16):
 Apple's `PlanURL` asks again every 50 ms while the module preparation answers
 `"requests":true`, then passes `letGo` (`exact_prepare_module`'s `let_go`)
-once a second has passed; Linux's dev poll and `EXACT_DEV_PLAN` reload hold
+a second after requests first held it (a module still preloading does not
+start that clock); a newer generation waits its own second; Linux's dev poll and `EXACT_DEV_PLAN` reload hold
 the generation on `HostError::RequestsPending` and pass `reload_module`'s
 `let_go` after `LET_GO_AFTER`. A deployed update refuses on every host.
 
