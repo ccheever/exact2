@@ -124,13 +124,28 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   const tool = { path: resolve(process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(root, 'target'), 'host-dev/exact-web-js'), ready: false, child: null, reading: null };
   // Cargo and the compilers it runs, as a group (stopped together).
   const stopGroup = (child) => { if (!child) return; try { process.kill(-child.pid, 'SIGTERM'); } catch { child.kill(); } };
+  // What a failed build said: each error with the lines that explain it (a
+  // linker's `ld:` and `Undefined symbols` lines, its notes, the command line
+  // cut short), then its last lines.
+  const readerFailure = (text) => {
+    const lines = text.trim().split('\n'), out = [];
+    const cut = (l) => (l.length > 300 ? `${l.slice(0, 300)} …` : l);
+    lines.forEach((l, i) => {
+      if (!/^error|^\s*(= note|note:)|ld: |Undefined symbols|undefined reference|duplicate symbol|referenced from|clang: error|linker command failed/.test(l)) return;
+      out.push(cut(l));
+      // The symbols and where they were wanted.
+      if (/Undefined symbols/.test(l)) out.push(...lines.slice(i + 1, i + 9).map(cut));
+    });
+    out.push(...lines.slice(-4).map(cut));
+    return [...new Set(out)].slice(0, 60).join('\n');
+  };
   const buildTool = () => {
     tool.ready = false;
     stopGroup(tool.child);
     const started = new Date();
     const child = tool.child = spawn('cargo', ['build', '-q', '--profile', 'host-dev', '-p', 'exact-web-js'], { cwd: root, stdio: ['ignore', 'ignore', 'pipe'], detached: true });
     let err = '';
-    child.stderr.on('data', (d) => { err = (err + d).slice(-2000); });
+    child.stderr.on('data', (d) => { err = (err + d).slice(-64000); });
     child.on('error', (e) => { if (tool.child === child) { tool.child = null; console.log(`the design reader did not build (design edits take the full build): ${e.message}`); } });
     child.on('exit', (code, signal) => {
       if (tool.child !== child) return;
@@ -139,7 +154,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
       // Dated to the build's start, as Cargo dates its fingerprints: a
       // source saved while it compiled makes it stale (`fresh`).
       if (tool.ready) { try { utimesSync(tool.path, started, started); } catch { tool.ready = false; } }
-      if (!tool.ready && !signal) console.log(`the design reader did not build (design edits take the full build):\n${err.trim().split('\n').slice(-4).join('\n')}`);
+      if (!tool.ready && !signal) console.log(`the design reader did not build (design edits take the full build):\n${readerFailure(err)}`);
     });
   };
   // Ready, and built from the compiler's sources as they are (a compiler
