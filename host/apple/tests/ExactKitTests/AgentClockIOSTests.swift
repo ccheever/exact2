@@ -55,6 +55,167 @@ final class AgentClockIOSTests: XCTestCase {
         XCTAssertEqual(events, ["down", "up"])
     }
 
+    /// The agent's tap is what a finger there delivers (LLP 1012 §1): its
+    /// `pointerdown` and `pointerup`, bubbled, then the press; a finger held
+    /// off any `pan` node is the same with time between, and a lift beside
+    /// its target presses nothing, as a touch up outside a control.
+    func testATapAndAHeldFingerDeliverThePointerEventsBeforeThePress() throws {
+        let session = try booted(), p = session.presenter
+        let outer = NodeView(id: UInt32.max - 1, kind: "view", presenter: p), node = NodeView(id: UInt32.max, kind: "view", presenter: p)
+        for v in [outer, node] { p.views[v.id] = v }
+        outer.frame = CGRect(x: 0, y: 200, width: 300, height: 300)
+        node.frame = CGRect(x: 0, y: 0, width: 100, height: 100)
+        p.viewport.addSubview(outer)
+        outer.addSubview(node)
+        outer.handlers = ["pointerdown"]
+        node.handlers = ["press", "pointerdown", "pointerup"]
+        let agent = Agent(session: session)
+        var events: [String] = []
+        p.onPointer = { id, kind, sample in
+            events.append("\(kind == .down ? "down" : kind == .up ? "up" : "move") \(id == outer.id ? "outer" : "node")")
+            XCTAssertEqual(sample.type, "touch")
+        }
+        p.onPress = { _ in events.append("press") }
+        XCTAssertNil(agent.tap(["id": Int(node.id)])["error"])
+        XCTAssertEqual(events, ["down node", "down outer", "up node", "press"])
+        events = []
+        XCTAssertEqual(agent.recognizedPan("down", ["id": Int(node.id)])?["delivery"] as? String, "recognized")
+        XCTAssertEqual(events, ["down node", "down outer"], "down as it lands")
+        _ = agent.recognizedPan("hold", ["ms": 800.0])
+        let up = try XCTUnwrap(agent.recognizedPan("up", [:]))
+        XCTAssertEqual(events, ["down node", "down outer", "up node", "press"], "\(up)")
+        events = []
+        _ = agent.recognizedPan("down", ["id": Int(node.id)])
+        _ = agent.recognizedPan("move", ["dx": 200.0, "ms": 16.0])
+        _ = agent.recognizedPan("up", [:])
+        XCTAssertEqual(events, ["down node", "down outer", "up node"], "lifted beside it: no press")
+        XCTAssertNil(agent.recognizedPan("down", ["id": Int(node.id), "pan": true]), "a drag's contact is a pan's or none")
+    }
+
+    /// What the pointer events do never sends the press elsewhere: a node
+    /// whose `pointerup` puts another in its place presses neither. A node
+    /// its own down disables still hears its release; a view the pool
+    /// reuses for another node is not the held one. A press while a contact
+    /// is held is refused; the samples carry the modifiers held.
+    func testAHeldFingerKeepsItsNodesAndATapItsTarget() throws {
+        let session = try booted(), p = session.presenter
+        let make = { (id: UInt32) -> NodeView in
+            let n = NodeView(id: id, kind: "view", presenter: p)
+            p.views[id] = n
+            n.frame = CGRect(x: 0, y: 200, width: 100, height: 100)
+            n.handlers = ["press", "pointerdown", "pointerup"]
+            p.viewport.addSubview(n)
+            return n
+        }
+        let node = make(UInt32.max)
+        let agent = Agent(session: session)
+        var events: [String] = [], held: [String] = []
+        var onUp: (() -> Void)?
+        p.onPointer = { id, kind, sample in
+            events.append("\(kind == .down ? "down" : "up") \(id)")
+            held.append(sample.held)
+            if kind == .up { onUp?() }
+        }
+        p.onPress = { events.append("press \($0)") }
+        let other = UInt32.max - 1
+        onUp = {
+            node.removeFromSuperview(); p.views[node.id] = nil
+            _ = make(other)
+        }
+        XCTAssertNil(agent.tap(["id": Int(node.id), "modifiers": "Shift"])["error"])
+        XCTAssertEqual(events, ["down \(node.id)", "up \(node.id)"], "the node under the finger changed: nothing pressed")
+        XCTAssertEqual(held, ["Shift+", "Shift+"])
+
+        onUp = nil
+        events = []
+        let target = try XCTUnwrap(p.views[other])
+        p.onPointer = { id, kind, _ in
+            events.append("\(kind == .down ? "down" : "up") \(id)")
+            if kind == .down { target.props["disabled"] = "true" }
+        }
+        _ = agent.recognizedPan("down", ["id": Int(other)])
+        XCTAssertEqual(agent.tap(["id": Int(other)])["error"] as? String, "a contact is already down; use `tap up` or `tap cancel` first")
+        _ = agent.recognizedPan("up", [:])
+        XCTAssertEqual(events, ["down \(other)", "up \(other)"], "its own down disabled it: it hears its release, and presses nothing")
+
+        target.props["disabled"] = nil
+        events = []
+        p.onPointer = { id, kind, _ in events.append("\(kind == .down ? "down" : "up") \(id)") }
+        _ = agent.recognizedPan("down", ["id": Int(other)])
+        target.incarnation = NodePool.issue() // the pool gave the view to another node
+        _ = agent.recognizedPan("up", [:])
+        XCTAssertEqual(events, ["down \(other)"], "a reused view hears no release and takes no press")
+    }
+
+    /// The press is checked against what the finger reached where it landed,
+    /// after every callback: a node its own `pointerdown` disabled, or whose
+    /// view the pool gave another node, presses nothing; a held finger's
+    /// lift presses what it went down on, never what took its place; and a
+    /// handler further in that hands an ancestor's view to another node keeps
+    /// that ancestor from hearing the event as the other one.
+    func testAFingersPressIsTheNodeItLandedOnAsItIsAtTheLift() throws {
+        let session = try booted(), p = session.presenter
+        let add = { (id: UInt32, frame: CGRect, parent: UIView, handlers: Set<String>) -> NodeView in
+            let n = NodeView(id: id, kind: "view", presenter: p)
+            p.views[id] = n
+            n.frame = frame
+            n.handlers = handlers
+            parent.addSubview(n)
+            return n
+        }
+        let agent = Agent(session: session)
+        var events: [String] = []
+        p.onPress = { events.append("press \($0)") }
+        let box = CGRect(x: 0, y: 200, width: 100, height: 100)
+
+        // Disabled by its own pointerdown.
+        let a = add(UInt32.max, box, p.viewport, ["press", "pointerdown"])
+        p.onPointer = { id, _, _ in events.append("down \(id)"); a.props["disabled"] = "true" }
+        _ = agent.tap(["id": Int(a.id)])
+        XCTAssertEqual(events, ["down \(a.id)"], "disabled at the release: no press")
+        a.removeFromSuperview(); p.views[a.id] = nil
+
+        // Its view given to the next row (a virtualized row reused, as
+        // `NodePool.rebind` does) by its own pointerup, in the plain tap.
+        events = []
+        let b = add(UInt32.max - 1, box, p.viewport, ["press", "pointerup"])
+        let first = b.id, next = UInt32.max - 7
+        p.onPointer = { id, _, _ in
+            events.append("up \(id)")
+            p.views[first] = nil
+            b.rebind(next)
+            p.views[next] = b
+            b.handlers = ["press"]
+        }
+        _ = agent.tap(["id": Int(first)])
+        XCTAssertEqual(events, ["up \(first)"], "the view is the next row's: neither row pressed")
+        b.removeFromSuperview(); p.views[next] = nil
+
+        // A container held over child A; A's pointerdown puts B in its place.
+        events = []
+        let container = add(UInt32.max - 2, box, p.viewport, [])
+        let childA = add(UInt32.max - 3, CGRect(x: 0, y: 0, width: 100, height: 100), container, ["press", "pointerdown"])
+        var childB: NodeView?
+        p.onPointer = { id, kind, _ in
+            events.append("down \(id)")
+            childA.removeFromSuperview(); p.views[childA.id] = nil
+            childB = add(UInt32.max - 4, CGRect(x: 0, y: 0, width: 100, height: 100), container, ["press"])
+        }
+        _ = agent.recognizedPan("down", ["id": Int(container.id), "x": 50.0, "y": 250.0])
+        _ = agent.recognizedPan("up", [:])
+        XCTAssertNotNil(childB)
+        XCTAssertEqual(events, ["down \(childA.id)"], "the lift presses what it went down on, gone: never B")
+        container.removeFromSuperview(); p.views[container.id] = nil
+
+        // An inner handler hands the outer node's view to another node before its turn.
+        events = []
+        let outer = add(UInt32.max - 5, box, p.viewport, ["pointerdown"])
+        let inner = add(UInt32.max - 6, CGRect(x: 0, y: 0, width: 100, height: 100), outer, ["pointerdown"])
+        p.onPointer = { id, _, _ in events.append("down \(id)"); if id == inner.id { outer.incarnation = NodePool.issue() } }
+        _ = agent.tap(["id": Int(inner.id)])
+        XCTAssertEqual(events, ["down \(inner.id)"], "the outer view is another node's by its turn")
+    }
+
     /// The motion engine at the wall, as a running animation leaves it, then a hold.
     private func holdAfter(_ session: ExactSession, _ op: [String: Any]) throws -> (wall: Double, reply: [String: Any], held: Bool) {
         session.apply(session.runtime.tick(now: session.now()))

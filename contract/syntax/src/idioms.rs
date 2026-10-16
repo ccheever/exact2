@@ -131,8 +131,12 @@ pub fn refusal(name: &str) -> Option<String> {
                 "`{name}` is refused (LLP 1017.003: lists have `map`, `filter`, `join`, `concat`, `slice`, `includes` and `indexOf`): write {instead}, or compute it in the data source and hand the view the result"
             )
         }
-        "reduce" | "reduceRight" | "findLast" | "sort" | "sortBy" | "toSorted" | "flatMap"
-        | "flat" | "forEach" | "reverse" | "toReversed" => format!(
+        // LLP 1116.016 §7: told only to sort in the data source, a builder
+        // writing the view alone dropped the order; named, it kept it.
+        "sort" | "sortBy" | "toSorted" | "reverse" | "toReversed" => format!(
+            "`{name}` is refused (LLP 1017.003: lists have `map`, `filter`, `join`, `concat`, `slice`, `includes` and `indexOf`): order the list in the data source and name the order where the view reads it (`resource tasks = loadTasksByDueDate()`)"
+        ),
+        "reduce" | "reduceRight" | "findLast" | "flatMap" | "flat" | "forEach" => format!(
             "`{name}` is refused (LLP 1017.003: lists have `map`, `filter`, `join`, `concat`, `slice`, `includes` and `indexOf`); compute it in the data source and hand the view the result, as the crypto port keeps `lo` and `hi` beside its series"
         ),
         // @ref LLP 1088 D7.4 — the web's string and list spellings an agent
@@ -160,9 +164,18 @@ pub fn refusal(name: &str) -> Option<String> {
             "`{name}` is not in Contract: `x * x` is a square and `max(x, -x)` a magnitude; compute other maths in the data source and hand the view the result"
         ),
         "toUpperCase" => "display casing is CSS: `text-transform=\"uppercase\"`; Contract has no `toUpperCase` (LLP 1088 D2)".into(),
-        "Number" | "parseInt" | "parseFloat" => format!(
-            "write `parseNumber(s)` for `{name}`: `some(n)` for a decimal number in the text (`\" 12.5 \"`, `\"-3\"`, `\"1e3\"`), `none` for anything else (`\"\"`, `\"12px\"`, hex), so `match parseNumber(s)` handles a field's text (LLP 1102 §3.1)"
-        ),
+        // LLP 1116.018: repairs changed what an unreadable field shows
+        // without saying so; the message names where the two differ.
+        "Number" | "parseInt" | "parseFloat" => {
+            let differs = match name {
+                "Number" => "`Number` reads `\"\"` as 0",
+                "parseInt" => "`parseInt` reads `\"12.5\"` and `\"12px\"` as 12",
+                _ => "`parseFloat` reads `\"12px\"` as 12 and `\"\"` as `NaN`",
+            };
+            format!(
+                "write `parseNumber(s)` for `{name}`: `some(n)` for a decimal number in the text (`\" 12.5 \"`, `\"-3\"`, `\"1e3\"`), `none` for anything else (`\"\"`, `\"12px\"`, hex), so `match parseNumber(s) {{ case some(n) => n, case none => 0 }}` says what an unreadable field counts as; {differs} (LLP 1102 §3.1)"
+            )
+        }
         "len" | "count" | "size" => "write `x.length`, of text or of a list".into(),
         "min" | "max" => format!(
             "write `{name}(a, b)` for two numbers; `Math.{name}(...xs)` over a list is refused (LLP 1017.003): compute it in the data source, as the crypto port keeps `lo` and `hi` beside its series"

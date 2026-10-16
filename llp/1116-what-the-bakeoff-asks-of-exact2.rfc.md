@@ -269,6 +269,21 @@ to what the author writes.
    does.
    - A footer below the scroll keeps its padding (native-fixture's Detail route).
    - A route without `navigationScroll` gets the same rule when its last child is a scroller.
+   - **Amended 2026-10-16:** the scroller may sit deeper: the route's last in-flow child,
+     or that child's last, down through boxes that alone span their parent's bottom edge:
+     every other in-flow sibling ends above its top, as children stacked down a block or
+     a column do (the laid-out frames say so: the host is not sent the flex direction),
+     and nothing (a padding, border or margin) is under it. In a row or a grid a sibling
+     beside the scroller (a column with Save at its foot) reaches the edge too, so the
+     cover stays (Astra's review). The route's own child must reach the foot of the
+     content box its cover shortens: one sized to its content, 200 points into a
+     600-point route, keeps the cover, where UIKit's bottom inset would land far above
+     the home indicator (Grok's review). A sheet whose component's root `column` holds
+     its header and then its `scroll` reached the edge in no app, where a hand-built
+     sheet's scroll view pinned to its view's bottom does at any depth (the euxy port's
+     sheets stopped their content a home indicator's height above the sheet's foot).
+     `NavigationHost.bottomScroller`; test
+     `NavigationBasicsIOSTests.testANestedLastScrollerReachesTheBottomEdge`.
    - Test: `NavigationBasicsIOSTests.testAnInlineTitlesScrollerGoesUnderTheBar`. The list's
      `maxY` equals the view's `maxY`, and the inset equals the safe area.
 2. **A header's second text is the bar's subtitle.** `HeaderTitle.init`

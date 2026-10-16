@@ -26,7 +26,8 @@ impl<D: DataSource> Host<D> {
     }
 
     /// Covers, containing blocks and the blocks' placements under one
-    /// layout.
+    /// layout, and the canvases' work after it: a canvas in a box given
+    /// back is laid out and drawn in this batch.
     pub fn set_claims(
         &mut self,
         covers: &[(ViewId, Option<HostCover>)],
@@ -36,7 +37,7 @@ impl<D: DataSource> Host<D> {
         self.height_targets_dirty = true;
         let mut batch = crate::batch::Batch::new();
         let mut error = None;
-        for &(view, cover) in covers {
+        for (view, cover) in self.top_layer_claims(covers) {
             if let Err(e) = self.runner.kernel_mut().set_host_cover(view, cover) {
                 error.get_or_insert(format!("cover: {e:?}"));
             }
@@ -52,6 +53,7 @@ impl<D: DataSource> Host<D> {
         if let Err(e) = self.layout(&mut batch) {
             error.get_or_insert(e);
         }
+        self.canvas_turn(&mut batch);
         self.finish(batch, error)
     }
 }

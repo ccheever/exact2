@@ -162,8 +162,8 @@ def stdlib (env : Env) (f : String) (args : List Value) : Result Value :=
   | "isEmpty", [.str s] => .ok (.bool s.isEmpty)
   | "toString", [v] => Value.str <$> v.display
   | "floor", [.num x] => .ok (.num x.floor)
-  | "max", [.num a, .num b] => .ok (.num (Number.fmax a b))
-  | "min", [.num a, .num b] => .ok (.num (Number.fmin a b))
+  | "max", [.num a, .num b] => .ok (.num (Number.jsMax a b))
+  | "min", [.num a, .num b] => .ok (.num (Number.jsMin a b))
   | "first", [.list xs] => .ok (match xs with | [] => .none | x :: _ => .some x)
   | "at", [.list xs, .num i] =>
     let i := if Number.isNaN i then 0 else Number.trunc i

@@ -108,8 +108,17 @@ pub const DEFAULT_BUDGET_MS: f64 = 100.0;
 /// The runtime's heap ceiling, unless the host says otherwise.
 pub const DEFAULT_MAX_HEAP: u32 = 64 << 20;
 
+/// Bytecode the binary holds, aligned so Hermes reads it in place (the shim
+/// copies a buffer that is not).
 #[cfg(exact_js_engine)]
-const PRELUDE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/prelude.hbc"));
+#[repr(C, align(16))]
+struct Aligned<B: ?Sized>(B);
+
+#[cfg(exact_js_engine)]
+static PRELUDE_BYTES: &Aligned<[u8]> =
+    &Aligned(*include_bytes!(concat!(env!("OUT_DIR"), "/prelude.hbc")));
+#[cfg(exact_js_engine)]
+const PRELUDE: &[u8] = &PRELUDE_BYTES.0;
 #[cfg(not(exact_js_engine))]
 const PRELUDE: &[u8] = &[];
 
@@ -208,7 +217,7 @@ struct HostState {
 /// A TypeScript data source: bytecode, its bake-time identity, and the
 /// engine that runs it once loaded.
 pub struct Module {
-    bytecode: Vec<u8>,
+    bytecode: Arc<[u8]>,
     app_id: String,
     grants: String,
     revision: std::sync::OnceLock<String>, // the bytecode's SHA-256, when first asked
@@ -281,12 +290,16 @@ impl Module {
     /// beside the bytecode, cross-checked against the module's own exports
     /// at [`Module::load`]. Under the agent (`EXACT_AGENT=1`) its `crypto`
     /// draws the agent's repeatable stream (LLP 1069.005 D2b).
-    pub fn new(bytecode: Vec<u8>, app_id: impl Into<String>, grants: impl Into<String>) -> Module {
+    pub fn new(
+        bytecode: impl Into<Arc<[u8]>>,
+        app_id: impl Into<String>,
+        grants: impl Into<String>,
+    ) -> Module {
         let grants = grants.into();
         let auth_callback = exact_runner::auth::carrier_callback(&grants, None);
         let module = Module {
             revision: std::sync::OnceLock::new(),
-            bytecode,
+            bytecode: bytecode.into(),
             app_id: app_id.into(),
             grants,
             engine: None,
@@ -483,7 +496,7 @@ impl Module {
         self.load_engine_with_prelude(PRELUDE)
     }
 
-    fn load_engine_with_prelude(&mut self, prelude: &[u8]) -> Result<Watched, String> {
+    fn load_engine_with_prelude(&mut self, prelude: &'static [u8]) -> Result<Watched, String> {
         let io = exact_runner::io_grants(&self.grants);
         self.host.documents = storage::reaches_documents(&io);
         // The bindings Context must precede the engine and outlive its
@@ -509,7 +522,7 @@ impl Module {
         // application code too.
         let mut engine = Watched::new(engine, self.watch.clone());
         engine
-            .load(prelude)
+            .load_static(prelude)
             .map_err(|e| format!("exact-js: the prelude did not load: {e}"))?;
         if self.main_thread {
             engine
@@ -561,7 +574,7 @@ impl Module {
             .harden()
             .map_err(|e| format!("exact-js: hardening failed: {e}"))?;
         engine
-            .load(&self.bytecode)
+            .load_shared(self.bytecode.clone())
             .map_err(|e| format!("exact-js: the module did not load: {e}"))?;
         let abi = engine.string("abi")?;
         if !abi_supported(&abi) {

@@ -53,7 +53,8 @@ impl<D: DataSource> Presenter<D> {
         // transition), and `after_commit` repaints only for a new epoch.
         self.dirty = true;
         let after = self.after_commit();
-        (landed, e.or(after))
+        let ends = self.deliver_scroll_ends();
+        (landed, e.or(after).or(ends))
     }
 }
 

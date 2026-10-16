@@ -2,7 +2,43 @@
 // a keyboard does (#140), each repeat a keydown whose `repeat` is true.
 import { test, expect } from 'bun:test';
 import { chordKeys } from './agent-playwright.mjs';
-import { KEY_REPEAT, validateKey, typeFor, cdpKey, withHeldModifiers, browserKey, nativeKey, typeArguments, typeCommand, tapWords, MalformedOperation } from './agent-keys.mjs';
+import { KEY_REPEAT, validateKey, typeFor, cdpKey, withHeldModifiers, browserKey, nativeKey, typeArguments, typeCommand, tapWords, intoArguments, MalformedOperation } from './agent-keys.mjs';
+import { open } from './agent.mjs';
+import { launchFacts } from './agent-launch.mjs';
+
+test('into accepts CSS alignments and labels invalid values in the shared check and CLI', () => {
+  expect(() => intoArguments({ key: 'row' })).not.toThrow();
+  expect(tapWords(['list', 'into', 'row'])).toEqual(['list', { into: { key: 'row' } }]);
+  for (const axis of ['block', 'inline']) {
+    for (const alignment of ['start', 'center', 'end', 'nearest']) {
+      const into = { key: 'row', [axis]: alignment };
+      expect(() => intoArguments(into)).not.toThrow();
+      expect(tapWords(['list', 'into', 'row', axis, alignment])).toEqual(['list', { into }]);
+    }
+    for (const alignment of ['banana', 'Start', 'toString', '', null, 0]) {
+      const message = `no alignment ${alignment}: start, center, end or nearest`;
+      expect(() => intoArguments({ [axis]: alignment })).toThrow(MalformedOperation);
+      expect(() => intoArguments({ [axis]: alignment })).toThrow(message);
+      const words = ['missing', 'into', 'row', axis, String(alignment)];
+      const error = (() => { try { tapWords(words); } catch (e) { return e; } })();
+      expect(error).toBeInstanceOf(MalformedOperation);
+      expect(error.message).toBe(`tap ${words.join(' ')}: ${message}`);
+    }
+  }
+  expect(tapWords(['list', 'into', 'row', 'block', 'end', 'inline', 'center']))
+    .toEqual(['list', { into: { key: 'row', block: 'end', inline: 'center' } }]);
+  expect(() => intoArguments({ block: { toString: null } })).toThrow(MalformedOperation);
+});
+
+test('tap validates both into alignments before looking up its target', async () => {
+  const s = await open({ reuse: { host: 'web', browser: 'chrome', launchFacts: launchFacts({}), reset() {},
+    ask() { throw new Error('malformed into reached a host'); } } });
+  for (const axis of ['block', 'inline']) {
+    const error = await s.tap('missing', { into: { key: 'row', [axis]: 'banana' } }).catch(e => e);
+    expect(error).toBeInstanceOf(MalformedOperation);
+    expect(error.message).toBe('no alignment banana: start, center, end or nearest');
+  }
+});
 
 test('key phases and durations carry the malformed label; failed focus does not', async () => {
   for (const key of [browserKey, nativeKey]) await expect(key({ id: 2, opts: { key: 'Enter', phase: 'banana' } })).rejects.toBeInstanceOf(MalformedOperation);

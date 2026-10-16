@@ -125,6 +125,14 @@ final class FieldSelections {
     /// A text field this follows: an input's field or a textarea, never the
     /// Markdown editor (its own `select`) or the emoji picker (cleared as
     /// each emoji is taken).
+    /// An `input` in a closed `dialog` or popover on iOS has no UIKit field
+    /// yet (`NodeView.makeWaitingField`): a command on its value or
+    /// selection makes it, so both stand when the box opens.
+    static func makeField(_ node: NodeView) {
+        #if os(iOS) || os(tvOS)
+        node.makeWaitingField()
+        #endif
+    }
     static func tracks(_ node: NodeView) -> Bool {
         (node.field != nil || node.textArea != nil) && node.props["markup"] != "markdown" && node.props["emojiPicker"] != "true"
     }
@@ -217,6 +225,7 @@ final class FieldSelections {
             return
         }
         #endif
+        Self.makeField(node)
         guard Self.tracks(node) else {
             presenter.session?.log("setSelectionRange \"\(name)\" refused: not a text field")
             return
@@ -232,8 +241,9 @@ final class FieldSelections {
         guard [2, 4, 5].contains(args.count), let name = args[0] as? String,
               let replacement = args[1] as? String else { return }
         let refuse = { (why: String) in self.presenter.session?.log("setRangeText \"\(name)\" refused: \(why)") }
-        guard let node = presenter.views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name }),
-              Self.tracks(node), node.textArea != nil || ["text", "search", "url", "tel", "password"].contains(node.props["type"] ?? "text") else {
+        let named = presenter.views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name })
+        if let named { Self.makeField(named) }
+        guard let node = named, Self.tracks(node), node.textArea != nil || ["text", "search", "url", "tel", "password"].contains(node.props["type"] ?? "text") else {
             refuse("not a plain text field"); return
         }
         let mode = args.count == 5 ? args[4] as? String ?? "" : "preserve"

@@ -104,7 +104,8 @@ exit status: 0 success, 1 compilation/I/O failure, 2 invalid invocation. Read al
 diagnostics, including related locations, before making the next repair. Each has
 a `severity`: `"error"` refuses the build; `"warning"` (after the errors, also on a
 success) builds and runs but is not what you meant, such as a header node the iOS
-bar hides (`lower-header-unplaced`), a content heading that says the bar's title
+bar hides (`lower-header-unplaced`), a route's `header` a box below the route,
+which iOS leaves in the page (`lower-header-nested`), a content heading that says the bar's title
 again (`lower-title-twice`), a tab bar of one tab (`lower-single-tab`), a
 `button` with no words and no `aria-label` (`lower-button-unlabelled`), a dialog's
 role on a box (`lower-dialog-role`), an `aria-level` with no `role="heading"`
@@ -114,7 +115,10 @@ its parent by the padding (`lower-width-padding`), screens swapped by an `if` in
 (`lower-count-plural`), a row of the app's records that searches another table of them,
 `users.filter(u => u.id == p.userId)` in `for p in posts` (`lower-row-lookup`), a
 symbol by an alias, not its role (`lower-symbol-alias`), a
-`performanceNow()` time sent to a source (`type-performance-now-persisted`), a
+`performanceNow()` time sent to a source (`type-performance-now-persisted`), the
+launch's `time.epochAtZero` or `time.seed` as a resource's identifying argument, which
+keeps its kept answer from ever showing at launch: pass it after `with`
+(`lower-resource-launch-identity`), a
 state read after its own action assigned it (`analyze-read-after-assign`), a
 literal colour that stays the same in dark mode (`lower-colour-one-scheme`, every
 site past the cap), and a name or key a host would refuse or ignore at run time: a
@@ -286,10 +290,9 @@ what to write. Nothing runs because a value changed (no `useEffect` or watch).
 | A string is well-formed: a lone surrogate becomes U+FFFD (`"😀".slice(0, 1)`) | every host holds Unicode scalar values |
 | A stored number is finite: a commit that would put `NaN` or `Infinity` in a state or derive is refused, and the write that caused it does not land | every host can carry it |
 | `toFixed` and the format functions print `""` for a non-finite number | one rule for every format |
-| `min`/`max` drop a `NaN` operand (`max(NaN, 1)` is `1`) | today's roster; a debt |
 | Names hold hyphens, so subtraction takes spaces (`a - b`) | CSS's names |
 | A binding's list work is bounded (65,536 steps); a row's own binding has its own bound, so a row that searches another table costs rows × items (`lower-row-lookup`) | determinism on every host |
-| Sorting, grouping, joining and aggregates are the data module's | a view computes what it shows |
+| Sorting, grouping, joining and aggregates are the data module's; the view names an order it relies on where it reads it (`loadTasksByDueDate()`) | a view computes what it shows |
 
 - Types are `number`, `string`, `bool`, declared shapes, `option<T>`, `T[]`,
   and `action` for behavior interfaces. Do not emit authored `any` or object types.
@@ -612,10 +615,13 @@ A native host (and the wasm web target; the default JS target keeps none) can ma
 that child from a kept answer. When the data module is not ready at boot, a resource
 whose source read device state (a file, a database, a secret, a watched topic) shows
 the last answer the runner kept for it (asked with the same identifying
-arguments, and at most 4 KiB counting them; `with` values are not counted), so
+arguments, and at most 256 KiB counting them, 512 KiB for all of them together; `with` values are not counted), so
 the form's states take those fields. A larger answer is not kept, and an older one
 kept for the resource is forgotten, so a launch never shows an answer since replaced;
-`logs` says `too big to keep` once, naming the resource and what to do.
+`logs` says `too big to keep` once, naming the resource and what to do. An
+identifying argument that changes every launch (the launch's time or seed) never
+matches the kept one: pass it after `with`, as `resource lib = library() with
+time.epochAtZero`; the compiler and `logs` both say so.
 Keep a first screen's resources small and move their bulk into a resource the first
 frame does not need. A write the resource does not hear about (a file or database save from
 a mutation without `refreshes saved`, not a `store` write it reads) leaves that
@@ -1280,7 +1286,15 @@ still needs the handler. A declared but disabled
 control refuses them, as does `closedby="none"` on a sheet. On a pushed iOS
 route under the platform bar, that control's text becomes the bar's back button title
 beside the bar's own chevron (no text shows the chevron alone), so label it `Recipes`,
-not `‹ Recipes`.
+not `‹ Recipes`. With no such control the back button is UIKit's default, which since
+iOS 26 is the chevron alone, the previous title unshown, as in a hand-built app; a title
+there is the control's text, said.
+
+Inside a route's `header`, wrap related bar buttons in a `row role="group"`.
+iOS 26 keeps each explicit group's buttons on one shared glass background and
+separates adjacent groups with UIKit's fixed-space item. Ungrouped buttons keep
+the existing platform default. The wrappers remain ordinary layout on the web;
+this adds no spacing value or custom button face.
 
 The bar shows a header's heading, the first text after it (its subtitle), one search
 field, one tablist and its buttons; anything else in the header is not shown on iOS.
@@ -1590,6 +1604,14 @@ including the storage drain; it works with the development menu off. A
 iOS/tvOS, Linux and native agent sessions journal a refusal; for a scripted
 restart, start another drive on the same `--storage`. See [host commands](contract-grammar.md#host-commands).
 
+### Native views: accessibility
+
+A native view ([recipe](recipes/native-views.md)) that says nothing to VoiceOver is one
+element under its box's `aria-label`, with the traits of its `role`: `button`, `link`,
+`img`, `switch` or `checkbox` (`aria-checked`), or `slider` (`aria-valuenow`). A view with
+parts sets `accessibilityElements` (`UIAccessibilityElement`s with a label, `.button` and
+`accessibilityActivate`); the box is then a group under the label.
+
 ## Routes and web documents
 
 Declare at most one `routes <slot>` in the app's root file. Each row names an
@@ -1754,9 +1776,20 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   false, reason: "transition"` says it had not. `--timing platform` leaves that to
   `clock settle`.
 - A sheet's heights are `navigationDetent`, space-separated words: `large`,
-  `medium`, a point height or `fit-content` (the route's content height; a menu or
-  a short dialog), which goes alone or as `"fit-content large"`. A literal with
-  another word is refused. `fit-content` measures the route laid out alone, its
+  `medium`, a point height, a percentage of the sheet's maximum height (`"45%"`,
+  React Native's `sheetAllowedDetents: [0.45]`; above 0% and at most 100%) or
+  `fit-content` (the route's content height; a menu or
+  a short dialog), which goes alone or as `"fit-content large"`. Write a share of
+  the screen as a percentage, never points computed from a measure. Heights go
+  shortest to tallest on every screen, as UIKit takes them: before `large`, which
+  goes last, use one kind (points, or percentages with `medium` as half), each
+  taller than the one before; `"300 45%"` crosses on a small screen. `"100%"` is
+  `large`, and a point height a screen's maximum reaches, with a taller detent after
+  it, is left out there. A percentage, like a point height, leaves out the bottom
+  safe area, which UIKit adds below. A literal with
+  another word or order is refused; a bound one iOS cannot use is journaled (`logs`)
+  with the route, and the sheet keeps its other detents or opens `large`.
+  `fit-content` measures the route laid out alone, its
   height left to its children, so nothing sized from the sheet counts; on iOS every
   viewport unit (`vw`, `vh`, `vmin`, `vmax`, and kin) is the window's in every sheet, never the
   sheet's, so `min-height: 100vh` opens the sheet at its maximum; a route
@@ -2001,9 +2034,13 @@ its `change`, so the action's `press` reads what was typed. Return is one
 rule on every host: the input's `key` handlers hear it first (and may prevent
 it); a field with a `submit` handler then commits and runs it, and that is
 all, as a hand-built field whose delegate handles Return; any other commits
-its edit and presses the first action that is not destructive (bold on iOS),
+its edit and presses the first action that is not destructive,
 whatever `buttonStyle` says; while that action is disabled Return does nothing, so a Save with `disabled=(draft == "")`
-opens dimmed and enables as a name is typed. Only the alert's shape takes
+opens dimmed and enables as a name is typed. iOS draws no action bold, as a
+hand-built alert does not, unless the action Return presses says
+`buttonStyle="filled"`: then it is the alert's preferred action, bold. (An alert
+with no field prefers its one filled action that is not destructive, as the Mac
+makes it the default button.) Only the alert's shape takes
 one field at a time: with it, a cancel and at most three buttons, no `for`
 (`lower-alertdialog` says which row breaks it).
 
@@ -2038,7 +2075,16 @@ every `translate`, `rotate` and `scale` on it and above it (the bounding box of 
 turned box), with every scroll offset above it (the page's too) applied, so a drop
 target needs no scroll bookkeeping and a dragged card is where it shows. Natively a
 transform in flight counts at its end value; the web reads it mid-flight. `measure`
-reads an auto-height hypothetical layout at the same origin.
+reads the border box as if its `height` were `auto`, at the same origin, with every
+other style kept: its in-flow content, plus its padding and border, within its
+`min-height` and `max-height`, and the height opposing `top` and `bottom` insets
+give an absolutely positioned box. So a navigation root whose children are all
+absolutely positioned, with no padding, border or `min-height` of its own,
+measures 0 however tall it is laid out. Read a laid-out
+size, the screen's included, with `frame`, and size a sheet as a share of the
+screen with `navigationDetent="45%"`. Before the first layout both answer
+`unavailable` with zeros, as on the web until the page's geometry code loads after
+first paint; natively a mount task's `after(1, …)` runs after that layout.
 Neither is a computed style binding to run every render.
 `elementFromPoint(x, y)` names the front-most of the same boxes at a viewport
 point by its nearest `id` (`option<string>`), through the same transforms. For a
@@ -2084,6 +2130,12 @@ or `NSImage(named: "donut")`; SwiftUI uses `Image("donut", bundle: .main)`.
 `AccentColor` is the app's accent on Apple hosts (`NSAccentColorName`; the
 accent section above). Catalog changes require a
 new native build; they are not web assets or live update payloads.
+
+An Icon Composer project is selected explicitly by `host.ios.icon` or
+`host.macos.icon` in `app.json`, as an app-relative `.icon` directory; tvOS
+does not inherit it. It compiles with the catalogs and replaces the native
+raster icon from `icons`, which still supplies the web. See the
+[icon inputs in the reference](reference.md) for conflicts and fallback.
 
 An iOS native module that uses `canOpenURL` to check for another app lists
 its schemes in `app.json`: `"host": { "ios": { "queriesSchemes":

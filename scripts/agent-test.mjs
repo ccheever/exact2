@@ -66,11 +66,14 @@ export function disabledExpectation(nodes, target, disabled) {
 
 /** A press on a disabled control does nothing, and each host said so its own way (the web's silently, a native one in the words of the view
  * that took the touch), so a step that presses one fails the same on every host (LLP 1116.010 D3): the test of a refusal is `expect disabled`.
- * Not a hover, a wheel, a pinch, a drag, a drop or a scroll to a row: those a disabled control does not take as a press. */
+ * Context requests ignore disabled on containers and links, as HTML does; other non-press forms below bypass this guard. */
 export async function refuseDisabled(s, node, target, opts = {}) {
   if (node.entity !== undefined || ['hover', 'wheel', 'pinch', 'drag', 'drop', 'into', 'history', 'mediaSession', 'gesture'].some((k) => opts[k] !== undefined && opts[k] !== false)) return;
   const read = await s.op({ op: 'tree', target: node.id, shallow: true }).catch(() => null);
-  if (isDisabled(read?.nodes?.find((n) => n.id === node.id))) throw new Error(`${target} is disabled: a press does nothing (\`expect disabled ${JSON.stringify(String(target))}\` asserts it)`);
+  const current = read?.nodes?.find((n) => n.id === node.id);
+  const control = ['Pressable', 'TextInput', 'Control'].includes(current?.type) && !(current.type === 'Pressable' && typeof current.props?.href === 'string' && current.props.href.length > 0);
+  if (opts.contextmenu === true && current?.type && !control) return;
+  if (isDisabled(current)) throw new Error(`${target} is disabled: a press does nothing (\`expect disabled ${JSON.stringify(String(target))}\` asserts it)`);
 }
 
 // What a person activates, most direct first: a control, or a view a press or an edit acts on (2); one taking a gesture

@@ -228,7 +228,7 @@ public enum DevMenu {
         a.addAction(UIAlertAction(title: "Copy Info", style: .default) { _ in UIPasteboard.general.string = text })
         #endif
         // LLP 1079 D5: the session's journal, frames and work, for the agent (`agent.mjs trace <file>`).
-        if session?.sampler != nil { a.addAction(UIAlertAction(title: "Save Trace", style: .default) { _ in saveTrace() }) }
+        if FrameSampler.measured { a.addAction(UIAlertAction(title: "Save Trace", style: .default) { _ in saveTrace() }) }
         a.addAction(UIAlertAction(title: "Cancel", style: .cancel))
         sheet = a
         present(a)

@@ -3,6 +3,91 @@
 import UIKit
 
 extension NodeView {
+    /// UIKit's field for an `input`.
+    func makeField() {
+        let f = TextField(frame: .zero)
+        f.owner = self
+        f.borderStyle = .none
+        f.backgroundColor = .clear
+        f.delegate = self
+        f.addTarget(self, action: #selector(fieldChanged), for: .editingChanged)
+        addSubview(f)
+        field = f
+    }
+    /// An `input` made inside a closed `dialog` or popover, which the
+    /// kernel has not laid out (`MenuHost.layOut`), has no UIKit field
+    /// until its box first shows or a prompt takes its keyboard from it
+    /// (`PromptField`): made then, with the props and style it has.
+    func makeWaitingField() {
+        guard fieldWaits else { return }
+        fieldWaits = false
+        makeField()
+        applyFieldStyle()
+        if let field { applyField(field, set: props, clear: []) }
+        layoutField()
+    }
+    /// The props an `input`'s field shows: `set` and `clear` are what changed.
+    func applyField(_ f: UITextField, set: [String: String], clear: [String]) {
+        #if os(iOS)
+        f.pasteDelegate = FieldSelections.tracks(self) ? self : nil
+        #endif
+        f.tintColor = props["emojiPicker"] == "true" ? .clear : nil
+        if (set["emojiPicker"] != nil || clear.contains("emojiPicker")), f.isFirstResponder { f.reloadInputViews() }
+        if let v = props["value"] { writeValue(v, into: f) }
+        applyPlaceholder(f); applyFieldName(f)
+        // The web's `type` and `inputmode`, as UIKit spells them.
+        let type = props["type"] ?? "text"
+        f.isSecureTextEntry = type == "password"
+        // `autocomplete` names the field to AutoFill over what `type` implies (LLP 1102 §3.6).
+        let content = Autofill.contentType(props["autocomplete"], fallback: type == "password" ? .password : type == "email" ? .emailAddress : nil)
+        let traitsChanged = f.autocapitalizationType != inputCapitalization || f.autocorrectionType != inputCorrection || f.spellCheckingType != inputSpellChecking || f.smartQuotesType != inputSmartQuotes || f.smartDashesType != inputSmartDashes || f.textContentType != content
+        f.textContentType = content
+        f.autocapitalizationType = inputCapitalization
+        f.autocorrectionType = inputCorrection
+        f.spellCheckingType = inputSpellChecking
+        f.smartQuotesType = inputSmartQuotes
+        f.smartDashesType = inputSmartDashes
+        if traitsChanged, f.isFirstResponder { f.reloadInputViews() }
+        switch props["inputMode"] ?? type {
+        case "email": f.keyboardType = .emailAddress
+        case "numeric": f.keyboardType = .numberPad
+        case "decimal", "number": f.keyboardType = .decimalPad
+        case "tel": f.keyboardType = .phonePad
+        case "url": f.keyboardType = .URL
+        case "search": f.keyboardType = .webSearch
+        default: f.keyboardType = .default
+        }
+        applyPadBar() // a pad's missing keys its field asks for: ±, Done (LLP 1116.003 D7)
+        // HTML's `enterkeyhint` labels the return key (feed F25); UIKit
+        // has no `previous`, which keeps the default. Unsaid, the label
+        // is the system's, with a `submit` handler too: Go for a field
+        // that submits was Safari's rule for a form (LLP 1115.000 D9.3).
+        // The system's for a search field is Search, as `UISearchBar`'s.
+        switch props["enterKeyHint"] {
+        case "done": f.returnKeyType = .done
+        case "go": f.returnKeyType = .go
+        case "next": f.returnKeyType = .next
+        case "search": f.returnKeyType = .search
+        case "send": f.returnKeyType = .send
+        case "enter", "previous": f.returnKeyType = .default
+        default: f.returnKeyType = type == "search" ? .search : .default
+        }
+        f.isEnabled = !disabled
+        if headerField != nil { presenter?.menus.promptInputChanged(self) } // a prompt's field stands in for it (PromptFieldIOS.swift)
+        if isNativeTextControl { styleNativeField() }
+        updateNumberStepper() // the platform's stepping control for `type="number"` (LLP 1116.007 D4)
+    }
+    /// The style an `input`'s field shows.
+    func applyFieldStyle() {
+    field?.textAlignment = NSTextAlignment(rawValue: textAlignmentCode) ?? .left
+    if let f = field, let t = text {
+        f.font = t.font(size: number("font_size", PageFacts.defaultRootFontSize), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")))
+        f.textColor = color("text_color", SystemColor.canvasText)
+        applyPlaceholder(f)
+        styleNativeField()
+        updateNumberStepper() // `appearance` may have changed (LLP 1116.007 D4)
+    }
+    }
     var isNativeTextControl: Bool {
         (field != nil || textArea != nil) && props["markup"] != "markdown" && style["appearance"]?.string != "none"
     }

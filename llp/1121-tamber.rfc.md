@@ -2426,3 +2426,40 @@ everywhere.
 - `scopeOf()` grants write to the local token, until pairing (stage 10).
 
 **Stage 4's commits are complete.** The gate run follows.
+
+### Stage 4's gate: met (2026-10-16; the run is `~/x2theme/stage4-gate-run.txt`)
+
+The run was on the Bluesky clone (the v2 clone, TypeScript and Rust data, at `de5128c`) and exact2
+`393a1e9c0` plus `82a0ca14d`. It covered iOS (its own simulator), the Mac and the web, on the JS
+loop with its resident producer and on the `--wasm` loop. The lines are the brief's, as LLP 1122
+amended §5's: `resolve-on` moved to LLP 1122 T2b, and `preview` is the build channel's `pin`.
+
+| Gate line | Result |
+|---|---|
+| A dial or token change through `tamber/1`, and a hand edit, reach the clone at once on iOS, the Mac and the web, with no plan, no reload and no state lost | **Met** on both loops: a batch with no generation, plan digests unchanged, a scrolled feed and a typed draft kept. About 1 s on the wasm loop and about 10 s on the JS loop (its JS build). |
+| A structure edit still reloads | **Met.** A Contract edit is a new generation that carries state. |
+| A token read by a Contract synthetic token updates live, synthetic token included | **Met.** `color-mix(in srgb, primary_500 60%, black)` on Create account is `live` with its synthetic value, and repaints with no reload. |
+| A role-override edit is `rebuild` and reloads | **Met.** An `AccentColor` override set is `rebuild`; the natives reload and the wasm loop makes a generation. |
+| A build that reconnects after missing a batch gets the snapshot | **Met.** An app relaunched on its old generation after an edit took the snapshot's design. |
+| More than 4,096 distinct colour edits leave storage bounded; a full table refuses with a diagnostic | **Met by the kernel tests** (6,000 colours set and replaced, a full table refusing and recovering, batches, grace, stale reads). Not driven live on the clone. |
+| `pin` changes one named build, and the server reports its effective mode | **Met.** Dark plus `dark-style=black` on the iOS build only, and its status reports both. |
+| `uses` is right for the clone's `primary_500`, through synthetic tokens | **Met.** 587 sites in 112 spans, all colour rows, and the synthetic row reported with `via`. |
+| The JS target's development build changes a non-varying token live, and its release build is unchanged | **Met on theme-fixture** (live by hand and by commit 6's scrub test; release bytes in `ad6c46d1b`, release `modes.js` in `8a4f25b53`). The clone's own JS-target dev page never settles in headless Chrome. That was already so at `8f1e88689`, before commits 3–6, and is queued. |
+| All of it works with the JS loop and its resident `--serve-as` producer | **Met** for native builds (each line above). The JS loop's own page: see the line above. |
+
+**Scrubs on the clone:**
+- JS loop, iOS: previews about 2.2 s each, the file untouched, and cancel restores.
+- wasm loop, iOS and the Mac: previews about 0.5 s, and release wrote `app.tamber` once.
+
+**Found and fixed during the run (`82a0ca14d`).** On a TypeScript app, the wasm loop's module
+watcher ignored `.tamber` files, so no design edit reached the producer. Once it did, the design,
+being a Rust build input, also rebuilt the wasm and reloaded the page. A design edit is now the
+TypeScript producer's alone.
+
+**Queued** (not gate lines):
+- the clone's JS-target dev page busy-loops in headless Chrome;
+- an Apple re-registration reports `plan` null;
+- an iOS build doesn't reconnect by itself after the dev loop restarts;
+- the JS loop takes about 10 s per value edit, against about 1 s on the wasm loop.
+
+**Stage 4 is closed.** LLP 1122 T2 is under way on it.

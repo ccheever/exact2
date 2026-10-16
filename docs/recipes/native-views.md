@@ -15,7 +15,7 @@ component Pad
 ```
 
 ```swift
-import UIKit // iOS only; for macOS too, import AppKit under #if os(macOS)
+import UIKit // for macOS too, import AppKit under #if os(macOS)
 
 final class Pad: ExactModule {
     override class var views: [String: ExactNativeFactory] {
@@ -26,13 +26,22 @@ let exactModule: ExactModule.Type = Pad.self
 
 final class Strip: ExactNativeInstance {
     private let strip = StripView() // a UIView that draws and has a tap recognizer
+    private let pad: Pad
     private var ticket: ExactTicket?
     init(_ pad: Pad, _ props: [String: String], _ events: ExactNativeEvents) {
+        self.pad = pad
         super.init(events: events)
         try? setProps(props)
-        strip.tapped = { events.message(String($0)) }
+        strip.tapped = { [weak self] step in events.message(String(step)); self?.start() }
         events.intrinsicSize(CGSize(width: 320, height: 48))
-        ticket = pad.context.frames { [strip] frame in strip.advance(to: frame.now) }
+    }
+    // A live ticket costs CPU; stopped, it's gone
+    func start() {
+        guard ticket == nil else { return }
+        ticket = pad.context.frames { [weak self] f in
+            guard let self, !self.strip.advance(to: f.now) else { return }
+            self.ticket?.stop(); self.ticket = nil
+        }
     }
     override var view: ExactNativeView { strip }
     override func setProps(_ props: [String: String]) throws { strip.steps = Int(props["steps"] ?? "") ?? 16 }
@@ -41,20 +50,18 @@ final class Strip: ExactNativeInstance {
 ```
 
 - **Props are strings**, the whole object again on each change. A name Contract knows
-  (`value`, `size`, `label`, `name`) is the box's, and the compiler says to rename it.
+  is the box's, not the module's: an attribute or event (`value`, `size`, `name`,
+  `title`, `input`, `playing`). Check a name with `contract vocab <name>`.
 - **Events:** `events.message(text)` runs `message=`; `press()`, `change(v)`, `load()` likewise.
 - **Time is the session's:** `context.frames` and `context.after(ms)`, never a
-  `CADisplayLink` or a `DispatchQueue` timer, so the agent's `clock +N` moves the animation
+  `CADisplayLink` or `DispatchQueue` timer, so the agent's `clock +N` moves the animation
   and a drive repeats.
-- **Touches:** recognizers on the view. A touch its hit test declines (a `point(inside:)`
-  that follows the drawn shape) goes to what is under the box, so a capsule smaller than its
-  box blocks nothing; the box keeps it with `press=` or `isUserInteractionEnabled = false`.
-  The agent's plain `tap` runs no recognizer: drive with `agent ios --touch platform`.
+- **Touches:** recognizers on the view. A touch its `point(inside:)` declines goes to what
+  is under the box (a capsule blocks only its shape), unless the box has `press=` or
+  `isUserInteractionEnabled = false`.
+  The agent's plain `tap` runs no recognizer: use `agent ios --touch platform`.
 - **Size:** `intrinsicSize` is the natural size; an authored `width`, `height` wins.
-- **Accessibility:** `aria-label` makes the box one element when the view says nothing to
-  VoiceOver, and a `role` of `button`, `link`, `img`, `switch` or `checkbox` (`aria-checked`)
-  or `slider` (`aria-valuenow`) its traits. A view with parts sets `accessibilityElements`
-  (`UIAccessibilityElement`s with a label, `.button` and `accessibilityActivate`); the box is
-  then a group under the label.
-- **First frame:** a view attaches after first paint, so a slow one never delays it. A cheap
-  one that must be in the first frame (a boot splash) says `ExactNativeFactory(firstFrame: true)`.
+- **Accessibility:** [native views](../contract-for-agents.md#native-views-accessibility).
+- **First frame:** views attach after first paint. Only a cheap one it shows (a splash)
+  says `ExactNativeFactory(firstFrame: true)`, never an engine's. The module is made with
+  it, on main: make an `AVAudioEngine` on first use, not in `init`.

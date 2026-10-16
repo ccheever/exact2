@@ -3,6 +3,7 @@
 // registered region's worker cuts as the ordinary paragraph does.
 import XCTest
 import CoreText
+import CExact
 @testable import ExactKit
 
 final class TextBoxTests: XCTestCase {
@@ -16,6 +17,62 @@ final class TextBoxTests: XCTestCase {
     }
     private func cap(_ size: CGFloat) -> CGFloat {
         CTFontGetCapHeight(engine.font(size: size, weight: 400, family: 0, italic: false) as CTFont)
+    }
+
+    func testEmptyParagraphHasNoLineBox() {
+        let painter = TextEngine.pair(resolve: { _ in nil })
+        for whiteSpace in 0...4 {
+            for lineHeight: CGFloat? in [nil, 48] {
+                var s = spec("", trim: 0)
+                s.whiteSpace = whiteSpace
+                s.runs[0].lineHeight = lineHeight
+                s.strut = s.runs[0]
+                let variants = [[], s.runs, s.runs + s.runs]
+                for width: CGFloat in [0, 200, .infinity] {
+                    for runs in variants {
+                        s.runs = runs
+                        let p = engine.paragraph(s, width: width)
+                        XCTAssertEqual(p.width, 0)
+                        XCTAssertEqual(p.height, 0)
+                        XCTAssertTrue(p.lines.isEmpty)
+                        XCTAssertTrue(p.baselines.isEmpty)
+                        XCTAssertTrue(p.lineBottoms.isEmpty)
+                    }
+                }
+                var run = ExactTextRun()
+                run.font_size = 16; run.font_weight = 400
+                run.has_line_height = lineHeight == nil ? 0 : 1
+                run.line_height = Float(lineHeight ?? 0)
+                for count in 0...2 {
+                    Array(repeating: run, count: count).withUnsafeBufferPointer { runs in
+                        var request = ExactMeasureRequest()
+                        request.runs = runs.baseAddress; request.count = runs.count; request.strut = run
+                        request.white_space = UInt8(whiteSpace)
+                        request.height = EXACT_MAX_CONTENT
+                        for width in [EXACT_MIN_CONTENT, EXACT_MAX_CONTENT, 0, 200] {
+                            request.width = width
+                            for measurer in [engine, painter.measuring] {
+                                for _ in 0..<2 {
+                                    let metrics = measurer.measure(request)
+                                    XCTAssertEqual(metrics.width, 0)
+                                    XCTAssertEqual(metrics.height, 0)
+                                    XCTAssertEqual(metrics.baseline, -1, "no line has no baseline at the C seam")
+                                }
+                            }
+                            var key: [UInt8] = []
+                            let hash = TextAnswerKey.write(request, into: &key)
+                            let offer = width == EXACT_MIN_CONTENT ? TextAnswerKey.minContent
+                                : width == EXACT_MAX_CONTENT ? TextAnswerKey.maxContent : TextAnswerKey.offer(width: CGFloat(width))
+                            XCTAssertEqual(painter.answers?.metrics(hash: hash, key: key, offer: offer)?.baseline, -1)
+                        }
+                    }
+                }
+            }
+        }
+        var s = spec("\n", trim: 0)
+        s.whiteSpace = 1
+        s.runs[0].lineHeight = 24
+        XCTAssertEqual(engine.paragraph(s, width: 200).height, 24, "a preserved break still makes a line")
     }
 
     /// Text that is all a 10 pt span in a 20 pt paragraph is cut to the
@@ -71,7 +128,10 @@ final class TextBoxTests: XCTestCase {
                 done.wait()
                 let says = "\(trim) \(over) \(under) \(text.count)"
                 XCTAssertEqual(worker?.height ?? -1, ordinary.height, accuracy: 0.01, says)
-                if text.isEmpty { continue }
+                if text.isEmpty {
+                    XCTAssertEqual(worker?.firstBaseline, -1, "the region reader must publish no baseline")
+                    continue
+                }
                 XCTAssertEqual(worker?.baselines.count, ordinary.baselines.count, says)
                 XCTAssertEqual(worker?.lineBottoms.last ?? -1, worker?.height ?? -2, accuracy: 0.01, says)
                 for (a, b) in zip(worker?.baselines ?? [], ordinary.baselines) { XCTAssertEqual(a, b, accuracy: 0.01, says) }

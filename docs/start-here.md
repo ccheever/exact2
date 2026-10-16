@@ -11,8 +11,8 @@ The only required reading; the rest is lookup.
    are a `list`'s rows: its children are rows, so draw no separator and no press. A
    colour or size names a role (`-exact-secondary-label`, `font="-exact-footnote"`; `bun
    <exact2>/scripts/no-tells.mjs .` lists literals). The one colour you write is the
-   accent, on the root: a system colour (`accent-color="-exact-system-teal"`) or a
-   `light-dark(light, dark)` pair. A brand is an `app.tamber`; a colour names a role or
+   accent, on the view's root node: a system colour
+   (`main accent-color="-exact-system-teal"`) or a `light-dark(light, dark)` pair. A brand is an `app.tamber`; a colour names a role or
    one of its tokens (`recipes/tamber.md`). A card is `-exact-secondary-background`
    (`-exact-secondary-grouped-background` on a grouped page). White text on a prominent
    button fails on green, mint, teal, cyan, yellow, orange (`check` refuses it;
@@ -164,7 +164,8 @@ component Groceries
   (`first(xs)`, `round(n)`). What differs: no truthiness; absence is an option (`none`,
   `some(x)`, `match`), not `null`; a value never changes (`xs.concat([x])`, a record copy
   `Shape(old, field=value)`); `==` compares lists and records by value; a stored number is
-  finite (a `NaN` refuses the commit); sorting, grouping and joining are the data module's.
+  finite (a `NaN` refuses the commit); sorting, grouping and joining are the data module's,
+  and the view names the order it relies on where it reads it (`resource tasks = loadTasksByDueDate()`).
   Nothing runs because a value changed: an event runs an action, which passes its captured
   arguments, then the payload (`toggle(i.id)` gets the bool). Its writes land when it ends, so a
   later line reads the old value: bind the new one (`let n = go(nav, url)`, `nav = n`, read `n`).
@@ -261,10 +262,10 @@ or position (`each t, i in tasks key=t.id`, ``testId=`task-${i}` ``).
    `buttonStyle="filled"` on the screen's main action. A `button` with no
    `buttonStyle` is the platform's: tinted text on iOS, so one that must read as a
    button there says `"bordered"`, and Cancel or Edit says nothing.
-2. **A `header` holds a heading, one text after it (the subtitle) and buttons** (or a
-   search field, a `tablist`); anything else isn't in the iOS bar. A control fixed under
-   the bar goes with an inline title (`aria-level=2`); one that may scroll away, in the
-   list's first section.
+2. **A `header` holds a heading (`text "Title" role="heading" aria-level=1`), one text
+   after it (the subtitle) and buttons** (or a search field, a `tablist`); anything else
+   isn't in the iOS bar. A control fixed under the bar goes with an inline title
+   (`aria-level=2`); one that may scroll away, in the list's first section.
 3. **`width="100%"` with padding overflows**, as in CSS: drop the width; a `flex=1` field
    takes `min-width=0`.
 

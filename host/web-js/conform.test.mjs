@@ -24,10 +24,11 @@ test('malformed steps fail as not a step, including steps marked refused', async
   }
 });
 
-test('malformed touch input fails at parse time before a browser can skip it', () => {
+test('malformed input fails at parse time before a browser can skip it', () => {
   for (const mark of ['', 'refused ']) for (const line of [
     'drag a 1 2 -5', 'drag a to b -1', 'drag a 1 2 300 hold -1',
     'move 1 2 -1', 'move NaN 2', 'pinch a 0', 'pinch a Infinity',
+    'into missing row banana', 'into list row Start',
   ]) expect(() => parseStep(mark + line)).toThrow(`not a step: ${mark}${line}: `);
   expect(() => parseStep('refused')).toThrow('not a step: refused: missing operation');
 });

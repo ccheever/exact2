@@ -1143,15 +1143,15 @@ fn full_window_split_preserves_premultiplied_composition_and_refuses_clips() {
     let mut reference = Raster::new();
     reference.begin(16., 8., 1.);
     reference.fill(&shape, [30, 60, 90, 255], ts);
-    reference.canvas(&game, rect, &[shape.clone()], ts);
+    reference.canvas(&game, rect, &[shape], ts);
     reference.fill(&Shape::rect((0., 0., 8., 8.)), [20, 220, 100, 96], ts);
     let expected = reference.finish().unwrap();
     let mut split = Raster::new();
     split.begin(16., 8., 1.);
     split.fill(&shape, [30, 60, 90, 255], ts);
-    assert!(split.split_window_canvas(rect, &[shape.clone()], ts));
+    assert!(split.split_window_canvas(rect, &[shape], ts));
     split.fill(&Shape::rect((0., 0., 8., 8.)), [20, 220, 100, 96], ts);
-    let below = split.take_window_underlay().unwrap();
+    let below = split.take_window_underlay().unwrap().into_pixels();
     let above = split.finish().unwrap();
     for (((b, g), a), expected) in below
         .data()
@@ -1167,10 +1167,10 @@ fn full_window_split_preserves_premultiplied_composition_and_refuses_clips() {
             assert!((composed.round() as i32 - expected[channel] as i32).abs() <= 1);
         }
     }
-    split.recycle_window_layers(below, Some(above));
+    split.recycle_window_layers(below, Some(above), split.window_overlay_rows());
     split.begin(16., 8., 1.);
     assert!(split.split_window_canvas(rect, &[], ts));
-    let below = split.take_window_underlay().unwrap();
+    let below = split.take_window_underlay().unwrap().into_pixels();
     let above = split.finish().unwrap();
     assert!(
         below.data().iter().all(|&c| c == 255),
@@ -1180,10 +1180,13 @@ fn full_window_split_preserves_premultiplied_composition_and_refuses_clips() {
         above.data().iter().all(|&c| c == 0),
         "removed HUD ink must disappear"
     );
-    split.recycle_window_layers(below, Some(above));
+    split.recycle_window_layers(below, Some(above), split.window_overlay_rows());
     split.begin(8., 4., 1.);
     assert!(split.split_window_canvas((0., 0., 8., 4.), &[], ts));
-    assert_eq!(split.take_window_underlay().unwrap().width(), 8);
+    assert_eq!(
+        split.take_window_underlay().unwrap().into_pixels().width(),
+        8
+    );
     let resized = split.finish().unwrap();
     assert_eq!((resized.width(), resized.height()), (8, 4));
     assert!(resized.data().iter().all(|&c| c == 0));

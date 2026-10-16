@@ -877,7 +877,7 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         let point = event.locationInWindow
         var view = under(event)
         while let current = view, !(current is TableRowCell), !(current is NSTableView) {
-            if let node = current as? NodeView, presenter.views[node.id] === node, node.answersContextMenu, !node.disabled, !node.inert {
+            if let node = current as? NodeView, presenter.views[node.id] === node, node.answersContextMenu, !node.formDisabled, !node.inert {
                 contextEvent = event.eventNumber
                 return presenter.contextMenu(node, at: point)
             }

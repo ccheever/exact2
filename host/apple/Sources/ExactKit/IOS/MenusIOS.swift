@@ -58,6 +58,9 @@ final class MenuHost {
         let order: Int
         let ancestor: String?
         let layer = TopLayer(frame: .zero)
+        #if os(iOS)
+        var relay: MountRelay?
+        #endif
         init(source: UInt32?, popover: NodeView, order: Int, ancestor: String?) {
             self.source = source; self.popover = popover; self.order = order; self.ancestor = ancestor
             parent = popover.superview
@@ -368,12 +371,15 @@ final class MenuHost {
     /// dialog the press retargeted it to presents in place of the menu. Only
     /// the invoker it was built for acts, and only while it is eligible.
     ///
-    /// The popover's `aria-label` titles the rows as an inline section, as a
-    /// hand-built UIKit pull-down's section heading does. A top-level
-    /// `UIMenu` title draws a taller header and sets the rows about 10 pt lower.
+    /// The popover's `aria-label` titles the rows. In the page it is an
+    /// inline section's heading, as a SwiftUI `Menu`'s title is drawn there:
+    /// a top-level `UIMenu` title draws a taller header and sets the rows
+    /// about 10 pt lower. A bar item's pull-down is a hand-built bar item's
+    /// `UIMenu(title:)`, taller header and all (LLP 1021, amended 2026-10-16).
     func pullDown(of v: NodeView, titled heading: String, inBar: Bool = false) -> UIMenu {
         let rows = rows(of: v, inBar: inBar)
-        return UIMenu(children: heading.isEmpty ? [rows] : [UIMenu(title: heading, options: .displayInline, children: [rows])])
+        if heading.isEmpty { return UIMenu(children: [rows]) }
+        return inBar ? UIMenu(title: heading, children: [rows]) : UIMenu(children: [UIMenu(title: heading, options: .displayInline, children: [rows])])
     }
     private func rows(of v: NodeView, inBar: Bool) -> UIDeferredMenuElement {
         UIDeferredMenuElement.uncached { [weak self, weak v, token = v.incarnation] completion in
@@ -396,15 +402,15 @@ final class MenuHost {
             completion(self.items(of: invocation.target))
         }
     }
-    func eligible(_ node: NodeView, inertBoundary: UIView? = nil, inBar: Bool = false) -> Bool {
-        guard live(node), !node.disabled, presenter?.navigation.isInactiveRoute(containing: node) == false else { return false }
+    func eligible(_ node: NodeView, contextMenu: Bool = false, inertBoundary: UIView? = nil, inBar: Bool = false) -> Bool {
+        guard live(node), !(contextMenu ? node.formDisabled : node.disabled), presenter?.navigation.isInactiveRoute(containing: node) == false else { return false }
         var ancestor: UIView? = node
         var checksInert = true
         while let view = ancestor {
             // A modal dialog escapes inertness above itself. Its issued command
             // also survives the invoker subsequently becoming inert.
             if view === inertBoundary { checksInert = false }
-            if let n = view as? NodeView, n.disabled || (checksInert && n.props["inert"] == "true") { return false }
+            if let n = view as? NodeView, (contextMenu ? n.formDisabled : n.disabled) || (checksInert && n.props["inert"] == "true") { return false }
             if view.isHidden, !(inBar && presenter?.navigation.hiddenForBar(view) == true) {
                 guard let pop = view as? NodeView, isConfirmation(pop),
                       pop.props["popover"] != nil || isDialog(pop) else { return false }
@@ -542,8 +548,83 @@ final class MenuHost {
         #if os(iOS)
         context.reset()
         #endif
+        laidOut.removeAll()
     }
 
+    /// The top-layer boxes given back to layout to show in Exact's views.
+    /// The Apple host covers each `dialog` and popover whole while it is
+    /// closed (`host/apple/src/closed.rs`), as a browser lays out neither:
+    /// UIKit's alert and menu read their rows, never their frames.
+    private var laidOut = Set<UInt32>()
+    private var coverPending = false
+    /// `box` laid out now, before it shows in Exact's views: a sheet, the
+    /// top layer, a context menu's preview.
+    func layOut(_ box: NodeView) {
+        guard let session = presenter?.session, laidOut.insert(box.id).inserted else { return }
+        session.apply(session.runtime.covers([(box.id, nil)]))
+        var stack: [UIView] = [box]
+        while let view = stack.popLast() {
+            (view as? NodeView)?.makeWaitingField()
+            stack.append(contentsOf: view.subviews)
+        }
+    }
+    /// The `input`s `batch` makes inside a closed `dialog` or popover: the
+    /// kernel lays out neither, and their UIKit fields wait for it to show
+    /// (`NodeView.makeWaitingField`). Their boxes are found from the batch's
+    /// children ops and the views there are.
+    func waitingFields(_ batch: Batch) -> Set<UInt32> {
+        guard let presenter, batch.ops.contains(where: { $0.op == .create && $0.kind == "input" }) else { return [] }
+        var parents: [UInt32: UInt32] = [:], made: [UInt32: [String: String]] = [:]
+        for op in batch.ops {
+            if op.op == .children { for child in op.ids { parents[child] = op.id } }
+            else if op.op == .create { made[op.id] = op.props }
+        }
+        func parent(_ id: UInt32) -> UInt32? {
+            if let p = parents[id] { return p }
+            return sequence(first: presenter.views[id]?.superview, next: { $0?.superview }).lazy.compactMap { $0 as? NodeView }.first?.id
+        }
+        var waiting = Set<UInt32>()
+        for op in batch.ops where op.op == .create && op.kind == "input" {
+            var at = parent(op.id)
+            while let id = at {
+                let props = made[id] ?? presenter.views[id]?.props ?? [:]
+                if props["popover"] != nil || props["semanticTag"] == "dialog" {
+                    if !laidOut.contains(id) { waiting.insert(op.id) }
+                    break
+                }
+                at = parent(id)
+            }
+        }
+        return waiting
+    }
+    /// After one closes: what shows in Exact's views no more is covered
+    /// again, after this turn, unless it has stopped being a box of the top
+    /// layer (the host gave it back for good).
+    func coverClosed() {
+        guard !laidOut.isEmpty, !coverPending else { return }
+        coverPending = true
+        DispatchQueue.main.async { [weak self] in self?.coverClosedNow() }
+    }
+    private func coverClosedNow() {
+        coverPending = false
+        guard let presenter, let session = presenter.session else { return }
+        var covers: [(UInt32, HostCover?)] = []
+        for id in laidOut {
+            guard let node = presenter.views[id] else { laidOut.remove(id); continue }
+            guard !showsInViews(node) else { continue }
+            laidOut.remove(id)
+            if node.props["popover"] != nil || isDialog(node) { covers.append((id, .whole)) }
+        }
+        if !covers.isEmpty { session.apply(session.runtime.covers(covers)) }
+    }
+    private func showsInViews(_ node: NodeView) -> Bool {
+        if sheets.owns(node) || agentOpen.values.contains(where: { $0.popover === node }) { return true }
+        #if os(iOS)
+        return context.open?.popover === node
+        #else
+        return false
+        #endif
+    }
     /// Whether `node` is an open popover in the top layer (the agent's).
     func lifted(_ node: NodeView) -> Bool {
         #if os(iOS)
@@ -577,6 +658,9 @@ final class MenuHost {
     /// the modal's view.
     private func lift(_ entry: Lifted) {
         guard let presenter, let pop = entry.popover else { return }
+        #if os(iOS)
+        if entry.relay == nil { entry.relay = MountRelay(presenter, mount: entry.layer) }
+        #endif
         let host: UIView = presenter.modals.coordinateView ?? presenter.viewport
         if entry.layer.superview !== host || host.subviews.last !== entry.layer { host.addSubview(entry.layer) }
         entry.layer.setPaintForeground()
@@ -600,6 +684,7 @@ final class MenuHost {
     private func drop(_ name: String) {
         for (nested, entry) in agentOpen where entry.ancestor == name { drop(nested) }
         guard let entry = agentOpen.removeValue(forKey: name) else { return }
+        coverClosed()
         entry.popover?.endEditing(true)
         entry.layer.removeFromSuperview()
         guard let pop = entry.popover else { return }
@@ -667,6 +752,8 @@ final class MenuHost {
         }
     }
     private func agentShow(_ pop: NodeView, named name: String, from source: UInt32?) {
+        layOut(pop)
+        guard live(pop) else { return }
         // Nested in the latest open popover holding its opener or itself.
         let opener = source.flatMap { presenter?.views[$0] }
         let ancestor = agentOpen.filter { _, open in
@@ -694,7 +781,7 @@ final class MenuHost {
     @discardableResult
     func agentContext(_ node: NodeView) -> Bool {
         // Its own action may have unmounted or disabled it, or renamed its popover.
-        guard ExactEnv.agentMode, let presenter, let name = node.props["contextPopover"], eligible(node) else { return false }
+        guard ExactEnv.agentMode, let presenter, let name = node.props["contextPopover"], eligible(node, contextMenu: true) else { return false }
         for other in Array(agentOpen.keys) { drop(other) }
         guard let pop = presenter.carrying("popover").first(where: { $0.props["id"] == name && !isConfirmation($0) }) else {
             presenter.session?.log("context menu \(name) refused: no popover has that id")
@@ -1018,13 +1105,25 @@ final class MenuHost {
         }
         // A prompt: each field is UIKit's, standing in for the authored one,
         // and Return chooses its first action that is not destructive, as a
-        // hand-built rename's Save (`preferredAction`, drawn bold).
+        // hand-built rename's field delegate does, while it is enabled.
         if style == .alert, let presenter {
+            let lead = actions.firstIndex(where: { $0.props["destructive"] != "true" })
             owner.fields = fields.map { PromptField($0, presenter: presenter) }
-            for field in owner.fields { owner.alert.addTextField { field.attach($0) } }
-            if !fields.isEmpty, let lead = actions.firstIndex(where: { $0.props["destructive"] != "true" }) {
-                owner.alert.preferredAction = owner.buttons[lead]
+            for field in owner.fields {
+                if let lead {
+                    field.returned = { [weak self, weak owner] in
+                        guard let self, let owner, owner.buttons[lead].isEnabled else { return }
+                        self.select(owner, lead)
+                    }
+                }
+                owner.alert.addTextField { field.attach($0) }
             }
+        }
+        // The action drawn bold is the author's alone: UIKit's alert has no
+        // preferred action until one is set, as a hand-built one and React
+        // Native's `Alert.prompt` have none.
+        if style == .alert, let preferred = Self.preferredAction(actions, cancel: cancels.first, prompt: !fields.isEmpty) {
+            owner.alert.preferredAction = owner.buttons[preferred]
         }
         #if !os(tvOS)
         if style == .popover {
@@ -1052,6 +1151,20 @@ final class MenuHost {
             else { owner.alert.dismiss(animated: false) }
         }
         return true
+    }
+    /// The alert's preferred action, drawn bold and taking a hardware
+    /// Return: the Mac's default button (`AlertsMac.defaultRow`, LLP 1115.000
+    /// D7.3), the one `filled` action that is not destructive, when exactly
+    /// one is; emphasis never picks among several. A prompt's Return is its
+    /// first action that is not destructive (`PromptField.returned`), so
+    /// there the filled action is preferred only when it is that one: the
+    /// action drawn bold is always the one Return presses.
+    static func preferredAction(_ actions: [NodeView], cancel: NodeView? = nil, prompt: Bool) -> Int? {
+        let destructive = actions.map { $0.props["destructive"] == "true" }
+        let filled = actions.indices.filter { !destructive[$0] && actions[$0].face?.style == "filled" }
+        // A filled cancel is one of the candidates on the Mac, and never the default.
+        guard filled.count == 1, prompt || cancel?.face?.style != "filled" else { return nil }
+        return !prompt || destructive.firstIndex(of: false) == filled[0] ? filled[0] : nil
     }
     /// LLP 1115 D6, by the HIG: a confirmation — explanatory text, a
     /// cancel, at most three buttons — is an alert, centred, its Cancel

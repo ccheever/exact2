@@ -68,7 +68,10 @@ void exact_raster_session_control(uint64_t session, uint32_t op);
 uint64_t exact_raster_request(uint64_t session, ExactRasterDemand demand);
 void exact_raster_cancel(uint64_t session, uint64_t request);
 uint32_t exact_raster_status(uint64_t session, uint64_t request);
-ExactRasterWork exact_raster_next_decode(uint32_t timeout_ms);
+/* The gate's wakes so far: read before a worker looks for a source to read,
+   and passed to next_decode, which then returns at once at any wake since. */
+uint64_t exact_raster_wake_sequence(void);
+ExactRasterWork exact_raster_next_decode(uint32_t timeout_ms, uint64_t since);
 uint32_t exact_raster_is_cancelled(uint64_t permit);
 /* Transfers one retained immutable native payload, even on stale completion.
  * Scratch must already be gone. release(payload) may run on any thread. */
@@ -633,6 +636,14 @@ uint32_t exact_regions(ExactRuntime rt, const float *insets, uint32_t count);
  * everywhere, root and every sheet, never a sheet's viewport (exact_segments
  * sends the window's segments too). A nonpositive size clears it. */
 uint32_t exact_screen(ExactRuntime rt, float width, float height);
+/* What changed of the view at once, from the input buffer's first len bytes,
+ * little-endian 32-bit words: a mask of what is given (1 the window's size,
+ * 2 the safe-area insets, 4 the layout regions, 8 the viewport), the
+ * window's width and height (nonpositive clears it), the insets top, right,
+ * bottom, left, the viewport's width and height, the regions' count (20 or
+ * 0) and their insets: exact_screen, exact_insets, exact_regions and
+ * exact_resize in one batch under one layout. */
+uint32_t exact_view(ExactRuntime rt, size_t len);
 /* @ref LLP 1078 D4: the device's posture (0 continuous, 1 folded) and the
  * viewport segments a fold makes — cols × rows rects, row-major, each
  * x y w h as four little-endian floats in the input buffer (count rects;

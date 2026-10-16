@@ -23,7 +23,7 @@ struct Track {
     curves: Vec<[f64; 4]>,
 }
 
-fn bezier(e: &Easing) -> Option<[f64; 4]> {
+pub(crate) fn bezier(e: &Easing) -> Option<[f64; 4]> {
     Some(match e {
         Easing::Linear => [0.0, 0.0, 1.0, 1.0],
         // CSS `ease`, not Core Animation's default curve.
@@ -146,6 +146,19 @@ pub(crate) fn specs(
     props: &[Property],
     underlying: &dyn Fn(Property) -> (Value, f64),
 ) -> String {
+    specs_in(engine, key, props, underlying, None)
+}
+
+/// [`specs`] for a box whose border box is `size`: a `translate` given as a
+/// percentage of it is resolved to points here (LLP 1115.003 D4), and the
+/// host sends the box's specs again when it resizes.
+pub(crate) fn specs_in(
+    engine: &Engine,
+    key: u64,
+    props: &[Property],
+    underlying: &dyn Fn(Property) -> (Value, f64),
+    size: Option<(f64, f64)>,
+) -> String {
     let mut s = String::from("[");
     let mut first = true;
     for (i, play) in engine.animation_plays(key).iter().enumerate() {
@@ -180,7 +193,7 @@ pub(crate) fn specs(
                     s.push(',');
                 }
                 first = false;
-                spec(play, i, p, underlying(p), *axis, key, &mut s);
+                spec(play, i, p, underlying(p), *axis, key, size, &mut s);
             }
         }
     }
@@ -188,6 +201,7 @@ pub(crate) fn specs(
     s
 }
 
+#[allow(clippy::too_many_arguments)]
 fn spec(
     play: &AnimationPlay,
     index: usize,
@@ -195,6 +209,7 @@ fn spec(
     (base, scale): (Value, f64),
     axis: usize,
     key: &str,
+    size: Option<(f64, f64)>,
     s: &mut String,
 ) {
     let a = &play.animation;
@@ -228,6 +243,15 @@ fn spec(
             if p.is_color() {
                 let [r, g, b, al] = v.to_rgba8();
                 format!("[{r},{g},{b},{}]", ((al as f64) * scale).round() as u8)
+            } else if p == Property::Translate {
+                // Points plus the percentage of the box along the axis.
+                let (w, h) = size.unwrap_or_default();
+                let v = if axis == 1 {
+                    v.y + v.w / 100.0 * h
+                } else {
+                    v.x + v.z / 100.0 * w
+                };
+                num((v * scale) as f32)
             } else {
                 num(((if axis == 1 { v.y } else { v.x }) * scale) as f32)
             }
@@ -323,8 +347,9 @@ pub(crate) fn eligibility(
             .iter()
             .any(|p| matches!(p, Property::Cx | Property::Cy));
         // A percentage of the box (chess diary #4) is resolved by the
-        // presenter against the box as it stands; a lowered track would
-        // freeze it at one size.
+        // presenter against the box as it stands. A lowered box's track
+        // resolves it when its spec is made and is made again when the box
+        // resizes (`svg.rs`); an SVG element's scene samples it.
         let percent = n.style.translate_percent.x != 0.0
             || n.style.translate_percent.y != 0.0
             || animations.0.iter().any(|a| {
@@ -335,7 +360,7 @@ pub(crate) fn eligibility(
                 })
             });
         let sampled = if paired
-            || percent
+            || (percent && !(boxed && !svg))
             || engine.timeline_bound(*node)
             || under_box_filter(kernel, &n)
             // A glass group ignores the opacity Core Animation plays between
@@ -387,6 +412,95 @@ pub(crate) fn eligibility(
         };
         engine.set_node_sampled(*node, sampled);
     }
+}
+
+/// LLP 1115.003 D4: each running `d` transition Core Animation can play as
+/// CSS does goes to it ([`Engine::play_transition`]): the engine presents the
+/// target, and the shape's scene carries a `path` animation between the two
+/// ends (`svg.rs`), so the morph plays on the render server whatever the
+/// main thread is doing. A shape keeps its sampled morph when Core
+/// Animation cannot draw what the engine would: a paint server (its parts
+/// are drawn by Core Graphics), a non-scaling stroke or markers (both
+/// follow the path's vertices), an island's pixels, a box filter, or two
+/// ends whose segments differ (an arc flattens to as many cubics as its
+/// sweep needs; Core Animation interpolates only paths of the same
+/// elements). An `svg`'s morphs go together or not at all, so a line never
+/// runs on while the area under it is sampled (the chart's).
+pub(crate) fn hand_over_paths(kernel: &Kernel, engine: &mut Engine, live: bool) {
+    use exact_kernel::svg::Paint;
+    let moving: Vec<u64> = engine
+        .running_transitions()
+        .filter(|(_, p)| *p == Property::D)
+        .map(|(node, _)| node)
+        .collect();
+    let mut scenes: std::collections::BTreeMap<Option<exact_kernel::ViewId>, (bool, Vec<u64>)> =
+        Default::default();
+    for node in moving {
+        let key = NodeKey {
+            index: node as u32,
+            generation: (node >> 32) as u32,
+        };
+        let Some(n) = kernel.node_by_key(key) else {
+            continue;
+        };
+        let s = n.style;
+        let served = |p: &Paint| matches!(p, Paint::Url(..));
+        let plain = n.node_type == NodeType::SvgPath
+            && !served(&s.fill)
+            && !served(&s.stroke)
+            && s.vector_effect != exact_kernel::VectorEffect::NonScalingStroke
+            && !marked(kernel, &n)
+            && !in_picture(kernel, &n, live)
+            && !under_box_filter(kernel, &n);
+        let same = engine.path_ends(node).is_some_and(|(from, to)| {
+            let (a, b) = (
+                exact_kernel::svg::parse_d(&from.to_d()),
+                exact_kernel::svg::parse_d(&to.to_d()),
+            );
+            a.0.len() == b.0.len()
+                && a.0
+                    .iter()
+                    .zip(&b.0)
+                    .all(|(x, y)| std::mem::discriminant(x) == std::mem::discriminant(y))
+        });
+        let mut root = n.parent;
+        while let Some(r) = root.and_then(|id| kernel.node(id)) {
+            if r.node_type == NodeType::Svg {
+                break;
+            }
+            root = r.parent;
+        }
+        let entry = scenes.entry(root).or_insert((true, Vec::new()));
+        entry.0 &= plain && same;
+        entry.1.push(node);
+    }
+    for (playable, nodes) in scenes.into_values() {
+        if playable {
+            for node in nodes {
+                engine.play_transition(node, Property::D);
+            }
+        }
+    }
+}
+
+/// Whether markers draw on this shape: its own or an inherited
+/// `marker-start`, `marker-mid` or `marker-end`.
+fn marked(kernel: &Kernel, n: &exact_kernel::NodeRef<'_>) -> bool {
+    let mut at = Some(n.id);
+    while let Some(node) = at.and_then(|id| kernel.node(id)) {
+        let s = node.style;
+        if [&s.marker_start, &s.marker_mid, &s.marker_end]
+            .iter()
+            .any(|m| m.url().is_some())
+        {
+            return true;
+        }
+        if node.node_type == NodeType::Svg {
+            return false;
+        }
+        at = node.parent;
+    }
+    false
 }
 
 /// Whether an SVG element's `translate`, `rotate` and `scale` animations

@@ -478,7 +478,10 @@ fn damaged_wrong_length_wrong_identity_and_wrong_shape_entries_use_the_fallback(
         (full("A", "100", 0.), Value::str("kept")),
         (vec![Value::str("B")], Value::str("kept")),
         (vec![Value::str("A")], Value::Bool(true)),
-        (vec![Value::str("A")], Value::str(&"x".repeat(5000))),
+        (
+            vec![Value::str("A")],
+            Value::str(&"x".repeat(kept::MAX_KEPT_BYTES)),
+        ),
     ] {
         snapshots.push(entry(&args, &value));
     }
@@ -493,7 +496,7 @@ fn damaged_wrong_length_wrong_identity_and_wrong_shape_entries_use_the_fallback(
 #[test]
 fn the_kept_budget_counts_identity_and_value_but_not_context() {
     let mut r = seeded();
-    let large = Value::str(&"x".repeat(5000));
+    let large = Value::str(&"x".repeat(kept::MAX_KEPT_BYTES));
     r.act("minute", vec![large.clone()]).unwrap();
     r.data.ready = true;
     r.data_ready().unwrap();
@@ -526,7 +529,7 @@ fn the_kept_budget_counts_identity_and_value_but_not_context() {
         "an answer too big to keep is said once: {said:?}"
     );
     assert!(
-        said[0].contains("more than 4096 bytes (4 KiB)") && said[0].contains("under 4 KiB"),
+        said[0].contains("more than 262144 bytes (256 KiB)") && said[0].contains("under 256 KiB"),
         "{}",
         said[0]
     );
@@ -720,7 +723,7 @@ fn a_refused_commit_does_not_forget_a_kept_answer() {
     r.data_ready().unwrap();
     let kept_answer = |r: &Runner<Source>| r.store.kept(&kept::kept_name("answer")).is_some();
     assert!(kept_answer(&r));
-    r.data.value = Value::str(&"x".repeat(5000));
+    r.data.value = Value::str(&"x".repeat(kept::MAX_KEPT_BYTES));
     assert!(matches!(
         r.act("refuse", vec![Value::str("B")]),
         Err(RunnerError::Trap(_))
@@ -754,5 +757,46 @@ fn a_refusal_after_boot_is_journaled_and_a_rolled_back_one_is_not() {
             "answer refused its kept answer: kept for [\"A\"], this launch asks for [\"C\"]"
         ),
         "{lines:?}"
+    );
+}
+
+/// Three store readers of one source, none with arguments.
+fn three() -> Plan {
+    let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+    let string = b.primitive(TypeKind::String);
+    for name in ["a", "b", "c"] {
+        let r = b.resource(name, "answer", &[], string, Some(&Value::str("loading")));
+        b.set_resource_reader(r, true);
+        b.set_resource_initial_args(r, &[]);
+    }
+    b.node(NodeType::View as u8, None, None, 0, &[], &[], None);
+    b.finish().unwrap()
+}
+
+#[test]
+fn kept_answers_over_their_total_forget_the_longest_other() {
+    let source = Source {
+        value: Value::str(&"x".repeat(200 * 1024)),
+        ..Source::default()
+    };
+    let mut r = boot(three(), source, Vec::new());
+    r.data.ready = true;
+    r.data_ready().unwrap();
+    let kept: Vec<_> = ["a", "b", "c"]
+        .into_iter()
+        .filter(|n| r.store.kept(&kept::kept_name(n)).is_some())
+        .collect();
+    assert_eq!(kept, ["b", "c"], "the first kept is forgotten for the last");
+    let total: usize = r.store.kept_lengths().iter().map(|(_, n)| n).sum();
+    assert!(total <= kept::KEPT_TOTAL_BYTES, "{total}");
+    let said: Vec<_> = r
+        .journal()
+        .filter(|l| l.contains("kept answers are at most 512 KiB together"))
+        .collect();
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(
+        said[0].contains("forgot `a`'s (204810 bytes) to keep `c`'s"),
+        "{}",
+        said[0]
     );
 }

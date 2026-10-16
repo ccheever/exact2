@@ -152,6 +152,8 @@ export const svgFilterLibraryName = 'ExactSvgFilter.metallib';
 export const iosTripleFor = (app, device, tv = false) =>
   tv ? `arm64-apple-tvos${deploymentTargets(app).ios}${device ? '' : '-simulator'}` : device ? `arm64-apple-ios${deploymentTargets(app).ios}` : `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-ios${deploymentTargets(app).ios}-simulator`;
 export const macTriple = `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-macosx`;
+export const moduleTripleFor = (app, ios, device = false, tv = false) =>
+  ios ? iosTripleFor(app, device, tv) : `${macTriple}${deploymentTargets(app).macos}`;
 /** App-owned Apple paths, shared by builder and launchers. @ref LLP 1036.000 §2 */
 export function appleArtifacts(app, { destination = 'macos', composition, trust = process.env.EXACT_UPDATE_TRUST ?? 'development', host = false, optimize = 'speed' } = {}) {
   if (!['macos', 'ios-simulator', 'ios', 'tvos-simulator', 'tvos'].includes(destination)) throw new Error(`unknown Apple destination ${destination}`);
@@ -1014,20 +1016,19 @@ async function main(args) {
   const video = ['VideoArm.swift', 'NowPlaying.swift'].map(f => resolve(root, 'host/apple/videoarm', f));
   const videoArgs = webArgs.flatMap(value => value === 'ExactWebArm' ? ['ExactVideoArm'] : value === resolve(root, 'host/apple/webarm/WebArm.swift') ? video : value === webBuilt ? [videoBuilt] : value === 'WebKit' ? ['AVKit', '-framework', 'MediaPlayer'] : [value]);
   if (hasVideo) arms.push(arm(videoArgs, video, videoBuilt));
-  // The sound arm (LLP 1096 D8): Swift over a C mixer, so the render thread
-  // runs no Swift. The C is compiled first to an object named by its content,
-  // and linked into the one dylib with its header imported.
+  // The sound arm (LLP 1096 D8): Swift over a C mixer and AVAudioEngine's raising calls in Objective-C.
   const hasSound = carries('sound'), soundBuilt = resolve(webBuildDir, soundLoadName);
   if (hasSound) {
-    const sound = (f) => resolve(root, 'host/apple/soundarm', f), triple = webArgs[webArgs.indexOf('-target') + 1];
-    const object = resolve(swiftBuildRoot, 'arms', `sound_render-${createHash('sha256').update(readFileSync(sound('sound_render.c'))).update(readFileSync(sound('sound_render.h'))).update(`${triple} ${sdk}`).digest('hex').slice(0, 16)}.o`);
-    if (!existsSync(object)) {
+    const sound = (f) => resolve(root, 'host/apple/soundarm', f), triple = webArgs[webArgs.indexOf('-target') + 1], flags = ['-O2', '-fobjc-arc', '-fobjc-arc-exceptions'];
+    const objects = ['sound_render.c', 'sound_engine.m'].map((file) => {
+      const object = resolve(swiftBuildRoot, 'arms', `${file.replace('.', '-')}-${createHash('sha256').update(readFileSync(sound(file))).update(readFileSync(sound('sound_render.h'))).update(`${triple} ${sdk} ${flags.join(' ')}`).digest('hex').slice(0, 16)}.o`);
+      if (existsSync(object)) return object;
       mkdirSync(dirname(object), { recursive: true });
-      run('xcrun', ['--sdk', sdkName, 'clang', '-c', '-O2', '-target', triple, sound('sound_render.c'), '-o', `${object}.${process.pid}.tmp`]);
-      renameSync(`${object}.${process.pid}.tmp`, object);
-    }
-    const soundArgs = [...webArgs.map(value => value === 'ExactWebArm' ? 'ExactSoundArm' : value === resolve(root, 'host/apple/webarm/WebArm.swift') ? sound('SoundArm.swift') : value === webBuilt ? soundBuilt : value === 'WebKit' ? 'AVFoundation' : value), '-import-objc-header', sound('sound_render.h'), object];
-    arms.push(arm(soundArgs, [sound('SoundArm.swift'), sound('sound_render.c'), sound('sound_render.h')], soundBuilt));
+      run('xcrun', ['--sdk', sdkName, 'clang', '-c', ...flags, '-target', triple, sound(file), '-o', `${object}.${process.pid}.tmp`]);
+      renameSync(`${object}.${process.pid}.tmp`, object); return object;
+    });
+    const soundArgs = [...webArgs.map(value => value === 'ExactWebArm' ? 'ExactSoundArm' : value === resolve(root, 'host/apple/webarm/WebArm.swift') ? sound('SoundArm.swift') : value === webBuilt ? soundBuilt : value === 'WebKit' ? 'AVFoundation' : value), '-import-objc-header', sound('sound_render.h'), ...objects];
+    arms.push(arm(soundArgs, [sound('SoundArm.swift'), sound('sound_render.c'), sound('sound_engine.m'), sound('sound_render.h')], soundBuilt));
   }
   // @ref LLP 1024 D3/D8.4 — the app's one module artifact, only when the app
   // has modules (the GPU gate): the host's table glue and the app's own
@@ -1074,8 +1075,8 @@ async function main(args) {
   const macArch = process.arch === 'arm64' ? 'arm64' : 'x86_64';
   const iosArch = device ? 'arm64' : (iosTriple.startsWith('arm64') ? 'arm64' : 'x86_64');
   const moduleArgs = (sdkFor, targetArgs, out, forIos = false, simulator = false, arch = macArch) => ['--sdk', sdkFor, 'swiftc', '-module-cache-path', resolve(swiftBuildRoot, 'modules-module-cache'), '-parse-as-library', '-emit-library', '-O', '-swift-version', '5', '-module-name', 'ExactAppModules', ...moduleSources, ...frameworkArgs(forIos, simulator, arch), ...linkArgs(forIos), '-o', out, ...targetArgs];
-  const macTarget = ['-target', `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-macos14.0`];
-  if (modulesBuilt) arms.push(arm(moduleArgs(sdkName, ios ? ['-target', tv ? iosTripleFor(app, device, true) : device ? 'arm64-apple-ios17.0' : iosTriple, '-sdk', sdk] : macTarget, modulesBuilt, ios, ios && !device, ios ? iosArch : macArch), moduleSources, modulesBuilt, frameworkStamp(ios, ios && !device, ios ? iosArch : macArch), true));
+  const macTarget = ['-target', moduleTripleFor(app, false)];
+  if (modulesBuilt) arms.push(arm(moduleArgs(sdkName, ios ? ['-target', moduleTripleFor(app, true, device, tv), '-sdk', sdk] : macTarget, modulesBuilt, ios, ios && !device, ios ? iosArch : macArch), moduleSources, modulesBuilt, frameworkStamp(ios, ios && !device, ios ? iosArch : macArch), true));
   // The roster the artifact serves (its tags, and which join the first frame) is read from its table: for iOS from a Mac
   // Catalyst executable of the same sources (their iOS code, run here), else a macOS slice; for tvOS the macOS slice, and no
   // tag joins the first frame. A probe that does not compile or run is named; it, or no slice, fails a production build.
@@ -1084,7 +1085,7 @@ async function main(args) {
   let probed = modulesBuilt && modules.tags.length && typeof Bun !== 'undefined' && probeable, probeFailure = null, rosterKeys = {};
   const probe = !ios ? modulesBuilt : resolve(webBuildDir, via === 'macOS' ? 'probe-' + modulesLoadName : 'probe-roster'), probeMain = resolve(linkRoot, 'ExactRosterProbe.swift'), catalyst = probed && via === 'Mac Catalyst' && resolve(read('xcrun', ['--sdk', 'macosx', '--show-sdk-path']).stdout.trim(), 'System/iOSSupport');
   if (catalyst) writeFileSync(probeMain, '@main enum ExactRosterProbe { static func main() { print(String(cString: exactNativeAbi().load(fromByteOffset: 8, as: UnsafePointer<CChar>.self))) } }\n');
-  const probing = !(probed && ios) ? null : catalyst ? [moduleArgs('macosx', ['-target', `${macArch}-apple-ios17.0-macabi`, '-Fsystem', `${catalyst}/System/Library/Frameworks`, '-I', `${catalyst}/usr/lib/swift`, '-L', `${catalyst}/usr/lib/swift`, probeMain], probe, true, 'maccatalyst', macArch).filter(a => a !== '-emit-library'), [...moduleSources, probeMain], frameworkStamp(true, 'maccatalyst', macArch)] : [moduleArgs('macosx', macTarget, probe), moduleSources, frameworkStamp(false, false, macArch)];
+  const probing = !(probed && ios) ? null : catalyst ? [moduleArgs('macosx', ['-target', `${macArch}-apple-ios${targets.ios}-macabi`, '-Fsystem', `${catalyst}/System/Library/Frameworks`, '-I', `${catalyst}/usr/lib/swift`, '-L', `${catalyst}/usr/lib/swift`, probeMain], probe, true, 'maccatalyst', macArch).filter(a => a !== '-emit-library'), [...moduleSources, probeMain], frameworkStamp(true, 'maccatalyst', macArch)] : [moduleArgs('macosx', macTarget, probe), moduleSources, frameworkStamp(false, false, macArch)];
   if (probing) { const placed = arm(probing[0], probing[1], probe, probing[2], true, true); arms.push(async () => { const log = await placed(); if (log !== true) { probed = false; const at = resolve(linkRoot, 'roster-probe.log'); copyFileSync(log, at); probeFailure = { did: 'compile', text: readFileSync(at, 'utf8'), at }; } }); }
   await hostCompile?.done({ repeated: true });
   // The early build stands when it succeeded and the bake came out as it was expected to.
@@ -1240,8 +1241,8 @@ async function main(args) {
     // so two apps built here are two identities to the keychain (LLP 1018 D7).
     rmSync(resolve(binDir, 'Info.plist'), { force: true });
     rmSync(resolve(binDir, '_CodeSignature'), { recursive: true, force: true });
-    const { NSAccentColorName } = appleAssets(app, binDir, { platform: 'macos', kept: { dir: resolve(linkRoot, 'assets'), stamp: swiftc }, expected: buildReceipt.binary.metadata.appleAssetCatalogs ?? [] }), accent = NSAccentColorName ? { NSAccentColorName } : {};
-    writeFileSync(resolve(binDir, `${paths.executable}-Info.plist`), macInfoPlist(app, { development, reach: bakedCompat.reach, icon: { ...rosterKeys, ...accent, ...buildInfo(app, { root, production: production || distribution, ...stampSdk }) } }));
+    const assetKeys = appleAssets(app, binDir, { platform: 'macos', kept: { dir: resolve(linkRoot, 'assets'), stamp: swiftc }, expected: buildReceipt.binary.metadata.appleAssetCatalogs ?? [] });
+    writeFileSync(resolve(binDir, `${paths.executable}-Info.plist`), macInfoPlist(app, { development, reach: bakedCompat.reach, icon: { ...rosterKeys, ...assetKeys, ...buildInfo(app, { root, production: production || distribution, ...stampSdk }) } }));
     if (hasWeb) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', webDest], { stdio: 'ignore' });
     if (modulesBuilt) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(binDir, modulesLoadName)], { stdio: 'ignore' });
     if (hasSvg) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(binDir, svgLoadName)], { stdio: 'ignore' });
@@ -1262,11 +1263,11 @@ async function main(args) {
       mkdirSync(executables, { recursive: true });
       mkdirSync(resources);
       for (const file of [paths.executable, ...loaded, ...(canvasGpuBuilt ? [canvasGpuLoadName] : []), ...(modulesBuilt ? [modulesLoadName] : []), ...(hasGpu ? [loadName] : []), ...moduleDylibs.map(m => m.load)]) copyFileSync(resolve(binDir, file), resolve(executables, file));
-      writeFileSync(resolve(contents, 'Info.plist'), macInfoPlist(app, { development, reach: bakedCompat.reach, icon: { ...rosterKeys, ...accent, ...buildInfo(app, { root, production: production || distribution, ...stampSdk }) } }));
+      writeFileSync(resolve(contents, 'Info.plist'), macInfoPlist(app, { development, reach: bakedCompat.reach, icon: { ...rosterKeys, ...assetKeys, ...buildInfo(app, { root, production: production || distribution, ...stampSdk }) } }));
       copyAppleStaticTrees(paths.capture, resources);
-      if (existsSync(resolve(binDir, 'Assets.car'))) copyFileSync(resolve(binDir, 'Assets.car'), resolve(resources, 'Assets.car'));
+      for (const file of ['Assets.car', ...(assetKeys.CFBundleIconFile ? [`${assetKeys.CFBundleIconFile}.icns`] : [])]) if (existsSync(resolve(binDir, file))) copyFileSync(resolve(binDir, file), resolve(resources, file));
       verifyBakeFiles(bakedCompat, bakedPlan, listAssets(resources, true));
-      writeFileSync(resolve(contents, 'Info.plist'), macInfoPlist(app, { development, reach: bakedCompat.reach, icon: { ...rosterKeys, ...appIcon(app, resources, 'macos'), ...accent, ...buildInfo(app, { root, production: production || distribution, ...stampSdk }) } }));
+      writeFileSync(resolve(contents, 'Info.plist'), macInfoPlist(app, { development, reach: bakedCompat.reach, icon: { ...rosterKeys, ...appIcon(app, resources, 'macos'), ...assetKeys, ...buildInfo(app, { root, production: production || distribution, ...stampSdk }) } }));
       writeUsageStrings(bakedCompat.reach, resources);
       const whole = readFileSync(resolve(binDir, 'receipt.json'), 'utf8');
       writeFileSync(resolve(resources, 'receipt.json'), distribution ? shippedReceipt(whole) : whole);
@@ -1306,7 +1307,7 @@ async function main(args) {
   // with the module before a surface is created, never strings in the dylib.
   copyAppleStaticTrees(paths.capture, bundle);
   verifyBakeFiles(bakedCompat, bakedPlan, listAssets(bundle, true));
-  const assetKeys = iosAssets(app, bundle, device, { tv, catalog: !!ipa, kept: { dir: resolve(linkRoot, 'assets'), stamp: swiftc }, expected: buildReceipt.binary.metadata.appleAssetCatalogs ?? [], launch: buildReceipt.graph.launchBackground });
+  const assetKeys = iosAssets(app, bundle, device, { tv, catalog: !!ipa, kept: { dir: resolve(linkRoot, 'assets'), stamp: swiftc }, expected: buildReceipt.binary.metadata.appleAssetCatalogs ?? [], ...(tv ? {} : { expectedLaunchImage: buildReceipt.binary.metadata.launchImage ?? null }), launch: buildReceipt.graph.launchBackground });
   writeFileSync(resolve(bundle, 'Info.plist'), infoPlist(app, device, { development, reach: appleReach, icon: assetKeys, distribution: { ...rosterKeys, ...(ipa ? distributionKeys(sdkName) : {}), ...buildInfo(app, { root, archive: !!ipa, production: production || distribution, ...stampSdk }) }, tv }));
   writeUsageStrings(appleReach, bundle);
   copyAppleGpuProducts(libDir, resolve(bundle, 'Frameworks'), gpuArtifacts, !!ipa);

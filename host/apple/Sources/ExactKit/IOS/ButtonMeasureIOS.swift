@@ -38,36 +38,69 @@ final class ButtonMeasureCache: @unchecked Sendable {
         button.updateTraitsIfNeeded(); button.layoutIfNeeded()
         return button.titleLabel!.font
     }
+    /// A miss is measured on main before it is answered, so the first layout
+    /// with a button of a new face, offer or traits is already exact. Only
+    /// when the traits change between the key and the measurement is the
+    /// answer provisional, and the host lays out again under the new key.
     func answer(face data: Data, widthKind: UInt8, width: Float) -> ExactButtonMeasure {
         lock.lock()
-        let current = traits
-        let key = Key(face: data, widthKind: widthKind, width: width, traits: .init(current))
+        let key = Key(face: data, widthKind: widthKind, width: width, traits: .init(traits))
         if let exact = entries[key] { lock.unlock(); return exact }
         misses += 1
         lock.unlock()
-        let measured = Owner.shared.callMain { self.measure(ButtonFace(json: data), widthKind: widthKind, width: CGFloat(width), traits: current) }
-        lock.lock(); entries[key] = measured; lock.unlock()
-        // The existing Rust layout loop retries and withholds every provisional frame.
-        var provisional = measured; provisional.provisional = 1
-        return provisional
+        return Owner.shared.callMain {
+            lock.lock(); let current = traits; lock.unlock()
+            let now = Key(face: data, widthKind: widthKind, width: width, traits: .init(current))
+            var measured = measure(ButtonFace(json: data), widthKind: widthKind, width: CGFloat(width), traits: current, probe: data)
+            lock.lock(); entries[now] = measured; lock.unlock()
+            measured.provisional = now == key ? 0 : 1
+            return measured
+        }
     }
-    func measure(_ face: ButtonFace, widthKind: UInt8, width: CGFloat, traits: UITraitCollection) -> ExactButtonMeasure {
-        precondition(Thread.isMainThread)
-        var result = ExactButtonMeasure()
-        traits.performAsCurrent {
+    /// The configured buttons a run of measurements shares, by face. A layout
+    /// asks one face for its max-content, min-content and definite widths in
+    /// turn; each is answered by the same configured button. The probes go at
+    /// the end of the main turn that made them.
+    private var probes: [Data: UIButton] = [:]
+    private var probeContainer: UIView?
+    private var probeTraits: FieldChromeCache.Traits?
+    private func probe(_ face: ButtonFace, key: Data?, traits: UITraitCollection) -> (UIButton, configured: Bool) {
+        let keyed = FieldChromeCache.Traits(traits)
+        if probeTraits != keyed { dropProbes() }
+        if let key, let button = probes[key] { return (button, true) }
+        let container: UIView
+        if let reused = probeContainer { container = reused } else {
             // A configured button reads Dynamic Type from its window during fitting.
             // Keep the probe in that hierarchy, hidden, without publishing any geometry.
-            let container = UIView()
+            container = UIView()
             container.isHidden = true
             surface?.addSubview(container)
-            defer { container.removeFromSuperview() }
             container.traitOverrides.preferredContentSizeCategory = traits.preferredContentSizeCategory
             container.traitOverrides.legibilityWeight = traits.legibilityWeight
             container.traitOverrides.displayScale = max(1, traits.displayScale)
-            let button = UIButton(configuration: ControlHost.configuration(face).0)
-            container.addSubview(button)
-            button.updateTraitsIfNeeded()
-            ButtonConfigurationIOS.apply(face, to: button, traits: traits, accent: nil)
+            probeContainer = container; probeTraits = keyed
+            DispatchQueue.main.async { [weak self] in self?.dropProbes() }
+        }
+        let button = UIButton(configuration: ControlHost.configuration(face).0)
+        container.addSubview(button)
+        button.updateTraitsIfNeeded()
+        if let key { probes[key] = button }
+        return (button, false)
+    }
+    private func dropProbes() {
+        probeContainer?.removeFromSuperview()
+        probeContainer = nil; probeTraits = nil
+        probes = [:]
+    }
+    /// `probe` names the face's bytes, whose configured button later
+    /// measurements in this main turn reuse; without it the button is fresh.
+    func measure(_ face: ButtonFace, widthKind: UInt8, width: CGFloat, traits: UITraitCollection, probe key: Data? = nil) -> ExactButtonMeasure {
+        precondition(Thread.isMainThread)
+        var result = ExactButtonMeasure()
+        traits.performAsCurrent {
+            let (button, configured) = probe(face, key: key, traits: traits)
+            defer { if key == nil { button.removeFromSuperview() } }
+            if !configured { ButtonConfigurationIOS.apply(face, to: button, traits: traits, accent: nil) }
             // Auto Layout fitting returns a single-line height even for a wrapped
             // configured title. sizeThatFits matches required-width window layout.
             var minimumWidth: CGFloat?

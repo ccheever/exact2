@@ -255,9 +255,9 @@ final class MenuHost: NSObject {
         if name == "hidePopover" || name == "togglePopover" && open { close(pop) }
         else if !open { show(pop, from: source) }
     }
-    func show(_ pop: NodeView, from source: NodeView?, run: UInt32? = nil) {
+    func show(_ pop: NodeView, from source: NodeView?, run: UInt32? = nil, contextMenu: Bool = false) {
         guard let presenter, !isOpen(pop), live(pop), source.map(live) ?? true, pop.props["popover"] != nil,
-              connected(pop), source.map(connected) ?? true, !pop.inert, source.map({ !$0.inert && !$0.disabled }) ?? true,
+              connected(pop), source.map(connected) ?? true, !pop.inert, source.map({ !$0.inert && !(contextMenu ? $0.formDisabled : $0.disabled) }) ?? true,
               pop.style["display"]?.string != "none", let page = presenter.viewport.window,
               source.map({ !hidden($0) || presenter.toolbar.contains($0) }) ?? true else { return }
         let window = source?.window.flatMap { presenter.hosts($0) ? $0 : nil } ?? page
@@ -328,14 +328,14 @@ final class MenuHost: NSObject {
         guard let name = contextPopover(source, run: run) else { return }
         RunLoop.main.perform(inModes: [.common]) { [weak self, weak source] in
             guard let self, let presenter = self.presenter, let source, self.live(source), self.contextPopover(source, run: run) == name,
-                  !source.disabled, !source.inert, !self.hidden(source), presenter.hosts(source.window),
-                  run.map(presenter.inlineEnabled) ?? true else { return }
+                  !source.formDisabled, !source.inert, !self.hidden(source), presenter.hosts(source.window),
+                  run.map({ !presenter.inlineInert($0) }) ?? true else { return }
             guard let pop = presenter.carrying("popover").first(where: { $0.props["id"] == name && !self.isConfirmation($0) }) else {
                 presenter.session?.log("context menu \(name) refused: no popover has that id")
                 return
             }
             while let last = self.entries.last { self.close(last.popover, restoreFocus: false) }
-            if ExactEnv.agentMode { self.show(pop, from: source, run: run); return }
+            if ExactEnv.agentMode { self.show(pop, from: source, run: run, contextMenu: true); return }
             // A new presentation only if it has an item: it retires picks of the last.
             guard pop.container.subviews.contains(where: { ($0 as? NodeView).map { $0.isButton && $0.props["contextPreview"] != "true" } ?? false }) else { return }
             self.presentations[pop.id, default: 0] += 1
@@ -513,19 +513,49 @@ final class MenuHost: NSObject {
         let (ancestor, hit) = clickedPopover(at: event.locationInWindow, in: window)
         if event.type == .leftMouseUp || event.type == .rightMouseUp { return release(event.buttonNumber, at: ancestor) }
         pressCount += 1
-        let press = pressCount, button = event.buttonNumber, at = event.timestamp
-        pointerDown = (button, ancestor, press)
-        // A view that tracks the press itself (NSTextView, a field editor, an
-        // NSControl) takes the release from the queue in its own loop, in the
-        // event-tracking run loop mode, and no local monitor sees it; the
-        // application's current event is then that release. The run loop is
-        // back in the default mode once the loop has ended.
+        pointerDown = (event.buttonNumber, ancestor, pressCount)
         guard hit else { return }
+        settle(pressCount, button: event.buttonNumber, pressedAt: event.timestamp, in: window)
+    }
+    /// A view that tracks a press itself (NSTextView, a field editor,
+    /// NSSearchField, an NSControl) takes the release from the queue in its
+    /// own loop, in the event-tracking run loop mode, and no local monitor
+    /// sees it. So the press is settled when the run loop is next in the
+    /// default mode, after any such loop has ended. The application's
+    /// current event is then the release only if nothing followed it: after
+    /// a hand's press in a field or a text view, AppKit first sends the
+    /// `mouseExited`/`mouseEntered` events of the tracking areas the view
+    /// moved (measured with real input, macOS 27). The window server's
+    /// record of the button says whether it was released after the press,
+    /// and the pointer's position stands for the release's.
+    private func settle(_ press: Int, button: Int, pressedAt at: TimeInterval, in window: NSWindow) {
         RunLoop.main.perform(inModes: [.default]) { [weak self, weak window] in
-            guard let self, let window, self.pointerDown?.press == press, let taken = NSApp.currentEvent,
-                  taken.type == (button == 0 ? .leftMouseUp : .rightMouseUp), taken.window === window, taken.timestamp >= at else { return }
-            self.release(button, at: self.clickedPopover(at: taken.locationInWindow, in: window).ancestor)
+            guard let self, let window, self.pointerDown?.press == press else { return }
+            if let taken = NSApp.currentEvent, taken.type == (button == 0 ? .leftMouseUp : .rightMouseUp),
+               taken.window === window, taken.timestamp >= at {
+                self.release(button, at: self.clickedPopover(at: taken.locationInWindow, in: window).ancestor)
+            } else if case let hand = Self.handRelease(button, window), hand.time >= at {
+                self.release(button, at: self.clickedPopover(at: hand.point, in: window).ancestor)
+            } else if NSEvent.pressedMouseButtons & (1 << button) != 0 {
+                // Still held, and no view tracking it: its release usually
+                // comes through the monitor. Look again in a moment, in case a
+                // loop takes it after all.
+                RunLoop.main.add(Timer(timeInterval: 0.05, repeats: false) { [weak self, weak window] _ in
+                    guard let self, let window else { return }
+                    self.settle(press, button: button, pressedAt: at, in: window)
+                }, forMode: .default)
+            }
         }
+    }
+    /// When the window server last saw `button` released, on the clock of
+    /// `NSEvent.timestamp`, and the pointer's position in `window` now. The
+    /// window server records a hand's release and one posted as a device's
+    /// (`CGEvent.post(tap: .cghidEventTap)`), never an event made in the
+    /// application, as the driver's and the tests' are.
+    static var handRelease: (_ button: Int, _ window: NSWindow) -> (time: TimeInterval, point: NSPoint) = { button, window in
+        let type: CGEventType = button == 0 ? .leftMouseUp : .rightMouseUp
+        return (ProcessInfo.processInfo.systemUptime - CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: type),
+                window.mouseLocationOutsideOfEventStream)
     }
     private func release(_ button: Int, at ancestor: UInt32?) {
         defer { pointerDown = nil }

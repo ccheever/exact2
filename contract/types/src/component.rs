@@ -200,8 +200,25 @@ pub(crate) fn check_component(
     }
     // Everything must now type; re-infer derives strictly to surface errors.
     let scope = types.component_scope(c, &ct);
-    for (i, d) in c.derives.iter().enumerate() {
-        match infer(&d.expr, &scope, shapes) {
+    let results: Vec<_> = c
+        .derives
+        .iter()
+        .map(|d| infer(&d.expr, &scope, shapes))
+        .collect();
+    // A derive left incomplete because one it reads was refused is refused
+    // with it, not reported again as a cycle (`derive bill = Number(text)`,
+    // then `derive total = bill + tip`).
+    let reads = derive_reads(c);
+    let mut refused: Vec<bool> = results.iter().map(Result::is_err).collect();
+    for &i in &order {
+        if matches!(&results[i], Ok(t) if !t.is_complete()) && reads[i].iter().any(|&d| refused[d])
+        {
+            refused[i] = true;
+        }
+    }
+    for ((i, d), result) in c.derives.iter().enumerate().zip(results) {
+        match result {
+            Ok(t) if !t.is_complete() && refused[i] => {}
             // What types only incompletely depends on itself; what fails to
             // type is refused for that reason alone.
             // An `[]` nothing pairs with a typed list is the one leaf that
@@ -784,11 +801,30 @@ fn refine_params_from_view(
                                         if !counted {
                                             continue;
                                         }
+                                        // LLP 1116.018: a repair that only
+                                        // retyped the parameter dropped the
+                                        // guard on a radio's deselection.
+                                        let param = &c.actions[ai].params[last].name;
+                                        let keep = match (&ty, &declared) {
+                                            (Ty::String, Ty::Number) => format!(
+                                                ", and read the number with `match parseNumber({param})`"
+                                            ),
+                                            // A radio's `change` fires only as it
+                                            // becomes checked (HTML), so a guard on
+                                            // being on is already kept.
+                                            (Ty::String, Ty::Bool) if payload_control == Some("radio") => format!(
+                                                " (it is the radio's `value`): a radio's `change` runs only when it becomes checked, so it needs no `if {param}`"
+                                            ),
+                                            (Ty::Bool, _) => format!(
+                                                ": whether the control is now on, so `if {param}` keeps a guard on a deselection"
+                                            ),
+                                            _ => String::new(),
+                                        };
                                         return err(
                                             "type-handler-payload",
                                             format!(
-                                                "`{}=` supplies `{ty}` to parameter `{}`, declared `{declared}`",
-                                                a.name, c.actions[ai].params[last].name
+                                                "declare `{param}: {ty}` in `{}`{keep}: `{}=` passes its captured arguments, then its payload, a `{ty}`, which lands on `{param}`, declared `{declared}`",
+                                                c.actions[ai].name, a.name
                                             ),
                                             a.span,
                                         );
@@ -913,53 +949,72 @@ fn handed_on<'b>(body: &'b [Stmt], capture: &str) -> Option<(&'b str, Span)> {
 
 /// Derive indices, each after the derives its expression names (a cycle is
 /// left in declaration order; the fixpoint refuses it).
-fn derive_order(c: &Component) -> Vec<usize> {
-    fn names<'a>(e: &'a Expr, out: &mut Vec<&'a str>) {
-        use contract_syntax::TemplatePart;
-        match e {
-            Expr::Ident(n, _) => out.push(n),
-            Expr::Call(n, args, _) => {
-                out.push(n);
-                args.iter().for_each(|a| names(a, out));
-            }
-            Expr::Some(x, _)
-            | Expr::Unary(_, x, _)
-            | Expr::Member(x, _, _)
-            | Expr::NamedArg(_, x, _)
-            | Expr::Typed(x, _, _) => names(x, out),
-            Expr::Binary(_, a, b, _) => {
-                names(a, out);
-                names(b, out);
-            }
-            Expr::Ternary(a, b, x, _) => {
-                names(a, out);
-                names(b, out);
-                names(x, out);
-            }
-            Expr::Match {
-                subject,
-                some,
-                none,
-                ..
-            } => {
-                names(subject, out);
-                names(some, out);
-                names(none, out);
-            }
-            Expr::Let { value, body, .. } => {
-                names(value, out);
-                names(body, out);
-            }
-            Expr::Arrow { body, .. } => names(body, out),
-            Expr::Template(parts, _) => parts.iter().for_each(|p| {
-                if let TemplatePart::Expr(x) = p {
-                    names(x, out)
-                }
-            }),
-            Expr::List(items, _) => items.iter().for_each(|x| names(x, out)),
-            Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => {}
+/// The derives each derive reads, by index.
+fn derive_reads(c: &Component) -> Vec<Vec<usize>> {
+    let index: BTreeMap<&str, usize> = c
+        .derives
+        .iter()
+        .enumerate()
+        .map(|(i, d)| (d.name.as_str(), i))
+        .collect();
+    c.derives
+        .iter()
+        .map(|d| {
+            let mut out = Vec::new();
+            names(&d.expr, &mut out);
+            out.iter().filter_map(|n| index.get(n).copied()).collect()
+        })
+        .collect()
+}
+
+fn names<'a>(e: &'a Expr, out: &mut Vec<&'a str>) {
+    use contract_syntax::TemplatePart;
+    match e {
+        Expr::Ident(n, _) => out.push(n),
+        Expr::Call(n, args, _) => {
+            out.push(n);
+            args.iter().for_each(|a| names(a, out));
         }
+        Expr::Some(x, _)
+        | Expr::Unary(_, x, _)
+        | Expr::Member(x, _, _)
+        | Expr::NamedArg(_, x, _)
+        | Expr::Typed(x, _, _) => names(x, out),
+        Expr::Binary(_, a, b, _) => {
+            names(a, out);
+            names(b, out);
+        }
+        Expr::Ternary(a, b, x, _) => {
+            names(a, out);
+            names(b, out);
+            names(x, out);
+        }
+        Expr::Match {
+            subject,
+            some,
+            none,
+            ..
+        } => {
+            names(subject, out);
+            names(some, out);
+            names(none, out);
+        }
+        Expr::Let { value, body, .. } => {
+            names(value, out);
+            names(body, out);
+        }
+        Expr::Arrow { body, .. } => names(body, out),
+        Expr::Template(parts, _) => parts.iter().for_each(|p| {
+            if let TemplatePart::Expr(x) = p {
+                names(x, out)
+            }
+        }),
+        Expr::List(items, _) => items.iter().for_each(|x| names(x, out)),
+        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => {}
     }
+}
+
+fn derive_order(c: &Component) -> Vec<usize> {
     fn visit(i: usize, reads: &[Vec<usize>], seen: &mut [bool], order: &mut Vec<usize>) {
         if std::mem::replace(&mut seen[i], true) {
             return;
@@ -969,21 +1024,7 @@ fn derive_order(c: &Component) -> Vec<usize> {
         }
         order.push(i);
     }
-    let index: BTreeMap<&str, usize> = c
-        .derives
-        .iter()
-        .enumerate()
-        .map(|(i, d)| (d.name.as_str(), i))
-        .collect();
-    let reads: Vec<Vec<usize>> = c
-        .derives
-        .iter()
-        .map(|d| {
-            let mut out = Vec::new();
-            names(&d.expr, &mut out);
-            out.iter().filter_map(|n| index.get(n).copied()).collect()
-        })
-        .collect();
+    let reads = derive_reads(c);
     let (mut seen, mut order) = (vec![false; c.derives.len()], Vec::new());
     for i in 0..c.derives.len() {
         visit(i, &reads, &mut seen, &mut order);

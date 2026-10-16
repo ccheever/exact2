@@ -270,12 +270,117 @@ final class NativeButtonsIOSTests: XCTestCase {
         // What the author wrote wins: an accent on the button itself, a colour on its title.
         XCTAssertNil(try ink(8), "a written accent keeps UIKit's ink")
         XCTAssertEqual(try button(p, 8).tintColor.resolvedColor(with: light), UIColor(red: 255 / 255, green: 141 / 255, blue: 40 / 255, alpha: 1))
+        // Enabled, the author's colour is the configuration's foreground, which UIKit greys with the tint behind a
+        // modal; the title's attributes carry it only while disabled (D16).
         let title = try XCTUnwrap(try button(p, 9).configuration?.titleTextAttributesTransformer)
-        XCTAssertEqual(title(AttributeContainer()).uiKit.foregroundColor?.cgColor.components, [0, 128 / 255, 0, 1])
+        XCTAssertNil(title(AttributeContainer()).uiKit.foregroundColor)
         XCTAssertEqual(try ink(9)?.cgColor.components, [0, 128 / 255, 0, 1], "the author's colour, not the red ink")
         // Dark and increased contrast keep systemRed's own.
         let dark = UITraitCollection(userInterfaceStyle: .dark)
         XCTAssertEqual(try XCTUnwrap(try button(p, 2).configuration?.baseForegroundColor).resolvedColor(with: dark), UIColor.systemRed.resolvedColor(with: dark))
+    }
+
+    /// Behind a modal UIKit greys a tint (`tintAdjustmentMode`): the title's authored colour, the configuration's
+    /// foreground, greys with it, and a symbol that follows the accent is drawn in the greyed tint.
+    func testATintDimmedBehindAModalGreysTheTitleAndTheAccentSymbol() throws {
+        var f = face("Last Parked", symbol: "map.fill", style: "plain", ios: "plain")
+        f.rows.title["text_color"] = .array([.number(0), .number(0), .number(0), .number(255)])
+        f.rows.symbol["tint_color"] = .object(["sys": .string("@tint")])
+        let p = presenter(native(2) + [["op": "roots", "ids": [2]]], faces: [2: f])
+        window.overrideUserInterfaceStyle = .light; window.updateTraitsIfNeeded()
+        window.tintColor = .systemRed
+        let b = try button(p, 2); p.controls.sync(); b.layoutIfNeeded()
+        let light = UITraitCollection(userInterfaceStyle: .light)
+        let before = b.titleLabel?.textColor?.resolvedColor(with: light)
+        XCTAssertEqual(b.tintColor.resolvedColor(with: light), UIColor.systemRed.resolvedColor(with: light))
+        XCTAssertNotNil(b.configuration?.imageColorTransformer, "the symbol is the configuration's colour, which UIKit greys")
+        p.viewport.tintAdjustmentMode = .dimmed
+        b.layoutIfNeeded()
+        XCTAssertNotEqual(b.tintColor.resolvedColor(with: light), UIColor.systemRed.resolvedColor(with: light), "the tint greys")
+        XCTAssertNotEqual(b.titleLabel?.textColor?.resolvedColor(with: light), before, "the title greys with it")
+        let symbol = b.configuration?.imageColorTransformer?(.green).resolvedColor(with: light)
+        XCTAssertEqual(symbol, b.tintColor.resolvedColor(with: light), "and the symbol is drawn in the dimmed tint")
+        p.viewport.tintAdjustmentMode = .automatic
+    }
+
+    /// A glass button draws a template symbol in its own ink, ignoring the
+    /// configuration's image colour, so its coloured symbol is drawn again
+    /// as the tint dims: green, then grey behind a modal, as a whole button
+    /// greys. A colour derived from the accent (`Highlight`) keeps its alpha.
+    func testAGlassSymbolGreysBehindAModalAndAHighlightKeepsItsAlpha() throws {
+        var glass = face("Glass", symbol: "car.fill", style: "glass", ios: "glass")
+        glass.rows.symbol["tint_color"] = .array([.number(52), .number(199), .number(89), .number(255)])
+        var highlight = face("Highlight", symbol: "car.fill", style: "plain", ios: "plain")
+        highlight.rows.symbol["tint_color"] = .object(["sys": .string("@tint/0.2")])
+        let p = presenter(native(2) + native(3, x: 120) + [["op": "roots", "ids": [2, 3]]], faces: [2: glass, 3: highlight])
+        window.overrideUserInterfaceStyle = .light; window.updateTraitsIfNeeded()
+        window.tintColor = .systemRed
+        let g = try button(p, 2), h = try button(p, 3); p.controls.sync(); g.layoutIfNeeded()
+        // The average colour of the symbol's opaque pixels
+        func ink(_ image: UIImage?) throws -> (red: CGFloat, green: CGFloat, blue: CGFloat) {
+            let bytes = try pixels(image), opaque = stride(from: 0, to: bytes.count, by: 4).filter { bytes[$0 + 3] > 200 }
+            XCTAssertFalse(opaque.isEmpty, "the symbol draws")
+            let mean = { (c: Int) in CGFloat(opaque.map { Int(bytes[$0 + c]) }.reduce(0, +)) / CGFloat(max(opaque.count, 1)) / 255 }
+            return (mean(0), mean(1), mean(2))
+        }
+        let green = try ink(g.configuration?.image)
+        XCTAssertGreaterThan(green.green, green.red + 0.3, "green while the tint is not dimmed")
+        p.viewport.tintAdjustmentMode = .dimmed
+        let grey = try ink(g.configuration?.image)
+        XCTAssertLessThan(abs(grey.green - grey.red), 0.1, "grey behind a modal")
+        p.viewport.tintAdjustmentMode = .automatic
+        let alpha = h.configuration?.imageColorTransformer?(.green).cgColor.alpha ?? 1
+        XCTAssertEqual(alpha, 0.2, accuracy: 0.01, "a colour derived from the accent keeps its alpha")
+    }
+
+    /// A glass symbol greys behind a modal with its own alpha: a `Highlight`
+    /// symbol stays a fifth as strong, and so does one in a translucent
+    /// accent (`AccentColor`, which follows the tint).
+    func testAGlassSymbolKeepsItsAlphaWhileDimmed() throws {
+        try glassSymbolKeepsAlpha(.object(["sys": .string("@tint/0.2")]), accent: nil)
+        try glassSymbolKeepsAlpha(.object(["sys": .string("@tint")]), accent: [255, 0, 0, 51])
+        // The window's tint turning translucent while the button shows
+        try glassSymbolKeepsAlpha(.object(["sys": .string("@tint")]), accent: nil, windowTint: UIColor(red: 1, green: 0, blue: 0, alpha: 0.2))
+        // An authored accent turning translucent while the button is dimmed
+        var f = face("Glass", symbol: "car.fill", style: "glass", ios: "glass")
+        f.rows.symbol["tint_color"] = .object(["sys": .string("@tint")])
+        let p = presenter(native(2) + [["op": "style", "id": 2, "style": ["accent_color": [255, 0, 0, 255]]], ["op": "roots", "ids": [2]]], faces: [2: f])
+        let g = try button(p, 2); p.controls.sync(); g.layoutIfNeeded()
+        p.viewport.tintAdjustmentMode = .dimmed
+        p.apply(wireBatch([["op": "style", "id": 2, "style": ["accent_color": [255, 0, 0, 51]]]]))
+        p.controls.sync()
+        XCTAssertEqual(try strongestAlpha(g.configuration?.image), 51, accuracy: 6, "an accent changed while dimmed")
+        p.viewport.tintAdjustmentMode = .automatic
+    }
+
+    private func strongestAlpha(_ image: UIImage?) throws -> Int {
+        let bytes = try pixels(image)
+        return stride(from: 3, to: bytes.count, by: 4).map { Int(bytes[$0]) }.max() ?? 0
+    }
+
+    /// `image` drawn at 24 × 24 points, scale 1: its pixels' premultiplied RGBA bytes
+    private func pixels(_ image: UIImage?) throws -> [UInt8] {
+        let image = try XCTUnwrap(image), size = CGSize(width: 24, height: 24)
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1
+        let cg = try XCTUnwrap(UIGraphicsImageRenderer(size: size, format: format).image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }.cgImage)
+        var bytes = [UInt8](repeating: 0, count: 24 * 24 * 4)
+        let context = try XCTUnwrap(CGContext(data: &bytes, width: 24, height: 24, bitsPerComponent: 8, bytesPerRow: 96, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.draw(cg, in: CGRect(origin: .zero, size: size))
+        return bytes
+    }
+
+    private func glassSymbolKeepsAlpha(_ symbol: BatchValue, accent: [Int]?, windowTint: UIColor? = nil) throws {
+        var f = face("Glass", symbol: "car.fill", style: "glass", ios: "glass")
+        f.rows.symbol["tint_color"] = symbol
+        let style: [[String: Any]] = accent.map { [["op": "style", "id": 2, "style": ["accent_color": $0]]] } ?? []
+        let p = presenter(native(2) + style + [["op": "roots", "ids": [2]]], faces: [2: f])
+        window.overrideUserInterfaceStyle = .light; window.updateTraitsIfNeeded()
+        let g = try button(p, 2); p.controls.sync(); g.layoutIfNeeded()
+        if let windowTint { window.tintColor = windowTint }
+        XCTAssertEqual(try strongestAlpha(g.configuration?.image), 51, accuracy: 6, "a fifth as strong (\(symbol), accent \(String(describing: accent)), window \(windowTint != nil))")
+        p.viewport.tintAdjustmentMode = .dimmed
+        XCTAssertEqual(try strongestAlpha(g.configuration?.image), 51, accuracy: 6, "and still while dimmed (\(symbol), accent \(String(describing: accent)), window \(windowTint != nil))")
+        p.viewport.tintAdjustmentMode = .automatic
     }
 
     func testAuthoredColoursFollowALightToDarkSwitch() throws {
@@ -289,9 +394,9 @@ final class NativeButtonsIOSTests: XCTestCase {
         let old = b.written
         XCTAssertEqual(b.configuration?.baseForegroundColor?.cgColor.components, [0, 0, 0, 1])
         window.overrideUserInterfaceStyle = .dark; window.updateTraitsIfNeeded(); b.updateTraitsIfNeeded(); p.controls.sync()
-        XCTAssertNotEqual(b.written, old, "appearance invalidates the title and baked symbol tint")
+        XCTAssertNotEqual(b.written, old, "appearance invalidates the title and symbol tint")
         XCTAssertEqual(b.configuration?.baseForegroundColor?.cgColor.components, [1, 1, 1, 1])
-        XCTAssertEqual(b.configuration?.image?.renderingMode, .alwaysOriginal)
+        XCTAssertNotNil(b.configuration?.imageColorTransformer, "the symbol's colour is the configuration's")
     }
     private final class LocatedTouch: UITouch {
         let target: UIView

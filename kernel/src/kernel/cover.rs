@@ -79,7 +79,16 @@ impl Kernel {
         let parent = (whole(before) != whole(cover))
             .then(|| self.arena.parent(slot))
             .flatten();
-        for slot in std::iter::once(slot).chain(parent) {
+        // And a block under it is hidden or shown with it (`block::apply`).
+        let blocks: Vec<u32> = if whole(before) != whole(cover) {
+            let arena = &self.arena;
+            (arena.blocks.roots())
+                .filter(|b| *b != slot && arena.is_ancestor(slot, *b))
+                .collect()
+        } else {
+            Vec::new()
+        };
+        for slot in std::iter::once(slot).chain(parent).chain(blocks) {
             if let (Some(node), Some(layout)) = (self.arena.taffy(slot), self.layout.as_deref_mut())
             {
                 layout.restyle(&self.arena, slot, node);

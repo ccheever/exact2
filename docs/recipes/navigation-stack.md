@@ -100,8 +100,8 @@ column navigationKey=`${e.id}` navigationScroll="note-list" position="absolute" 
 ```
 
 The sheet: `navigationPresentation="modal"`; its Cancel's `id` is the root's `navigationBack`,
-which the swipe down presses. Its last child, the `scroll`, runs to the bottom edge (nested in
-a `column` it stops short).
+which the swipe down presses. Its last child, the `scroll`, runs to the bottom edge (a
+footer under it stops it short).
 
 <!-- check: route add -->
 ```contract

@@ -115,11 +115,16 @@ pub enum Capability {
     /// the bake links it for an app whose grants name `auth.session`, and a
     /// manifest's `link` may name it.
     AuthSession,
+    /// A text's numerals rolling as they change, per glyph
+    /// (`-exact-content-transition`, LLP 1077 D15): on Apple, SwiftUI's
+    /// numeric text, whose framework an app links only for this (LLP
+    /// 1115.003 D3). A plan uses it when it binds the row.
+    Numerals,
 }
 
 impl Capability {
     /// Every capability, in bit order.
-    pub const ALL: [Capability; 28] = [
+    pub const ALL: [Capability; 29] = [
         Capability::Markdown,
         Capability::Motion,
         Capability::Collections,
@@ -148,6 +153,7 @@ impl Capability {
         Capability::Transitions,
         Capability::MediaPicker,
         Capability::AuthSession,
+        Capability::Numerals,
     ];
 
     /// The name an entry, a refusal and a report use.
@@ -181,6 +187,7 @@ impl Capability {
             Capability::Transitions => "transitions",
             Capability::MediaPicker => "media_picker",
             Capability::AuthSession => "auth_session",
+            Capability::Numerals => "numerals",
         }
     }
 
@@ -314,6 +321,9 @@ pub fn uses(plan: &Plan) -> Uses {
                 }
                 if StyleId::from_bit(u32::from(binding.id)) == Some(StyleId::TextTransform) {
                     uses = uses.with(Capability::TextTransform);
+                }
+                if StyleId::from_bit(u32::from(binding.id)) == Some(StyleId::ContentTransition) {
+                    uses = uses.with(Capability::Numerals);
                 }
                 if matches!(
                     StyleId::from_bit(u32::from(binding.id)),

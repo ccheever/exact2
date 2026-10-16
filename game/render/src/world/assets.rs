@@ -16,6 +16,11 @@ pub(super) struct Assets {
     // Each drawn entity's records and part looks, and its looks' content digest.
     ranges: BTreeMap<u32, Range>,
     digests: BTreeMap<u32, u64>,
+    structure: Option<Structure>,
+}
+struct Structure {
+    models: Vec<(exact_game::Entity, String)>,
+    revisions: [u64; 3],
 }
 struct Range {
     entity: exact_game::Entity,
@@ -25,13 +30,62 @@ struct Range {
     part_count: usize,
 }
 impl Assets {
+    pub fn reset(&mut self) {
+        self.structure = None;
+        self.records.clear();
+        self.entities.clear();
+    }
+
+    // `drawn` is the feed's current Mesh+Transform query, with effective
+    // visibility already resolved through every living ancestor.
     pub fn batches(
         &mut self,
         w: &World,
         r: &mut impl Writes,
+        drawn: &[(exact_game::Entity, bool)],
         batches: &mut Vec<Batch>,
         slots: &mut Vec<u32>,
     ) -> Result<(), RenderError> {
+        let revisions = [
+            r.assets_revision(),
+            w.revision::<ViewModel>(),
+            w.revision::<exact_game::ModelLod>(),
+        ];
+        // Compare borrowed names before building a replacement. Primitive
+        // effects can change batches while thousands of model names stay put.
+        let unchanged = self.structure.as_ref().is_some_and(|saved| {
+            saved.revisions == revisions
+                && w.query::<(&Mesh, &Transform)>()
+                    .iter()
+                    .zip(drawn)
+                    .filter_map(|((entity, (mesh, _)), &(expected, visible))| {
+                        debug_assert_eq!(entity, expected);
+                        match mesh {
+                            Mesh::Asset(name) if visible => Some((entity, name.as_str())),
+                            _ => None,
+                        }
+                    })
+                    .eq(saved.models.iter().map(|(e, name)| (*e, name.as_str())))
+        });
+        if unchanged && self.patch_looks(w, r)? {
+            self.append_batches(batches, slots);
+            return Ok(());
+        }
+        let structure = Structure {
+            models: w
+                .query::<(&Mesh, &Transform)>()
+                .iter()
+                .zip(drawn)
+                .filter_map(|((entity, (mesh, _)), &(expected, visible))| {
+                    debug_assert_eq!(entity, expected);
+                    match mesh {
+                        Mesh::Asset(name) if visible => Some((entity, name.clone())),
+                        _ => None,
+                    }
+                })
+                .collect(),
+            revisions,
+        };
         self.records.clear();
         self.entities.clear();
         self.part_bases.clear();
@@ -42,17 +96,19 @@ impl Assets {
         for group in self.groups.values_mut() {
             group.clear();
         }
-        for (entity, (mesh, _)) in w.query::<(&Mesh, &Transform)>().iter() {
-            let Mesh::Asset(name) = mesh else { continue };
-            if !w.is_visible(entity) {
-                continue;
-            }
-            self.entity(w, r, entity, name)?;
+        for (entity, name) in &structure.models {
+            self.entity(w, r, *entity, name)?;
         }
         self.digests = look_digests(w);
         r.part_looks(&self.part_bases, &self.part_looks);
         r.levels(&self.levels, &self.lods);
         r.instances(&self.records)?;
+        self.structure = Some(structure);
+        self.append_batches(batches, slots);
+        Ok(())
+    }
+
+    fn append_batches(&self, batches: &mut Vec<Batch>, slots: &mut Vec<u32>) {
         for (&(mesh, _, _, viewmodel, level), list) in &self.groups {
             if list.is_empty() {
                 continue;
@@ -63,7 +119,6 @@ impl Assets {
             batch.level = level;
             batches.push(if viewmodel { batch.viewmodel() } else { batch });
         }
-        Ok(())
     }
     /// Write changed `NodeMaterials`/`MaterialOverrides` content into the
     /// existing records in place: a pulsing glow costs its own entities, not

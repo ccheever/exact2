@@ -315,7 +315,7 @@ final class TextGeometryTests: XCTestCase {
     }
 
     func testAuthoredLineHeightSurvivesEmptyMultilineAndClampedText() {
-        for (text, count) in [("", 1), ("Fraction", 1), ("First\nSecond", 2)] {
+        for (text, count) in [("", 0), ("Fraction", 1), ("First\nSecond", 2)] {
             let value = spec(text)
             let paragraph = engine.paragraph(value, width: 300)
             XCTAssertEqual(paragraph.height, 18.125 * CGFloat(count), accuracy: 0.000001)
@@ -704,7 +704,7 @@ extension TextGeometryTests {
         XCTAssertEqual(clamped.height, 18.125)
         let (empty, calls) = checkedStrutParagraph(spec(""), width: 100)
         XCTAssertTrue(empty.lines.isEmpty)
-        XCTAssertEqual(empty.height, 18.125)
+        XCTAssertEqual(empty.height, 0)
         #if STRUT_EXTENTS_SENTINEL
         XCTAssertEqual(calls, 1)
         #endif

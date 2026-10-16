@@ -169,7 +169,7 @@ impl<D: DataSource> Presenter<D> {
         if let Some(field) = self.focus.filter(|_| rose) {
             match self.display.attached() {
                 true => self.window.reveal = Some(field),
-                false => self.keep_in_view(field),
+                false => self.keep_in_view(field, reveal::Cause::InsetAdjustment),
             }
         }
         error
@@ -185,7 +185,7 @@ impl<D: DataSource> Presenter<D> {
     )]
     pub(super) fn reveal_owed(&mut self) {
         if let Some(field) = self.window.reveal.take() {
-            self.keep_in_view(field);
+            self.keep_in_view(field, reveal::Cause::InsetAdjustment);
         }
     }
 

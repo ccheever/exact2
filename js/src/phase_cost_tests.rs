@@ -22,7 +22,9 @@ fn sample() -> [Duration; 6] {
     )
     .expect("production lean runtime and Ibex binding install");
     let installed = Instant::now();
-    engine.load(PRELUDE).expect("production trusted prelude");
+    engine
+        .load_static(PRELUDE)
+        .expect("production trusted prelude");
     engine
         .call("__exact_main_thread", ["", "", ""])
         .expect("production main-thread policy");

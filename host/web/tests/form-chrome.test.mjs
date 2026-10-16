@@ -64,7 +64,7 @@ const page = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8')).match(/<
 // rt.js beside the modules it imports: the real ones it binds with, stand-ins for the rest (as js-link-press.test.mjs).
 const REAL = ['rt.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js'];
 const STUBS = standIns(REAL);
-const module = name => name === 'input-glue.js' ? readFileSync(resolve(WEB, name))
+const module = name => ['input-glue.js', 'prompt-glue.js'].includes(name) ? readFileSync(resolve(WEB, name))
   : REAL.includes(name) ? readFileSync(resolve(WEB_JS, name))
   : STUBS.get(name) ?? null;
 

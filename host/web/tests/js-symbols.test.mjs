@@ -68,6 +68,25 @@ test('a symbol is decorative unless its author named it', async () => {
   expect(named.getAttribute('alt')).toBe('Add a stop');
 });
 
+// LLP 1011 §4: under `fill`, CSS's initial `object-fit`, a symbol keeps its
+// aspect in a box of another shape, as on the Apple hosts; `none` draws it at
+// its size.
+test('a symbol keeps its aspect under object-fit: fill', async () => {
+  const { symbols } = await import(resolve(dir, 'symbols.js'));
+  symbols({ chevron: ['M8 6l6 6-6 6', false] });
+  const was = globalThis.getComputedStyle, query = document.querySelectorAll;
+  try {
+    for (const [fit, size] of [['fill', 'contain'], ['cover', 'cover'], ['none', '17px 17px']]) {
+      globalThis.getComputedStyle = () => ({ fontSize: '17px', fontWeight: '400', objectFit: fit, paddingLeft: '0', paddingRight: '0', paddingTop: '0', paddingBottom: '0' });
+      const wide = new Img();
+      document.querySelectorAll = (sel) => sel.includes('data-symbol-path') && wide.hasAttribute('data-symbol-path') ? [wide] : [];
+      expect(PropHooks.src(wide, 'symbol:chevron')).toBe(true);
+      for (const f of After) f();
+      expect(wide.style.getPropertyValue('--exact-symbol-fit')).toBe(size);
+    }
+  } finally { globalThis.getComputedStyle = was; document.querySelectorAll = query; }
+});
+
 // The emitted entry installs symbols before mounting, then projects navigation.
 // Use the real consumers and stylesheet: no exactViewport resource commits on resize.
 test('symbol axes follow the current projected title and root font without another action', async () => {

@@ -535,6 +535,7 @@ pub unsafe fn window_frame(
     below: &[u8],
     above: &[u8],
     changed: bool,
+    above_rows: std::ops::Range<u32>,
 ) -> u32 {
     let frame = Frame {
         width,
@@ -547,8 +548,11 @@ pub unsafe fn window_frame(
         shader_generation: 0,
         headroom: 1.,
     };
-    match with(|m| unsafe { m.present_window(id, hwnd, hinstance, &frame, below, above, changed) })
-    {
+    match with(|m| unsafe {
+        m.present_window(
+            id, hwnd, hinstance, &frame, below, above, changed, above_rows,
+        )
+    }) {
         Some(Ok(())) => 0,
         Some(Err(e)) => {
             refuse(&e);
@@ -932,14 +936,19 @@ macro_rules! module {
 
         /// Present a canvas between CPU UI layers. The HWND outlives this attachment.
         /// # Safety
-        /// Both layer pointers contain `len` bytes; HWND stays live until detach.
+        /// `above` contains `len` bytes. `below` contains four premultiplied RGBA
+        /// bytes when flag bit 1 is set, otherwise `len`. Bit 0 marks changed UI.
+        /// The overlay is transparent outside `above_top..above_bottom` device rows.
+        /// HWND stays live until detach.
         #[cfg(windows)]
         #[no_mangle]
         pub unsafe extern "C" fn gpu_window_frame(id: u32, hwnd: usize, hinstance: usize, width: f32, height: f32,
-            scale: f32, now_ms: f64, below: *const u8, above: *const u8, len: usize, changed: u32) -> u32 {
-            let Some(below) = (unsafe { $crate::native::bytes("gpu_window_frame", below, len) }) else { return 1 };
+            scale: f32, now_ms: f64, below: *const u8, above: *const u8, len: usize, changed: u32,
+            above_top: u32, above_bottom: u32) -> u32 {
+            let below_len = if changed & 2 != 0 { 4 } else { len };
+            let Some(below) = (unsafe { $crate::native::bytes("gpu_window_frame", below, below_len) }) else { return 1 };
             let Some(above) = (unsafe { $crate::native::bytes("gpu_window_frame", above, len) }) else { return 1 };
-            unsafe { $crate::native::window_frame(id, hwnd, hinstance, width, height, scale, now_ms, below, above, changed != 0) }
+            unsafe { $crate::native::window_frame(id, hwnd, hinstance, width, height, scale, now_ms, below, above, changed & 1 != 0, above_top..above_bottom) }
         }
 
         /// Release the native window before its HWND goes away.

@@ -9,7 +9,8 @@ import { createHash } from 'node:crypto';
 import vm from 'node:vm';
 import { render, sourceMapReader, identifyInspectedNode, heldTicket, holdOf, pickedPaths } from '../../scripts/agent.mjs';
 import { retainDevGeneration, readDevGeneration, readDevGenerationAsync, serveBuildTree } from './serve.mjs';
-import { focusController, placeReporter, timeReporter, pageReporter, appRootFontSize, viewBox, grantOrigins, launchLocation } from './navigation.js';
+import { focusController, placeReporter, timeReporter, pageReporter, appRootFontSize, grantOrigins, launchLocation } from './navigation.js';
+import { viewBox, layoutBoxes } from './input-glue.js';
 import { storageKey } from './storage-environment.js';
 import { open } from '../../scripts/agent.mjs';
 import { launchFacts, launchEnvironment, parseFlags } from '../../scripts/agent-launch.mjs';
@@ -68,31 +69,6 @@ catch(e) { console.error(e.message); process.exitCode=1; }
     expect(missing.stderr).not.toContain('TypeError');
   } finally { rmSync(dir, {recursive:true,force:true}); }
 }, 60_000); // Six Bun launches of the driver: 25 s at load 110, so a hang bound, not a speed claim.
-
-test('driver deadlines release their timer on success, rejection and timeout', async () => {
-  const driver = readFileSync(new URL('../../scripts/agent.mjs', import.meta.url), 'utf8');
-  const implementation = driver.match(/async function waitAtMost\([^]*?\n\}/)[0];
-  const timers = new Set();
-  const wait = vm.runInNewContext(`(${implementation})`, {
-    setTimeout(callback) { timers.add(callback); return callback; },
-    clearTimeout(callback) { timers.delete(callback); },
-  });
-  expect(await wait(Promise.resolve('ready'), 20000)).toBe('ready');
-  expect(timers.size).toBe(0);
-  const failed = new Error('app exited');
-  await expect(wait(Promise.reject(failed), 20000)).rejects.toBe(failed);
-  expect(timers.size).toBe(0);
-  const pending = new Promise(() => {});
-  const closed = wait(pending, 2000);
-  expect(timers.size).toBe(1);
-  [...timers][0]();
-  expect(await closed).toBeUndefined();
-  expect(timers.size).toBe(0);
-  const late = wait(pending, 20000, () => { throw failed; });
-  [...timers][0]();
-  await expect(late).rejects.toBe(failed);
-  expect(timers.size).toBe(0);
-});
 
 test('driver joins only the inspected plan, retains old compatible maps, and labels formatting-only revisions honestly', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'exact-driver-map-')), path = join(dir, 'app.plan');
@@ -285,7 +261,7 @@ function fixture(agentMode = true) {
     preferences: () => '{}', localAssetURL: source => source,
     launchLocation: () => launchLocation(context), // the launch path less the drive's facts (feed F16)
   });
-  vm.runInContext(`let toldOffset = null; const folded = () => false; /* no folded text here (LLP 1007.001) */ const viewBox = ${viewBox};\n` + ['let gpuLoading', 'const POST_BOUND', 'let frameSampler', 'const followOffset', 'const shownValue'].map(head => source.match(new RegExp(`^${head} = .*$`, 'm'))[0]).join('\n') + '\n' + ['nodeDetail', 'agent', 'agentNow', 'agentReply', 'settleGpu', 'gpuPendingReply', 'agentSettled', 'tagged', 'clock', 'startClock', 'mutate', 'boot', 'bootNow'].map(declaration).join('\n') + '\n' + publicObject, context);
+  vm.runInContext(`let toldOffset = null; const folded = () => false; /* no folded text here (LLP 1007.001) */ const viewBox = ${viewBox}; const layoutBoxes = ${layoutBoxes};\n` + ['let gpuLoading', 'const POST_BOUND', 'let frameSampler', 'const followOffset', 'const shownValue'].map(head => source.match(new RegExp(`^${head} = .*$`, 'm'))[0]).join('\n') + '\n' + ['nodeDetail', 'agentInputReady', 'agent', 'agentNow', 'agentReply', 'settleGpu', 'gpuPendingReply', 'agentSettled', 'tagged', 'clock', 'startClock', 'mutate', 'boot', 'bootNow'].map(declaration).join('\n') + '\n' + publicObject, context);
   context.reportPlace = placeReporter(new URLSearchParams(agentMode ? 'agent=1' : ''), context);
   context.reportTime = timeReporter(new URLSearchParams(agentMode ? 'agent=1' : ''), context);
   return context;
@@ -731,7 +707,10 @@ function inputFixture() {
     removeEventListener(kind, fn) { windowListeners.set(kind, (windowListeners.get(kind) ?? []).filter(g => g !== fn)); },
   });
   const module = readFileSync(new URL('./input-glue.js', import.meta.url), 'utf8');
-  vm.runInContext(module.replace('export function', 'function') + '\n' + declaration('attach'), f);
+  const withoutPrompt = module.replace(/^import\s+["']\.\/prompt-glue\.js["'];[^\n]*\n/m, '');
+  if (withoutPrompt === module) throw new Error('input glue must retain the prompt side-effect import');
+  const tested = withoutPrompt.replaceAll('export function', 'function').replace('export const agentInput', 'const agentInput');
+  vm.runInContext(tested + '\n' + declaration('attach'), f);
   f.attach(el, 7, ['pan']);
   function event(extra = {}) {
     return { isPrimary: true, button: 0, pointerId: 1, clientX: 0, clientY: 0,
@@ -870,7 +849,7 @@ test('a pressable that is no button activates by Enter or Space', () => {
 
 // @ref LLP 1043.000 §3 D7/D8 — optional host code cannot gate data readiness.
 const checkpoint = () => new Promise(resolve => setImmediate(resolve));
-async function startupFixture(rustOnly = false) {
+async function startupFixture(rustOnly = false, served = null) {
   const data = deferred(), input = deferred(), timer = deferred();
   const frames = [], loads = [], errors = [], events = [];
   const exports = { memory: {}, exact_compat: () => '{"inputs":{}}',
@@ -890,7 +869,7 @@ async function startupFixture(rustOnly = false) {
     requestAnimationFrame: fn => frames.push(fn), console: { error: error => errors.push(String(error)) },
     motion: { commit() {} }, collections: { dataReady: () => events.push('collections') },
     applyBatch: () => events.push('batch'), inertAncestor: () => false, editMenu: () => false, focusAutofocus() {},
-    resolveModuleReady: () => events.push('ready'), page: null, pageNative: undefined, log() {}, // the input piece's journal (a cancelled pan's line)
+    resolveModuleReady: () => events.push('ready'), page: served && { holding: true, early: [] }, pageNative: undefined, log() {}, // the input piece's journal (a cancelled pan's line)
     loadAfterPaint(file) {
       loads.push(file);
       if (file === './input-glue.js') return input.promise;
@@ -900,10 +879,13 @@ async function startupFixture(rustOnly = false) {
       throw new Error('unexpected startup module: ' + file);
     },
   });
-  f.exact = {};
-  vm.runInContext([source.match(/^const AGENT_ADMITTED = .*$/m)[0], ...['setInputReady', 'activateData', 'main'].map(declaration)].join('\n')
+  f.exact = served ? { documentPage: { connect: () => ({ started: Promise.resolve(), ...served }) } } : {}; // a served document's capture (document-glue.js)
+  // navigation.js's export, which a context global would confuse with the browser's own `globalThis.navigation`.
+  vm.runInContext([source.match(/^const AGENT_ADMITTED = .*$/m)[0], "const navigation = { activate: () => events.push('navigation') };", ...['setInputReady', 'activateData', 'main'].map(declaration)].join('\n')
     .replaceAll('import.meta.url', '"https://fixture.invalid/glue.js"'), f);
   await f.main();
+  if (served) return { f }; // a served document's first pixel is painted: activation is not a frame away
+  expect(events).toEqual(['boot', 'navigation']); // Adoption activates navigation before optional modules or data.
   expect(loads).toEqual([]); // Neither optional nor app modules run before paint.
   frames.shift()();
   expect(loads).toEqual([]);
@@ -920,7 +902,7 @@ test('pending, failed and invalid optional modules leave Rust and JS apps ready 
     expect(f.root.dataset.moduleReady).toBe('true');
     expect(f.inputReady).toBe(true);
     expect(f.root['aria-busy']).toBe('false');
-    expect(f.events).toEqual(['boot', 'activate', 'batch', 'collections', 'ready']);
+    expect(f.events).toEqual(['boot', 'navigation', 'activate', 'batch', 'collections', 'ready']);
     expect(f.inputHandlers).toBeNull(); // A stalled import has no readiness deadline.
     expect(f.loads.filter(file => file === './input-glue.js')).toHaveLength(1);
     h.timer.reject(new Error('timer unavailable'));
@@ -937,6 +919,17 @@ test('pending, failed and invalid optional modules leave Rust and JS apps ready 
   }
 });
 
+// @ref LLP 1115.002 D4 — a served document is projected only once the target has adopted it.
+test('a served document activates navigation when release has adopted it, not at boot', async () => {
+  const released = [];
+  const { f } = await startupFixture(true, { hold: () => true, release: (...args) => released.push(args) });
+  await checkpoint();
+  expect(f.events).toEqual(['boot', 'activate', 'batch', 'collections', 'ready']); // a composition defers the adoption
+  expect(released).toHaveLength(1);
+  released[0][2]();
+  expect(f.events.at(-1)).toBe('navigation');
+});
+
 test('required app module failure still keeps dispatch gated and settles the error', async () => {
   const h = await startupFixture();
   h.data.reject(new Error('required app unavailable'));
@@ -944,7 +937,7 @@ test('required app module failure still keeps dispatch gated and settles the err
   expect(h.f.inputReady).toBe(false);
   expect(h.f.root.dataset.moduleReady).toBeUndefined();
   expect(h.f.root.dataset.error).toContain('required app unavailable');
-  expect(h.f.events).toEqual(['boot', 'ready']);
+  expect(h.f.events).toEqual(['boot', 'navigation', 'ready']);
   h.input.resolve(() => ({ arrive() {} })); h.timer.resolve(() => ({}));
   await checkpoint();
 });

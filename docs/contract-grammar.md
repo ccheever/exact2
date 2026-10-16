@@ -651,7 +651,7 @@ says. Every roster function has a row and an example, and each example written
 | `searchParam(entry, name)` | String | `searchParam(top(push(nav, "/item/7?tab=notes")), "tab")` is `"notes"` |
 | `t("key", name=value, …)` | Localized string; validates tables/placeholders | `t("greeting", name=user.name)` is the `greeting` string of the app's locale with `{name}` filled |
 | `frame(id)` | `Geometry`, actions only; last layout where the viewer sees it, as `getBoundingClientRect`: in the viewport, every scroll offset and transform applied | `frame("card").height`, in an action, is the card's height as drawn |
-| `measure("id")` | `Geometry`, actions only; literal id, height-auto measurement | `measure("note").height`, in an action, is the note's natural height |
+| `measure("id")` | `Geometry`, actions only; literal id, the border box as if `height` were `auto`, other styles kept (padding, border, `min-height`, `max-height`, insets): 0 for a bare box whose children are all absolutely positioned (a navigation root); `frame` is the laid-out box | `measure("note").height`, in an action, is the note's natural height |
 | `elementFromPoint(x, y)` | `option<string>`, actions only; the `id` of the front-most of `frame`'s boxes at the viewport point, or of its nearest ancestor with one (DOM's `elementFromPoint(x, y)?.closest("[id]")?.id`): ancestors' overflow clips apply, `pointer-events: none` and hidden boxes are passed over | `elementFromPoint(x, y)`, in a pointer action, is `some("card-3")` over that card |
 | `elementsFromPoint(x, y)` | `string[]`, actions only; own ids of every hit box, including hit ancestors, front to back; id-less boxes skipped, with `elementFromPoint`'s clips, transforms and skips | `elementsFromPoint(e.clientX, e.clientY)` sees through an Inspect overlay |
 | `querySelectorAll(selector)` | `string[]`, actions only; only `[data-word~="value"]` for a declared `data-*` word; own ids of mounted, displayed, non-inert matches in tree order, excluding covered routes and unselected tabs; any other dynamic selector gives `[]` | `querySelectorAll("[data-paint~=\"accent\"]")` lists the accent nodes |
@@ -1026,7 +1026,11 @@ offset is over, after its last `scroll`: the finger lifted with nothing thrown,
 the momentum or a smooth scroll stopped, or (a jump, a mouse wheel's notches)
 the offset still for 100 ms on Apple's hosts. It takes no payload. An app that
 needs to know a fling has stopped hears it, instead of restarting a timer on
-every `scroll`. Not yet on the Linux and Android host.
+every `scroll`. Linux and the shared Android Presenter complete notches and
+instant jumps at the next delivery point; reader samples use 100 ms quiet.
+Delivery uses the existing host clock after its runner work, so a late wake may
+run a later timer first. Android device qualification remains open (LLP 1005,
+“Linux, first step”).
 
 `intersect=action` offers an optional final `IntersectionObserverEntry` after
 any authored arguments. The record contains `isIntersecting: bool` and

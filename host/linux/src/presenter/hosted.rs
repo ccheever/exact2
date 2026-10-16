@@ -612,7 +612,7 @@ impl<D: DataSource> Presenter<D> {
             eprintln!("exact: {e}");
         }
         if let Some(next) = next {
-            self.keep_in_view(next);
+            self.keep_in_view(next, reveal::Cause::FieldNavigation);
         }
         self.queue_collections();
     }

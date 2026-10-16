@@ -179,6 +179,9 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
     /// for the sheet and comes back, hidden, when the sheet has gone.
     func show(_ dialog: NodeView, from source: NodeView?, over owner: UIViewController) -> Bool {
         guard let presenter, !owns(dialog), live(dialog), dialog.superview != nil else { return false }
+        // Laid out first: a closed dialog has no box (`MenuHost.layOut`).
+        presenter.menus.layOut(dialog)
+        guard live(dialog), dialog.superview != nil else { return false }
         // The focus moves into the dialog, as `showModal()` moves it: a field
         // editing on the page ends its editing, and takes it back at the close.
         let previous: UIView? = presenter.focusedNode.map { $0.textArea ?? $0.field ?? $0 }
@@ -260,6 +263,7 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
     private func ended(_ entry: Entry, cancelled: Bool) {
         guard let at = entries.firstIndex(where: { $0 === entry }) else { return }
         entries.remove(at: at)
+        presenter?.menus.coverClosed()
         let dialog = entry.dialog
         dialog.accessibilityViewIsModal = false
         entry.under?.accessibilityElementsHidden = entry.underHidden

@@ -18,6 +18,9 @@ import ExactMediaPicker
 #if EXACT_LINK_AUTH_SESSION
 import ExactAuthSession
 #endif
+#if EXACT_LINK_NUMERALS
+import ExactNumerals
+#endif
 import ExactUpdates
 public enum ExactComposition {
     public static let app: ExactApp = {
@@ -40,6 +43,9 @@ public enum ExactComposition {
         #endif
         #if EXACT_LINK_AUTH_SESSION
         ExactAuthSession.install()
+        #endif
+        #if EXACT_LINK_NUMERALS
+        ExactNumerals.install()
         #endif
         let app = ExactApp.shared
         ExactUpdates.install(on: app)

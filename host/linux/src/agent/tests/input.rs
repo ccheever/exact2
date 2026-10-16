@@ -798,3 +798,43 @@ fn media_seek_time_is_malformed_before_ownership_is_checked() {
         assert!(reply.get("malformed").is_none(), "{reply}");
     }
 }
+
+#[test]
+fn into_alignment_is_malformed_before_any_delivery() {
+    // A pressable button: a bad alignment on it is refused, never pressed.
+    let plan = contract::compile(
+        "component App\n  state n = 0\n  action go\n    n = n + 1\n  view\n    button press=go testId=\"go\"\n      text \"ready\"\n",
+    )
+    .unwrap();
+    let (mut p, boot_error) = Presenter::boot_with(
+        &plan.encode(),
+        (),
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(boot_error.is_none(), "{boot_error:?}");
+    for axis in ["block", "inline"] {
+        for alignment in ["banana", "Start", "toString", ""] {
+            for id in [1, 2, 3, 999] {
+                let mut request =
+                    serde_json::json!({"op": "tap", "id": id, "into": {"key": "row"}});
+                request["into"][axis] = alignment.into();
+                let reply: serde_json::Value =
+                    serde_json::from_str(&handle(&mut p, &request.to_string())).unwrap();
+                assert_eq!(
+                    reply,
+                    serde_json::json!({
+                        "error": format!("no alignment {alignment}: start, center, end or nearest"),
+                        "malformed": true
+                    })
+                );
+            }
+        }
+    }
+    let state: serde_json::Value =
+        serde_json::from_str(&handle(&mut p, r#"{"op":"state"}"#)).unwrap();
+    assert_eq!(state["slots"]["n"], 0, "{state}");
+}

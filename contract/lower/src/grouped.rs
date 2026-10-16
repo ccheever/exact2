@@ -15,6 +15,8 @@
 //! most 704 points wide). What stays written here is the sheet's structure:
 //! which box is a flex row, which part grows, a separator's overlap.
 
+mod messages;
+
 use crate::{err, LowerError};
 use contract_syntax::{Attr, Expr, Node, Span};
 
@@ -373,31 +375,6 @@ fn stray_label(node: &Node) -> Option<Stray> {
     }
 }
 
-/// LLP 1116.014 D1: the edit that puts a `header` or `footer` where UIKit
-/// draws one. Its words may change (`text (on ? "A" : "B")`); what comes and
-/// goes is a section, since a `header` holds one `text` and nothing else.
-fn stray_message(stray: &Stray) -> String {
-    let (tag, place) = (
-        &stray.tag,
-        if stray.tag == "header" {
-            "first"
-        } else {
-            "last"
-        },
-    );
-    match stray.flow {
-        None => format!(
-            "move `{tag}` to the section's {place} line: a section's `header` comes first and its `footer` last"
-        ),
-        Some("for") => format!(
-            "move `{tag}` to the section's {place} line, outside `for`: a section has one `{tag}`"
-        ),
-        Some(flow) => format!(
-            "move `{tag}` to the section's {place} line, outside `{flow}`: a {tag} that changes is `text (cond ? \"A\" : \"B\")` in it, and one that comes and goes means two `section`s under `{flow}`"
-        ),
-    }
-}
-
 fn section(style: &'static str, node: &Node, first: bool) -> Result<Node, LowerError> {
     let Node::Element {
         tag,
@@ -433,7 +410,11 @@ fn section(style: &'static str, node: &Node, first: bool) -> Result<Node, LowerE
     }
     let rows = &children[head..children.len() - tail];
     if let Some(stray) = rows.iter().find_map(stray_label) {
-        return err("lower-grouped-list", stray_message(&stray), stray.span);
+        return err(
+            "lower-grouped-list",
+            messages::stray_message(&stray),
+            stray.span,
+        );
     }
     // UIKit draws a header or footer as one text.
     for label in children[..head]
@@ -448,11 +429,8 @@ fn section(style: &'static str, node: &Node, first: bool) -> Result<Node, LowerE
         } = label
         {
             if !matches!(children.as_slice(), [only] if is(only, "text")) {
-                return err(
-                    "lower-grouped-list",
-                    format!("a section's `{tag}` holds one `text`, the words UIKit draws there"),
-                    *span,
-                );
+                let message = messages::label(tag, children);
+                return err("lower-grouped-list", message, *span);
             }
         }
     }

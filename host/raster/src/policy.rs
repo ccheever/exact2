@@ -422,7 +422,17 @@ impl Gate {
     /// arrives as [`RasterSession::wake`], looks for it at once rather than at
     /// the timeout.
     pub fn wait_work(&self, timeout: Duration) -> Option<DecodePermit> {
-        let observed = *self.inner.wake.sequence.lock().unwrap();
+        self.wait_work_since(self.wake_sequence(), timeout)
+    }
+    /// The wakes so far, for [`Gate::wait_work_since`].
+    pub fn wake_sequence(&self) -> u64 {
+        *self.inner.wake.sequence.lock().unwrap()
+    }
+    /// [`Gate::wait_work`] counting wakes from `observed`, a
+    /// [`Gate::wake_sequence`] read before the worker looked for work the
+    /// gate does not hold (a source's header): one that came while it looked
+    /// returns at once instead of at the timeout.
+    pub fn wait_work_since(&self, observed: u64, timeout: Duration) -> Option<DecodePermit> {
         if let Some(permit) = self.next_decode() {
             return Some(permit);
         }

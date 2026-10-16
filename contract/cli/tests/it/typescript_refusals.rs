@@ -92,7 +92,7 @@ fn each_refused_form_names_an_edit_that_compiles() {
         (
             "xs.sort((p, q) => p - q)",
             "syntax-method-call",
-            "compute it in the data source",
+            "name the order where the view reads it",
             "xs",
         ),
         (

@@ -1,6 +1,8 @@
-//! LLP 1075.003 §9.11: `navigationDetent` takes UIKit's named detents, CSS's
-//! `fit-content` and positive point heights, space-separated; a literal with
-//! any other word is refused, and `fit-content` goes alone or before `large`.
+//! LLP 1075.003 §9.11, §9.13: `navigationDetent` takes UIKit's named
+//! detents, CSS's `fit-content`, positive point heights and percentages of
+//! the sheet's maximum, space-separated; a literal with any other word is
+//! refused, `fit-content` goes alone or before `large`, and the others
+//! ascend on every screen.
 
 #[test]
 fn the_detent_words_lower_and_others_are_refused() {
@@ -17,8 +19,38 @@ fn the_detent_words_lower_and_others_are_refused() {
         "fit-content",
         "fit-content large",
         "128.5",
+        "45%",
+        "45% large",
+        "33.3% 66.6% large",
+        "100%",
+        "300 500 large",
+        "45% medium large",
+        "45% 100%",
     ] {
         compile(value).unwrap_or_else(|e| panic!("{value:?}: {e}"));
+    }
+    // UIKit takes detents shortest to tallest. A point height and a share of
+    // the maximum cross on some screen (300 is above 45% of 600, below 45%
+    // of 800), so they do not mix; one kind ascends, and `large` goes last.
+    for (value, word) in [
+        ("300 45% large", "45%"),
+        ("medium 300", "300"),
+        ("500 300", "300"),
+        ("60% medium", "medium"),
+        ("50% medium", "medium"),
+        ("large medium", "medium"),
+        ("large 300", "300"),
+        // `100%` is `large`: the same height, so one of them.
+        ("100% large", "large"),
+        ("45% 100% large", "large"),
+    ] {
+        let error = compile(value).unwrap_err().to_string();
+        assert!(
+            error.contains("lower-attr-value")
+                && error.contains(&format!("given \"{word}\" in \"{value}\""))
+                && error.contains("shortest to tallest on every screen"),
+            "{value}: {error}"
+        );
     }
     for (value, word) in [
         ("content", "content"),
@@ -26,6 +58,14 @@ fn the_detent_words_lower_and_others_are_refused() {
         ("0", "0"),
         ("-40", "-40"),
         ("300px", "300px"),
+        ("NaN", "NaN"),
+        ("inf", "inf"),
+        ("0%", "0%"),
+        ("-45%", "-45%"),
+        ("150%", "150%"),
+        ("%", "%"),
+        ("NaN%", "NaN%"),
+        ("45 %", "%"),
         ("fit-content 300", "fit-content 300"),
         ("300 fit-content", "300 fit-content"),
         ("fit-content medium", "fit-content medium"),

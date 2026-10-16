@@ -165,16 +165,6 @@ extension NodeView {
         guard let presenter, let row = presenter.keyTarget(window?.firstResponder), row.isMenuItem, row.owningMenu === self else { return nil }
         return row
     }
-    /// Inside a popover: AppKit's `NSPopover` says nothing of itself as it
-    /// opens, only the focus change for its first responder.
-    var inPopover: Bool {
-        var next: NSView? = self
-        while let view = next {
-            if (view as? NodeView)?.props["popover"] != nil { return true }
-            next = presenter?.menus.parent(of: view) ?? view.superview
-        }
-        return false
-    }
     #endif
     /// How a live region speaks: its `aria-live`, else its role's; nil when
     /// `off` or neither.
@@ -406,7 +396,7 @@ extension NodeView {
     /// answers (`contextTarget`; the event bubbles), at this one's drawn middle.
     package override func accessibilityPerformShowMenu() -> Bool {
         guard let target = showMenuTarget, let presenter, let point = presenter.contextPoint(self) else { return false }
-        return presenter.contextMenu(target, at: point)
+        return presenter.contextMenu(target, at: point, from: self)
     }
     /// AppKit offers every action whose method the class implements; show
     /// menu only where something answers it, as AppKit offers it only on a
@@ -427,8 +417,8 @@ extension NodeView {
         return menu.focusedMenuRow === self
     }
     private var showMenuTarget: NodeView? {
-        guard let presenter, presenter.views[id] === self, !disabled, !inert, field == nil, textArea == nil,
-              let target = presenter.contextTarget(self), !target.disabled, !target.inert else { return nil }
+        guard let presenter, presenter.views[id] === self, !formDisabled, !inert, field == nil, textArea == nil,
+              let target = presenter.contextTarget(self), !target.formDisabled, !target.authoredInert else { return nil }
         return target
     }
     /// The host's own record of the flag, for code that serves an
@@ -702,10 +692,10 @@ extension Presenter {
     /// whose field or row is the first responder; none posts a layout
     /// change). A changed modal also posts its one layout change
     /// (LLP 1080.003 D3), naming the same element: the focus when it is in
-    /// the modal, else the modal; as a modal goes, the focus given back, or
-    /// the trigger of a popover that closed with the focus where it was,
-    /// which VoiceOver returns to from an `NSMenu` while the focus stays
-    /// put. The focus change is the host's only when AppKit did not post
+    /// the modal (posted on the modal), else the modal; as a modal goes,
+    /// the focus given back, or the trigger of a popover that closed with
+    /// the focus where it was, which VoiceOver returns to from an `NSMenu`
+    /// while the focus stays put. The focus change is the host's only when AppKit did not post
     /// it: AppKit posts one as a view becomes the first responder of the
     /// active application's key window (measured), and a second for the
     /// same element is not AppKit's. A dialog drawn in the page is then
@@ -732,21 +722,36 @@ extension Presenter {
                viewport.window.flatMap(menus.focusOwner) === invokerFocus,
                modal.map({ menus.contains($0, invoker) }) ?? true { trigger = keyView(of: invoker) }
             let target = trigger ?? modal.map(modalLanding) ?? focus
-            NSAccessibility.post(element: viewport, notification: .layoutChanged, userInfo: target.map { [.uiElements: [$0]] })
+            // The focus in the modal is posted from the modal. Posted on the
+            // page's scroll view, VoiceOver went to that view's child holding
+            // the element, the modal, whenever the modal had just hidden the
+            // trigger its cursor was on (VO-Space): it said "<name>, dialog"
+            // and never the field that had the focus (measured).
+            let changed: NSView = (trigger == nil && focus != nil && target === focus ? modal : nil) ?? viewport
+            NSAccessibility.post(element: changed, notification: .layoutChanged, userInfo: target.map { [.uiElements: [$0]] })
             if let focus, target === focus, !toldByAppKit { NSAccessibility.post(element: focus, notification: .focusedUIElementChanged) }
             nameDialog(modal, landedOn: target)
         } else if focusReturns, let focus, !toldByAppKit {
             NSAccessibility.post(element: focus, notification: .focusedUIElementChanged)
         }
     }
+    /// How long after the landing a dialog drawn in the page is named.
+    static let dialogNameDelay: TimeInterval = 0.5
     /// A dialog drawn in the page that became the modal is named after the
     /// focus in it is told: VoiceOver reads a sheet's or a panel's title as
     /// it appears and an `NSAlert`'s title and message, but a group in the
     /// page has no window to be read by. The words are queued at low
     /// priority, as a polite live region's are, so they follow the focused
-    /// control's and do not cut it off. A dialog VoiceOver landed on itself
-    /// is read there; a sheet is AppKit's to read; a dialog in a popover is
-    /// not named, as `NSPopover` is not. It is named once while it stays up:
+    /// control's and do not cut it off, a moment after the landing:
+    /// VoiceOver drops words that arrive before it has moved to a text
+    /// field it was sent to from a trigger the modal hid (VO-Space on the
+    /// font picker's trigger, measured: none of five read at once, the
+    /// field and then the name read 0.3 s later). One that is no longer the
+    /// modal by then is not named. A dialog VoiceOver landed on itself
+    /// is read there; a sheet is AppKit's to read, and so is AppKit's
+    /// popover: VoiceOver says "In <name>, dialog" as the focus enters one
+    /// (measured), where a popover painted in the page is named here. It is
+    /// named once while it stays up:
     /// one handed the modal back by a dialog closed over it is not named
     /// again, as an AppKit sheet is not when its child sheet ends.
     private func nameDialog(_ modal: NodeView?, landedOn target: NSView?) {
@@ -755,11 +760,14 @@ extension Presenter {
                 || (dialog.props["accessibilityModal"] != "true" && dialogs.active !== dialog)
         }
         guard let modal, ["AXApplicationDialog", "AXApplicationAlertDialog"].contains(modal.groupSubrole ?? ""),
-              modal.window?.isSheet != true, !modal.inPopover, !landing.namedDialogs.contains(where: { $0 === modal }) else { return }
+              modal.window?.isSheet != true, !(modal.window.map(menus.hosts) ?? false), !landing.namedDialogs.contains(where: { $0 === modal }) else { return }
         landing.namedDialogs.append(modal)
         guard target !== modal, let words = modal.dialogWords else { return }
-        NSAccessibility.post(element: modal, notification: .announcementRequested,
-            userInfo: [.announcement: words, .priority: NSAccessibilityPriorityLevel.low.rawValue])
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.dialogNameDelay) { [weak self, weak modal] in
+            guard let self, let modal, macAccessibilityModal === modal else { return }
+            NSAccessibility.post(element: modal, notification: .announcementRequested,
+                userInfo: [.announcement: words, .priority: NSAccessibilityPriorityLevel.low.rawValue])
+        }
     }
     /// Where VoiceOver goes as a modal arrives: the keyboard focus when it
     /// is in the modal (a field it autofocused, the button `focus()` named),

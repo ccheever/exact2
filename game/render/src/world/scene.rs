@@ -50,9 +50,12 @@ pub(crate) fn drawn(w: &World, e: Entity) -> Option<glam::Affine3A> {
     Some(global)
 }
 pub(crate) fn pose(w: &World, e: Entity) -> Option<Transform> {
-    let global = drawn(w, e)?;
+    drawn(w, e).map(decompose)
+}
+// Shared by direct reads and feed rows that already know no offsets exist.
+pub(super) fn decompose(global: glam::Affine3A) -> Transform {
     let (scale, rotation, position) = global.to_scale_rotation_translation();
-    Some(Transform {
+    Transform {
         position,
         rotation: glam::Quat::from_vec4(
             glam::Vec4::from_array(rotation.to_array())
@@ -60,7 +63,7 @@ pub(crate) fn pose(w: &World, e: Entity) -> Option<Transform> {
                 .unwrap_or(glam::Vec4::W),
         ),
         scale,
-    })
+    }
 }
 // Bounded even if tools edit a cycle before propagation.
 pub(crate) fn snap(w: &World, mut e: Entity, parent_changed: bool) -> bool {

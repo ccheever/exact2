@@ -554,7 +554,8 @@ function watchModuleSources(directory, ignore, changed) {
             continue;
           }
           if (stat.isDirectory()) { walk(path,name+'/',depth+1); continue; }
-          if (!/\.(ts|contract|json)$/.test(name)) continue;
+          // A design (`.tamber`) is a source: a value-only edit goes as a batch (LLP 1121 stage 4).
+          if (!/\.(ts|contract|json|tamber)$/.test(name)) continue;
           if (!stat.isFile()) { state.push([name,'not-regular']); continue; }
           bytes += Number(stat.size);
           if (stat.size > 16n*1024n*1024n || bytes > 64*1024*1024 || next.size >= 2048) throw new Error('module watcher source graph exceeds its file/byte budget');
@@ -869,9 +870,10 @@ function startRustCompiler() {
   });
   produceRust();
 }
-// App-relative names the Rust source watcher leaves to other producers.
+// App-relative names the Rust source watcher leaves to other producers (a
+// design edit is the TypeScript producer's, as a batch or a generation).
 const rustWatchIgnores = name => skipped.test(name) || /(^|\/)\./.test(name)
-  || /\.(ts|json)$/.test(name) || gpuOnly([resolve(app.dir, name)])
+  || /\.(ts|json|tamber)$/.test(name) || gpuOnly([resolve(app.dir, name)])
   || assetTrees.some(([tree]) => resolve(app.dir,name).startsWith(tree+'/'));
 const killCompiler = () => {
   const gpuChild = gpuBuildChild; gpuBuildChild = null;
@@ -1092,7 +1094,9 @@ function watchCompilerInputs() {
       if (!compilerInputFiles.has(path) && !compilerInputTrees.some(tree=>path===tree||path.startsWith(tree+'/'))
         && !compilerMissingInputs.some(missing=>path===missing||missing.startsWith(path+'/'))
         && !(name.endsWith('.swift') && swiftSourceDirectories.has(dir))) return;
-      if (typescript && resolve(dir, name).startsWith(app.dir + '/') && /\.(ts|contract)$/.test(name)) return;
+      // The TypeScript producer takes the app's sources and its design (a
+      // value-only design edit is a batch, never a host rebuild).
+      if (typescript && resolve(dir, name).startsWith(app.dir + '/') && /\.(ts|contract|tamber)$/.test(name)) return;
       if (portableRust && rustInputFiles.has(path)) {
         // A Contract source the Rust source watcher sees has already started
         // its build (that watcher tracks .contract names, never .rs).

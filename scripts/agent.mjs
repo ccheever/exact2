@@ -9,7 +9,7 @@
 //   the other engines with: bunx playwright@1.63.0 install firefox webkit
 //   tree | layout | state | logs | check [light|dark|both] | screenshot <png> [window] | screenshot <png|apng> over <ms> every <ms> | screenshot <path> <canvas> save
 //   tap <target> [at <x> <y> (a press at a point; plain, it presses what it names) | wheel <dx> <dy> [gesture] [at <x> <y>] [modifiers <Control…>] | drop <path…> | into <key> [block <v>] [inline <v>] | hover | history <n> | {"history":n} | mouse | dblclick | contextmenu | auxclick | clicks <1-3> (each [at <x> <y>] [modifiers <Shift+Meta…>]) | modifiers <Shift+Meta…> | pinch <scale> [at <x> <y>] | mediasession <action> [seconds] | drag <dx> <dy> [from <x> <y>] [mouse] [modifiers <M>] [press <ms>] [over <ms>] [hold <ms>] [during "<op>" …, inside the hold under --touch platform] | drag to <target> [at <x> <y>] […]] | type <target> <text…> | type <target> key <Name> | type <target> copy|cut|paste <text…>
-//   tap <target> down [at <x> <y>] [modifiers <M>] · tap move [by] <x> <y> [over <ms>] [modifiers <M>] · tap hold <ms> · tap up [modifiers <M>] · tap cancel   (a held contact, LLP 1035.003 D1; its modifiers held until another names others)
+//   tap <target> down [at <x> <y>] [modifiers <M>] · tap move [by] <x> <y> [over <ms>] [modifiers <M>] · tap hold <ms> · tap up [modifiers <M>] · tap cancel   (a held contact, LLP 1035.003 D1; its modifiers held until another names others; a hold moves the app's clock by <ms>; a plain tap is pointerdown, pointerup, then the press)
 //   A word a form does not use is refused by name; a form a carrier cannot deliver as a hand's answers `delivery: "unsupported"` (#107).
 //   tap @N <choice> | type @N <value>   (a held device request, by ticket: LLP 1069.007 D4)
 //   tap @<id> <choice> | type @<id> <value>   (by the node it answers at, or its capability: files F11)
@@ -19,7 +19,7 @@
 // naming them; `tap "Sky off"` quotes several words); each op is one argument (quote it).
 // `tap … wheel <dx> <dy> gesture` sends the wheel as a trackpad's gesture —
 // began, changed, and the zero-delta lift that ends it (LLP 1033 D4a, macOS
-// only); `tap … hover` moves the pointer onto the target (LLP 1005 §3). --device: build/install first with build.mjs --device; no Mac-local plan/assets paths.
+// only). Linux scrollers with a `scrollend` handler instead receive a reader sample with a 100 ms quiet deadline. `tap … hover` moves the pointer onto the target (LLP 1005 §3). --device: build/install first with build.mjs --device; no Mac-local plan/assets paths.
 import { Cdp, browserDiagnosticNoise, launchLog, launchFailure, drivePagePort, webPort, closePage, backLayer, cdpEscape, exclusiveIOS, copyCdpFailureContext, chromium, closeWindowsBrowser, retainCleanupError, removeBrowserProfile, driveStore, traceLocators, parseFlags, launchFacts, listenOn, launchEnvironment, withEpoch, withFaults, refuseStale, unchecked, depInfoChanges, packagedBuildChanges, webChanges, bakedPlans, parityScript, netFlags } from './agent-launch.mjs';
 export { Cdp } from './agent-launch.mjs';
 import { sourceMapReaders, identifyInspectedNode, identifyLayoutNodes, withRegions, render, perfOp, partTap, readTrace, renderTrace, layoutArgs, tapRefusal, worldView, phoneTrace, stateOp, WORLD_LIMIT, worldFile, scaledScreenshot, FILM_FRAMES, FILM_PIXELS } from './agent-inspect.mjs';
@@ -41,7 +41,7 @@ import { openTouches, realTap } from '../host/apple/touches.mjs';
 import { pageAim, namedRefusal } from './agent-aim.mjs'; import { checkOp } from './agent-check.mjs';
 import { dragArguments, dragTap, duringAllowed, duringOp } from './agent-drag.mjs';
 import { driveNotes, runTests, nodeNamed, targetsIn, refuseDisabled } from './agent-test.mjs';
-import { MalformedOperation, operationReply, inputJSON, keyArguments, validateKey, pinchArguments, pointerArguments, resizeArguments, cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, withHeldModifiers, pasteChord, deliverClipboard, tapWords, pointerGap, chordModifiers, withChordModifiers, heldForClick } from './agent-keys.mjs';
+import { MalformedOperation, operationReply, inputJSON, keyArguments, validateKey, pinchArguments, intoArguments, pointerArguments, resizeArguments, cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, withHeldModifiers, pasteChord, deliverClipboard, tapWords, pointerGap, chordModifiers, withChordModifiers, heldForClick } from './agent-keys.mjs';
 export { MalformedOperation, resizeArguments, cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, pasteChord, deliverClipboard, tapWords, pointerGap } from './agent-keys.mjs';
 import { appleRunBinary, appleArtifacts, assertAppleIdentity, bundleId, install } from '../host/apple/build.mjs';
 import { crashReports, developmentLaunchEnvironment, phone, phoneBridge, showSimulator, simulator, withKeyboard } from '../host/apple/devices.mjs';
@@ -774,7 +774,8 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
         const guest = { selector: opts.selector, x: opts.x, y: opts.y, entity: opts.entity, world: opts.world, under: opts.under, phase: opts.phase };
         if (['down', 'move', 'hold', 'up', 'cancel'].includes(kind)) {
           if (kind === 'down' || canvasContact) {
-            const r = await ask({ op: 'tap', phase: kind, ...(id != null ? { id } : {}), x: opts.x, y: opts.y, dx: opts.dx, dy: opts.dy, ms: opts.ms });
+            // `pan`: a pan's or a canvas's contact alone, for a drag and under real touches (no recognized finger among real ones).
+            const r = await ask({ op: 'tap', phase: kind, ...(id != null ? { id } : {}), x: opts.x, y: opts.y, dx: opts.dx, dy: opts.dy, ms: opts.ms, ...(opts.virtual ? { virtual: true } : {}), ...(opts.pan || touch !== 'agent' ? { pan: true } : {}) });
             if (r.error) throw new Error(r.error);
             if (r.delivery !== 'unsupported' || canvasContact) {
               canvasContact = !['up', 'cancel'].includes(kind);
@@ -815,7 +816,6 @@ const CLOCK_STEP_MS = 1000, CLOCK_BUDGET_MS = 3000, CLOCK_SPAN_MS = 600_000, REA
 /** `fail fetch <url-prefix> [times <n>]` and `pass fetch <url-prefix>` as the `prefer` request with `faults` every carrier answers (LLP 1103 D3): the network is the environment, so this is a form of `prefer`, not another operation (LLP 1012 §1). */
 export { faultRequest } from './agent-prefer.mjs';
 export const clockSpan = (span, elapsedMs) => Math.max(CLOCK_STEP_MS, Math.min(span * 4, CLOCK_SPAN_MS, span * CLOCK_BUDGET_MS / Math.max(1, elapsedMs)));
-// ---------------------------------------------------------------- the eight operations
 /** Open a session on `host` ('web' | 'macos' | 'ios' | 'linux'); `url` opens
  * the same app address on each host; `plan` boots a local compiled contract;
  * `env` adds to a native host's environment. @ref LLP 1030.000 §7 */
@@ -974,10 +974,10 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       identifyLayoutNodes(l, t, mapped ? sourceMaps : null); withRegions(l.env);
       return l;
     },
-    async target(target) {
+    async target(target, withHandlers = false) {
       const text = String(target), colon = text.indexOf(':'), nodes = (await s.op({ op: 'tree' })).nodes; // one tree for every try
       const node = await s.find(target, false, false, nodes);
-      if (node) return { id: node.id };
+      if (node) return { id: node.id, ...(withHandlers ? { handlers: node.handlers } : {}) };
       const owner = colon < 0 ? null : await s.find(text.slice(0, colon), false, false, nodes); // an entity before a label holding a colon
       return owner ? { id: owner.id, entity: text.slice(colon + 1) } : { id: (await s.find(target, true, true, nodes)).id };
     },
@@ -1003,9 +1003,9 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
      * and how each form is delivered — `platform` (a real input event through the platform's own path),
      * `recognized` (an already-recognized event injected), `activation` (a hit-test and a direct call),
      * `presenter` (seekable native recognition without OS input injection), or `unsupported`. iOS activates and
-     * injects; it synthesizes no touch (LLP 1008 §9). */
+     * injects; it synthesizes no touch (LLP 1008 §9), so its held contact is recognized (AgentPanIOS.swift). */
     input: host === 'ios' || host === 'host-ios'
-      ? { contact: false, hold: false, delivery: (kind) => (['contextmenu', 'dblclick', 'hover', 'pinch'].includes(kind) ? 'recognized' : ['down', 'move', 'hold', 'up', 'cancel'].includes(kind) ? 'unsupported' : (kind === 'drag' && carrier.touches || kind === 'press' && carrier.touch === 'platform') ? 'platform' : kind === 'drag' ? 'unsupported' : 'activation') }
+      ? { contact: true, hold: true, delivery: (kind) => (['contextmenu', 'dblclick', 'hover', 'pinch', 'down', 'move', 'hold', 'up', 'cancel'].includes(kind) ? 'recognized' : (kind === 'drag' && carrier.touches || kind === 'press' && carrier.touch === 'platform') ? 'platform' : kind === 'drag' ? 'unsupported' : 'activation') }
       : host === 'linux' || host === 'windows' || host === 'android'
         ? { contact: true, hold: true, delivery: (kind) => (['down', 'move', 'hold', 'up', 'cancel', 'contextmenu', 'mouse'].includes(kind) ? 'presenter' : 'platform') }
         : { contact: true, hold: true, delivery: () => 'platform' },
@@ -1021,6 +1021,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       if (opts.drag) dragArguments(opts.drag);
       if (opts.mouse && ['contextmenu','dblclick','auxclick','clicks','down','drag','wheel','hover','pinch','history','into','gesture'].some(key => opts[key] !== undefined)) throw new MalformedOperation('mouse cannot be combined with another input mode');
       if (opts.pinch !== undefined) pinchArguments(opts.pinch);
+      if (opts.into) intoArguments(opts.into);
       if (opts.seconds != null && !Number.isFinite(opts.seconds)) throw new MalformedOperation('mediasession: expected finite seconds');
       if (opts.mediaSession === 'seekto' && !(Number.isFinite(opts.seconds) && opts.seconds >= 0)) throw new MalformedOperation('mediasession: seekto needs finite nonnegative seconds');
       // The mouse's forms (#107): one button form at a time, each at its middle or `at`, the modifiers held through it.
@@ -1034,7 +1035,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       if (modifiers !== undefined && (opts.hover || opts.history !== undefined || opts.into || opts.drop || opts.pinch !== undefined)) throw new MalformedOperation('modifiers are held through a press, a click, a wheel, a contact or a drag');
       if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`);
       let node, part = await partTap({ s, host, touch }, target, opts); if (part) return part; // `tap <node>/<part>` (agent-inspect.mjs)
-      try { node = await s.target(target); }
+      try { node = await s.target(target, true); }
       catch (error) { throw await tapRefusal(s, target, error); } await refuseDisabled(s, node, target, opts); // a disabled control is refused the same on every host (LLP 1116.010 D3)
       // @ref LLP 1098 D10 — a media element's session action, as the platform's handler: no reveal, no box, never a press.
       if (opts.mediaSession !== undefined) return s.landed({ ...await carrier.input(node.id, 'mediasession', opts), tapped: node.id, target, delivery: 'substituted', carrier: host, mode: timing });
@@ -1059,12 +1060,10 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       }
       // @ref LLP 1038 D11 — no native carrier turns browser history into a press.
       if (opts.history !== undefined && host !== 'web') return s.tagged({ tapped: node.id, target, history: opts.history, delivery: 'unsupported', carrier: host, mode: timing });
-      // A gesture is the platform's, and only the AppKit carrier can phase
-      // one. Refusing beats quietly sending a bare delta: the whole reason
-      // this form exists is that a plain wheel tests a path a finger never
-      // takes, so a driver must never be told it sent a gesture when it did
-      // not (LLP 0382 — fail closed, loudly).
-      if (opts.gesture && !(host === 'macos' || host === 'mac')) throw new Error(`${host} cannot phase a wheel; \`gesture\` is the AppKit carrier's`);
+      // AppKit phases the gesture. Linux's completion fixture supplies a reader
+      // sample only to a scroller that handles scrollend; other carriers refuse.
+      const readerSample = host === 'linux' && node.handlers?.includes('scrollend');
+      if (opts.gesture && !(host === 'macos' || host === 'mac' || readerSample)) throw new Error(`${host} cannot phase a wheel; \`gesture\` is the AppKit carrier's`);
       if ((opts.contextmenu || opts.dblclick) && !['web', 'ios', 'macos', 'mac', ...(opts.dblclick ? [] : ['linux', 'android', 'windows'])].includes(host)) throw new Error(`${host} does not carry contextmenu/dblclick input`);
       if (button.length && s.contact) throw new Error(`${button[0]} requires the held contact to be released`);
       // A form this carrier cannot deliver as a hand's is answered `unsupported`, never sent as another input (#107).
@@ -1098,7 +1097,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       // @ref LLP 1080.000 §11 — one whole gesture: press, one straight drag, hold, lift.
       if (opts.drag) return dragTap({ s, carrier, node, target, host, timing, tapRefusal, scrolled }, opts.drag);
       const kind = opts.history !== undefined ? 'history' : opts.pinch !== undefined ? 'pinch' : opts.down ? 'down' : opts.drop ? 'drop' : opts.wheel ? 'wheel' : opts.hover ? 'hover' : button[0] ?? 'press';
-      if (kind === 'down' && s.contact) throw new Error('a contact is already down; use `tap up` or `tap cancel` first');
+      if ((kind === 'down' || kind === 'press') && s.contact) throw new Error('a contact is already down; use `tap up` or `tap cancel` first'); // one finger at a time
       let at;
       if (kind === 'down' && opts.at) { const b = (await s.layout()).nodes.find((n) => n.id === node.id); if (!b) throw new Error(`view ${node.id} has no box on screen`); at = { x: b.x + opts.at[0], y: b.y + opts.at[1] }; }
       let r;
@@ -1131,6 +1130,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     async pointer(phase, opts = {}) {
       pointerArguments(phase, opts);
       if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`);
+      if (phase === 'hold' && timing !== 'platform' && opts.virtual === undefined) opts = { ...opts, virtual: true }; // the clock's, as a drag's; real time under --timing platform, for UIKit's recognizers
       // Modifiers that a move or an up names are held from that event on (#107), where the carrier can hold them.
       if (opts.modifiers !== undefined) {
         if (!['move', 'up'].includes(phase)) throw new MalformedOperation(`tap ${phase}: modifiers are held through a down, a move or an up`);

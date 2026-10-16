@@ -9,7 +9,7 @@ import AppKit
 /// A development session's presented frames (LLP 1079 D3–D4): a display
 /// link of its own, run only inside active segments. It watches; it never
 /// keeps the session's frame source (`Frames`) running, so the measured app
-/// schedules frames as the shipped one does. A production bake has none.
+/// schedules frames as the shipped one does. A release build has none.
 ///
 /// A segment starts on activity — a batch applied, the session's frame
 /// source running — and ends 500 ms after the last, or when the app leaves
@@ -20,7 +20,12 @@ import AppKit
 final class FrameSampler: NSObject {
     /// Whether this binary measures at all: not a production bake.
     static let measured = !ExactEnv.productionBake
+    /// Whether it measures from boot: a development build, or one the agent
+    /// launched. A release build starts at the first ask (`measurePerf`).
+    static let atBoot = !ExactEnv.releaseBuild || ExactEnv.agentMode
     static let ring = 600, lateKept = 100, quiet = 0.5
+    /// A release build's frames before anything asked for them.
+    static let unmeasured = "a release build measures frames from the first agent request or trace; this is the first"
 
     struct Record {
         let t: Double, interval: Double, missed: Int, seq: (UInt64, UInt64)?, batches: Int, apply: Double
@@ -225,7 +230,12 @@ extension ExactSession {
     /// proxy, as `trace-<wallclock>.json` in the app's temporary directory;
     /// `agent.mjs trace <file>` reads it back. The path, or why not.
     public func saveTrace() -> Result<URL, Error> {
-        guard let sampler else { return .failure(TraceError.production) }
+        guard FrameSampler.measured else { return .failure(TraceError.production) }
+        // A release build's first trace starts its measuring: it has the
+        // journal and the sites' work, and frames and hatch timings empty.
+        defer { measurePerf() }
+        let frames = sampler?.reply(late: FrameSampler.lateKept, all: true)
+            ?? FrameSampler(session: self).reply(late: 0, all: true).merging(["unmeasured": FrameSampler.unmeasured]) { a, _ in a }
         let raw = { (json: String) in (try? JSONSerialization.jsonObject(with: Data(json.utf8))) ?? ["error": "unreadable"] }
         let perf = raw(agent("{\"op\":\"perf\"}"))
         #if canImport(UIKit)
@@ -244,7 +254,7 @@ extension ExactSession {
                         "loaf": "none on this host"],
             "plan": (perf as? [String: Any])?["plan"] ?? NSNull(),
             "journal": raw(agent("{\"op\":\"logs\",\"since\":0}")),
-            "frames": sampler.reply(late: FrameSampler.lateKept, all: true),
+            "frames": frames,
             "perf": perf,
             // The hatches (LLP 1075.003.000.001 §3.3), read in this same turn, so the sections agree.
             "hatches": ["state": presenter.elements.observation(hatchDiagnostics), "perf": hatchPerf()],
@@ -268,6 +278,15 @@ extension ExactSession {
     }
 
     enum TraceError: Error { case production }
+
+    /// Start measuring what `perf` reads, where this binary can and has not
+    /// yet (a release build, LLP 1079): the presented frames and the hatch
+    /// calls' timing. The agent's first request, and Save Trace, ask.
+    func measurePerf() {
+        guard FrameSampler.measured else { return }
+        HatchDiagnostics.measuring = true
+        if sampler == nil { sampler = FrameSampler(session: self) }
+    }
     /// The last saved trace, beside the stamped one (`agent.mjs` reads the name).
     static let latestTrace = "trace-latest.json"
 }

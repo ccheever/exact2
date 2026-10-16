@@ -6,7 +6,7 @@ let managed = new WeakMap(), shown = new WeakMap();
 let written = [], gone = new Set(), cursor = 0, first = null, originIndex = null;
 let echo = null, pop = null, draining = false;
 const queue = [], waiters = new Set();
-let root, navigate, log, hostBack, hostGo;
+let root, navigate, log, hostBack, hostGo, routeMatches = () => false;
 const routesIn = node => [...node.children].filter(r => r.hasAttribute("navigationKey"));
 // @ref LLP 1075.003 §3.7 — tabs name their kept panels with aria-controls; each panel holds a route stack.
 // Attribute and parent walks also work in the server renderer's DOM, which has no selector engine.
@@ -23,22 +23,92 @@ const tabsOf = nav => {
 };
 const panelsOf = nav => tabsOf(nav)[1];
 const stacksOf = nav => { const panels = panelsOf(nav); return panels.length ? panels.map(routesIn) : [nav ? routesIn(nav) : []]; };
-// @ref LLP 1116.004 D1, LLP 1116.007 D3.7 — WIDE projects an unsaid root tablist as a sidebar and a root disclosure
-// list beside its pushed detail, without changing routing or state. Authored arrangements stay; sheets stay sheets.
-// `navigationSplit` opts out ("none") or sets the column width (320 unsaid); the compiler opts out rows that push nowhere.
-const WIDE = "(min-width: 900px)", wide = () => !!globalThis.matchMedia?.(WIDE).matches, splitRoots = new WeakSet(), rowOf = new WeakMap();
+// @ref LLP 1115.002 D4, LLP 1116.004 D1.2 — the shared list/outer-press rule;
+// WIDE is the web's presentation threshold, not a different navigation rule.
+const WIDE = "(min-width: 900px)", wide = () => !!globalThis.matchMedia?.(WIDE).matches;
+let splitLists = new WeakMap(), rowOf = new WeakMap(), actionRows = new WeakMap(), visits = new Map();
+const activationRequired = new WeakSet(), activated = new WeakSet();
 const sheet = route => ["modal", "fullscreen"].includes(route?.getAttribute("navigationPresentation"));
-const DISCLOSURE = ':is(button, a[href], [data-exact-on~="press"]) img:is([data-symbol-source="symbol:forward-chevron"], [data-symbol-source="symbol:sf/chevron.forward"], [data-symbol-source="symbol:sf/chevron.right"])';
-let pressedRow = null; // [the row a press reached in a list column, when, the location then]
+let pressedRow = null, pendingRow = null;
+const excluded = el => el.hasAttribute("popover") || el.hasAttribute("data-exiting") || getComputedStyle(el).display === "none";
+const rowPress = el => el.getAttribute("data-exact-router-press");
+const rowHref = el => el.getAttribute("href") || null;
+const linked = href => href?.startsWith("/") && !href.startsWith("//") && routeMatches(href);
+/** Outermost press owners; unlike candidate discovery, this walk crosses a navigationKey. */
+function listRows(list) {
+  const rows = [], walk = parent => {
+    for (const el of parent.children) {
+      if (excluded(el)) continue;
+      const press = rowPress(el), href = rowHref(el);
+      if (press !== null || href) rows.push({ el, press, href });
+      else walk(el);
+    }
+  };
+  walk(list); return rows;
+}
+function pushingList(route) {
+  const retained = splitLists.get(route), stack = [...route.children].reverse();
+  let empty = null;
+  while (stack.length) {
+    const el = stack.pop();
+    if (el.hasAttribute("navigationKey") || excluded(el)) continue;
+    const style = getComputedStyle(el), sideways = /flex/.test(style.display) && style.flexDirection.startsWith("row")
+      || Number(el.getAttribute("data-exact-estimated-item-width")) > 0;
+    if (el.hasAttribute("data-exact-list") && !sideways) {
+      const rows = listRows(el), found = { list: el, rows };
+      if (rows.some(r => r.press === "true" || r.press === null && linked(r.href))) return found;
+      if (el === retained && !rows.length) empty = found;
+      continue; // An admitted list owns its row scan, including nested lists.
+    }
+    stack.push(...[...el.children].reverse());
+  }
+  return empty;
+}
+/** Recheck authored admission even while narrow. Projection's visibility/inert never opt a list out. */
+function splitOf([route]) {
+  // A rendered document has route and handler facts but no browser layout.
+  if (typeof globalThis.getComputedStyle !== "function" || typeof globalThis.matchMedia !== "function") {
+    if (route) splitLists.delete(route);
+    return { width: 0, list: null, rows: [] };
+  }
+  const said = route?.getAttribute("navigationSplit"), explicit = Number(said);
+  const found = route && said !== "none" && !sheet(route) ? pushingList(route) : null;
+  const width = route && said !== "none" && !sheet(route) && wide() && /^(absolute|fixed)$/.test(getComputedStyle(route).position)
+    ? Number.isFinite(explicit) && explicit > 0 ? explicit : found ? 320 : 0 : 0;
+  if (route) { if (found && (width || splitLists.has(route))) splitLists.set(route, found.list); else splitLists.delete(route); }
+  return { width, list: found?.list, rows: found?.rows ?? [] };
+}
+function captureRow(event) {
+  pressedRow = null;
+  if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  const route = event.target.closest?.('[data-exact-split="list"]'), list = route && splitLists.get(route);
+  if (!list || !root.contains(route)) return;
+  let owner = event.target;
+  while (owner && owner !== list && rowPress(owner) === null && !rowHref(owner)) owner = owner.parentElement;
+  if (owner?.matches("a[href]") && (owner.target && owner.target !== "_self" || owner.hasAttribute("download"))) return;
+  if (listRows(list).some(r => r.el === owner && r.press === "true")) {
+    const candidate = pressedRow = { row: owner, list, route, from: last?.url, event };
+    // Qualification below reads the dispatch itself. This timer only releases the
+    // retained Event after the dispatch; it does not extend row ownership.
+    setTimeout(() => { if (pressedRow === candidate) pressedRow = null; }, 0);
+  }
+}
+/** Href rows restore from retained visits. Action-only rows remember a router change made inside a normal click dispatch. */
+function detailRows(routes, found) {
+  for (const route of routes.slice(1)) {
+    const id = route.getAttribute("navigationKey"), url = visits.get(id);
+    let action = actionRows.get(route);
+    if (pendingRow?.id === id && pendingRow.url === url) action = pendingRow;
+    const valid = action && action.route === routes[0] && action.list === found.list && action.url === url
+      && found.rows.some(r => r.el === action.row && r.press === "true");
+    if (valid) actionRows.set(route, action); else actionRows.delete(route);
+    const link = found.rows.find(r => r.press === null && linked(r.href) && r.href === url)?.el;
+    const row = link ?? (valid ? action.row : null);
+    if (row) rowOf.set(route, row); else rowOf.delete(route);
+  }
+}
 // @ref LLP 1116.005 D3 — a route `replace` gives another path (a split's detail, another row's) keeps its id, so its node: it opens at its top, as a pushed one does; a new query keeps its place.
 const paths = new WeakMap(), freshPath = route => { const path = last?.url?.split(/[?#]/)[0], was = paths.get(route); paths.set(route, path); if (was !== undefined && was !== path) for (const el of [route, ...route.querySelectorAll("*")]) if (el.scrollTop || el.scrollLeft) el.scrollTo(0, 0); };
-/** The width of the column a stack's root route is beside its top on this window; 0 where the stack does not split. A
- * list that loses its last row keeps its column. */
-function splitOf([r]) {
-  const said = r?.getAttribute("navigationSplit");
-  if (!r || said === "none" || !wide() || sheet(r) || !/^(absolute|fixed)$/.test(getComputedStyle(r).position) || (said == null && !splitRoots.has(r) && !r.querySelector(DISCLOSURE))) return 0;
-  splitRoots.add(r); return parseFloat(said) > 0 ? parseFloat(said) : 320;
-}
 /** Whether a root's tablist is a bar whose placement the app left unsaid, read while the root is not yet a sidebar. */
 const unsaidBar = (nav, list) => list?.parentElement === nav && getComputedStyle(list).appearance !== "none" && list.getAttribute("aria-orientation") !== "vertical"
   && (([n, l]) => /flex/.test(n.display) && n.flexDirection.startsWith("column") && /^(static|relative)$/.test(l.position) && l.flexDirection.startsWith("row"))([getComputedStyle(nav), getComputedStyle(list)]);
@@ -217,11 +287,15 @@ function drain() {
 const settled = () => { if (echo === null && !queue.length) for (const finish of [...waiters]) finish(); };
 export const navigation = {
   /** `dispatch(location)` is false when no `navigate` handler heard it; `back(id)` is the runner's own `back` from visit `id`, `goTo(location)` its own `go`. */
-  connect(hostRoot, dispatch, journal, back = null, goTo = null) {
-    root = hostRoot; navigate = dispatch; log = journal; hostBack = back; hostGo = goTo;
-    // A row a press reaches in a list column (`project` marks it once its detail shows), a resize across WIDE, and one under an author's split placeholder (its pane's width). Heard at the document, before the listener that follows a link row there (input-glue.js, router.js), whose commit lands within the click.
-    document.addEventListener("click", event => { const row = event.target.closest?.('[data-exact-split="list"] :is(button, a[href], [data-exact-on~="press"])'); if (row && root.contains(row)) pressedRow = [row, performance.now(), last?.url]; }, true); document.addEventListener("dragstart", event => { if (root.contains(event.target) && event.target.matches?.('img[data-symbol-source], :is(button, a[href], [data-exact-on~="press"]) img')) event.preventDefault(); }); // @ref LLP 1115.000 D4.14 — and a symbol, or an image in something pressable, is not dragged out as a picture (the shell's rule says so where an engine has the property)
-    globalThis.matchMedia?.(WIDE).addEventListener?.("change", () => navigation.project(root, log)); addEventListener("resize", () => root.querySelector("[data-exact-split-placeholder]") && navigation.project(root, log));
+  connect(hostRoot, dispatch, journal, back = null, goTo = null, matchesRoute = () => false, waitForActivation = false) {
+    root = hostRoot; navigate = dispatch; log = journal; hostBack = back; hostGo = goTo; routeMatches = matchesRoute;
+    if (waitForActivation) { activationRequired.add(hostRoot); activated.delete(hostRoot); }
+    else { activationRequired.delete(hostRoot); activated.add(hostRoot); }
+    // Capture before either target's link listener commits. Early replay before connect has no action-row association.
+    document.addEventListener("click", captureRow, true);
+    document.addEventListener("dragstart", event => { if (root.contains(event.target) && event.target.matches?.('img[data-symbol-source], :is(button, a[href], [data-exact-on~="press"]) img')) event.preventDefault(); }); // @ref LLP 1115.000 D4.14 — symbols and images inside pressables do not start picture drags.
+    globalThis.matchMedia?.(WIDE).addEventListener?.("change", () => navigation.project(root, log));
+    addEventListener("resize", () => navigation.project(root, log)); // Bare plans have no exactViewport callback.
     addEventListener("popstate", event => {
       if (!last) return;
       const index = browserIndex();
@@ -247,8 +321,14 @@ export const navigation = {
       }
     });
   },
+  /** Enable projection after a target has adopted its served DOM, then make the first projection. */
+  activate(hostRoot = root, journal = log) {
+    activated.add(hostRoot);
+    navigation.project(hostRoot, journal);
+  },
   reset(op = null) {
-    refused = new WeakMap();
+    refused = new WeakMap(); splitLists = new WeakMap(); rowOf = new WeakMap(); actionRows = new WeakMap();
+    pressedRow = pendingRow = null; visits = new Map((op?.visits ?? []).map(([id, url]) => [String(id), url]));
     if (op && written[cursor]?.id === op.top) return;
     last = null;
     written = []; gone = new Set(); cursor = 0; first = null; originIndex = null;
@@ -256,6 +336,10 @@ export const navigation = {
     for (const finish of [...waiters]) finish();
   },
   apply(op) {
+    visits = new Map((op.visits ?? []).map(([id, url]) => [String(id), url]));
+    pendingRow = pressedRow && pressedRow.event.eventPhase !== 0 && op.url !== pressedRow.from
+      ? { row: pressedRow.row, list: pressedRow.list, route: pressedRow.route, id: String(op.top), url: op.url } : null;
+    pressedRow = null;
     last = op;
     if (pop) { pop.op = op; for (const id of op.removed) gone.add(id); }
     else { queue.push({ op }); drain(); }
@@ -276,6 +360,7 @@ export const navigation = {
     });
   },
   project(root, log) {
+    if (activationRequired.has(root) && !activated.has(root)) return;
     for (const nav of root.querySelectorAll("[navigationBack]")) {
       let key = nav.getAttribute("navigationKey"), [list, panels] = tabsOf(nav);
       nav.removeAttribute("data-exact-sidebar"); // Read authored placement, including changes on retained nodes.
@@ -305,11 +390,12 @@ export const navigation = {
         // The selected stack shows the route the root names; another keeps its top laid out.
         const selected = stack === at ? routes.findIndex(route => route.getAttribute("navigationKey") === key) : routes.length - 1;
         if (stack === at) shown.set(nav, routes.slice(0, selected + 1).map(route => route.getAttribute("navigationKey")));
-        const modal = routes[selected]?.getAttribute("navigationPresentation") === "modal", split = splitOf(routes), live = split && !sheet(routes[selected]);
+        const found = splitOf(routes), split = found.width, live = split && !sheet(routes[selected]);
+        const modal = routes[selected]?.getAttribute("navigationPresentation") === "modal";
+        detailRows(routes, found);
         if (stack === at && list) list.inert = sheet(routes[selected]) || !!list.authoredInert; // a sheet is modal: the root's tab bar is inert beneath it, as the route it covers is (LLP 1115.000 D4.5)
         // A split's detail shown is the top, or the route a sheet covers; its row is the one whose press pushed it, or pushed a route beneath it in its column.
         const detail = split ? routes.findLastIndex((r, i) => i > 0 && i <= selected && !sheet(r)) : -1;
-        if (detail > 0 && detail === selected && pressedRow && last?.url !== pressedRow[2] && routes[0].contains(pressedRow[0]) && performance.now() - pressedRow[1] < 2000) { rowOf.set(routes[detail], pressedRow[0]); pressedRow = null; }
         for (const [index, route] of routes.entries()) {
           const active = index === selected || (live && index === 0);
           if (!active && route.contains(document.activeElement)) document.activeElement.blur();
@@ -323,7 +409,7 @@ export const navigation = {
           appBarBack(nav, routes, index, split > 0); if (stack === at && index === selected) freshPath(route);
         }
         let row = null; for (let i = detail; i > 0 && !row; i--) row = rowOf.get(routes[i])?.isConnected ? rowOf.get(routes[i]) : null;
-        for (const el of split ? routes[0].querySelectorAll("[data-exact-split-row]") : []) if (el !== row) el.removeAttribute("data-exact-split-row");
+        for (const el of routes[0]?.querySelectorAll("[data-exact-split-row]") ?? []) if (el !== row) el.removeAttribute("data-exact-split-row");
         row?.setAttribute("data-exact-split-row", "");
         // @ref LLP 1116.006 D2 — a split showing no detail fills the detail pane, as an iPad's split view does: the platform's placeholder (the shell draws `data-exact-split-empty`), or the author's, a box of the root route marked `navigationSplit="placeholder"` (which the lowerer hides everywhere else), at the pane's width.
         const empty = split > 0 && detail < 0, own = routes[0]?.querySelector('[navigationSplit="placeholder"]'), box = routes[0]?.parentElement;
@@ -331,6 +417,7 @@ export const navigation = {
         if (empty) { box.style.setProperty("--exact-split", `${split}px`); own && routes[0].style.setProperty("--exact-split-pane", `${(routes[0].offsetParent ?? box).clientWidth - split}px`); }
       }
     }
+    pendingRow = null;
     // The page module's container hatches, when it has them (LLP 1075.003.000 §3.7).
     globalThis.exact?.onProject?.(root); pageTitle();
   },
@@ -965,10 +1052,10 @@ const launched = () => new URL(globalThis.performance?.getEntriesByType?.('navig
 let pageTime;
 export const reportTime = (elapsed) => (pageTime ??= timeReporter(launched()))(elapsed);
 let pagePlace;
-export function reportPlace() {
-  pagePlace ??= placeReporter(launched());
-  return pagePlace();
-}
+export const reportPlace = () => (pagePlace ??= placeReporter(launched()))();
+// A store write in the page (LLP 1018 D6, LLP 1116 D5, LLP 1027 D4): a secret or state the quota refuses sets the kept answers aside, a cache the runner bounds together, and is tried once more, the kept answers put back if it fails again; a kept answer it refuses leaves the older one, which the next launch may still match, and is said.
+export function storeInPage(storage, name, value, warn = console.warn) { const key = name.startsWith("exact.state.") ? name : "exact.secret." + name, write = () => value == null ? storage.removeItem(key) : storage.setItem(key, value);
+  try { try { write(); } catch (e) { if (name.startsWith("exact.kept.") || !/quota/i.test(e?.name ?? "")) throw e; const aside = Array.from({ length: storage.length }, (_, i) => storage.key(i)).filter(k => k?.startsWith("exact.secret.exact.kept.")).map(k => [k, storage.getItem(k)]); for (const [k] of aside) storage.removeItem(k); try { write(); } catch (again) { for (const [k, v] of aside) try { storage.setItem(k, v); } catch {} throw again; } } } catch (e) { warn("exact: store", name, String(e)); } }
 
 // An iframe guest's origin as authored when its `src` or `sandbox` was
 // committed (an opaque sandbox posts as "null"), which a `message` from it must match.
@@ -989,88 +1076,6 @@ export function guestMessageAuthorized(el, eventOrigin) {
   if (!committed) return false;
   return committed.opaque ? eventOrigin === "null" : eventOrigin === committed.origin;
 }
-// A same-origin guest joins `tree` as a compact, bounded outline. Access to
-// a sandboxed or cross-origin document is simply absent (@ref LLP 1020 D4).
-export function guestOutline(frame) {
-  let doc;
-  try { doc = frame.contentDocument; } catch { return null; }
-  if (!doc) return null;
-  const outline = [];
-  const visit = (el, depth) => {
-    if (depth > 4 || outline.length >= 32) return;
-    const id = el.id || undefined;
-    const testId = el.getAttribute("data-testid") ?? el.getAttribute("testId") ?? undefined;
-    const text = [...el.childNodes]
-      .filter((n) => n.nodeType === Node.TEXT_NODE)
-      .map((n) => n.textContent.trim())
-      .filter(Boolean)
-      .join(" ")
-      .replace(/\s+/g, " ")
-      .slice(0, 160) || undefined;
-    if (id || testId || text) {
-      outline.push({ guest: true, depth, tag: el.localName, ...(id ? { id } : {}), ...(testId ? { testId } : {}), ...(text ? { text } : {}) });
-    }
-    for (const child of el.children) visit(child, depth + 1);
-  };
-  for (const child of doc.body?.children ?? []) visit(child, 0);
-  return outline;
-}
-function guestDocument(frame) {
-  try {
-    const document = frame.contentDocument;
-    return document ? { document } : { error: "guest is cross-origin" };
-  } catch {
-    return { error: "guest is cross-origin" };
-  }
-}
-export function guestTap(frame, request) {
-  const access = guestDocument(frame);
-  if (access.error) return { guest: true, error: access.error };
-  const { document } = access;
-  const guest = document.defaultView;
-  const x = Number.isFinite(request.x) ? request.x : guest.innerWidth / 2;
-  const y = Number.isFinite(request.y) ? request.y : guest.innerHeight / 2;
-  let target;
-  try { target = request.selector ? document.querySelector(request.selector) : null; }
-  catch { return { guest: true, malformed: true, error: "guest tap has an invalid selector" }; }
-  target ||= document.elementFromPoint(x, y) || document.body;
-  if (!target) return { guest: true, error: "guest tap found no target" };
-  // Script input is intentionally untrusted (@ref LLP 1020 D4;
-  // exact1 20260806-webview-frame-guest-click-delivery).
-  target.dispatchEvent(new guest.PointerEvent("pointerdown", { bubbles: true, composed: true, clientX: x, clientY: y, button: 0, buttons: 1 }));
-  target.dispatchEvent(new guest.PointerEvent("pointerup", { bubbles: true, composed: true, clientX: x, clientY: y, button: 0, buttons: 0 }));
-  target.dispatchEvent(new guest.MouseEvent("click", { bubbles: true, composed: true, clientX: x, clientY: y, button: 0 }));
-  return { tapped: request.id, guest: true };
-}
-export function guestType(frame, request) {
-  const access = guestDocument(frame);
-  if (access.error) return { guest: true, error: access.error };
-  const { document } = access;
-  const guest = document.defaultView;
-  const active = document.activeElement;
-  const editable = active?.matches?.("input,textarea,[contenteditable]") ? active : null;
-  let target;
-  try { target = request.selector ? document.querySelector(request.selector) : null; }
-  catch { return { guest: true, malformed: true, error: "guest type has an invalid selector" }; }
-  target ||= editable || document.querySelector("input,textarea,[contenteditable]");
-  if (!target) return { guest: true, error: "guest type found no target" };
-  // These are the Apple guest script's event shapes, including focus and
-  // isTrusted:false (@ref LLP 1020 D4).
-  target.focus();
-  if (request.key != null) {
-    const key = String(request.key);
-    target.dispatchEvent(new guest.KeyboardEvent("keydown", { key, bubbles: true, composed: true }));
-    target.dispatchEvent(new guest.KeyboardEvent("keyup", { key, bubbles: true, composed: true }));
-    return { typed: request.id, guest: true, key, value: guestValue(target) };
-  }
-  const text = String(request.text ?? "");
-  if ("value" in target) target.value = text; else target.textContent = text;
-  target.dispatchEvent(new guest.InputEvent("input", { data: text, inputType: "insertText", bubbles: true, composed: true }));
-  target.dispatchEvent(new guest.Event("change", { bubbles: true, composed: true }));
-  return { typed: request.id, guest: true, value: guestValue(target) };
-}
-// What a guest field holds, as the reply shows it: a password's is a fixed mark, whatever its length (#134).
-const guestValue = (target) => "value" in target ? (target.type === "password" && target.value ? "•••" : target.value) : target.textContent;
 
 // @ref LLP 1069.001 D4 (amended 2026-10-04) — a select, range or date is controlled as a text field is: the committed
 // `value` is written when it changes, and shown again after the options change or a refused `type`; after the action
@@ -1173,48 +1178,6 @@ export function typeControl(el, request) {
   el.dispatchEvent(new Event("input", { bubbles: true }));
   el.dispatchEvent(new Event("change", { bubbles: true }));
   return { typed: id, value: el.value, delivery: "recognized", handled: true };
-}
-
-// The agent's `reveal` (ledger F7, shop F11): before a tap or a type, a
-// target whose middle is out of view is scrolled to the middle of its
-// nearest scroll containers, then of the page (across, only as far as it
-// takes) — Playwright's actionability scroll, the web's own `scrollIntoView`. A scroll event reaches the app as a
-// person's scroll would. `scrolled` is where the middle moved from and to;
-// a middle already in view moves nothing.
-export function reveal(el, id) {
-  if (!el?.isConnected) return { error: `no view ${id}` };
-  const middle = () => { const b = viewBox(el); return [b.left + b.width / 2, b.top + b.height / 2]; };
-  const [x, y] = middle();
-  let seen = x >= 0 && y >= 0 && x < innerWidth && y < innerHeight;
-  for (let a = el.parentElement; seen && a && a.id !== "exact-root"; a = a.parentElement) {
-    const cs = getComputedStyle(a), b = a.getBoundingClientRect();
-    if ((cs.overflowX !== "visible" || cs.overflowY !== "visible") && !(x >= b.left && x < b.right && y >= b.top && y < b.bottom)) seen = false;
-  }
-  if (seen || el.closest("[inert]") || ["hidden", "collapse"].includes(getComputedStyle(el).visibility)) return { revealed: id, scrolled: false }; // nor what its tap refuses (hidden or inert): a refusal leaves the page as it was
-  (folded(el) ? el.parentElement : el).scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
-  return { revealed: id, scrolled: true, from: [x, y], to: middle() };
-}
-
-// A text folded into its box's content (LLP 1007.001): `display: contents`, or an inline box under a box that restricts
-// touch. A paragraph's inline runs are not `data-exact-text`; only the paragraph is.
-const folded = el => { const d = getComputedStyle(el).display; return d === "contents" || d === "inline" && el.hasAttribute("data-exact-text"); };
-
-// A view's box as the agent reports it. A folded text has no block box of its own: its box is the anonymous block its
-// text is, as a style-less block child's was — its line boxes along the main axis, and its box's content box across
-// when the box stretches its items (a block, or a flex or grid box that stretches).
-export function viewBox(el) {
-  if (!folded(el)) return el.getBoundingClientRect();
-  const range = document.createRange();
-  range.selectNodeContents(el);
-  const t = range.getBoundingClientRect(), p = el.parentElement;
-  if (!p) return t;
-  const cs = getComputedStyle(p), b = p.getBoundingClientRect(), n = s => parseFloat(cs[s]) || 0;
-  const left = b.left + n("borderLeftWidth") + n("paddingLeft"), right = b.right - n("borderRightWidth") - n("paddingRight");
-  const top = b.top + n("borderTopWidth") + n("paddingTop"), bottom = b.bottom - n("borderBottomWidth") - n("paddingBottom");
-  const flex = /flex|grid/.test(cs.display), row = flex && cs.display.includes("flex") && !cs.flexDirection.startsWith("column");
-  const stretch = !flex || /normal|stretch/.test(cs.alignItems);
-  if (row) return stretch ? new DOMRect(t.x, top, t.width, bottom - top) : t;
-  return stretch ? new DOMRect(left, t.y, right - left, t.height) : t;
 }
 
 // WHATWG URL normalization for the wasm grant parser, using the browser's

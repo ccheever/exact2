@@ -109,7 +109,8 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
     // `mouse` beside `down`, its click form. `mouse` holds the left button on the web, Linux and Windows; a macOS
     // contact already is the mouse.
     // `modifiers` are held from the press to the lift (#107: a Shift-drag extends a selection).
-    try { down = await carrier.input(node.id, 'down', { x: start[0], y: start[1], ...(mouse && !['macos', 'mac', 'host'].includes(host) ? { mouse } : {}), ...(modifiers ? { modifiers } : {}) }); }
+    // On iOS only a `pan` node's recognized contact drags (`pan`): a finger held elsewhere would move nothing.
+    try { down = await carrier.input(node.id, 'down', { x: start[0], y: start[1], ...(mouse && !['macos', 'mac', 'host'].includes(host) ? { mouse } : {}), ...(modifiers ? { modifiers } : {}), ...(['ios', 'host-ios'].includes(host) ? { pan: true } : {}) }); }
     catch (error) { throw await tapRefusal(s, target, error); }
     if (down.error) throw new Error(`drag: down: ${(await tapRefusal(s, target, new Error(down.error))).message}`);
     if (down.delivery !== 'unsupported') {

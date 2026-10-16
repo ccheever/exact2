@@ -8,7 +8,7 @@ tested against it, differentially and at random.
 | `Contract/Syntax.lean` | The abstract syntax: a deep embedding of the expanded root component (every used component's declarations lifted into it), the file's shapes and `fn`s. A statement may call an action (`Stmt.call`, LLP 1089 D9): by name, with its whole argument list, never the body the Rust compiler expanded. |
 | `Contract/Binary64.lean` | Numbers: IEEE-754 binary64 as its bits (`F64`), every operation the exact result rounded once to nearest, ties to even, over `Nat`/`Int` — computable in the kernel. |
 | `Contract/Binary64Facts.lean` | That model proved: correct rounding, overflow, monotonicity, exactness (below). |
-| `Contract/Number.lean` | `max`/`min` with the runner's NaN and signed-zero rules, and JavaScript's `Number#toString` over exact rationals. |
+| `Contract/Number.lean` | `max`/`min` as JavaScript's `Math.max`/`Math.min` (NaN and signed zero included), and JavaScript's `Number#toString` over exact rationals. |
 | `Contract/Value.lean` | Values, structural equality as the runner's `compare::equal`, and the roster's string functions. |
 | `Contract/Format.lean` | The roster's formats (`formatTime`, `formatDate`, `formatNumber`) and `t(...)`'s strings tables, as the runner computes them. |
 | `Contract/Route.lean` | The router (LLP 1038): canonical locations, the route table's matching, `path`, launch, the six verbs and the reads. |

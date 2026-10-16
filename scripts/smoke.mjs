@@ -1,22 +1,18 @@
 #!/usr/bin/env bun
-// The smoke drives the resolved app through the agent API (LLP 1012) on the
-// web, macOS, iOS, or Linux. Every app gets the generic host fixtures and its
-// own app.test.contract; Caltrain's landmarks, interactions, GPU reference,
-// and deck run when its fixture root is present. Not a blocking check (it needs Chrome or
-// a window server): `bun scripts/smoke.mjs <web|macos|ios|linux> [--shot <png>]`
-// --app-only runs the complete selected app drive and its Contract tests,
-// not the unrelated bare-plan host fixtures. On the web those fixtures run on
-// a second build that links every capability (LLP 1047 D7); --app-only skips
-// it too. ios --device selects a phone.
-// after `bun host/web/build.mjs` / `bun host/apple/build.mjs [--ios]` /
-// `cargo build --profile host-dev -p caltrain-linux`.
+// Drive an app through the agent API (LLP 1012), its app.test.contract and generic host
+// fixtures; Caltrain's interactions run when its fixture root is present.
+// `bun scripts/smoke.mjs <web|macos|ios|linux> [--shot <png>]`; ios --device selects a phone.
+// Build native apps first with host/apple/build.mjs [--ios] or cargo build --profile host-dev
+// -p <app>-linux. The web builds here. --app-only skips bare-plan host fixtures and their
+// all-capabilities web build (LLP 1047 D7), keeping the app drive and its Contract tests.
 import { spawnSync } from 'node:child_process';
-import { createHash, verify } from 'node:crypto';
+import { createHash, randomUUID, verify } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { browserDiagnosticNoise, open as openAgent, render, runTests as runAgentTests } from './agent.mjs';
+import { driveStore } from './agent-launch.mjs';
 import { HOST_DEV, resolveApp, withAppFixture } from './app.mjs';
 import { agree, explainNode, hostSections, httpFrameSmoke, poolingDrive, rebooted } from './smoke-inspect.mjs';
 import { DirectoryOrigin, parseWebRoot, webReleasePath, webRootPath } from './origin.mjs';
@@ -518,7 +514,9 @@ if (host === 'web') {
   }
 }
 
-const s = await open({ host, browser: 'chrome' });
+// A fresh named store admits app storage without sharing another drive's profile or port.
+const appDrive = host === 'web' ? { storage: `smoke-${randomUUID()}`, env: { EXACT_AGENT_EPHEMERAL_PORT: '1' } } : {};
+const s = await open({ host, browser: 'chrome', ...appDrive });
 // A web artifact's staged capabilities (LLP 1047.000 §9): the page boots
 // without them, and the first agent call loads inspection before it asks.
 const stages = async () => host === 'web' && !jsTargetBuild(selectedWebDist) ? JSON.parse(await s.carrier.evaluate('JSON.stringify(exact.stages())')) : {};
@@ -531,6 +529,7 @@ try {
   // 1. Every resolved app must produce a tree and a rendered root. A
   // `caltrain-main` root admits Caltrain's fixture; once admitted, every
   // landmark its later steps need is required rather than silently skipped.
+  if (host === 'web') { await s.clock('data'); check((await s.state()).storage?.available === true, 'the app drive has no scratch store'); }
   let tree = await s.tree();
   check(tree.roots?.length > 0 && tree.nodes.length > 0, `${app.name} produced no live roots`);
   if (staged.inspection) check((await stages()).inspection === 'loaded', 'the first agent call did not load the inspection stage');
@@ -788,6 +787,7 @@ try {
   failures.push(`the ${app.name} drive stopped: ${error.message}`);
 } finally {
   await s.close();
+  if (appDrive.storage) rmSync(driveStore(app, appDrive.storage, appDrive.env).profile, { recursive: true, force: true });
 }
 
 // 8. The nested case (LLP 1010, the scroll fixture): a scroll node that

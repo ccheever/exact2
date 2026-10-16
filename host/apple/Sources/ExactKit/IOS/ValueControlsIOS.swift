@@ -31,7 +31,12 @@ extension ControlHost {
 
     func configureValue(_ control: UIControl, _ owner: NodeView, accent: UIColor?) {
         #if !os(tvOS)
-        if let slider = control as? RangeSlider { configureRange(slider, owner, accent: accent); return }
+        if let slider = control as? RangeSlider {
+            // The accent is the slider's tint, which draws its filled track as a default slider's: grey behind a modal
+            assign(slider, \.tintColor, accent)
+            configureRange(slider, owner)
+            return
+        }
         if let picker = control as? UIDatePicker { configureDate(picker, owner, accent: accent); return }
         #endif
         guard let button = control as? UIButton else { return }

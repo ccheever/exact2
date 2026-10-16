@@ -68,6 +68,14 @@ its time counts too.
   cannot rely on an earlier class. Install what it uses in `class func setUp`
   (`ExactSurfaces.install()` for a canvas) and create what it reads
   (`NSApplication.shared` before `NSApp`).
+- **A Bun file that mocks a module runs in a global of its own.** Bun's
+  `mock.module` replaces a module for the whole process and does not relink a
+  module already loaded, so files that mock or import the same module
+  (`host/web-js/rt.js`) break each other in one process: a mock that does not
+  take can leave a test spinning on the real module, past any test timeout.
+  Run several such files with `bun test --isolate` (a fresh global and module
+  registry per file) or `--parallel`, which implies it and is how the async
+  lane's glue step runs them.
 - **Platform availability belongs in Swift.** The iOS run includes every test
   compiled for its destination, including shared classes without an `IOSTests`
   suffix. Guard platform-specific assertions with `#if os(...)`.

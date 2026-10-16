@@ -317,7 +317,8 @@ final class Paragraph {
             + ParagraphInkIndex.storageBytes(lineCount: lines.count)
     }
     private(set) var cachedInk: ParagraphInkIndex?
-    var firstBaseline: CGFloat { baselines.first ?? 0 }
+    /// The C seam uses -1 when no line supplies a baseline.
+    var firstBaseline: CGFloat { baselines.first ?? -1 }
     private var truncated: (width: CGFloat, lines: [Int: CTLine])?
 
     /// CSS `text-overflow: ellipsis`: a line wider than the box ends in "…",
@@ -1131,12 +1132,6 @@ package final class TextEngine {
             glyphCount += CTLineGetGlyphCount(line)
             lines.append(line)
             start += count
-        }
-        if lines.isEmpty {
-            // Empty editors retain the paragraph's own line box.
-            baselines.append(minimum.0)
-            y = minimum.0 + minimum.1
-            explicit = strut?.lineHeight != nil
         }
         // An authored CSS line height fixes the line box, including fractions;
         // a `normal` one is whole pixels on macOS and CoreText's sum, rounded

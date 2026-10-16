@@ -32,6 +32,7 @@ let capabilities: [(name: String, target: String, define: String)] = [
     ("drag", "ExactDrag", "EXACT_LINK_DRAG"),
     ("media_picker", "ExactMediaPicker", "EXACT_LINK_MEDIA_PICKER"),
     ("auth_session", "ExactAuthSession", "EXACT_LINK_AUTH_SESSION"),
+    ("numerals", "ExactNumerals", "EXACT_LINK_NUMERALS"),
 ].filter { links($0.name) }
 
 // `swift test` builds every target a package declares, and the two UIKit
@@ -56,6 +57,7 @@ let core: [Target] = [
     .target(name: "ExactDrag", dependencies: ["ExactKit", "CExact"], path: "Sources/ExactDrag"),
     .target(name: "ExactMediaPicker", dependencies: ["ExactKit"], path: "Sources/ExactMediaPicker"),
     .target(name: "ExactAuthSession", dependencies: ["ExactKit"], path: "Sources/ExactAuthSession"),
+    .target(name: "ExactNumerals", dependencies: ["ExactKit"], path: "Sources/ExactNumerals"),
     .target(name: "ExactComposition", dependencies: [.target(name: "ExactKit")] + (composition == "updating" ? [.target(name: "ExactUpdates")] : [])
                 + capabilities.map { .target(name: $0.target) },
             path: composition == "updating" ? "Sources/ExactUpdating" : "Sources/ExactEmbedded",
@@ -73,9 +75,10 @@ let executables: [Target] = [
 // as a decision rather than a drawn frame, so it needs no window, no run
 // loop, and no clock (LLP 1033 D4a).
 let tests: [Target] = [
-    // The sound arm's C mixer (LLP 1096 D8), rendered offline by the tests;
-    // the arm itself is a dylib build.mjs makes, never a package product.
-    .target(name: "ExactSoundRender", path: "soundarm", exclude: ["SoundArm.swift"], sources: ["sound_render.c"], publicHeadersPath: "."),
+    // The sound arm's C mixer (LLP 1096 D8), rendered offline by the tests,
+    // and its AVAudioEngine calls (ARC, cleaning up on a caught exception, as
+    // the arm's build); the arm itself is a dylib build.mjs makes, never a product.
+    .target(name: "ExactSoundRender", path: "soundarm", exclude: ["SoundArm.swift"], sources: ["sound_render.c", "sound_engine.m"], publicHeadersPath: ".", cSettings: [.unsafeFlags(["-fobjc-arc", "-fobjc-arc-exceptions"])]),
     // The video arm's media session coordinator (LLP 1098 D7), driven by the
     // tests over stand-in players; the arm itself is build.mjs's dylib.
     .target(name: "ExactNowPlaying", path: "videoarm", exclude: ["VideoArm.swift"], sources: ["NowPlaying.swift"]),
@@ -95,6 +98,7 @@ let package = Package(
         .library(name: "ExactDrag", targets: ["ExactDrag"]),
         .library(name: "ExactMediaPicker", targets: ["ExactMediaPicker"]),
         .library(name: "ExactAuthSession", targets: ["ExactAuthSession"]),
+        .library(name: "ExactNumerals", targets: ["ExactNumerals"]),
         .executable(name: "ExactMac", targets: ["ExactMac"]),
         .executable(name: "ExactIOS", targets: ["ExactIOS"]),
         .executable(name: "ExactHostMac", targets: ["ExactHostMac"]),

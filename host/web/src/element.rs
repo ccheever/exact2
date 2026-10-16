@@ -774,9 +774,20 @@ pub(super) fn props_for(node: &NodeRef<'_>) -> SortedMap<String, String> {
     props_of(&node.facts())
 }
 
+pub(super) fn router_press(props: &mut SortedMap<String, String>, writes: Option<bool>) {
+    if let Some(writes) = writes {
+        props.insert("data-exact-router-press".into(), writes.to_string());
+    } else {
+        props.remove("data-exact-router-press");
+    }
+}
+
 /// [`props_for`], from a node's facts.
 pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
     let mut out = SortedMap::new();
+    if node.node_type == NodeType::List {
+        out.insert("data-exact-list".into(), String::new());
+    }
     // @ref LLP 1104 D8 — shared by live wasm batches, server documents and
     // the JS target's templates. Lowering keeps excluded editors bare.
     if node.node_type == NodeType::TextInput
@@ -887,6 +898,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::NavigationPresentation => "navigationPresentation",
             PropId::NavigationSource => "navigationSource",
             PropId::NavigationSplit => "navigationSplit",
+            PropId::EstimatedItemWidth => "data-exact-estimated-item-width",
             // LLP 1013.000 D7: the shared-element name the JS target's view
             // transitions pair by.
             PropId::SharedElement => "data-shared-element",

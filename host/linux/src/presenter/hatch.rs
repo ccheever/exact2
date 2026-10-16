@@ -540,10 +540,13 @@ impl<D: DataSource> Presenter<D> {
 
     // The frame clock (§2.4).
 
-    /// The loop's next timer: the runner's, or a hatch's `after`.
+    /// The loop's next deadline: a runner timer, hatch or scroll completion.
     pub fn timer_due_ms(&self) -> Option<f64> {
         let after = self.hatches.shared().and_then(|shared| shared.after_due());
-        (self.host.timer_due_ms().into_iter().chain(after)).reduce(f64::min)
+        self.timer_or_scroll_due_ms()
+            .into_iter()
+            .chain(after)
+            .reduce(f64::min)
     }
 
     /// Whether every display frame is wanted: a frame task's, or a ticket's.

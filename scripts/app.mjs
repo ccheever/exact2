@@ -1,5 +1,5 @@
 import { ensureBun } from './bun.mjs';
-import { macResourceMappings, macResourceInventory, appleAssetCatalogInventory } from '../host/apple/assets.mjs';
+import { macResourceMappings, macResourceInventory, appleAssetCatalogInventory, launchImageInventory } from '../host/apple/assets.mjs';
 // Where an app lives. Inside this repo an app is `apps/<name>` — its crates
 // normally belong to the root workspace and build into `target/`; an explicit
 // package.workspace uses that workspace's lock and target. Outside it (weird-castle:
@@ -617,11 +617,16 @@ export const DOCUMENT_UTIS = {
 };
 
 // The icon the Apple bundles are drawn from (host/apple/build.mjs
-// `appIcon`): the first square one of at least 512 px, which must be there;
-// refused when any build reads the manifest, as the file types are.
+// `appIcon`): the first square one of at least 512 px, which must be there,
+// as must the iOS launch screen's picture (`launchScreen`); refused when any
+// build reads the manifest, as the file types are.
 function appleIconProblems(manifest, dir) {
   const icon = (manifest.icons ?? []).find((i) => { const m = /^(\d+)x(\d+)$/.exec(i.sizes ?? ''); return m && m[1] === m[2] && Number(m[1]) >= 512; });
-  return icon && !existsSync(resolve(dir, icon.src)) ? [`icons: ${icon.src}, the square icon the Apple bundles are drawn from, does not exist`] : [];
+  const launch = manifest.host?.ios?.launchImage?.src;
+  return [
+    ...(icon && !existsSync(resolve(dir, icon.src)) ? [`icons: ${icon.src}, the square icon the Apple bundles are drawn from, does not exist`] : []),
+    ...(launch && !existsSync(resolve(dir, launch)) ? [`host.ios.launchImage: ${launch}, the launch screen's picture, does not exist`] : []),
+  ];
 }
 
 /** An app's own document format (studio diary R13): a MIME type in IANA's
@@ -1176,14 +1181,17 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
     }
   }
   const nativeResources = platform === 'macos' ? macResourceInventory(app) : [];
-  const assetCatalogApp = ['macos', 'ios'].includes(platform) ? { dir: app.dir, platform } : null;
-  const appleAssetCatalogs = assetCatalogApp ? appleAssetCatalogInventory(app, platform) : [];
+  const assetCatalogApp = ['macos', 'ios'].includes(platform) ? { dir: app.dir, platform: target.includes('-tvos') ? 'tvos' : platform, manifest: { host: app.manifest.host } } : null;
+  const appleAssetCatalogs = assetCatalogApp ? appleAssetCatalogInventory(assetCatalogApp, assetCatalogApp.platform) : [];
   if (assetCatalogApp) for (const path of [resolve(app.dir, platform, 'modules'), resolve(app.dir, 'modules/apple')]) {
     if (existsSync(path)) directories.set(nameOf(path), {path, names: readdirSync(path).sort()});
     else absent.set(nameOf(path), path);
   }
   for (const entry of appleAssetCatalogs) add(resolve(app.dir, entry.path));
-  const metadata={...(appleAssetCatalogs.length ? {appleAssetCatalogs} : {}),...(nativeResources.length ? {nativeResources} : {}),...nativeManifestMetadata(app.manifest, platform),delivery:compat.delivery,store:compat.inputs.store,keys:compat.inputs.keys};
+  // The launch screen's picture: its bytes are the binary's, and packaging draws the ones recorded.
+  const launchImage = platform === 'ios' ? launchImageInventory(app) : null;
+  if (launchImage) add(resolve(app.dir, launchImage.src));
+  const metadata={...(appleAssetCatalogs.length ? {appleAssetCatalogs} : {}),...(launchImage ? {launchImage} : {}),...(nativeResources.length ? {nativeResources} : {}),...nativeManifestMetadata(app.manifest, platform),delivery:compat.delivery,store:compat.inputs.store,keys:compat.inputs.keys};
   const configuration={target,units:orderedBuild([...new Map(units.map(u=>[canonicalBuild(u),u])).values()]),builders:orderedBuild([...new Map(builders.map(u=>[canonicalBuild(u),u])).values()]),rustc:buildCommand('rustc',['-vV'],app,env).stdout,flags:{...Object.fromEntries(['RUSTFLAGS','CARGO_ENCODED_RUSTFLAGS','MACOSX_DEPLOYMENT_TARGET','IPHONEOS_DEPLOYMENT_TARGET'].map((k)=>[k,env[k]??null])),...(env.EXACT_WEB_LINK?{EXACT_WEB_LINK:env.EXACT_WEB_LINK}:{}),...(env.EXACT_WEB_SIZE?{EXACT_WEB_SIZE:env.EXACT_WEB_SIZE}:{})}};
   const files=[...inputs.values()].sort((a,b)=>a.name<b.name?-1:a.name>b.name?1:0);
   const fingerprint={files:files.map(({name,sha256})=>({name,sha256})),absent:[...absent.keys()].sort(),configuration,metadata};

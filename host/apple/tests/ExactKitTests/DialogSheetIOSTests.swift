@@ -97,6 +97,29 @@ final class DialogSheetIOSTests: XCTestCase {
         try XCTUnwrap(controller.presentedViewController as? DialogSheetController, "the dialog's sheet")
     }
 
+    /// A key at the field in the sheet reaches the dialog's authored
+    /// ancestors' key handlers; an authored `inert` still silences one.
+    func testKeysAtTheSheetFieldReachTheDialogsAuthoredAncestors() throws {
+        let (p, controller, scene) = page(field: ["autofocus": "true"])
+        let root = try XCTUnwrap(p.views[1]), node = try XCTUnwrap(p.views[3])
+        root.handlers = ["keycapture", "key", "keyup"]
+        node.handlers.formUnion(["key", "keyup"])
+        var heard: [String] = []
+        p.onKey = { id, press in heard.append("\(id) \(press.capture ? "capture" : press.up ? "up" : "down") \(press)") }
+        p.dialogCommand("showModal", "form")
+        let sheet = try sheet(controller), field = try XCTUnwrap(node.field)
+        if scene { settle { !p.menus.inTransition && field.isFirstResponder } }
+        XCTAssertTrue(field.isDescendant(of: sheet.view))
+        XCTAssertFalse(node.isDescendant(of: root))
+        XCTAssertFalse(p.keyDown(at: node, "a", code: "KeyA"))
+        XCTAssertFalse(p.keyUp(at: node, "a", code: "KeyA"))
+        XCTAssertEqual(heard, ["1 capture a", "3 down a", "1 down a", "3 up a", "1 up a"])
+        heard = []
+        root.props["inert"] = "true"
+        XCTAssertFalse(p.keyDown(at: node, "a", code: "KeyA"))
+        XCTAssertEqual(heard, ["3 down a"])
+    }
+
     /// A form in a `dialog` is a sheet as tall as the form, holding the
     /// dialog's own views; closing it puts them back, hidden, where they were.
     func testADialogThatIsNotAConfirmationIsASheetOfItsContent() throws {

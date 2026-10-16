@@ -189,15 +189,15 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
-    /// `key\nblock\ninline` in the input buffer (LLP 1070.000 §5).
+    /// `key\nblock\ninline` in the input buffer (LLP 1070.000 §5); the key may hold a newline.
     pub fn into_view(&mut self, view: u32, len: usize) -> u32 {
         let text = String::from_utf8_lossy(self.input.get(..len).unwrap_or(&[])).into_owned();
-        let mut parts = text.split('\n');
-        let (key, block, inline) = (
-            parts.next().unwrap_or(""),
-            parts.next().unwrap_or("start"),
+        let mut parts = text.rsplitn(3, '\n');
+        let (inline, block) = (
             parts.next().unwrap_or("nearest"),
+            parts.next().unwrap_or("start"),
         );
+        let key = parts.next().unwrap_or("");
         let out = self.host.as_mut().map_or_else(not_booted, |host| {
             host.scroll_into_view(view, key, block, inline)
         });

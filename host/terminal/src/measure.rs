@@ -378,6 +378,32 @@ mod tests {
     use exact_kernel::{text::TextStyle, StyleProps, WhiteSpace};
 
     #[test]
+    fn empty_text_has_no_line_box() {
+        let style = StyleProps::default();
+        let runs = [TextRun {
+            text: "".into(),
+            style: TextStyle::from_style(&style),
+        }];
+        for width in [
+            AxisOffer::MinContent,
+            AxisOffer::MaxContent,
+            AxisOffer::Definite(0.0),
+            AxisOffer::Definite(200.0),
+        ] {
+            assert_eq!(
+                CellMeasurer::default().measure(&TextMeasureRequest {
+                    runs: &runs,
+                    paragraph: Paragraph::from_style(&style),
+                    width,
+                    height: AxisOffer::MaxContent,
+                    exclusions: &[],
+                }),
+                TextMetrics::default()
+            );
+        }
+    }
+
+    #[test]
     fn unbounded_text_matches_a_wide_wrapping_layout_at_every_run_boundary() {
         let style = StyleProps::default();
         for text in [

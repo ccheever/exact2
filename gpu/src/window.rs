@@ -9,8 +9,9 @@ pub(crate) struct WindowFrame {
     scene: wgpu::Texture,
     below: wgpu::Texture,
     above: wgpu::Texture,
-    below_pixels: Vec<u8>,
-    above_pixels: Vec<u8>,
+    background: Background,
+    overlay: Overlay,
+    pending_ui: bool,
     group: wgpu::BindGroup,
     pipeline: wgpu::RenderPipeline,
 }
@@ -97,7 +98,10 @@ impl WindowFrame {
             })
         };
         let scene = texture("window game", wgpu::TextureUsages::RENDER_ATTACHMENT);
-        let below = texture("window below", wgpu::TextureUsages::COPY_DST);
+        let below = texture(
+            "window below",
+            wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::RENDER_ATTACHMENT,
+        );
         let above = texture("window above", wgpu::TextureUsages::COPY_DST);
         let entries: Vec<_> = (0..3)
             .map(|binding| wgpu::BindGroupLayoutEntry {
@@ -174,24 +178,110 @@ impl WindowFrame {
             scene,
             below,
             above,
-            below_pixels: Vec::new(),
-            above_pixels: Vec::new(),
+            background: Background::default(),
+            overlay: Overlay::default(),
+            pending_ui: true,
             group,
             pipeline,
         })
     }
 }
 
+#[derive(Default)]
+struct Background {
+    pixels: Vec<u8>,
+    solid: Option<[u8; 4]>,
+}
+
+impl Background {
+    fn prepare(
+        &mut self,
+        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
+        texture: &wgpu::Texture,
+        data: &[u8],
+        changed: bool,
+    ) {
+        if let Ok(color) = <[u8; 4]>::try_from(data) {
+            if self.solid == Some(color) {
+                return;
+            }
+            let [r, g, b, a] = color.map(|v| v as f64 / 255.);
+            let view = texture.create_view(&Default::default());
+            let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("window solid background"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color { r, g, b, a }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                ..Default::default()
+            });
+            self.solid = Some(color);
+            // A later painted background must upload every pixel, including
+            // bytes equal to the painted picture from before this clear.
+            self.pixels.clear();
+        } else if changed || self.pixels.is_empty() {
+            self.solid = None;
+            upload(queue, texture, &mut self.pixels, data);
+        }
+    }
+}
+
 // UI is usually unchanged, or changes in a few HUD rows. Upload only those
 // rows; do not stage two screen-sized textures on every game frame.
 fn upload(queue: &wgpu::Queue, texture: &wgpu::Texture, previous: &mut Vec<u8>, data: &[u8]) {
+    upload_rows(queue, texture, previous, data, 0..texture.height());
+}
+
+#[derive(Default)]
+struct Overlay {
+    pixels: Vec<u8>,
+    rows: std::ops::Range<u32>,
+}
+
+impl Overlay {
+    fn prepare(
+        &mut self,
+        queue: &wgpu::Queue,
+        texture: &wgpu::Texture,
+        data: &[u8],
+        rows: std::ops::Range<u32>,
+    ) {
+        let affected = if self.rows.is_empty() {
+            rows.clone()
+        } else if rows.is_empty() {
+            self.rows.clone()
+        } else {
+            self.rows.start.min(rows.start)..self.rows.end.max(rows.end)
+        };
+        upload_rows(queue, texture, &mut self.pixels, data, affected);
+        self.rows = rows;
+    }
+}
+
+fn upload_rows(
+    queue: &wgpu::Queue,
+    texture: &wgpu::Texture,
+    previous: &mut Vec<u8>,
+    data: &[u8],
+    rows: std::ops::Range<u32>,
+) {
     let stride = texture.width() as usize * 4;
     let first = previous.len() != data.len();
     if first {
         previous.resize(data.len(), 0);
     }
-    let mut row = 0;
-    let height = texture.height() as usize;
+    let mut row = if first { 0 } else { rows.start as usize };
+    let height = if first {
+        texture.height() as usize
+    } else {
+        rows.end as usize
+    };
     while row < height {
         if !first
             && previous[row * stride..(row + 1) * stride] == data[row * stride..(row + 1) * stride]
@@ -251,6 +341,7 @@ fn upload(queue: &wgpu::Queue, texture: &wgpu::Texture, previous: &mut Vec<u8>, 
 
 impl Module {
     /// Present a full-window canvas between the host's premultiplied RGBA layers.
+    /// `below` may be four bytes naming a uniform color instead of a full layer.
     ///
     /// # Safety
     /// `hwnd` is a live HWND until `detach_window` or destruction of this module.
@@ -264,6 +355,7 @@ impl Module {
         below: &[u8],
         above: &[u8],
         changed: bool,
+        above_rows: std::ops::Range<u32>,
     ) -> Result<(), String> {
         self.check_device();
         if let Some(why) = shaders::missing(self.registry.shaders) {
@@ -285,8 +377,11 @@ impl Module {
             .checked_mul(height as usize)
             .and_then(|n| n.checked_mul(4))
             .ok_or("window layer extent overflow")?;
-        if below.len() != len || above.len() != len {
+        if (below.len() != len && below.len() != 4) || above.len() != len {
             return Err("window layer extent mismatch".into());
+        }
+        if above_rows.start > above_rows.end || above_rows.end > height {
+            return Err("window overlay row extent mismatch".into());
         }
         if self
             .window
@@ -298,6 +393,9 @@ impl Module {
             self.window = Some(unsafe { WindowFrame::new(gpu, hwnd, hinstance, width, height) }?);
         }
         let window = self.window.as_mut().unwrap();
+        // A timeout or occlusion can happen after the host accepted new UI.
+        // Keep its upload pending even when the next host frame is cached.
+        window.pending_ui |= changed;
         use wgpu::CurrentSurfaceTexture as Current;
         let drawable = match window.target.get_current_texture() {
             Current::Success(t) | Current::Suboptimal(t) => t,
@@ -308,11 +406,20 @@ impl Module {
             }
             other => return Err(format!("window surface: {other:?}")),
         };
-        if changed || window.below_pixels.is_empty() {
-            upload(&gpu.queue, &window.below, &mut window.below_pixels, below);
-            upload(&gpu.queue, &window.above, &mut window.above_pixels, above);
-        }
         let mut encoder = gpu.device.create_command_encoder(&Default::default());
+        window.background.prepare(
+            &gpu.queue,
+            &mut encoder,
+            &window.below,
+            below,
+            window.pending_ui,
+        );
+        if window.pending_ui {
+            window
+                .overlay
+                .prepare(&gpu.queue, &window.above, above, above_rows);
+        }
+        window.pending_ui = false;
         if let Some(inst) = inst.as_mut() {
             let format = wgpu::TextureFormat::Rgba8Unorm;
             inst.surface.prepare_assets(&gpu.device, &gpu.queue, format);
@@ -394,6 +501,92 @@ impl Module {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bounded_overlay_uploads_clear_moved_and_removed_ink() {
+        let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
+            return;
+        };
+        let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d {
+                width: 3,
+                height: 8,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            view_formats: &[],
+            usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::COPY_SRC,
+        });
+        let mut overlay = Overlay::default();
+        for rows in [0..0, 1..3, 1..3, 5..7, 0..0, 3..4, 0..8, 0..0] {
+            let mut data = vec![0; 3 * 8 * 4];
+            for y in rows.clone() {
+                data[y as usize * 12 + 4..y as usize * 12 + 8].copy_from_slice(&[17, 31, 71, 83]);
+            }
+            overlay.prepare(&gpu.queue, &texture, &data, rows);
+            gpu.queue.submit([]);
+            assert_eq!(fixture::read(&gpu, &texture).unwrap().data, data);
+            assert_eq!(overlay.pixels, data);
+        }
+    }
+
+    #[test]
+    fn solid_backgrounds_match_uploads_and_restore_previously_painted_bytes() {
+        let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
+            return;
+        };
+        for (width, height) in [(3, 4), (1, 1)] {
+            let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+                label: None,
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                view_formats: &[],
+                usage: wgpu::TextureUsages::COPY_DST
+                    | wgpu::TextureUsages::COPY_SRC
+                    | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            });
+            let mut background = Background::default();
+            let painted: Vec<u8> = (0..width * height)
+                .flat_map(|i| [i as u8, 79, 191, 255])
+                .collect();
+            for (bytes, changed) in [
+                (&[0, 0, 0, 0][..], false),
+                (&painted[..], true),
+                (&[31, 72, 109, 255][..], true),
+                (&[31, 72, 109, 255][..], false),
+                (&[17, 23, 29, 83][..], true),
+                (&painted[..], true),
+                (&painted[..], false),
+            ] {
+                let mut encoder = gpu.device.create_command_encoder(&Default::default());
+                background.prepare(&gpu.queue, &mut encoder, &texture, bytes, changed);
+                gpu.queue.submit([encoder.finish()]);
+                let expected = if bytes.len() == 4 {
+                    bytes.repeat((width * height) as usize)
+                } else {
+                    bytes.to_vec()
+                };
+                assert_eq!(fixture::read(&gpu, &texture).unwrap().data, expected);
+                if bytes.len() == 4 {
+                    assert!(
+                        background.pixels.is_empty(),
+                        "a solid layer keeps no CPU image copy"
+                    );
+                }
+            }
+        }
+    }
     #[test]
     fn hud_upload_preserves_unchanged_rows_and_clears_changed_rows() {
         let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
