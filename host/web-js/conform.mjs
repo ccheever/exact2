@@ -31,6 +31,12 @@
 //   host's pixels a point), so a hairline is the same device pixel on each
 //   (LLP 1115.000 D10.3, D14.2); with none every host is at the scale its
 //   environment names, 1 unless EXACT_SCALE says.
+//   A plan's .steps file lists agent operations, one per line; # lines
+//   are comments. A scripted step other than `clock` that the reference
+//   refuses fails, unless it is written `refused <op>`: then both pages
+//   must refuse it with the same first line of message, and the Linux
+//   host, where it takes the operation, must refuse it too (its wording is
+//   not compared). Under --browser a touch step is skipped, marked or not.
 //   Every page freezes media time (`mediaClock: 'frozen'`: rate 0 from a
 //   media element's first load): a playing video would otherwise follow the
 //   wall clock, so two pages read different positions; play, pause and seeks
@@ -484,7 +490,10 @@ async function drive(t, report, fail, dir, ws, js) {
     // later compares would report its consequences, not new differences.
     let diverged = false;
     if (existsSync(script)) for (const line of readFileSync(script, 'utf8').split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'))) {
-      const [op, target, ...rest] = line.split(/\s+/);
+      const parts = line.split(/\s+/), mustRefuse = parts[0] === 'refused';
+      const [op, target, ...rest] = mustRefuse ? parts.slice(1) : parts;
+      // Checked before any host takes it: a malformed `refused` step would otherwise pass on the driver's own refusal of it.
+      if (malformedStep(op, mustRefuse ? parts.slice(2) : parts.slice(1))) { fail(line, `not a step: ${line}`); continue; }
       const run = s => op === 'resize' ? s.resize(...target.split('x').map(Number)) : op === 'tap' ? s.tap(target) : op === 'menu' ? s.tap(target, { contextmenu: true }) : op === 'type' ? s.type(target, rest.join(' ')) : op === 'key' ? s.type(target, { key: rest[0], ...(rest[1] === 'for' ? { for: Number(rest[2]) } : rest[1] ? { phase: rest[1] } : {}) }) : op === 'clock' ? s.clock(target) : op === 'back' ? s.tap(target, { history: -1 }) : op === 'wheel' ? s.tap(target, { wheel: [Number(rest[1] ?? 0), Number(rest[0])] }) : op === 'into' ? s.tap(target, { into: { key: rest[0], ...(rest[1] ? { block: rest[1] } : {}) } }) : op === 'pinch' ? s.tap(target, { pinch: Number(rest[0]) }) : op === 'down' ? s.tap(target, { down: true }) : op === 'up' ? s.pointer('up') : op === 'move' ? s.pointer('move', { dx: Number(target), dy: Number(rest[0]), ms: Number(rest[1] ?? 200) }) : op === 'drag' && rest[0] === 'to' ? s.tap(target, { drag: { to: rest[1], over: Number(rest[2] ?? 200) } }) : op === 'drag' && rest[3] === 'hold' ? s.tap(target, { drag: { dx: Number(rest[0]), dy: Number(rest[1]), over: Number(rest[2]), hold: Number(rest[4]) } }) : op === 'drag' ? s.tap(target, { down: true }).then(() => s.pointer('move', { dx: Number(rest[0]), dy: Number(rest[1]), ms: Number(rest[2] ?? 200) })).then(() => s.pointer('up')) : op === 'mediasession' ? s.tap(target, { mediaSession: rest[0], ...(rest[1] != null ? { seconds: Number(rest[1]) } : {}) }) : op === 'prefer' ? s.prefer(Object.fromEntries([target, ...rest].flatMap((a, i, all) => i % 2 ? [] : [[a, all[i + 1]]]))) : Promise.reject(new Error(`unknown op ${op}`));
       // Playwright cannot make trusted phased touches in Firefox/WebKit.
       // Skip before resolving a target or touching either page; the carrier's
@@ -496,17 +505,22 @@ async function drive(t, report, fail, dir, ws, js) {
       // A clock step the wasm runner refuses (a timer's or a `then`'s refusal
       // stops the advance at its time) is refused by the others too, then compared.
       let refused = null;
-      // A scripted step is one the reference must take: one it cannot take is a failure, not a skip.
-      try { await run(W); } catch (e) { if (op !== 'clock') { fail(line, `${reference}: ${e.message.split('\n')[0]}`); continue; } refused = e.message.split('\n')[0]; }
-      const answered = who => { if (refused) fail(line, `${who}: answered where ${reference} refused (${refused})`); };
+      // An unmarked scripted step the reference cannot take is a failure, not a skip.
+      try { await run(W); } catch (e) { if (!mustRefuse && op !== 'clock') { fail(line, `${reference}: ${e.message.split('\n')[0]}`); continue; } refused = e.message.split('\n')[0]; }
+      const answered = who => { if (mustRefuse) fail(line, `${who}: answered where refusal was required`); else if (refused !== null) fail(line, `${who}: answered where ${reference} refused (${refused})`); };
+      if (mustRefuse && refused === null) answered(reference);
       let jsRefused = null;
       try { await run(J); } catch (e) { jsRefused = e.message.split('\n')[0]; }
-      if (jsRefused && !refused) { fail(line, `${other}: ${jsRefused}`); diverged = true; break; }
-      if (!jsRefused) answered(other);
-      if (refused && !jsRefused) { diverged = true; break; }
+      if (!mustRefuse && jsRefused !== null && refused === null) { fail(line, `${other}: ${jsRefused}`); diverged = true; break; }
+      if (jsRefused === null) answered(other);
+      if ((refused === null) !== (jsRefused === null)) { diverged = true; break; }
+      if (mustRefuse && refused !== null && jsRefused !== null && refused !== jsRefused) fail(line, `refusal: ${reference} «${refused}» ${other} «${jsRefused}»`);
       // A step Linux does not take ends its comparison: the page moved (a wheel, a
       // list's `into`, history) and Linux did not, so every later step would differ.
-      await onLinux(line, L => LINUX_OPS.includes(op) ? run(L).then(() => answered('linux'), e => { if (!refused) throw e; }) : Promise.reject(new Error(`\`${op}\` is the page's pointer or history delivery, not the runner's`)));
+      // A step both pages refused moved neither, so Linux need not take it; one
+      // Linux took where a refusal was required ends its comparison, failed.
+      await onLinux(line, L => !LINUX_OPS.includes(op) ? (refused === null ? Promise.reject(new Error(`\`${op}\` is the page's pointer or history delivery, not the runner's`)) : undefined)
+        : run(L).then(() => { answered('linux'); if (mustRefuse) throw new Error('took a step marked refused'); }, e => { if (refused === null) throw e; }));
       await settle();
       await bounds(line);
       tree = await compare(line);
@@ -716,6 +730,25 @@ async function bootPress(t, report, fail, dist, browser) {
 // ---------------------------------------------------------------- the Linux reference
 const linuxRef = argv.includes('--linux') && !crossBrowser;
 const LINUX_OPS = ['tap', 'type', 'key', 'clock', 'prefer', 'drag', 'down', 'move', 'up', 'mediasession'];
+// A step's operations and the fewest words each takes after its name.
+const STEP_ARGS = { resize: 1, tap: 1, menu: 1, type: 2, key: 2, clock: 1, back: 1, wheel: 2, into: 2, pinch: 2, down: 1, up: 0, move: 2, drag: 3, mediasession: 2, prefer: 2 };
+/** Whether a step's words after its name are not its operation's shape: too few, a number or duration that is not
+ *  one, a `for` or `hold` without its duration, a clock that is no time, or a preference without its value. */
+function malformedStep(op, a) {
+  if (!(STEP_ARGS[op] <= a.length)) return true;
+  const number = i => a[i] !== undefined && Number.isFinite(Number(a[i])), optional = i => a[i] === undefined || number(i);
+  const duration = i => number(i) && Number(a[i]) >= 0, someDuration = i => a[i] === undefined || duration(i);
+  if (op === 'clock') return a.length > 1 || !/^(settle|data|\+?\d+)$/.test(a[0]);
+  if (op === 'resize') return !/^\d+x\d+$/.test(a[0]);
+  if (op === 'wheel') return !number(1) || !optional(2);
+  if (op === 'pinch') return !(number(1) && Number(a[1]) > 0);
+  if (op === 'move') return !number(0) || !number(1) || !someDuration(2);
+  if (op === 'key') return a[2] === 'for' && !duration(3);
+  if (op === 'mediasession') return !optional(2);
+  if (op === 'prefer') return a.length % 2 !== 0;
+  if (op === 'drag') return a[1] === 'to' ? !someDuration(3) : !number(1) || !number(2) || !someDuration(3) || (a[4] === 'hold' && !duration(5));
+  return false;
+}
 // Where an app's drive reaches what only one host has, the Linux comparison
 // stops before that step (null: from the start), saying why (each is a host
 // difference, not the runner's).
