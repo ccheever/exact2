@@ -10,6 +10,7 @@ import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync }
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
+import { request } from 'node:http';
 import { TOOL_DIST, TOOL_ORIGIN } from './tamber-server.mjs';
 import { takePort } from './port-lock.mjs';
 
@@ -741,7 +742,8 @@ test('T2: the canvas frames the dev loop\'s page, sandboxed, at the size chosen;
     const closed = Date.now();
     const [tree] = replies.filter(r => r.nodes && !('x' in (r.nodes[0] ?? {})));
     const of = id => tree.nodes.find(n => n.props.testId === id);
-    expect(of('canvas-frame')).toMatchObject({ type: 'WebView', url: base });
+    // Framed as localhost: another site than the tool's, its own process.
+    expect(of('canvas-frame')).toMatchObject({ type: 'WebView', url: base.replace('127.0.0.1', 'localhost') });
     expect(of('canvas-open').type).toBe('Pressable');
     // Its size, inside a 1px border: a phone's, a tablet's, a desktop's.
     const sizes = replies.filter(r => r.nodes?.some(n => 'x' in n)).map(r => r.nodes.find(n => n.testId === 'canvas-frame')).map(n => [n.w - 2, n.h - 2]);
@@ -754,8 +756,13 @@ test('T2: the canvas frames the dev loop\'s page, sandboxed, at the size chosen;
     await devSaid.until(l => l.startsWith('page connected'), 1);
     // The page itself lets the tool's origin frame it.
     expect((await fetch(`${base}/`, { headers: { accept: 'text/html' } })).headers.get('content-security-policy')).toBe(`frame-ancestors 'self' ${TOOL_ORIGIN}`);
+    // It answers on [::1] too, where `localhost` (the canvas's) goes first.
+    // (A request there names localhost, as the browser's does.)
+    // (Where this machine has IPv6.)
+    const viaSix = await new Promise((ok, fail) => request({ host: '::1', port, path: '/', headers: { host: `localhost:${port}`, accept: 'text/html' } }, res => { res.resume(); ok([res.statusCode, res.headers['content-security-policy']]); }).on('error', e => (['EADDRNOTAVAIL', 'EAFNOSUPPORT', 'ENETUNREACH'].includes(e.code) ? ok(null) : fail(e))).end());
+    if (viaSix) expect(viaSix).toEqual([200, `frame-ancestors 'self' ${TOOL_ORIGIN}`]);
     const states = replies.filter(r => r.resources);
-    expect(states[0].resources.hello.page).toBe(base);
+    expect(states[0].resources.hello).toMatchObject({ page: base, frame: base.replace('127.0.0.1', 'localhost') });
     // The frame's build and the other, each with the facts it reports.
     const builds = states[0].resources.changes.builds;
     const frame = builds.find(b => b.host === 'web-js');
@@ -941,8 +948,12 @@ test('T2b: inspect from the tool selects a view in the canvas frame, shows its s
     expect(await page.locator('[data-testid="inspect-result"]').innerText()).toMatch(/^Inspecting on 1 build\(s\)/);
     // The frame shows the banner; a click on Swap pins there (through the
     // page's cover, at its place) selects it.
-    const frame = page.frames().find(f => f.url().startsWith(base));
+    const frame = page.frames().find(f => f.url().startsWith(base.replace('127.0.0.1', 'localhost')));
     await frame.locator('#exact-inspect').waitFor();
+    // Another site than the tool's: the browser runs it out of the tool's
+    // process (an iframe target of its own).
+    const { targetInfos } = await (await page.context().newCDPSession(page)).send('Target.getTargets');
+    expect(targetInfos.some(t => t.type === 'iframe' && t.url.startsWith(base.replace('127.0.0.1', 'localhost')))).toBe(true);
     const at = await frame.locator('[data-testid="swap"]').boundingBox();
     await page.mouse.click(at.x + at.width / 2, at.y + at.height / 2);
     const line = readFileSync(resolve(ROOT, 'apps/theme-fixture/app.contract'), 'utf8').split('\n').findIndex(l => l.includes('text "Swap pins"')) + 1;

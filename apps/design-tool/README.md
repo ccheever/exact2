@@ -14,10 +14,16 @@ URL>` if that app's dev loop is running. A second `tamber tool` for the same
 app reuses the running one; for another app it is refused, naming the app
 whose design the port serves.
 
-- The canvas (T2, LLP 1122 D3) frames the running app at its dev loop's own
-  URL (`hello.page`), at a phone, tablet or desktop size, with a link to open
-  it in a tab. The frame is sandboxed short of navigating the tool, and the
-  tool never scripts it; only a loopback origin is framed. A dev loop's HTML
+- The canvas (T2, LLP 1122 D3) frames the running app on its dev loop's
+  port as `localhost`, at a phone, tablet or desktop size, with a link that
+  opens it in a tab at the URL the dev loop prints (`hello.page`). The frame is sandboxed short of navigating the tool, and the
+  tool never scripts it; only a loopback origin is framed, 127.0.0.1 as
+  `localhost` on its port, which the dev loops answer on [::1] too. That is
+  another site than the tool's, so a browser with site isolation (Chrome's
+  desktop default) runs the page in its own process, and a busy one cannot
+  stall the tool. It is another origin, too: the canvas keeps its own
+  cookies and storage, apart from a tab at the printed 127.0.0.1 URL, which
+  "Open in a tab" opens. A dev loop's HTML
   may be framed by the tool's origin and its own, no other. With no dev loop
   (`tamber tool` alone), it says how to start one and open the tool through
   it (`--via`, after stopping this tool).

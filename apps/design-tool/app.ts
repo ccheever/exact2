@@ -83,11 +83,18 @@ async function call(path: string, body: unknown, timeout = 15000, bound?: string
 }
 
 // A dev loop's page the canvas may frame: a loopback origin, no path
-// (hello's `page`), never the tool's own (a frame of its own origin could
-// lift its sandbox); anything else is none.
+// (hello's `page`), never the tool's own port (a frame of its own origin
+// could lift its sandbox); anything else is none. Its URL as the dev loop
+// prints it (127.0.0.1, an address its gate admits), for "Open in a tab"
+// and --via, and the canvas's: localhost on that port (the dev loop answers
+// on both loopback addresses), another site than the tool's, so a browser
+// with site isolation runs the page in its own process and a busy one
+// cannot stall the tool.
 const pageOf = (page: unknown) => {
-  if (typeof page !== 'string' || !/^http:\/\/(127\.0\.0\.1|\[::1\]):\d{1,5}$/.test(page)) return '';
-  try { return new URL(page).origin !== new URL(API).origin ? page : ''; } catch { return ''; }
+  const m = typeof page === 'string' ? /^http:\/\/(127\.0\.0\.1|localhost|\[::1\]):(\d{1,5})$/.exec(page) : null;
+  const port = m ? Number(m[2]) : 0;
+  if (!m || port < 1 || port > 65535 || port === Number(new URL(API).port)) return { page: '', frame: '' };
+  return { page: `http://127.0.0.1:${port}`, frame: `http://localhost:${port}` };
 };
 const files = (digests: Record<string, string> = {}) => Object.entries(digests).map(([path, digest]) => ({ path, digest }));
 
@@ -781,13 +788,13 @@ const plain = (n: Noted) => n.gap ? 'Some changes were missed here (the server k
 const sources: Sources = {
   loadHello: async () => {
     const { error, reply } = await call('/__tamber', { method: 'hello' });
-    if (error) return { ok: false, error, protocol: '', format: 0, app: '', files: [], page: '', live: false };
+    if (error) return { ok: false, error, protocol: '', format: 0, app: '', files: [], page: '', frame: '', live: false };
     const ok = reply.ok ?? {};
     liveTable = ok.live === true;
     designFile = String(ok.design ?? '');
     // `page`: the dev loop's own origin, which the canvas frames; "" with no
     // dev loop (tamber/1.3).
-    return { ok: true, error: '', protocol: String(ok.protocol ?? ''), format: Number(ok.format ?? 0), app: String(ok.app ?? ''), files: files(ok.files), page: pageOf(ok.page), live: liveTable };
+    return { ok: true, error: '', protocol: String(ok.protocol ?? ''), format: Number(ok.format ?? 0), app: String(ok.app ?? ''), files: files(ok.files), ...pageOf(ok.page), live: liveTable };
   },
   loadDesign: async ([file]) => {
     const number = ++issued, axesAt = !file || file === designFile ? ++axesReads : -1;

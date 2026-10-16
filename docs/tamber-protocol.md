@@ -144,9 +144,12 @@ Each request is `POST /__tamber` with `{"method": "…", …}`.
   place, with no reload (LLP 1121 stage 4; see [The live table](#the-live-table-llp-1121-stage-4)).
   False from a server no dev loop runs.
 - `design`: the app's design file, the one an operation with no `file` edits (*1.1*);
-- `page` (*1.3*): the dev loop's own origin (`http://127.0.0.1:<port>`), which the design tool
-  frames, or null from a server no dev loop runs (`tamber serve`, `tamber tool` without `--via`).
-  Through `tamber tool --via`, the forwarded `hello` is the loop's, so `page` is the loop's.
+- `page` (*1.3*): the dev loop's own origin (`http://127.0.0.1:<port>`), as it prints it, or null
+  from a server no dev loop runs (`tamber serve`, `tamber tool` without `--via`). Through
+  `tamber tool --via`, the forwarded `hello` is the loop's, so `page` is the loop's. The design
+  tool opens it in a tab as given, and frames it as `http://localhost:<port>` (the dev loops answer
+  on [::1] too): another site than the tool's, so a browser with site isolation runs it in its own
+  process. That frame's cookies and storage are its own, apart from a tab at `page`.
 
 A `client` given in a hello is not a write's attribution (see `transaction`).
 

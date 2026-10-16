@@ -14,8 +14,11 @@ shape Hello
   format: number
   app: string
   files: FileDigest[]
-  // The dev loop's own origin, which the canvas frames; "" with none.
+  // The dev loop's own origin, as it prints it, which "Open in a tab"
+  // opens; "" with none. And the origin the canvas frames it at: the same
+  // port as localhost, another site than the tool's.
   page: string
+  frame: string
   // A dev loop serves the wire: a value edit applies in place, and a
   // scrub previews on the running copies.
   live: bool
@@ -879,7 +882,7 @@ component DesignTool
                   link href=hello.page target="_blank" testId="canvas-open"
                     text "Open in a tab"
               if hello.page != ""
-                iframe src=hello.page width=(canvasSize == "phone" ? 390 : canvasSize == "tablet" ? 820 : 1280) height=(canvasSize == "phone" ? 844 : canvasSize == "tablet" ? 1180 : 800) border="1px solid -exact-separator" border-radius=12 flex-shrink=0 sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads" testId="canvas-frame"
+                iframe src=hello.frame width=(canvasSize == "phone" ? 390 : canvasSize == "tablet" ? 820 : 1280) height=(canvasSize == "phone" ? 844 : canvasSize == "tablet" ? 1180 : 800) border="1px solid -exact-separator" border-radius=12 flex-shrink=0 sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads" testId="canvas-frame"
               else
                 column gap=4 padding=16 border-radius=12 background-color="-exact-secondary-background" testId="no-app"
                   text "No app running" role="heading" aria-level=3

@@ -416,6 +416,10 @@ test "the canvas frames the dev loop's page at the size chosen, and says how to 
   clock data
   expect tree has "canvas-frame"
   expect tree has "canvas-open"
+  // Framed as localhost: another site than the tool's, its own process;
+  // opened in a tab as the dev loop prints it.
+  expect state hello.frame == "http://localhost:8765"
+  expect state hello.page == "http://127.0.0.1:8765"
   expect tree missing "no-app"
   type "canvas-size" "tablet"
   expect state canvasSize == "tablet"
@@ -446,10 +450,23 @@ test "the canvas frames only a loopback origin: another host, a path, or the too
   reload
   clock data
   expect tree has "no-app"
+  request POST "/__stub/page" {"page": "http://localhost:7740"} as ada
+  reload
+  clock data
+  expect tree has "no-app"
+  request POST "/__stub/page" {"page": "http://127.0.0.1:07740"} as ada
+  reload
+  clock data
+  expect tree has "no-app"
+  request POST "/__stub/page" {"page": "http://[::1]:7740"} as ada
+  reload
+  clock data
+  expect tree has "no-app"
   request POST "/__stub/page" {"page": "http://[::1]:8765"} as ada
   reload
   clock data
   expect tree has "canvas-frame"
+  expect state hello.frame == "http://localhost:8765"
   request POST "/__stub/page" {"page": null} as ada
 
 test "builds: each with its effective facts from its status; a pin on one shows pinning until its status reaches the pin's revision, and only that build moves"
