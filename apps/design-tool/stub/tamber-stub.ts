@@ -86,7 +86,11 @@ Bun.serve({ hostname, port: Number(port), routes: {
         if (request.items) {
           // Its own diff and tokens: the items kept, as the server plans them.
           const kept = (p.ops as { index: number; op: { name?: string } }[]).filter(o => request.items.includes(o.index));
-          const fresh = { ...p, proposal: `${p.proposal}-r`, replaces: p.proposal, ops: kept.map((o, index) => ({ index, op: o.op })), diff: `--- app.tamber\n+++ app.tamber\n${kept.map(o => `+  ${o.op.name} (kept)`).join('\n')}\n`, changed: kept.map(o => ({ file: 'app.tamber', token: o.op.name })) };
+          // Its review renumbered to the items kept, as the server's is.
+          const review = p.review as { tokens?: number; offers?: { items?: number[] }[] } | undefined;
+          const at = (i: number) => kept.findIndex(o => o.index === i);
+          const remapped = review && { ...review, tokens: kept.filter(o => o.index < (review.tokens ?? 0)).length, offers: (review.offers ?? []).map(o => ({ ...o, items: (o.items ?? []).map(at).filter(i => i >= 0) })) };
+          const fresh = { ...p, proposal: `${p.proposal}-r`, replaces: p.proposal, ops: kept.map((o, index) => ({ index, op: o.op })), ...(remapped ? { review: remapped } : {}), diff: `--- app.tamber\n+++ app.tamber\n${kept.map(o => `+  ${o.op.name} (kept)`).join('\n')}\n`, changed: kept.map(o => ({ file: 'app.tamber', token: o.op.name })) };
           held.push(fresh);
           return send({ ok: { recomputed: true, replaces: p.proposal, proposal: fresh.proposal } });
         }

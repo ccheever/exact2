@@ -484,16 +484,28 @@ function reviewOf(p: any) {
   // A swatch for a colour a page can paint: a reference to a token the
   // import adds, or the design has, is followed to its colour; one to
   // anything else is said as written, unpainted.
-  const added = new Map<string, string>(ops.filter(o => o?.op === 'add-token').map(o => [String(o.name), String(o.value ?? '')]));
+  // Each token the import adds or sets, by mode: its default and each
+  // `when`, so a reference is followed in the same mode.
+  const proposed = new Map<string, Map<string, string>>();
+  for (const o of ops) {
+    if (o?.op !== 'add-token' && o?.op !== 'set-token') continue;
+    const m = proposed.get(String(o.name)) ?? new Map<string, string>();
+    if (o.op === 'add-token') { m.set('default', String(o.value ?? '')); for (const w of o.whens ?? []) m.set(whenText(w.when ?? []), String(w.value ?? '')); }
+    else m.set(o.when?.length ? whenText(o.when) : 'default', String(o.value ?? ''));
+    proposed.set(String(o.name), m);
+  }
   const design = snapshots.get(Math.max(0, ...snapshots.keys()));
-  const swatch = (v: string, side: 0 | 1, depth = 0): string => {
+  const swatch = (v: string, side: 0 | 1, label: string, depth = 0): string => {
     const t = sides(v)[side];
     if (colourLiteral(t, new Set())) return t;
     if (depth > 8) return '';
-    if (added.has(t)) return swatch(added.get(t)!, side, depth + 1);
-    return design?.stored.get(t)?.[0]?.[side]?.css ?? '';
+    const m = proposed.get(t);
+    if (m) return swatch(m.get(label) ?? m.get('default') ?? '', side, label, depth + 1);
+    // A design token: its first tuple, a residual at its fallback.
+    const cell = design?.stored.get(t)?.[0]?.[side];
+    return cell ? (cell.residual ? cell.srgb : cell.css) : '';
   };
-  const mode = (label: string, mode: number, value: string) => ({ label, mode, value, light: swatch(value, 0), dark: swatch(value, 1) });
+  const mode = (label: string, mode: number, value: string) => ({ label, mode, value, light: swatch(value, 0, label), dark: swatch(value, 1, label) });
   // What the import does before its role overrides, each by its kind: a
   // token added or set (each mode's value, editable), a mode's value
   // dropped, an axis added.
@@ -525,6 +537,17 @@ function reviewOf(p: any) {
     unmapped: (r.unmapped ?? []).map((u: any, i: number) => ({ name: String(u.name), value: String(u.value ?? ''), why: String(u.why ?? '') + (u.block === '(derived)' ? ' (derived: outside the count)' : ''), derived: u.block === '(derived)', block: String(u.block ?? ''), key: `${i}` })),
     counted: `${recomputed ? 'the source import: ' : ''}${c.source} source values = ${c.mapped} mapped + ${c.reported} reported`, countOk: c.source === c.mapped + c.reported,
   };
+}
+/** An import's items its card has chosen: the mapped tokens unless
+ * unticked, the role overrides only if ticked (LLP 1121 D1), or, on a
+ * recomputed import or an edit of one (`kept`), on unless unticked.
+ * `picked`: the view's flipped items, `<proposal>:<i[,j]>` joined by `;`. */
+function chosen(proposal: string, picked: string): number[] {
+  const r = heldReview.get(proposal), ops = heldOps.get(proposal) ?? [];
+  const recomputed = !!held.find(h => h.proposal === proposal)?.replaces || !!r?.kept;
+  const flipped = new Set(picked.split(';').filter(x => x.startsWith(`${proposal}:`)).flatMap(x => x.slice(proposal.length + 1).split(',').map(Number)));
+  const tokens = Number(r?.tokens ?? 0);
+  return ops.map((_, i) => i).filter(i => (i < tokens || recomputed ? !flipped.has(i) : flipped.has(i)));
 }
 /** An operation in plain words, as a held proposal lists its items. */
 const opText = (o: any): string => {
@@ -1047,26 +1070,19 @@ const sources: Sources = {
     return { ok: true, error: '', proposal: ok.proposal, note: `Held for review as ${ok.proposal}.`, ...none };
   },
   acceptImport: async ([client, proposal, picked]) => {
-    // The mapped tokens unless unticked, the role overrides only if ticked
-    // (LLP 1121 D1): all of it at once is the proposal accepted whole;
-    // anything less is recomputed as those items, to accept again.
     const r = heldReview.get(proposal), ops = heldOps.get(proposal) ?? [];
-    // The same baseline the card draws: a recomputed import's, or an edit
-    // of one (`kept`), has its offers on.
-    const recomputed = !!held.find(h => h.proposal === proposal)?.replaces || !!r?.kept;
     if (!r) return { ...stacks(false, `No held import \`${proposal}\`.`, ''), note: '' };
-    // `picked`: the view's flipped items, `<proposal>:<i[,j]>` joined by `;`.
-    const flipped = new Set(picked.split(';').filter(x => x.startsWith(`${proposal}:`)).flatMap(x => x.slice(proposal.length + 1).split(',').map(Number)));
-    const tokens = Number(r.tokens ?? 0);
-    const items = ops.map((_, i) => i).filter(i => (i < tokens || recomputed ? !flipped.has(i) : flipped.has(i)));
+    const items = chosen(proposal, picked);
     if (!items.length) return { ...stacks(false, 'Nothing is chosen to import.', ''), note: '' };
     return sources.acceptHeld([client, proposal, items.length === ops.length ? '' : items.join(',')], undefined as never, undefined as never, undefined as never);
   },
   editImport: async ([client, proposal, index, mode, value, picked]) => {
     // A mapped token's value in one mode changed before accepting: the
-    // import held again with it, under the same review (on the same server
-    // run), and the old one dropped; what was ticked and unticked carries
-    // over to the new one.
+    // import held again (on the same server run) as what the card has
+    // chosen, with the edit, its review renumbered to those items and its
+    // overrides on, since they were ticked; the old one dropped. So its
+    // diff is what Accept writes, and an override left unticked is not
+    // checked along with an edit it has no part in.
     const at = session;
     const r = heldReview.get(proposal), ops = (heldOps.get(proposal) ?? []).map(o => ({ ...o, whens: o.whens?.map((w: any) => ({ ...w })) }));
     const op = ops[index];
@@ -1075,15 +1091,21 @@ const sources: Sources = {
     if (mode === 0) op.value = value.trim();
     else if (op.whens?.[mode - 1]) op.whens[mode - 1].value = value.trim();
     else return { ...stacks(false, `No such mode in \`${proposal}\`.`, ''), note: '', carried: [] };
-    const recomputed = !!held.find(h => h.proposal === proposal)?.replaces;
-    const made = await call('/__tamber', { method: 'propose', hold: true, client, ops, review: { ...r, kept: r.kept || recomputed, from: proposal } }, WRITE_WAIT, heldToken || undefined);
+    const keep = chosen(proposal, picked);
+    if (!keep.includes(index)) return { ...stacks(false, `${op.name} is left out of the import: tick it to edit it.`, ''), note: '', carried: [] };
+    const tokens = Number(r.tokens ?? 0);
+    const review = {
+      ...r, kept: true, from: proposal, tokens: keep.filter(i => i < tokens).length,
+      offers: (r.offers ?? []).map((o: any) => ({ ...o, items: (o.items ?? []).map((i: number) => keep.indexOf(i)).filter((i: number) => i >= 0) })),
+    };
+    const made = await call('/__tamber', { method: 'propose', hold: true, client, ops: keep.map(i => ops[i]), review }, WRITE_WAIT, heldToken || undefined);
     if (made.error === RESTARTED) forget();
     if (session !== at) return { ...stacks(false, RESTARTED, ''), note: '', carried: [] };
     if (made.error) return { ...stacks(false, made.error, ''), note: '', carried: [] };
     const fresh = String(made.reply.ok.proposal);
     const dropped = await call('/__tamber', { method: 'drop', client, proposal }, 15000, heldToken || undefined);
-    const carried = picked.split(';').filter(x => x.startsWith(`${proposal}:`)).map(x => `${fresh}:${x.slice(proposal.length + 1)}`);
-    const said = `${op.name} is ${value.trim()}${mode ? ` when ${whenText(op.whens[mode - 1].when ?? [])}` : ''} in the import, held again as ${fresh}: review it and accept.`;
+    const carried: string[] = [];
+    const said = `${op.name} is ${value.trim()}${mode ? ` when ${whenText(op.whens[mode - 1].when ?? [])}` : ''} in the import, held again as ${fresh} with what was chosen: review it and accept.`;
     return { ...stacks(true, '', 'edited'), note: dropped.error ? `${said} The old one, ${proposal}, could not be dropped (${dropped.error}): drop it.` : said, carried };
   },
   dropHeld: async ([client, proposal]) => {

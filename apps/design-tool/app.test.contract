@@ -366,7 +366,7 @@ test "an import's review: tokens in, overrides off until ticked with their notes
   type "mapped-value-imp-0-0" "light-dark(#fafafa, #222222)"
   type "mapped-value-imp-0-0" key "Enter"
   clock data
-  expect text "write-note" == "shadcn.card is light-dark(#fafafa, #222222) in the import, held again as held-1: review it and accept."
+  expect text "write-note" == "shadcn.card is light-dark(#fafafa, #222222) in the import, held again as held-1 with what was chosen: review it and accept."
   clock +1
   clock data
   expect tree missing "held-imp"

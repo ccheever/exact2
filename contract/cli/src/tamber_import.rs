@@ -173,10 +173,11 @@ pub fn plan(request: &Value, current: &str) -> Result<Value, Value> {
         None => Err(bad(&format!(
             "no importer `{kind}` (shadcn, tailwind, dtcg; astryx through its CLI)"
         ))),
-        // Each diagnostic in the shape the wire gives a checker's, named by
-        // the source file.
+        // Each diagnostic in the shape the wire gives a checker's: named by
+        // the source file when there is one, else by its message alone (an
+        // importer of several names the file in it), no place invented.
         Some(Err(all)) => Err(
-            json!({"message": "the source is refused", "diagnostics": all.iter().map(|d| json!({"file": files.first().map_or("", |(n, _)| n.as_str()), "line": d.line, "col": d.col, "id": d.id, "message": d.message})).collect::<Vec<_>>()}),
+            json!({"message": "the source is refused", "diagnostics": all.iter().map(|d| if files.len() == 1 { json!({"file": files[0].0, "line": d.line, "col": d.col, "id": d.id, "message": d.message}) } else { json!({"id": d.id, "message": d.message}) }).collect::<Vec<_>>()}),
         ),
         Some(Ok(import)) => Ok(import_json(&kind, &import)),
     }

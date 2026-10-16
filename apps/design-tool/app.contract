@@ -831,7 +831,7 @@ component DesignTool
                   if i.counted != ""
                     text i.counted color="-exact-secondary-label" font="-exact-footnote" testId="import-counted"
                     for u in i.unmapped key=u.key
-                      text `${u.name} = ${u.value}: ${u.why}` color="-exact-secondary-label" font="-exact-caption1"
+                      text `${u.name} = ${u.value}${u.block != "" and not u.derived ? ` (${u.block})` : ""}: ${u.why}` color="-exact-secondary-label" font="-exact-caption1"
                 case none
                   text "" display="none"
             column gap=8 testId="changeset"
