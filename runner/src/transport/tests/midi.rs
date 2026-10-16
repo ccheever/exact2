@@ -51,7 +51,10 @@ component M
   state beatSeen = -2
   state sum = 0
   state bad = [144, 200, 1]
+  state from = 0
+  state floodN = 0
   resource midi = exactMIDI() as shape MIDI
+  resource many = flood(floodN) as shape number[]
   action ask
     requestMIDIAccess()
   action send
@@ -76,6 +79,14 @@ component M
     length = 2
   action withClock
     clockOut = "synth"
+  action countIn
+    from = -1
+  action reloadIt
+    reload()
+  action floodOn
+    floodN = 1024
+  action flood
+    sendMIDI("synth", many, at=performanceNow() + 10000)
   action hear(e: MIDIMessageEvent)
     heard = heard + 1
     beatSeen = e.beat
@@ -83,7 +94,7 @@ component M
   action hear2(e: MIDIMessageEvent)
     heard2 = heard2 + 1
   sequence s when playing key=take
-    play([Track(beats=1, loops=0, offset=off, output="synth", steps=[note(0, 60, length)])], bpm=bpm, clockOut=clockOut)
+    play([Track(beats=1, loops=0, offset=off, output="synth", steps=[note(0, 60, length)])], bpm=bpm, from=from, clockOut=clockOut)
   view
     column midimessage=hear midiinputs=["keys"]
       text `${midi.state} ${midi.outputs.length}`
@@ -94,8 +105,17 @@ component M
 struct Granted;
 
 impl DataSource for Granted {
-    fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
-        panic!("no data source {source}")
+    /// `flood(n)`: `n` note-ons' bytes.
+    fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
+        assert_eq!(source, "flood");
+        let n = match args.first() {
+            Some(Value::Number(n)) => *n as usize,
+            _ => 0,
+        };
+        let bytes = [144.0, 60.0, 100.0].map(Value::Number);
+        Ok(Value::list(
+            bytes.iter().cycle().take(3 * n).cloned().collect(),
+        ))
     }
 
     fn grants(&self) -> &str {
@@ -107,7 +127,8 @@ struct Ungranted;
 
 impl DataSource for Ungranted {
     fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
-        panic!("no data source {source}")
+        assert_eq!(source, "flood");
+        Ok(Value::list(Vec::new()))
     }
 }
 
@@ -363,7 +384,7 @@ fn clock_out_starts_at_beat_0_and_stops_after_its_last_handed_tick() {
     let stop = lines
         .iter()
         .position(|l| l.ends_with("fc at 541.6666666666667") || l.contains(" fc at "));
-    let start = lines.iter().rposition(|l| l.contains(" fa at 510"));
+    let start = lines.iter().rposition(|l| l.contains(" fa at "));
     assert!(
         stop.is_some() && start.is_some() && stop < start,
         "{lines:?}"
@@ -413,4 +434,87 @@ fn every_listener_hears_a_message_in_its_own_commit_and_controls_coalesce() {
         data: vec![0x90, 61, 1],
     }]);
     assert_eq!(text(&r, "beatSeen"), 0.5);
+}
+
+/// Review round 1, A1: a `reload` while a note sounds ends it: its
+/// note-off is handed at once and nothing is left waiting.
+#[test]
+fn a_reload_ends_every_sounding_note() {
+    let mut r = granted(SOURCE);
+    r.act("longer", vec![]).unwrap();
+    r.act("start", vec![]).unwrap();
+    r.advance(600.0).unwrap();
+    r.act("reloadIt", vec![]).unwrap();
+    let s = sent(&r);
+    // Beat 1's note-on at 500 was handed; its note-off at 1500 moves to 600.
+    assert!(s.contains(&("80 3c 00".into(), 600.0, None)), "{s:?}");
+    assert_eq!(r.midi().waiting(600.0), 0, "{s:?}");
+    assert!(r
+        .midi()
+        .sent()
+        .all(|e| e.by.is_some() || e.at - 50.0 <= 600.0));
+}
+
+/// Review round 1, A2: a queue full of messages far ahead does not block a
+/// note that is due, and the clock moves on.
+#[test]
+fn a_full_queue_never_blocks_a_due_note() {
+    let mut r = granted(SOURCE);
+    r.act("floodOn", vec![]).unwrap();
+    r.act("flood", vec![]).unwrap();
+    assert_eq!(r.midi().waiting(0.0), 1024);
+    r.act("start", vec![]).unwrap();
+    r.advance(2000.0).unwrap();
+    // The record keeps the 1,024 waiting; the journal has every note.
+    let ons: Vec<String> = said(&r)
+        .into_iter()
+        .filter(|l| l.contains("90 3c 64 at ") && !l.ends_with("at 10000"))
+        .collect();
+    assert!(ons.len() >= 4, "{ons:?}");
+    assert!(
+        ons[0].ends_with("90 3c 64 at 0") && ons[3].ends_with("90 3c 64 at 1500"),
+        "{ons:?}"
+    );
+}
+
+/// Review round 1, A3: a restart's Start reaches the device after the old
+/// clock's Stop, in time order, not only in the journal's.
+#[test]
+fn a_restart_starts_after_its_stop() {
+    let mut r = granted(SOURCE);
+    r.act("withClock", vec![]).unwrap();
+    r.act("start", vec![]).unwrap();
+    r.advance(510.0).unwrap();
+    r.act("again", vec![]).unwrap();
+    let live: Vec<(String, f64)> = sent(&r)
+        .into_iter()
+        .filter(|e| e.2.is_none())
+        .map(|e| (e.0, e.1))
+        .collect();
+    let stop = live.iter().find(|e| e.0 == "fc").expect("a Stop").1;
+    let start = live
+        .iter()
+        .filter(|e| e.0 == "fa")
+        .map(|e| e.1)
+        .next_back()
+        .unwrap();
+    assert!(start >= stop, "Start {start} before Stop {stop}: {live:?}");
+    assert!(stop > 510.0);
+}
+
+/// Review round 1, A4: a Start an edit takes back before it is handed is
+/// sent again.
+#[test]
+fn a_start_taken_back_is_sent_again() {
+    let mut r = granted(SOURCE);
+    r.act("withClock", vec![]).unwrap();
+    r.act("countIn", vec![]).unwrap();
+    r.act("start", vec![]).unwrap();
+    assert!(sent(&r).contains(&("fa".into(), 500.0, None)));
+    r.advance(100.0).unwrap();
+    r.act("faster", vec![]).unwrap();
+    let s = sent(&r);
+    assert!(s.contains(&("fa".into(), 500.0, Some("edit"))), "{s:?}");
+    // At 240 the beat reached at 100 is -0.8: beat 0 falls at 300.
+    assert!(s.contains(&("fa".into(), 300.0, None)), "{s:?}");
 }

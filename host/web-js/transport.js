@@ -201,6 +201,8 @@ function after(before) {
     // After every mutation's `then`, whatever the order the module declared them in.
     const k = Mutations.indexOf(Answer);
     if (k < 0 || k !== Mutations.length - 1) { if (k >= 0) Mutations.splice(k, 1); Mutations.push(Answer); }
+    // `exactMIDI`'s answer due at the same time comes after this one, as the runner's (midi.js).
+    const m = Mutations.indexOf(Sounds.midiAnswer); if (m >= 0 && m < Mutations.length - 1) Mutations.push(...Mutations.splice(m, 1));
   }
   if (!clock.agent) drive();
 }
@@ -244,6 +246,7 @@ const look = q => {
   if (key === null) throw new Refusal(`TaskKey { task: ${JSON.stringify(q.name)} }`);
   return { on, key, args: on ? q.args() : [] };
 };
+Sounds.transportAnswer = Answer;
 Sounds.gate = () => { Pending = null; if (Seqs.length) Pending = untracked(() => Seqs.map(look)); };
 Sounds.stood = () => { const seen = Pending; Pending = null; if (seen) stood(seen); };
 // The beat at `t` while a sequence plays, by the segment that holds it; −1 while stopped (a MIDI input's `beat`).

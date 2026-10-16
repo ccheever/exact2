@@ -513,6 +513,8 @@ pub struct Midi {
     ticks: u64,
     /// The last tick handed and let go from the queue: its index and time.
     played: Option<(f64, f64)>,
+    /// When the last Stop is due: no tick is sent before it.
+    clock_floor: f64,
     /// When the `exactMIDI` readers are answered again.
     pub(crate) answer_due: f64,
     /// The resources reading `exactMIDI`.
@@ -541,6 +543,7 @@ impl Midi {
             clock: None,
             ticks: 0,
             played: None,
+            clock_floor: f64::NEG_INFINITY,
             answer_due: f64::INFINITY,
             readers,
             preferred: Ports::none(Access::Granted),
@@ -807,11 +810,17 @@ impl Midi {
         id
     }
 
-    /// Take back message `i` of the queue (`by`).
+    /// Take back message `i` of the queue (`by`). Clock out's Start taken
+    /// back is sent again before its next tick.
     fn retract(&mut self, i: usize, by: &'static str) {
         let s = &mut self.queue[i];
         s.by = Some(by);
         self.ops.push(MidiOp::Retract { id: s.id });
+        if let Some(c) = self.clock.as_mut() {
+            if s.data == [0xFA] && s.output == c.output {
+                c.started = false;
+            }
+        }
     }
 
     /// Keep the last [`RECORD`] messages, letting the oldest that no longer
@@ -848,7 +857,9 @@ impl Midi {
     /// One sequence note on `output` (LLP 1125 D7): `on` at `on_at`, its
     /// note-off at `off_at`, for the step at `step_at`, queued at `t`. A
     /// waiting note-off of the same output, channel and note that ends
-    /// after `on_at` is moved to it first (rulings #7).
+    /// after `on_at` is moved to it first (rulings #7). A note-on due within
+    /// the hold is handed at once and takes no waiting place, so a full
+    /// queue never blocks a note that is due.
     #[allow(clippy::too_many_arguments)] // a note's fields
     pub(crate) fn note(
         &mut self,
@@ -860,7 +871,7 @@ impl Midi {
         t: f64,
         log: &mut Vec<String>,
     ) -> Queued {
-        if self.waiting(t) >= QUEUED {
+        if on_at - HOLD > t && self.waiting(t) >= QUEUED {
             return Queued::Full;
         }
         let key = note_key(&on);
@@ -989,14 +1000,18 @@ impl Midi {
     /// Clock out ends at `t`: Stop no earlier than the last tick handed,
     /// once Start was sent (rulings #9).
     fn stop_clock(&mut self, t: f64, log: &mut Vec<String>) {
-        let Some(c) = self.clock.take() else {
+        let Some(output) = self.clock.as_ref().map(|c| c.output.clone()) else {
             return;
         };
         for i in 0..self.queue.len() {
-            if self.queue[i].tick.is_some() && self.queue[i].waits(t) {
+            let s = &self.queue[i];
+            if (s.tick.is_some() || (s.data == [0xFA] && s.output == output)) && s.waits(t) {
                 self.retract(i, "cancelled");
             }
         }
+        let Some(c) = self.clock.take() else {
+            return;
+        };
         if !c.started {
             return;
         }
@@ -1007,6 +1022,9 @@ impl Midi {
             .map(|s| s.at)
             .chain(self.played.map(|(_, at)| at))
             .fold(t, f64::max);
+        // The next clock starts after this Stop (a restart's Start would
+        // otherwise reach the device before it).
+        self.clock_floor = last;
         self.push(
             New {
                 output: &c.output,
@@ -1048,8 +1066,9 @@ impl Midi {
 
     /// Queue clock out's ticks due before `to` under `time` (a beat's time),
     /// before beat `end` when the take is finite; one before `late` (a
-    /// stalled live clock's fill) is skipped. Start goes before the first
-    /// tick at a beat ≥ 0. A journal line says how many.
+    /// stalled live clock's fill) or before the last Stop sent is skipped.
+    /// Start goes before the first tick sent at a beat ≥ 0. A journal line
+    /// says how many.
     pub(crate) fn ticks(
         &mut self,
         time: impl Fn(f64) -> f64,
@@ -1071,7 +1090,7 @@ impl Midi {
                 break;
             }
             c.next += 1.0;
-            if !can || at < late {
+            if !can || at < late || at < self.clock_floor {
                 continue;
             }
             if !c.started && k >= 0.0 {
@@ -1117,9 +1136,10 @@ impl Midi {
         self.clock = Some(c);
     }
 
-    /// This runner is about to be replaced (a dev reload): the sequence's
-    /// waiting messages go as at a stop, and every other waiting note-off is
-    /// handed now; the rest is taken back.
+    /// A `reload`, or this runner about to be replaced: the sequence's
+    /// waiting messages go as at a stop, every other waiting note-off is
+    /// handed now, due after every note-on already handed (`t + HOLD`), and
+    /// the rest is taken back.
     pub(crate) fn reload(&mut self, t: f64, log: &mut Vec<String>) {
         self.stop_seq(t, log);
         let (mut n, mut moved) = (0, Vec::new());
@@ -1141,7 +1161,7 @@ impl Midi {
                 New {
                     output: &s.output,
                     data: s.data,
-                    at: t,
+                    at: t + HOLD,
                     step_at: t,
                     seq: s.seq,
                     tick: None,
