@@ -92,7 +92,6 @@ fn named_agent_storage_keeps_a_secret_across_a_relaunch() {
 /// above. Unix only: it makes the tree unwritable with mode bits.
 #[cfg(unix)]
 #[test]
-#[cfg(unix)]
 fn a_fresh_tree_that_cannot_be_emptied_is_not_read() {
     const CHILD: &str = "EXACT_LINUX_FRESH_WIPE_TEST";
     if std::env::var_os(CHILD).is_none() {
