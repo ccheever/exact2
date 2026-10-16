@@ -454,7 +454,7 @@ public final class ExactView: UIView {
     /// LLP 1078 D5), and fit the root.
     func rebooted() {
         // A new runner has no screen: tell it again first (Grok's review).
-        if let screen = lastScreen { session.screen(screen) }
+        if let screen = lastScreen { session.view(Runtime.ViewChange(screen: .some(screen))) }
         if lastInsets != .zero { session.insets(top: lastInsets.top, right: lastInsets.right, bottom: lastInsets.bottom, left: lastInsets.left) }
         lastRegions = nil  // the next fit tells the new runner
         session.segments(lastFold)

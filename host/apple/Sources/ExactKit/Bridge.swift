@@ -606,8 +606,6 @@ package final class Runtime {
         }
         return on { read(exact_view(rt, write(bytes))) }
     }
-    /// The window's size, which every viewport unit resolves against everywhere; zero clears it (LLP 1075.003 §9.11).
-    func screen(width: CGFloat, height: CGFloat) -> Batch { on { read(exact_screen(rt, Float(width), Float(height))) } }
     /// The posture and the viewport segments (LLP 1078 D4): the rects as `x y w h` floats in the input buffer, none for one segment.
     func segments(_ fold: ViewportFold) -> Batch {
         on {
