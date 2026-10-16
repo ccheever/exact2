@@ -148,8 +148,9 @@ the schema changes (LLP 1030 D3a). Agreed in advance: "it's ok if things break a
   > field: one `input` row of an alert-shaped `alertdialog` counts with its text and is
   > `UIAlertController`'s text field on iOS, `NSAlert`'s accessory field on the Mac, and the
   > `dialog`'s field on a line of its own on the web, standing in for the authored `input`.
-  > Return presses its first action that is not destructive, on every host and whatever its
-  > style; while that action is disabled Return does nothing. Lowering refuses a field in any
+  > Return, on every host: the field's key handlers first; a field with a `submit` then commits
+  > and runs it, and that is all; any other commits and presses the first action that is not
+  > destructive, whatever its style, nothing while that action is disabled. Lowering refuses a field in any
   > other shape; Linux paints it as authored.
 - **D7. Docs say less.** The agent guide, `exact new` and the recipe apps omit colours, fonts and
   control metrics; where colour is needed they name roles. A short starter guide is the only

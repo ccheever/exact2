@@ -1968,14 +1968,16 @@ dialog id="rename" role="alertdialog" aria-label="Rename Pattern"
 
 iOS shows `UIAlertController` with the field (`addTextField`), macOS `NSAlert`
 with it as the accessory view, the web the `dialog` with the field on a line of
-its own. The field stands in for the authored `input`: its `value`, placeholder
-and keyboard (`type`, `inputmode`, `autocomplete`) are UIKit's and AppKit's
-field's, each keystroke is the input's `input` and the end of editing its
-`change`, so the action's `press` reads what was typed; the field also
-follows the input (a value an `input` handler rewrites, `disabled`,
-`readonly`, `maxlength`). Return presses the first action that is not
-destructive on every host (bold on iOS), whatever `buttonStyle` says; while
-it is disabled Return does nothing, so a Save with `disabled=(draft == "")`
+its own. The field is the authored `input`'s, going through its machinery: the
+input's value writes reach it (what is typed stands until the page writes the
+value), its `placeholder`, keyboard, `disabled`, `readonly`, `maxlength` and
+`beforeinput` are its, each keystroke is its `input` and the end of editing
+its `change`, so the action's `press` reads what was typed. Return is one
+rule on every host: the input's `key` handlers hear it first (and may prevent
+it); a field with a `submit` handler then commits and runs it, and that is
+all, as a hand-built field whose delegate handles Return; any other commits
+its edit and presses the first action that is not destructive (bold on iOS),
+whatever `buttonStyle` says; while that action is disabled Return does nothing, so a Save with `disabled=(draft == "")`
 opens dimmed and enables as a name is typed. Only the alert's shape takes
 one field at a time: with it, a cancel and at most three buttons, no `for`
 (`lower-alertdialog` says which row breaks it).

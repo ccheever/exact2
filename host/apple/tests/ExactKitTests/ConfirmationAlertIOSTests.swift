@@ -360,6 +360,40 @@ final class ConfirmationAlertIOSTests: XCTestCase {
         XCTAssertFalse(field.isEnabled, "disabled")
     }
 
+    /// Typing stands across batches that write nothing to the input (an
+    /// input that commits on `change`, a timer's batch); Return is the
+    /// input's `change` and `submit` before the alert's preferred action;
+    /// and an input the page swaps for another withdraws the alert, whose
+    /// field is no longer the input's.
+    func testAPromptsTypingStandsItsReturnSubmitsAndASwappedFieldWithdrawsIt() throws {
+        let (p, controller, _) = confirmation(label: "Rename", texts: [], actions: ["Delete", "Save"], cancel: true)
+        defer { dismiss(p, controller) }
+        p.apply(wireBatch([["op": "create", "id": 20, "kind": "input", "handlers": ["change", "submit"], "props": ["value": "Untitled"], "style": ["text_color": [0, 0, 0, 255]]],
+                           ["op": "frame", "id": 20, "x": 0.0, "y": 0.0, "w": 200.0, "h": 30.0],
+                           ["op": "children", "id": 2, "ids": [20, 3, 4, 9]],
+                           // Save disabled: Return then reaches the input and presses nothing.
+                           ["op": "props", "id": 4, "set": ["disabled": "true"]]]))
+        var events: [String] = []
+        p.onChange = { id, value in events.append("change \(id) \(value)") }
+        p.onSubmit = { events.append("submit \($0)") }
+        XCTAssertEqual(p.menus.activate(try XCTUnwrap(p.views[1])), true)
+        let alert = try XCTUnwrap(controller.presentedViewController as? UIAlertController)
+        let field = try XCTUnwrap(alert.textFields?.first)
+        field.text = "Kick"
+        field.sendActions(for: .editingChanged)
+        p.apply(wireBatch([["op": "props", "id": 10, "set": ["accessibilityLabel": "unrelated"]]]))
+        XCTAssertEqual(field.text, "Kick", "a batch that writes nothing to the input leaves what was typed")
+        _ = field.delegate?.textFieldShouldReturn?(field)
+        settle { events.contains("submit 20") }
+        XCTAssertEqual(events, ["change 20 Kick", "submit 20"], "the input's own Return first")
+        XCTAssertNotNil(p.menus.observation(), "Save is disabled: still open")
+
+        p.apply(wireBatch([["op": "create", "id": 21, "kind": "input", "handlers": [], "props": ["value": ""], "style": ["text_color": [0, 0, 0, 255]]],
+                           ["op": "frame", "id": 21, "x": 0.0, "y": 0.0, "w": 200.0, "h": 30.0],
+                           ["op": "children", "id": 2, "ids": [21, 3, 4, 9]], ["op": "destroy", "id": 20]]))
+        XCTAssertNil(p.menus.observation(), "the field shown is no longer the input's: withdrawn")
+    }
+
     /// Without a label, the first line titles the alert and the rest is
     /// its message; an alert always has a title.
     func testAnUnlabelledConfirmationIsTitledByItsFirstLine() throws {

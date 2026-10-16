@@ -59,7 +59,7 @@ final class AlertMacTests: XCTestCase {
         }
         if extra { ops += [["op": "create", "id": 50, "kind": "input", "props": ["type": "checkbox"]], ["op": "frame", "id": 50, "x": 0, "y": 0, "w": 100, "h": 30]]; rows.append(50) }
         if field {
-            ops += [["op": "create", "id": 51, "kind": "input", "handlers": ["input", "change"], "props": ["value": "Untitled", "placeholder": "Name"]],
+            ops += [["op": "create", "id": 51, "kind": "input", "handlers": ["input", "change", "submit"], "props": ["value": "Untitled", "placeholder": "Name"]],
                     ["op": "frame", "id": 51, "x": 0, "y": 0, "w": 100, "h": 30]]
             rows.insert(51, at: 0)
         }
@@ -331,6 +331,48 @@ final class AlertMacTests: XCTestCase {
     /// A prompt opens with Save disabled until a name is typed and stays
     /// open when the name is cleared again; its field follows the authored
     /// input after each batch (the value the page holds, `readonly`).
+    /// The accessory field is the input's own, lent as the toolbar's search
+    /// field is: the node its delegate, its value the input's. Return is the
+    /// input's `change` and its `submit`, and that is all; with no `submit`
+    /// it is the default button's press. A batch writing nothing to the input
+    /// leaves what was typed; an input the page swaps for another withdraws
+    /// the alert.
+    func testAPromptsFieldIsTheInputsOwnAndItsReturnSubmitsFirst() throws {
+        let p = fixture(label: "Rename", lines: [], actions: ["Save"], props: [:], field: true)
+        var events: [String] = []
+        p.onChange = { id, value in events.append("change \(id) \(value)") }
+        p.onSubmit = { events.append("submit \($0)") }
+        p.onPress = { events.append("press \($0)") }
+        p.press(2)
+        let owner = try XCTUnwrap(p.alerts.presented)
+        let field = try XCTUnwrap(p.views[51]?.field)
+        XCTAssertTrue((owner.alert.accessoryView as? NSStackView)?.arrangedSubviews.first === field, "the input's field, lent")
+        XCTAssertTrue(field.delegate === p.views[51], "the node is its delegate")
+        XCTAssertEqual(p.alerts.type(try XCTUnwrap(p.views[51]), "Kick"), "Kick")
+        p.apply(wireBatch([["op": "props", "id": 10, "set": ["accessibilityLabel": "unrelated"]]]))
+        p.alerts.sync()
+        XCTAssertEqual(field.stringValue, "Kick", "a batch that writes nothing to the input leaves what was typed")
+        XCTAssertTrue(p.alerts.key("Enter"))
+        turn(); turn()
+        XCTAssertEqual(events, ["change 51 Kick", "submit 51"], "a field with a submit keeps Return")
+        XCTAssertTrue(p.alerts.presented === owner, "and nothing is pressed")
+        try XCTUnwrap(p.views[51]).handlers.remove("submit")
+        XCTAssertTrue(p.alerts.key("Enter"))
+        turn(); turn()
+        XCTAssertTrue(events.contains("press 10"), "with none, the default button: \(events)")
+        XCTAssertFalse(p.views[51]?.field === field, "the page has its field again")
+        window.close()
+
+        let q = fixture(label: "Rename", lines: [], actions: ["Save"], props: [:], field: true)
+        q.press(2)
+        XCTAssertNotNil(q.alerts.presented)
+        q.apply(wireBatch([["op": "create", "id": 52, "kind": "input", "props": ["value": ""]], ["op": "frame", "id": 52, "x": 0, "y": 0, "w": 100, "h": 30],
+                           ["op": "children", "id": 3, "ids": [52, 10, 30]], ["op": "destroy", "id": 51]]))
+        q.alerts.sync()
+        XCTAssertNil(q.alerts.presented, "the field shown is no longer the input's: withdrawn")
+        window.close()
+    }
+
     func testAPromptOpensWithSaveDisabledAndItsFieldFollowsTheInput() throws {
         let p = fixture(label: "Rename", lines: [], actions: ["Save"], props: [10: ["disabled": "true"]], field: true)
         p.press(2)

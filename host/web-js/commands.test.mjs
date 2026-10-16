@@ -7,6 +7,7 @@ test('relaunch reloads the browser document and keeps committed storage', async 
     const path = new URL(request.url).pathname;
     if (path === '/commands.js') return new Response(Bun.file(new URL('./commands.js', import.meta.url)));
     if (path === '/navigation.js') return new Response(Bun.file(new URL('../web/navigation.js', import.meta.url)));
+    if (path === '/prompt-glue.js') return new Response(Bun.file(new URL('../web/prompt-glue.js', import.meta.url)));
     return new Response(`<button id="restart">Restart</button><output id="state"></output>
       <script type="module">
         import { commands } from '/commands.js';
@@ -37,12 +38,14 @@ test('relaunch reloads the browser document and keeps committed storage', async 
 // A prompt's Return commits the field's `change` before it presses the first
 // action that is not destructive, so the action reads the new value and an
 // action the change enables counts; while that action is disabled Return
-// presses nothing, never the next one.
+// presses nothing, never the next one. A field with its own `submit` (the
+// runtime marks its Enter `$submit`) keeps Return, and nothing is pressed.
 test("a prompt's Return commits its field, then presses its action", async () => {
   const server = Bun.serve({ port: 0, fetch(request) {
     const path = new URL(request.url).pathname;
     if (path === '/commands.js') return new Response(Bun.file(new URL('./commands.js', import.meta.url)));
     if (path === '/navigation.js') return new Response(Bun.file(new URL('../web/navigation.js', import.meta.url)));
+    if (path === '/prompt-glue.js') return new Response(Bun.file(new URL('../web/prompt-glue.js', import.meta.url)));
     return new Response(`<dialog role="alertdialog" open><input id="name">
         <button id="delete" data-exact-on="press" data-destructive="true">Delete</button>
         <button id="save" data-exact-on="press" disabled>Save</button>
@@ -67,6 +70,13 @@ test("a prompt's Return commits its field, then presses its action", async () =>
     await page.locator('#name').fill('Kick');
     await page.locator('#name').press('Enter');
     expect(await page.locator('#log').textContent()).toBe('saved Kick');
+    await page.evaluate(() => {
+      const log = document.querySelector('#log');
+      log.textContent = '';
+      document.querySelector('#name').addEventListener('keydown', e => { if (e.key === 'Enter') { e.$submit = true; log.textContent = 'submitted'; } });
+    });
+    await page.locator('#name').press('Enter');
+    expect(await page.locator('#log').textContent()).toBe('submitted');
   } finally {
     await browser?.close();
     server.stop(true);

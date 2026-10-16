@@ -447,13 +447,18 @@ final class MenuHost {
         guard let pop = owner.popover, let entry = owner.actions.first(where: { $0.node === action }) else { return false }
         return entry.enabled && presented(owner, entry) && choosable(action, in: pop)
     }
-    /// A prompt follows the page as its field is typed in: the field takes
-    /// the value the page now holds, and an action its author disables while
-    /// the name is empty is dimmed, as a hand-built rename's Save is, rather
-    /// than a change that withdraws it.
+    /// A prompt follows the page as its field is typed in: an action its
+    /// author disables while the name is empty is dimmed, as a hand-built
+    /// rename's Save is, rather than a change that withdraws it. A field the
+    /// page swapped for another (an `if` over two inputs) withdraws it: the
+    /// field shown is no longer the input's.
     private func followPrompt(_ owner: Confirmation) {
         guard let pop = owner.popover, !owner.finishing else { return }
-        owner.fields.forEach { $0.sync() }
+        let shown = pop.container.subviews.compactMap { $0 as? NodeView }.filter(\.isPromptField)
+        guard shown.count == owner.fields.count, zip(shown, owner.fields).allSatisfy({ $0 === $1.node }) else {
+            resetConfirmation()
+            return
+        }
         for (entry, button) in zip(owner.actions, owner.buttons) {
             guard let node = entry.node, live(node) else { continue }
             entry.enabled = choosable(node, in: pop)
@@ -875,8 +880,10 @@ final class MenuHost {
         if !actions.allSatisfy({ closes($0, pop, modal: modal) }) {
             return modal && isDialog(pop) ? "each action must also close it (command=close)" : "each action must also hide it (popovertargetaction=hide)"
         }
-        // A prompt's fields count with its text: what it asks explains it.
+        // A prompt's field counts with its text: what it asks explains it.
+        // It asks one thing, as lowering holds it to (rules/DEFERRED.md).
         let fields = asks ? children.filter(\.isPromptField).count : 0
+        if fields > 1 { return "a prompt has one text field" }
         let alert = ConfirmationShape.isAlert(texts: children.filter { $0.kind == "text" && !title(of: $0).isEmpty }.count + fields,
                                               actions: actions.count, cancels: cancels.count)
         // Only an alert takes text fields; an action sheet or popover has none.
@@ -887,6 +894,11 @@ final class MenuHost {
         let closedby = pop.props["closedby"] ?? "closerequest"
         if closedby == "none" { return "closedby is none: an alert always has its Cancel" }
         return alert ? nil : "closedby is \(closedby), and only an alert has no outside"
+    }
+    /// The input `node`'s props were written: the prompt field standing in
+    /// for it, if one shows, takes them (`PromptField.write`).
+    func promptInputChanged(_ node: NodeView) {
+        confirmation?.fields.first { $0.node === node }?.write()
     }
     /// A prompt: an alertdialog with a text field (`PromptField`). Every
     /// action may be disabled while it opens (Save, until a name is typed):

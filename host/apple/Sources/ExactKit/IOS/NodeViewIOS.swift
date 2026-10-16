@@ -1113,6 +1113,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             default: f.returnKeyType = type == "search" ? .search : .default
             }
             f.isEnabled = !disabled
+            if headerField != nil { presenter?.menus.promptInputChanged(self) } // a prompt's field stands in for it (PromptFieldIOS.swift)
             if isNativeTextControl { styleNativeField() }
             updateNumberStepper() // the platform's stepping control for `type="number"` (LLP 1116.007 D4)
         }

@@ -1,4 +1,5 @@
 // Input-only glue: loaded after the baked first pixel, independently of data readiness.
+import "./prompt-glue.js"; // a prompt's Return
 /** An element whose `press` the keyboard reaches only through its tabindex:
  * not one the browser activates itself (the wasm host's handler list, or the
  * JS target's `data-exact-on`). */

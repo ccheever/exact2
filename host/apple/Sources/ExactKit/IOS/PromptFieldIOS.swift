@@ -1,17 +1,18 @@
 // A prompt's text field (LLP 1115 D6; `kernel/src/confirmation.rs`): an
 // `alertdialog` of the alert's shape with an `input` among its rows is
 // `UIAlertController` with a text field, as a hand-built rename prompt is.
-// The field stands in for its authored `input` as the bar's search field does
-// (`NodeView.headerField`): each batch writes the page's `value` into it as
-// into the input's own field (a composition stands), its edits pass the
-// input's own checks (`readonly`, `maxlength`, `beforeinput`, a number's
-// characters), a keystroke is the input's `input` and the end of editing its
-// `change`, so an action's press reads what was typed.
+// UIKit makes the field; it goes through the authored input's own field
+// machinery as the bar's search field does (`NodeView.headerField`): the
+// input's value writes reach it (`write`, from the input's props, so typing
+// stands across batches that write nothing), its edits pass the input's own
+// checks, a keystroke is its `input`, its focus and selection are the
+// input's, and Return is the input's (its key, then its `submit` if it has
+// one, and that is all) before it is the alert's preferred action.
 #if os(iOS) || os(tvOS)
 import UIKit
 
 final class PromptField: NSObject, UITextFieldDelegate {
-    private weak var node: NodeView?
+    private(set) weak var node: NodeView?
     private weak var presenter: Presenter?
     private weak var field: UITextField?
     /// The alert's own delegate for the field, which takes Return (the
@@ -45,25 +46,46 @@ final class PromptField: NSObject, UITextFieldDelegate {
         alertDelegate = field.delegate
         field.delegate = self
         field.addAction(UIAction { [weak self] _ in self?.typed() }, for: .editingChanged)
-        field.addAction(UIAction { [weak self] _ in self?.commit() }, for: .editingDidEnd)
     }
 
-    /// After a batch: the page's value and enablement, as the input's own
-    /// field takes them (`NodeView.writeValue`).
-    func sync() {
+    /// The input's props were written (`NodeView.applyProps`): its value, as
+    /// into its own field (a composition stands), and its enablement.
+    func write() {
         guard let node, let field, presenter?.views[node.id] === node else { return }
         if let value = node.props["value"] { node.writeValue(value, into: field) }
         field.isEnabled = !node.disabled
     }
 
     func textField(_ textField: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
-        guard let node, presenter?.views[node.id] === node,
-              node.textField(textField, shouldChangeCharactersIn: range, replacementString: string) else { return false }
+        guard let node = live(), node.textField(textField, shouldChangeCharactersIn: range, replacementString: string) else { return false }
         return alertDelegate?.textField?(textField, shouldChangeCharactersIn: range, replacementString: string) ?? true
     }
     func textFieldShouldClear(_ textField: UITextField) -> Bool {
-        guard node?.textFieldShouldClear(textField) ?? false else { return false }
+        guard live()?.textFieldShouldClear(textField) ?? false else { return false }
         return alertDelegate?.textFieldShouldClear?(textField) ?? true
+    }
+    func textFieldDidBeginEditing(_ textField: UITextField) {
+        alertDelegate?.textFieldDidBeginEditing?(textField)
+        if let node = live() { presenter?.focus(node.id) }
+    }
+    func textFieldDidChangeSelection(_ textField: UITextField) {
+        alertDelegate?.textFieldDidChangeSelection?(textField)
+        if let node = live() { presenter?.fieldSelections.changed(node) }
+    }
+    func textFieldDidEndEditing(_ textField: UITextField) {
+        alertDelegate?.textFieldDidEndEditing?(textField)
+        live()?.textFieldDidEndEditing(textField) // the `change`, then the blur
+    }
+    /// Return, one rule on every host (docs/contract-for-agents.md): the
+    /// input's `key` handlers first (prevented, nothing more); its `change`;
+    /// then its `submit` if it has one, and that is all, as a hand-built
+    /// field's delegate that handles Return; else the alert's preferred action.
+    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+        guard let node = live(), let presenter, !node.disabled else { return false }
+        if presenter.keyDown(at: node, "Enter") { return false }
+        presenter.commitEdit(node.id, textField.text ?? "", change: node.handlers.contains("change"))
+        if node.handlers.contains("submit") { presenter.submit(node.id); return false }
+        return alertDelegate?.textFieldShouldReturn?(textField) ?? true
     }
     override func responds(to selector: Selector!) -> Bool {
         super.responds(to: selector) || (alertDelegate?.responds(to: selector) ?? false)
@@ -72,20 +94,19 @@ final class PromptField: NSObject, UITextFieldDelegate {
         alertDelegate?.responds(to: selector) == true ? alertDelegate : nil
     }
 
-    private func typed() {
-        guard let node, let field, presenter?.views[node.id] === node else { return }
-        node.typedText(field.text ?? "")
+    private func live() -> NodeView? {
+        guard let node, presenter?.views[node.id] === node else { return nil }
+        return node
     }
-
-    private func commit() {
-        guard let node, let presenter, presenter.views[node.id] === node else { return }
-        presenter.commitEdit(node.id, node.fieldText, change: node.handlers.contains("change"))
+    private func typed() {
+        guard let node = live(), let field else { return }
+        node.typedText(field.text ?? "")
     }
 
     /// The alert is going: the edit commits, and the authored field is its
     /// own again.
     func end() {
-        commit()
+        if let node = live() { presenter?.commitEdit(node.id, node.fieldText, change: node.handlers.contains("change")) }
         if let node, node.headerField === field { node.headerField = nil }
     }
 }

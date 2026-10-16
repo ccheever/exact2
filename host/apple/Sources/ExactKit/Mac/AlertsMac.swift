@@ -53,10 +53,13 @@ final class AlertHost {
         let popover: Bool
         weak var window: NSWindow?
         let rows: [Row]
-        /// A prompt's text fields: each authored `input` and AppKit's field
-        /// for it in the accessory view.
-        var fields: [(node: NodeView, field: NSTextField)] = []
-        var observers: [NSObjectProtocol] = []
+        /// A prompt's input, whose field the accessory view holds while the
+        /// alert shows (`NodeView.lendFieldToAlert`).
+        var fields: [NodeView] = []
+        var widths: [NSLayoutConstraint] = []
+        /// The default button's own target and action (NSAlert's), which a
+        /// prompt's Return reaches after its input (`promptDefault`).
+        var press: (target: AnyObject?, action: Selector?) = (nil, nil)
         /// Which row Return presses, when one does.
         let defaultRow: Int?
         /// Ended by this host (a batch changed what it shows, `close(id)`, a
@@ -116,7 +119,8 @@ final class AlertHost {
         let cancels = children.filter { $0.isButton && !$0.handlers.contains("press") && closes($0, pop, popover: popover) }
         let texts = children.filter { $0.kind == "text" }
         let fields = children.filter(\.isPromptField)
-        guard children.count == actions.count + cancels.count + texts.count + fields.count, let cancel = cancels.first,
+        // A prompt asks one thing, as lowering holds it to (rules/DEFERRED.md).
+        guard fields.count <= 1, children.count == actions.count + cancels.count + texts.count + fields.count, let cancel = cancels.first,
               actions.allSatisfy({ closes($0, pop, popover: popover) }),
               // A prompt's actions may all be disabled (Save, until a name is
               // typed): its field and its cancel are still there.
@@ -173,6 +177,12 @@ final class AlertHost {
             // cell; AppKit holds its key equivalent while the sheet is key.)
             button.keyEquivalent = row.cancel ? (pop.props["closedby"] == "none" ? "" : "\u{1b}") : index == owner.defaultRow ? "\r" : ""
             button.setAccessibilityIdentifier(row.node?.props["testId"])
+            // A prompt's Return goes through its input first (`promptDefault`).
+            if index == owner.defaultRow, !plan.fields.isEmpty {
+                owner.press = (button.target, button.action)
+                button.target = self
+                button.action = #selector(promptDefault(_:))
+            }
         }
         prompt(owner, plan.fields)
         // Other popovers end as they do under a dialog.
@@ -217,7 +227,9 @@ final class AlertHost {
     /// and enablement as presented.
     func valid(_ owner: Presented) -> Bool {
         guard let presenter, let pop = owner.node, presenter.menus.live(pop), presenter.hosts(owner.window),
-              plan(of: pop, popover: owner.popover) != nil else { return false }
+              let plan = plan(of: pop, popover: owner.popover),
+              // A field the page swapped for another (an `if` over two inputs) is not the one shown.
+              plan.fields.count == owner.fields.count, zip(plan.fields, owner.fields).allSatisfy({ $0 === $1 }) else { return false }
         if owner.sourced {
             guard let source = owner.source, presenter.menus.invokes(source, pop, requiringTarget: owner.invoked) else { return false }
         }
@@ -254,71 +266,73 @@ final class AlertHost {
     }
 
     /// A prompt (`kernel/src/confirmation.rs`): the alert's accessory view
-    /// holds a field for each authored `input`, as a hand-built rename's
-    /// `NSAlert` does, the first taking the keyboard. A keystroke is the
-    /// input's `input` and the end of the alert its `change`, so the
-    /// action's press reads what was typed.
+    /// holds the authored input's field, lent as the toolbar's search field
+    /// is (`NodeView.lendFieldToAlert`): the node is its delegate and it edits
+    /// in the session's editor, so its value writes, `beforeinput` and
+    /// `maxlength`, composition, selection, focus and every event are the
+    /// input's, as in the page. It takes the keyboard first.
     private func prompt(_ owner: Presented, _ fields: [NodeView]) {
-        guard let presenter, !fields.isEmpty else { return }
+        guard !fields.isEmpty else { return }
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.spacing = 8
         for node in fields {
-            let field: NSTextField = node.props["type"] == "password" ? NSSecureTextField() : NSTextField()
-            field.stringValue = node.fieldText.isEmpty ? node.props["value"] ?? "" : node.fieldText
-            field.placeholderString = node.props["placeholder"]
-            field.setAccessibilityLabel(node.props["accessibilityLabel"])
-            field.setAccessibilityIdentifier(node.props["testId"])
-            field.isEnabled = !node.disabled
-            // The input's own limits: `readonly`, and `maxlength` by the
-            // formatter its own field has (TextInputLimit.swift).
-            field.isEditable = node.props["editable"] != "false"
-            field.formatter = TextInputFormatter(node)
+            guard let field = node.lendFieldToAlert() else { continue }
             field.translatesAutoresizingMaskIntoConstraints = false
-            field.widthAnchor.constraint(equalToConstant: 228).isActive = true
+            owner.widths.append(field.widthAnchor.constraint(equalToConstant: 228))
             stack.addArrangedSubview(field)
-            owner.fields.append((node, field))
-            owner.observers.append(NotificationCenter.default.addObserver(forName: NSControl.textDidChangeNotification, object: field, queue: nil) { [weak presenter, weak node, weak field] _ in
-                guard let presenter, let node, let field, presenter.views[node.id] === node else { return }
-                presenter.typed(node.id, field.stringValue, input: node.handlers.contains("input"))
-            })
+            owner.fields.append(node)
         }
+        NSLayoutConstraint.activate(owner.widths)
         stack.setFrameSize(stack.fittingSize)
         owner.alert.accessoryView = stack
         owner.alert.window.initialFirstResponder = owner.fields.first?.field
     }
-    /// The driver's typing into an authored field the prompt shows: AppKit's
-    /// field takes the text, and the input hears it. nil when `node` is no
-    /// field of an alert that is up.
+    /// The default button of a prompt. Return, one rule on every host
+    /// (docs/contract-for-agents.md): the input's `key` handlers first
+    /// (prevented, nothing more); its `change`; then its `submit` if it has
+    /// one, and that is all; else the button. A click presses it alone.
+    @objc private func promptDefault(_ sender: NSButton) {
+        guard let owner = presented else { return }
+        let event = NSApp.currentEvent
+        let returned = returning || event?.type == .keyDown && event?.charactersIgnoringModifiers == "\r"
+        if returned, let presenter, let node = owner.fields.first, presenter.views[node.id] === node {
+            if presenter.keyDown(at: node, "Enter") { return }
+            presenter.commitEdit(node.id, node.fieldText, change: node.handlers.contains("change"))
+            if node.handlers.contains("submit") { presenter.submit(node.id); return }
+            // What the `change` did may have ended the alert or disabled the action.
+            guard presented === owner, sender.isEnabled, valid(owner) else { return }
+        }
+        if let action = owner.press.action { NSApp.sendAction(action, to: owner.press.target, from: sender) }
+    }
+    /// The driver's key is Return (`key`), not an event AppKit sent.
+    private var returning = false
+    /// The driver's typing into an authored field the prompt shows: the
+    /// field its node lent the alert takes the text, and the input hears it
+    /// as a keystroke. nil when `node` is no field of an alert that is up.
     func type(_ node: NodeView, _ text: String) -> String? {
-        guard let owner = presented, let field = owner.fields.first(where: { $0.node === node })?.field, field.isEnabled, field.isEditable else { return nil }
+        guard let owner = presented, owner.fields.contains(where: { $0 === node }), let field = node.field, field.isEnabled, field.isEditable else { return nil }
         field.stringValue = TextInputLimit.prefix(text, props: node.props)
         NotificationCenter.default.post(name: NSControl.textDidChangeNotification, object: field)
         return field.stringValue
     }
     private func endPrompt(_ owner: Presented) {
-        owner.observers.forEach(NotificationCenter.default.removeObserver)
-        owner.observers = []
+        NSLayoutConstraint.deactivate(owner.widths)
+        owner.widths = []
         guard let presenter else { return }
-        for (node, field) in owner.fields where presenter.views[node.id] === node {
-            presenter.commitEdit(node.id, field.stringValue, change: node.handlers.contains("change"))
+        for node in owner.fields where presenter.views[node.id] === node {
+            presenter.commitEdit(node.id, node.fieldText, change: node.handlers.contains("change"))
+            node.reclaimLentField()
         }
-        owner.fields = []
+        // `owner.fields` stays: the chosen button is pressed on the next turn
+        // only while the alert still showed what is there (`valid`).
     }
-    /// A prompt follows the page as its field is typed in: its field and its
-    /// buttons, one its author disables while the name is empty dimmed,
-    /// rather than a change that withdraws the alert.
+    /// A prompt follows the page as its field is typed in: its buttons, one
+    /// its author disables while the name is empty dimmed, rather than a
+    /// change that withdraws the alert. (Its field is the input's own, which
+    /// takes the input's props as in the page.)
     private func followPrompt(_ owner: Presented) {
         guard let pop = owner.node else { return }
-        // The value the page now holds (an input handler may rewrite what was
-        // typed), and its enablement; a composition in progress stands.
-        for (node, field) in owner.fields where presenter?.views[node.id] === node {
-            if let value = node.props["value"], field.stringValue != value, (field.currentEditor() as? NSTextView)?.hasMarkedText() != true {
-                field.stringValue = value
-            }
-            field.isEnabled = !node.disabled
-            field.isEditable = node.props["editable"] != "false"
-        }
         for (index, row) in owner.rows.enumerated() where !row.cancel && owner.alert.buttons.indices.contains(index) {
             guard let node = row.node, presenter?.menus.live(node) == true else { continue }
             row.enabled = choosable(node, in: pop)
@@ -353,6 +367,8 @@ final class AlertHost {
         let escapes = owner.node?.props["closedby"] != "none"
         let index = name == "Enter" ? owner.defaultRow : name == "Escape" && escapes ? owner.rows.firstIndex(where: \.cancel) : nil
         guard let index, owner.alert.buttons.indices.contains(index), owner.alert.buttons[index].isEnabled else { return false }
+        returning = name == "Enter"
+        defer { returning = false }
         owner.alert.buttons[index].performClick(nil)
         return true
     }

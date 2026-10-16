@@ -309,7 +309,8 @@ component App
   `input value=draft input=editDraft placeholder="Name"` among its rows. iOS's alert shows it
   as its own text field, macOS's `NSAlert` beneath its message; each keystroke is the input's
   `input`, so the action's `press` reads `draft`. Return presses the first action that is not
-  destructive. `disabled=(draft == "")` on Save dims it while the field is empty.
+  destructive (nothing while it is disabled), unless the field has a `submit`, which then has
+  Return alone. `disabled=(draft == "")` on Save dims it while the field is empty.
 - An alert has no outside: Escape and Back cancel it, a tap beside it does nothing. Leave
   `closedby` unwritten; `closedby="any"` asks for the platform's dismissible form in its place
   (an action sheet on an iPhone, a dialog a click outside closes on the web).

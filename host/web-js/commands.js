@@ -3,22 +3,7 @@
 // compiler admits (contract/types/src/checks.rs `HOST_COMMANDS`) is one this
 // runtime carries (files diary F5: `selectText` was refused here).
 import { popoverCommand, setFieldSelection, setFieldRangeText, appRootFontSize } from "./navigation.js";
-// A prompt's Return (kernel/src/confirmation.rs): Enter in an alertdialog's
-// text field presses its first action that is not destructive, as Return
-// chooses a native prompt's (`preferredAction`, NSAlert's default button);
-// while that action is disabled Enter presses nothing, never the next one.
-// The field's edit commits first (its `change`, as leaving it does), so the
-// action reads it and counts as enabled when the edit enables it. A field
-// whose author handles Enter (`submit`) keeps it.
-addEventListener("keydown", ev => {
-  const field = ev.target, dialog = ev.key === "Enter" && !ev.isComposing && !ev.defaultPrevented && !ev.$submit && field?.localName === "input"
-    && field.closest('dialog[role="alertdialog"], [popover][role="alertdialog"]');
-  if (!dialog) return;
-  ev.preventDefault();
-  field.blur();
-  const action = [...dialog.querySelectorAll("button")].find(b => b.matches('[data-exact-on~="press"]:not([data-destructive="true"])'));
-  if (action && !action.disabled) action.click(); else field.focus();
-});
+import "./prompt-glue.js"; // a prompt's Return (host/web/prompt-glue.js)
 export const commands = say => ({
   // The field's own method, by its id (x2apps codeedit #2); commands run
   // once the commit's tree is in place, so a value set beside it is there.
