@@ -495,7 +495,11 @@ final class NativeViews {
 
     // MARK: The session's module (LLP 1067.000 Q5–Q7)
 
-    private(set) var instance: UnsafeMutableRawPointer?
+    private(set) var instance: UnsafeMutableRawPointer? {
+        // A module made after the quit was decided (its first pixel came
+        // during the hold) is asked at once, under the same deadline.
+        didSet { if instance != nil, quitAsked { askQuit() } }
+    }
     private var instanceFailure: NativeFailure?
     /// Whether the module's hatches are connected, and who replays them for
     /// the objects built before (LLP 1075.003 §3.2; NativeHatches.swift).
@@ -633,11 +637,16 @@ final class NativeViews {
     var quitWorkPending: Bool { quitWork?.pending ?? false }
 
     /// The quit is decided: the module starts the work the quit waits for
-    /// (`ExactModule.willQuit`). Once per session; nothing for a module
-    /// never made or built without the entry. Main thread.
+    /// (`ExactModule.willQuit`), now or when it is made. Once per session;
+    /// nothing for a module built without the entry. Main thread.
     func willQuit() {
-        guard !quitAsked, let instance, case .success(let table)? = NativeProcess.table, let willQuit = table.willQuit else { return }
+        guard !quitAsked else { return }
         quitAsked = true
+        askQuit()
+    }
+
+    private func askQuit() {
+        guard quitWork == nil, let instance, case .success(let table)? = NativeProcess.table, let willQuit = table.willQuit else { return }
         let work = QuitWork()
         quitWork = work
         // The module's `done` may come at once, inside this call, or later from any thread.

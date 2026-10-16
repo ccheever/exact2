@@ -263,7 +263,7 @@ A native module whose work must finish before the app exits (a child process
 to stop, a socket to flush) overrides `willQuit(done:)`. On every orderly
 quit (⌘Q, the app menu, an Apple Event, SIGTERM, the last window closing),
 once no `beforeunload` has kept the app, the host calls it once, on the main
-thread; start the work off the main thread and call `done` from any thread
+thread (a module first made during the hold, when it is made); start the work off the main thread and call `done` from any thread
 when it has finished. The quit waits for every module's `done` and for
 pending storage, five seconds at most for all of it together, and the window
 stays responsive meanwhile; then `destroy()` runs, whether or not the work

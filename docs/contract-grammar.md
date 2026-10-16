@@ -1651,8 +1651,8 @@ iOS closes no window either: its `close` is journaled as unsupported. On the web
 the newest root).
 
 `relaunch()` takes no arguments. In the standalone macOS app it asks the same
-`beforeunload` handlers as Quit, drains pending storage for up to five seconds,
-destroys the sessions, then starts the same executable with the same arguments
+`beforeunload` handlers as Quit, waits for pending storage and each native
+module's quit work (`willQuit`) for up to five seconds in all, destroys the sessions, then starts the same executable with the same arguments
 and environment after the old process exits. A cancelled quit cancels the relaunch.
 It works without the development menu. iOS/tvOS and Linux refuse it in the journal;
 the web reloads the page, with the browser's usual storage and unload rules.

@@ -132,6 +132,25 @@ final class ModuleQuitHoldTests: XCTestCase {
         Self.done?() // A late done after the module has gone is harmless.
     }
 
+    /// A module made after the quit was decided (its first pixel came during
+    /// the hold) is asked when it is made, and once.
+    func testAModuleMadeDuringTheHoldIsAskedWhenMade() {
+        Self.asked = 0
+        Self.done = nil
+        Self.table(size: 216).withUnsafeBytes { NativeViews.install(table: $0.baseAddress!) }
+        let natives = NativeViews()
+        natives.willQuit()
+        XCTAssertEqual(Self.asked, 0, "no module yet")
+        XCTAssertFalse(natives.quitWorkPending)
+        natives.install(module: UnsafeMutableRawPointer(bitPattern: 1)!)
+        XCTAssertEqual(Self.asked, 1)
+        XCTAssertTrue(natives.quitWorkPending)
+        natives.willQuit()
+        XCTAssertEqual(Self.asked, 1)
+        Self.done?()
+        XCTAssertFalse(natives.quitWorkPending)
+    }
+
     /// A module built before the entry existed is not asked and holds nothing.
     func testAModuleWithoutTheEntryHoldsNothing() {
         let natives = natives(size: 208)
