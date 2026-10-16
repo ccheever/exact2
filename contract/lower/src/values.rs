@@ -172,6 +172,72 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
 pub(crate) fn four_sided(rows: &[StyleId]) -> bool {
     box_sides::FAMILIES.iter().any(|f| rows == f)
 }
+/// A computed value that builds a list for a box shorthand (a template
+/// such as `` `${pad}px 0` ``, a concatenation, or a `fn` returning one): no
+/// host splits a list at run time, since an overriding longhand, an
+/// `env()` and the rows' own grammars would each split it differently
+/// (LLP 1001 §1). Refused, naming the longhands. A literal (or a literal
+/// arm) is split here; a computed single value (`padding=pad`) is every
+/// side's, and a computed list that reaches a row is refused there.
+pub(crate) fn computed_list<'e>(
+    name: &str,
+    value: &'e Expr,
+    body: &dyn Fn(&str) -> Option<&'e Expr>,
+) -> Result<(), LowerError> {
+    // The text a computed value spells, a computed part as one word.
+    fn shape<'e>(e: &'e Expr, body: &dyn Fn(&str) -> Option<&'e Expr>, depth: u8) -> String {
+        match e {
+            Expr::Str(s, _) => s.clone(),
+            Expr::Template(parts, _) => parts
+                .iter()
+                .map(|p| match p {
+                    contract_syntax::TemplatePart::Text(t) => t.clone(),
+                    contract_syntax::TemplatePart::Expr(e) => shape(e, body, depth),
+                })
+                .collect(),
+            Expr::Binary(contract_syntax::BinOp::Add, l, r, _) => {
+                shape(l, body, depth) + &shape(r, body, depth)
+            }
+            Expr::Call(f, _, _) if depth < 8 => {
+                body(f).map_or_else(|| "x".into(), |b| shape(b, body, depth + 1))
+            }
+            _ => "x".into(),
+        }
+    }
+    fn lists<'e>(e: &'e Expr, body: &dyn Fn(&str) -> Option<&'e Expr>) -> Option<Span> {
+        match e {
+            // A literal is split at compile time.
+            Expr::Str(..) => None,
+            Expr::Ternary(_, yes, no, _) => lists(yes, body).or_else(|| lists(no, body)),
+            Expr::Match { some, none, .. } => lists(some, body).or_else(|| lists(none, body)),
+            Expr::Let { body: b, .. } => lists(b, body),
+            e => (box_sides::values(&shape(e, body, 0)).len() > 1).then(|| e.span()),
+        }
+    }
+    let Some(span) = lists(value, body) else {
+        return Ok(());
+    };
+    let sides = ["top", "right", "bottom", "left"];
+    let longhands: Vec<String> = match name {
+        "border-radius" => ["top-left", "top-right", "bottom-right", "bottom-left"]
+            .map(|c| format!("`border-{c}-radius`"))
+            .to_vec(),
+        "inset" => sides.map(|s| format!("`{s}`")).to_vec(),
+        n => match n.strip_prefix("border-") {
+            Some(part) => sides.map(|s| format!("`border-{s}-{part}`")).to_vec(),
+            None => sides.map(|s| format!("`{n}-{s}`")).to_vec(),
+        },
+    };
+    err(
+        "lower-css-shorthand",
+        format!(
+            "`{name}` is computed here as a list of values, which no host splits at run time; write {} (each may be computed), or a literal `{name}`",
+            longhands.join("/")
+        ),
+        span,
+    )
+}
+
 /// A box shorthand (`padding: <length>{1,4}`, `border-color: <color>{1,4}`,
 /// …) as four longhand expressions (top, right, bottom, left): every literal
 /// the value can produce — a string, or an arm of a conditional — is split
@@ -667,7 +733,9 @@ fn style_value(
             Expr::Str(s, _) => Some(
                 // Enum keywords stay text, including `auto` (as in the runner).
                 // Other codecs retain their existing dimension/keyword handling.
-                if s == "auto"
+                // A keyword is ASCII case-insensitive, as the runner reads it.
+                if s.trim_matches(['\t', '\n', '\u{c}', '\r', ' '])
+                    .eq_ignore_ascii_case("auto")
                     && !rows
                         .iter()
                         .all(|row| row.codec() == exact_kernel::StyleCodec::Enum)

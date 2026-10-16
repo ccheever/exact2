@@ -1023,6 +1023,8 @@ impl<'a> Lowerer<'a> {
                 }
                 // CSS's one-to-four-value box shorthands: a binding a side.
                 if values::four_sided(rows) {
+                    let fns = &self.fns;
+                    values::computed_list(&a.name, &a.value, &|f| fns.get(f).map(|(_, b)| *b))?;
                     if let Some(sides) = values::sides(&a.name, &a.value)? {
                         for (&row, value) in rows.iter().zip(sides) {
                             let (code, ty) = self.typed_code(&value, scope, locals)?;

@@ -1100,8 +1100,6 @@ impl NodeInst {
                         )
                     } else {
                         exact_kernel::style::theme::take_named();
-                        let side = bridge::shorthand_side(plan, row, i, family_value);
-                        let family_value = side.as_ref().unwrap_or(family_value);
                         let styled = bridge::set_binding_style(p, binding, family_value, plan);
                         if themed_plan {
                             self.index(u, i, binding, family_value, styled.is_ok());

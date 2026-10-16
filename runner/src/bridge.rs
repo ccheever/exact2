@@ -553,49 +553,6 @@ pub fn set_style(
     Ok(style)
 }
 
-/// A computed box shorthand (`padding`, `border-radius`, …) is bound whole
-/// to its four rows, which follow one another in its node's bindings: the
-/// value binding `i` of `node` takes, its own of a two-to-four-value list,
-/// when every row takes its part. `None` leaves the whole value to the
-/// row, which refuses a list (every row unset with a journal line, as CSS
-/// drops the declaration): a part a row refuses (`padding="10px -5px"`),
-/// `border-radius`'s `/`, or a longhand bound alone, where CSS finds
-/// `padding-left: 10px 20px` invalid and two lengths on a corner are the
-/// elliptical radius no row holds.
-pub fn shorthand_side(
-    plan: &exact_plan::Plan,
-    node: &exact_plan::NodesRow,
-    i: usize,
-    value: &Value,
-) -> Option<Value> {
-    use exact_kernel::style::sides;
-    let at = |j: usize| {
-        (j < node.bindings.len as usize)
-            .then(|| plan.binding(exact_plan::BindingsId(node.bindings.start + j as u32)))
-    };
-    let binding = at(i)?;
-    let (rows, side) = sides::family(StyleId::from_bit(binding.id as u32)?)?;
-    let parts = sides::split(value.as_str()?)?;
-    let first = i.checked_sub(side)?;
-    let shorthand = rows.iter().enumerate().all(|(j, row)| {
-        at(first + j).is_some_and(|b| {
-            b.kind == binding.kind
-                && b.id == *row as u16
-                && plan.code(b.expr) == plan.code(binding.expr)
-        })
-    });
-    let takes = |(row, part): (&StyleId, &str)| {
-        set_plan_style(
-            &mut StyleProps::default(),
-            *row as u16,
-            &Value::str(part),
-            plan,
-        )
-        .is_ok()
-    };
-    (shorthand && rows.iter().zip(parts).all(takes)).then(|| Value::str(parts[side]))
-}
-
 /// The plan's `@keyframes` by name, each parsed once per plan (LLP 1055 D5),
 /// the first time an `animation` names it: a plan's rules are many and a
 /// first frame starts few of them.

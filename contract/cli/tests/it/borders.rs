@@ -334,45 +334,44 @@ fn a_numeric_border_says_to_quote_the_shorthand() {
     );
 }
 
-/// The euxy port: a computed shorthand reaches each of its rows whole, and
-/// each row takes its own value of the list, as the browser expands it.
+/// The euxy port: a computed value that builds a list for a box shorthand
+/// is refused, naming the longhands, since no host splits one at run time;
+/// a computed single value is every side's, and a literal list is split.
 #[test]
-fn a_computed_box_shorthand_sets_each_side_as_the_literal_does() {
-    let mut r = boot(
-        "fn radii(r: number): string = `${r}px ${r}px 0 0`\ncomponent A\n  state pad = 16\n  action grow\n    pad = 20\n  view\n    column\n      button testId=\"grow\" press=grow width=10 height=10\n      box testId=\"computed\" padding=`${pad}px 0` border-radius=radii(8) border-color=`#ff0000 ${pad > 16 ? \"#0000ff\" : \"#00ff00\"}`\n      box testId=\"literal\" padding=\"16px 0\" border-radius=\"8px 8px 0 0\" border-color=\"#ff0000 #00ff00\"\n      box testId=\"one\" padding=`${pad}px`\n",
-    );
-    let (computed, literal) = (style_of(&r, "computed"), style_of(&r, "literal"));
-    macro_rules! same {
-        ($($field:ident),*) => { $(assert_eq!(format!("{:?}", computed.$field), format!("{:?}", literal.$field), stringify!($field));)* };
+fn a_computed_shorthand_list_is_refused_naming_the_longhands() {
+    for (attr, says) in [
+        ("padding=`${pad}px 0`", "`padding` is computed here as a list of values, which no host splits at run time; write `padding-top`/`padding-right`/`padding-bottom`/`padding-left` (each may be computed), or a literal `padding`"),
+        ("border-radius=radii(8)", "write `border-top-left-radius`/`border-top-right-radius`/`border-bottom-right-radius`/`border-bottom-left-radius`"),
+        ("border-width=(on ? `${pad}px 0` : \"0\")", "write `border-top-width`/"),
+        ("inset=\"0 \" + `${pad}px`", "write `top`/`right`/`bottom`/`left`"),
+        ("margin=`${pad}px ${pad}px`", "write `margin-top`/"),
+    ] {
+        let e = contract::compile(&format!(
+            "fn radii(r: number): string = `${{r}}px ${{r}}px 0 0`\ncomponent A\n  state pad = 16\n  state on = false\n  view\n    box {attr}\n"
+        ))
+        .unwrap_err();
+        assert_eq!(e.id, "lower-css-shorthand", "{attr}: {e}");
+        assert!(e.message.contains(says), "{attr}: {e}");
     }
-    same!(
-        padding_top,
-        padding_right,
-        padding_bottom,
-        padding_left,
-        border_radius_top_left,
-        border_radius_top_right,
-        border_radius_bottom_right,
-        border_radius_bottom_left
+    // One computed value, a calc, a literal list or a literal arm: compiled.
+    let r = boot(
+        "component A\n  state pad = 16\n  state on = false\n  view\n    column\n      box testId=\"one\" padding=`${pad}px`\n      box testId=\"calc\" padding=`calc(${pad}px + 2px)`\n      box testId=\"arm\" padding=(on ? \"1px\" : \"16px 0\")\n      box testId=\"num\" padding=pad\n",
     );
-    assert_eq!(sides(&computed), sides(&literal));
-    let one = style_of(&r, "one");
+    let (one, arm) = (style_of(&r, "one"), style_of(&r, "arm"));
     assert_eq!(
         format!("{:?}", one.padding_left),
-        format!("{:?}", literal.padding_top),
-        "one value is every side's"
-    );
-    let grow = {
-        let k = r.kernel();
-        k.node_by_key(k.find_by_test_id("grow")[0]).unwrap().id
-    };
-    r.dispatch(grow, Event::Press).unwrap();
-    let (computed, one) = (style_of(&r, "computed"), style_of(&r, "one"));
-    assert_eq!(
-        format!("{:?}", computed.padding_bottom),
         format!("{:?}", one.padding_top)
     );
-    assert_eq!(computed.border_color_left, Some(fixed("#0000ff")));
+    assert_eq!(
+        format!("{:?}", arm.padding_top),
+        format!("{:?}", one.padding_top)
+    );
+    assert_eq!(arm.padding_left, exact_kernel::Dimension::Points(0.0));
+    assert!(style_of(&r, "calc").mask.has(StyleId::PaddingLeft));
+    assert_eq!(
+        style_of(&r, "num").padding_left,
+        exact_kernel::Dimension::Points(16.0)
+    );
 }
 
 /// An empty value declares nothing, as CSSOM's `setProperty(p, "")`: the
@@ -403,17 +402,17 @@ fn an_empty_colour_declares_nothing() {
     assert!(contract::compile("component A\n  view\n    box background-color=\"\"\n").is_ok());
 }
 
-/// A side of `0` is a length, as CSS's unitless zero is (`border-width` is
-/// a number row); a part a row refuses refuses the whole shorthand, every
-/// side unset with a journal line, as CSS drops the declaration; and
-/// `border-radius`'s `/` is refused whole, as no row holds an ellipse.
+/// A bound `0` is a length, as CSS's unitless zero is (`border-width` is a
+/// number row). A list that reaches a box shorthand's rows, which the
+/// compiler cannot see build, is refused by every row: all four unset
+/// with a journal line, never split.
 #[test]
-fn a_computed_shorthand_takes_a_bare_zero_and_is_refused_whole() {
+fn a_bound_zero_is_a_length_and_a_bound_list_is_refused_by_every_row() {
     let r = boot(
-        "component A\n  state w = 2\n  state p = \"10px -5px\"\n  state round = \"10px / 20px\"\n  view\n    column\n      box testId=\"w\" border-style=\"solid\" border-width=`${w}px 0`\n      box testId=\"p\" padding=p\n      box testId=\"r\" border-radius=round\n",
+        "component A\n  state z = \"0\"\n  state p = \"10px -5px\"\n  state round = \"10px / 20px\"\n  view\n    column\n      box testId=\"w\" border-style=\"solid\" border-width=2 border-left-width=z\n      box testId=\"p\" padding=p\n      box testId=\"r\" border-radius=round\n",
     );
     let w = style_of(&r, "w");
-    assert_eq!(w.border_widths(), [2.0, 0.0, 2.0, 0.0]);
+    assert_eq!(w.border_widths(), [2.0, 2.0, 2.0, 0.0]);
     let p = style_of(&r, "p");
     for row in [
         StyleId::PaddingTop,
@@ -453,14 +452,14 @@ fn an_empty_font_family_declares_nothing() {
     assert!(!style_of(&r, "choice").mask.has(StyleId::FontFamily));
 }
 
-/// A longhand bound alone to a list is not split: two lengths on a corner
-/// are the elliptical radius no row holds, unset with a journal line. A
-/// keyword is ASCII case-insensitive (`0 Auto` centres, as CSS's does); a
-/// literal `/` is the elliptical refusal, whatever its count.
+/// A longhand bound to a list is not split: two lengths on a corner are
+/// the elliptical radius no row holds, unset with a journal line. A keyword
+/// is ASCII case-insensitive (`0 Auto` centres, as CSS's does); a literal
+/// `/` is the elliptical refusal, whatever its count.
 #[test]
 fn a_longhand_list_is_not_split_and_keywords_ignore_case() {
     let r = boot(
-        "component A\n  state c = \"10px 20px\"\n  state m = \"0 Auto\"\n  view\n    column\n      box testId=\"corner\" border-top-left-radius=c\n      box testId=\"auto\" margin=m width=10 height=10\n",
+        "component A\n  state c = \"10px 20px\"\n  view\n    column\n      box testId=\"corner\" border-top-left-radius=c\n      box testId=\"auto\" margin=\"0 Auto\" width=10 height=10\n",
     );
     assert!(!style_of(&r, "corner")
         .mask

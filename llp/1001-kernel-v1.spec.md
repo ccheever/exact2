@@ -1537,24 +1537,21 @@ lower to existing side rows, including `inset`, `dotted` and `dashed` under
 The one-to-four-value box shorthands (`padding`, `margin`, `inset`,
 `border-width`, `border-style`, `border-color`, `scroll-padding`,
 `scroll-margin`, `border-radius`) lower a literal, or each literal arm of a
-choice, to its side rows. A computed value (`` padding=`${pad}px 0` ``, a
-`fn`'s result) is bound whole to all four rows, and each row takes its own
-value of a two-to-four-value list, split at CSS white space (space, tab, LF,
-CR, FF) outside parentheses as CSS expands the shorthand
-(`exact_kernel::style::sides`: the runner's bridge, and rt.js `boxSide` in
-the web's JS target). The whole value is checked first: a part its row
-refuses (`padding="10px -5px"`), more than four, or a `/` outside
-parentheses (`border-radius`'s elliptical form, which no row holds; a
-literal one is refused by name) unsets all four rows with a journal line,
-as CSS drops the declaration. On the web the check is the browser's
-(`CSS.supports`), and a part of `border-color` that is a name is left to the
-colour map. Only a shorthand is split: a side longhand bound alone to a list
-keeps it, and the row refuses it with a journal line, as CSS finds
-`padding-left: 10px 20px` invalid; on a corner (`border-top-left-radius:
-10px 20px`, CSS's horizontal and vertical radii) it is the elliptical corner
-no row holds. A bare `0` on a length row other than `line-height` is the
-length 0 (CSS Values 4 §6.1), so `` border-width=`${w}px 0` `` draws no side
-borders, and a keyword is ASCII case-insensitive (`margin="0 Auto"`).
+choice, to its side rows, split at CSS white space (space, tab, LF, CR, FF)
+outside parentheses as CSS expands the shorthand
+(`exact_kernel::style::sides`); a literal `/` radius is refused by name. A
+computed value is bound whole to the four rows, and no host splits it: an
+overriding longhand, an `env()` substituted later and each row's grammar
+would make a run-time split differ from the browser's. So a computed value
+the compiler sees build a list (`` padding=`${pad}px 0` ``, a concatenation,
+a `fn` returning one) is refused (`lower-css-shorthand`), naming the
+longhands, each of which may be computed. A computed single value
+(`padding=pad`) is every side's. A list that reaches a row anyway (state
+holding `"10px 5px"`) is refused by the row with a journal line on every
+host; the web's JS target refuses a list on a corner (two lengths, or a
+`/`) itself, as the browser would draw the elliptical radius no row holds.
+A bare `0` on a length row other than `line-height` is the length 0 (CSS
+Values 4 §6.1), and a keyword is ASCII case-insensitive (`margin="0 Auto"`).
 Text-decoration lowers solid currentcolor
 underline/line-through to the existing line row; other color/style/thickness
 components are diagnosed. Linux draws its UA lines from font size and glyph

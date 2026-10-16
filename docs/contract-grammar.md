@@ -791,8 +791,11 @@ name, no name for the card (what an app writes, at most 8 KB), `--all` for every
 `padding`, `margin`, `inset`, `border-width`, `border-style` and `border-color` take
 CSS's one to four values (`padding="12px 40px"`: top and bottom 12, sides 40), and
 `border-radius` its one to four corners (`border-radius="18px 18px 0 0"`: top-left,
-top-right, bottom-right, bottom-left; no `/` elliptical radii), computed ones too
-(`` padding=`${pad}px 0` ``, a `fn` that returns `` `${r}px ${r}px 0 0` ``).
+top-right, bottom-right, bottom-left; no `/` elliptical radii), as a literal or a
+literal arm. A computed list (`` padding=`${pad}px 0` ``, a `fn` that returns
+`` `${r}px ${r}px 0 0` ``) is refused (`lower-css-shorthand`): write the longhands,
+`` padding-top=`${pad}px` padding-right=0 … ``, each of which may be computed. A
+computed single value (`padding=pad`) is every side's.
 An empty string on any style row declares nothing, as CSSOM's `setProperty(p, "")`:
 the row is unset (`background-color=dot` with `dot` `""`).
 `border-style` and each `border-<side>-style` accept `none`, `hidden`, `solid`,

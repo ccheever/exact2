@@ -612,6 +612,17 @@ pub static TEXT_STYLE_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::ne
 /// css.rs writes no declaration for the row's empty value.
 const NONE: &str = "v=>v==null||/^\\s*none\\s*$/i.test(v)?null:v";
 
+/// A bound corner's map: a list (white space outside parentheses, or a
+/// `/`) is the elliptical radius no row holds, refused whole with the
+/// journal line rt.js `css` writes for a value a row does not take, as the
+/// kernel refuses it (LLP 1001 §1); one value is the row's. `say` is rt.js's.
+pub fn corner_list(id: StyleId) -> String {
+    format!(
+        r#"v=>{{if(typeof v!=="string")return v;let t=v;while(t!==(t=t.replace(/\([^()]*\)/g,"()")));return /\S[ \t\n\r\f]+\S|\//.test(t.trim())?(say(`unset {}: ${{JSON.stringify(v)}} is not a value it takes`),"unset"):v}}"#,
+        css_property(id)
+    )
+}
+
 // A rejected computed declaration uses CSS unset, while null removes it.
 fn invalid_unset(row: &str) -> String {
     format!("(()=>{{const e=globalThis.exact;e?.journal?.push(`t=${{e.now?.()??0}} invalid {row} value ${{JSON.stringify(v)}}; unset`);return \"unset\"}})()")

@@ -814,8 +814,8 @@ export function nm(e) {
     .then(h => { h.attach(e); return h.loaded; }, err => { st.state = "unavailable"; st.error = String(err?.message ?? err); say(`native ${st.name} #${id}: unavailable: ${st.error}`); })
     .finally(() => setTimeout(() => inflight.n--));
 }
-// A computed box shorthand (`padding`, `border-radius`, …) reaches each of its rows whole: row `i` takes its own value of a two-to-four-value list, split at CSS white space outside parentheses (kernel `style::sides::split`), when every part is one its row `n[j]` takes, else the whole is refused as the browser drops the declaration (a `/` radius, a negative padding; the check is the browser's, `CSS.supports`); a colour's name is the colour map's to read. `blank`: an empty string declares nothing (`StyleValue::text_unsets`), before a row's map reads it.
-export function boxSide(v, i, n) { if (typeof v !== "string") return v; const p = []; let slash = false; for (let j = 0, d = 0, s = -1; j <= v.length; j++) { const c = v[j]; if (c === "/" && d === 0) slash = true; if (j < v.length && !(d === 0 && /[ \t\n\r\f]/.test(c))) { d = Math.max(0, d + (c === "(") - (c === ")")); if (s < 0) s = j; } else if (s >= 0) { p.push(v.slice(s, j)); s = -1; } } if (p.length < 2 || p.length > 4 || slash) return v; const at = j => p[p.length === 2 ? j % 2 : p.length === 3 && j === 3 ? 1 : j]; const ok = j => { const q = at(j); return /-exact-/.test(q) || n[j].endsWith("color") && /^-?[a-z][\w-]*$/i.test(q) || !globalThis.CSS?.supports || CSS.supports(n[j], q); }; return [0, 1, 2, 3].every(ok) ? at(i) : v; } export const blank = v => typeof v === "string" && !v.trim() ? null : v;
+// An empty string declares nothing (`StyleValue::text_unsets`): no value, before a row's map reads it.
+export const blank = v => typeof v === "string" && !v.trim() ? null : v;
 export function S(e, prop, unit, f) { let rendered = Adopt; effect(() => { css(e, prop, unit, f(), rendered); rendered = false; }); }
 let Scratch = null;
 const Normal = new Map(), same = v => v.replace(/\btransparent\b/g, "rgba(0, 0, 0, 0)");
