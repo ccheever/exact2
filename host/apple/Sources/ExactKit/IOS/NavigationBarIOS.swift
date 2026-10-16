@@ -958,19 +958,30 @@ extension NavigationHost {
     }
 
     /// The scroller at a route's bottom edge: its last in-flow child, or
-    /// that child's last, down through boxes that end where their parent's
-    /// box ends (a sheet's component whose root column holds its header and
-    /// then its `scroll`), as a hand-built screen's scroll view pinned to its
-    /// view's bottom is at the edge however deep it sits. A box that ends
+    /// that child's last, down through boxes that alone span their parent's
+    /// bottom edge (a sheet's component whose root column holds its header
+    /// and then its `scroll`), as a hand-built screen's scroll view pinned to
+    /// its view's bottom is at the edge however deep it sits. A box that ends
     /// short of its parent's bottom (a padding, a border or a margin under
-    /// it) keeps the route's cover. One that scrolls vertically only: UIKit's
-    /// bottom inset would let a sideways carousel scroll up and down.
+    /// it), or has a sibling beside it in a row or a grid, keeps the route's
+    /// cover. One that scrolls vertically only: UIKit's bottom inset would
+    /// let a sideways carousel scroll up and down.
     static func bottomScroller(in route: NodeView) -> NodeView? {
         let flowing = { (v: NodeView) in
             v.style["display"]?.string != "none" && !["absolute", "fixed"].contains(v.style["position_type"]?.string ?? "")
         }
+        // The last in-flow child spans the bottom edge alone when every other
+        // ends above its top, as children stacked down a block or a column
+        // do. Beside it in a row or a grid, a sibling reaches the edge too
+        // (a column with a Save button at its foot) and keeps the cover. The
+        // laid-out frames say so; the host is not sent the flex direction.
+        func alone(_ last: NodeView, among children: [NodeView]) -> Bool {
+            children.allSatisfy { $0 === last || $0.frame.maxY <= last.frame.minY + 0.5 }
+        }
         var parent = route
-        while let last = parent.container.subviews.last(where: { ($0 as? NodeView).map(flowing) == true }) as? NodeView {
+        while true {
+            let children = parent.container.subviews.compactMap { $0 as? NodeView }.filter(flowing)
+            guard let last = children.last, alone(last, among: children) else { return nil }
             // The route's own child stands at its foot whatever the cover
             // pads under it; a deeper one must reach its parent's bottom.
             if parent !== route, parent.contentBox().maxY < parent.bounds.maxY - 0.5
@@ -978,7 +989,6 @@ extension NavigationHost {
             if last.scrollView != nil { return ["scroll", "auto"].contains(last.style["overflow_y"]?.string ?? "") ? last : nil }
             parent = last
         }
-        return nil
     }
 
     /// The physical backend owned by a content node.

@@ -448,6 +448,21 @@ final class NavigationBasicsIOSTests: XCTestCase {
         scroller.style["overflow_y"] = nil
         scroller.style["overflow_x"] = .string("scroll")
         XCTAssertNil(NavigationHost.bottomScroller(in: route), "a sideways scroller takes no bottom inset")
+        // A full-height row: a column with Save at its foot, and a scroller
+        // beside it. The Save button reaches the edge too: the cover stays.
+        sheet.removeFromSuperview()
+        let row = box(route, y: 0, height: 566)
+        let side = box(row, y: 0, height: 566)
+        _ = box(side, y: 522, height: 44)
+        let beside = box(row, y: 0, height: 566, overflow: "y")
+        beside.frame.origin.x = 200
+        XCTAssertNil(NavigationHost.bottomScroller(in: route), "a scroller with a sibling beside it in a row keeps the cover")
+        side.removeFromSuperview()
+        XCTAssertTrue(NavigationHost.bottomScroller(in: route) === beside, "the row's only child spans its bottom edge")
+        // A reversed column: its last child is at its top, above the scroller.
+        _ = box(row, y: 0, height: 60)
+        beside.frame.origin = CGPoint(x: 0, y: 60); beside.frame.size.height = 506
+        XCTAssertNil(NavigationHost.bottomScroller(in: route), "a last child above its sibling is not at the edge")
     }
 
     /// A route that paints no background shows what the web shows through
