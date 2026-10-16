@@ -186,6 +186,48 @@ final class MIDIMacTests: XCTestCase {
         output.shutdown()
     }
 
+    /// Review round 3: a boot stamps a note-off no earlier than the latest
+    /// note-on of its note, whichever was handed last.
+    func testABootStampsANoteOffAfterTheLatestNoteOnOfItsNote() throws {
+        let library = try library()
+        var delivered: [String] = []
+        let output = MIDIOutput(log: { _ in }, deliver: { delivered.append($0) }, library: { library })
+        output.apply(["ops": [["op": "request"]]])
+        wait(2) { delivered.contains { $0.contains("\(self.uid(self.destination))") } }
+        let now = (CACurrentMediaTime() - ExactEnv.t0) * 1000, out = String(uid(destination))
+        output.apply(["ops": [["op": "send", "id": 1, "output": out, "data": [0x90, 63, 100], "at": now + 40],
+                              ["op": "send", "id": 2, "output": out, "data": [0x80, 63, 0], "at": now + 2000]]])
+        output.apply(["ops": [["op": "send", "id": 3, "output": out, "data": [0x90, 63, 100], "at": now],
+                              ["op": "send", "id": 4, "output": out, "data": [0x80, 63, 0], "at": now + 2000]]])
+        wait(0.01)
+        output.apply(["boot": true, "ops": []])
+        wait(0.3)
+        let got = lock.withLock { arrived }
+        XCTAssertEqual(got.map(\.status), [0x90, 0x90, 0x80, 0x80])
+        if got.count == 4 { XCTAssertGreaterThanOrEqual(got[2].at, got[1].at, "both offs after the later note-on") }
+        output.shutdown()
+    }
+
+    /// Review round 3: a note-on the runner takes back after the arm handed
+    /// it (the runner's clock behind the arm's) is ended after it.
+    func testANoteOnRetractedAfterItWasHandedIsEndedAfterIt() throws {
+        let library = try library()
+        var delivered: [String] = []
+        let output = MIDIOutput(log: { _ in }, deliver: { delivered.append($0) }, library: { library })
+        output.apply(["ops": [["op": "request"]]])
+        wait(2) { delivered.contains { $0.contains("\(self.uid(self.destination))") } }
+        let now = (CACurrentMediaTime() - ExactEnv.t0) * 1000, out = String(uid(destination))
+        output.apply(["ops": [["op": "send", "id": 1, "output": out, "data": [0x92, 64, 100], "at": now + 40],
+                              ["op": "send", "id": 2, "output": out, "data": [0x82, 64, 0], "at": now + 500]]])
+        wait(0.01)
+        output.apply(["ops": [["op": "retract", "id": 1], ["op": "retract", "id": 2]]])
+        wait(0.8)
+        let got = lock.withLock { arrived }
+        XCTAssertEqual(got.map(\.status), [0x92, 0x82], "the note-on, then an off for it")
+        if got.count == 2 { XCTAssertGreaterThanOrEqual(got[1].at, got[0].at) }
+        output.shutdown()
+    }
+
     /// Review round 2: a controller flood the arm cannot pass on at once
     /// loses its own messages, never the note-off behind it (D8).
     func testAControllerFloodLosesNoNoteOff() throws {

@@ -141,6 +141,28 @@ test('a note-off a boot sends is stamped no earlier than its handed note-on', as
   m.c.restore();
 });
 
+test('a boot stamps a note-off no earlier than the latest note-on of its note, whichever was handed last', async () => {
+  const m = midi({ permission: 'granted' });
+  await settle(); await settle();
+  m.out.ops([{ op: 'send', id: 1, output: 'out', data: [0x90, 60, 100], at: 40 }, { op: 'send', id: 2, output: 'out', data: [0x80, 60, 0], at: 500 }]);
+  m.out.ops([{ op: 'send', id: 3, output: 'out', data: [0x90, 60, 100], at: 0 }, { op: 'send', id: 4, output: 'out', data: [0x80, 60, 0], at: 600 }]);
+  expect(m.sent).toEqual([['out', [0x90, 60, 100], 1040], ['out', [0x90, 60, 100], 1000]]);
+  m.out.ops([], true);
+  expect(m.sent.slice(2)).toEqual([['out', [0x80, 60, 0], 1040], ['out', [0x80, 60, 0], 1040]]);
+  m.c.restore();
+});
+
+test('a note-on retracted after the hold handed it is ended after it', async () => {
+  const m = midi({ permission: 'granted' });
+  await settle(); await settle();
+  // The runner's clock had not seen 40 enter the hold; the glue's had.
+  m.out.ops([{ op: 'send', id: 1, output: 'out', data: [0x91, 60, 100], at: 40 }, { op: 'send', id: 2, output: 'out', data: [0x81, 60, 0], at: 500 }]);
+  m.out.ops([{ op: 'retract', id: 1 }, { op: 'retract', id: 2 }]);
+  m.c.advance(1000);
+  expect(m.sent).toEqual([['out', [0x91, 60, 100], 1040], ['out', [0x81, 60, 0], 1040]]);
+  m.c.restore();
+});
+
 test('only opened inputs listen; a frame is one delivery, Clock left out', async () => {
   const m = midi({ permission: 'granted' });
   await settle(); await settle();

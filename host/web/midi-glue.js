@@ -33,9 +33,12 @@ function installMidi({ log, origin, deliver, nav = globalThis.navigator, now = (
   let held = [];
   /** The inputs the runner opened, by id. */
   let open = new Set();
-  /** When each note handed out sounds (its timestamp), by output, channel and note, and the latest timestamp handed to each
-   * output: a note-off or Stop sent at a boot is stamped no earlier. */
+  /** The latest note-on timestamp handed for each output, channel and note, and the latest timestamp handed to each output:
+   * a note-off or Stop sent at a boot is stamped no earlier. */
   const sounding = new Map(), latest = new Map();
+  /** The note-ons handed in about the last second, by id. The runner takes back only what its own clock has not seen
+   * handed, so a retraction that finds one here lost a race with the hold: the note's off is sent instead, after it. */
+  const handedOns = new Map();
   const list = map => [...(map?.values?.() ?? [])].map(p => ({ id: String(p.id), name: p.name ?? '', manufacturer: p.manufacturer ?? '', state: p.state === 'disconnected' ? 'disconnected' : 'connected' }));
   function report() {
     deliver({ ports: { state, inputs: list(access?.inputs), outputs: list(access?.outputs) } });
@@ -93,7 +96,12 @@ function installMidi({ log, origin, deliver, nav = globalThis.navigator, now = (
       if (t > m.at) late++;
       const stamp = origin() + m.at;
       latest.set(m.output, Math.max(latest.get(m.output) ?? stamp, stamp));
-      if ((m.data[0] & 0xf0) === 0x90 && m.data[2] > 0) sounding.set(`${m.output} ${m.data[0] & 0x0f} ${m.data[1]}`, stamp);
+      if ((m.data[0] & 0xf0) === 0x90 && m.data[2] > 0) {
+        const key = `${m.output} ${m.data[0] & 0x0f} ${m.data[1]}`;
+        sounding.set(key, Math.max(sounding.get(key) ?? stamp, stamp));
+        if (handedOns.size >= 64) for (const [id, on] of handedOns) if (on.stamp < now() - 1000) handedOns.delete(id);
+        handedOns.set(m.id, { output: m.output, data: m.data, stamp });
+      }
       try { output.send(m.data, stamp); } catch (e) { log(`midi: message ${m.id} not sent: ${e.message}`); }
     }
     if (held.length) timer = setTimeout(pump, Math.max(0, held[0].at - HOLD - t));
@@ -117,7 +125,15 @@ function installMidi({ log, origin, deliver, nav = globalThis.navigator, now = (
       held.splice(i < 0 ? held.length : i, 0, { id: op.id, output: op.output, data: op.data, at: op.at });
       pump();
     },
-    retract({ id }) { held = held.filter(m => m.id !== id); },
+    retract({ id }) {
+      const i = held.findIndex(m => m.id === id), on = handedOns.get(id);
+      if (i >= 0) held.splice(i, 1);
+      else if (on) {
+        handedOns.delete(id);
+        const output = access?.outputs?.get?.(on.output);
+        if (output && output.state !== 'disconnected') try { output.send([0x80 | on.data[0] & 0x0f, on.data[1], 0], Math.max(now(), on.stamp)); } catch (e) { log(`midi: message ${id} not sent: ${e.message}`); }
+      }
+    },
     open({ inputs }) { open = new Set(inputs.map(String)); listen(); },
     request() { if (state !== 'unavailable') ask(false); },
   };

@@ -922,6 +922,13 @@ are binding and two of them amend the text:
   teardown is stamped no earlier than its note-on or the output's last
   message; Apple's input ring keeps its last 1,024 places for notes and
   transport messages.
+  Round 3: a teardown note-off is stamped no earlier than the latest
+  note-on of its note handed, whichever was handed last; a note-on the
+  runner takes back after Apple's arm or midi-glue.js handed it (the
+  runner's clock behind theirs) is ended by a note-off at once, after it;
+  an edit fills from where a full queue parked the fill when that is
+  before its time, hits timed by the segment each falls in, and takes for
+  handed (the within-hold skip) only what a fill issued, by beat.
 - **Not done here.** No real device or IAC bus was available, so nothing was
   sent to hardware from the Mac, and Chrome's Web MIDI was not tried by
   hand. The watchdog and iOS foreground re-enumeration are not exercised by a

@@ -92,11 +92,16 @@ private final class MIDIArm {
     private var lastReport: String?
     private var lastSend = -Double.infinity
     private var closed = false
-    /// When each note last handed out sounds (a note-on's host time), by
-    /// output, channel and note, and the latest time handed to each output:
-    /// a note-off or Stop sent at teardown is stamped no earlier.
+    /// The latest note-on handed for each output, channel and note (its
+    /// host time), and the latest time handed to each output: a note-off or
+    /// Stop sent at teardown is stamped no earlier.
     private var sounding: [Int64: Double] = [:]
     private var latest: [Int32: Double] = [:]
+    /// The note-ons handed in about the last second, by id. The runner takes
+    /// back only what its own clock has not seen handed, so a retraction
+    /// that finds one here lost a race with this thread: the note's off is
+    /// sent instead, after it.
+    private var handedOns: [UInt64: (uid: Int32, bytes: [UInt8], at: Double)] = [:]
     /// Input from CoreMIDI's realtime thread, popped here; the source that
     /// wakes this run loop for it.
     private let ring: UnsafeMutablePointer<exact_midi_ring> = calloc(1, MemoryLayout<exact_midi_ring>.size)!.assumingMemoryBound(to: exact_midi_ring.self)
@@ -289,7 +294,11 @@ private final class MIDIArm {
     }
 
     func retract(id: UInt64) {
-        held.removeAll { $0.id == id }
+        if let i = held.firstIndex(where: { $0.id == id }) {
+            held.remove(at: i)
+        } else if let on = handedOns.removeValue(forKey: id) {
+            hand(on.uid, max(CACurrentMediaTime(), on.at), [0x80 | on.bytes[0] & 0x0F, on.bytes[1], 0])
+        }
         schedule()
     }
 
@@ -319,6 +328,10 @@ private final class MIDIArm {
         while let first = held.first, first.at - HOLD <= now {
             held.removeFirst()
             hand(first.uid, first.at, first.bytes)
+            if first.bytes[0] & 0xF0 == 0x90, first.bytes.count == 3, first.bytes[2] > 0 {
+                if handedOns.count >= 64 { handedOns = handedOns.filter { $0.value.at > now - 1 } }
+                handedOns[first.id] = (first.uid, first.bytes, first.at)
+            }
         }
         guard let next = held.first else { return }
         let fire = CFAbsoluteTimeGetCurrent() + (next.at - HOLD - now)
@@ -346,7 +359,7 @@ private final class MIDIArm {
         if n > 2 { word |= UInt32(bytes[2]) }
         lastSend = CACurrentMediaTime()
         latest[uid] = max(latest[uid] ?? at, at)
-        if bytes[0] & 0xF0 == 0x90, n == 3, bytes[2] > 0 { sounding[Self.key(uid, bytes)] = at }
+        if bytes[0] & 0xF0 == 0x90, n == 3, bytes[2] > 0 { sounding[Self.key(uid, bytes)] = max(sounding[Self.key(uid, bytes)] ?? at, at) }
         withUnsafeTemporaryAllocation(byteCount: 256, alignment: 8) { raw in
             let list = raw.baseAddress!.assumingMemoryBound(to: MIDIEventList.self)
             var packet = MIDIEventListInit(list, ._1_0)
