@@ -637,12 +637,16 @@ impl<D: DataSource> Host<D> {
     /// D6). `appFile` names the file behind an `app:/` path, what an export
     /// copies from (LLP 1069.010 D3); `appRoots` the three roots, which the
     /// Swift host resolves an image's `app:/` source against (LLP 1069.002
-    /// D7). `None` for an ordinary `tap` or `type`.
+    /// D7); `shareFile` a share's confined copy (LLP 1125 D12). `None` else.
     pub fn answer_hold(&mut self, request: &str) -> Option<String> {
         let op = exact_runner::agent::field_str(request, "op");
         if op.as_deref() == Some("appFile") {
             let path = exact_runner::agent::field_str(request, "path").unwrap_or_default();
             return Some(crate::picker::app_file(&path));
+        }
+        if op.as_deref() == Some("shareFile") {
+            let grants = self.runner.data_ref().grants();
+            return Some(crate::picker::share_copy(request, grants));
         }
         if op.as_deref() == Some("appRoots") {
             return Some(crate::picker::roots_reply());

@@ -6,7 +6,13 @@ mock.module('./rt.js', () => ({
 }));
 mock.module('./pointer.js', () => ({ record: () => {} }));
 mock.module('./navigation.js', () => ({ reportPlace: () => '' }));
-mock.module('./admission.js', () => ({ appGrantSet: () => new Set(), coversPath: (_, cap, path) => cap === 'fs.read' && path.startsWith('app:/data/') }));
+// The real admission over the grant set the Rust parser writes for
+// `fs.read "app:/data/a b"` (runner/src/grants.rs `normalized_json`, pinned
+// byte for byte in save_file.rs's test), so a share's path check here is the
+// runner's.
+const { coversPath, createGrantSet, grantError } = await import('../web/grant-admission.js');
+const GRANTS = createGrantSet(JSON.parse('{"version":1,"entries":[[1,"fs.read \\"app:/data/a b\\"",["fs-read","app:","data","a b"],null]],"error":null,"seal":"ed67c8ab1966767e"}'));
+mock.module('./admission.js', () => ({ appGrantSet: () => GRANTS, coversPath }));
 
 const rt = await import('./rt.js');
 const { accepts, deliveredType, tokens, holds } = await import('./files.js');
@@ -40,17 +46,18 @@ test('a wildcard in a mixed accept preserves the original HEIC type', () => {
 test('a share holds its files under the agent and refuses what the web cannot share', () => {
   rt.journal.length = 0;
   globalThis.Element ??= class {}; // no DOM: no pressed node to anchor to
-  rt.Hosts.share('T', null, null, ['app:/data/a.txt']);
-  expect(holds().at(-1).device).toEqual({ capability: 'share', args: { title: 'T', text: null, url: null, files: ['app:/data/a.txt'], anchor: null } });
+  expect(grantError(GRANTS)).toBeFalsy();
+  rt.Hosts.share('T', null, null, ['app:/data/a b/n.txt']);
+  expect(holds().at(-1).device).toEqual({ capability: 'share', args: { title: 'T', text: null, url: null, files: ['app:/data/a b/n.txt'], anchor: null } });
   rt.Hosts.share(null, 'x', null, undefined);
   expect(holds().at(-1).device.args.files).toEqual([]);
   rt.Hosts.share(null, 'x', null, ['#card']);
-  rt.Hosts.share(null, null, null, ['app:/cache/a.txt']);
+  rt.Hosts.share(null, null, null, ['app:/data/a/n.txt']);
   rt.Hosts.share(null, null, null, ['/etc/passwd']);
   rt.Hosts.share(null, null, null, []);
   expect(rt.journal.filter(l => l.includes('refused')).map(l => l.replace(/^t=\d+ /, ''))).toEqual([
     'share: refused: a picture of an element is not available on the web',
-    "share: refused: app:/cache/a.txt is outside the app's fs.read grants",
+    "share: refused: app:/data/a/n.txt is outside the app's fs.read grants",
     "share: refused: /etc/passwd is neither an app:/ file nor an element's #id",
     'share: refused: needs text=, url= or files=',
   ]);

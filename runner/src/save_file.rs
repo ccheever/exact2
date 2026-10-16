@@ -131,24 +131,22 @@ pub(crate) fn plain_app_path(path: &str) -> bool {
             .all(|p| !p.is_empty() && *p != "." && *p != ".." && !p.contains('\0'))
 }
 
-/// Whether a `<capability> <prefix>` line of `grants` covers `path`, a
-/// component at a time, as `PathPrefix::covers` reads it (`app:/data`
-/// covers `app:/data/x`, never `app:/database`).
+/// Whether an `fs.read` or `fs.write` line of `grants` admits `path`, as
+/// the grant parser reads it (a quoted target such as `fs.read
+/// "app:/data/a b"` included) and `PathPrefix::covers` matches it, a
+/// component at a time (`app:/data` covers `app:/data/x`, never
+/// `app:/database`). A line the parser refuses admits nothing; the
+/// browser's `coversPath` reads the same parsed form.
 pub fn covered(grants: &str, capability: &str, path: &str) -> bool {
-    let components = |p: &str| -> Vec<String> {
-        let (ns, rest) = p.split_once(":/").unwrap_or(("", p));
-        std::iter::once(ns.to_owned())
-            .chain(rest.split('/').filter(|c| !c.is_empty()).map(str::to_owned))
-            .collect()
+    use exact_grants::{GrantSet, Operation};
+    let operation = match capability {
+        "fs.read" => Operation::FsRead { path: path.into() },
+        "fs.write" => Operation::FsWrite { path: path.into() },
+        _ => return false,
     };
-    let target = components(path);
-    grants.lines().any(|line| {
-        let mut words = line.split_whitespace();
-        words.next() == Some(capability)
-            && words
-                .next()
-                .is_some_and(|prefix| target.starts_with(&components(prefix)))
-    })
+    crate::io_grants(grants)
+        .lines()
+        .any(|line| GrantSet::parse(line).is_ok_and(|set| set.permits(&operation)))
 }
 
 /// A host's `saveFile`: refuse bad data or an unknown element into the
@@ -261,6 +259,16 @@ mod tests {
         assert!(!covered(g, "fs.write", "app:/tmp/f"));
         assert!(covered("fs.read doc:/", "fs.read", "doc:/1/a.md"));
         assert!(!covered("fs.read doc:/", "fs.read", "app:/data/a"));
+        // A quoted target is one path, spaces and all (LLP 1125 D12 review),
+        // as the browser's grant set reads it (host/web-js/files.test.js).
+        let quoted = "fs.read \"app:/data/a b\"";
+        assert!(covered(quoted, "fs.read", "app:/data/a b/file.txt"));
+        assert!(!covered(quoted, "fs.read", "app:/data/a/file.txt"));
+        assert!(!covered(quoted, "fs.read", "app:/data/a bc/file.txt"));
+        assert_eq!(
+            crate::grants::normalized_json(quoted),
+            r#"{"version":1,"entries":[[1,"fs.read \"app:/data/a b\"",["fs-read","app:","data","a b"],null]],"error":null,"seal":"ed67c8ab1966767e"}"#
+        );
         assert!(plain_app_path("app:/data/backups/f.json"));
         assert!(!plain_app_path("app:/data/../x"));
         assert!(!plain_app_path("app:/data"));

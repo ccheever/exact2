@@ -7,7 +7,7 @@
 // the node whose input ran the action (D3). The outcome is a journal line
 // only (D2). Native hosts share from any action (Q2): a timer's share opens
 // at the window's centre. `files=` (LLP 1125 D12): an `app:/` file goes as
-// its file URL; an `"#id"` as a PNG of that node's view as it is drawn now,
+// a copy read as `readFile` reads it; an `"#id"` as a PNG of that node's view as it is drawn now,
 // at the display's scale, written to a scratch directory removed when the
 // sheet closes. Under the agent nothing is drawn: the hold records the
 // entries.
@@ -32,30 +32,35 @@ extension ExactSession {
         var items: [Any] = []
         if let text = request["text"] as? String { items.append(text) }
         if let url = (request["url"] as? String).flatMap(URL.init(string:)) { items.append(url) }
+        // Each entry is written into a folder of its own in a scratch
+        // directory removed when the sheet closes: an app file as a copy read
+        // through the library's confined path (`fs.read` admitted, no link
+        // followed at any component), a picture as its PNG.
         var scratch: URL?
         let discard = { if let scratch { try? FileManager.default.removeItem(at: scratch) } }
-        for file in ruling["files"] as? [[String: Any]] ?? [] {
-            if let path = file["path"] as? String {
-                guard let url = picker.appFile(path), FileManager.default.fileExists(atPath: url.path) else {
-                    discard(); log("share: refused: \(path) does not exist"); return
-                }
-                items.append(url)
-            } else if let id = file["id"] as? String, let view = (file["view"] as? NSNumber)?.uint32Value {
-                guard let node = presenter.views[view], let picture = ShareSheet.picture(of: node) else {
-                    discard(); log("share: refused: #\(id) is not drawn"); return
-                }
-                do {
-                    let dir = scratch ?? FileManager.default.temporaryDirectory.appendingPathComponent("exact-share-\(UUID().uuidString)", isDirectory: true)
-                    if scratch == nil { try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true) }
-                    scratch = dir
-                    let name = String(id.unicodeScalars.map { CharacterSet.alphanumerics.contains($0) || $0 == "-" || $0 == "_" ? Character($0) : "-" })
-                    let url = dir.appendingPathComponent("\(name).png")
+        for (index, file) in (ruling["files"] as? [[String: Any]] ?? []).enumerated() {
+            do {
+                let dir = scratch ?? FileManager.default.temporaryDirectory.appendingPathComponent("exact-share-\(UUID().uuidString)", isDirectory: true)
+                scratch = dir
+                if let path = file["path"] as? String {
+                    let url = try ShareSheet.scratchFile(dir, index, (path as NSString).lastPathComponent)
+                    let ask = try JSONSerialization.data(withJSONObject: ["op": "shareFile", "path": path, "to": url.path])
+                    let reply = (try? JSONSerialization.jsonObject(with: Data(agent(String(decoding: ask, as: UTF8.self)).utf8))) as? [String: Any]
+                    guard reply?["file"] is String else {
+                        discard(); log("share: refused: \(reply?["error"] as? String ?? "\(path) could not be read")"); return
+                    }
+                    items.append(url)
+                } else if let id = file["id"] as? String, let view = (file["view"] as? NSNumber)?.uint32Value {
+                    guard let node = presenter.views[view], let picture = ShareSheet.picture(of: node) else {
+                        discard(); log("share: refused: #\(id) is not drawn"); return
+                    }
+                    let url = try ShareSheet.scratchFile(dir, index, ShareSheet.pictureName(id))
                     try picture.png.write(to: url)
                     items.append(url)
-                } catch {
-                    discard(); log("share: refused: \(error.localizedDescription)"); return
+                    log("share: picture of #\(id): \(picture.width)×\(picture.height) px, \(picture.png.count) bytes")
                 }
-                log("share: picture of #\(id): \(picture.width)×\(picture.height) px, \(picture.png.count) bytes")
+            } catch {
+                discard(); log("share: refused: \(error.localizedDescription)"); return
             }
         }
         let (view, rect) = presenter.shareAnchor(source)
@@ -95,6 +100,19 @@ extension Presenter {
 }
 
 enum ShareSheet {
+    /// Where entry `index` of a share is written under `dir`: a folder of its
+    /// own, so two entries whose names come out alike (`#card.one` and
+    /// `#card-one`, or two files of one name) stay two files, each with a
+    /// readable name for whoever receives it.
+    static func scratchFile(_ dir: URL, _ index: Int, _ name: String) throws -> URL {
+        let folder = dir.appendingPathComponent(String(index), isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return folder.appendingPathComponent(name)
+    }
+    /// A picture's file name: the id's letters, digits, `-` and `_`, others as `-`.
+    static func pictureName(_ id: String) -> String {
+        String(id.unicodeScalars.map { CharacterSet.alphanumerics.contains($0) || $0 == "-" || $0 == "_" ? Character($0) : "-" }) + ".png"
+    }
     /// A PNG of `view` and its subviews as they are drawn now, at the
     /// display's scale, and its size in pixels; nil for a view with no area.
     static func picture(of view: ShareAnchorView) -> (png: Data, width: Int, height: Int)? {

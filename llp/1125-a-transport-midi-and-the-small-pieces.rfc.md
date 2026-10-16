@@ -802,17 +802,21 @@ D12 as written, except where this says otherwise.
   is true and `canSharePictures` false, since the web refuses a picture
   under the agent as well. `prefer can-share-files` and
   `prefer can-share-pictures` set them on every host.
-- **Apple** (`Share.swift`). A path is resolved by the library
-  (`appFile`) and goes as its file URL; a missing file is `share: refused:
-  <path> does not exist`. A picture is `ShareSheet.picture(of:)`: on iOS
+- **Apple** (`Share.swift`). A path goes as a copy the library makes
+  (`shareFile`, `host/apple/src/picker.rs`), read as `readFile` reads it:
+  `fs.read` admitted by the grant parser, every component opened relative
+  to the roots' descriptors with `O_NOFOLLOW`, a regular file only; a link
+  anywhere in the path is refused (`… Too many levels of symbolic links`).
+  A picture is `ShareSheet.picture(of:)`: on iOS
   `UIGraphicsImageRenderer` at the view's `displayScale`, drawing with
   `drawHierarchy(afterScreenUpdates: false)` on screen and `layer.render`
   off it; on macOS `bitmapImageRepForCachingDisplay` and `cacheDisplay`,
-  at the window's backing scale. The PNG is written as `<id>.png` in a
-  fresh temporary directory, removed when the sheet reports its outcome or
-  fails to present, and journaled `share: picture of #card: W×H px, N
-  bytes`. A node with no view or no area is `share: refused: #card is not
-  drawn`.
+  at the window's backing scale. Entry `n` is written as `n/<name>` (the
+  file's last segment, or `<id>.png`) in a fresh temporary directory, so
+  two entries whose names come out alike stay two files; the directory is
+  removed when the sheet reports its outcome or fails to present. A picture
+  is journaled `share: picture of #card: W×H px, N bytes`; a node with no
+  view or no area is `share: refused: #card is not drawn`.
 - **Deviation: `EXACT_DEVICE=real` now reaches `share` on Apple.** The
   session asked the runner with `agent` set to agent mode, so a real sheet
   could not be seen under the driver; it now sends `PageFacts.substituted`,
@@ -871,3 +875,18 @@ D12 as written, except where this says otherwise.
   (`host/web/glue.js`) was tested through the runner's JSON door, not
   driven in a page. `contract-difftest quick` was not run: Lean is not
   installed on this machine.
+- **After review** (Astra, Grok). Apple shared the URL `appFile` joined,
+  which follows a link, so `fs.read app:/data` could put a file outside
+  the grant on the sheet; it now shares the confined copy above (tests: a
+  leaf link, an ancestor link, and a file replaced by a link before the
+  read, in `picker.rs`; driven on macOS: a backup swapped for a link while
+  the app ran was refused). The web reads through the app's IndexedDB
+  store, keyed by the normalised path, which has no links to follow. The
+  runner's `covered` read a grant line by whitespace, so `fs.read
+  "app:/data/a b"` admitted nothing in Rust while the browser admitted it;
+  it now parses each line with `exact_grants` and asks `permits`, which
+  `saveFile` shares (pinned against the browser's form: `save_file.rs`
+  checks the parsed JSON byte for byte, and `files.test.js` runs the real
+  `coversPath` over it). Two pictures whose ids sanitise alike
+  (`#card.one`, `#card-one`) wrote one file; each entry now has its own
+  folder.

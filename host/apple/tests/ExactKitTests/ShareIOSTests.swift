@@ -67,6 +67,18 @@ enum SharePictureCase {
         XCTAssertGreaterThan(pixel.0, 200, "red: \(pixel)")
         XCTAssertLessThan(pixel.1, 60, "green: \(pixel)")
         XCTAssertGreaterThan(pixel.3, 200, "alpha: \(pixel)")
+        // Two ids whose names come out alike stay two files, each its own picture.
+        XCTAssertEqual(ShareSheet.pictureName("card.one"), ShareSheet.pictureName("card-one"))
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("exact-share-test-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let first = try ShareSheet.scratchFile(dir, 0, ShareSheet.pictureName("card.one"))
+        let second = try ShareSheet.scratchFile(dir, 1, ShareSheet.pictureName("card-one"))
+        try Data("one".utf8).write(to: first)
+        try picture.png.write(to: second)
+        XCTAssertNotEqual(first, second)
+        XCTAssertEqual(first.lastPathComponent, "card-one.png")
+        XCTAssertEqual(try Data(contentsOf: first), Data("one".utf8))
+        XCTAssertEqual(try Data(contentsOf: second), picture.png)
         // A view with no area has no picture.
         p.apply(wireBatch([["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 0.0, "h": 50.0]]))
         XCTAssertNil(ShareSheet.picture(of: card))

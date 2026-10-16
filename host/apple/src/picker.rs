@@ -259,3 +259,117 @@ pub fn app_file(path: &str) -> String {
         None => exact_runner::agent::error(&format!("{path} names no app file")),
     }
 }
+
+/// `{"file":to}`: a copy at `to` of the app file `path` (LLP 1125 D12), read
+/// as `readFile` reads it: admitted by the app's `fs.read` grants and opened
+/// relative to the roots' descriptors without following a symbolic link at
+/// any component, so a link in the app's tree cannot put a file outside the
+/// grant on the share sheet. Only a regular file is copied; `to` must not
+/// exist. An error for anything else.
+/// `request` is `{"op":"shareFile","path":…,"to":…}`.
+pub fn share_copy(request: &str, grants: &str) -> String {
+    let field = |k| exact_runner::agent::field_str(request, k).unwrap_or_default();
+    let (path, to) = (field("path"), field("to"));
+    match copy_confined(&roots(), &path, std::path::Path::new(&to), grants) {
+        Ok(()) => {
+            let mut s = String::from("{\"file\":");
+            exact_runner::agent::quote(&to, &mut s);
+            s.push('}');
+            s
+        }
+        Err(e) => exact_runner::agent::error(&format!("{path}: {e}")),
+    }
+}
+
+fn copy_confined(
+    roots: &[PathBuf; 3],
+    path: &str,
+    to: &std::path::Path,
+    grants: &str,
+) -> Result<(), String> {
+    use ibex2::stdlib::app_fs::AppDirectories;
+    // A root that is itself a link is refused, as the request executor
+    // refuses it (`executor_body::open`).
+    if roots
+        .iter()
+        .any(|r| std::fs::symlink_metadata(r).is_ok_and(|m| m.is_symlink()))
+    {
+        return Err("an app root is a symbolic link".into());
+    }
+    let directories =
+        AppDirectories::new(&roots[0], &roots[1], &roots[2]).map_err(|e| e.to_string())?;
+    let grants = ibex2::grant::GrantSet::parse(&exact_runner::io_grants(grants))
+        .map_err(|e| format!("the app's grants did not parse: {e}"))?;
+    let mut from = directories
+        .open_file(&grants, path)
+        .map_err(|e| e.to_string())?;
+    let mut copy = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(to)
+        .map_err(|e| e.to_string())?;
+    if let Err(e) = std::io::copy(&mut from, &mut copy) {
+        drop(copy);
+        let _ = std::fs::remove_file(to);
+        return Err(e.to_string());
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::symlink;
+
+    /// A fresh tree: `data`, `cache`, `tmp`, an outside file, and the copy's place.
+    fn tree(name: &str) -> (PathBuf, [PathBuf; 3]) {
+        let base =
+            std::env::temp_dir().join(format!("exact-share-copy-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let roots = [base.join("data"), base.join("cache"), base.join("tmp")];
+        for r in &roots {
+            std::fs::create_dir_all(r).unwrap();
+        }
+        std::fs::create_dir_all(roots[0].join("backups")).unwrap();
+        std::fs::write(roots[0].join("backups/notes.json"), b"{}").unwrap();
+        std::fs::create_dir_all(base.join("outside")).unwrap();
+        std::fs::write(base.join("outside/secret"), b"secret").unwrap();
+        (base, roots)
+    }
+
+    #[test]
+    fn a_share_copies_only_a_granted_regular_file_and_follows_no_link() {
+        let (base, roots) = tree("links");
+        let grants = "fs.read app:/data\n";
+        let to = |n: &str| base.join(n);
+        assert_eq!(
+            copy_confined(&roots, "app:/data/backups/notes.json", &to("a"), grants),
+            Ok(())
+        );
+        assert_eq!(std::fs::read(to("a")).unwrap(), b"{}");
+        // A leaf link to a file outside the grant.
+        symlink(base.join("outside/secret"), roots[0].join("backups/leaf")).unwrap();
+        assert!(copy_confined(&roots, "app:/data/backups/leaf", &to("b"), grants).is_err());
+        // An ancestor link to a folder outside it.
+        symlink(base.join("outside"), roots[0].join("folder")).unwrap();
+        assert!(copy_confined(&roots, "app:/data/folder/secret", &to("c"), grants).is_err());
+        // A folder, a file no grant covers, and a copy that would overwrite.
+        assert!(copy_confined(&roots, "app:/data/backups", &to("d"), grants).is_err());
+        std::fs::write(roots[1].join("x"), b"x").unwrap();
+        assert!(copy_confined(&roots, "app:/cache/x", &to("e"), grants).is_err());
+        assert!(copy_confined(&roots, "app:/data/backups/notes.json", &to("a"), grants).is_err());
+        for n in ["b", "c", "d", "e"] {
+            assert!(!to(n).exists(), "{n} was written");
+        }
+        // The link replaces the file the path named: still refused, since the
+        // leaf is opened without following it at the moment of the read.
+        std::fs::remove_file(roots[0].join("backups/notes.json")).unwrap();
+        symlink(
+            base.join("outside/secret"),
+            roots[0].join("backups/notes.json"),
+        )
+        .unwrap();
+        assert!(copy_confined(&roots, "app:/data/backups/notes.json", &to("f"), grants).is_err());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+}
