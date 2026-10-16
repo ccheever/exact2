@@ -270,9 +270,10 @@ package final class Presenter {
     #endif
     /// The last no-duration keyboard change, waiting to be applied.
     private var keyboardDebounce: DispatchWorkItem?
-    var hasPendingKeyboardResize: Bool { keyboardDebounce != nil }
+    var hasPendingKeyboardResize: Bool { keyboardDebounce != nil || session?.view?.holdsKeyboardGuide == true }
     /// Apply a pending keyboard change before a back swipe fixes its route frames.
     func flushKeyboardResize() {
+        session?.view?.releaseKeyboardGuide()
         guard let work = keyboardDebounce else { return }
         keyboardDebounce = nil
         work.perform()

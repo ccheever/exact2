@@ -39,6 +39,17 @@ public final class ExactView: UIView {
     private var keyboardObserver: NSObjectProtocol?
     /// Fits again once the keyboard has stopped moving (see `init`).
     private var keyboardSettled: [NSObjectProtocol] = []
+    /// The keys' top the last fit took from the guide (nil: down, or the
+    /// guide not read); a new height waiting out its burst, and the last
+    /// height the guide showed while it waits (`settledGuideTop`).
+    private var guideTop: CGFloat?
+    private var guideHold: DispatchWorkItem?
+    private var guideSeen: CGFloat?
+    private var guideReleased = false
+    /// When an editor last began editing, which opens the window in which
+    /// the keys' height jitters, and the observers that say so.
+    private var editorBegan: CFTimeInterval = -.infinity
+    private var editingObservers: [NSObjectProtocol] = []
     /// The adapter's hook for the first root's `viewport-fit` and its
     /// canvas colour (the window's background under the safe areas is the
     /// window's business).
@@ -92,6 +103,11 @@ public final class ExactView: UIView {
                 MainActor.assumeIsolated { self?.fit() }
             }
         }
+        editingObservers = [UITextField.textDidBeginEditingNotification, UITextView.textDidBeginEditingNotification].map { name in
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.editorBegan = CACurrentMediaTime() }
+            }
+        }
         #endif
         session.presenter.observeKeyboard()
         registerForTraitChanges([UITraitPreferredContentSizeCategory.self, UITraitLegibilityWeight.self, UITraitDisplayScale.self]) { (view: ExactView, _: UITraitCollection) in view.session.controlTextChanged() }
@@ -128,6 +144,7 @@ public final class ExactView: UIView {
     deinit {
         keyboardObserver.map(NotificationCenter.default.removeObserver)
         keyboardSettled.forEach(NotificationCenter.default.removeObserver)
+        editingObservers.forEach(NotificationCenter.default.removeObserver)
     }
 
     /// A zero-size dependent makes UIKit lay this view out as its keyboard
@@ -154,6 +171,56 @@ public final class ExactView: UIView {
         keyboardProbe = probe
     }
     #endif
+
+    /// The guide's top for a fit, settled as `Presenter.keyboardChanged`
+    /// settles the notifications. Moving the focus between fields rebuilds
+    /// the keys, and their height passes through the other keyboard's for a
+    /// frame or two with no animation (347, 320, 347 points on an iPhone Air
+    /// between a text and a password field). The guide follows it, and a fit
+    /// laid out each step flashed the page. So for 0.3 s after an editor
+    /// begins, while the keys stay up, a new height outside an animation
+    /// waits 80 ms for the last of the burst. A show, a hide, a drag, a
+    /// change inside an animation (the keyboard's own, a rotation's) and a
+    /// later one (the AutoFill bar arriving as typing starts) apply at once.
+    private func settledGuideTop(_ live: CGFloat?) -> CGFloat? {
+        if let held = guideTop, let live, abs(live - held) > 0.5, !guideReleased,
+           CACurrentMediaTime() - editorBegan < 0.3,
+           UIView.inheritedAnimationDuration == 0, !session.presenter.interactiveKeyboardDrag {
+            if guideHold == nil || guideSeen != live {
+                guideHold?.cancel()
+                let work = DispatchWorkItem { [weak self] in self?.releaseKeyboardGuide() }
+                guideHold = work
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08, execute: work)
+            }
+            guideSeen = live
+            return held
+        }
+        forgetKeyboardGuide()
+        guideTop = live
+        return live
+    }
+
+    /// Nothing held: the fit read the guide's height as it is, or did not read the guide.
+    private func forgetKeyboardGuide() {
+        guideHold?.cancel()
+        guideHold = nil
+        guideSeen = nil
+        guideReleased = false
+        guideTop = nil
+    }
+
+    /// A guide height waiting out its burst (`settledGuideTop`).
+    var holdsKeyboardGuide: Bool { guideHold != nil }
+
+    /// The held height applies now: its burst is over, or a press or a pop
+    /// needs the page at rest (`Presenter.flushKeyboardResize`).
+    func releaseKeyboardGuide() {
+        guard let hold = guideHold else { return }
+        hold.cancel()
+        guideHold = nil
+        guideReleased = true
+        fit()
+    }
 
     /// The first root's `viewport-fit` prop (`"cover"` or nothing).
     public var viewportFit: String? { session.presenter.viewportFit }
@@ -284,11 +351,15 @@ public final class ExactView: UIView {
                 top = .infinity
                 #else
                 let guide = keyboardLayoutGuide.layoutFrame
-                top = guide.height > safe.bottom + 1 ? guide.minY : .infinity
+                top = settledGuideTop(guide.height > safe.bottom + 1 ? guide.minY : nil) ?? .infinity
                 #endif
             } else if let edge = presenter.keyboardTop, let window {
+                forgetKeyboardGuide()
                 top = convert(CGPoint(x: 0, y: edge), from: window).y
-            } else { top = .infinity }
+            } else {
+                forgetKeyboardGuide()
+                top = .infinity
+            }
             presenter.keyboardInset = min(max(0, frame.maxY - max(top, frame.minY)), frame.height)
             if top < frame.maxY {
                 frame.size.height = max(0, top - frame.minY)
