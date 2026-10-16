@@ -12,40 +12,80 @@ final class InvocationTests: XCTestCase {
         return v
     }
 
-    func testCommandforThatNamesAnElementGovernsElsePopovertargetActs() {
+    /// The table the kernel's resolver reads too
+    /// (`kernel/tests/it/fixtures/invocation.tsv`), on a real batch: the two
+    /// resolvers cannot drift apart without one of them failing it. A case
+    /// that opens a popover is a header's menu button (`HeaderRule`).
+    func testAButtonInvokesWhatTheSharedTableSays() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let table = try String(contentsOf: root.appendingPathComponent("kernel/tests/it/fixtures/invocation.tsv"), encoding: .utf8)
+        let rows = table.split(separator: "\n", omittingEmptySubsequences: true).filter { !$0.hasPrefix("#") }
+            .map { $0.split(separator: "\t", omittingEmptySubsequences: false).map(String.init) }
+        func props(_ field: String) -> [String: String] {
+            Dictionary(uniqueKeysWithValues: field.split(separator: ";").map {
+                let pair = $0.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+                return (String(pair[0]), String(pair[1]))
+            })
+        }
+        var ops: [[String: Any]] = [["op": "create", "id": 1, "kind": "view"]]
+        var children: [Int] = []
+        var paragraphs: [[String: Any]] = []
+        for row in rows where row[0] == "element" || row[0] == "paragraph" {
+            let id = Int(row[1])!
+            if row[0] == "paragraph" {
+                ops.append(["op": "create", "id": id, "kind": "text"])
+                let runs = rows.filter { $0[0] == "run" && $0[2] == row[1] }.map { run -> [String: Any] in
+                    ["id": Int(run[1])!, "parent": id, "paint": true, "props": props(run[3]).merging(["text": "run"]) { $1 }, "style": [:]]
+                }
+                paragraphs.append(["op": "paragraph", "id": id, "runs": runs])
+            } else {
+                ops.append(["op": "create", "id": id, "kind": "view", "props": props(row[2])])
+            }
+            children.append(id)
+        }
+        ops += [["op": "children", "id": 1, "ids": children], ["op": "roots", "ids": [1]]] + paragraphs
+        p.apply(wireBatch(ops))
+        for row in rows where row[0] == "rename" {
+            p.apply(wireBatch([["op": "props", "id": Int(row[1])!, "set": ["id": row[2]]]]))
+        }
+        let cases = rows.filter { $0[0] == "case" }
+        ops = []
+        for (index, row) in cases.enumerated() {
+            var set = props(row[2])
+            let kind: String
+            switch row[1] {
+            case "button": kind = "button"
+            case "nativeButton": kind = "control"; set["type"] = "button"
+            default: kind = "view"
+            }
+            ops.append(["op": "create", "id": 100 + index, "kind": kind, "props": set])
+            children.append(100 + index)
+        }
+        ops.append(["op": "children", "id": 1, "ids": children])
+        p.apply(wireBatch(ops))
+        for (index, row) in cases.enumerated() {
+            let why = row[5]
+            let got = p.invocation(of: try XCTUnwrap(p.views[UInt32(100 + index)]))
+            if row[3] == "-" {
+                XCTAssertNil(got, why)
+            } else {
+                let expect = row[3].split(separator: " ")
+                XCTAssertEqual(got?.target.id, UInt32(expect[0]), "\(why): target")
+                XCTAssertEqual(got.map { "\($0.action)" }, String(expect[1]), "\(why): action")
+            }
+            XCTAssertEqual(got?.opensPopover ?? false, row[4] == "menu", "\(why): a menu")
+            let source = try XCTUnwrap(p.views[UInt32(100 + index)])
+            XCTAssertEqual(HeaderRule.facts(source, back: nil) & 16 != 0, row[4] == "menu", "\(why): a header's menu button")
+        }
+    }
+
+    /// A `commandfor` naming a run of a paragraph names an element, which no
+    /// command acts on: nothing falls back to `popovertarget`.
+    func testACommandforNamingARunSuppressesTheFallback() {
         let a = node(10, "view", ["id": "a", "popover": "auto"])
-        let b = node(11, "view", ["id": "b", "popover": "auto"])
-        let plain = node(12, "view", ["id": "plain"])
-        let dialog = node(13, "view", ["id": "d", "semanticTag": "dialog"])
-        let elements = ["a": a, "b": b, "plain": plain, "d": dialog]
-        func resolve(_ props: [String: String], kind: String = "button") -> (NodeView, Invocation.Action)? {
-            Invocation(of: node(1, kind, props)) { name in
-                name == "run" ? .element : elements[name].map { .view($0) }
-            }.map { ($0.target, $0.action) }
-        }
-        func check(_ props: [String: String], _ expected: (NodeView, Invocation.Action)?, _ why: String, kind: String = "button") {
-            let got = resolve(props, kind: kind)
-            XCTAssertTrue(got?.0 === expected?.0, "\(why): target")
-            XCTAssertEqual(got?.1, expected?.1, "\(why): action")
-        }
-        check(["commandfor": "b", "command": "show-popover", "popovertarget": "a"], (b, .show), "a resolved commandfor wins")
-        check(["commandfor": "missing", "command": "show-popover", "popovertarget": "a"], (a, .toggle), "a missing one falls back")
-        check(["commandfor": "", "command": "toggle-popover", "popovertarget": "a", "popovertargetaction": "show"], (a, .show),
-              "an empty one falls back, and its leftover command is ignored")
-        check(["commandfor": "plain", "command": "show-popover", "popovertarget": "a"], nil, "one naming a non-popover: no fallback")
-        check(["commandfor": "run", "command": "show-popover", "popovertarget": "a"], nil, "one naming a paragraph's run: no fallback")
-        check(["commandfor": "b", "command": "bogus", "popovertarget": "a"], nil, "an unknown command: no fallback")
-        check(["commandfor": "b", "popovertarget": "a"], nil, "a missing command: no fallback")
-        check(["commandfor": "b", "command": "HIDE-POPOVER"], (b, .hide), "keywords are ASCII case-insensitive")
-        check(["commandfor": "b", "command": " hide-popover "], nil, "and not trimmed")
-        check(["commandfor": "d", "command": "show-modal"], (dialog, .showModal), "show-modal on a dialog")
-        check(["commandfor": "d", "command": "close"], (dialog, .close), "close on a dialog")
-        check(["commandfor": "b", "command": "show-modal"], nil, "show-modal on a popover that is no dialog")
-        check(["popovertarget": "d"], nil, "popovertarget naming a dialog without popover")
-        check(["popovertarget": "a", "popovertargetaction": "HIDE"], (a, .hide), "popovertargetaction is case-insensitive")
-        check(["popovertarget": "a", "popovertargetaction": " hide "], (a, .toggle), "an invalid action toggles")
-        check(["popovertarget": "a", "popovertargetaction": ""], (a, .toggle), "an empty action toggles")
-        check(["popovertarget": "a"], nil, "a view is no button", kind: "view")
+        let source = node(1, "button", ["commandfor": "run", "command": "show-popover", "popovertarget": "a"])
+        XCTAssertNil(Invocation(of: source) { name in name == "run" ? .element : name == "a" ? .view(a) : nil })
     }
 
     /// A row closes a dialog in the mode it shows in: `close` a modal one,

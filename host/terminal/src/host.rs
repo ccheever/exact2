@@ -6,8 +6,9 @@
 
 use crate::grid::CellRect;
 use crate::paint::{paint, Painted, Scene};
+use exact_kernel::invocation::Action;
 use exact_kernel::style::cells::{COLUMN, ROW};
-use exact_kernel::{AxisOffer, Kernel, NodeType, Offer, PropId, ViewId};
+use exact_kernel::{AxisOffer, Kernel, NodeKey, NodeType, Offer, PropId, ViewId};
 use exact_plan::{EventKind, Plan};
 use exact_runner::{DataSource, Event, Runner, RunnerError, Viewport};
 use std::collections::HashMap;
@@ -69,7 +70,7 @@ mod structural_read_tests {
         let menu = host
             .find(|n| n.props.str(PropId::Id) == Some("menu"))
             .unwrap();
-        host.open_layer(menu);
+        host.open_layer(menu, false);
         host.act("probe");
         assert_eq!(
             ids(&host),
@@ -171,8 +172,9 @@ pub struct Host<D: DataSource> {
     pub(crate) caret: usize,
     pub(crate) scroll: HashMap<ViewId, f32>,
     pub(crate) collections: crate::collection::Collections,
-    /// Open dialogs and popovers, bottom to top, with the focus each took.
-    pub(crate) layers: Vec<(ViewId, Option<ViewId>)>,
+    /// Open dialogs and popovers, bottom to top, with the focus each took
+    /// and whether it was opened modally (`show-modal`) or as a popover.
+    pub(crate) layers: Vec<(ViewId, Option<ViewId>, bool)>,
     /// The appearance `light-dark()` resolves by.
     pub dark: bool,
     painted: Option<Painted>,
@@ -402,7 +404,7 @@ impl<D: DataSource> Host<D> {
             }
         }
         self.layers
-            .retain(|(id, _)| self.runner.kernel().node(*id).is_some());
+            .retain(|(id, ..)| self.runner.kernel().node(*id).is_some());
         self.sync_top_layer();
         if self.focus.is_some_and(|f| !self.focusables().contains(&f)) {
             self.focus = None;
@@ -429,13 +431,18 @@ impl<D: DataSource> Host<D> {
         // Dialogs an action opened or closed, and focus it moved (LLP
         // 1101.001 P5), after the commit that asked for them.
         for op in layer_ops {
-            let Some(node) = self.find(|n| n.props.str(PropId::Id) == Some(op.id())) else {
+            // A dialog by the rule a button's `commandfor` names it by.
+            let named = match op {
+                ById::ShowModal(_) | ById::Close(_) => self.element(op.id()),
+                _ => self.find(|n| n.props.str(PropId::Id) == Some(op.id())),
+            };
+            let Some(node) = named else {
                 continue;
             };
-            let is_open = self.layers.iter().any(|(l, _)| *l == node);
             match op {
-                ById::ShowModal(_) if !is_open => self.open_layer(node),
-                ById::Close(_) if is_open => self.close_layer(node),
+                ById::ShowModal(_) if self.open_mode(node).is_none() => self.open_layer(node, true),
+                // HTML's `close` does nothing to a dialog shown as a popover.
+                ById::Close(_) if self.open_mode(node) == Some(true) => self.close_layer(node),
                 ById::Focus(_) => self.focus(Some(node)),
                 ById::IntoView(_, block) => self.reveal_to(node, &block),
                 ById::ScrollBy(_, y) => self.scroll_node_by(node, y),
@@ -478,7 +485,7 @@ impl<D: DataSource> Host<D> {
             caret: self.caret,
             dark: self.dark,
             colors: self.colors(),
-            layers: self.layers.iter().map(|(id, _)| *id).collect(),
+            layers: self.layers.iter().map(|(id, ..)| *id).collect(),
             images: &self.images,
             center: self.mode == Mode::Fullscreen,
             env: self.runner.kernel().env(),
@@ -593,6 +600,14 @@ impl<D: DataSource> Host<D> {
         self.after_commit();
     }
 
+    /// The loop's clock, milliseconds since `start`, owns time (the timers
+    /// RFC, D1): a repeat that missed beats fires once, and every commit
+    /// observes the clock.
+    pub fn live_from(&mut self, start: std::time::Instant) {
+        let sample = move || start.elapsed().as_secs_f64() * 1000.0;
+        self.runner.set_live_clock(Some(Box::new(sample)));
+    }
+
     /// Advance the app's clock: timers fire.
     pub fn tick(&mut self, now_ms: f64) {
         if !self.runner.advance_timed(now_ms).receipts.is_empty() {
@@ -661,11 +676,11 @@ impl<D: DataSource> Host<D> {
         let kernel = self.runner.kernel();
         let mut out = Vec::new();
         let starts: Vec<ViewId> = match self.layers.last() {
-            Some((top, _)) => vec![*top],
+            Some((top, ..)) => vec![*top],
             None => self.runner.roots(),
         };
         let mut stack: Vec<ViewId> = starts.into_iter().rev().collect();
-        let open: Vec<ViewId> = self.layers.iter().map(|(id, _)| *id).collect();
+        let open: Vec<ViewId> = self.layers.iter().map(|(id, ..)| *id).collect();
         while let Some(id) = stack.pop() {
             let Some(n) = kernel.node(id) else { continue };
             if n.style.display == exact_kernel::Display::None
@@ -860,8 +875,8 @@ impl<D: DataSource> Host<D> {
     /// A press that moves the focus to what was pressed only when `take`:
     /// a keyboard shortcut acts without moving the person's place.
     pub(crate) fn press_with(&mut self, id: ViewId, take: bool) {
-        // A close command precedes its press handler. Keep the clicked row
-        // alive until that handler has consumed its bound arguments.
+        // Keep the clicked row alive through its press handler, which
+        // consumes its bound arguments, and the close it may invoke after.
         let settling = self.collections.settling;
         self.collections.settling = true;
         self.press_with_inner(id, take);
@@ -874,51 +889,69 @@ impl<D: DataSource> Host<D> {
             self.focus(Some(id));
             return;
         }
-        self.invoke(id);
+        let key = self.runner.kernel().node(id).map(|node| node.key);
         if let Some(target) = self.handler(id, EventKind::Press) {
             if take && (self.layers.is_empty() || self.focusables().contains(&id)) {
                 self.focus(Some(id));
             }
             self.dispatch(target, Event::Press);
         }
+        if let Some(key) = key {
+            self.invoke(key);
+        }
     }
 
-    /// `commandfor`/`command` and `popovertarget`, before the press's own
-    /// handler runs (as the Mac host does, LLP 1021).
-    fn invoke(&mut self, id: ViewId) {
+    /// What the pressed button `key` invokes once its `press` has run, as
+    /// HTML resolves it (`exact_kernel::Invocation`), if it is still that
+    /// node, enabled and shown: a popover opens or closes by its action, a
+    /// dialog opens modally by `show-modal` and closes by `close`. A popover
+    /// action leaves a layer open modally alone, and `close` one open as a
+    /// popover.
+    fn invoke(&mut self, key: NodeKey) {
         let kernel = self.runner.kernel();
-        let Some(n) = kernel.node(id) else { return };
-        let (target, action) = if let Some(t) = n.props.str(PropId::Commandfor) {
-            (
-                t.to_string(),
-                n.props
-                    .str(PropId::Command)
-                    .unwrap_or("show-modal")
-                    .to_string(),
-            )
-        } else if let Some(t) = n.props.str(PropId::Popovertarget) {
-            let action = n.props.str(PropId::Popovertargetaction).unwrap_or("toggle");
-            (t.to_string(), action.to_string())
-        } else {
+        let Some(node) = kernel.node_by_key(key).filter(|node| {
+            node.props.bool(PropId::Disabled) != Some(true)
+                && node.style.display != exact_kernel::Display::None
+        }) else {
             return;
         };
-        let Some(layer) = self.find(|n| n.props.str(PropId::Id) == Some(target.as_str())) else {
+        let Some(invocation) = exact_kernel::Invocation::of(kernel, &node) else {
             return;
         };
-        let open = self.layers.iter().any(|(l, _)| *l == layer);
-        match (action.as_str(), open) {
-            ("show-modal" | "show" | "show-popover", false) | ("toggle", false) => {
-                self.open_layer(layer)
+        let Some(layer) = kernel.node_by_key(invocation.target).map(|n| n.id) else {
+            return;
+        };
+        match (invocation.action, self.open_mode(layer)) {
+            (Action::Show | Action::Toggle, None) => self.open_layer(layer, false),
+            (Action::ShowModal, None) => self.open_layer(layer, true),
+            (Action::Hide | Action::Toggle, Some(false)) | (Action::Close, Some(true)) => {
+                self.close_layer(layer)
             }
-            ("close" | "hide" | "hide-popover", true) | ("toggle", true) => self.close_layer(layer),
             _ => {}
         }
     }
 
+    /// How `layer` is open: `Some(true)` modally, `Some(false)` as a
+    /// popover, `None` when it is not.
+    fn open_mode(&self, layer: ViewId) -> Option<bool> {
+        self.layers
+            .iter()
+            .find(|(l, ..)| *l == layer)
+            .map(|(.., modal)| *modal)
+    }
+
+    /// The element an action's command names by `id`, by a button's rule
+    /// (`exact_kernel::invocation::element`).
+    fn element(&self, name: &str) -> Option<ViewId> {
+        let kernel = self.runner.kernel();
+        let key = exact_kernel::invocation::element(kernel, name)?;
+        kernel.node_by_key(key).map(|node| node.id)
+    }
+
     /// Open a dialog or popover: on top, its first autofocus or focusable
     /// descendant focused, the focus it took remembered.
-    pub fn open_layer(&mut self, layer: ViewId) {
-        self.layers.push((layer, self.focus));
+    pub fn open_layer(&mut self, layer: ViewId, modal: bool) {
+        self.layers.push((layer, self.focus, modal));
         self.sync_top_layer();
         // Its controls are born now, unseen, even when it was open before:
         // a key read before a frame shows them cannot reach them (LLP
@@ -978,10 +1011,10 @@ impl<D: DataSource> Host<D> {
 
     /// Close a dialog or popover, giving back the focus it took.
     pub fn close_layer(&mut self, layer: ViewId) {
-        let Some(at) = self.layers.iter().position(|(l, _)| *l == layer) else {
+        let Some(at) = self.layers.iter().position(|(l, ..)| *l == layer) else {
             return;
         };
-        let (_, restore) = self.layers.remove(at);
+        let (_, restore, _) = self.layers.remove(at);
         self.sync_top_layer();
         self.presented.stale = true;
         self.focus = None;
@@ -993,7 +1026,7 @@ impl<D: DataSource> Host<D> {
 
     /// The open top layer's height in rows, if one is open.
     pub fn layer_rows(&self) -> Option<usize> {
-        let (top, _) = self.layers.last()?;
+        let (top, ..) = self.layers.last()?;
         let n = self.runner.kernel().node(*top)?;
         Some((n.frame.height / ROW).round().max(1.0) as usize)
     }
@@ -1004,7 +1037,7 @@ impl<D: DataSource> Host<D> {
     }
 
     fn sync_top_layer(&mut self) {
-        let open: Vec<ViewId> = self.layers.iter().map(|(id, _)| *id).collect();
+        let open: Vec<ViewId> = self.layers.iter().map(|(id, ..)| *id).collect();
         self.runner.top_layer(&open);
     }
 
@@ -1061,3 +1094,11 @@ mod notify_tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "host_invocation_tests.rs"]
+mod invocation_tests;
+
+#[cfg(test)]
+#[path = "host_clock_tests.rs"]
+mod clock_tests;

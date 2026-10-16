@@ -74,6 +74,18 @@ final class MenuStabilityIOSTests: XCTestCase {
         XCTAssertTrue(try menu(p) === before, "an open menu would reload")
     }
 
+    /// A bar item's button is hidden in the page while the bar shows it, and
+    /// that alone does not make it ineligible; hidden any other way, as by
+    /// its author's `display: none`, it is.
+    func testABarButtonHiddenByItsAuthorIsNotEligible() throws {
+        let p = presenter()
+        let invoker = try XCTUnwrap(p.views[2])
+        XCTAssertTrue(p.menus.eligible(invoker, inBar: true))
+        p.apply(wireBatch([["op": "style", "id": 2, "style": ["display": "none"]]]))
+        XCTAssertTrue(invoker.isHidden)
+        XCTAssertFalse(p.menus.eligible(invoker, inBar: true))
+    }
+
     func testARIAUnavailableMenuInvokerAndActionKeepInputEnabled() throws {
         let p = presenter()
         p.apply(wireBatch([

@@ -37,7 +37,7 @@ extension NodeView {
     /// A content-box update can move content without changing the node's frame.
     func applyKernelContentBox(_ box: CGRect?, padding: [CGFloat?]?) {
         kernelContentBox = box; kernelPadding = padding
-        layoutField(); layoutTextArea()
+        layoutField(); layoutTextArea(); video?.layout(); layoutContent()
         #if os(iOS) || os(tvOS)
         setNeedsLayout(); setNeedsDisplay()
         #else

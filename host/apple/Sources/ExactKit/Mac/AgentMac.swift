@@ -67,10 +67,13 @@ extension Agent {
     /// `awaitModalTransitions`).
     @discardableResult func awaitModalTransitions(bound: TimeInterval = 2) -> Bool { true }
 
-    /// AppKit animates nothing here that a seek does not move, but for a
-    /// list's smooth correction under platform timing, the clip view's
-    /// animator (LLP 1070.000 §11): the fixed point is where it lands.
-    func nativeInFlight() -> Bool { !presenter.collections.animating.isEmpty || presenter.views.values.contains(where: { $0.scrollEnd?.elementAnimation != nil }) || session.natives.activationQueued || presenter.launchAutofocusPending }
+    /// AppKit's list corrections and element reveals finish on its clock,
+    /// including a reveal in the page viewport (LLP 1070.000 §11).
+    func nativeInFlight() -> Bool {
+        !presenter.collections.animating.isEmpty || presenter.pageElementAnimation != nil
+            || presenter.views.values.contains(where: { $0.scrollEnd?.elementAnimation != nil })
+            || session.natives.activationQueued || presenter.launchAutofocusPending
+    }
 
     /// `tap {close:true}`: the window's close button, pressed as ⌘W, File ▸
     /// Close Window and the red button press it (`performClose`), so its

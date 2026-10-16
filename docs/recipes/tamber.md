@@ -58,3 +58,13 @@ What to know:
   line here.
 - **One way to write a colour:** a role if the platform has one, a token if it
   is the brand.
+- **Edit it while it runs** (development only): the dev loop serves
+  `/__tamber`. `bun exact.mjs tamber op <url> '{"method":"describe"}'` reads;
+  a `transaction` names its `client` and the file's digest, and writes a line.
+  `{"method":"history"}` reads the design's git log as token edits, and
+  `revert` holds a past commit's inverse for review. `bun exact.mjs tamber
+  tool .` opens the design tool on it (LLP 1122). The tool always lives at
+  `http://127.0.0.1:7740`, so one runs per machine, on one project: to
+  switch, stop it with ctrl-c and run `tamber tool <other app>`, adding
+  `--via <its URL>` when that app's dev loop is running.
+  Reference: `docs/tamber-protocol.md`.

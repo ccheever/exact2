@@ -77,7 +77,7 @@ function shaderPath(app,path) {
 export const ENGINE_PRELUDES = {
   'exact-game-render:frame': ['frame.wgsl'],
   'exact-game-render:material': ['frame.wgsl', 'transform.wgsl', 'custom_instance.wgsl'],
-  'exact-game-render:material_shadows': ['shadow_sample.wgsl', 'lights.wgsl', 'material_shadows.wgsl'],
+  'exact-game-render:material_shadows': ['shadow_sample.wgsl', 'fade.wgsl', 'lights.wgsl', 'material_shadows.wgsl'],
 };
 /** One declared prelude entry's files: an engine set, or a path relative to app.json. */
 function preludePaths(app, path) {
@@ -657,7 +657,7 @@ function documentTypeProblems(manifest) {
 function protocolHandlerProblems({ protocol_handlers = [] }) {
   return protocol_handlers.flatMap(({ protocol }, i) => protocol_handlers.findIndex(h => h.protocol.toLowerCase() === protocol.toLowerCase()) === i ? [] : [`protocol_handlers[${i}].protocol: ${protocol} is declared more than once`]);
 }
-export function nativeManifestMetadata(manifest, platform) { return {app:manifest.app,host:manifest.host?.[platform]??{},icons:manifest.icons??[],...(['macos','ios'].includes(platform) && manifest.protocol_handlers?.length ? {protocol_handlers:manifest.protocol_handlers} : {})}; }
+export function nativeManifestMetadata(manifest, platform) { return {app:manifest.app,host:manifest.host?.[platform]??{},icons:manifest.icons??[],...(['macos','ios'].includes(platform) && manifest.protocol_handlers?.length ? {protocol_handlers:manifest.protocol_handlers} : {}),...(['ios','android'].includes(platform) && manifest.orientation ? {orientation:manifest.orientation} : {})}; }
 let cachedSchema = null;
 function schema() {
   return cachedSchema ??= JSON.parse(readFileSync(resolve(ROOT, 'scripts/app.schema.json'), 'utf8'));

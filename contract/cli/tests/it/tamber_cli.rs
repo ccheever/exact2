@@ -118,3 +118,114 @@ fn a_refusal_names_its_line_and_a_mode_is_axis_equals_value() {
     let _ = std::fs::remove_dir_all(&dir);
     let _ = std::fs::remove_dir_all(&good);
 }
+
+/// An importer's whole transaction, every offer accepted, compiles: the
+/// Tamber checker does not see what lowering refuses, such as a role
+/// override that varies by an app axis (`tamber-role-axis`).
+#[test]
+fn a_shadcn_import_with_every_offer_accepted_compiles() {
+    use exact_tamber::import::shadcn;
+    let vocab = contract_lower::tamber_vocab();
+    let read = |file: &str| {
+        std::fs::read_to_string(format!(
+            "{}/../../tamber/tests/import/{file}",
+            env!("CARGO_MANIFEST_DIR")
+        ))
+        .unwrap()
+    };
+    let empty = "tamber app\n";
+    // Each fixture over an empty design, then a design whose own axis keeps
+    // a `when` on the token.
+    for (file, before, css) in [
+        ("shadcn-neutral.css", empty, read("shadcn-neutral.css")),
+        ("shadcn-blue.css", empty, read("shadcn-blue.css")),
+        ("shadcn-neutral-themes.css", empty, read("shadcn-neutral-themes.css")),
+        (
+            "kept-when",
+            "tamber app\n\naxes\n  density = default | compact\n\ntheme\n  shadcn.primary = #111111\n    when density=compact: #222222\n",
+            ":root { --primary: #333333; --background: #ffffff; }".to_string(),
+        ),
+    ] {
+        let import = shadcn::import(&css, "shadcn", &exact_tamber::parse(before).unwrap(), &vocab).unwrap();
+        let mut ops = import.ops.clone();
+        ops.extend(import.offers.iter().flat_map(|o| o.ops.clone()));
+        let design = exact_tamber::apply_all(before, &ops, &vocab).unwrap().text;
+        let dir = app(&file.replace('.', "-"), &design);
+        std::fs::write(
+            dir.join("app.contract"),
+            "component App\n  view\n    text \"a\" color=\"shadcn.primary\" background-color=\"shadcn.background\"\n",
+        )
+        .unwrap();
+        if let Err(e) = contract::compile_path(&dir.join("app.contract")) {
+            panic!("{file}: {e:?}\n{design}");
+        }
+    }
+}
+
+/// A role the design already binds to a token the import makes vary is
+/// named in an offer, with no operations; accepted as it is, the build
+/// refuses it with the rule the note quotes.
+#[test]
+fn a_design_role_a_shadcn_import_makes_vary_is_named_and_refused() {
+    use exact_tamber::import::shadcn;
+    let vocab = contract_lower::tamber_vocab();
+    let before =
+        "tamber app\n\ntheme\n  shadcn.primary = #ff0000\n  AccentColor = shadcn.primary\n";
+    let css = ":root { --primary: #ff0000; } .theme-blue { --primary: #0000ff; }";
+    let import =
+        shadcn::import(css, "shadcn", &exact_tamber::parse(before).unwrap(), &vocab).unwrap();
+    let named = import.offers.iter().find(|o| {
+        o.note
+            .as_deref()
+            .is_some_and(|n| n.starts_with("the design's `AccentColor`"))
+    });
+    assert!(
+        named.is_some_and(|o| o.ops.is_empty()),
+        "{:?}",
+        import.offers
+    );
+    let design = exact_tamber::apply_all(before, &import.ops, &vocab)
+        .unwrap()
+        .text;
+    let dir = app("bound-role", &design);
+    std::fs::write(
+        dir.join("app.contract"),
+        "component App\n  view\n    text \"a\" color=\"shadcn.primary\"\n",
+    )
+    .unwrap();
+    let e = contract::compile_path(&dir.join("app.contract")).unwrap_err();
+    assert_eq!(e.id, "tamber-role-axis", "{e:?}");
+}
+
+/// Astryx's whole transaction, both offers accepted, compiles.
+#[test]
+fn an_astryx_import_with_every_offer_accepted_compiles() {
+    use exact_tamber::import::astryx;
+    let vocab = contract_lower::tamber_vocab();
+    let json = std::fs::read_to_string(format!(
+        "{}/../../tamber/tests/import/astryx-neutral.json",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .unwrap();
+    let empty = "tamber app\n";
+    let import = astryx::import(
+        &json,
+        "astryx",
+        &exact_tamber::parse(empty).unwrap(),
+        &vocab,
+    )
+    .unwrap();
+    let mut ops = import.ops.clone();
+    ops.extend(import.offers.iter().flat_map(|o| o.ops.clone()));
+    let design = exact_tamber::apply_all(empty, &ops, &vocab).unwrap().text;
+    assert!(design.contains("AccentColor = astryx.accent"), "{design}");
+    let dir = app("astryx", &design);
+    std::fs::write(
+        dir.join("app.contract"),
+        "component App\n  view\n    text \"a\" color=\"astryx.accent\"\n",
+    )
+    .unwrap();
+    if let Err(e) = contract::compile_path(&dir.join("app.contract")) {
+        panic!("{e:?}\n{design}");
+    }
+}

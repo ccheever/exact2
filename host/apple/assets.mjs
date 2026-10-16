@@ -264,6 +264,109 @@ export function signingOrder(bundle, compat = null, identity = null) {
   return [...order, bundle];
 }
 
+/** The Mach-O file type of a thin file, or of a universal file's first
+ *  architecture (`mach-o/loader.h`: 2 is `MH_EXECUTE`, 6 `MH_DYLIB`). */
+function machOType(path) {
+  const read = (at, n) => { const b = Buffer.alloc(n), fd = openSync(path, 'r'); try { return readSync(fd, b, 0, n, at) === n ? b : null; } finally { closeSync(fd); } };
+  let head = read(0, 16);
+  if (!head) return null;
+  const fat = head.readUInt32BE(0);
+  if (fat === 0xcafebabe || fat === 0xcafebabf) {
+    const arch = read(8, 16);
+    head = arch && read(fat === 0xcafebabe ? arch.readUInt32BE(8) : Number(arch.readBigUInt64BE(8)), 16);
+    if (!head) return null;
+  }
+  const magic = head.readUInt32BE(0);
+  if (magic === 0xfeedface || magic === 0xfeedfacf) return head.readUInt32BE(12);
+  if (magic === 0xcefaedfe || magic === 0xcffaedfe) return head.readUInt32LE(12);
+  return null;
+}
+
+/** The hardened-runtime entitlements `exact release` signs the Mac app with:
+ * the bake's derivation from the app's `device.*` grants (a usage string
+ * alone is not enough; a hardened app without the entitlement is silently
+ * refused). Runtime exceptions never reach the app's own executable (LLP
+ * 1069.008 D9). Null when the app grants no such device. */
+export const macReleaseEntitlements = (compat) => {
+  const names = compat?.reach?.entitlements ?? [];
+  // An https auth callback's `webcredentials:` domain (LLP 1069.006 D2),
+  // which a Developer ID build signs only with a profile that grants it.
+  const domains = compat?.reach?.auth?.associatedDomains ?? [];
+  if (!names.length && !domains.length) return null;
+  return plistFile({ ...Object.fromEntries(names.map((name) => [name, true])),
+    ...(domains.length ? { 'com.apple.developer.associated-domains': domains } : {}) });
+};
+
+/** The executable a bundle runs, as Foundation resolves it (`NSBundle`
+ *  `executablePath`, the resolver `codesign` shares): it honours
+ *  `Info-macos.plist`, XML comments and entities, which `bundleExecutable`'s
+ *  quick read does not. Real path, or null. */
+function resolvedExecutable(bundle) {
+  const read = spawnSync('osascript', ['-l', 'JavaScript', '-e',
+    'ObjC.import("Foundation"); function run(argv) { const b = $.NSBundle.bundleWithPath(argv[0]); return b.isNil() ? "" : (ObjC.unwrap(b.executablePath) || ""); }',
+    bundle], { encoding: 'utf8' });
+  const path = read.status === 0 ? read.stdout.replace(/\n$/, '') : '';
+  return path && existsSync(path) ? realpathSync(path) : null;
+}
+
+/** Each helper a `runtime.<exception> <path>` grant names (LLP 1069.008 D9),
+ *  keyed by the path `signingOrder` signs it as (a nested bundle, for the
+ *  executable that bundle runs), mapped to its entitlements plist. A target
+ *  must be a regular Mach-O executable inside a `host.macos.resources`
+ *  destination, reached through no symbolic link, with no other hard link
+ *  (a signature written to it is every link's), and signed by the walk;
+ *  every target that is not is refused, all in one error. No grant: an
+ *  empty map. */
+export function helperEntitlements(bundle, manifest, compat, order) {
+  const declared = Object.entries(compat?.reach?.helperEntitlements ?? {});
+  const signed = new Map(), errors = [];
+  if (!declared.length) return signed;
+  const roots = macResourceMappings(manifest).map(({ to }) => to);
+  const contents = resolve(bundle, 'Contents');
+  // Signing a nested bundle signs the executable Foundation resolves for it,
+  // whichever file the walk took for its main one; so a target that is that
+  // executable takes its grant through the bundle, which the walk signs after
+  // anything it signed the file as on its own.
+  const runs = new Map();
+  for (const p of order) if (p !== bundle && NESTED_BUNDLE.test(p)) {
+    const executable = resolvedExecutable(p);
+    if (executable) runs.set(executable, p);
+  }
+  for (const [path, keys] of declared) {
+    const file = resolve(contents, path), info = lstatSync(file, { throwIfNoEntry: false });
+    const real = info?.isFile() ? realpathSync(file) : null;
+    const at = runs.get(real) ?? (order.includes(file) ? file : null);
+    const why = !roots.some((to) => path.startsWith(to + '/')) ? `is not inside a host.macos.resources destination (${roots.join(', ') || 'none declared'})`
+      : !info?.isFile() ? 'is not a file in the bundle'
+      : real !== resolve(realpathSync(contents), path) ? 'is reached through a link'
+      : info.nlink !== 1 ? 'has another hard link, which its signature would reach'
+      : machOType(file) !== 2 ? 'is not a Mach-O executable'
+      : !at ? 'is not code the release signs' : null;
+    if (why) errors.push(`runtime grant: Contents/${path} ${why}`);
+    else signed.set(at, plistFile(Object.fromEntries(keys.map((key) => [key, true]))));
+  }
+  if (errors.length) throw new Error(errors.join('\n'));
+  return signed;
+}
+
+/** The release's signature walk: every path `signingOrder` names, innermost
+ *  first, with `identity`, the hardened runtime and `timestamp`. The app
+ *  carries `macReleaseEntitlements`, each helper a runtime grant names its
+ *  own (`helperEntitlements`), and all other nested code none. The plists
+ *  are written into `scratch`. */
+export function signRelease(bundle, { compat, manifest, identity, id, scratch, timestamp = ['--timestamp'] }) {
+  const order = signingOrder(bundle, compat, identity);
+  const plists = helperEntitlements(bundle, manifest, compat, order);
+  const own = macReleaseEntitlements(compat);
+  if (own) plists.set(bundle, own);
+  let n = 0;
+  for (const path of order) {
+    const plist = plists.get(path), file = plist && resolve(scratch, `entitlements-${n++}.plist`);
+    if (plist) writeFileSync(file, plist);
+    run('codesign', ['--force', '--sign', identity, '--options', 'runtime', ...timestamp,
+      ...(path === bundle ? ['--identifier', id] : []), ...(plist ? ['--entitlements', file] : []), path]);
+  }
+}
 
 /** Native files are binary inputs, never plan assets or TypeScript sources. */
 export function macResourceMappings(manifest) {

@@ -338,9 +338,11 @@ extension NavigationHost {
     }
 
     /// After a batch: the projection, unless the batch only moved a list's
-    /// rows and nothing is owed; then the authored tablist's covers.
+    /// rows and nothing is owed; then what presentations inherit and the
+    /// authored tablist's covers.
     func batchApplied(_ batch: Batch, rowsOnly: Bool) {
         if !rowsOnly || syncOwed { sync(batch) }
+        presenter.modals.inheritFromAncestors()
         followAuthoredTablist()
     }
 

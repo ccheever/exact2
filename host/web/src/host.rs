@@ -67,6 +67,7 @@ pub fn outcome_from(kind: u32, status: u32, headers: &str, body: Vec<u8>) -> Out
                 id: field("id"),
                 coalesced: field("coalesced").parse().unwrap_or(0),
                 data: String::from_utf8_lossy(&body).into_owned(),
+                binary: None,
             })
         }
         5 => Outcome::Storage(body),
@@ -965,16 +966,17 @@ impl<D: DataSource> Host<D> {
             // is in the page before the frames that approach it start playing.
             // Adopt this receipt's time/targets/transitions while the hold is
             // live, then cancel invalid bindings and lower dirty frames once.
-            let synced = self.springs.synchronize(
-                self.runner.kernel(),
-                std::slice::from_ref(r),
-                t.at_ms / 1000.0,
-            );
+            // Never past the host's clock: a live runner observes an input's
+            // commit at a sample after the input's time, whose gesture runs on
+            let at = t.at_ms.min(self.now_ms) / 1000.0;
+            let synced =
+                self.springs
+                    .synchronize(self.runner.kernel(), std::slice::from_ref(r), at);
             Self::emit_lowered(batch, synced);
             if let Some(drag) = self.drag {
                 (drag.receipt)(self, batch);
             }
-            self.emit_springs(batch, &[], t.at_ms / 1000.0);
+            self.emit_springs(batch, &[], at);
         }
         // Earlier receipts also read the final tree, whose children can be
         // created by a later receipt in this seek. Attach only after all creates.

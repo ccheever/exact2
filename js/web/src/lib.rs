@@ -267,7 +267,7 @@ impl Module {
                             ))
                         }
                         Outcome::Response(response) => response.body,
-                        Outcome::Message(_) => {
+                        Outcome::Message(_) | Outcome::Closed { .. } => {
                             return Err(unavailable(
                                 "a stream message supplied to JavaScript checkpoint",
                             ))
@@ -439,6 +439,9 @@ fn outcome_json(outcome: Outcome) -> Result<Json, DataError> {
                 ("coalesced", m.coalesced.into()),
             ]),
         )]),
+        // The web's wasm host keeps every socket listening (LLP 1016.000 D7):
+        // no two-way socket ends here.
+        Outcome::Closed { .. } => return Err(unavailable("a socket close supplied to fetch")),
     })
 }
 

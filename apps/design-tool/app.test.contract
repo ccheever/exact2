@@ -1,0 +1,247 @@
+// The design tool against a stand-in Tamber server (stub/tamber-stub.ts, run
+// by `test` and `verify`); its drives against a real `tamber serve` are in
+// scripts/design-tool.test.mjs.
+
+test "it asks for the person's name once, then shows the server's hello"
+  expect tree has "ask-name"
+  expect disabled "save-name"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  expect text "person" == "design-tool:Ada"
+  expect text "app" == "/stub/theme-fixture"
+  expect text "protocol" == "tamber/1.1 · IR format 1"
+  expect tree has "file-app.tamber"
+  expect tree has "file-brand.tamber"
+  reload
+  expect text "person" == "design-tool:Ada"
+
+test "no server: a clear way to start one, and Try Again"
+  fail fetch "http://127.0.0.1:7740"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  expect tree has "no-server"
+  expect text "no-server-message" == "No design server answers at http://127.0.0.1:7740. Start one for your app with `bun exact.mjs tamber tool <app>`, then try again."
+  pass fetch "http://127.0.0.1:7740"
+  tap "reconnect"
+  clock data
+  expect tree has "hello"
+
+test "another client's write arrives on the long poll, attributed"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  expect text "digest-app.tamber" == "aaaaaaaaaaaa"
+  request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"], "changed": [{"file": "app.tamber", "token": "surface.card"}], "files": {"app.tamber": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "change-1" == "app.tamber · agent:codex"
+  expect text "digest-app.tamber" == "cccccccccccc"
+  request POST "/__stub/event" {"client": null, "edited": ["brand.tamber"]} as ada
+  clock +1
+  clock data
+  expect text "change-2" == "brand.tamber · changed on disk"
+
+test "a restarted server starts the list again"
+  request POST "/__stub/restart" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/event" {"client": "agent:before", "edited": ["app.tamber"]} as ada
+  clock +1
+  clock data
+  expect text "change-1" == "app.tamber · agent:before"
+  request POST "/__stub/restart" {} as ada
+  clock +1
+  clock data
+  expect tree missing "change-1"
+  request POST "/__stub/event" {"client": "design-tool:Grace", "edited": ["brand.tamber"]} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "change-1" == "brand.tamber · design-tool:Grace"
+
+// stub/dials.tamber: dials of each kind a colour follows, with and without
+// metadata, two groups, the three priorities (declared out of order), a
+// select with an option that is no literal, a range in scientific
+// notation, two axes and a residual.
+test "the dials panel is drawn from each dial's declared metadata"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  expect tree has "group-Colour"
+  expect tree has "dial-accent-color"
+  expect tree has "dial-lift-slider"
+  expect text "dial-lift-value" == "0.1"
+  expect tree has "dial-hue-stepper"
+  expect tree has "dial-chroma-slider"
+  expect tree missing "dial-shade"
+  expect tree missing "dial-warmth"
+  tap "more-Tone"
+  expect tree has "dial-warmth-slider"
+  expect tree has "dial-fine-slider"
+  tap "more-Colour"
+  expect tree has "dial-paint-select"
+  expect text "dial-paint-value" == "#f00"
+  expect text "dial-paint-help" == "brand.red is not a value a dial can take (a dial is a literal), so it is not offered."
+
+test "the token grid: every mode tuple light and dark, swatches, residuals, what each follows"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  expect text "column-0-light" == "Light"
+  expect text "column-1-light" == "Light · density=compact"
+  expect tree missing "column-2-light"
+  expect text "column-3-dark" == "Dark · dark-style=dim · density=compact"
+  expect text "cell-text-surface.page-2-dark" == "#15202bff"
+  expect text "cell-text-surface.page-0-dark" == "#000000ff"
+  expect text "cell-text-surface.inset-1-light" == "#eef0f2ff"
+  expect text "cell-text-text.system-0-light" == "-exact-secondary-label"
+  expect tree has "cell-fallback-text.system-0-light"
+  expect tree missing "cell-fallback-surface.page-0-light"
+  expect text "follows-accent.soft" == "follows accent, lift"
+  expect tree missing "follows-surface.page"
+  expect tree has "token-group-roles"
+
+test "contrast between two tokens, per column, on the stored values"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  type "pick-a" "text.primary"
+  type "pick-b" "surface.page"
+  clock data
+  expect text "ratio-0-light" == "18.51:1"
+  expect text "ratio-0-dark" == "17.24:1"
+  expect text "ratio-2-dark" == "13.54:1"
+  type "pick-a" "text.system"
+  clock data
+  expect text "ratio-0-light" == "3.44:1 (fallback)"
+  type "pick-a" "surface.page"
+  type "pick-b" "text.system"
+  clock data
+  expect text "ratio-0-light" == "translucent background"
+
+test "an edit is proposed with its chip and diff before it is written, then undone and redone"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  expect tree missing "proposal"
+  type "dial-hue-stepper" "210"
+  clock data
+  expect text "chip" == "Rebuilds"
+  expect text "proposal-tokens" == "hue"
+  expect disabled "undo"
+  tap "apply"
+  clock data
+  expect tree missing "proposal"
+  expect text "undo" == "Undo (1)"
+  tap "undo"
+  clock data
+  expect text "undo" == "Undo (0)"
+  expect text "redo" == "Redo (1)"
+  tap "redo"
+  clock data
+  expect text "undo" == "Undo (1)"
+  // Another run of the server has none of these inverses: undo and redo
+  // start again.
+  request POST "/__stub/restart" {} as ada
+  clock +1
+  clock data
+  expect text "undo" == "Undo (0)"
+  expect disabled "undo"
+
+test "a cell shows the branch that won for its mode; an expression offers its inputs until pinned"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  tap "cell-surface.page-2-dark"
+  clock data
+  expect text "branch-label" == "surface.page · dark-style=dim (Dark · dark-style=dim)"
+  tap "cell-accent.soft-0-light"
+  clock data
+  expect text "branch-inputs" == "Follows accent, lift: edit those, or pin a value here."
+  expect tree missing "branch-value"
+  tap "pin"
+  expect text "pinned" == "Pinned here: no longer follows accent, lift."
+  expect tree has "branch-value"
+  // A cell is named by its column's label and its colour, a fallback said.
+  tap "text.system, Light, -exact-secondary-label, fallback #3c3c4399"
+  clock data
+  expect text "branch-label" == "text.system · default (Light)"
+  // A platform role is an input too: overwriting it is a pin.
+  expect text "branch-inputs" == "Follows -exact-secondary-label: edit those, or pin a value here."
+  expect text "input--exact-secondary-label" == "-exact-secondary-label: a platform colour, set by the system"
+  expect tree missing "branch-value"
+  // A dial with no control is said, not offered.
+  tap "cell-tone.deep-0-light"
+  clock data
+  expect text "input-shade" == "shade: a dial with no control (control=none)"
+
+test "cancel forgets only this mode, and another file forgets the draft"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  tap "cell-surface.card-1-dark"
+  clock data
+  tap "only-this-mode"
+  expect state editWhen == "dark-style=black density=compact"
+  expect text "branch-label" == "surface.card · dark-style=black density=compact (only this mode)"
+  tap "cancel-edit"
+  type "branch-value" "light-dark(#f1f3f5, #101010)"
+  type "branch-value" key "Enter"
+  clock settle
+  expect state editKind == "set-token"
+  expect state editWhen == ""
+  type "file" "brand.tamber"
+  clock settle
+  expect state editKind == ""
+  expect state selToken == ""
+
+test "a dial an expression follows opens its control, not a token"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  tap "cell-paint.pick-0-light"
+  clock data
+  expect tree missing "dial-paint-select"
+  tap "input-paint"
+  expect tree has "dial-paint-select"
+  expect tree missing "branch-error"
+  expect text "branch-label" == "paint.pick · default (Light)"
+
+test "another design file is read when chosen, and a refused one shows its error and a retry"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  type "file" "brand.tamber"
+  clock data
+  expect text "design-error" == "the stub has no design in brand.tamber"
+  expect tree has "reload-design"
+  expect tree missing "no-dials"
+  expect tree missing "dials"
+  expect tree missing "contrast"
+  type "file" ""
+  clock data
+  expect tree missing "design-error"
+  expect tree has "dial-accent-color"
+
+test "an undo goes only to the server run that issued it: after a restart it is refused, and undo and redo start again"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  type "dial-hue-stepper" "210"
+  clock data
+  tap "apply"
+  clock data
+  expect text "undo" == "Undo (1)"
+  request POST "/__stub/restart" {} as ada
+  tap "undo"
+  clock data
+  expect text "write-error" == "The design server restarted (or another took its port) since this session began: nothing was written, and undo and redo start again."
+  expect text "undo" == "Undo (0)"

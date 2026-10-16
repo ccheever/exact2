@@ -21,6 +21,7 @@ component Textflow
   state dark = false
   state largeType = false
   state elapsed = 0
+  state stepped = 0
   state x1 = 140
   state y1 = 52
   state x2 = 414
@@ -47,9 +48,13 @@ component Textflow
     largeType = not largeType
   action pause
     running = not running
+  // Advance by the time measured since the last step, so steps a
+  // suspension skipped do not slow the scene
   action step
+    let now = performanceNow()
     if running
-      elapsed = elapsed + 16
+      elapsed = elapsed + (now - stepped)
+    stepped = now
   action moveOrb(which: number, dx: number, dy: number)
     if which == 1
       x1 = min(552, max(0, x1 + dx / scale))

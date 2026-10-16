@@ -307,12 +307,15 @@ final class MenuHost: NSObject {
         } else {
             paint(entry, in: window)
             layout()
-            refresh()
-            // A plain popover leaves focus alone unless it has autofocus.
+            // A plain popover leaves focus alone unless it has autofocus. It
+            // takes it before the refresh's accessibility pass, so VoiceOver
+            // is sent once, to the field, as AppKit posts only the focus
+            // change for a popover's first responder.
             if let target = presenter.carrying("autofocus").first(where: {
                 contains(pop, $0) && $0.props["autofocus"] == "true" && !$0.inert
                     && !$0.disabled && !$0.isHiddenOrHasHiddenAncestor
             }) { window.makeFirstResponder(presenter.keyView(of: target)) }
+            refresh()
         }
     }
     /// LLP 1021 §5.1: a context menu, its popover's menu rows as an NSMenu
@@ -379,13 +382,9 @@ final class MenuHost: NSObject {
         if cancelling { entry.confirmation?.cancel() }
         entry.menu?.cancelTracking()
         pop.isHidden = pop.props["popover"] != nil || pop.style["display"]?.string == "none"
-        if let native = entry.native {
-            dismiss(native)
-            refresh()
-        } else if entry.menu == nil {
-            restore(entry)
-            refresh()
-        }
+        // The focus is given back before the refresh's accessibility pass,
+        // which says the menu or modal went and then sends VoiceOver to the
+        // focus: the trigger, never the window the hidden popover left it on.
         if hadFocus, let window {
             if restoreFocus, let previous = entry.previous, previous.window === window,
                !previous.isHiddenOrHasHiddenAncestor, presenter?.dialogs.blocks(previous) != true,
@@ -393,6 +392,13 @@ final class MenuHost: NSObject {
                 window.makeFirstResponder(previous)
                 if let range = entry.selection, let editor = window.firstResponder as? NSTextView { editor.setSelectedRange(range) }
             } else { window.makeFirstResponder(presenter?.viewport) }
+        }
+        if let native = entry.native {
+            dismiss(native)
+            refresh()
+        } else if entry.menu == nil {
+            restore(entry)
+            refresh()
         }
     }
     func reset() {

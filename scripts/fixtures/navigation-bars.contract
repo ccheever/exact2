@@ -48,6 +48,13 @@ routes nav
 component NavigationBars
   state backs = 0
   state stays = 0
+  // LLP 1123 D2: leave declared owners outside the selected prefix, then
+  // reintroduce them below the top without showing them first.
+  state parked = false
+  action park
+    parked = true
+  action restore
+    parked = false
   action open(name: string)
     nav = push(nav, "/" + name)
   action stay
@@ -58,7 +65,11 @@ component NavigationBars
   action follow(url: string)
     nav = go(nav, url)
   view
-    main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow testId="app" width="100%" height="100%"
+    main navigationKey=(parked ? "parked-owner" : `${top(nav).id}`) navigationBack="back" navigate=follow testId="app" width="100%" height="100%"
+      if parked
+        column navigationKey="parked-owner" testId="route-parked" position="absolute" inset=0
+          button press=restore testId="restore-owners"
+            text "Restore retained owners"
       for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` navigationBar=(e.name == "viewer" ? "none" : "auto") navigationPresentation=(e.name == "sheet" ? "modal" : "") navigationScroll=(e.name == "named" ? "named-second" : "") testId=`route-${e.name}` position="absolute" inset=0 display="flex" flex-direction="column"
           if e.name == "tall"
@@ -101,6 +112,8 @@ component NavigationBars
                 button id="back" press=back testId=`${e.name}-back` align-self="flex-start"
                   text "Close"
               text `backs ${backs}` testId=`${e.name}-backs`
+              button press=park testId=`${e.name}-park-owners`
+                text "Park retained owners"
               for l in ["detail", "plain", "twin", "own", "viewer", "sheet", "tall", "pair", "named", "bare", "rows"] key=l
                 button press=open(l) testId=`${e.name}-open-${l}`
                   text l

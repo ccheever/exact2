@@ -1,7 +1,7 @@
 # LLP 1121: Tamber — a design system in any language, edited through one API
 
 **Type:** RFC
-**Status:** **Accepted; stages 1 and 2 landed** (Charlie, 2026-10-13: "Can we start building tamber"; ".tamber is probably fine"). §9's open questions stand, each with the RFC's recommendation as the provisional default until he rules. §10 records what was built where it differs. Stage 1 landed 2026-10-14 (`7a95dcce4`..`13f49af39`). Stage 2 closed 2026-10-14 with its gate met on the Bluesky clone (§10). The `scheme=fixed` follow-up landed (§10). Stage 3 (the protocol over files, `tamber fmt`, the importers) is next. Draft history: r7 (2026-10-13) is r6 with the system named **Tamber (provisional)** (Charlie, 2026-10-13; earlier Saturi, and Facet in r5–r6); nothing else changed. r1–r4 went through three blind review rounds by GPT-6 Astra (max) and Grok 4.7 (xhigh); every verdict after round 1 was RIGHT WITH CHANGES. r5 wrote in Charlie's rulings on r4's questions (2026-10-13): the system was named Facet, which r7 replaces; a design changes through a public, versioned edit API whose main client is the design tool (D13, D14); components declare their tweakable params in Contract (D15); a component library and a base scale are later stages. Round 4 reviewed r5 (both RIGHT WITH CHANGES; Grok found one BLOCKER, how the live table reaches a running build), and r6 takes its findings without another round (§0). Reviews: `llp/reviews/rfc-2026-10-13-design-system-r{1,2,3,4}.{astra,grok}.md`; they cite this file by its earlier name, `llp/1121-design-system.rfc.md` (it was then `llp/1121-facet.rfc.md`, then `llp/1121-saturi.rfc.md`). Nothing built. Builds on LLP 1095 D4 (`theme`) and its reach (Charlie, 2026-10-12; LLP 1095 §5 item 6), stage 1 here, not redesigned. Stages 3 and 4 need DEFERRED admissions (§9 Q3).
+**Status:** **Accepted; stages 1–3 landed** (Charlie, 2026-10-13: "Can we start building tamber"; ".tamber is probably fine"). §9's open questions stand, each with the RFC's recommendation as the provisional default until he rules. §10 records what was built where it differs. Stage 1 landed 2026-10-14 (`7a95dcce4`..`13f49af39`). Stage 2 closed 2026-10-14 with its gate met on the Bluesky clone (§10). The `scheme=fixed` follow-up landed (§10). Stage 3 (the protocol over files, `tamber fmt`, the importers) closed 2026-10-15 with its gate met (§10). LLP 1122's T1 and T1a can start; Tamber stage 4 (the live table) is next. Draft history: r7 (2026-10-13) is r6 with the system named **Tamber (provisional)** (Charlie, 2026-10-13; earlier Saturi, and Facet in r5–r6); nothing else changed. r1–r4 went through three blind review rounds by GPT-6 Astra (max) and Grok 4.7 (xhigh); every verdict after round 1 was RIGHT WITH CHANGES. r5 wrote in Charlie's rulings on r4's questions (2026-10-13): the system was named Facet, which r7 replaces; a design changes through a public, versioned edit API whose main client is the design tool (D13, D14); components declare their tweakable params in Contract (D15); a component library and a base scale are later stages. Round 4 reviewed r5 (both RIGHT WITH CHANGES; Grok found one BLOCKER, how the live table reaches a running build), and r6 takes its findings without another round (§0). Reviews: `llp/reviews/rfc-2026-10-13-design-system-r{1,2,3,4}.{astra,grok}.md`; they cite this file by its earlier name, `llp/1121-design-system.rfc.md` (it was then `llp/1121-facet.rfc.md`, then `llp/1121-saturi.rfc.md`). Nothing built. Builds on LLP 1095 D4 (`theme`) and its reach (Charlie, 2026-10-12; LLP 1095 §5 item 6), stage 1 here, not redesigned. Stages 3 and 4 need DEFERRED admissions (§9 Q3).
 **Systems:**
 - A new leaf crate, `tamber/` (`exact-tamber`): the `.tamber` grammar, its checker and the build's evaluator.
 - Contract: token names in rows, the `params` section (D15), state parts (D8), `setMode` and `-exact-mode` (D5).
@@ -418,6 +418,23 @@ named length `-exact-hairline`, usable as a length token's value.
 `white_100 = #ffffff  scheme=fixed` says the token is deliberately one colour in every scheme,
 so `lower-colour-one-scheme` doesn't report it. The mark is refused where light and dark
 differ (`tamber-scheme-fixed`). *Added 2026-10-14 from the Bluesky port; §10.*
+
+**A token may declare what it is drawn on** with `pair=<token>` (token-line metadata; several,
+comma-separated: `pair=surface.page,surface.raised`). Each named token must be a colour token
+or a role, and not the token itself (`tamber-pair`).
+- **What a pair is for.** It says the two are meant to be read together, a foreground on a
+  background. So the design tool's grid shows a contrast badge per tuple and scheme between
+  them (LLP 1122 D7).
+- **The check.** `contract tamber check` warns when, in any tuple and scheme, the pair's
+  folded colours fall below 4.5:1 (WCAG 2's ratio for text), naming the token, the tuple and
+  the ratio (`tamber-contrast`). A residual side (a role, a platform colour) is checked at its
+  fallback and the warning says so. The warning is the author's information, never a build
+  failure.
+- **Importers may propose pairs** where the source states them: shadcn's `x-foreground` is
+  `pair=x`, and Astryx's `on-` variants likewise.
+
+*Added 2026-10-15 (lead-approved), for the design tool's contrast badges; to be built by Tamber's
+implementer.*
 
 **A row names a token as a string**, as LLP 1095 D4 does: `background-color="surface.card"`,
 `padding="space.row"`, `font="type.body"`. Inside an expression in a row, a token is a bare
@@ -1049,7 +1066,7 @@ What every importer shares:
 |---|---|---|
 | `--background`, `--foreground` | `shadcn.background`, `shadcn.foreground`; proposed role overrides `-exact-background`, `-exact-label` | `:root` is the light side and `.dark` the dark side: one `light-dark(a, b)` |
 | `--card`, `--popover` and their `-foreground` | `shadcn.card`, `shadcn.card-foreground` … ; proposed `-exact-secondary-background` for `--card` | same |
-| `--primary`, `--primary-foreground` | `shadcn.primary` …; proposed: the root `accent-color` names `shadcn.primary` (D9) | same |
+| `--primary`, `--primary-foreground` | `shadcn.primary` …; proposed: `AccentColor = shadcn.primary`, a role override every host makes the app's tint (amended 2026-10-15, §10) | same |
 | `--secondary`, `--muted`, `--accent` and their `-foreground`; `--destructive` | `shadcn.*` | same |
 | `--border`, `--input`, `--ring` | `shadcn.*`; proposed `-exact-separator` for `--border` | same |
 | `--chart-1…5`, `--sidebar-*` | `shadcn.chart.s1…`, `shadcn.sidebar.*` | same |
@@ -1935,3 +1952,298 @@ grounds) drew a `lower-colour-one-scheme` warning at every use: 168 on the clone
   - a row's own inline expression over a fixed token isn't folded by the lint;
   - with both a design and an inline theme (already refused as `tamber-two-sources`), the
     warning reads the inline entries.
+
+### Stage 3, commit 1: `tamber fmt` (`0804b40ea`..`9853ec7dc`)
+
+- **One canonical layout:**
+  - block order kept;
+  - two spaces per level (entries under a block, `when` lines under a token);
+  - `name = value`, `name: kind = value`, dials with `in low..high` and metadata after two
+    spaces, axes `a | b  under scheme=dark`, `when a=b c=d: value`;
+  - one blank line between the header and each block;
+  - each value's text exact.
+- **Comments.** A trailing comment sits two spaces after its line. A comment line keeps its
+  level, so removing the line after it moves nothing else.
+- **`fmt` reparses what it prints** and refuses (`tamber-fmt`) rather than write a broken
+  design. `contract tamber fmt [--check]` and `bun exact.mjs tamber fmt`.
+- **Grammar settled along the way:**
+  - single-quoted strings open only at a token start, so an apostrophe in a word opens
+    nothing;
+  - `when = value` at entry indent is a token named `when`;
+  - an axis's `under` clause is the last `under` with no `|` after it.
+- **Gate:** every corpus design, the theme fixture, the modes conformance design and the
+  Bluesky clone's design reach a fixed point in one step, with the same IR and every comment.
+
+### Stage 3, commit 2: edit operations and inverses (`43f74174b`..`423153516`)
+
+- **The operations:** `set-dial`, `set-token` (the default, or one `when`, added if absent),
+  `unset-token-when`, `add-token`, `rename-token`, `remove-token`, `add-axis-value`,
+  `remove-axis-value`. Each splices only the lines it touches, in `fmt`'s layout, so a
+  formatted design gets a one-line diff; removing a token with its `when`s removes those
+  lines. An edit the checker refuses is refused with its diagnostics.
+- **The inverse is a `restore`**, not a sequence of semantic operations. It carries exactly
+  the changed lines as they were: comments, blank lines, CR line endings, a block an add
+  created, the final newline. Re-serialised inverses could not give the bytes back, as LLP
+  1122 r4's reviews found.
+  - `undo` puts back the preimage even when that design did not check.
+  - A restore is never a client write. The server accepts it only as an inverse it issued for
+    the file's current digest.
+- **Rename** changes token names in values and exports only, never in `when` conditions,
+  metadata, hex digits, function names or strings. It is proved by the design checking before
+  and after with every folded value unchanged, and it refuses names that colour syntax reads
+  (channels, spaces, hue methods). A role override keeps its name.
+- **Fields are validated by kind:** a value stands alone; metadata is one `name=value` word;
+  names, axis values and conditions are identifiers; a `when` names each axis once. On the
+  wire, fields are named and operations are kebab-case.
+
+### Stage 3, commit 3: the session core (`a48085ada`..`2608a642c`)
+
+`contract tamber serve --stdio <app>`, with the logic in `tamber/src/session.rs`.
+- **One writer:** `.exact/tamber.lock`. Its device and inode are pinned and re-checked on
+  every commit.
+- **A commit:**
+  - temp files are created with `create_new` and `O_NOFOLLOW` and fsynced;
+  - a journal is written and renamed into place, each entry `{tmp, file, digest, before}`;
+  - each target is re-read, and a file that moved withdraws the journal and returns a
+    conflict;
+  - then the renames, directory fsyncs throughout, and the journal removed.
+  - A failure part way completes or the server exits.
+- **Recovery** judges every entry before any rename and renames a temp only over its `before`
+  text. A set none of whose files landed is withdrawn when a file changed since; otherwise the
+  journal is kept and the server refuses to start.
+- **Undo:** a client sends only an inverse id this run issued (the last 256 kept). Its
+  precondition is each restored file's postimage digest, and a client-sent `restore` is
+  refused.
+- **Reads:**
+  - `resolve` labels residuals and gives their fallback;
+  - `explain` gives the `when` values and the checker's resolved names;
+  - `describe`'s metadata is keyed by IR names;
+  - `propose` checks the digests it is given and returns its baseline.
+- **Limits:**
+  - **live or rebuild is judged from the design's shape only.** Stage 4 must extend it through
+    Contract's synthetic consumers before the live table relies on it, and stage 6 to kinds
+    substituted at build.
+  - **An editor that ignores the lock** and saves between the final read and the rename is
+    overwritten (documented).
+  - **The server runs on macOS and Linux only.**
+
+### Stage 3, commit 4: the wire (`37f11c1ee`..`95733f1cf`, the async-lane line `fd7db6fd2`)
+
+`scripts/tamber-server.mjs` talks to `contract tamber serve --stdio` and writes no design file
+itself.
+- **Where it runs:** both dev loops mount it when the app has a design; the resident
+  `--serve-as` loop does not (stage 4 revisits that for the build channel). `bun exact.mjs
+  tamber serve <app>` runs it alone, and `tamber op <url> <json> | subscribe` is the scripted
+  client.
+- **The token:**
+  - `GET /__tamber/token` answers only under `access.local`; anything else gets the
+    installer's not-found;
+  - every POST carries `x-exact-tamber-token`;
+  - `op` follows no redirects.
+- **Requests:** `POST /__tamber`. A write must carry `client`, since clients share one server.
+- **The change stream:** `POST /__tamber/subscribe`, server-sent events. Each event carries
+  `seq`, `epoch`, the files and tokens changed, and the `client` (null for a hand edit or a
+  checkout).
+  - A write is announced once, from its reply. A hand edit made just before a write is
+    announced first, separately.
+  - Files that appear or disappear are announced.
+- **The long poll:** `POST /__tamber/events {after, epoch}`. **This is how a JS-target data
+  module, and so LLP 1122's tool, follows changes**: `fetch` there reads a whole body, and
+  `exactStream` coalesces a server-sent stream (LLP 1016 D4). An `after` from another run, or
+  older than the 256 events kept, is answered `missed` with the current files.
+- **Transport, against D13's text:** POST plus a streamed response plus the long poll; no
+  WebSocket.
+
+### Stage 3, commit 5: `commit`, held proposals, attribution (`f63b7c658`..`f224c16ec`)
+
+LLP 1122 D9 and D10, on the server.
+- **`commit`** (`scripts/tamber-commit.mjs`):
+  - **Baseline:** before the session first writes a file, it records HEAD, the file's index
+    entry and the working tree against HEAD (content and mode). The write must have read
+    HEAD's text.
+  - **Refusals,** each naming the file and why: dirty or staged at the baseline; HEAD moved;
+    any change the server did not make, even one a later write overwrote; the file differing
+    from the server's last write.
+  - **The commit itself:** a temporary index of HEAD plus exactly those files, then
+    commit-tree. The real index is updated for those paths only, in one `--index-info`.
+    `update-ref` is guarded on the checked HEAD, and the index is restored if it fails.
+  - It never pushes, and it refuses while a write is in flight.
+- **Held proposals:**
+  - `propose {hold: true}` keeps a proposal for 15 minutes (64 at most) with its base
+    digests, announced with its operations by index.
+  - `accept` applies it against those bases. A moved file or a partial accept is recomputed
+    as a new proposal (`replaces`/`replacedBy`) for a fresh accept.
+  - `drop` forgets one.
+  - Every end is announced. The open list rides `subscribed` and each long poll.
+- **Attribution: every write carries its `client`**, not a hello, since clients share one
+  server. LLP 1122 D10 is amended accordingly. An accepted write is the proposer's, with
+  `acceptedBy`. A conflict names, per stale file, the client that last changed it, or
+  "changed on disk".
+- **Not yet watched:** `.contract` files, since nothing writes them before `set-row` (LLP 1122
+  T5). That stage adds them to the watcher and to `commit`'s guard.
+
+### Stage 3, commit 6: the import frame and shadcn/ui (`906c448a6`..`a05ba6d28`; the `AccentColor` follow-up `adb6808e8`..`93f49a3a8`)
+
+- **The frame** (`tamber/src/import`): an import is
+  - a transaction (`add-token`, `set-token`, a new `add-axis`);
+  - role overrides offered apart;
+  - an unmapped report;
+  - a count check that refuses a mismatch (`tamber-import-count`).
+
+  It is planned against the design as it stands, so re-importing an unchanged source
+  proposes nothing. Reconciling takes back only `when` lines on the importer's own axes; a
+  `when` on another axis is the author's.
+- **shadcn:**
+  - **Sources read:** `:root` and `.dark` in v4 `oklch()` or v3 HSL channels; a `:root`
+    inside `@media (prefers-color-scheme: dark)` as the dark side; selector lists, nesting and
+    `[data-theme=x]`.
+  - **Theme classes:** a further theme class becomes an axis `theme = default | x`, with
+    CSS's fallback for a missing side.
+  - **References:** a `var()` that is a colour where it's read stays a reference; a reference
+    cycle is written out as colours.
+  - **Reported, never dropped:** `--radius` and its derived sizes as pending stage 6;
+    restricted selectors; other media; collisions; superseded and empty values;
+    `currentColor`.
+  - **Refused whole:** an axis past 64 tuples.
+- **Offers,** each off until ticked: `-exact-background`, `-exact-label`,
+  `-exact-secondary-background`, `-exact-separator`, and **`AccentColor` for the accent**. That
+  last is a role override in the design, which every host makes the app's tint (stage 1's
+  rule), not a Contract `accent-color` edit (follow-up `adb6808e8`..`93f49a3a8`). D14's shadcn
+  table is amended to match.
+- **A role override can't vary by an app axis** (`tamber-role-axis`, D5). So a role offer that
+  an imported theme class would make vary is offered with no operations and a note citing D5.
+  An existing design role the import would make vary is named the same way, and no removal is
+  offered, since removing a role can break expressions over it. A Contract-level test compiles
+  each fixture's whole transaction with every offer accepted.
+- **On the wire:** `contract tamber import shadcn <css>` prints the proposal; `bun exact.mjs
+  tamber import shadcn <css> <url> --app <app>` holds it, with a `review` for the tool.
+- **Gate fixtures** (pinned, `tamber/tests/import/README.md`): shadcn's Neutral theme (v4,
+  47 = 46 mapped + 1 reported), the Blue theme (v3, 39 = 38 + 1), and Neutral with the Blue
+  class making the axis. Each applies to a design that checks and re-imports to nothing.
+
+### Stage 3, commit 7: Tailwind v4 `@theme` (`67982770c`..`3b5185888`)
+
+- **The CSS importers share an engine** (`tamber/src/import/engine.rs`).
+  - A variable that is no colour where it's set makes no token.
+  - A value naming a dropped token is dropped and reported, so a proposal never names a missing
+    token.
+  - `none` components are written as the zero CSS reads them as.
+- **The theme is built in Tailwind's own `Theme.add` order.**
+  - Namespace resets follow Tailwind's rules and also clear pending rows.
+  - A default key yields to a value the key already has.
+  - A media query around `@theme` doesn't condition it; a rule inside `@theme` is reported.
+- **The stylesheet's own blocks count only when whole:** the root, and its dark side (`.dark`,
+  `[data-theme=dark]`, the dark media query, `@variant dark`, a whole-block `@custom-variant
+  dark`). Narrower selectors are reported.
+  - A root declaration sets both sides unless a dark declaration holds the dark side.
+  - `initial` outside `@theme` invalidates its side.
+- **Backing variables** (`:root { --ink }`, or a name in no namespace) make no token; a key that
+  names one reads its colour on each side. So `@theme inline { --color-ink: var(--ink) }`
+  gives a `light-dark()`. An inline key's redefinition, and everything reading it, is
+  reported.
+- **Mapping:**
+  - colours become `tw.<name>[.s<step>]`; only a numeric tail is a step, so a named step stays
+    a whole name;
+  - spacing, radius, fonts, type and its sub-properties, weights, leading, tracking (a length,
+    in em), the three shadow kinds and easings are pending stage 6, each with its token;
+  - breakpoints, containers, blur, drop shadows, perspective, aspect, animations and
+    `--default-*` are reported.
+  - Selector specificity beyond whole root and dark blocks is not modelled.
+- **Gate fixtures:** Tailwind v4's default `theme.css` (tailwindcss 4.3.3), 419 = 288 mapped +
+  131 reported; a project sheet whose colours map to `light-dark()`. Both re-import to
+  nothing.
+
+### Stage 3, commit 8: DTCG, Tokens Studio, Figma Variables and the Resolver (`ad2fd0cb5`..`5033045a0`)
+
+Each source is read as layers that are active in some modes.
+- **Figma** `<Collection>.<Mode>.json`: Light/Dark is the scheme, one mode is the base, and
+  other modes are an axis named for the collection, its first mode the default.
+- **Tokens Studio:**
+  - each set is active in the modes of every theme that enables it, with `tokenSetOrder`
+    deciding precedence;
+  - a one-theme group is the base, a light/dark group is the scheme, and any other group is an
+    axis;
+  - sets no theme enables, and `modify` values, are reported.
+- **The Resolver:** references resolve in their own document, and sibling overrides and nested
+  sets apply. A light/dark modifier is the scheme; any other is an axis, default first.
+- **Resolution:**
+  - each mode tuple is resolved on its own, with aliases followed there;
+  - a token must be a colour in every tuple or it makes no token and is reported, since nothing
+    is invented for a missing mode;
+  - the default tuple gives the `light-dark()` default, and `when` lines are written only where
+    needed;
+  - an alias to an unmade token, or round a cycle, is written as its colour.
+- **Format:** `$root` becomes `root`. `$extends` merges deeply (a cycle refuses the import).
+  A colour object is read by its space first.
+- **Refused whole:** axis names or values that collide after sanitising, host traits as axes,
+  an existing axis with another default, and anything past 64 tuples.
+- **Gate fixtures** (pinned): Tokens Studio's lion example, 49 = 44 + 5, brand and colour groups
+  as axes; Figma's variables example, 104 = 40 + 64, Light/Dark plus a Brutal/Modern axis; a
+  Resolver document. Each re-imports to nothing.
+- **Known:**
+  - a gradient's reference stops are reported, not made into tokens (D14 named this; later);
+  - re-importing our own export waits for stage 5's export;
+  - two themes with the same name, or a nameless theme, in one group of several were refused afterwards (`451015da5`).
+
+### Stage 3, commit 9: Astryx and the token-kinds probe (`cf25fb322`..`af1c5454e`; Astryx's `AccentColor` offer `319904b77`..`04f6875c9`)
+
+- **How it reads Astryx:** `scripts/astryx-tokens.mjs` resolves a pinned Astryx theme with its
+  core's `resolveThemeTokens()`, installing packages in a temporary directory, never the repo.
+  `tamber/src/import/astryx.rs` maps the result by name: surfaces, text, icon, border, overlay,
+  syntax and data colours to their groups; the accent and status colours whole. The body
+  surface is offered as `-exact-background`, and the accent as `AccentColor`.
+- **Gate fixture:** `@astryxdesign/theme-neutral@0.7.0`, 258 = 150 mapped + 108 reported. The
+  design checks after applying, and re-importing proposes nothing.
+- **The kinds probe**, the unmapped report as evidence for later kinds (exact1's Proposal I,
+  here):
+  - **duration tiers:** fast, medium and slow each have a min and a max, and Tamber has one
+    value per duration token (§9);
+  - **text styles:** each wants one compound `type` token, already stage 6's;
+  - **shadows with scheme-varying colours** (low, medium and high, and inset rings), so stage
+    6's `box-shadow` kind must allow a `light-dark()` colour inside;
+  - **a line style** (`--focus-outline-style: solid`), which no kind names and which stays
+    out.
+
+**Also from the importers' review** (`319904b77`..`04f6875c9`): a changed value can make an
+existing role override vary by axis even when an import adds no `when`. Two cases: a kept
+`when` that now folds to the new default, and a role chained to a rebound accent. A shared
+pass (`split_roles`) names such roles with no operations and a note quoting
+`tamber-role-axis`. A rebinding that would leave a dial unused (`tamber-dial-inert`) is
+withheld, with a note.
+
+### Stage 3's gate: met (2026-10-15; the run is `~/x2theme/stage3-gate-run.txt`)
+
+Run with the scripted client, `bun exact.mjs tamber op`, against `tamber serve`, as the
+brief adapted LLP 1121 §5's lines.
+
+| Gate line | Result |
+|---|---|
+| Design edits through `tamber/1`, each a one-line diff | **Met** on the Bluesky clone's design (`set-token`, and a `when` set). The clone has no dials, so `set-dial` was run on §3's example design. |
+| Two clients writing the same token conflict | **Met.** `conflict: true`, `by` naming the first client, the file unchanged. |
+| A second server for the project refuses | **Met.** Its standalone wire stays up and answers with the lock error rather than exiting. |
+| A transaction killed between renames completes on restart | **Met**, by the server's fault-injection test, not by the scripted client. |
+| A hand edit and a `git checkout` reach a subscriber | **Met:** `changed` events with `client: null`. |
+| `propose` changes nothing on disk | **Met.** |
+| Requests without the token refused; `--lan` and forwarded requests can't obtain it | **Met:** 404 for each. |
+| Each inverse undoes | **Met.** `unset-token-when` restores the default (standing in for stage 7's `unset-param`); undoing every write, and the dial edit, restores the file byte for byte. |
+| The four importers | **Met.** shadcn neutral 47 = 46 + 1 and blue 39 = 38 + 1 (and through the wire as a held proposal with its five offers); Tailwind's default theme 419 = 288 + 131 and a project sheet 10 = 6 + 4; Tokens Studio 49 = 44 + 5; Figma 104 = 40 + 64; Astryx neutral 268 = 160 + 108. Re-importing proposes nothing (32 import tests). |
+
+**Stage 3 is closed.** Its server additions for LLP 1122 T1 and T1a are in place, so the
+design tool's first stages can start. The one item owed outside the gate,
+refusing nameless or repeated themes in one DTCG group, landed in `451015da5`.
+
+(Also: after `scheme=fixed`, the Bluesky clone marked 12 tokens and builds with 0
+`lower-colour-one-scheme` warnings, down from 168: b41, clone `b8a7dc8`.)
+
+### The protocol's reference, `docs/tamber-protocol.md` (2026-10-15)
+
+D13 named this reference, and stage 3 didn't write it. It now describes `tamber/1.1` as built:
+- the transport (POST, the streamed response and the long poll; no WebSocket);
+- the token;
+- every request and its reply;
+- the operations;
+- the change stream's events;
+- what the later stages add.
+
+Each stage that changes the wire changes this page in the same commit. Stage 4 adds the live
+table and the build channel (LLP 1122 D4).

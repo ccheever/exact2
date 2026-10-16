@@ -27,10 +27,11 @@ package final class PageScrollView: NSScrollView {
     deinit { if let keyObserver { NotificationCenter.default.removeObserver(keyObserver) } }
     var modalAccessibilityChildren: (() -> [NSView]?)?
     package override func accessibilityChildren() -> [Any]? {
-        modalAccessibilityChildren?() ?? super.accessibilityChildren()
+        modalAccessibilityChildren?() ?? exposed(super.accessibilityChildren())
     }
+    package override func accessibilityChildrenInNavigationOrder() -> [any NSAccessibilityElementProtocol]? { treeNavigationOrder }
     package override func accessibilityContents() -> [Any]? {
-        modalAccessibilityChildren?() ?? super.accessibilityContents()
+        modalAccessibilityChildren?() ?? exposed(super.accessibilityContents())
     }
     package override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
         if attribute == .children || attribute == .contents, let projected = modalAccessibilityChildren?() { return projected }

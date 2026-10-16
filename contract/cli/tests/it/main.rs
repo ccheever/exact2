@@ -1,4 +1,6 @@
 //! The compiler's integration tests: one binary, so one link and one launch.
+//! `tests/theme_alloc.rs` stays its own binary: it installs a counting global
+//! allocator.
 
 mod action_related;
 mod ancestor_row_state;
@@ -9,6 +11,7 @@ mod aria;
 mod at;
 mod auth;
 mod baked_release;
+mod blocks;
 mod borders;
 mod branch;
 mod button_migration;
@@ -57,6 +60,7 @@ mod inference_order;
 mod insets;
 mod instance;
 mod instance_work;
+mod intersect;
 mod keyframes;
 mod keyup;
 mod link_runs;
@@ -110,6 +114,7 @@ mod sound;
 mod source_locations;
 mod source_map;
 mod spelling;
+mod stack_depth;
 mod stack_split;
 mod status_bar;
 mod strings;
@@ -121,6 +126,7 @@ mod symbols;
 mod tamber;
 mod tamber_cli;
 mod tamber_scheme;
+mod tamber_serve;
 mod tests_decl;
 mod text_item;
 mod text_selection;

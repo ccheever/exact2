@@ -212,9 +212,16 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
 - **A gate reads state at commits.** A gated task (`task hide when toast != ""
   key=toastUntil`) is armed or dropped by the commit that changes its gate or
   key, never as the clock moves: so a gate cannot read `performanceNow()` (refused), and the
-  `after`'s action runs at its deadline exactly, `performanceNow()` equal to it. An action
-  that re-tests `performanceNow() > toastUntil` there does nothing and the toast stays up
-  forever; clear it unconditionally. (LLP 1092 D8; ledger2 #1, chat F7.)
+  `after`'s action runs at its deadline, `performanceNow()` equal to it under a test's or the
+  agent's clock. An action that re-tests `performanceNow() > toastUntil` there does nothing
+  and the toast stays up forever; clear it unconditionally. (LLP 1092 D8; ledger2 #1, chat F7.)
+- **Counting ticks is not measuring time.** On a device a repeating task that missed ticks
+  while the app was suspended or busy fires once, not once per missed tick, and its action
+  observes the time it actually runs; only a test's or the agent's `clock +N` fires every
+  tick. So `elapsed = elapsed + 16` per tick, or `ticks / 10` shown as seconds, falls behind.
+  Fix: measure with `performanceNow()` (`elapsed = elapsed + (now - stepped)`, `stepped =
+  now`; seconds as `floor(busyMs / 1000)`), and keep counters for what really counts
+  deliveries, such as a spinner's frame.
 - **An "on return" task also runs at every launch.** Cause: a gated task arms
   when its gate becomes true and at boot when it is already true (LLP 1092 D8),
   and the page is `visible` at launch: `task returned when page.visibilityState
@@ -422,7 +429,27 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   and height (LLP 1116.005 D2), as `apps/shelf`'s add sheet shows. (Shelf recipe,
   2026-10-10; round 7, 2026-10-11.)
 
+- **A sheet's content stops above the home indicator, leaving a blank band.** Cause:
+  a route's content runs to the bottom edge only when the route's last in-flow child is
+  a vertical scroller, which UIKit then insets (LLP 1116 D2, `reachBottom` in
+  NavigationBarIOS.swift); a sheet component whose root is a `column` holding a header
+  and a `scroll` makes that `column` the last child. Fix: make the `scroll` the route's
+  own last child (the header its sibling), or make the component's root the `scroll`.
+  (euxy port, tempo and change-icon sheets, 2026-10-15.)
+
 ## Actions
+
+- **A name refused as reserved.** `none`, `some`, `true`, `false` and the expression
+  words (`if`, `for`, `match`, `and`, …) cannot name a state, a parameter or a `let`
+  (`syntax-expected-name`); a shape field cannot be `length` (`.length` is the
+  built-in), nor a function or action in a file that reads `.length`
+  (`syntax-method-shadowed`). Fix: another
+  word (`count`, `steps`, `empty`). (euxy port, 2026-10-15.)
+
+- **`nav` read after it is assigned in the same action is the old value.** State
+  writes land when the action ends (`analyze-read-after-assign`), so `nav = push(nav,
+  "/d")` then `top(nav)` still sees the route before it. Fix: `let next = push(nav,
+  "/d")`, `nav = next`, and read `next`. (euxy port, three times, 2026-10-15.)
 
 - **A scalar resource cannot use `empty("idle")`.** `empty()` takes named
   fields only for a record shape; a string's `empty()` is `""`. Use a pure
@@ -611,7 +638,11 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   the row whose leading or trailing actions a swipe reveals is a horizontal `scroll`
   with `scroll-snap-type="x mandatory"`, its content and action buttons as snap
   children, naming them with `swipeContent`, `swipeLeading` and `swipeTrailing` ids,
-  which the web scrolls and iOS turns into UIKit's own swipe actions. Fix: copy
+  which the web scrolls and iOS turns into UIKit's own swipe actions: UIKit's shape
+  and size (round on iOS 26 and later) with each button's background colour and a
+  snapshot of its content, never the painted box (euxy port's flush rectangles,
+  2026-10-15); a snap row without the three attributes keeps its paint and loses the
+  full swipe and the actions VoiceOver reads. Fix: copy
   `apps/shelf/app.contract`'s `BookRow` (`swipe-…`; `apps/messages` paints its own
   circles in hex and is no model for the rest). (Ledger2 DIARY, "Needed:
   swipe gesture", about 15 minutes, 2026-10-04.) iOS refuses a row whose content is
@@ -783,13 +814,38 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   an HTTPS wrapper would still block that page as mixed content after the ATS
   opt-in. The inner iframe keeps its sandbox and its authored dimensions.
   To drive what a user sees on macOS, build with `bun exact.mjs mac --bundle` and set
-  `EXACT_MAC_BIN` to the `.app`'s `Contents/MacOS/ExactMac`; the driver then skips its
+  `EXACT_MAC_BIN` to the `.app`'s `Contents/MacOS/<Name>`; the driver then skips its
   stale-build check, so rebuild the bundle before each drive. An app's own page
-  (`src="assets/…"`) is served at `http://exact.localhost`: its `http:`
-  sub-resources on loopback load, and one on a named host follows the same ATS
-  setting. A sub-resource that fails is logged (`exact: iframe assets/…: <url>
-  did not load (<reason>)`) (#135).
+  (`src="assets/…"`) is a document at `http://exact.localhost`, which no server
+  answers: an absolute `http:` sub-resource on loopback loads, one on a named host
+  follows the same ATS setting, and a relative one does not load (the next entry).
+  A sub-resource that fails is logged (`exact: iframe assets/…: <url> did not load
+  (<reason>)`) (#135).
   (Issue #106, 2026-10-06.)
+
+- **A multi-file web page in `assets/` runs on the web and not on Apple.** An
+  `iframe src="assets/editor/index.html"` whose page loads `./app.js`, a stylesheet,
+  fonts or lazy chunks works on the web, where the build copies `assets/` beside the
+  app's page, and is blank or unstyled on macOS and iOS. Cause: the Apple host reads
+  the one HTML file and gives it to WebKit as a document at
+  `http://exact.localhost/frame/<id>/index.html`; nothing serves that origin, so
+  every relative URL in it fails (`localBytes` in `host/apple/webarm/WebArm.swift`).
+  Fix: build the page as one self-contained HTML file (scripts, styles and fonts
+  inlined, no lazy chunks), or serve it from a local server and set `src` to its
+  `http://127.0.0.1:<port>/` URL (the next entry says what that server sees). LLP
+  1020.001 proposes serving the tree. (Exact Draw, 2026-10-15.)
+
+- **A local server behind an `iframe` is loaded from the frame's parent, not the
+  app.** On macOS an `iframe` of an `http(s)` URL with no `sandbox` is the web view's
+  own document. With a `sandbox` on macOS, and always on iOS, it is the child of a
+  wrapper page at `http://exact.invalid` (for an `http:` guest) or
+  `https://exact.invalid`: the page's first request is a cross-site navigation, and
+  `window.parent`'s origin is the wrapper's. On the web the parent is the app's own
+  page, whose loopback port differs between the dev loop and an `agent web` or
+  `test web` run. A server that checks `Origin`, `Referer` or `Sec-Fetch-Site`
+  against a fixed list therefore refuses its own page on some hosts. Fix: admit the
+  page by a token in the `src` URL the data module builds, and keep the origin check
+  for the API requests the page itself makes. (Exact Draw, 2026-10-15.)
 
 - **A focus ring never shows in an `agent macos` screenshot.** `type save key Tab`
   moves the focus (`state` reads it in `focus.logical`), yet neither `screenshot`
@@ -1077,16 +1133,17 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   locked, an `AXUIElement` read from any process stops at the application.
   (X84, 2026-10-12.)
 - **An AppKit accessibility action answers the first accessibility error
-  recorded while it runs.** AXPress on an inline run landed and answered
-  `kAXErrorAttributeUnsupported` (-25205) to another process. Cause: AppKit's
-  request handler ignores the action's `Bool` and returns the first error
-  recorded until it returns. The press's update reads values back
+  recorded while it runs.** AXPress on an inline run, a button, a checkbox or
+  a switch landed and answered `kAXErrorAttributeUnsupported` (-25205) to
+  another process. Cause: AppKit's request handler ignores the action's
+  `Bool` and returns the first error recorded until it returns. The press's update reads values back
   (`accessibilitySubrole()`, `isAccessibilityRequired()`) from a `NodeView`,
   which overrides the legacy `accessibilityAttributeValue`, so AppKit asks
   through the legacy API and records each attribute the view lacks. Fix: an
   `accessibilityPerform…` that runs the app does it after the request returns
   (`DispatchQueue.main.async`), as AppKit's `NSMenuItem` does its AXPress, and
-  a test asserts nothing ran inside the call. (X78 follow-up, 2026-10-14.)
+  a test asserts nothing ran inside the call; for AppKit's own control, call
+  `super`'s action there. (X78 follow-up, 2026-10-14; buttons, 2026-10-16.)
 - **A sub-agent's half-written crate breaks every build in the worktree.**
   Cause: a crate listed in the root `Cargo.toml`'s `members` is resolved by
   every `cargo` command, so one that does not parse or compile yet stops

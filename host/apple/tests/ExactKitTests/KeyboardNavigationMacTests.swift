@@ -169,6 +169,43 @@ final class KeyboardNavigationMacTests: XCTestCase {
         XCTAssertTrue(window.firstResponder === p.views[7], "Shift-Tab from a stop passes over the box")
     }
 
+    /// With the window itself as first responder (nothing in it focused:
+    /// after `blur()`, or a menu a click opened closed), Tab goes to the
+    /// loop's first stop and Shift-Tab to its last, as AppKit goes from such a
+    /// window to its initial first responder, in both Keyboard Navigation
+    /// modes. It used to focus nothing.
+    func testTabFromTheWindowItselfGoesToTheFirstStopAndShiftTabToTheLast() throws {
+        // A button (2), a field (3), a box with `tabindex=1` (4) and a button (5).
+        let ops = row(2, "button", ["id": "go"], handlers: ["press"]) + row(3, "input", ["value": "", "id": "name"])
+            + row(4, "view", ["id": "pos", "tabIndex": "1"]) + row(5, "button", ["id": "end"], handlers: ["press"])
+        // (Keyboard Navigation, the stops, the first and the last)
+        for (on, order, first, last) in [(false, [UInt32(4), 3], UInt32(4), UInt32(3)), (true, [4, 2, 3, 5], 4, 5)] {
+            keyboardNavigation(on)
+            window?.close()
+            let p = page(ops + [["op": "children", "id": 1, "ids": [2, 3, 4, 5]]])
+            XCTAssertEqual(stops(p), order, "on: \(on)")
+            func holds(_ id: UInt32) -> Bool {
+                let field = p.views[id]?.field
+                return field.map { window.firstResponder === $0.currentEditor() } ?? (window.firstResponder === p.views[id])
+            }
+            XCTAssertTrue(window.makeFirstResponder(nil))
+            XCTAssertTrue(window.firstResponder === window)
+            try tab(p)
+            XCTAssertTrue(holds(first), "on: \(on); Tab: the loop's first stop, a positive tabindex's before the tree's first")
+            try tab(p)
+            XCTAssertTrue(holds(order[1]), "on: \(on); and on through the loop")
+            XCTAssertTrue(window.makeFirstResponder(nil))
+            try tab(p, shift: true)
+            XCTAssertTrue(holds(last), "on: \(on); Shift-Tab: the loop's last stop")
+            // A session that does not hear the window's keys leaves Tab to the one that does.
+            XCTAssertTrue(window.makeFirstResponder(nil))
+            let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
+                                                       context: nil, characters: "\t", charactersIgnoringModifiers: "\t", isARepeat: false, keyCode: 48))
+            XCTAssertFalse(p.routeKey(event, focused: false, in: window))
+            XCTAssertTrue(window.firstResponder === window)
+        }
+    }
+
     func testOnTabReachesEveryControl() throws {
         keyboardNavigation(true)
         let p = fixture()

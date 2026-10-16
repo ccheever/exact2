@@ -10,6 +10,13 @@ use super::Bridge;
 use exact_runner::auth::{self, Arm, Browser};
 use exact_runner::DataSource;
 
+/// The alert shape (LLP 1115 D6), the kernel's rule
+/// (`exact_kernel::confirmation`), for the presenter's Swift
+/// (`ConfirmationShape.isAlert`): lowering, this host and the Linux one read one rule.
+pub fn confirmation_is_alert(texts: u32, actions: u32, cancels: u32) -> bool {
+    exact_kernel::confirmation::is_alert(texts as usize, actions as usize, cancels as usize)
+}
+
 impl<D: DataSource> Bridge<D> {
     /// Register the presenter's inline geometry, kept across plan replacements.
     pub fn set_inline_geometry(
@@ -67,10 +74,11 @@ impl<D: DataSource> Bridge<D> {
         }
     }
 
-    /// `exact_top_layer`: the presenter's currently open popovers and dialogs.
-    pub fn top_layer(&mut self, frames: &[(u32, [f64; 4])]) {
+    /// `exact_top_layer`: the presenter's open top-layer boxes, and where
+    /// the frontmost modal presentation begins among them.
+    pub fn top_layer(&mut self, frames: &[(u32, [f64; 4])], modal: Option<usize>) {
         if let Some(h) = self.host.as_mut() {
-            h.runner_mut().top_layer_frames(frames);
+            h.runner_mut().top_layer_frames(frames, modal);
         }
     }
 
@@ -90,6 +98,8 @@ impl<D: DataSource> Bridge<D> {
             host.set_canvas_text(f, hooks.ctx);
         }
         host.set_canvas_deferred(self.canvas_deferred);
+        host.runner_mut()
+            .set_live_clock(self.live_clock.map(super::preferences::sampler));
     }
 
     /// Canvas draws in a turn of their own from now on, or in every turn

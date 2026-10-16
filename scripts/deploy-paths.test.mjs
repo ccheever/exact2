@@ -120,8 +120,13 @@ test('async game step checks the separate workspace with its lockfile', () => {
   expect(steps.find(([name]) => name === 'game')).toEqual(['game', 'cargo', ['test', '--manifest-path', 'game/Cargo.toml', '--workspace', '--locked', '--lib', '--bins', '--tests', '--no-fail-fast']]);
 });
 
-test('async glue runs the capture fixtures', () => {
-  expect(glueTests(resolve(import.meta.dir, '..'))).toContain('./scripts/app-workspace.test.mjs');
+test('async glue runs the capture fixtures and the web JS target\'s tests, less those it leaves out', () => {
+  const glue = glueTests(resolve(import.meta.dir, '..'));
+  expect(glue).toContain('./scripts/app-workspace.test.mjs');
+  expect(glue).toContain('./host/web-js/conformance/net.test.mjs');
+  expect(glue).toContain('./host/web-js/live-clock.test.js');
+  expect(glue).not.toContain('./host/web-js/bundle-size.test.mjs');
+  expect(glue).not.toContain('./host/web-js/document-agent.test.mjs');
 });
 
 const parent = realpathSync.native(tmpdir());

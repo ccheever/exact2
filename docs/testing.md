@@ -125,6 +125,15 @@ its time counts too.
   at background QoS, where the kernel coalesces timers: a 10 ms sleep takes
   60–90 ms and every wait inflates. Measure from a terminal or an interactive
   launchd job.
+- **Measure with a pruned `target/`.** Cargo never deletes old object files
+  from `target/debug/deps`, and on macOS a test that touches the main bundle
+  lists that directory, so hundreds of thousands of files there cost seconds
+  of system time per test process.
+- **Gatekeeper scans each newly built binary when it first runs.** After a
+  kernel edit, the scans added about 95–130% to the wall time of rebuilding
+  and running ten packages' Rust tests. Adding the program that starts the
+  test processes (a terminal, say) to System Settings → Privacy & Security →
+  Developer Tools skips them.
 - **Find the bottleneck first.** Time each binary and each test (`cargo test`
   binaries with `-Zunstable-options --report-time` under `RUSTC_BOOTSTRAP=1`;
   the XCTest per-case lines; `bun test`'s per-test times). A binary's wall time

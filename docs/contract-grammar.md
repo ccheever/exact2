@@ -570,9 +570,12 @@ than this test-file grammar.
 The complete current `stdlib` name inventory is below. `T` and `U` express generic
 relationships enforced by the type checker, not user-declarable type parameters.
 Signatures are authored forms; localization's internal lowered signature differs.
-An app's `fn` of one of these names shadows it in every expression of the app, as a
-JavaScript function declared over a global does: a name the inventory gains later
-never breaks an app that declared it first.
+An app's `fn` of one of these names shadows it in every free call (`indexOf(xs, x)`), as
+a JavaScript function declared over a global does: a name the inventory gains later
+never breaks an app that declared it first. A method call (`xs.indexOf(x)`, `s.length`)
+is always the built-in, so a file that declares a `fn`, shape or action of that name and
+also calls it as a method is refused (`syntax-method-shadowed`), since the call would
+otherwise reach the app's function, which TypeScript's method never does.
 
 `contract vocab <name>` prints one function's entry from these tables (its rows and
 examples) beside the roster's signature, so what a row says here is what `vocab`
@@ -1625,7 +1628,7 @@ argument validation. Use the working implementation when selecting arguments:
 | `showDirectoryPicker(id)` | Same corpus |
 | `showSaveFilePicker(id, suggestedName)` | Same corpus |
 | `scrollIntoView(id, block=, inline=, behavior=)`: `Element.scrollIntoView()` on any element by its `id` (a string, dynamic as `focus`'s): every scroll container above it, innermost first, then the page, align it by the web's `ScrollIntoViewOptions` (`block` default `start`, `inline` `nearest`). `scrollIntoView("list-id", key, …, row=, offset=)`: a virtualized list's row by key, built and measured first (LLP 1070.000). macOS animates element-form `smooth` (and `auto` under `scroll-behavior: smooth`), landing immediately under reduced motion. iOS/tvOS and Linux currently land element jumps at once, including smooth requests (host deviation, LLP 1070.000 §14); UIKit still sends `scrollend` after a jump that moved | [collection tests](../contract/cli/tests/it/collection_into_view.rs) |
-| `scrollBy(id, x, y)`: `Element.scrollBy(x, y)` on a scroll container by its `id`, in pixels (a terminal's row is 16, its column 8), clamped to its travel; an element that does not scroll does not move. A reader's `j` and `k`. The terminal, Linux and the web's JS target take it; Apple and the wasm web host do not yet | [the LLP terminal reader](../apps/llp/terminal.contract), [`reading.rs`](../host/terminal/tests/reading.rs) |
+| `scrollBy(id, x, y)`: `Element.scrollBy(x, y)` on a scroll container by its `id`, in pixels (a terminal's row is 16, its column 8), clamped to its travel; an element that does not scroll does not move. A reader's `j` and `k`. The terminal, Linux and the web's JS target take it; Apple and the wasm web host do not yet | [the LLP terminal reader](../apps/llp/terminal.contract), [`reading.rs`](../host/terminal/tests/it/reading.rs) |
 | `showPopover(id, source="trigger")`, `hidePopover(id)`, `togglePopover(id, source="trigger")`: HTML's methods by element id. `source=` is optional and explicit; it need not carry `popovertarget`, and the key handler's node is not inferred. Repeated show/hide is a no-op. Visibility changes immediately in command order, including hide then show during native dismissal. Bad targets or sources are refused in the journal. A popover's `toggle=changed` action may take `e: ToggleEvent`, with `oldState` and `newState` (`"open"` or `"closed"`); events follow logical visibility, coalescing changes in one turn. Without a source the popover has no invoker. A following `focus(id)` in the opening action selects a native menu row on macOS and windowed Linux; AppKit refuses changing the highlight once native tracking begins. UIKit navigation-bar menus still lack command dismissal and toggle observation (issue #319 remaining work). Desktop/headless Linux reports unsupported; windowed Linux uses its existing supported menu/alert shapes. | [menus](../llp/1021-menus.rfc.md) |
 | `showModal(id)`, `close(id)`: `HTMLDialogElement.showModal()` and `close()` on a dialog by its `id`, from an action (bare `close()` is the window's). The terminal takes them (LLP 1101.001 P5); iOS presents a `dialog` or `role="alertdialog"` popover by its id as its confirmation (an alert or action sheet, with no invoker) and any other `dialog` as a sheet as tall as its content (LLP 1115.000 D11.5), the web shows the dialog (or the alertdialog popover), macOS the dialog in its top layer, or a `role="alertdialog"` one in the alert's shape as `NSAlert`, a sheet on the window (LLP 1115 D6, LLP 1115.000 D7.6) | [the harness](../apps/harness/terminal.contract), [the native fixture](../apps/native-fixture/app.contract) (`askClear`) |
 | `fastSeek(id, seconds)`, `load(id)`: a `video` or `audio`, by HTML's method names (LLP 1042 §3). `fastSeek` seeks each time it runs, where a bound `currentTime` seeks only when its value changes; every host seeks to the exact time, which HTML's approximate-for-speed allows. `load` loads the source again, as a changed `src` does: the bound `currentTime` waits for its metadata and a bound `paused` false plays | [media tests](../contract/cli/tests/it/media.rs), [media conformance plan](../host/web-js/conformance/media.contract) |
@@ -1648,8 +1651,8 @@ iOS closes no window either: its `close` is journaled as unsupported. On the web
 the newest root).
 
 `relaunch()` takes no arguments. In the standalone macOS app it asks the same
-`beforeunload` handlers as Quit, drains pending storage for up to five seconds,
-destroys the sessions, then starts the same executable with the same arguments
+`beforeunload` handlers as Quit, waits for pending storage and each native
+module's quit work (`willQuit`) for up to five seconds in all, destroys the sessions, then starts the same executable with the same arguments
 and environment after the old process exits. A cancelled quit cancels the relaunch.
 It works without the development menu. iOS/tvOS and Linux refuse it in the journal;
 the web reloads the page, with the browser's usual storage and unload rules.

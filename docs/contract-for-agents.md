@@ -375,8 +375,10 @@ component Cart
   its parameters and standard calls (including `performanceNow()`), without component-state
   capture or recursion. Pass an app value in; do not invent an ambient reference.
   A `fn` named like a standard function (`fn indexOf`) shadows it in every
-  expression of the app, so a standard function added later never breaks an
+  free call of the app, so a standard function added later never breaks an
   app that had the name first; an action or a host command keeps its own rule.
+  A method call (`xs.indexOf(x)`) is always the built-in: calling one whose name
+  the file also declares is refused (`syntax-method-shadowed`).
 - Named arguments belong to component uses, record constructors,
   `t("key", placeholder=value)`, `empty(field=value)`, canvas `surface=` bindings,
   and the commands `share(…)`, `showNotification(…)`, `scrollIntoView(…)`, `playSound(…)` and
@@ -825,9 +827,11 @@ Keep the handle in module state by resource identity; after its `open` event,
 a mutation source can call `socket.send(textOrBytes)` or `socket.close(code,
 reason)`. The mapper only reads frames and returns snapshots. Sends run after
 the mutation's commit stands, in order, and have bounded admission. The
-source must send and answer synchronously. Refreshing or removing the
-resource invalidates the old handle. **Currently web JS target TypeScript
-only**; the wasm target and native hosts remain receive-only. See
+source must send and answer synchronously, and a mutation that sends cannot
+also `fetch` (whichever comes second refuses it). Refreshing or removing the
+resource invalidates the old handle. **TypeScript on the web JS target,
+macOS, iOS and Linux**; the wasm target and Rust sources remain
+receive-only. See
 [the reference](reference.md#generate-typescript-data-source-types) for bounds and events.
 
 ### Optimistic writes: the overlay
@@ -1660,7 +1664,10 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   of the header still projects. A title button keeps its contents; an authored Back
   replaces UIKit’s Back. Search or a header tablist can opt out on that element
   (a tab button alone does not opt its parent out of segments). Tabs retain their
-  panels and stacks; other styling alone does not opt a header out.
+  panels and stacks; other styling alone does not opt a header out. On iOS 26 and
+  later neighbouring bar items share one glass capsule, as UIKit groups them;
+  `buttonStyle="glass"` on a header button gives that item a capsule of its own
+  (`sharesBackground = false`).
 - Each tab names its panel with `aria-controls`; the panels are the stacks, and every
   tab's stack stays mounted, so a pushed screen, a draft and a scroll offset survive
   a visit to another tab. A tab is `select(nav, name)`; selecting the shown tab
@@ -1700,6 +1707,10 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
 - A modal route (`navigationPresentation="modal"`) is opaque: its unsaid
   `background-color` is `-exact-background` (the grouped one when it scrolls a grouped
   list), so the route under it, dimmed, never shows through; write one to say another.
+  Its corners are UIKit's: on iOS 26 and later a large sheet is rounded like the
+  display and inset from the bottom edge, as Apple's own are. A `border-radius` on the
+  route is the sheet's corner radius (its top-left one; `preferredCornerRadius`), which
+  also seats a large sheet flat on the bottom edge.
   One pushed over a sheet (a confirmation over a dialog)
   is a sheet over that sheet, on iOS presented from it; Back returns to the sheet
   under it, and popping both closes both. Under the agent's frozen timing (the
@@ -1764,8 +1775,10 @@ restarts it, as a new `for` key makes a new row
 runs when the gate changes: turning true arms the timer from that commit's time,
 turning false drops it, and an idle task keeps no host awake and commits
 nothing at rest. `key=expr` alone means `when true key=expr`. An `after` fires
-at its deadline exactly, so its action sees `performanceNow()` equal to the deadline: clear
-without re-testing the time (a strict `performanceNow() > until` does nothing there). The
+at its deadline, its action seeing `performanceNow()` equal to it under a test's or the agent's
+clock and no earlier on a device: clear without re-testing the time (a strict
+`performanceNow() > until` can do nothing there). A repeat that missed ticks while the app was
+suspended fires once on a device, so measure time with `performanceNow()`, never by ticks. The
 gate is a bool and the key a string, number or bool; neither may read `performanceNow()`
 (`analyze-task-gate-clock`): gate on state and let the timer measure time. A
 toast, a debounce (`when draft != saved key=draft` with `after(800, save)`), a

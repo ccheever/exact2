@@ -219,8 +219,9 @@ impl Linked {
         if self.documents {
             uses = uses.with(Capability::Documents);
         }
+        // The browser's file input is the media picker too.
         if self.picker.is_some() {
-            uses = uses.with(Capability::Picker);
+            uses = uses.with(Capability::Picker).with(Capability::MediaPicker);
         }
         if self.timelines.is_some() {
             uses = uses.with(Capability::Timelines);
@@ -251,6 +252,9 @@ impl Linked {
         }
         if self.tabs.is_some() {
             uses = uses.with(Capability::Tabs);
+        }
+        if self.auth {
+            uses = uses.with(Capability::AuthSession);
         }
         uses
     }

@@ -468,7 +468,7 @@ test('explicit primary mouse replaces a touch history and preserves real mouse i
     expect(events.slice(0,2).every(e=>e[0]==='touch' && e[1]>1)).toBe(true);
     expect(events.slice(2)).toEqual([1,0,2,0].map((buttons,i)=>['mouse',1,i%2?'pointerup':'pointerdown',45,105,buttons,true]));
     for(const at of [null,[],[25],[25,75,0],['25',75],[NaN,75],[25,Infinity],[-1,75],[100,75],[25,100],[5,5]]) await assert.rejects(s.tap('world',{mouse:true,at}), /mouse|covers/);
-    for(const opts of [{down:true},{contextmenu:true},{wheel:[0,1]},{drag:{dx:1,dy:1}}]) await assert.rejects(s.tap('world',{mouse:true,...opts}), /another input mode/);
+    for(const opts of [{down:true},{contextmenu:true},{wheel:[0,1]},{drag:{dx:1,dy:1}}]) await assert.rejects(s.tap('world',{mouse:true,...opts}), /another input mode|one of mouse, dblclick, contextmenu/);
     expect((await s.carrier.ask({op:'state'})).events).toEqual(events);
     await s.tap('world',{down:true,at:[25,75]});
     await assert.rejects(s.tap('world',{mouse:true,at:[25,75]}), /held contact/); await s.pointer('up');
