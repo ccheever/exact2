@@ -261,6 +261,7 @@ impl Server {
                             // executors with it (their workers count against
                             // the process's native-worker cap).
                             if stop.load(Ordering::SeqCst) {
+                                drop(state);
                                 crate::shutdown_render_thread();
                                 return;
                             }
