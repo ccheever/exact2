@@ -446,6 +446,7 @@ pub(crate) fn check_component(
     }
     check_view(&c.view, &scope, shapes, sink);
     super::tasks::check_tasks(c, &scope, shapes, sink);
+    super::tasks::sequences::check(c, owners.is_some(), &scope, shapes, sink);
     ct
 }
 

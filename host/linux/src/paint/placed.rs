@@ -56,6 +56,7 @@ impl Painter {
             replay: None,
             ranks: Rc::clone(&walk.ranks),
             reveal: walk.reveal,
+            dialog: walk.dialog,
         };
         painter.node(&mut child_walk, id, Transform::identity(), (f.x, f.y), None);
         walk.text.extend(child_walk.text);

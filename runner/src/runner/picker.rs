@@ -217,8 +217,8 @@ pub fn answer_paths(value: &str) -> Vec<String> {
         .map(str::trim)
         .filter(|l| !l.is_empty())
         .collect();
-    if lines.len() == 1 {
-        return lines[0].split_whitespace().map(str::to_owned).collect();
+    if !value.contains('\n') {
+        return value.split_whitespace().map(str::to_owned).collect();
     }
     lines.into_iter().map(str::to_owned).collect()
 }
@@ -380,6 +380,24 @@ mod text_types {
         ] {
             assert_eq!(super::mime_for(name), mime, "{name}");
             assert!(super::accepts(&[mime.into()], name, mime));
+        }
+    }
+}
+
+#[cfg(test)]
+mod path_tests {
+    #[test]
+    fn a_newline_keeps_a_single_path_with_spaces() {
+        for (input, expected) in [
+            ("/tmp/my photo.png\n", vec!["/tmp/my photo.png"]),
+            (
+                "/tmp/a b.png\n/tmp/c.png\n",
+                vec!["/tmp/a b.png", "/tmp/c.png"],
+            ),
+            ("a.png b.png", vec!["a.png", "b.png"]),
+            ("", vec![]),
+        ] {
+            assert_eq!(super::answer_paths(input), expected);
         }
     }
 }

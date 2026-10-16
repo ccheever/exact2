@@ -30,6 +30,44 @@ extension Agent {
         return nil
     }
 
+    /// Under `--chrome platform`, the control UIKit shows for the item
+    /// standing for the tab `node` is (or is in): the one accessibility
+    /// element with the item's identifier, as VoiceOver and XCUITest find it
+    /// (a `UITabBarItem` has no public frame). Nil for any other node; a
+    /// refusal when none, or more than one, shows.
+    func tabItem(_ node: NodeView) -> Result<UIView, AimRefusal>? {
+        #if os(iOS)
+        let nav = presenter.navigation
+        guard nav.tabBarShows, let tabs = nav.container.flatMap({ NavigationTabs.of($0, presenter) }),
+              let index = tabs.tabs.firstIndex(where: { node === $0 || node.isDescendant(of: $0) }),
+              let controller = nav.tabController, let items = controller.tabBar.items, index < items.count else { return nil }
+        // By the item's identifier (its tab's test id, `syncItems`), which
+        // UIKit gives the control it shows for it, in the bar or, on an
+        // iPad, at the top or in the sidebar; by its title only without one.
+        let item = items[index], id = item.accessibilityIdentifier ?? "", title = item.title ?? ""
+        guard !id.isEmpty || !title.isEmpty else { return .failure(AimRefusal(why: "its tab has neither a test id nor a title UIKit's tab bar shows; give it a testId")) }
+        var found: [UIView] = [], pending: [UIView] = controller.view.subviews
+        while !pending.isEmpty {
+            let v = pending.removeFirst()
+            guard !v.isHidden, v.alpha > 0.01, !(v is NodeView) else { continue }
+            if v.isAccessibilityElement {
+                let box = v.convert(v.bounds, to: nil)
+                if id.isEmpty ? v.accessibilityLabel == title : v.accessibilityIdentifier == id,
+                   box.width > 0, box.height > 0, v.window?.bounds.contains(CGPoint(x: box.midX, y: box.midY)) == true { found.append(v) }
+                continue
+            }
+            pending.append(contentsOf: v.subviews)
+        }
+        guard found.count == 1 else {
+            return .failure(AimRefusal(why: found.isEmpty ? "UIKit's tab bar shows no item for its tab; `clock settle` first waits out a transition"
+                : "UIKit shows \(found.count) tab items as \(id.isEmpty ? "\"\(title)\"" : id); give each tab its own testId"))
+        }
+        return .success(found[0])
+        #else
+        return nil
+        #endif
+    }
+
     /// Why a finger would not reach the segment or bar item UIKit draws in
     /// `node`'s place (a sheet over it, the keyboard), or nil: the tap that
     /// activates either is refused as a covered node's is.
@@ -40,6 +78,7 @@ extension Agent {
         else { return nil }
         guard let win = target.window else { return nil }
         let p = target.convert(CGPoint(x: region.midX, y: region.midY), to: nil)
+        awaitAppOverlay(at: p, in: win)
         guard let hit = win.hitTest(p, with: nil) else { return "its middle is off the window" }
         return obscured(target, at: p, hit: hit)
     }

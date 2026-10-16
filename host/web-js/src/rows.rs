@@ -125,6 +125,15 @@ impl Em<'_> {
         let metric =
             style::metric_map(plan, plan.code(b.expr)).map(|m| format!("()=>({m})(({f})())"));
         let f = metric.as_deref().unwrap_or(f);
+        // A list on a corner is the elliptical radius no row holds, which
+        // the browser would draw: refused whole, as the kernel refuses it.
+        let corner = (exact_kernel::style::sides::FAMILIES[8].contains(&id)
+            && style::literal(plan, plan.code(b.expr)).is_none())
+        .then(|| {
+            self.uses.rt("say");
+            format!("()=>({})(({f})())", style::corner_list(id))
+        });
+        let f = corner.as_deref().unwrap_or(f);
         if let Some((_, name)) = exact_web::host::template::attribute_rows(kind)
             .iter()
             .find(|(attribute, _)| *attribute == id)
@@ -368,13 +377,14 @@ impl Em<'_> {
                 .filter(|_| modes);
             let map = match map {
                 Some(m) if modes && name == "--exact-accent" => Some(format!(
-                    "v=>{{v=({m})(v);if(!{e}.hasAttribute(\"data-x-b\"))return v;{e}.removeAttribute(\"data-x-accent\");if(v==null||/^\\s*(unset|inherit)\\s*$/i.test(v))return null;const n={}.find(p=>v.includes(`var(${{p}})`));if(n){{{e}.setAttribute(\"data-x-accent\",n);return null}}return v}}",
+                    "v=>{{v=({m})(v);if(!{e}.hasAttribute(\"data-x-b\"))return v;{e}.removeAttribute(\"data-x-accent\");if(v==null||/^\\s*(unset|inherit)?\\s*$/i.test(v))return null;const n={}.find(p=>v.includes(`var(${{p}})`));if(n){{{e}.setAttribute(\"data-x-accent\",n);return null}}return v}}",
                     serde_json::to_string(&crate::modes::accent_properties(plan)).unwrap()
                 )),
                 map => map,
             };
             let value = match map {
-                Some(m) => format!("()=>({m})(({f})())"),
+                // An empty string declares nothing before the map reads it.
+                Some(m) => format!("()=>({m})({}(({f})()))", self.uses.rt("blank")),
                 None => f.to_string(),
             };
             match channel {
@@ -851,7 +861,7 @@ mod tests {
             "the plan admits the literal"
         );
         assert!(
-            js.contains(&format!(",\"filter\",\"\",()=>({map})((")),
+            js.contains(&format!(",\"filter\",\"\",()=>({map})(blank((")),
             "the bound filter is not mapped:\n{js}"
         );
         assert_eq!(
@@ -966,9 +976,11 @@ mod tests {
             .unwrap_or_else(|| panic!("no column-count write:\n{js}"));
         let rest = &js[at + marker.len()..];
         let (unit, after) = rest.split_once('"').expect("unit");
-        let map = after
-            .strip_prefix(",()=>(")
-            .and_then(|mapped| mapped.find(")((").map(|end| mapped[..end].to_string()));
+        let map = after.strip_prefix(",()=>(").and_then(|mapped| {
+            mapped
+                .find(")(blank((")
+                .map(|end| mapped[..end].to_string())
+        });
         let map_src = map.unwrap_or_else(|| "v=>v".into());
         let script = format!(
             "const map={map_src};const unit={unit:?};const write=v=>{{const m=map(v);return m==null?null:typeof m===\"number\"?m+unit:String(m)}};console.log(JSON.stringify([write(0),write(2),write(null)]))"
@@ -1052,5 +1064,60 @@ try {{
             "{computed}"
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A computed corner given a list (`10px 20px`, `10px / 20px`) is
+    /// refused whole with a journal line, as the kernel refuses it; a calc
+    /// is one value.
+    #[test]
+    fn a_computed_corner_list_is_refused_as_the_kernel_refuses_it() {
+        let plan = contract::compile(
+            "component App\n  state r = \"10px 20px\"\n  view\n    view border-top-left-radius=r testId=\"c\"\n",
+        )
+        .unwrap();
+        let js = crate::emit::emit(&plan, false, false).unwrap().js;
+        assert!(
+            js.contains("unset border-top-left-radius: ") && js.contains(",say,"),
+            "{js}"
+        );
+        let map = crate::style::corner_list(exact_kernel::StyleId::BorderRadiusTopLeft);
+        let script = format!(
+            "const journal=[];const say=l=>journal.push(l);const m={map};console.log(JSON.stringify({{out:[\"10px 20px\",\"10px/20px\",\"calc(10px + 2px)\",\"12px\",8,null].map(m),journal:journal.length}}))"
+        );
+        let bun = std::process::Command::new(std::env::var("BUN").unwrap_or_else(|_| "bun".into()))
+            .args(["-e", &script])
+            .output()
+            .expect("bun");
+        assert!(
+            bun.status.success(),
+            "{}",
+            String::from_utf8_lossy(&bun.stderr)
+        );
+        let got: serde_json::Value = serde_json::from_slice(&bun.stdout).unwrap();
+        assert_eq!(
+            got,
+            serde_json::json!({"out": ["unset", "unset", "calc(10px + 2px)", "12px", 8, null], "journal": 2})
+        );
+    }
+
+    /// An empty string declares nothing before a row's map reads it: the
+    /// mapped rows (`cursor`, `animation-timeline` and its companions) see
+    /// `null` (rt.js `blank`), never a value to diagnose.
+    #[test]
+    fn an_empty_value_reaches_a_mapped_row_as_nothing() {
+        let plan = contract::compile(
+            "component App\n  state c = \"\"\n  view\n    view cursor=c animation-timeline=c testId=\"v\"\n",
+        )
+        .unwrap();
+        let js = crate::emit::emit(&plan, false, false).unwrap().js;
+        for name in [
+            "\"cursor\"",
+            "\"--exact-animation-timeline\"",
+            "\"animation-play-state\"",
+        ] {
+            let at = js.find(name).unwrap_or_else(|| panic!("{name}:\n{js}"));
+            let write = js[at..].split(";S").next().unwrap();
+            assert!(write.contains("blank(("), "{name}: {write}");
+        }
     }
 }

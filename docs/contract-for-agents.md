@@ -111,7 +111,8 @@ again (`lower-title-twice`), a tab bar of one tab (`lower-single-tab`), a
 role on a box (`lower-dialog-role`), an `aria-level` with no `role="heading"`
 (`lower-level-without-heading`), a content-box `width="100%"` with padding, wider than
 its parent by the padding (`lower-width-padding`), an absolute width containing text that
-grows at accessibility sizes (`lower-text-px-width`; use `rem` for the width),
+grows at accessibility sizes (`lower-text-px-width`; use `rem` for the width), a bare
+`line-height=28`, which is 28 times the font size, not 28 points (`lower-line-height-multiplier`),
 screens swapped by an `if` in an app with no `routes` (`lower-screen-by-state`), a count before a plural noun, `${n} cards`
 (`lower-count-plural`), a row of the app's records that searches another table of them,
 `users.filter(u => u.id == p.userId)` in `for p in posts` (`lower-row-lookup`), a
@@ -765,6 +766,7 @@ Choose the mechanism from its lifetime:
 | Writes that must all land, in order | `mutation … queue`: one in flight, later sends wait their turn |
 | Run once after a delay, while a condition holds (a toast, a debounce) | `task … when cond` with `after(ms, action)` |
 | Repeat while a condition holds (a game tick, a pulse) | `task … when cond` with `every(ms, action)` |
+| Act when a sheet or route opens (scroll the chosen item into view, load its draft) | In the root, even when the sheet is a child component's view: `task reveal when top(nav).name == "icons" key=top(nav).id` with `after(1, reveal)` |
 | Pending indicator | `pending(resourceOrMutationName)` |
 | Resource request failed without an answer | `failed(resourceOrMutationName)` |
 | Why it failed, to branch on or show | `failure(resourceOrMutationName)`: `none`, or `some({ code, message, reason })`, `code` a domain refusal code when supplied, otherwise one of `offline`, `timeout`, `refused`, `shape`, `storage`, `error`; `reason` a Snapback refusal's code (`SLOT_FULL`), else `""` |
@@ -1438,32 +1440,65 @@ component Ding
     button "Ding" press=ding
 ```
 
-To keep time (a sequencer, a metronome), schedule ahead on the audio clock rather
-than starting each hit when a timer's commit lands: the press schedules the first
-window, `[performanceNow(), performanceNow() + 100)`, and each tick of a coarse timer schedules the next,
-`[scheduledTo, performanceNow() + 100)`, as a list a `fn` computes (`playSounds(hits)` takes a
-list of a shape whose fields are, in order, `src`, `at`, `gain` and `group`, then
-optionally `playbackRate` and then `pan`). A
-timer's commit is at its due time, so a hit planned at `t` lands on the grid:
+To keep time (a metronome, a drum machine, an interval timer, a rhythm game), declare
+what should play with a `sequence` and let the runner play it ([LLP
+1125](../llp/1125-a-transport-midi-and-the-small-pieces.rfc.md) D2–D5); do not
+start hits from a timer. It has a task's gate, and one `play(tracks, bpm=…)`. A
+track loops at its own `beats`, `loops` times or forever (0), so tracks of
+different lengths run against each other; a step is at a `beat` (a sixteenth is
+`0.25`) and plays a sample, a haptic, or both. The runner issues the steps into
+the voice table a second ahead on its own clock, so no action runs per step and a
+busy frame does not move a beat. The arguments are read again after every commit:
+change the pattern or the tempo in state and it plays from that commit, the tempo
+without a jump in phase. `from=-4` with `countIn=` is a count-in; `ended=` runs an
+action when a finite take ends, at that time:
 
 ```text
-action start
-  playing = true
-  playSounds(hitsBetween(song, performanceNow(), performanceNow() + 100))
-  scheduledTo = performanceNow() + 100
-action tick
-  if playing
-    playSounds(hitsBetween(song, scheduledTo, performanceNow() + 100))
-    scheduledTo = performanceNow() + 100
-action stop
-  playing = false
-  stopSounds()
+shape Step
+  beat: number
+  src: string
+  gain: number
+  group: string
+  note: number
+  velocity: number
+  channel: number
+  duration: number
+  haptic: string
+
+shape Track
+  beats: number
+  loops: number
+  offset: number
+  output: string
+  steps: Step[]
+
+fn click(beat: number, gain: number): Step = Step(beat=beat, src="assets/click.wav", gain=gain, group="click", note=-1, velocity=100, channel=0, duration=0.1, haptic="")
+
+component Metronome
+  state playing = false
+  state bpm = 120
+  resource transport = exactTransport() as shape Transport
+  derive bar = [Track(beats=4, loops=0, offset=0, output="", steps=[click(0, 1), click(1, 0.5), click(2, 0.5), click(3, 0.5)])]
+  sequence beat when playing
+    play(bar, bpm=bpm, from=-4, countIn=[click(0, 1), click(1, 1), click(2, 1), click(3, 1)])
 ```
 
+The shapes are flat and positional, as `playSounds`'s hit is: "none" is `""` or
+`-1`. Keep the tracks in a `derive`, so a commit that changes nothing else
+compares them at once. `exactTransport()` says what plays (`state`, `reason`,
+`bpm`, `anchorAt`, `anchorBeat`); a playhead is `anchorBeat + (performanceNow() -
+anchorAt) * bpm / 60000` in a frame task gated on it being shown. The gate turning
+false stops it; `stopSounds()` silences what sounds and the next steps still play.
+For one or two scheduled hits, `playSounds(hits)` with `at=` is enough (a list of a
+shape whose fields are, in order, `src`, `at`, `gain` and `group`, then optionally
+`playbackRate` and then `pan`).
+
 Tests read the runner's record: `expect sound has "assets/ding.wav" at 0`, with any
-of `gain`, `ends`, `playbackRate`, `pan` and `by end|group|cut|stop|cancelled`, or
-`expect sound missing …`;
-`state sounds` lists the last 64 voices. `audio` stays HTML's player for long media
+of `gain`, `ends`, `playbackRate`, `pan` and `by end|group|cut|stop|cancelled|edit`, or
+`expect sound missing …`; a sequence's steps are voices like any other, so `clock
++2000` then `expect sound has "assets/click.wav" at 1500` works with no audio, and
+`expect state transport.state == "playing"` reads the transport.
+`state sounds` lists the last 64 voices, `state transport` the transport. `audio` stays HTML's player for long media
 (a song, a podcast: `video`'s props and events with no picture, LLP 1042 §8).
 
 A media source is the string an `image` takes, `app:/data` files included: an
@@ -1861,8 +1896,11 @@ suspended fires once on a device, so measure time with `performanceNow()`, never
 gate is a bool and the key a string, number or bool; neither may read `performanceNow()`
 (`analyze-task-gate-clock`): gate on state and let the timer measure time. A
 toast, a debounce (`when draft != saved key=draft` with `after(800, save)`), a
-round's tick (`when screen == "play"`) and a flight's frames
-(`when flying` with `every(frame, step)`) are each one gated task.
+round's tick (`when screen == "play"`), a flight's frames
+(`when flying` with `every(frame, step)`) and a sheet's opening
+(`when top(nav).name == "icons" key=top(nav).id` with `after(1, reveal)`) are each
+one gated task, and each is the root's: a child component declares none
+(`type-child-resource`), so a sheet a component draws has its task in the root.
 
 **Repeating while a condition holds.** Use a task with `when` and `every`. The
 timer runs only while the condition is true. Any action that makes it false
@@ -2976,6 +3014,9 @@ always dark does; leave it off to follow the surrounding scheme (LLP 1034 §8).
 status bar: of what the bar sits over, the declaration painted on top wins, and
 a flip shows in its own batch's frame; `status-bar-animation="fade"` fades it
 (LLP 1105). Other hosts ignore both.
+`wakelock="screen"` on any node, bound to state (`wakelock=(playing ? "screen" :
+"none")`), keeps the display awake while that node is displayed; a hidden or
+unmounted one holds nothing (LLP 1125 D11; `state.wakelock` is `{held, by}`).
 `currentcolor` takes the node's `color` on borders, `background-color`,
 `-exact-tint-color`, text stroke and SVG paint. `unset` clears any row, and `inherit`
 an inherited one (`color`, fonts, `fill`…); `inherit` on a row CSS does not

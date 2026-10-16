@@ -461,24 +461,23 @@ impl Lexer {
         span: Span,
     ) -> Result<(String, usize), LexError> {
         let mut out = String::new();
-        let mut chars = text[start + 1..].char_indices();
-        while let Some((i, c)) = chars.next() {
+        let mut pos = start + 1;
+        while let Some(c) = text[pos..].chars().next() {
             match c {
                 '\\' => {
-                    let next = chars.next().map(|(_, c)| c);
-                    match next.and_then(escaped) {
-                        Some(c) => out.push(c),
-                        None => {
-                            return Err(LexError {
-                                id: "syntax-bad-escape",
-                                message: bad_escape(next),
-                                span,
-                            })
-                        }
-                    }
+                    let (decoded, len) = escape(&text[pos + 1..]).map_err(|message| LexError {
+                        id: "syntax-bad-escape",
+                        message,
+                        span,
+                    })?;
+                    out.push(decoded);
+                    pos += 1 + len;
                 }
-                c if c == quote => return Ok((out, start + 1 + i + 1)),
-                c => out.push(c),
+                c if c == quote => return Ok((out, pos + 1)),
+                c => {
+                    out.push(c);
+                    pos += c.len_utf8();
+                }
             }
         }
         Err(LexError {
@@ -489,27 +488,52 @@ impl Lexer {
     }
 }
 
-/// The message for a `\` no escape follows: it names the escapes a string accepts.
-pub(crate) fn bad_escape(next: Option<char>) -> String {
-    let accepted = "a string accepts \\n \\t \\\" \\\\ \\` \\$";
-    match next {
-        Some(c) => format!("unknown escape `\\{c}`; {accepted}"),
-        None => format!("a `\\` ends the line, escaping nothing; {accepted}"),
-    }
-}
+/// The escapes a string accepts, as a refusal names them.
+const ACCEPTED: &str = r#"a string accepts \n \t \" \\ \` \$ and \u{…}, a Unicode code point in hex (`\u{2011}`, `\u2011`)"#;
 
-/// The character `\c` stands for, in a `"…"` string and a template's text
-/// alike: `\n`, `\t`, `\"`, `\\`, `` \` `` and `\$` (so `\${` is literal).
-pub(crate) fn escaped(c: char) -> Option<char> {
-    Some(match c {
+/// The character the escape at the start of `rest` (the text after a `\`)
+/// stands for, and the bytes it takes, in a `"…"` string and a template's
+/// text alike: `\n`, `\t`, `\"`, `\\`, `` \` ``, `\$` (so `\${` is literal),
+/// and `\u{…}`, one to six hex digits naming a Unicode scalar value, as
+/// JavaScript and Swift write it (and JavaScript's four-digit `\u2011`).
+/// `Err` is the refusal's message.
+pub(crate) fn escape(rest: &str) -> Result<(char, usize), String> {
+    let Some(c) = rest.chars().next() else {
+        return Err(format!(
+            "a `\\` ends the line, escaping nothing; {ACCEPTED}"
+        ));
+    };
+    let simple = match c {
         'n' => '\n',
         't' => '\t',
         '"' => '"',
         '\\' => '\\',
         '`' => '`',
         '$' => '$',
-        _ => return None,
-    })
+        'u' => {
+            // `{` one to six digits `}`, or JavaScript's four digits bare.
+            let after = &rest[1..];
+            let (hex, len) = match after.strip_prefix('{') {
+                Some(braced) => match braced.split_once('}') {
+                    Some((hex, _)) if (1..=6).contains(&hex.len()) => (hex, hex.len() + 3),
+                    _ => ("", 0),
+                },
+                None => (after.get(..4).unwrap_or(""), 5),
+            };
+            if hex.is_empty() || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return Err(format!(
+                    "`\\u` takes a code point in hex, in braces (`\\u{{2011}}`, `\\u{{1F600}}`) or as four digits (`\\u2011`); {ACCEPTED}"
+                ));
+            }
+            return u32::from_str_radix(hex, 16)
+                .ok()
+                .and_then(char::from_u32)
+                .map(|decoded| (decoded, len))
+                .ok_or_else(|| format!("`\\u{{{hex}}}` is no Unicode character: a code point is 0 to 10FFFF, and not a surrogate (write `\\u{{1F600}}`, not a surrogate pair)"));
+        }
+        c => return Err(format!("unknown escape `\\{c}`; {ACCEPTED}")),
+    };
+    Ok((simple, c.len_utf8()))
 }
 
 /// The byte offset of the backtick closing a template literal. Nested

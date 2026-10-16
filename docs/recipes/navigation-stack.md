@@ -136,11 +136,13 @@ test "add, open, delete after asking"
   expect state lib == []
 ```
 
-- The alert holds text, closing buttons and one Cancel; any other modal is a sheet (`push`,
-  `back`), closed in `then` only on an ok reply ([after-a-write](after-a-write.md)).
-- Covered routes stay mounted: no two screens share a `testId`. Tests: `clock settle` after a
-  push, sheet or alert; `clock data` before a save's read.
-- A wide window (900 px up) shows a list beside its detail when rows push (a `link` or a
-  router write); `follow` replaces it; `navigationSplit="none"` keeps it pushed.
-- An unmatched location keeps its URL and shows not-found with a way home, or the
-  `notfound` route; a detail whose id names nothing says so.
+- An alert's `aria-label` is its title. It has text, buttons and one Cancel. Escape/Back
+  chooses Cancel; only written `closedby="any"` dismisses outside. Linux centres it and
+  scrolls content to its actions; another modal is a sheet, closed on ok
+  ([after-a-write](after-a-write.md)).
+- Routes stay mounted: use unique `testId`s. `clock settle` follows a push, sheet or alert;
+  `clock data` precedes reading a save.
+- At 900 px up, pushed rows split list and detail; `follow` replaces it and
+  `navigationSplit="none"` keeps it pushed.
+- An unmatched location keeps its URL and offers home (or uses `notfound`); a missing detail
+  says so.

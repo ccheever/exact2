@@ -2,8 +2,9 @@
 // Firefox and WebKit: sound-glue.js over an OfflineAudioContext at 48 kHz,
 // rendered and read back by frame, its runner time mapped through an output
 // timestamp the test supplies; a voice's playback rate and pan (LLP 1125
-// D10); the held voice of a `{0, 0}` timestamp; the Audio Session API; and the
-// drop before a user activation. Firefox and
+// D10); a sequence's retraction before a voice starts, and its timed haptics
+// (LLP 1125 D3); the held voice of a `{0, 0}` timestamp; the Audio Session
+// API; and the drop before a user activation. Firefox and
 // WebKit come from Playwright (`bunx playwright@1.63.0 install firefox
 // webkit`), Chrome from the machine's; an engine that is missing is skipped.
 import { afterAll, test, expect } from 'bun:test';
@@ -170,6 +171,41 @@ for (const engine of engines) {
       expect(got.half[0]).toBeCloseTo(0.5 * Math.cos(0.75 * Math.PI / 2), 3);
       expect(got.half[1]).toBeCloseTo(0.5 * Math.sin(0.75 * Math.PI / 2), 3);
       expect(got.centre).toEqual([expect.closeTo(0.5, 3), expect.closeTo(0.5, 3)]);
+      expect(got.lines).toEqual([]);
+    } finally { await b.close(); server.close(); }
+  }, 60_000);
+
+  engineTest[engine](`${engine}: a voice retracted before its start is silent and let go; a haptic plays at its time`, async () => {
+    const b = await browser(engine);
+    if (!b) throw new Error(`${engine} did not launch`);
+    const server = await serve();
+    try {
+      const p = await b.newPage();
+      await p.goto(server.url);
+      await p.waitForFunction(() => window.ready);
+      const got = await p.evaluate(async () => {
+        // A voice a second ahead, then an End at its start (an edit): no frame sounds, and the output keeps no voice.
+        const r = offline(1, { 'assets/a.wav': wav(4800, 0.5) });
+        await decoded(r.out);
+        r.out.ops([{ op: 'play', id: 1, sound: 0, at: 500, gain: 1 }]);
+        const held = r.out.state().voices;
+        r.out.ops([{ op: 'end', id: 1, at: 500 }]);
+        const let_go = r.out.state().voices;
+        const silent = (await r.context.startRendering()).getChannelData(0).every(x => x === 0);
+        // Haptics on the page's timer: one at 30 ms plays, one at 40 ms is retracted, one 50 ms past is late.
+        const vibes = [];
+        Object.defineProperty(navigator, 'vibrate', { value: k => (vibes.push(k), true), configurable: true });
+        const h = offline(1, {});
+        h.out.ops([{ op: 'haptic', id: 1, kind: 'impact-light', at: 30 }, { op: 'haptic', id: 2, kind: 'selection', at: 40 }]);
+        h.out.ops([{ op: 'unhaptic', id: 2 }, { op: 'haptic', id: 3, kind: 'selection', at: -50 }]);
+        await new Promise(r => setTimeout(r, 150));
+        return { held, let_go, silent, vibes, late: h.out.state().hapticsLate, lines: [...r.lines, ...h.lines] };
+      });
+      expect(got.held).toBe(1);
+      expect(got.let_go).toBe(0);
+      expect(got.silent).toBe(true);
+      expect(got.vibes.sort()).toEqual([12, 5].sort());
+      expect(got.late).toBe(1);
       expect(got.lines).toEqual([]);
     } finally { await b.close(); server.close(); }
   }, 60_000);

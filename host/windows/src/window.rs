@@ -59,6 +59,19 @@ fn wheel_delta(delta: MouseScrollDelta, scale: f64) -> (f32, f32) {
     }
 }
 
+fn next_frame_deadline(deadline: Instant, started: Instant, period: Duration) -> Instant {
+    if started < deadline {
+        // An input-triggered redraw does not move the display's cadence.
+        deadline
+    } else if started < deadline + period {
+        // Keep timer wake-up latency from accumulating on every frame.
+        deadline + period
+    } else {
+        // After a stall or suspension, resume without a burst of catch-up frames.
+        started + period
+    }
+}
+
 pub(super) fn run<D: DataSource + Default + 'static>(
     name: &str,
     plan: &[u8],
@@ -345,14 +358,13 @@ impl<D: DataSource + Default + 'static> App<D> {
             .map_or(Duration::from_micros(16_667), |rate| {
                 Duration::from_secs_f64(1000. / rate.max(1) as f64)
             });
-        self.next_frame = frame_started
-            + if self.frame_limit.is_some()
-                && std::env::var_os("EXACT_AGENT_WINDOW_UNPACED").is_some()
-            {
-                Duration::ZERO
-            } else {
-                period
-            };
+        self.next_frame = if self.frame_limit.is_some()
+            && std::env::var_os("EXACT_AGENT_WINDOW_UNPACED").is_some()
+        {
+            frame_started
+        } else {
+            next_frame_deadline(self.next_frame, frame_started, period)
+        };
         events.set_control_flow(ControlFlow::WaitUntil(self.next_frame));
         Ok(())
     }
@@ -568,6 +580,32 @@ impl<D: DataSource + Default + 'static> ApplicationHandler for App<D> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn frame_cadence_does_not_accumulate_timer_latency() {
+        let start = Instant::now();
+        for hz in [60, 120, 144] {
+            let period = Duration::from_secs_f64(1.0 / hz as f64);
+            let mut deadline = start;
+            for frame in 1..=10_000 {
+                deadline =
+                    next_frame_deadline(deadline, deadline + Duration::from_micros(350), period);
+                assert_eq!(deadline, start + period * frame);
+            }
+        }
+    }
+    #[test]
+    fn early_redraws_preserve_cadence_and_stalls_resume_without_catch_up() {
+        let start = Instant::now();
+        let period = Duration::from_millis(10);
+        let deadline = start + period;
+        assert_eq!(next_frame_deadline(deadline, start, period), deadline);
+        let late = deadline + Duration::from_secs(5);
+        assert_eq!(next_frame_deadline(deadline, late, period), late + period);
+        assert_eq!(
+            next_frame_deadline(deadline, deadline + period, period),
+            deadline + period * 2
+        );
+    }
     #[test]
     fn wheel_units_are_logical_pixels_with_browser_sign() {
         for scale in [1., 2.] {

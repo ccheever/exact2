@@ -70,6 +70,94 @@ test('builds register by nonce, report up, and take pins one build at a time', (
   expect(back.frames).toEqual([expect.objectContaining({ kind: 'pin', pin: null })]);
 });
 
+test('each listed build names the revision of the last pin frame it was sent, whoever sent it, so a client sees when its status catches up', () => {
+  const events = [];
+  const channel = buildChannel({ send: e => events.push(e) });
+  const a = stream(channel), b = stream(channel);
+  register(channel, a.nonce, 'web-1');
+  register(channel, b.nonce, 'ios-1', 'ios');
+  const row = id => events.findLast(e => e.event === 'builds').builds.find(x => x.id === id);
+  expect(row('web-1')).toMatchObject({ pin: null, pinRevision: 0, status: null });
+  // One client pins one build: that build's revision moves, announced with
+  // the pin, before its status says it applied it.
+  const one = channel.pin('tool', 'web-1', { scheme: 'dark' });
+  expect(row('web-1')).toMatchObject({ pin: { scheme: 'dark' }, pinRevision: one.revision });
+  expect(row('ios-1').pinRevision).toBe(0);
+  // Another client's pin on every build: each names it.
+  const all = channel.pin('agent', null, { scheme: 'light' });
+  expect([row('web-1').pinRevision, row('ios-1').pinRevision]).toEqual([all.revision, all.revision]);
+  // A hand-back is a frame too, its revision the clear's.
+  channel.clear('agent');
+  const cleared = row('web-1').pinRevision;
+  expect(cleared).toBeGreaterThan(all.revision);
+  expect(row('web-1').pin).toBe(null);
+  expect(a.frames.at(-1)).toEqual({ kind: 'pin', revision: cleared, pin: null });
+  // A reload is told its pin again, at that frame's revision, its status
+  // not yet reported.
+  channel.pin('tool', 'ios-1', { scheme: 'dark' });
+  const held = row('ios-1').pinRevision;
+  b.close();
+  const back = stream(channel);
+  register(channel, back.nonce, 'ios-1', 'ios');
+  expect(row('ios-1')).toMatchObject({ pinRevision: held, status: null, pin: { scheme: 'dark' } });
+  expect(back.frames).toEqual([{ kind: 'pin', revision: held, pin: { scheme: 'dark' } }]);
+});
+
+test('a build\'s last refusal is on its record, the pin\'s it reports next, until its status moves to another revision', () => {
+  const events = [];
+  const channel = buildChannel({ send: e => events.push(e) });
+  const a = stream(channel);
+  register(channel, a.nonce, 'web-1');
+  const row = () => channel.list()[0];
+  const status = revision => report(channel, { nonce: a.nonce, kind: 'status', scheme: 'dark', contrast: 'no-preference', mode: {}, rootFontSize: 16, revision });
+  // Contrast pinned at 1, a scheme at 2 sent before the web answers 1.
+  const one = channel.pin('tool', 'web-1', { contrast: 'more' }).revision;
+  const two = channel.pin('tool', 'web-1', { scheme: 'dark' }).revision;
+  report(channel, { nonce: a.nonce, kind: 'unsupported', what: 'pin.contrast', detail: 'no' });
+  expect(row().unsupported).toEqual({ what: 'pin.contrast', detail: 'no' });
+  // Its status for 1 follows: the refusal is 1's, and stays while it is.
+  status(one);
+  expect(events.at(-1).build.unsupported).toEqual({ what: 'pin.contrast', detail: 'no' });
+  status(one);
+  expect(row().unsupported).not.toBe(null);
+  // It applies 2: the refusal was not 2's.
+  status(two);
+  expect(row().unsupported).toBe(null);
+  expect(events.at(-1).build.unsupported).toBe(null);
+  // A late status (1 again) cannot rewind the row; a late refusal for 1
+  // is old news.
+  status(one);
+  expect(row().status.revision).toBe(two);
+  report(channel, { nonce: a.nonce, kind: 'unsupported', what: 'pin.contrast', revision: one });
+  expect(row().unsupported).toBe(null);
+  // A refusal that names its revision is that frame's, whichever status
+  // lands first.
+  const three = channel.pin('tool', 'web-1', { contrast: 'less' }).revision;
+  status(three);
+  report(channel, { nonce: a.nonce, kind: 'unsupported', what: 'pin.contrast', detail: 'no', revision: three });
+  expect(row().unsupported).toEqual({ what: 'pin.contrast', detail: 'no' });
+  // A revision this registration was never sent acknowledges nothing (a
+  // report from before a server restart, say).
+  status(three + 5);
+  expect(row().status.revision).toBe(null);
+});
+
+test('a build with no pin is told so at revision 0, and a pin to no build sends nothing', () => {
+  const channel = buildChannel();
+  const a = stream(channel);
+  register(channel, a.nonce, 'web-1');
+  channel.pin('tool', 'web-1', { scheme: 'dark' });
+  channel.clear('tool');
+  // A later build has no pin: revision 0, already caught up when it says so.
+  const b = stream(channel);
+  register(channel, b.nonce, 'ios-1', 'ios');
+  expect(b.frames).toEqual([{ kind: 'pin', revision: 0, pin: null }]);
+  expect(channel.list().find(x => x.id === 'ios-1').pinRevision).toBe(0);
+  a.close(); b.close();
+  const before = channel.pin('tool', null, null).revision;
+  expect(channel.pin('tool', null, { scheme: 'dark' })).toEqual({ builds: [], revision: before });
+});
+
 test('a polled stream queues its frames, expires unpolled, and is bounded', () => {
   const realNow = Date.now;
   let now = 1_000_000;

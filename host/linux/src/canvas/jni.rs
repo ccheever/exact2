@@ -187,6 +187,7 @@ macro_rules! canvas_jni {
                                 |mut h| {
                                     h.set_borrowed(true);
                                     let first = h.frame();
+                                    h.roles_here(false);
                                     Booted(h, first)
                                 },
                             )
@@ -214,6 +215,7 @@ macro_rules! canvas_jni {
                 match slot.take().expect("booted") {
                     Ok(Booted(mut h, first)) => {
                         h.set_borrowed(false);
+                        h.roles_here(true);
                         HOST.with(|s| *s.borrow_mut() = Some(h));
                         RUNNING.store(true, std::sync::atomic::Ordering::Release);
                         PRIMED.with(|p| *p.borrow_mut() = first);

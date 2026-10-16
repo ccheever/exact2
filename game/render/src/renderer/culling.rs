@@ -1,7 +1,9 @@
 //! Per-frame culling inputs: draw groups, the retained setup and view planes.
 //! @ref llp/1046.003-game-engine-as-built.explainer.md#culling-and-environment-lighting-2026-09-23
 use super::*;
-use crate::cull::{Group, CAPSULE, GROUP_WORDS, KEEP_ALL, PLAIN, RECORD_WORDS, SKIN_WORDS};
+use crate::cull::{
+    Group, CAPSULE, GROUP_WORDS, KEEP_ALL, PLAIN, RECORD_WORDS, SKIN_WORDS, SORTED_CHUNKS, UNSORTED,
+};
 
 impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     /// Resolve this frame's draw groups (one per batch and winding) and upload a
@@ -118,6 +120,12 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             let flags = group.flags
                 | if mesh.capsule { CAPSULE } else { 0 }
                 | if mesh.plain { PLAIN } else { 0 };
+            let histogram = if head[3] >= SORTED_CHUNKS {
+                self.cull.sorted += 1;
+                self.cull.sorted - 1
+            } else {
+                UNSORTED
+            };
             let words: [u32; GROUP_WORDS] = [
                 head[0],
                 head[1],
@@ -132,7 +140,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 mesh.reach.y.to_bits(),
                 mesh.reach.z.to_bits(),
                 mesh.cap.to_bits(),
-                0,
+                histogram,
                 0,
                 0,
             ];

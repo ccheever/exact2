@@ -171,7 +171,7 @@ impl Modes {
             }
             let projected = crate::style::project(plan, sites, &mut Vec::new());
             // The plan's own tokens again (an edit is the runner's, D13).
-            let _ = bridge::set_role_overrides(plan);
+            let _ = bridge::role_overrides(plan);
             parts = projected?;
             for p in parts.iter_mut().flatten() {
                 p.css = self.substitute(&p.css);

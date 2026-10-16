@@ -131,6 +131,31 @@ impl<D: DataSource> Presenter<D> {
     /// journal says why, as the web host's does (it had been an unknown
     /// command here).
     /// The node it focused, if it did.
+    /// Whether `id` is being rendered and focusable in the current tree,
+    /// which the last painted picture may not show yet: no ancestor up to
+    /// the presented alert (which paint draws from its own root) is
+    /// `display: none`, on a hidden or inert route, or a dialog, which paint
+    /// skips. A top-layer surface's rows are `surface_focus`'s.
+    fn rendered(&self, id: ViewId) -> bool {
+        let kernel = self.host.kernel();
+        let shown = self.alert_root();
+        let mut at = kernel.node(id);
+        while let Some(node) = at {
+            let (hidden, inert) = self.host.route_visibility(node.id);
+            if node.style.display == exact_kernel::Display::None || hidden || inert {
+                return false;
+            }
+            if Some(node.id) == shown {
+                return true;
+            }
+            if node.props.str(PropId::SemanticTag) == Some("dialog") {
+                return false;
+            }
+            at = node.parent.and_then(|parent| kernel.node(parent));
+        }
+        true
+    }
+
     pub(crate) fn focus_command(&mut self, args: &[exact_plan::Value]) -> Option<ViewId> {
         let Some(name) = args.first().and_then(exact_plan::Value::as_str) else {
             eprintln!("exact: focus requires an element id");
@@ -151,6 +176,10 @@ impl<D: DataSource> Presenter<D> {
             None => "no live node with that id",
             Some(id) if self.surface_focus(id) => return Some(id),
             Some(id) if !self.focusable(id) => "not focusable",
+            // As `HTMLElement.focus()` on an element that is not being
+            // rendered: a command queued by a handler can run after its
+            // dialog has closed.
+            Some(id) if !self.rendered(id) => "not rendered",
             Some(id) => {
                 if let Some(e) = self.set_focus(Some(id), self.host.now()) {
                     eprintln!("exact: {e}");
@@ -165,6 +194,9 @@ impl<D: DataSource> Presenter<D> {
     /// Move the focus in DOM order, with both bubbling paths fixed before an
     /// action on either path can change the tree.
     pub(crate) fn set_focus(&mut self, next: Option<ViewId>, now_ms: f64) -> Option<String> {
+        if next.is_some_and(|id| !self.alert_allows(id)) {
+            return Some("focus refused: page under alert is inert".into());
+        }
         let previous = self.focus;
         if previous == next {
             return None;
@@ -632,3 +664,7 @@ impl<D: DataSource> Presenter<D> {
         Ok((x, y))
     }
 }
+
+#[cfg(test)]
+#[path = "focus_rendered_tests.rs"]
+mod focus_rendered_tests;

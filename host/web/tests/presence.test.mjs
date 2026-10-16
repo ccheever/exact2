@@ -10,6 +10,7 @@ import { Cdp } from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
 import { comparePresence } from '../parity.mjs';
 import { need } from '../../../scripts/coverage.mjs';
+import { readyPage } from './page.mjs';
 
 test('the timeline comparator rejects missing ghosts, drift, and invalid recordings', () => {
   const node = { x: 10, y: 20, w: 100, h: 40, opacity: .5, exiting: true };
@@ -108,12 +109,8 @@ beforeAll(async () => {
     if (reply.exceptionDetails) throw new Error(reply.exceptionDetails.exception?.description ?? reply.exceptionDetails.text);
     return reply.result.value;
   };
-  await call('Page.navigate', { url:`http://127.0.0.1:${server.address().port}/` });
-  for (let i = 0; !(await evaluate('window.ready === true')); i++) {
-    if (i > 2000) throw new Error('presence page never ready');
-    await Bun.sleep(5);
-  }
-});
+  await readyPage(cdp, sessionId, `http://127.0.0.1:${server.address().port}/`);
+}, 60000);
 afterAll(() => {
   child?.kill(); server?.close();
   if (profile) rmSync(profile, { recursive:true, force:true });

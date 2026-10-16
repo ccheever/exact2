@@ -70,6 +70,55 @@ mod tests {
     use exact_game::Transform;
 
     #[test]
+    fn changed_parent_subtrees_survive_retries_and_cycles() {
+        struct Scene;
+        impl exact_game::Game for Scene {
+            type Args = ();
+            const ID: &'static str = "parent-reset-cache";
+            fn setup(w: &mut World, _: &()) {
+                let a = w.spawn_named("a", Transform::default());
+                let b = w.spawn_named("b", Transform::default());
+                let middle = w.spawn_named("middle", (Transform::default(), Parent(a)));
+                w.spawn_named("leaf", (Transform::default(), Parent(middle)));
+                w.spawn_named("other", (Transform::default(), Parent(b)));
+            }
+            fn tick(_: &mut World, _: &exact_game::Input, _: &()) {}
+        }
+        let mut sim = exact_game::Sim::<Scene>::new(()).unwrap();
+        sim.run(1000. / 60.);
+        let middle = sim.world().named("middle").unwrap();
+        let leaf = sim.world().named("leaf").unwrap();
+        let other = sim.world().named("other").unwrap();
+        let b = sim.world().named("b").unwrap();
+        let mut cache = ParentChanges::default();
+        cache.begin(sim.world());
+        cache.commit();
+        cache.begin(sim.world());
+        assert!(!cache.get(sim.world(), leaf));
+        sim.world_mut().insert(middle, Parent(b));
+        for _ in 0..2 {
+            cache.begin(sim.world());
+            assert!(cache.get(sim.world(), leaf));
+            assert!(!cache.get(sim.world(), other));
+        }
+        cache.commit();
+        cache.begin(sim.world());
+        assert!(!cache.get(sim.world(), leaf));
+        sim.world_mut().insert(b, Parent(leaf));
+        cache.begin(sim.world());
+        assert!(cache.get(sim.world(), leaf));
+        cache.commit();
+        cache.begin(sim.world());
+        assert!(!cache.get(sim.world(), leaf));
+        sim.world_mut().remove::<Parent>(middle);
+        cache.begin(sim.world());
+        assert!(cache.get(sim.world(), leaf));
+        cache.reset();
+        cache.begin(sim.world());
+        assert!(cache.get(sim.world(), leaf));
+    }
+
+    #[test]
     fn sparse_columns_clear_removed_rows_between_scans() {
         let mut w = World::new(60, 0);
         let leaf = w.spawn(());
@@ -140,5 +189,79 @@ mod tests {
         let entity = other.spawn(Visible(false));
         cache.begin(&other);
         assert!(!cache.get(&other, entity)); // Scratch can serve another world.
+    }
+}
+
+/// Parent edges at the last successful feed. A changed edge resets its subtree,
+/// not every unrelated hierarchy in the scene.
+#[derive(Default)]
+pub(super) struct ParentChanges {
+    previous: Vec<Option<(Entity, Entity)>>,
+    current: Vec<Option<(Entity, Entity)>>,
+    states: Vec<u8>,
+    path: Vec<Entity>,
+}
+impl ParentChanges {
+    pub fn reset(&mut self) {
+        self.previous.clear();
+        self.current.clear();
+        self.states.clear();
+    }
+    pub fn begin(&mut self, w: &World) {
+        self.current.fill(None);
+        for (entity, parent) in w.query::<&Parent>().iter() {
+            let index = entity.index() as usize;
+            if self.current.len() <= index {
+                self.current.resize(index + 1, None);
+            }
+            self.current[index] = Some((entity, parent.0));
+        }
+        self.states
+            .resize(self.previous.len().max(self.current.len()), 0);
+        for (index, state) in self.states.iter_mut().enumerate() {
+            *state = if self.previous.get(index).copied().flatten()
+                != self.current.get(index).copied().flatten()
+            {
+                2
+            } else {
+                0
+            };
+        }
+        // A fresh ancestor also cuts interpolation; memoize that walk together
+        // with parent changes instead of rereading every shared ancestor.
+        for entity in w.fresh() {
+            let index = entity.index() as usize;
+            if self.states.len() <= index {
+                self.states.resize(index + 1, 0);
+            }
+            self.states[index] = 2;
+        }
+    }
+    pub fn get(&mut self, w: &World, mut entity: Entity) -> bool {
+        self.path.clear();
+        let changed = loop {
+            if !w.contains(entity) {
+                break false;
+            }
+            let index = entity.index() as usize;
+            match self.states.get(index).copied().unwrap_or(3) {
+                2 => break true,
+                1 | 3 => break false,
+                _ => {}
+            }
+            self.states[index] = 1;
+            self.path.push(entity);
+            match self.current.get(index).copied().flatten() {
+                Some((owner, parent)) if owner == entity => entity = parent,
+                _ => break false,
+            }
+        };
+        for entity in &self.path {
+            self.states[entity.index() as usize] = if changed { 2 } else { 3 };
+        }
+        changed
+    }
+    pub fn commit(&mut self) {
+        std::mem::swap(&mut self.previous, &mut self.current);
     }
 }

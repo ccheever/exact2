@@ -1534,6 +1534,24 @@ there is auto. all and contain are diagnosed at compile time
 press or keeps a selection inside its element. Border shorthands reset and
 lower to existing side rows, including `inset`, `dotted` and `dashed` under
 §1's border semantics and raster deviation; other line styles are diagnosed.
+The one-to-four-value box shorthands (`padding`, `margin`, `inset`,
+`border-width`, `border-style`, `border-color`, `scroll-padding`,
+`scroll-margin`, `border-radius`) lower a literal, or each literal arm of a
+choice, to its side rows, split at CSS white space (space, tab, LF, CR, FF)
+outside parentheses as CSS expands the shorthand
+(`exact_kernel::style::sides`); a literal `/` radius is refused by name. A
+computed value is bound whole to the four rows, and no host splits it: an
+overriding longhand, an `env()` substituted later and each row's grammar
+would make a run-time split differ from the browser's. So a computed value
+the compiler sees build a list (`` padding=`${pad}px 0` ``, a concatenation,
+a `fn` returning one) is refused (`lower-css-shorthand`), naming the
+longhands, each of which may be computed. A computed single value
+(`padding=pad`) is every side's. A list that reaches a row anyway (state
+holding `"10px 5px"`) is refused by the row with a journal line on every
+host; the web's JS target refuses a list on a corner (two lengths, or a
+`/`) itself, as the browser would draw the elliptical radius no row holds.
+A bare `0` on a length row other than `line-height` is the length 0 (CSS
+Values 4 §6.1), and a keyword is ASCII case-insensitive (`margin="0 Auto"`).
 Text-decoration lowers solid currentcolor
 underline/line-through to the existing line row; other color/style/thickness
 components are diagnosed. Linux draws its UA lines from font size and glyph

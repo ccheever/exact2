@@ -25,6 +25,7 @@ const takesValue = (spec) => spec.includes(' ');
 // which the repository's smokes and pixel fixtures are written against.
 const DRIVE = [
   ['--port <n>', 'web: the page’s port (or EXACT_PORT); backend origins remain those app.ts grants'],
+  ['--backend <url>', 'web: select the backend origin for this build'],
   ['--storage <name>', 'a scratch store; Chrome starts empty each drive'],
   ['--keep-storage · --reset-storage', 'Chrome: reopen a named store · explicitly empty it'],
   ['--size <w>x<h>', 'the viewport (default 420x900; a simulator\'s own)'],
@@ -68,7 +69,7 @@ export const HELP = {
   snapback: {
     line: 'wire Snapback',
     usage: 'bun exact.mjs snapback [--port <n>] [--rebuild]',
-    flags: [['--port <n>', 'add or move a loopback backend origin, matching grants and test fetch prefixes'],
+    flags: [['--port <n>', 'select a local backend origin for the bake without source edits'],
       ['--online', 'use the server without a local device'],
       ['--artifact-only', 'with --rebuild: repair the device without changing wiring'],
       ['--rebuild', 'rebuild a missing or stale device after updating Snapback4']],
@@ -122,8 +123,7 @@ Ports    none. Runs to completion: exit 0 when it built. test web and agent web 
 older than its sources, saying so on stderr. Each test launches the app fresh with its own
 store, after its first data has landed; its leading lines (size, epoch, fail fetch …)
 override flags.
-Server   runs server.ts at app.ts’s origin on DB=.exact/test/db.sqlite, then stops it.
-         Refuses a server already answering there or an entry that does not read process.env.DB.
+Server   runs server.ts on DB=.exact/test/db.sqlite; refuses a live server or an entry ignoring DB.
 Runs     to completion, exit 1 when a test fails; nothing is left running.
 Backend  start snapback4 dev on app.ts’s origin’s port; checked before launch. EXACT_PORT is the page’s.
 Lines    tap, type, expect text|tree|state|disabled, clock data|settle|+<ms>, reload, back, fail|pass
@@ -155,8 +155,7 @@ Ops      a target is a testId, else a view's exact text or label
   clock data · clock settle · clock +<ms> [real]    land what is in flight · end transitions
   check [dark|both] · screenshot <file.png> [window]  what is wrong, in text, before a picture · window: bars
   prefer <feature> <value> · perf [<target>] · resize <w>x<h> · close · back · fail|pass fetch <prefix>`,
-    bodyAll: `Trace    trace <file> reads a saved trace. Op forms: docs/contract-for-agents.md, "Inspection and testing".
-Ports    web: --port/EXACT_PORT, else a named store’s port (20000-47999), else free. ${NATIVE_PORTS}`,
+    bodyAll: `Ports    web: --port/EXACT_PORT, else a named store’s port (20000-47999), else free. ${NATIVE_PORTS}`,
     example: 'bun exact.mjs agent web --storage s1 "clock data" tree "tap add" "screenshot .exact/a.png"',
   },
   verify: {
@@ -247,8 +246,9 @@ Ports    none. Runs to completion.`,
     usage: 'bun exact.mjs android',
     flags: [],
     // The app on the Canvas reader, as an APK (host/android/README.md): for an app with an `android/` crate,
-    // which `exact new` does not write yet.
-    internal: ['--apk'],
+    // which `exact new` does not write yet, or a game (its shell generates one). --release builds the
+    // release profile, for measuring.
+    internal: ['--apk', '--release'],
     body: `Builds for aarch64-linux-android and prints the binary's path; the drive runs it under
 adb shell on the first device or emulator (ANDROID_SERIAL picks one). Needs the NDK
 (ANDROID_NDK_HOME, else the newest under the SDK's ndk/) and, once in this directory,
@@ -427,7 +427,7 @@ export function helpText(verb, { all = false } = {}) {
   const more = !all && (hidden.length || entry.bodyAll)
     ? [`More     bun exact.mjs ${verb} --help all: every flag (${hidden.slice(0, 4).join(', ')}${hidden.length > 4 ? ' …' : ''}), the ports`]
     : [];
-  return [entry.usage, `  ${entry.line}`, '', ...(flags ? [flags, ''] : []), body, `Example  ${entry.example}`, ...more].join('\n');
+  return [entry.usage, `  ${entry.line}`, '', ...(flags ? [flags, ''] : []), body, ...(verb === 'agent' && all ? [driverCapabilities()] : []), `Example  ${entry.example}`, ...more].filter((line) => !all || line !== '').join('\n');
 }
 
 /** The index: each verb of an app's exact.mjs, then the app's own (app.json `commands`), then the forms a build uses
@@ -483,3 +483,9 @@ export function guardFlags(verb, argv, { parsed = false, say = console.log, fail
 }
 
 if (import.meta.main) { const args = process.argv.slice(2); process.exit(printHelp(args.find((a) => a !== 'all') ?? '', { all: args.includes('all') })); }
+
+/** Host differences for the shared driver operations. */
+export function driverCapabilities() {
+  return `Capabilities: tree/layout/state/logs, tap/type/pick/clock/prefer/faults and screenshots: all hosts.
+reload (interactive): web; reload (authored tests): all. Resize: web/macOS/Linux. Close: web/macOS. iOS touch: --touch platform.`;
+}

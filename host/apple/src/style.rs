@@ -1076,7 +1076,7 @@ pub fn glass_auto_spacing(node: &NodeRef<'_>) -> Option<f32> {
 
 /// [`glass_auto_spacing`] in a node's props: the points as `glassGroup` and
 /// `glassGroupAuto`, so a change to the prop sends them.
-pub fn glass_auto_props(node: &NodeRef<'_>, out: &mut std::collections::BTreeMap<String, String>) {
+pub fn glass_auto_props(node: &NodeRef<'_>, out: &mut exact_kernel::SortedMap<String, String>) {
     if let Some(points) = glass_auto_spacing(node) {
         out.insert(PropId::GlassGroup.name().to_string(), num(points));
         out.insert("glassGroupAuto".to_string(), "true".to_string());

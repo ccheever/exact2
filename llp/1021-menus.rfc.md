@@ -510,11 +510,14 @@ confirmation's text rows are disabled lines at the top, wrapped at 260
 points, then a separator, and no heading. The cancel has no item: Escape
 and a click outside end a menu and dispatch nothing, as UIKit drops the
 cancel from a sheet shown as a popover. A chosen item is recorded, and its
-row is pressed by view id once, on the next main-queue turn after the menu
-ends, as iOS presses after the sheet is dismissed. AppKit sends an item's
-action inside `popUp`, while it still tracks the menu in the invoker, and a
-press whose batch unmounts that invoker (Messages' Discard Changes
-navigates back) must not run under it. The owner checks above run then,
+row is pressed by view id once, after the menu ends, as iOS presses after
+the sheet is dismissed: as `popUp` returns, in the turn the menu closed. AppKit
+sends an item's action inside `popUp`, while it still tracks the menu in the
+invoker, and a press whose batch unmounts that invoker (Messages' Discard
+Changes navigates back) must not run under it. A later turn is too late:
+VoiceOver, asking where the focus is as the menu closes, was answered before
+a press that opened a dialog, re-read the page's focused field and never
+named the dialog (realinput-1017k H-9). The owner checks above run then,
 and again as each batch lands, while the menu is open and after it has
 ended with a choice awaiting its turn: a batch that changes a row's title
 or enablement, hides it (its own or an ancestor's `display: none` or
@@ -525,7 +528,7 @@ the choice is cancelled for good: a later batch that undoes the change
 does not revive it. A choice belongs to its presentation: presenting the
 popover again cancels one still awaiting its turn, whose press would
 otherwise run under the new presentation (its hide closing it). A button
-menu's item is pressed the same way: on the next turn, once per menu, and
+menu's item is pressed the same way: as its menu closes, once per menu, and
 only if its row is still the node the menu showed (live, in its popover,
 enabled, shown, the same title; an id reused by another node is not it),
 its invoker still opens the popover as above, and the popover has not been
@@ -677,6 +680,10 @@ delivered (and still presses what it lands on); its hide-only button
 closes it after its own tap. `tree` reports `{open}` and `state.navigation.popover`
 names it, as on macOS; `screenshot` composes the layer. `smoke.mjs ios
 --app native-fixture` checks each step.
+
+*Under real touches on iOS (2026-10-16).* `--touch platform` presents
+D3's native menu instead (LLP 1080.000 D7, §13): a finger opens it and
+picks its row, as a person's does; context menus stay painted.
 
 **D5 — every host, from one table.** Web: the attributes land on the real
 elements and the browser does the rest (one glue rule for D2's anchoring).
@@ -922,7 +929,7 @@ menu's glass and the dismissal. In the delegate:
 did), then, on the next turn, pops up the popover's menu rows as an
 `NSMenu` at the click (`MenuHost.context`, `menu(of:)`), the preview row
 skipped. A Mac's context menu has no preview, and the HIG offers none. A
-picked item presses on the next turn, once, by the button menu's rules (no
+picked item presses as the menu closes, once, by the button menu's rules (no
 invoker to recheck). `isMenuShaped` ignores the preview row.
 
 **Web (both targets).** The node's `contextpopover` attribute is wired

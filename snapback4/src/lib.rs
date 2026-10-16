@@ -211,6 +211,9 @@ pub fn host_request(
         Some(body) => exact_runner::Request::post_json(&url, &body.to_string()),
         None => exact_runner::Request::get(&url),
     };
+    if let Some(bytes) = &fetch.bytes {
+        request.body = bytes.clone();
+    }
     request.method = fetch.method.into();
     request.headers.extend(
         headers

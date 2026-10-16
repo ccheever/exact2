@@ -127,10 +127,10 @@ extension NSView {
 
 extension Presenter {
     /// Whether `window` holds this session's nodes: its view's window, the
-    /// sheet of one of its dialogs, or one of its popovers'.
+    /// sheet of one of its dialogs or alerts, or one of its popovers'.
     func hosts(_ window: NSWindow?) -> Bool {
         guard let window else { return false }
-        return window === viewport.window || dialogs.entries.contains { $0.sheet?.window === window } || menus.hosts(window)
+        return window === viewport.window || window === alerts.sheet || dialogs.entries.contains { $0.sheet?.window === window } || menus.hosts(window)
     }
     /// The window a new sheet goes on and the keyboard is in: the open
     /// dialog's sheet, else the page's.
@@ -154,7 +154,7 @@ extension Presenter {
     /// top layer is ordered by its place there; one in a window of its own
     /// stands in front of the page, the sheets in the order they opened and
     /// then the popovers, which every dialog closes as it opens. And the
-    /// index of the front modal route's (RouteSheetMac.swift), a
+    /// index of the front modal dialog's, alert's or route's, a
     /// presentation the runner keeps live with what is above it, and the
     /// rest inert (LLP 1123 D2).
     package var openTopLayer: (frames: [(UInt32, CGRect)], modal: Int?) {
@@ -184,9 +184,11 @@ extension Presenter {
                                   y: rect.minY - clip.bounds.minY,
                                   width: rect.width, height: rect.height))
         }
-        let alerts = (carrying("popover") + carrying("tag:dialog"))
-            .filter { self.alerts.isOpen($0) }.map { ($0.id, CGRect.zero) }
-        return (painted + alerts, ordered.lastIndex { dialogs.presentsRoute($0) })
+        let modal = ordered.lastIndex { $0 === dialogs.active || dialogs.presentsRoute($0) }
+        if let alert = alerts.presented, let node = alert.node {
+            return (painted + [(node.id, CGRect.zero)], alert.popover ? modal : painted.count)
+        }
+        return (painted, modal)
     }
     package var openTopLayerFrames: [(UInt32, CGRect)] { openTopLayer.frames }
 }

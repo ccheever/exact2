@@ -48,6 +48,10 @@ pub enum Request {
     /// what happens in the window by a call of its own
     /// ([`Presenter::surface_event`]), not by this request's id.
     Surface(super::top::Surface),
+    /// Whether a displayed element says `wakelock="screen"` (LLP 1125 D11):
+    /// the shell keeps the screen on while it does. A statement, told when it
+    /// changes.
+    KeepScreenOn(bool),
 }
 
 impl Request {
@@ -60,6 +64,7 @@ impl Request {
             Request::Back(_) => 5,
             Request::Keyboard(..) => 6,
             Request::Surface(_) => 7,
+            Request::KeepScreenOn(_) => 8,
         }
     }
 }
@@ -141,6 +146,11 @@ pub(super) struct State {
     back: Option<bool>,
     back_epoch: Option<u64>,
     keyboard: Option<(u32, ViewId)>,
+    /// What the shell was last told of the wake lock and the kernel epoch
+    /// that was read at; whether a host with no shell journaled it.
+    wakelock: Option<bool>,
+    wakelock_epoch: Option<u64>,
+    wakelock_said: bool,
 }
 
 /// `EXACT_LOG_REQUESTS=1`: each request and each answer on stderr (a
@@ -176,7 +186,7 @@ fn encode(id: u32, request: &Request, out: &mut Vec<i32>) {
                 string(out, part.as_deref().unwrap_or_default());
             }
         }
-        Request::Back(goes) => out.push(i32::from(*goes)),
+        Request::Back(goes) | Request::KeepScreenOn(goes) => out.push(i32::from(*goes)),
         Request::Keyboard(kind, field) => out.extend([*kind as i32, *field as i32]),
         Request::Surface(surface) => surface.encode(out),
     }
@@ -189,6 +199,7 @@ impl<D: DataSource> Presenter<D> {
     /// with no shell refuses them or does nothing.
     pub fn serve_requests(&mut self) {
         self.requests.shell = true;
+        (self.requests.wakelock, self.requests.wakelock_epoch) = (None, None);
     }
 
     /// Whether a shell takes requests.
@@ -250,6 +261,46 @@ impl<D: DataSource> Presenter<D> {
             self.requests.keyboard = Some(keyboard);
             self.queue(Request::Keyboard(keyboard.0, keyboard.1));
         }
+        if let Some(held) = self.wakelock_moved() {
+            self.queue(Request::KeepScreenOn(held));
+        }
+    }
+
+    /// Whether a displayed element holds the wake lock (`exact_runner::wakelock`,
+    /// read again only after a commit), when that is not what was last read.
+    fn wakelock_moved(&mut self) -> Option<bool> {
+        let epoch = self.host.kernel().epoch();
+        if self.requests.wakelock_epoch == Some(epoch) {
+            return None;
+        }
+        self.requests.wakelock_epoch = Some(epoch);
+        let held = !exact_runner::wakelock::holders(self.host.kernel()).is_empty();
+        // Untold is off, as a new reader's view is (`keepScreenOn` false).
+        (self.requests.wakelock.unwrap_or(false) != held).then(|| {
+            self.requests.wakelock = Some(held);
+            held
+        })
+    }
+
+    /// A host with no shell (desktop Linux, Windows, a headless run) keeps no
+    /// display awake: the first time an element holds the wake lock, the
+    /// journal says so (LLP 1125 D11). Asked as a loop's turn runs its
+    /// commands (`run_commands`), which Android's reader serves before.
+    pub(super) fn wakelock_unavailable(&mut self) {
+        if self.requests.shell || self.requests.wakelock_said || self.wakelock_moved() != Some(true)
+        {
+            return;
+        }
+        self.requests.wakelock_said = true;
+        self.host
+            .log("wakelock: unavailable: this host keeps no display awake");
+    }
+
+    /// Another host took over (`Presenter::replaced`): its kernel may have
+    /// the epoch the wake lock was last read at, so it is read again; what
+    /// the shell was told stands.
+    pub(super) fn wakelock_replaced(&mut self) {
+        self.requests.wakelock_epoch = None;
     }
 
     /// Whether Back has somewhere to go may have changed with no commit (a
@@ -326,6 +377,7 @@ impl<D: DataSource> Presenter<D> {
     pub(super) fn requests_reset(&mut self) {
         (self.requests.back, self.requests.back_epoch) = (None, None);
         self.requests.keyboard = None;
+        (self.requests.wakelock, self.requests.wakelock_epoch) = (None, None);
         let waiting: Vec<u32> = self.requests.waiting.keys().copied().collect();
         for id in waiting {
             self.answer_request(id, None);
@@ -429,3 +481,6 @@ impl<D: DataSource> Presenter<D> {
 #[cfg(test)]
 #[path = "requests_tests.rs"]
 mod tests;
+#[cfg(test)]
+#[path = "wakelock_tests.rs"]
+mod wakelock_tests;

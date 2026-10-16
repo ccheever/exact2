@@ -161,11 +161,11 @@ shape Step
   note: number        -- a MIDI note 0–127, or -1 for none (D7)
   velocity: number    -- 1–127
   channel: number     -- 0–15
-  length: number      -- beats until the note-off
+  duration: number    -- beats until the note-off (`length` is a list's, As built)
   haptic: string      -- a haptic kind (LLP 1077 D14), or ""
 
 shape Track
-  length: number      -- beats; the track loops at this length
+  beats: number       -- the track loops at this many beats
   loops: number       -- times it plays; 0 is forever
   offset: number      -- milliseconds added to its times: an output's latency
   output: string      -- a MIDI output's id for its notes, or ""
@@ -188,7 +188,7 @@ component Euxy
   by value. An equal value changes nothing; a different one is an edit (D3).
   A refused commit changes nothing that sounds.
 - **A track loops at its own length**, `loops` times or forever. That gives
-  polymeter with no common loop. A step outside `[0, length)` is dropped and
+  polymeter with no common loop. A step outside `[0, beats)` is dropped and
   journaled. Steps at one beat play in list order.
 - **`from=` below 0 is a count-in.** `countIn=` is a list of steps played
   once over `[from, 0)`. Tracks start at beat 0.
@@ -617,3 +617,155 @@ taken.
 | Keep-awake leaks in a mounted hidden screen | Muse 13 | Mounted and displayed (D11) |
 | The undecidable bake check for two sequences | Muse 7 | A run-time rule (D2) |
 | Main-queue haptics can be late by a whole stall | Astra 5 | Stated; late haptics are counted (D3) |
+
+## As built (stage 2, 2026-10-16)
+
+D2–D5 with sample and haptic steps, as written, except where this says
+otherwise.
+
+- **Compiler.** `sequence NAME (mount | when cond [key=expr] | key=expr)`
+  holds one `play(...)` (`contract-sequence-body`); the gate grammar is the
+  task's, one `Parser::gate`. The type pass checks a track's and a step's
+  shapes whole and in order, as `playSounds`'s hit (`type-sequence-play`),
+  and the options' types; `bpm=` is required and a literal one above 0. A
+  child's sequence is `type-child-resource`; a gate, key or argument that
+  reads `performanceNow()` is `analyze-task-gate-clock` or
+  `analyze-sequence-clock`; `ended=` names a parameterless action.
+  `clock=` and `clockOut=` are refused until their stages
+  (`lower-sequence-clock`, `lower-sequence-clock-out`). Plan `sequences`
+  carries the gate, the key and each argument as code (an omitted one a
+  constant) and `ended`. `exactTransport` is a runner-owned source;
+  `bake-transport-field` refuses a field it does not answer. Fifteen reject
+  fixtures name the new ids.
+- **Deviation: `length` is two names.** Contract refuses a field named
+  `length` (`syntax-length-field`: `.length` is a list's), so a track's
+  `length` is `beats` and a step's `length` is `duration`. Everything else
+  is D2's, in D2's order (the rulings' nine fields, then optionally
+  `playbackRate` and `pan`).
+- **Runner** (`runner/src/transport.rs`, `runner/src/runner/transport.rs`).
+  The gate step reads each sequence after the tasks' inputs, inside the
+  rollback; the transport takes the reading in `conclude`'s standing arm, so
+  a refused commit changes nothing. Its fill and the count-in's end are one
+  wake (`wake_due`), chosen in `advance_within` after everything due at the
+  same time; its end is a timer whose index follows every task's; the
+  `exactTransport` answer is a `commit_again` of its readers chosen as a
+  `then` after every mutation's. Each window is `[issued_to, at + 1000)`,
+  refilled at `issued_to − 500`. Hits sort by time, then track (the
+  count-in first), then step. `stood` arms on a gate turning true or a key
+  changing, so a sequence stopped by its end, the background or a bad tempo
+  stays stopped until then.
+- **Rules beyond the text** (each the simplest deterministic one, in the
+  module's comment):
+  - `stopSounds()` stops a sequence's sounding voices and leaves those not
+    yet started: they are its next steps (D4), and re-issuing identical
+    voices would only renumber them (rulings #3).
+  - A `bpm` that is not a positive number, or a `from` that is not finite,
+    stops the sequence (reason `bpm`) and is journaled; the gate must turn
+    true again.
+  - A track is dropped and journaled when its length is not positive, its
+    `loops` is not a whole number, or it would loop more than 1,000 times a
+    second at its tempo: the bound that keeps a fill's work finite. A step
+    is dropped when its beat is outside its track (or `[0, −from)` for the
+    count-in), its sound is undeclared, its haptic kind unknown, or its
+    gain, rate or pan not a number; a step with neither a sound nor a
+    haptic plays nothing and is left out unsaid. Each read of a changed
+    value journals its drops once.
+  - Arguments compare as values, numbers bit for bit (`Object.is` in the
+    twin), a shared list at once; a changed value that reads as the same
+    play is no edit. A new segment starts only when `bpm` changes.
+  - At the waiting cap the fill stops at that hit's time, remembering how
+    many hits at that time it issued, and wakes at the first waiting
+    voice's start.
+  - Haptics are not voices: they count toward neither bound, are recorded
+    (1,024) and journaled `haptic N kind at T`, and an edit or stop
+    retracts the ones still to come (`haptics retracted: N (edit)`).
+  - The waiting cap (256) applies to taps: the 257th waiting is dropped,
+    `sound dropped: 256 voices wait (…)` (rulings #4). The 33rd voice
+    sounding at a start is `sound dropped: 32 voices sound at its start (…)`.
+  - A track's `offset` and `output` and a step's MIDI fields are read and
+    typed and play nothing until stage 3 (rulings #8); the live clock skips
+    a hit already past at a fill and journals the count (rulings #7).
+  - `exactTransport` while stopped answers the last segment's `bpm` and
+    anchor (0 before any), and `reason` `""` before anything played.
+- **The background.** `Page` gains bit 7, `suspended`, which no `exactPage`
+  field reads. Apple sets it on iOS and tvOS while hidden unless the
+  session is `playback` with `audio` in `UIBackgroundModes`; a rising bit
+  while a sequence plays stops it (reason `background`) in a commit that
+  carries its ends. A hidden Apple session's wake within a few frames is
+  now a timer, not the display link, which does not fire there: without it
+  a `playback` metronome would stop filling with the screen locked.
+- **JS target** (`host/web-js/transport.js`, `sounds.js`). The twin keeps
+  the runner's rules line for line: its wake is a `hatch` in `clock.timers`,
+  its end a timer with `i: Infinity` (a hatch too without `ended=`), and the
+  answer a pseudo-mutation kept last in `Mutations`. `rt.js` changed three
+  lines and gained none. The module is imported only by a plan that
+  declares a sequence or reads `exactTransport`.
+- **Hosts.** Apple's mixer has 288 slots and a 1,024-op ring and frees a
+  voice retracted before it starts at once; `SoundOutput` plays a haptic on
+  the main queue at its time without opening the output, and counts those
+  more than 10 ms late (`hapticsLate`). The web glue lets a retracted node go
+  and plays a haptic as `navigator.vibrate` on a timer. Linux drops the ops.
+- **The driver.** `state.transport` (only for a plan with a sequence):
+  `state`, `reason`, `sequence`, `bpm`, `anchorAt`, `anchorBeat`, `clock`,
+  `issuedTo`, the last 16 segments, `recorded`, and the last 64 haptics with
+  their states. `expect sound … by edit` parses. No driver operation or
+  page fact was added; on iOS `prefer visibility-state=hidden` reaches the
+  background stop.
+- **Consumer.** `apps/metronome`: a tempo stepper, an accent on beat 1, a
+  count-in, a haptic on each beat and a four-track drum pattern (tracks of
+  4, 4, 1 and 3 beats), with a playhead from `exactTransport()` in a frame
+  task gated on playing; six WAVs, 11.6 KB in all.
+- **Tests.** `runner/src/transport/tests.rs` (13): the seek rule over a
+  count-in, polymeter, a tempo edit by a timer, a key restart, a stop and a
+  frame task (voices, haptics, journal and answer equal); an edit's
+  retraction; tempo without a jump in phase; a dropped step journaled once;
+  the waiting cap; the 33rd voice; `ended=` at its exact time; the answer
+  commit; a refused commit; a second sequence; `stopSounds`; the wake; the
+  background latch. A Linux agent test: `clock settle` does not wait for a
+  fill. `SoundMixerTests` (288 slots, a retraction frees its slot, a
+  1,024-op ring); `sound-glue.test.mjs` (a retraction is silent and lets
+  its node go; haptics timed, cancelled and counted late).
+- **Measured.** Conformance `transport` (a count-in, polymeter, a haptic,
+  a dropped step, an edit, a tempo change, `stopSounds`, a key restart, the
+  gate's stop and `ended=`): 25 of 25 steps equal on wasm, JS and Linux,
+  `sequence`, `haptic` and `sound` journal lines and `state.transport`
+  included; `sounds` 30/30, `gates` 19/19, `frames` 9/9, `clock` 10/10 on all
+  three. The metronome's five tests pass on the web (JS target), macOS and the
+  iOS 27 simulator.
+- **After review** (Astra, Grok): a background stop is applied once its
+  commit stands; a refused commit puts back its settled derives for a plan
+  with a sequence; `from` must be within 2^31 beats and a track at least
+  2^-20 beats long, so a loop's index stays an exact whole number; an end
+  already past is the arming's or edit's time; an end that runs `ended=`
+  is held at the timer limit like a task's timer; a hit blocked by the
+  waiting cap is due no later than its own time (taps far ahead do not
+  starve it); haptics still to come outlive the record's bound; the JS
+  twin reads every gate before arming any. On Apple a stop frees its
+  voices' slots for the Plays behind it in the same render, and ops the
+  1,024-op ring has no room for wait, in order, in `SoundOutput`'s backlog
+  (`exact_sound_room`), so an advance across several fills drops none.
+  Conformance `transport` gained a `from` past exact counting and an end
+  already past: 34 of 34 equal.
+- **After review round 2:** a fill stops the sequence (reason `bpm`, the
+  beat journaled) when a track's loop index would pass 2^52, which a beat
+  kept across an edit can reach where `from` and a length cannot; on a
+  live clock only a hit more than 500 ms past is skipped, so a held hit's
+  wake, just after its time, still plays it; the background stop rides
+  whichever commit of the `set_page` call stands (a recovery commit after
+  owed reads included); the JS twin gives each arming its own end entry,
+  so an `ended=` that starts another sequence is still counted as a timer.
+  On Apple a voice stopped before its first render gives its slot up, and a
+  boot's stop-all waits its turn in the backlog.
+- **After review round 3:** the 2^52 check drops only a track that loops
+  forever (or as many times as that) and would pass it, journaled, and the
+  rest play on, so a finite track's `ended=` still runs. On Apple a Play
+  that finds no free slot takes one whose voice ends inside the buffer,
+  mixing that voice's remaining frames first (a sum, so it sounds as it
+  would have): retriggers cut within one buffer, however many rounds, fit
+  the runner's bounds, 288 slots.
+- **Not done here.** The device check (onsets on the grid with the main
+  thread blocked for 300 ms) was not run; nothing in this lane played to a
+  speaker. MIDI steps, `offset` and clock out are stage 3; `waiting` and
+  clock in stage 4. A plan whose sequence has haptics and no declared sound
+  sends its haptic ops through the sound batch, which the Apple bake's
+  sound arm need not load for; that path was not driven.

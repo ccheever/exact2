@@ -17,7 +17,7 @@ typealias SoundLogCallback = @convention(c) (UnsafeMutableRawPointer?, UnsafePoi
 /// The arm's five entry points: the dylib's, or a test's stand-in.
 final class SoundLibrary {
     typealias Open = @convention(c) (UnsafePointer<UnsafePointer<CChar>?>?, Int, UnsafeMutableRawPointer?, SoundLogCallback?, Bool, UnsafeMutablePointer<CChar>?, Int) -> UnsafeMutableRawPointer?
-    typealias Op = @convention(c) (UnsafeMutableRawPointer?, UInt32, UInt64, UInt32, Double, Float, Float, Float) -> Void
+    typealias Op = @convention(c) (UnsafeMutableRawPointer?, UInt32, UInt64, UInt32, Double, Float, Float, Float) -> Bool
     typealias Counts = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutablePointer<UInt64>?) -> Void
     typealias Engine = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafeMutablePointer<CChar>?, Int) -> Bool
     typealias Close = @convention(c) (UnsafeMutableRawPointer?) -> Void
@@ -84,6 +84,16 @@ final class SoundOutput {
     private var opened: Double?
     /// Voices skipped because the output was not open.
     private var skipped: UInt64 = 0
+    /// A sequence's timed haptics not yet played, by id (LLP 1125 D3), and
+    /// how many played more than 10 ms late: UIKit's feedback generators
+    /// cannot be scheduled ahead, so a blocked main thread delays them.
+    private var haptics: [UInt64: DispatchWorkItem] = [:]
+    private var hapticsLate: UInt64 = 0
+    /// Ops the mixer's ring had no room for, in order, pushed again from
+    /// the main queue as renders empty it: an advance that crosses several
+    /// of a sequence's fills can hand over more than the ring holds.
+    private var backlog: [(kind: UInt32, id: UInt64, sound: UInt32, at: Double, gain: Float, rate: Float, pan: Float)] = []
+    private var draining = false
     /// Seconds after a failure before a voice tries again; settable for tests.
     var retryAfter = 1.0
     /// The host clock, on CACurrentMediaTime's timebase; settable for tests.
@@ -106,6 +116,9 @@ final class SoundOutput {
     /// The session is destroyed, or a boot names other files: the arm is
     /// stopped and let go, and the session claim given back.
     func shutdown() {
+        haptics.values.forEach { $0.cancel() }
+        haptics = [:]
+        backlog = []
         close()
         #if os(iOS) || os(tvOS)
         AudioSession.release(ObjectIdentifier(self))
@@ -119,20 +132,59 @@ final class SoundOutput {
         if let files = payload["files"] as? [String] {
             // New files let the output and its session claim go; the next voice takes both again.
             if files != self.files { shutdown(); self.files = files; failure = nil }
-            else if let arm { library()?.op(arm.handle, 3, 0, 0, 0, 0, 1, 0) }
+            // The last boot's ops still waiting are let go; the stop of its
+            // voices waits its turn like any op, so a full ring never skips it.
+            else if let arm, let library = library() { backlog = []; send(arm, library, (3, 0, 0, 0, 0, 1, 0)) }
         }
         for op in payload["ops"] as? [[String: Any]] ?? [] {
             let id = UInt64((op["id"] as? NSNumber)?.int64Value ?? 0), at = (op["at"] as? NSNumber)?.doubleValue ?? 0
             // Runner time to host seconds on CACurrentMediaTime's timebase (D6).
             let host = ExactEnv.t0 + at / 1000
-            if op["op"] as? String == "play" {
+            switch op["op"] as? String {
+            case "play":
                 if interrupted { say("sound skipped: interrupted"); continue }
                 guard let arm = ready(), let library = library() else { skipped += 1; continue }
-                library.op(arm.handle, 1, id, UInt32((op["sound"] as? NSNumber)?.intValue ?? 0), host, (op["gain"] as? NSNumber)?.floatValue ?? 1,
-                           (op["playbackRate"] as? NSNumber)?.floatValue ?? 1, (op["pan"] as? NSNumber)?.floatValue ?? 0)
-            } else if let arm, let library = library() {
-                library.op(arm.handle, 2, id, 0, host, 0, 1, 0)
+                send(arm, library, (1, id, UInt32((op["sound"] as? NSNumber)?.intValue ?? 0), host, (op["gain"] as? NSNumber)?.floatValue ?? 1,
+                                    (op["playbackRate"] as? NSNumber)?.floatValue ?? 1, (op["pan"] as? NSNumber)?.floatValue ?? 0))
+            case "end":
+                if let arm, let library = library() { send(arm, library, (2, id, 0, host, 0, 1, 0)) }
+            // A sequence step's haptic plays on the main thread at its time; it never opens the output.
+            case "haptic":
+                guard let kind = op["kind"] as? String else { continue }
+                let item = DispatchWorkItem { [weak self] in
+                    guard let self else { return }
+                    self.haptics[id] = nil
+                    if self.now() - host > 0.010 { self.hapticsLate += 1 }
+                    Haptics.play(kind)
+                }
+                haptics[id] = item
+                DispatchQueue.main.asyncAfter(deadline: .now() + max(0, host - now()), execute: item)
+            case "unhaptic":
+                haptics.removeValue(forKey: id)?.cancel()
+            default:
+                continue
             }
+        }
+    }
+
+    /// An op to the mixer, after any it had no room for.
+    private func send(_ arm: Arm, _ library: SoundLibrary, _ op: (kind: UInt32, id: UInt64, sound: UInt32, at: Double, gain: Float, rate: Float, pan: Float)) {
+        if backlog.isEmpty && library.op(arm.handle, op.kind, op.id, op.sound, op.at, op.gain, op.rate, op.pan) { return }
+        backlog.append(op)
+        guard !draining else { return }
+        draining = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.005) { [weak self] in self?.drain() }
+    }
+
+    /// Push what the ring had no room for, in order, until it is full again;
+    /// what is left waits for the next render. Internal for tests.
+    func drain() {
+        draining = false
+        guard let arm, let library = library() else { backlog = []; return }
+        while let op = backlog.first, library.op(arm.handle, op.kind, op.id, op.sound, op.at, op.gain, op.rate, op.pan) { backlog.removeFirst() }
+        if !backlog.isEmpty {
+            draining = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.005) { [weak self] in self?.drain() }
         }
     }
 
@@ -217,6 +269,7 @@ final class SoundOutput {
     }
 
     private func close() {
+        backlog = []
         guard let arm else { return }
         self.arm = nil
         started = false
@@ -242,7 +295,7 @@ final class SoundOutput {
     /// voice, `running` or `stopped` after it (`stopped` too while an
     /// interruption holds it); `failed`, with its `error`, after a failure.
     var state: [String: Any] {
-        var state: [String: Any] = ["kind": "avaudioengine", "skipped": skipped]
+        var state: [String: Any] = ["kind": "avaudioengine", "skipped": skipped, "hapticsLate": hapticsLate]
         if let arm {
             let c = counts(arm)
             state.merge(["state": started && c[3] == 1 ? "running" : "stopped", "live": c[0], "dropped": c[1], "late": c[2], "decoded": "\(files.count)/\(files.count)"]) { $1 }

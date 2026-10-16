@@ -13,7 +13,7 @@ import { join, resolve } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { EventEmitter } from 'node:events';
 import { developmentGate } from './install-page.mjs';
-import { tamberServer } from './tamber-server.mjs';
+import { FRAME_ANCESTORS, frameOnlyByTool, tamberServer } from './tamber-server.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const DESIGN = 'tamber t\n\ntheme\n  ink = #000000\n  edge = #101010\n';
@@ -68,6 +68,8 @@ test('the token goes only to a local request, and every request needs it', async
   }
   const hello = await ask(tamber, gate, { path: '/__tamber', method: 'POST', headers: { ...local, 'x-exact-tamber-token': tamber.token }, body: '{"method":"hello"}' });
   expect(hello.status).toBe(200);
+  // No dev loop runs it: no page to frame.
+  expect(hello.body.ok.page).toBe(null);
   // A path that is not the wire's is left to the dev loop.
   expect((await ask(tamber, gate, { path: '/__dev', headers: local })).handled).toBe(false);
   tamber.close();
@@ -313,36 +315,110 @@ test('a second wire for the app, whose lock is the first\'s, answers 503', async
   await second.close();
 }, 600_000);
 
-test("the dev loop mounts the wire, and the theme fixture's server answers hello", async () => {
+/** A dev loop for `app` (the theme fixture) on a free port (`flags` say
+ * which loop), and its origin; `stop` ends it. */
+async function devLoop(flags = [], app = 'theme-fixture') {
   const listener = createServer();
   await new Promise(ok => listener.listen(0, '127.0.0.1', ok));
   const port = listener.address().port;
   await new Promise(ok => listener.close(ok));
   const dist = mkdtempSync(join(tmpdir(), 'exact-tamber-dev-'));
-  const dev = spawn(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--app', 'theme-fixture', '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
-  try {
-    let out = '';
-    let err = '';
-    dev.stderr.on('data', d => { err = (err + d).slice(-4000); });
-    await new Promise((ok, fail) => {
-      dev.stdout.on('data', d => { out += d; if (out.includes(`127.0.0.1:${port}/`)) ok(); });
-      dev.on('error', fail);
-      dev.on('exit', code => fail(new Error(`the dev loop exited ${code}: ${out}${err}`)));
-    });
-    const base = `http://127.0.0.1:${port}`;
-    const { token } = await (await fetch(`${base}/__tamber/token`)).json();
-    const hello = await (await fetch(`${base}/__tamber`, { method: 'POST', headers: { 'x-exact-tamber-token': token }, body: '{"method":"hello"}' })).json();
-    expect(hello.ok.protocol).toBe('tamber/1.2');
-    expect(Object.keys(hello.ok.files)).toContain('app.tamber');
-  } finally {
+  const dev = spawn(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--app', app, '--port', String(port), ...flags], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const stop = async () => {
     if (dev.exitCode === null && dev.signalCode === null) {
       const exit = new Promise(ok => dev.once('exit', ok));
       dev.kill('SIGTERM');
       if (!(await Promise.race([exit.then(() => true), new Promise(ok => setTimeout(() => ok(false), 30_000).unref())]))) dev.kill('SIGKILL');
     }
     rmSync(dist, { recursive: true, force: true });
-  }
-}, 600_000);
+  };
+  let out = '', err = '';
+  dev.stderr.on('data', d => { err = (err + d).slice(-4000); });
+  try {
+    await new Promise((ok, fail) => {
+      dev.stdout.on('data', d => { out += d; if (out.includes(`127.0.0.1:${port}/`)) ok(); });
+      dev.on('error', fail);
+      dev.on('exit', code => fail(new Error(`the dev loop exited ${code}: ${out}${err}`)));
+    });
+  } catch (e) { await stop(); throw e; }
+  return { base: `http://127.0.0.1:${port}`, stop };
+}
+
+const helloOf = async base => {
+  const { token } = await (await fetch(`${base}/__tamber/token`)).json();
+  return (await (await fetch(`${base}/__tamber`, { method: 'POST', headers: { 'x-exact-tamber-token': token }, body: '{"method":"hello"}' })).json()).ok;
+};
+
+test('frameOnlyByTool: every HTML head carries frame-ancestors, however it is written; nothing else does', async () => {
+  const routes = {
+    '/head': res => { res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end('<p>'); },
+    '/message': res => { res.writeHead(200, 'OK', { 'content-type': 'text/html' }); res.end('<p>'); },
+    '/set': res => { res.setHeader('content-type', 'text/html'); res.writeHead(200); res.end('<p>'); },
+    '/implicit': res => { res.setHeader('content-type', 'text/html'); res.end('<p>'); },
+    '/flat': res => { res.writeHead(200, ['Content-Type', 'text/html', 'X-Frame-Options', 'DENY']); res.end('<p>'); },
+    '/repeated': res => { res.writeHead(200, ['Content-Type', 'text/plain', 'Content-Type', 'text/html']); res.end('<p>'); },
+    '/pairs': res => { res.writeHead(200, [['content-type', 'text/html'], ['set-cookie', 'a=1'], ['set-cookie', 'b=2']]); res.end('<p>'); },
+    '/forwarded': res => { res.writeHead(200, { 'content-type': 'text/html', 'content-security-policy': 'frame-ancestors *' }); res.end('<p>'); },
+    '/preset': res => { res.setHeader('content-security-policy', "default-src 'self'"); res.writeHead(200, { 'content-type': 'text/html' }); res.end('<p>'); },
+    '/json': res => { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{}'); },
+    '/none': res => { res.writeHead(204); res.end(); },
+  };
+  const server = createServer((req, res) => { frameOnlyByTool(res); routes[req.url](res); });
+  await new Promise(ok => server.listen(0, '127.0.0.1', ok));
+  try {
+    const at = path => fetch(`http://127.0.0.1:${server.address().port}${path}`);
+    const csp = async path => (await at(path)).headers.get('content-security-policy');
+    for (const path of ['/head', '/message', '/set', '/implicit', '/flat', '/repeated', '/pairs']) expect([path, await csp(path)]).toEqual([path, FRAME_ANCESTORS]);
+    // A policy already there stays beside it: both are enforced, so the
+    // tool's is never widened.
+    expect(await csp('/forwarded')).toBe(`frame-ancestors *, ${FRAME_ANCESTORS}`);
+    expect(await csp('/preset')).toBe(`default-src 'self', ${FRAME_ANCESTORS}`);
+    // X-Frame-Options goes; the head's other headers stay, repeats too.
+    expect((await at('/flat')).headers.get('x-frame-options')).toBe(null);
+    expect((await at('/pairs')).headers.getSetCookie()).toEqual(['a=1', 'b=2']);
+    for (const path of ['/json', '/none']) expect([path, await csp(path)]).toEqual([path, null]);
+  } finally { await new Promise(ok => server.close(ok)); }
+});
+
+// The wasm loop's HTML (caltrain: the theme fixture has no wasm build).
+test('the wasm loop\'s HTML, its page, install page and /__dev/open, may be framed only by the design tool\'s origin and its own', async () => {
+  const { base, stop } = await devLoop(['--wasm'], 'caltrain');
+  try {
+    for (const path of ['/', '/.exact/install/', '/__dev/open']) {
+      const page = await fetch(`${base}${path}`, { headers: { accept: 'text/html' } });
+      expect([path, page.status, page.headers.get('content-type')?.split(';')[0]]).toEqual([path, 200, 'text/html']);
+      expect([path, page.headers.get('content-security-policy'), page.headers.get('x-frame-options')]).toEqual([path, FRAME_ANCESTORS, null]);
+    }
+    // Nothing else carries it.
+    expect((await fetch(`${base}/exact.json`)).headers.get('content-security-policy')).toBe(null);
+  } finally { await stop(); }
+}, 900_000);
+
+for (const [loop, flags] of [['the JS loop', []]]) {
+  test(`${loop} mounts the wire, its hello names its page, and only the design tool's origin and the page's own may frame its HTML`, async () => {
+    const { base, stop } = await devLoop(flags);
+    try {
+      const hello = await helloOf(base);
+      expect(hello.protocol).toBe('tamber/1.3');
+      expect(Object.keys(hello.files)).toContain('app.tamber');
+      // The loop's own origin, which the design tool frames, and the page's
+      // header that lets only the tool (and itself) frame it.
+      expect(hello.page).toBe(base);
+      const page = await fetch(`${base}/`, { headers: { accept: 'text/html' } });
+      expect(page.status).toBe(200);
+      expect(page.headers.get('content-security-policy')).toBe("frame-ancestors 'self' http://127.0.0.1:7740");
+      expect(page.headers.get('x-frame-options')).toBe(null);
+      // Every other HTML the loop answers: an install page (the fixture has
+      // no auth callback, nor a resident loop for `/__dev/open`; the wasm
+      // loop's test has that, and the helper's own a name without .html).
+      for (const path of ['/.exact/install/']) {
+        const other = await fetch(`${base}${path}`, { headers: { accept: 'text/html' } });
+        expect([path, other.status, other.headers.get('content-type')?.split(';')[0]]).toEqual([path, 200, 'text/html']);
+        expect([path, other.headers.get('content-security-policy')]).toEqual([path, FRAME_ANCESTORS]);
+      }
+    } finally { await stop(); }
+  }, 900_000);
+}
 
 // LLP 1122 D9 and D10 on the wire (stage 3 commit 5): who changed a file,
 // `commit`'s guard, held proposals.

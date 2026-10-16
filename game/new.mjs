@@ -4,6 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { capturedLockDrift, gameDefaults, gameShells } from './app/shells.mjs';
+import { readDeviceStamp } from '../snapback4/web/device-build.mjs';
 import { cargoEnvironment, pathFrom, patchLines } from '../scripts/app.mjs';
 
 /** Type names a game's generated type may not take: the engine's public items
@@ -252,7 +253,7 @@ component ${title.replaceAll(' ', '')}
           text \`\${note.author}: \${note.body}\${note.pending ? " (sending)" : ""}\` testId=\`note-\${i}\`
 `,
     'app.ts': `import type { Answer, Result, Sources } from './app.contract.d.ts';
-import { Snapback, refused } from './snapback4/snapback.ts';
+import { Snapback, refused, pick, type Sent } from './snapback4/snapback.ts';
 import { api } from './backend/api.ts';                 // the backend's generated operations (app.json mounts ../snapback/generated)
 
 export const appId = '${id}';            // app.json's "app": { "id" }: change the two together
@@ -264,23 +265,27 @@ export const grants = \`net.fetch \${origin}\\nsqlite.open app:/data\`;
 const personas = Snapback.switcher((persona: string) => ({ app: appId, name: \`${name}-\${persona}\`, origin,
   viewer: \`dev:\${persona}\`, headers: () => ({ 'x-snapback-persona': persona }) }));
 
+function ack(fate: Sent<{id: string} | null>): Result<'post'> {
+  if (fate.state === 'failed') return {ok: false, message: \`Refused: \${fate.why.code}\`, id: ''};
+  if (fate.state === 'sent') return {ok: true, message: 'Posted.', id: fate.result?.id ?? ''};
+  return {ok: true, message: 'Saved on this device; it sends when online.', id: ''};
+}
+const note = pick<Result<'notes'>['notes'][number]>();
+
 const sources: Sources = {
   notes: ([persona, now], _store, storage, native) => personas.use(persona, storage, native, async (db): Promise<Result<'notes'>> => {
     const round = await db.sync();                      // offline is fine once synced
     const read = await db.read(api.recent, {}, now);
     if (read.denied) throw refused(read.denied);        // failure(board): \`offline\`, or \`error\` with the refusal's code as \`reason\`
     // Project each row onto the shape: an answer's extra fields are refused.
-    const notes = (read.data ?? []).map(row => ({ id: row.id, author: row.author, body: row.body, pending: row.pending === true }));
+    const notes = (read.data ?? []).map(row => note({...row, pending: row.pending === true}, 'id', 'author', 'body', 'pending'));
     return { online: round.ok, message: round.ok ? '' : 'Offline: showing what this device keeps',
       latest: notes.length ? \`\${notes[0].author}: \${notes[0].body}\` : '',
       sending: notes.filter(note => note.pending).length, notes };
   }),
   post: ([persona, body, now], _store, storage, native) => personas.use(persona, storage, native, async (db): Promise<Result<'post'>> => {
     // Write, sync and the write's fate in one call: \`sent\`, \`failed\` with the refusal's code, or \`pending\` (kept; sent later).
-    const fate = await db.send(api.post, { body }, now);
-    if (fate.state === 'failed') return { ok: false, message: \`Refused: \${fate.why?.code}\`, id: '' };
-    if (fate.state === 'sent') return { ok: true, message: 'Posted.', id: fate.result?.id ?? '' };
-    return { ok: true, message: 'Saved on this device; it sends when online.', id: '' };
+    return ack(await db.send(api.post, { body }, now));
   }),
 };
 export const answer: Answer = (source, args, store, storage, native) =>
@@ -422,7 +427,7 @@ const onlineMount = path => /(?:^|\/)snapback4\/online\/?$/.test((path ?? '').re
 /** `bun exact.mjs snapback` (and the end of \`exact new --snapback\`): what the README's setup block did. Generates the backend's
  * operations once its server is installed above, mounts the driver and those operations in app.json, builds the
  * device the page loads, and says what is left: the server to install or start, an appId that disagrees. */
-export function wireSnapback(dir, { build = true, port = null, online = null, artifactOnly = false } = {}) {
+export function wireSnapback(dir, { build = true, port = null, online = null, artifactOnly = false, rebuild = false } = {}) {
   dir = resolve(dir);
   const manifestPath = resolve(dir, 'app.json');
   if (!existsSync(manifestPath)) throw new Error(`${dir}: no app.json here (bun exact.mjs snapback runs in the app's directory, the backend's above it)`);
@@ -456,30 +461,11 @@ export function wireSnapback(dir, { build = true, port = null, online = null, ar
       writeFileSync(source, ts);
       said.push(`Snapback origin: added ${origin} and its ${online ? 'net.fetch' : 'net.fetch/sqlite.open'} grants to app.ts.`);
     }
-    const next = new URL(origin);
-    if (!['127.0.0.1', 'localhost', '[::1]'].includes(next.hostname)) throw new Error(`exact snapback --port: ${origin} is not a loopback backend`);
-    next.port = String(port);
-    const currentPort = new URL(origin).port || (next.protocol === 'https:' ? '443' : '80');
-    const moved = currentPort === String(port) ? origin
-      : origin.replace(/^(https?:\/\/(?:\[[^\]]+\]|[^/:]+))(?::\d+)?/, (_, authority) => `${authority}:${port}`);
-    const fromPrefix = origin.replace(/\/+$/, ''), toPrefix = moved.replace(/\/+$/, '');
-    const files = [source];
-    const tests = (path, nested = false) => {
-      for (const entry of readdirSync(path, { withFileTypes: true })) {
-        if (entry.isFile() && entry.name.endsWith('.test.contract')) files.push(resolve(path, entry.name));
-        else if (entry.isDirectory() && (nested || entry.name === 'tests') && !entry.name.startsWith('.') && entry.name !== 'node_modules') tests(resolve(path, entry.name), true);
-      }
-    };
-    tests(dir);
-    for (const file of files) {
-      const before = readFileSync(file, 'utf8');
-      const after = before.replaceAll(fromPrefix, (match, at) => {
-        const next = before[at + match.length];
-        return next === undefined || /[\s\\/?#'"`]/.test(next) ? toPrefix : match;
-      });
-      if (after !== before) writeFileSync(file, after);
-    }
-    said.push(`Snapback origin: ${origin} → ${moved}; updated app.ts (origin and matching grants) and test fetch prefixes.`);
+    if (!['127.0.0.1','localhost','[::1]'].includes(new URL(origin).hostname)) throw new Error(`exact snapback --port: ${origin} is not a loopback backend`);
+    mkdirSync(resolve(dir,'.exact'), {recursive:true});
+    const selected = `http://127.0.0.1:${port}`;
+    writeFileSync(resolve(dir,'.exact/backend-origin'), selected + '\n');
+    said.push(`Snapback origin: ${selected} (.exact/backend-origin; EXACT_BACKEND_ORIGIN overrides it at build). Authored sources kept.`);
   }
   const cli = resolve(parent, 'node_modules/.bin/snapback4'), generated = resolve(parent, 'snapback/generated/api.ts');
   if (!existsSync(resolve(parent, 'snapback/schema.q'))) said.push(`No backend above: ${parent}/snapback/schema.q is missing. Write one there (snapback4/README.md's guestbook is a start), then run this again.`);
@@ -507,7 +493,9 @@ export function wireSnapback(dir, { build = true, port = null, online = null, ar
   const appId = /export const appId\s*=\s*['"`]([^'"`]*)['"`]/.exec(ts)?.[1];
   if (appId !== app.app?.id) said.push(`app.ts must say: export const appId = ${JSON.stringify(app.app?.id)};${appId ? ` (it says ${JSON.stringify(appId)})` : ''}`);
   if (build && !online) {
-    buildSnapbackDevice(dir);
+    let compatible = false;
+    try { compatible = readDeviceStamp(resolve(dir,'assets/snapback4.wasm')).version === version; } catch { /* Missing or malformed: rebuild. */ }
+    if (rebuild || !compatible || port===null) buildSnapbackDevice(dir);
     said.push('assets/snapback4.wasm: built with assets/snapback4.wasm.json (the device the page loads)');
   }
   if (online) said.push('Online-only adapter: no wasm or SQLite partition; mutations go to the server, with no outbox or automatic retry.');

@@ -29,6 +29,7 @@ mod notfound;
 pub mod parser;
 mod part;
 pub mod scope;
+pub mod sequence;
 mod share;
 mod spans;
 
@@ -41,6 +42,7 @@ pub use inline::{
 pub use lexer::{Lexer, Token, TokenKind};
 pub use notfound::implicit_notfound;
 pub use parser::{is_launch, parse, parse_source, parse_source_all, same_launch, SyntaxError};
+pub use sequence::Sequence;
 pub use share::share_calls;
 pub use spans::VisitSpans;
 

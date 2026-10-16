@@ -27,13 +27,14 @@ final class AlertMacTests: XCTestCase {
     private func fixture(label: String? = "Remove Book?", lines: [String] = ["“Piranesi” will be removed from your library."],
                          actions: [String] = ["Remove"], props: [Int: [String: String]] = [10: ["destructive": "true"]],
                          filled: Set<UInt32> = [], cancel: Bool = true, popover: Bool = false, extra: Bool = false,
-                         field: Bool = false, closedby: String = "closerequest") -> Presenter {
+                         field: Bool = false, closedby: String = "closerequest", session: ExactSession? = nil) -> Presenter {
         _ = NSApplication.shared
-        let p = Presenter()
+        let p = session?.presenter ?? Presenter()
         p.buttonFace = { id in var face = ButtonFace(); if filled.contains(id) { face.style = "filled" }; return face }
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        window.contentView = p.viewport
+        if let session { window.contentView = ExactView(session: session) }
+        else { window.contentView = p.viewport }
         let closing: [String: String] = popover ? ["popovertarget": "ask", "popovertargetaction": "hide"] : ["commandfor": "ask", "command": "close"]
         var dialog: [String: String] = ["id": "ask", "accessibilityRole": "alertdialog"]
         if popover { dialog["popover"] = "auto" } else { dialog["semanticTag"] = "dialog"; dialog["closedby"] = closedby }
@@ -123,6 +124,7 @@ final class AlertMacTests: XCTestCase {
         XCTAssertTrue(window.attachedSheet === alert.window, "a sheet on its window")
         XCTAssertNil(p.dialogs.active, "not the painted dialog")
         XCTAssertEqual(p.openTopLayerFrames.map(\.0), [3], "the runner must see the open alertdialog")
+        XCTAssertEqual(p.openTopLayer.modal, 0)
         XCTAssertTrue(dialog.isHidden)
         XCTAssertEqual(alert.messageText, "Remove Book?")
         XCTAssertEqual(alert.informativeText, "“Piranesi” will be removed from your library.")
@@ -207,10 +209,32 @@ final class AlertMacTests: XCTestCase {
         let owner = try XCTUnwrap(p.alerts.presented)
         XCTAssertTrue(owner.source === trigger)
         XCTAssertTrue(p.alerts.valid(owner))
+        XCTAssertEqual(p.openTopLayer.frames.map { $0.0 }, [3])
+        XCTAssertNil(p.openTopLayer.modal, "a confirmation popover leaves the page reachable")
         p.menus.action("showPopover", ["ask", "trigger"])
         XCTAssertTrue(p.alerts.presented === owner)
         p.menus.action("togglePopover", ["ask", "trigger"])
         XCTAssertNil(p.alerts.presented)
+        p.menus.action("togglePopover", ["ask", "trigger"])
+        XCTAssertNotNil(p.alerts.presented)
+        XCTAssertNil(p.openTopLayer.modal)
+        p.menus.action("hidePopover", ["ask"])
+
+        p.apply(wireBatch([
+            ["op": "create", "id": 100, "kind": "view", "props": ["id": "form", "semanticTag": "dialog"]],
+            ["op": "frame", "id": 100, "x": 0, "y": 0, "w": 300, "h": 200],
+            ["op": "children", "id": 1, "ids": [100]],
+            ["op": "children", "id": 100, "ids": [2, 3]],
+        ]))
+        p.dialogCommand("showModal", "form")
+        defer { p.dialogs.reset() }
+        let sheet = p.openTopLayer
+        XCTAssertNotNil(sheet.modal)
+        p.menus.action("showPopover", ["ask", "trigger"])
+        XCTAssertNotNil(p.alerts.presented)
+        XCTAssertEqual(p.openTopLayer.frames.last?.0, 3)
+        XCTAssertEqual(p.openTopLayer.modal, sheet.modal, "the sheet remains the modal boundary")
+        p.menus.action("hidePopover", ["ask"])
     }
 
     /// A press handler that changes its own button's action: what the surviving
@@ -399,6 +423,96 @@ final class AlertMacTests: XCTestCase {
         XCTAssertEqual(events.first, "change 51 Kick")
         XCTAssertTrue(events.contains("press 10"), "the change enabled Save, which Return then pressed: \(events)")
         window.close()
+    }
+
+    func testAPromptHearsPreventableKeysThroughTheSessionsMonitorOnce() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession()
+        defer { session.destroy() }
+        let p = fixture(label: "Rename", lines: [], actions: ["Save"], props: [:], field: true, session: session)
+        let node = try XCTUnwrap(p.views[51])
+        node.handlers.formUnion(["key", "keyup"])
+        var events: [String] = []
+        var prevent = true
+        p.onKey = { _, key in
+            events.append("\(key.up ? "up" : "down") \(key.chord)")
+            if !key.up && prevent { p.defaultPrevented = true }
+        }
+        p.onSubmit = { _ in events.append("submit") }
+        p.onChange = { _, _ in events.append("change") }
+        p.onInput = { _, _ in }
+        window.makeKeyAndOrderFront(nil)
+        p.press(2)
+        defer { p.alerts.reset() }
+        let sheet = try XCTUnwrap(p.alerts.sheet)
+        let field = try XCTUnwrap(node.field)
+        XCTAssertTrue(sheet.makeFirstResponder(field))
+        let editor = try XCTUnwrap(field.currentEditor())
+        editor.selectedRange = NSRange(location: editor.string.utf16.count, length: 0)
+        func send(_ chars: String, _ code: UInt16) {
+            for type in [NSEvent.EventType.keyDown, .keyUp] {
+                NSApp.sendEvent(NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [], timestamp: 0,
+                    windowNumber: sheet.windowNumber, context: nil, characters: chars,
+                    charactersIgnoringModifiers: chars, isARepeat: false, keyCode: code)!)
+            }
+        }
+        send("7", 26)
+        XCTAssertEqual(editor.string, "Untitled", "a prevented digit does not insert")
+        send("\u{7f}", 51)
+        XCTAssertEqual(editor.string, "Untitled", "a prevented Backspace does not delete")
+        send("\r", 36)
+        XCTAssertEqual(events, ["down 7", "up 7", "down Backspace", "up Backspace", "down Enter", "up Enter"])
+        XCTAssertEqual(editor.string, "Untitled", "prevented keys neither edit nor submit")
+        events.removeAll()
+        prevent = false
+        send("7", 26)
+        send("\r", 36)
+        XCTAssertEqual(events, ["down 7", "up 7", "down Enter", "change", "submit", "up Enter"])
+        XCTAssertEqual(field.stringValue, "Untitled7")
+        XCTAssertTrue(field.currentEditor() === editor, "Return commits without ending editing")
+    }
+
+    func testAPromptFromAPopoverKeepsItsAncestorThroughClicksAndEscape() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession()
+        defer { session.destroy() }
+        let p = fixture(label: "Rename", lines: [], actions: ["Save"], props: [:], popover: true, field: true, session: session)
+        p.apply(wireBatch([
+            ["op": "create", "id": 60, "kind": "view", "props": ["id": "ancestor", "popover": "auto"]],
+            ["op": "style", "id": 60, "style": ["position_try_fallbacks": "flip-block"]],
+            ["op": "frame", "id": 60, "x": 0, "y": 0, "w": 240, "h": 160],
+            ["op": "children", "id": 60, "ids": [2]],
+            ["op": "children", "id": 1, "ids": [60, 3]],
+        ]))
+        let ancestor = try XCTUnwrap(p.views[60])
+        window.makeKeyAndOrderFront(nil)
+        defer { p.alerts.reset(); p.menus.reset() }
+        for kind in ["left", "right", "Escape"] {
+            p.menus.show(ancestor, from: nil)
+            p.press(2)
+            let sheet = try XCTUnwrap(p.alerts.sheet)
+            let field = try XCTUnwrap(p.views[51]?.field)
+            XCTAssertTrue(p.menus.isOpen(ancestor))
+            XCTAssertTrue(sheet.makeFirstResponder(field))
+            if kind == "Escape" {
+                NSApp.sendEvent(key("\u{1b}", 53, in: sheet))
+                XCTAssertNil(p.alerts.presented, "Escape reaches the alert's cancel")
+            } else {
+                let point = field.convert(NSPoint(x: field.bounds.midX, y: field.bounds.midY), to: nil)
+                let types: [NSEvent.EventType] = kind == "left" ? [.leftMouseDown, .leftMouseUp] : [.rightMouseDown, .rightMouseUp]
+                // These are the monitor's pointer deliveries; AppKit's field
+                // editor may take the release inside its own tracking loop.
+                for type in types {
+                    p.menus.pointer(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: 0,
+                        windowNumber: sheet.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 0)!)
+                }
+                p.apply(wireBatch([]))
+                XCTAssertTrue(p.alerts.sheet === sheet, "a click in the prompt keeps its invoker live")
+            }
+            XCTAssertTrue(p.menus.isOpen(ancestor), "\(kind) belongs to the alert, not its ancestor")
+            p.alerts.reset(); p.menus.reset()
+            turn()
+        }
     }
 
     func testAPromptOpensWithSaveDisabledAndItsFieldFollowsTheInput() throws {

@@ -9,6 +9,11 @@ A run records the machine's load; this machine is shared, so compare runs taken 
 Each twin is given its best idiomatic effort and its best optimized one — a strawman
 twin measures nothing. Here there is one mode: you spawn entities.
 
+On an Android phone, `bun game/bench/phone.mjs <exact|webview|chrome> <n>…` runs `cubes`
+full screen at the device's pixels: Exact's native game on the Canvas reader, and the
+three.js twin (`fit=screen`) in the system WebView (`game/twins/three/android`) and in
+Chrome. Its header says how each is measured; results go to `results/phone.jsonl`.
+
 ## Current method and limits
 
 Steady frame rings exclude seekable proofs. Asset preparation, first-emitter
@@ -198,6 +203,80 @@ all times share one monotonic origin. Include `engine_version`, `interpolation`,
 
 
 ## Dated receipts
+
+### Phone — cubes on a Pixel 5, 2026-10-16
+
+`phone.mjs` on a Pixel 5 (Snapdragon 765G, Adreno 620, Android 14), charging over USB,
+60 Hz held, full screen at device pixels (Exact 1080×2340; WebView 1078×2340; Chrome
+1078×1982 under its URL bar), 4× MSAA everywhere, thermal status 0 and battery 31–34 °C
+throughout. System WebView 136 (not updated), Chrome 155. Rows in `results/phone.jsonl`.
+
+| N | Exact native | three.js instanced, WebView | instanced, Chrome | Mesh each, WebView |
+|---|---|---|---|---|
+| 1 | 59.7 | | | |
+| 500 | 22.6 | | | 59.3 |
+| 2,000 | 14.8 | 59.9 | 59.9 | 59.7 |
+| 8,000 | 8.6 | 59.9 | 59.9 | 26.0 |
+| 32,000 | 3.9 | 59.7 | 59.9 | |
+| 64,000 | | 51.8 | 52.1 | |
+
+Frames per second: gfxinfo's for Exact and the WebView (it agreed with the page's own
+rAF count to within 3 fps on every WebView run), the page's for Chrome. Old WebView and
+current Chrome are alike here. Exact's frames are bound by the GPU, not the CPU: a
+Perfetto trace at 32,000 has the `exact` thread blocked in `QueueSubmit` (~118 ms a
+frame) and the RenderThread waiting in `queueBuffer`, while simpleperf counts ~0.75 s
+of the app's CPU in 4 s (the game's `tick` and storage `Lease::drop` lead). The cost
+follows the pixels the cubes cover: one cube holds 60, a quarter-size canvas holds 60
+at 2,000, and the reader's window path (`gpubuf=0`) is no faster than its buffers
+(21 against 16 fps at 2,000). Exact's forward shading cost roughly ten times three.js's
+`MeshStandardMaterial` per covered pixel on this GPU.
+
+**Later the same day**, with the renderer's forward variants and culling order
+(`render/README.md`, "Forward variants for tiling GPUs"), the hardware-buffer
+ring's ordering (exact-gpu `buffers.rs`) and the queue's low priority (wgpu-hal
+patch 9), and Exact's canvas full screen (`viewport-fit="cover"`), its pixels
+those of the WebView's (1080 by 2340): three full orbits a size (`SECONDS=20`),
+three.js then Exact, back to back. Frames per second by gfxinfo:
+
+| N | Exact | three.js instanced, WebView (page) |
+|---|---|---|
+| 32,000 | 59.9 | 59.8 (60.0) |
+| 40,000 | 60.0 | 59.1 (59.7) |
+| 48,000 | 59.9 | 57.7 (58.8) |
+| 56,000 | 60.0 | 55.2 (56.5) |
+| 64,000 | 59.9 | 53.0 (54.7) |
+| 80,000 | 54.3 | 46.5 (48.6) |
+
+Exact holds the refresh rate to 64,000; three.js to 48,000 by its own clock. What
+mattered, in the order found: depth tested before shading (Adreno's Vulkan driver
+tested it after, shading every hidden fragment), the variants' registers, the
+direct path's bytes a sample, the camera's chunk order, and frames published in
+the order they finish with three on the GPU at most. Rendering the cull's pose
+once a frame for the vertex shader, culling on the CPU, a `SurfaceView` and
+mailbox presentation were each measured and cost more than they saved.
+
+**Memory and CPU at 60 Hz**, the same day: ten seconds of Perfetto (scheduling and
+CPU frequency) and `dumpsys meminfo` after it, each engine at each size, both at the
+refresh rate throughout. The WebView's page runs in a sandboxed renderer process of
+its own; Exact's game is one process. CPU is milliseconds of running a second
+summed over cores, and gigacycles a second (time × the core's clock: closer to
+energy). SurfaceFlinger is reported apart because each engine's frames cost it.
+
+| | WebView 2k | 32k | 64k | Exact 2k | 32k | 64k |
+|---|---|---|---|---|---|---|
+| PSS, MB (app + renderer) | 115 + 80 | 126 + 101 | 133 + 109 | 205 | 222 | 239 |
+| of it EGL (graphics) memory, MB | 40 | 40 | 40 | 160 | 160 | 160 |
+| CPU ms/s (app + renderer) | 829 | 1,035 | 1,194 | 423 | 553 | 664 |
+| Gcycles/s (app + renderer) | 0.81 | 1.36 | 1.93 | 0.33 | 0.45 | 0.61 |
+| SurfaceFlinger ms/s | 213 | 171 | 173 | 313 | 294 | 287 |
+
+Total memory is about equal; Exact's is graphics memory where the WebView's is
+JavaScript and renderer heap: the six-buffer ring at device pixels (6 × 10 MB) and
+the direct path's 4× MSAA colour and depth (about 80 MB, allocated as ordinary
+memory, QUEUE.md). Exact spends half the CPU time and a third of the cycles; its
+SurfaceFlinger time is about 100 ms/s higher, on little cores at the same cycles.
+The battery was full on USB power and the Pixel 5 has no power rails, so power was
+not measured; the GPU's clock was not readable without root.
 
 #### Sitting #2 — landmark re-score, 2026-09-18T20-36-09-882Z
 

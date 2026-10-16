@@ -3,9 +3,8 @@
 // `allow-same-origin` and nowhere else, and a script URL never; a shown one
 // posts, which the app hears from the opaque origin "null". A bound sandbox
 // decides a literal and a bound `data:` source again as it opens and closes.
-// The frames mount at a press: a post at boot can come before the wasm host
-// hears input, which drops it. One count per frame: the order frames load in
-// is the browser's.
+// The frames mount at a press to exercise insertion after boot. One count
+// per frame: the order frames load in is the browser's.
 component Iframes
   state open = false
   state sandbox = "allow-same-origin"

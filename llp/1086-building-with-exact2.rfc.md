@@ -536,6 +536,17 @@ including backend checks and the app's own commands. No new blocking check is ad
 Guestbook tests
 now begin with `fresh` so the default dev suite can run repeatedly.
 
+**EX8 amendment (Charlie’s wave-13 E1–E10 task, 2026-10-16; implementer Codex):**
+Both isolated adapters expose an authenticated served-release catalog and observed
+generation subscriptions; Contract owns polling, including when operation gates close.
+`EXACT_BACKEND_ORIGIN` and `test web --backend` select a bake input: only the
+captured top-level literal origin and matching grant change. `snapback --port`
+records an ignored local development selection, preserves authored source/tests,
+and reuses a compatible device artifact; an explicit rebuild still rebuilds.
+The existing device outbox owns durable upload bytes and placement dependencies.
+No app-local durable queue is introduced. Driver mutations advance the UI virtual
+clock one millisecond; the backend's clock remains its own.
+
 ### D13. `fresh`: a test file empties the backend before each test
 
 **Author ruling 2026-10-12, via the sb4 app farm** (wave 4: 091; wave 7:

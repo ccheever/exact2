@@ -1083,7 +1083,7 @@ mod retirement_regressions {
             .iter()
             .map(|h| h.entity)
             .collect();
-        renderer.model_poses(sim.world(), &entities, false, Moved::All, &[]);
+        renderer.model_poses(sim.world(), &entities, false, Moved::All, &[], None);
         assert_eq!(
             renderer.models.poses, cached,
             "cached and recomputed poses agree"
@@ -1095,7 +1095,7 @@ mod retirement_regressions {
             .iter()
             .map(|h| h.entity)
             .collect();
-        renderer.model_poses(sim.world(), &entities, false, Moved::All, &[]);
+        renderer.model_poses(sim.world(), &entities, false, Moved::All, &[], None);
         assert_eq!(
             renderer.models.poses, cached,
             "parented cached poses match recomputation"
@@ -1150,7 +1150,7 @@ mod retirement_regressions {
             renderer.models.poses,
             vec![[exact_game::Transform::default(); 2]]
         );
-        renderer.model_poses(sim.world(), &[hero], false, Moved::All, &[]);
+        renderer.model_poses(sim.world(), &[hero], false, Moved::All, &[], None);
         assert_eq!(renderer.models.poses, expected);
     }
 
@@ -1190,7 +1190,7 @@ mod retirement_regressions {
         renderer
             .set_draw_instances(std::slice::from_ref(&record))
             .unwrap();
-        renderer.model_poses(&world, &[missing], false, Moved::All, &[]);
+        renderer.model_poses(&world, &[missing], false, Moved::All, &[], None);
         assert_eq!(
             renderer.models.poses[0],
             [exact_game::Transform::default(); 2]
@@ -1201,7 +1201,7 @@ mod retirement_regressions {
         let missing = world.resolve("model").unwrap();
         assert!(!world.is_fresh(missing));
         let propagated = crate::world::scene::pose(&world, missing).unwrap();
-        renderer.model_poses(&world, &[missing], false, Moved::All, &[]);
+        renderer.model_poses(&world, &[missing], false, Moved::All, &[], None);
         assert_eq!(renderer.models.poses[0], [propagated; 2]);
 
         assert!(world.despawn(missing));
@@ -1224,7 +1224,7 @@ mod retirement_regressions {
             .set_draw_instances(std::slice::from_ref(&record))
             .unwrap();
         assert_eq!(renderer.models.poses[0], [propagated; 2]);
-        renderer.model_poses(&world, &[replacement], false, Moved::All, &[]);
+        renderer.model_poses(&world, &[replacement], false, Moved::All, &[], None);
         assert_eq!(renderer.models.poses[0], [replacement_pose; 2]);
     }
 

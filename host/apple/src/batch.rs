@@ -49,6 +49,9 @@ pub struct Batch {
     images: Vec<String>,
     /// The root font size or the window's modes moved (`Host::facts_moved`).
     pub facts: bool,
+    /// Whether a displayed element holds the wake lock, when that changed
+    /// (`Host::wakelock_moved`, LLP 1125 D11).
+    pub wakelock: Option<bool>,
 }
 
 pub use exact_runner::agent::quote;
@@ -160,7 +163,7 @@ impl Batch {
         out: &mut String,
         id: u32,
         parent: u32,
-        props: &std::collections::BTreeMap<String, String>,
+        props: &exact_kernel::SortedMap<String, String>,
         style: &str,
         handlers: &[&str],
         paints: bool,
@@ -572,6 +575,13 @@ impl Batch {
                     "{{\"op\":\"end\",\"id\":{id},\"at\":{}}}",
                     exact_runner::agent::num(*at)
                 ),
+                // A sequence step's haptic, at its time (LLP 1125 D3).
+                SoundOp::Haptic { id, kind, at } => {
+                    let _ = write!(s, "{{\"op\":\"haptic\",\"id\":{id},\"kind\":");
+                    quote(kind, &mut s);
+                    write!(s, ",\"at\":{}}}", exact_runner::agent::num(*at))
+                }
+                SoundOp::Unhaptic { id } => write!(s, "{{\"op\":\"unhaptic\",\"id\":{id}}}"),
             };
         }
         s.push_str("]}");
@@ -791,6 +801,9 @@ impl Batch {
         }
         if self.facts {
             s.push_str(",\"facts\":true");
+        }
+        if let Some(held) = self.wakelock {
+            let _ = write!(s, ",\"wakelock\":{held}");
         }
         if !self.images.is_empty() {
             s.push_str(",\"canvasImages\":[");

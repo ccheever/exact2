@@ -1175,3 +1175,120 @@ test('web identity and headers are available before any partition is open and ag
     expect(JSON.parse(headers['x-snapback-device'])).toEqual(identity);
   } finally { device.free(); }
 });
+
+test('durable upload custody survives offline close, lost upload replies and placement retry', async () => {
+  const png = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='), c => c.charCodeAt(0));
+  const path = 'app:/tmp/picked/photo.png', files = new Map([[path,png]]);
+  const dir=join(scratch,'durable-upload'), realFetch=globalThis.fetch;
+  const selected={kind:'mutation', name:'addPhoto'} as MutationOp<{photo:{id:string}}, {id:string}>;
+  const openUpload=()=>Snapback.open({app:'test.exact.snapback4',name:'durable-upload',origin,viewer:'dev:alice',
+    headers:()=>({'x-snapback-persona':'alice'}),wasm:`file://${wasm}`, storage:{...storage(dir),fs:{
+      async readFile(path:string) { const bytes=files.get(path); if(!bytes) throw new Error('removed picked file'); return bytes; },
+      async writeFile(path:string,bytes:Uint8Array) { files.set(path,bytes); },
+    }}});
+  let db=await openUpload(), asset='', uploads=0, placements=0;
+  try {
+    expect(await db.sync()).toEqual({ok:true});
+    globalThis.fetch=(async (url,init)=>{
+      if(String(url).startsWith(origin)) throw new Error('offline');
+      return realFetch(url,init);
+    }) as typeof fetch;
+    const admitted=await db.uploadAndPlace(selected,{},path,Date.now(),{argument:'photo',id:'durable-photo'});
+    expect(admitted.state).toBe('pending');
+    expect(await db.uploads()).toMatchObject([{id:admitted.id,state:'queued'}]);
+    files.delete(path); // Durable custody must no longer depend on the picker path.
+    expect((await db.sync()).offline).toBe(true);
+    await db.close();
+    globalThis.fetch=realFetch;
+    db=await openUpload();
+    let dropUpload=true, dropPlacement=true;
+    globalThis.fetch=(async (url,init)=>{
+      const response=await realFetch(url,init);
+      if(String(url).startsWith(origin+'/assets?intent=')) {
+        uploads++; asset=(await response.clone().json()).asset.id;
+        if(dropUpload) {dropUpload=false; throw new Error('upload reply lost after commit');}
+      }
+      if(String(url)===origin+'/m/addPhoto') {
+        placements++;
+        if(dropPlacement) {dropPlacement=false; throw new Error('placement reply lost after commit');}
+      }
+      return response;
+    }) as typeof fetch;
+    expect((await db.sync()).offline).toBe(true);
+    expect((await db.uploads())[0]).toMatchObject({state:'uploading'});
+    await db.close(); db=await openUpload();
+    expect((await db.sync()).offline).toBe(true); // Same upload id, then a lost placement response.
+    expect((await db.uploads())[0]).toMatchObject({state:'placing'});
+    await db.close(); db=await openUpload();
+    expect(await db.sync()).toEqual({ok:true});
+    expect((await db.outcome(admitted.id)).state).toBe('sent');
+    expect(await db.uploads()).toEqual([]);
+    expect(uploads).toBe(2);
+    expect(placements).toBeLessThanOrEqual(2);
+    const shown=await db.download(asset);
+    expect(shown.ok).toBe(true);
+    if(shown.ok) expect(files.get(shown.path)).toEqual(png);
+    files.set(path,png);
+    expect((await db.uploadAndPlace(selected,{},path,Date.now(),{argument:'photo',id:'durable-photo'})).state).toBe('sent');
+    // Retained terminal ownership prevents different input reusing this key.
+    files.set(path,Uint8Array.of(1,2,3));
+    await expect(db.uploadAndPlace(selected,{},path,Date.now(),{argument:'photo',id:'durable-photo'})).rejects.toThrow(/E_WRITE_ID_REUSE/);
+    expect(uploads).toBe(2);
+  } finally {globalThis.fetch=realFetch;await db.close();}
+},60_000);
+
+test('a pre-program placing refusal finishes its server pin before local custody retires',async()=>{
+  const png=Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='),c=>c.charCodeAt(0));
+  const realFetch=globalThis.fetch,dir=join(scratch,'upload-finish');
+  const openUpload=()=>Snapback.open({app:'test.exact.snapback4',name:'finish',origin,viewer:'dev:alice',
+    headers:()=>({'x-snapback-persona':'alice'}),wasm:`file://${wasm}`,storage:{...storage(dir),fs:{async readFile(){return png;},async writeFile(){}}}});
+  let db=await openUpload(),finish=0,drop=true;
+  try {
+    expect(await db.sync()).toEqual({ok:true});
+    const intent=await db.uploadAndPlace({kind:'mutation',name:'addPhoto'} as MutationOp<{photo:{id:string}},null>,{},'app:/tmp/picked/photo.png',Date.now(),{argument:'photo'});
+    globalThis.fetch=(async(url,init)=>{
+      if(String(url)===origin+'/m/addPhoto') return Response.json({denied:{code:'E_INPUT',family:'input',message:'placing arguments refused',retryable:false}},{status:400});
+      const response=await realFetch(url,init);
+      if(String(url).includes('/finish?')) {finish++;if(drop){drop=false;throw new Error('finish reply lost after commit');}}
+      return response;
+    }) as typeof fetch;
+    expect((await db.sync()).offline).toBe(true);
+    expect((await db.uploads())[0]).toMatchObject({id:intent.id,state:'placing'});
+    await db.close();db=await openUpload();
+    expect(await db.sync()).toEqual({ok:true});
+    expect(await db.outcome(intent.id)).toMatchObject({state:'failed',why:{code:'E_INPUT'}});
+    expect(await db.uploads()).toEqual([]);
+    expect(finish).toBe(2);
+    const status=await(await realFetch(origin+'/dev/status')).json() as {storeId:string};
+    const inventory=await(await realFetch(origin+'/assets/intents?store_id='+encodeURIComponent(status.storeId),{headers:{'x-snapback-persona':'alice'}})).json() as {intents:unknown[]};
+    expect(inventory.intents).toEqual([]);
+  } finally {globalThis.fetch=realFetch;await db.close();}
+},60_000);
+
+test('blocked uploads do not starve ordinary writes and cancellation survives a lost acknowledgement',async()=>{
+  const realFetch=globalThis.fetch,dir=join(scratch,'upload-cancel');
+  const openUpload=()=>Snapback.open({app:'test.exact.snapback4',name:'cancel',origin,viewer:'dev:alice',
+    headers:()=>({'x-snapback-persona':'alice'}),wasm:`file://${wasm}`,storage:{...storage(dir),fs:{async readFile(){return Uint8Array.of(1,2,3);},async writeFile(){}}}});
+  let db=await openUpload(),cancels=0,drop=true;
+  try {
+    expect(await db.sync()).toEqual({ok:true});
+    const intent=await db.uploadAndPlace({kind:'mutation',name:'addPhoto'} as MutationOp<{photo:{id:string}},null>,{},'app:/tmp/bad.png',Date.now(),{argument:'photo'});
+    expect((await db.sync()).denied?.code).toBe('E_ASSET_TYPE');
+    const ordinary=await db.write('send',{body:'independent of bad image'},Date.now());
+    expect((await db.sync()).denied?.code).toBe('E_ASSET_TYPE');
+    expect((await db.outcome(ordinary.id)).state).toBe('sent');
+    expect((await db.uploads())[0]).toMatchObject({id:intent.id,state:'blocked'});
+    await db.discardUpload(intent.id);
+    globalThis.fetch=(async(url,init)=>{
+      const response=await realFetch(url,init);
+      if(String(url).includes('/cancel?')) {cancels++;if(drop){drop=false;throw new Error('cancel reply lost after commit');}}
+      return response;
+    }) as typeof fetch;
+    expect((await db.sync()).offline).toBe(true);
+    expect((await db.uploads())[0]).toMatchObject({id:intent.id,state:'cancelling'});
+    await db.close();db=await openUpload();
+    expect(await db.sync()).toEqual({ok:true});
+    expect(await db.outcome(intent.id)).toMatchObject({state:'failed',why:{code:'E_UPLOAD_CANCELLED'}});
+    expect(await db.uploads()).toEqual([]);expect(cancels).toBe(2);
+  } finally {globalThis.fetch=realFetch;await db.close();}
+},60_000);

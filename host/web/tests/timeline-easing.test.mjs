@@ -15,18 +15,21 @@ import { Cdp, open } from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
 import { timelineEasing } from '../motion-glue.js';
 import { need } from '../../../scripts/coverage.mjs';
+import { readyPage } from './page.mjs';
+import { glueDeclarations, checkedGlueCall } from './glue-fixture.mjs';
 
 const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
 const WEB = resolve(new URL('..', import.meta.url).pathname);
 const WEB_JS = resolve(WEB, '../web-js');
 const GLUE = readFileSync(resolve(WEB, 'glue.js'), 'utf8');
-const operationSource = GLUE.slice(GLUE.indexOf('function apply(batch)'), GLUE.indexOf('function applyBatch(batch)', GLUE.indexOf('function apply(batch)')));
-const applySource = GLUE.slice(GLUE.indexOf('function applyBatch(batch)'), GLUE.indexOf('\nfunction send(', GLUE.indexOf('function applyBatch(batch)')));
+const commitSource = glueDeclarations(GLUE, ['apply', 'applyBatch', 'wakeLock', 'holdWake']);
 // The wasm host's real operation switch and commit tail, with the unrelated
 // host pieces inert. Keeping both functions in this one closure matters:
 // the `timelines` operation sets the flag that the commit tail consumes.
 const hostCommitBody = `
-  let timelinesMoved = false;
+  let timelinesMoved = false, agentClock = 0, followOnSeek = true;
+  const register = () => {}, seek = () => {};
+  const loadAfterPaint = () => { throw new Error('timeline fixture: unexpected lazy module load'); };
   const exact = globalThis.exact ??= {}, retiredViews = new WeakSet(), followedScrolls = new Map(), pendingScrolls = new Map();
   const root = document.getElementById('root'), listSelection = null, textflow = null, page = null, collectionOp = null;
   const collections = {commit() {}, restyled() {}}, arrange = {commit() {}, destroy() {}, binding() {}, state() {}}, presence = {hold: () => false, live: null};
@@ -35,12 +38,31 @@ const hostCommitBody = `
   const followScroll = () => {}, settleFollow = () => {}, settleValue = () => {}, letGo = () => {}, flowBatch = () => {}, noteFit = () => {}, refitTexts = () => {};
   const navigation = {project() {}, apply() {}}, log = () => {}, inputReady = false, agentMode = false, frameSampler = null, clocks = {sync() {}};
   const viewFor = (_, id) => views.get(id), applyProps = () => {}, attach = () => {}, listView = () => {};
-  ${operationSource}
-  ${applySource}
-  return applyBatch;
+  ${commitSource}
+  return (${checkedGlueCall})(applyBatch);
 `;
 const { executable: chrome, unavailable } = chromium();
 const check = need('chrome', unavailable);
+
+test('glue fixtures name missing declarations and module bindings', () => {
+  expect(() => glueDeclarations(GLUE, ['absentFixtureDeclaration'])).toThrow('glue.js fixture: missing declaration absentFixtureDeclaration');
+  const source = glueDeclarations('let present = 1, omitted = 2; function commit() { return present + omitted; }', ['present', 'commit']);
+  const commit = new Function(`${source}; return (${checkedGlueCall})(commit);`)();
+  expect(commit).toThrow('glue.js fixture: supply the module binding used by commit: omitted is not defined');
+});
+
+test('the extracted wake-lock bindings share one lazy module and recheck holders', async () => {
+  const root = {}, log = () => {}, loads = [], holds = [];
+  let holders = [1];
+  const load = async (...args) => { loads.push(args); return {
+    holders: el => { expect(el).toBe(root); return holders; },
+    hold: (held, report) => { expect(report).toBe(log); holds.push(held); },
+  }; };
+  const hold = new Function('loadAfterPaint', 'root', 'log', `${glueDeclarations(GLUE, ['wakeLock', 'holdWake'])}; return holdWake;`)(load, root, log);
+  await hold(); holders = []; await hold();
+  expect(loads).toEqual([['./wakelock-glue.js', 'wakeLockGlue']]);
+  expect(holds).toEqual([true, false]);
+});
 
 // A `linear()` easing at input x (0–1): the last point at or before x, then
 // linearly on to the next; two points at one input are a jump.
@@ -224,8 +246,7 @@ check('in Chrome, followers match timeline progress and stop when a consumer res
       if (reply.exceptionDetails) throw new Error(reply.exceptionDetails.exception?.description ?? reply.exceptionDetails.text);
       return reply.result.value;
     };
-    await cdp.send('Page.navigate', { url: `http://127.0.0.1:${server.address().port}/` }, sessionId);
-    for (let i = 0; !(await evaluate('window.ready === true')); i++) { if (i > 2000) throw new Error('page never ready'); await Bun.sleep(5); }
+    await readyPage(cdp, sessionId, `http://127.0.0.1:${server.address().port}/`);
     const compare = (animation, p) => evaluate(`compare(${JSON.stringify(animation)}, ${JSON.stringify(p)})`);
     for (const [animation, p] of [
       ['fade 1s linear both', [0.3, 0.1, -0.05, 0.02, -0.005, 0]],

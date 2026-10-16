@@ -1209,7 +1209,7 @@ fn a_slot_reoccupied_between_feeds_takes_its_current_pose_as_history() {
 }
 
 #[test]
-fn hierarchy_resets_coalesce_without_snapping_an_unrelated_moving_slot() {
+fn reparenting_resets_its_subtree_without_snapping_unrelated_moving_children() {
     const HALF: usize = 256;
     struct Reparent;
     impl Game for Reparent {
@@ -1219,7 +1219,10 @@ fn hierarchy_resets_coalesce_without_snapping_an_unrelated_moving_slot() {
             let root = w.spawn_named("root", Transform::at(10., 0., 0.));
             for i in 0..2 * HALF {
                 if i == HALF {
-                    w.spawn_named("moving", (Transform::default(), Mesh::cube(1.)));
+                    w.spawn_named(
+                        "moving",
+                        (Transform::default(), Parent(root), Mesh::cube(1.)),
+                    );
                 }
                 w.spawn_named(
                     format!("piece-{i}"),
@@ -1268,13 +1271,7 @@ fn hierarchy_resets_coalesce_without_snapping_an_unrelated_moving_slot() {
             .iter()
             .filter(|c| matches!(c, Call::Previous(..)))
             .collect();
-        assert_eq!(
-            writes,
-            [
-                &Call::Previous(1, HALF * 10),
-                &Call::Previous(HALF as u32 + 2, HALF * 10)
-            ]
-        );
+        assert_eq!(writes, [&Call::Previous(1, 10)]);
         checked = true;
         break;
     }

@@ -150,4 +150,5 @@ mod visible_fields;
 mod visual;
 mod vocab;
 mod vscode_grammar;
+mod wakelock;
 mod warnings;

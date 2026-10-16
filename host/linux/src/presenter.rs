@@ -1,6 +1,5 @@
-//! The presenter: what a painter holds beyond the kernel — scroll offsets,
-//! images, focus, the pointer — and the operations that touch it: frames,
-//! hit-testing, presses, wheels, typing, the clock, screenshots.
+//! The presenter: painter state beyond the kernel — scrolling, images, focus
+//! and the pointer — and operations from frames through input to screenshots.
 //!
 //! @ref LLP 1015 §4; LLP 1010 §3 (scroll chaining: the web's
 //! `overscroll-behavior: auto`); LLP 1012 (the five host-side operations)
@@ -34,6 +33,7 @@ use tiny_skia::Pixmap;
 pub mod access;
 mod addressed_tap;
 mod ahead;
+mod alert;
 mod arrange;
 mod arrange_geometry;
 mod arrive;
@@ -105,19 +105,15 @@ mod window;
 #[cfg(test)]
 mod collection_tests;
 #[cfg(test)]
-mod kept_rows_tests;
-
-#[cfg(test)]
-mod swipe_tests;
-
-#[cfg(test)]
 mod events_tests;
-
 #[cfg(test)]
-mod visibility_tests;
-
+mod kept_rows_tests;
 #[cfg(test)]
 mod spacing_tests;
+#[cfg(test)]
+mod swipe_tests;
+#[cfg(test)]
+mod visibility_tests;
 
 pub use clock::{wall_since, Wall};
 pub use device::Device;
@@ -206,9 +202,8 @@ pub struct Presenter<D: DataSource> {
     /// The nodes from the held one up that hear `pointerdown` or
     /// `pointerup`, innermost first: each hears the up.
     pointer_path: Vec<exact_kernel::NodeKey>,
-    /// A pointer or wheel walk is under way: a contact its handler retired
-    /// (the pressed node removed or disabled) is cancelled when it ends, so
-    /// no other walk runs inside it ([`Presenter::retire_pointer`]).
+    /// During a pointer or wheel walk, a retired contact is cancelled when it
+    /// ends so no other walk runs inside it ([`Presenter::retire_pointer`]).
     pointer_walking: bool,
     /// The held pointer's buttons as DOM counts them: 1 primary, 2
     /// secondary, 4 middle (review b5-b 1).
@@ -219,28 +214,26 @@ pub struct Presenter<D: DataSource> {
     /// Bumped whenever `boxes` is replaced.
     boxes_serial: u64,
     pub(crate) dirty: bool,
-    /// The app's `setScheme` (`None`: follow the system) and the system's
-    /// appearance, which the device's shell says ([`Presenter::set_device`])
-    /// or an agent (LLP 1061 D5); light until either does.
+    /// The app's `setScheme` (`None`: follow the system) and the appearance
+    /// its shell or an agent says (LLP 1061 D5); light until either does.
     pub(crate) scheme: (Option<bool>, bool),
     /// The device's settings as its shell last told them (LLP 1115.001 D3.1).
     device: Option<Device>,
-    /// What the pointer is, and how far it moves before a contact is a
-    /// drag: a mouse and the shared slop until a shell says (D7.4).
+    /// Pointer kind and drag slop: mouse and shared slop until a shell says (D7.4).
     pointer_kind: PointerKind,
     slop: f64,
     /// The shell's window, its insets, and the page's place in it (D3.3).
     window: window::State,
     /// What a shell that scrolls by itself was told of its scrollers (D7.3).
     reader: scrollers::Reader,
-    /// The reported colours this presenter last painted from (D4), and what
-    /// it asks of its shell (D5).
+    /// The colours last painted (D4), and what this asks of its shell (D5).
     colors: palette::State,
     requests: requests::State,
     /// The text fields the shell hosts, as it was told them (D8).
     hosted: hosted::State,
     /// The top layer's open surface, where a shell makes windows (D10).
     top: top::State,
+    alert: Option<alert::Open>,
     /// The shell's top app bar and navigation bar, where it has them (D11).
     bars: bars::State,
     /// The accessibility tree its shell was last told, where one asks (D13).
@@ -251,18 +244,15 @@ pub struct Presenter<D: DataSource> {
     /// A failed painter's blank fallback cannot bless an update generation.
     pub(crate) last_frame_succeeded: bool,
     pub(crate) display: display_frame::State,
-    /// Which painter was asked for (`Auto` may change its mind after a
-    /// failed frame).
+    /// Requested painter (`Auto` may change its mind after a failed frame).
     choice: PainterChoice,
-    /// How long the font scan took at boot, milliseconds (the one cost that
-    /// is the machine's, not the app's).
+    /// Boot font-scan milliseconds: the machine's cost, not the app's.
     pub fonts_ms: f64,
     /// The painter, for the report.
     pub painter: PainterInfo,
     /// The executor for a request that leaves the process (LLP 1016 D2).
     executor: crate::executor::Executor,
-    /// Requests whose continuation a source held at dispatch (LLP 1027.002
-    /// D3): released after a later commit, by token.
+    /// Requests held at dispatch, released after a later commit (LLP 1027.002 D3).
     parked: BTreeMap<u64, exact_runner::RequestOut>,
     refusal_turn: bool,
     collection: collection::State,
@@ -504,6 +494,7 @@ impl<D: DataSource> Presenter<D> {
             requests: Default::default(),
             hosted: Default::default(),
             top: Default::default(),
+            alert: None,
             bars: Default::default(),
             access: Default::default(),
             segments: Vec::new(),
@@ -735,6 +726,7 @@ impl<D: DataSource> Presenter<D> {
         self.queue_collections();
         let refined = crate::traced(c"exact refine collections", || self.refine_collections());
         let geometry = self.refresh_transform_geometry();
+        self.sync_surface();
         error.or(refined).or(geometry)
     }
 
@@ -745,6 +737,7 @@ impl<D: DataSource> Presenter<D> {
     }
 
     fn service_commit(&mut self) -> Option<String> {
+        self.alert_sync();
         // What the commit asked the host to run goes to the executor (LLP
         // 1016 D2); the reply comes back through `pump`. Its commands wait
         // for the loop (`run_commands`).
@@ -1118,11 +1111,10 @@ impl<D: DataSource> Presenter<D> {
         false
     }
 
-    /// The deepest painted box under a point (viewport points), through
-    /// every clip.
+    /// The deepest painted box under a point (viewport points), through every clip.
     pub fn hit(&mut self, x: f32, y: f32) -> Option<ViewId> {
         // Under an open surface of the top layer the page is inert.
-        if !self.display.contains(x, y) || self.top_open() {
+        if !self.display.contains(x, y) || (self.top_open() && self.alert.is_none()) {
             return None;
         }
         self.boxes();
@@ -1130,7 +1122,8 @@ impl<D: DataSource> Presenter<D> {
             .iter()
             .rev()
             .filter(|b| {
-                b.contains(x, y)
+                self.alert_allows(b.id)
+                    && b.contains(x, y)
                     && crate::paint::hits(self.host.kernel(), b, x, y)
                     && !self.host.route_visibility(b.id).1
                     && self.display.allows(self.host.kernel(), b.id)
@@ -1150,6 +1143,9 @@ impl<D: DataSource> Presenter<D> {
             || (dx == 0.0 && dy == 0.0)
             || !self.display.contains(x, y)
         {
+            return;
+        }
+        if self.alert.is_some() && self.hit(x, y).is_none() {
             return;
         }
         // A canvas that wants input takes the wheel, and the nodes' own
@@ -1241,12 +1237,18 @@ impl<D: DataSource> Presenter<D> {
             }
             // An SVG element (what a hit on a shape names, LLP 1055.000 D8)
             // has no display box: it scrolls with its `svg`'s ancestors.
+            if self.alert_root() == Some(id) {
+                return;
+            }
             at = self.display.parent(kernel, id).or_else(|| {
                 node.node_type
                     .is_svg_element()
                     .then_some(node.parent)
                     .flatten()
             });
+        }
+        if self.alert.is_some() {
+            return;
         }
         let doc = self.document();
         let viewport = self.display.viewport().unwrap_or(self.viewport);
@@ -1269,7 +1271,7 @@ impl<D: DataSource> Presenter<D> {
         if !dx.is_finite() || !dy.is_finite() {
             return Err("wheel needs finite deltas".into());
         }
-        if self.host.route_visibility(id).1 {
+        if !self.alert_allows(id) || self.host.route_visibility(id).1 {
             return Err(format!("view {id} is hidden or inert"));
         }
         let b = self
@@ -1386,6 +1388,7 @@ impl<D: DataSource> Presenter<D> {
         self.pointer_path.clear();
         self.hatch_reset();
         self.top_replaced();
+        self.wakelock_replaced();
         self.hosts += 1;
         self.measure();
     }

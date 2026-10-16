@@ -69,9 +69,7 @@ impl<D: DataSource> Bridge<D> {
             word(9).map_or(0, u32::from_le_bytes) as usize,
         );
         if bytes.len() != (10 + count) * 4 || (count != 0 && count != 20) {
-            let error =
-                "{\"ops\":[],\"timers\":false,\"motion\":false,\"error\":\"view: malformed\"}";
-            return self.emit(error.to_string());
+            return self.refuse("view: malformed");
         }
         let given = |bit: u32| mask & bit != 0;
         let (width, height) = (float(1), float(2));

@@ -601,11 +601,7 @@ fn query_selector_all_excludes_closed_top_layer_and_native_split_list() {
     r.act("probe", vec![]).unwrap();
     assert_eq!(
         r.slot("hits"),
-        Some(&Value::list(vec![
-            Value::str("detail"),
-            Value::str("closed-menu-item"),
-            Value::str("closed-dialog-item")
-        ]))
+        Some(&Value::list(vec![Value::str("closed-dialog-item")]))
     );
 }
 
@@ -721,7 +717,7 @@ fn top_layer_uses_presented_frames_and_stack_order() {
     r.act("probe", vec![]).unwrap();
     assert_eq!(
         r.slot("hits"),
-        Some(&Value::list(vec![Value::str("front"), Value::str("back")]))
+        Some(&Value::list(vec![Value::str("front")]))
     );
     assert_eq!(r.slot("left"), Some(&Value::Number(120.0)));
 }

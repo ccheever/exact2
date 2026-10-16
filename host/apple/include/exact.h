@@ -7,6 +7,8 @@
  * presenter's main thread). A call on a destroyed handle, or one made while
  * another call is in progress on the same runtime (from a callback), is
  * refused with a batch whose error says so — never a trap.
+ * A re-entrant refusal also says "busy":true: no runner turn completed, so
+ * the presenter must keep its clock, timers, motion and owed canvas draws.
  *
  * The web host's buffer discipline over C: the app never hands the host a
  * pointer the host did not give out. exact_in(rt, len) resizes the runtime's

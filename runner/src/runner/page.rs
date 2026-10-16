@@ -22,12 +22,22 @@ impl<D: DataSource> Runner<D> {
             return Ok(None);
         }
         let previous = std::mem::replace(&mut self.page, page);
-        let which = (0..self.plan.resources.len())
+        let which: Vec<usize> = (0..self.plan.resources.len())
             .filter(|i| self.plan.str(self.plan.resources[*i].source) == SOURCE)
             .filter(|i| self.page_reads_changed(*i, previous))
             .collect();
-        let result = self.recommit(which, "page");
+        // About to be suspended: a sequence stops in this commit, once it
+        // stands, and the commit carries its ends to the output (LLP 1125 D4).
+        let result = if page.suspended && !previous.suspended && self.transport.playing() {
+            self.transport.suspend = true;
+            self.commit_again(which, "page").map(Some)
+        } else {
+            self.recommit(which, "page")
+        };
+        // The stop is the standing commit's (a recovery commit after
+        // owed reads included); a call that failed as a whole made none.
         if result.is_err() {
+            self.transport.suspend = false;
             self.page = previous;
         }
         result

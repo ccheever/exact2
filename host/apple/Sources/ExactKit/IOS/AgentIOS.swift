@@ -171,14 +171,21 @@ extension Agent {
         }
         // The document and every presentation's mount (LLP 1123 D2)
         var pending: [UIView] = [presenter.viewport] + presenter.modals.mountRoots
+        let now = CACurrentMediaTime()
+        var moving = false
+        Agent.pruneUnbegun(now: now)
         while let view = pending.popLast() {
             guard !view.isHidden, view.alpha > 0 else { continue }
-            if view.layer.animationKeys()?.contains(where: { key in
-                view.layer.animation(forKey: key).map(movesGeometry) == true
-            }) == true { return true }
+            // Only one still running (`inFlight`): not one held at speed 0
+            // for the agent's clock (a lowered `@keyframes`), repeating for
+            // ever, or kept on the layer past its end. Every one is looked
+            // at, so ones with no begin time are first seen together.
+            for key in view.layer.animationKeys() ?? [] {
+                if let a = view.layer.animation(forKey: key), movesGeometry(a), Agent.inFlight(a, on: view.layer, key: key, now: now) { moving = true }
+            }
             pending.append(contentsOf: view.subviews)
         }
-        return false
+        return moving
     }
 
     /// What UIKit knows for `state` (LLP 1035.002 D2): which node holds the
@@ -604,6 +611,7 @@ extension Agent {
         let window = { (q: CGPoint) in vp.convert(CGPoint(x: q.x + vp.contentOffset.x, y: q.y + vp.contentOffset.y), to: nil) }
         var p = window(CGPoint(x: b.midX, y: b.midY))
         var at = [Agent.r2(b.midX), Agent.r2(b.midY)]
+        if req["wheel"] == nil, req["hover"] == nil { awaitAppOverlay(at: p, in: win) }
         let seen = win.hitTest(p, with: nil)
         // A finger lands only where the target is seen (LLP 1035.003: action
         // dispatch is never substituted for a contact), so a press, a menu or
@@ -703,18 +711,23 @@ extension Agent {
         // what the pointer events below do to the tree never sends the press
         // elsewhere, as a real contact keeps its target.
         let reach = fingerReach(hit, at: p)
-        // An iPad's hardware keys held through the tap (gallery F20).
-        let held = Agent.heldPrefix(req)
         // A finger's `pointerdown` as it lands and `pointerup` as it lifts,
         // before what the lift does (DOM's order), as `PointerRecognizer`
         // hears a real touch before the node does; a held contact's lift
         // sends its own (`fingerPhase`).
         let fingers = Agent.fingerPath(from: hit)
+        // On a module's own view, what Contract hears of a finger (a press,
+        // a pointer listener) is delivered; with nothing to hear it, refused.
+        let unreached = plain && reach.action == nil ? moduleTouch(hit) : nil
+        if let why = unreached, fingers.isEmpty { return ["error": "unsupported: tap #\(v.id) at (\(at[0]), \(at[1])) \(why)"] }
+        // An iPad's hardware keys held through the tap (gallery F20).
+        let held = Agent.heldPrefix(req)
         fingerPointer(.down, fingers, at: p, held: held)
         fingerPointer(.up, fingers, at: p, held: held)
         var reply: [String: Any] = ["tapped": Int(v.id), "at": at].merging(lift(reach, at: p, held: held)) { a, _ in a }
         // Its middle reaches a control inside it: the tap landed beside it.
         if let avoided { reply["avoided"] = ["middle": [Agent.r2(b.midX), Agent.r2(b.midY)], "pressing": avoided.pressing ?? NSNull(), "what": avoided.described] as [String: Any] }
+        if let why = unreached { reply["unreached"] = "Contract's pointer listeners heard it, but it \(why)" }
         return reply
     }
 
@@ -819,7 +832,23 @@ extension Agent {
         let cls: AnyClass = Swift.type(of: hit), name = String(describing: cls)
         let held = (up as? NodeView).map { "\(name), in node #\($0.id)," } ?? name
         // build.mjs compiles an app's native modules as one Swift module of this name.
-        return "\(held) covers its middle" + (String(reflecting: cls).hasPrefix("ExactAppModules.") ?"; it is the app's own view: one animating away on real time (UIView.animate, a display link) goes only with `clock +N real`, while one drawn from the module's `frames` or `after` follows `clock +N`" : "")
+        let own = String(reflecting: cls).hasPrefix("ExactAppModules.") || appOverlay(hit)
+        return "\(held) covers its middle" + (own ? "; it is the app's own view, on the wall's time: a tap waits up to 3 s while one over its point moves, `clock settle` up to 1.5 s for its UIView.animate, `clock +N real` lets a display link's motion run, and one drawn from the module's `frames` or `after` follows `clock +N`" : "")
+    }
+
+    /// Why the agent's press would not do what a finger on `hit` does, or
+    /// nil: `hit` is a native module's own view, whose controls, gesture
+    /// recognizers and `touchesBegan` only a real touch drives (UIKit has no
+    /// public touch synthesis). A responder in it is focused by the press
+    /// (`lift`), as a finger focuses it.
+    func moduleTouch(_ hit: UIView) -> String? {
+        var at: UIView? = hit
+        while let cur = at, !(cur is NodeView) {
+            if cur.canBecomeFirstResponder { return nil }
+            at = cur.superview
+        }
+        guard at !== hit, let node = at as? NodeView, node.kind == "native" else { return nil }
+        return "lands on the app's own native view (\(String(describing: Swift.type(of: hit))), in node #\(node.id)), whose controls and gesture recognizers only a real touch drives: drive it with `--touch platform` on a simulator"
     }
 
     /// The web's rule for a phase-less wheel tick (LLP 1070 G2, Chrome's,
@@ -1162,7 +1191,7 @@ extension Agent {
         let painted = presenter.menus.presented.filter { $0.window != nil && !$0.isHidden }
         if !painted.isEmpty {
             r["painted"] = painted.map { n -> [String: Any] in ["id": Int(n.id), "testId": n.props["testId"] ?? NSNull()] }
-            r["paintedNote"] = "an open popover is painted in the page under the agent, as the web draws it (LLP 1021 D4): the app shows a menu as UIKit's menu at its invoker, a context menu's with its preview"
+            r["paintedNote"] = "an open popover is painted in the page under the agent, as the web draws it (LLP 1021 D4): the app shows a menu as UIKit's menu at its invoker, a context menu's with its preview; under --touch platform a menu is UIKit's"
         }
         let bars = presenter.navigation.paintedForBars()
         if !bars.isEmpty {
@@ -1182,8 +1211,8 @@ extension Agent {
         return r
     }
 
-    /// What UIKit has presented over the app's window, by what a person calls it: "alert", "action sheet", "popover" or
-    /// "sheet" (a presented route); nil with nothing presented. The innermost one: a sheet's own alert reads as the alert.
+    /// What UIKit has presented over the app's window, by what a person calls it: "alert", "action sheet", "menu",
+    /// "popover" or "sheet" (a presented route); nil with nothing presented. The innermost one: a sheet's own alert reads as the alert.
     func presentedOverApp() -> String? {
         var found: UIViewController?
         func visit(_ c: UIViewController) {
@@ -1191,11 +1220,15 @@ extension Agent {
             while let next = at.presentedViewController { found = next; at = next }
             for child in c.children { visit(child) }
         }
-        guard let root = presenter.viewport.window?.rootViewController else { return nil }
+        guard let window = presenter.viewport.window, let root = window.rootViewController else { return nil }
         visit(root)
+        if let alert = found as? UIAlertController { return alert.preferredStyle == .alert ? "alert" : "action sheet" }
+        // A menu one of the popovers gave UIKit (`--touch platform`), however
+        // UIKit presents it; tvOS has no menus or popovers.
+        #if !os(tvOS)
+        if menuShown(in: window) { return "menu" }
+        #endif
         guard let top = found else { return nil }
-        if let alert = top as? UIAlertController { return alert.preferredStyle == .alert ? "alert" : "action sheet" }
-        // tvOS has no popovers.
         #if !os(tvOS)
         if top.modalPresentationStyle == .popover { return "popover" }
         #endif

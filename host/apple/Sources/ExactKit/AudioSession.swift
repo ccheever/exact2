@@ -24,6 +24,12 @@ package enum AudioSession {
     /// A canvas's hold, which it never gives back.
     private final class Forever {}
     private static let forever = Forever()
+    /// The process keeps running in the background: a `playback` session
+    /// and `audio` in `UIBackgroundModes` (LLP 1096 D8), so a sequence
+    /// plays on with the screen locked (LLP 1125 D4).
+    static var playsInBackground: Bool {
+        category == .playback && (Bundle.main.object(forInfoDictionaryKey: "UIBackgroundModes") as? [String] ?? []).contains("audio")
+    }
     /// For tests: the next activation fails with this, as it can during a call.
     nonisolated(unsafe) static var nextHoldFailure: Error?
 

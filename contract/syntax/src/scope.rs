@@ -279,6 +279,7 @@ impl Rewriter<'_> {
             mutations,
             actions,
             tasks,
+            sequences,
             view,
             span,
         } = c;
@@ -322,6 +323,18 @@ impl Rewriter<'_> {
         for t in tasks {
             self.expr(&mut t.timer.0)?;
             for e in t.gate.iter_mut().chain(t.key.iter_mut()) {
+                self.expr(e)?;
+            }
+        }
+        for q in sequences {
+            let options = q.options.iter_mut().map(|o| &mut o.1);
+            for e in q
+                .gate
+                .iter_mut()
+                .chain(q.key.iter_mut())
+                .chain([&mut q.tracks])
+                .chain(options)
+            {
                 self.expr(e)?;
             }
         }

@@ -10,7 +10,8 @@
 //   it. A
 //   write names its `client`: the clients share one server, so a hello's
 //   name is no write's. The wire adds to `hello` the `app` it serves and
-//   its run's `epoch`, the events' (`tamber/1.1`).
+//   its run's `epoch`, the events' (`tamber/1.1`), and `page`, the dev loop's
+//   own origin or null (`tamber/1.3`).
 // - The change stream, an event per change whoever made it: a client's
 //   write (its client, the files it wrote), a hand edit or a `git checkout`
 //   (seen by the watcher, `client` null). Each event has a sequence number;
@@ -155,7 +156,7 @@ function spawnContract(appDir) {
  * loop, previews a scrub on its builds; `scopeOf(req)` is a request's scope
  * (LLP 1122 D6's ladder): the one token is the local tool's, which writes,
  * and paired clients' scoped tokens name theirs. */
-export function tamberServer({ appDir, spawnServe = spawnContract, log = console.log, settle = 50, toolDir = TOOL_DIST, live = false, answerMs = ANSWER_MS, scrub = null, scrubIdleMs, scopeOf = () => 'write' }) {
+export function tamberServer({ appDir, spawnServe = spawnContract, log = console.log, settle = 50, toolDir = TOOL_DIST, live = false, answerMs = ANSWER_MS, scrub = null, scrubIdleMs, scopeOf = () => 'write', page = null }) {
   const token = randomBytes(32).toString('hex');
   // This run's name on every event: a number from another run means nothing.
   const epoch = randomBytes(8).toString('hex');
@@ -466,8 +467,9 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // tell its own from another's and a client can tell a restart.
     // `live`: a dev loop serves it, whose running builds take a value-only
     // edit in place, no reload (LLP 1121 stage 4's live table); `design`:
-    // the file an operation with no `file` edits.
-    if (request.method === 'hello') return ask(request).then(r => (r.ok ? { ok: { ...r.ok, app: appDir, epoch, live: typeof live === 'function' ? live() : live, builds: channel.list(), design: relative(appDir, designPath(appDir) ?? resolve(appDir, design)) } } : r));
+    // the file an operation with no `file` edits; `page`: the dev loop's own
+    // origin, which the design tool frames, null with no dev loop (1.3).
+    if (request.method === 'hello') return ask(request).then(r => (r.ok ? { ok: { ...r.ok, app: appDir, epoch, live: typeof live === 'function' ? live() : live, builds: channel.list(), page: typeof page === 'function' ? page() : page, design: relative(appDir, designPath(appDir) ?? resolve(appDir, design)) } } : r));
     if (request.method === 'pin' || request.method === 'preview') return needsClient(request) ?? pin(request);
     if (request.method.startsWith('scrub')) return needsClient(request) ?? scrubbing(request, scope);
     if (request.method === 'revert') return needsClient(request) ?? revert(request);
@@ -806,6 +808,38 @@ export async function serveAlone(argv) {
 /** The design tool's own local URL: its grants name this one origin
  * (apps/design-tool/app.ts). */
 export const TOOL_ORIGIN = 'http://127.0.0.1:7740';
+// The header a dev loop's HTML carries (LLP 1122 T2): framed by the design
+// tool's origin and the page's own ('self': a page the canvas shows may frame
+// its own pages), never another's.
+export const FRAME_ANCESTORS = `frame-ancestors 'self' ${TOOL_ORIGIN}`;
+
+/** Every HTML response `res` sends carries FRAME_ANCESTORS, whichever route
+ * answers (the page, an install page, `/__dev/open`, a forwarded one): a dev
+ * loop calls it first thing per request. Node's implicit head goes through
+ * writeHead too. A head's headers, in any form writeHead takes, are moved to
+ * the response's own; a policy already there stays beside it (each one is
+ * enforced, so it can only narrow who frames), and X-Frame-Options goes. */
+export function frameOnlyByTool(res) {
+  const writeHead = res.writeHead;
+  res.writeHead = function (status, ...rest) {
+    const at = rest.findIndex(h => h && typeof h === 'object');
+    const given = at < 0 ? null : rest[at];
+    // [[k, v], …], [k, v, k, v, …] or {k: v}, as pairs.
+    const pairs = !given ? [] : !Array.isArray(given) ? Object.entries(given)
+      : Array.isArray(given[0]) ? given : given.flatMap((v, i) => i % 2 ? [] : [[v, given[i + 1]]]);
+    // HTML if any Content-Type it would send says so (a repeated one too).
+    const types = [...pairs.filter(([k]) => String(k).toLowerCase() === 'content-type').map(([, v]) => v), this.getHeader('content-type')].flat();
+    if (!types.some(t => /^\s*text\/html\b/i.test(String(t ?? '')))) return writeHead.call(this, status, ...rest);
+    const values = new Map();
+    for (const [k, v] of pairs) { const key = String(k).toLowerCase(); if (!values.has(key)) { values.set(key, []); this.removeHeader(key); } values.get(key).push(...[v].flat()); }
+    for (const [k, v] of values) this.setHeader(k, v.length === 1 ? v[0] : v);
+    const csp = [this.getHeader('content-security-policy') ?? []].flat().filter(p => p !== FRAME_ANCESTORS);
+    this.setHeader('content-security-policy', [...csp, FRAME_ANCESTORS]);
+    this.removeHeader('x-frame-options');
+    return writeHead.call(this, status, ...rest.filter((_, i) => i !== at));
+  };
+  return res;
+}
 
 /** The tool built into TOOL_DIST unless that build is current; the build's
  * exit code. */
@@ -827,14 +861,15 @@ async function buildTool() {
 }
 
 /** What answers at `origin` (TOOL_ORIGIN unless named) now: null for
- * nothing, else the app its design server serves (null when it gave none). */
+ * nothing, else the app its design server serves (null when it gave none),
+ * and that server run's epoch. */
 async function toolAnswers(origin = TOOL_ORIGIN) {
   try {
     const got = await fetch(`${origin}/__tamber/token`, { redirect: 'error', signal: AbortSignal.timeout(2000) });
     if (!got.ok) return { app: null };
     const { token } = await got.json();
     const hello = await (await fetch(`${origin}/__tamber`, { method: 'POST', redirect: 'error', headers: { 'x-exact-tamber-token': token }, body: '{"method":"hello"}', signal: AbortSignal.timeout(10_000) })).json();
-    return { app: hello.ok?.app ?? null };
+    return { app: hello.ok?.app ?? null, epoch: hello.ok?.epoch ?? null };
   } catch { return null; }
 }
 
@@ -851,6 +886,18 @@ export async function toolCommand(argv) {
   const via = at('--via');
   // `--via` with no URL (or as `--via=…`) is refused, never read as absent.
   if (argv.some(a => a.startsWith('--via')) && !via?.startsWith('http')) { console.error('tamber tool: --via takes the dev loop\'s URL as the next argument: --via http://127.0.0.1:<port>'); return 2; }
+  // The loop's origin: the token goes only to this machine's loopback, by
+  // address (a name could resolve anywhere), and never back to the tool's
+  // own port.
+  let target = null;
+  if (via) {
+    try { target = new URL(via); } catch { console.error(`tamber tool: --via takes the dev loop's URL, not ${via}`); return 2; }
+    if (target.protocol !== 'http:' || !/^(127\.\d+\.\d+\.\d+|\[::1\])$/.test(target.hostname) || target.origin === TOOL_ORIGIN) {
+      console.error(`tamber tool: --via takes the dev loop's loopback URL (http://127.0.0.1:<port>), not ${via}`);
+      return 2;
+    }
+    target = target.origin;
+  }
   const built = await buildTool();
   if (built) { console.error('tamber tool: the design tool did not build'); return built; }
   const url = `${TOOL_ORIGIN}/__tamber/tool/`;
@@ -860,6 +907,10 @@ export async function toolCommand(argv) {
     let same = false;
     try { same = there.app !== null && realpathSync(there.app) === realpathSync(dir); } catch { /* gone */ }
     if (!same) { console.error(`tamber tool: ${TOOL_ORIGIN} already serves ${there.app ? `the design of ${there.app}` : 'something else'}; stop it first`); return 1; }
+    // `--via` names the design server the tool goes through: the tool
+    // there is reused only when it forwards to that server's run (the same
+    // epoch), never its own server or another loop's.
+    if (target && (await toolAnswers(target))?.epoch !== there.epoch) { console.error(`tamber tool: ${TOOL_ORIGIN} already serves this design, not through ${target}; stop it first`); return 1; }
     // And this checkout's tool, as just built: another checkout's server
     // serves its own.
     // Its page, module and plan (whose names carry no digest) as built here.
@@ -872,16 +923,7 @@ export async function toolCommand(argv) {
     return 0;
   }
   const port = Number(new URL(TOOL_ORIGIN).port);
-  if (via) {
-    let target;
-    try { target = new URL(via); } catch { console.error(`tamber tool: --via takes the dev loop's URL, not ${via}`); return 2; }
-    // The token goes only to this machine's loopback, by address (a name
-    // could resolve anywhere), and never back to the tool's own port.
-    if (target.protocol !== 'http:' || !/^(127\.\d+\.\d+\.\d+|\[::1\])$/.test(target.hostname) || target.origin === TOOL_ORIGIN) {
-      console.error(`tamber tool: --via takes the dev loop's loopback URL (http://127.0.0.1:<port>), not ${via}`);
-      return 2;
-    }
-    target = target.origin;
+  if (target) {
     const upstream = await toolAnswers(target);
     let same = false;
     try { same = upstream?.app != null && realpathSync(upstream.app) === realpathSync(dir); } catch { /* gone */ }

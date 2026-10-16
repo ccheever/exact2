@@ -1,4 +1,6 @@
 @group(0) @binding(10) var sky_map: texture_2d<f32>;
+// Tonemapped in place for an LDR target, as forward.wgsl's DIRECT.
+override DIRECT: bool = false;
 @group(0) @binding(11) var sky_sampler: sampler;
 // environment.wgsl's equirectangular lookup: +Y the top row, -Z the centre
 // column, turned by the map's yaw.
@@ -37,5 +39,6 @@ struct SkyVarying {
     if frame.fog_color_density.w > 0.0 {
         color = height_fog(color, frame.camera_alpha.xyz + direction * 10000.0);
     }
+    if DIRECT { return tonemap(color); }
     return vec4(color, 1.0);
 }

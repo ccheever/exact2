@@ -193,7 +193,7 @@ final class MenuHost {
             // The agent's painted presentation: in the top layer while open,
             // hidden while closed, as on the web and macOS, so a closed
             // popover covers nothing (`agentTap`).
-            if !isConfirmation(v), ExactEnv.agentMode || v.props["id"].map({ agentOpen[$0] != nil }) == true {
+            if !isConfirmation(v), ExactEnv.agentPaints || v.props["id"].map({ agentOpen[$0] != nil }) == true {
                 if v.props["popover"] != nil {
                     if let name = v.props["id"], let entry = agentOpen[name], entry.popover === v { lifting.append(entry) }
                     else if !v.isHidden { v.isHidden = true }
@@ -253,8 +253,9 @@ final class MenuHost {
                 if native.popover !== pop { native.dismissMenu() }
                 native.popover = pop
             }
-            (button as? MenuButton)?.toggled = { [weak presenter, weak pop] open in
+            (button as? MenuButton)?.toggled = { [weak self, weak presenter, weak pop] open in
                 if let pop { presenter?.popoverEvents.changed(pop, open: open) }
+                if !open, let pop, self?.presentedMenu[pop.id] != nil { self?.presentedMenu = [:] }
             }
             #endif
             if button.superview !== v { v.addSubview(button) }
@@ -735,7 +736,7 @@ final class MenuHost {
     /// where the node is; an opened popover is in the top layer below its
     /// opener with its `autofocus` field focused.
     func agentTap(_ node: NodeView) {
-        guard ExactEnv.agentMode else { return }
+        guard ExactEnv.agentPaints else { return }
         lightDismiss(node)
         guard !node.isNativeButton, let presenter else { return }
         // After the tap's handler has run: what the surviving button invokes now.
@@ -801,9 +802,38 @@ final class MenuHost {
         if !agentOpen.isEmpty {
             return agentOpen.values.contains { entry in entry.source.flatMap { presenter.views[$0] }?.isNativeButton != true }
         }
+        // Under native presentation a closed popover is UIKit's to open.
+        if !ExactEnv.agentPaints { return false }
         let painted = (presenter.carrying("popover") + presenter.carrying("tag:dialog").filter { $0.props["popover"] == nil }).filter { !isConfirmation($0) }
         return painted.contains { pop in node === pop || node.isDescendant(of: pop) || (pop.props["id"] != nil && target(of: node) == pop.props["id"]) }
     }
+    /// Under native presentation (`--touch platform`), the popover `node`
+    /// is a row of, which UIKit shows as its menu (D3), and the row: what a
+    /// finger picks. Nil for anything else.
+    func nativeRow(_ node: NodeView) -> (popover: NodeView, row: NodeView)? {
+        guard ExactEnv.agentMode, !ExactEnv.agentPaints, let presenter else { return nil }
+        // The innermost popover holding it: a submenu's rows are its own.
+        let holding = presenter.carrying("popover").filter { pop in
+            node.isDescendant(of: pop) && !isConfirmation(pop) && pop.props["id"].map { agentOpen[$0] == nil } != false
+        }
+        guard let pop = holding.first(where: { inner in !holding.contains { $0 !== inner && $0.isDescendant(of: inner) } }) else { return nil }
+        var at: UIView = node
+        while let up = at.superview, up !== pop.container { at = up }
+        guard let row = at as? NodeView, row.superview === pop.container, row.props["popover"] == nil else { return nil }
+        return (pop, row)
+    }
+    /// Under the agent, the rows each popover's menu was last given, in
+    /// order, by popover id: where a finger finds a row in the menu UIKit
+    /// shows (`Agent.shownRow`). UIKit puts no identifier of an action on
+    /// the element it shows, so a row is its place among these.
+    var given: [UInt32: [GivenRow]] = [:]
+    /// Under the agent, the popovers (by id, with their incarnations) of
+    /// the menu UIKit was last given to present: the one a menu opened
+    /// with, and its submenus. A row of any other popover is not in the menu
+    /// UIKit shows, however alike their rows read. Emptied when an
+    /// invoker's menu ends; a bar item's pull-down reports no end, and its
+    /// rows no longer showing is the refusal then.
+    var presentedMenu: [UInt32: UInt64] = [:]
     private static func autofocus(in view: UIView) -> NodeView? {
         for sub in view.subviews {
             if let node = sub as? NodeView, let value = node.props["autofocus"], value != "false" { return node }
@@ -1004,7 +1034,7 @@ final class MenuHost {
     /// Whether a confirmation is open modally, nil when it is not open: a
     /// reopen waiting on its predecessor's dismissal counts, a finishing
     /// alert does not
-    private func openModally(_ pop: NodeView) -> Bool? {
+    func openModally(_ pop: NodeView) -> Bool? {
         if let pending = pendingConfirmation, pending.popover === pop { return pending.modal }
         if let owner = confirmation, owner.popover === pop, !owner.finishing { return owner.modal }
         return sheets.isOpen(pop) ? true : nil
@@ -1224,6 +1254,14 @@ final class MenuHost {
     /// popovers above `pop`, whose rows opened it.
     func items(of pop: NodeView, path: [NodeView] = []) -> [UIMenuElement] {
         var sections: [[UIMenuElement]] = [[]]
+        // Under the agent, what UIKit was given, in order (`given`).
+        var rows: [GivenRow] = []
+        defer { if ExactEnv.agentMode { given[pop.id] = rows } }
+        // A menu's own items (not a submenu's) begin what UIKit presents.
+        if ExactEnv.agentMode {
+            if path.isEmpty { presentedMenu = [:] }
+            presentedMenu[pop.id] = pop.incarnation
+        }
         for case let row as NodeView in pop.container.subviews {
             // A context menu's preview (§5.1) is not one of its items.
             if row.props["contextPreview"] == "true" { continue }
@@ -1236,6 +1274,7 @@ final class MenuHost {
                     : UIMenu(title: title(of: row), image: image(of: row), children: children)
                 element.subtitle = row.isNativeButton ? row.face?.subtitle : nil
                 sections[sections.count - 1].append(element)
+                rows.append(GivenRow(row, title: element.title, subtitle: element.subtitle))
             } else if row.handlers.contains("press") || opensConfirmation(row) {
                 let id = row.id, token = row.incarnation
                 let image = image(of: row)
@@ -1267,6 +1306,7 @@ final class MenuHost {
                 if row.props["disabled"] == "true" { action.attributes.insert(.disabled) }
                 if row.props["destructive"] == "true" { action.attributes.insert(.destructive) }
                 sections[sections.count - 1].append(action)
+                rows.append(GivenRow(row, title: action.title, subtitle: action.subtitle))
             } else if !(sections.last?.isEmpty ?? true) {
                 sections.append([])
             }

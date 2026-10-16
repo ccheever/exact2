@@ -475,6 +475,10 @@ Then the warning channel:
   - `type-performance-now-persisted`: a value computed from `performanceNow()` without
     `epochAtZero`, sent to a source or stored in a persisted state.
 - Each warning names its repair, as the refusals do.
+- **Later:** `lower-line-height-multiplier` (2026-10-16, the euxy port's 616-point header): a
+  literal unitless `line-height` of 4 or more, which CSS reads as that many times the font size
+  and a React Native author means as points. No app in the repository writes a multiplier above
+  2. The repair is `"28px"`.
 
 **D7. Headings take the emphasized weight of their text style.** `heading_style`
 (`contract/lower/src/tags.rs:1278`) writes weight 700 for `title1`–`title3`, and keeps 600 for

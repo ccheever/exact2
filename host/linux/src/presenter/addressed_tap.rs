@@ -29,7 +29,7 @@ impl<D: DataSource> Presenter<D> {
         if let Some(result) = self.bar_tap(id) {
             return result;
         }
-        if self.host.route_visibility(id).1 || self.placement_hidden(id) {
+        if !self.alert_allows(id) || self.host.route_visibility(id).1 || self.placement_hidden(id) {
             return Err(format!("view {id} is hidden or inert"));
         }
         if !self.has_windows() && crate::navigation::popover_invoker(self.host.kernel(), id) {

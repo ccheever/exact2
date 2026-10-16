@@ -11,7 +11,10 @@ pub(super) fn before_prop(
         return Vec::new();
     }
     match prop {
-        PropId::SemanticTag => vec![(slot, arena.default_context(slot))],
+        PropId::SemanticTag => std::iter::once(slot)
+            .chain(arena.children(slot).iter().copied())
+            .map(|s| (s, arena.default_context(s)))
+            .collect(),
         PropId::NavigationKey => arena
             .children(slot)
             .iter()
@@ -26,6 +29,15 @@ pub(super) fn before_prop(
             let mut before = vec![(slot, arena.default_context(slot))];
             if let Some(parent) = arena.parent(slot) {
                 before.push((parent, arena.default_context(parent)));
+                if arena.neutral_alert(parent) {
+                    before.extend(
+                        arena
+                            .children(parent)
+                            .iter()
+                            .copied()
+                            .map(|s| (s, arena.default_context(s))),
+                    );
+                }
             }
             if prop == PropId::AccessibilityRole {
                 before.extend(
@@ -67,6 +79,9 @@ pub(super) fn changed(
         return;
     }
     let mut rows = StyleMask::EMPTY;
+    if before.alert != after.alert {
+        rows = rows.union(NodeArena::alert_rows());
+    }
     if before.header != after.header {
         arena.refresh_sticky(slot);
         rows = rows.union(NodeArena::header_rows());

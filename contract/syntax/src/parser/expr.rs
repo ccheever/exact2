@@ -420,19 +420,16 @@ impl Parser {
         // Text decodes the escapes a `"…"` string does; `\${` is literal text.
         while let Some(c) = raw[pos..].chars().next() {
             if c == '\\' {
-                let next = raw[pos + 1..].chars().next();
-                let Some(decoded) = next.and_then(escaped) else {
-                    return Err(SyntaxError {
-                        id: "syntax-bad-escape",
-                        message: crate::lexer::bad_escape(next),
-                        span: Span {
-                            source_id: span.source_id,
-                            ..Span::point(span.line, span.col + 1 + pos as u32)
-                        },
-                    });
-                };
+                let (decoded, len) = escape(&raw[pos + 1..]).map_err(|message| SyntaxError {
+                    id: "syntax-bad-escape",
+                    message,
+                    span: Span {
+                        source_id: span.source_id,
+                        ..Span::point(span.line, span.col + 1 + pos as u32)
+                    },
+                })?;
                 text.push(decoded);
-                pos += 1 + next.map_or(0, char::len_utf8);
+                pos += 1 + len;
                 continue;
             }
             if !raw[pos..].starts_with("${") {

@@ -229,3 +229,48 @@ fn display_mode_changes_reanswer_without_resize_or_app_data() {
     assert_eq!(runner.viewport().width, 390.0);
     assert!(runner.data().queries.is_empty());
 }
+
+#[test]
+fn deferred_mutations_are_counted_when_the_source_activates() {
+    #[derive(Default)]
+    struct Writes {
+        ready: bool,
+        calls: usize,
+    }
+    impl DataSource for Writes {
+        fn ready(&self) -> bool {
+            self.ready
+        }
+        fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+            self.calls += 1;
+            Ok(Value::Number(self.calls as f64))
+        }
+    }
+    let plan = contract::compile("component App\n  mutation saved as shape number\n  task auto mount\n    after(1, save)\n  action save\n    send saved = save()\n  view\n    text \"hello\"\n").unwrap();
+    let mut r = Runner::boot(
+        plan,
+        Writes::default(),
+        Kernel::with_monospace(),
+        Viewport::default(),
+        "/",
+    )
+    .unwrap();
+    assert!(r.advance_timed(1.).error.is_none());
+    assert_eq!(r.data_ref().calls, 0);
+    assert_eq!(
+        r.mutation_requests(),
+        0,
+        "an unissued send has no request yet"
+    );
+    r.data().ready = true;
+    r.data_ready().unwrap();
+    assert_eq!(r.data_ref().calls, 1);
+    assert_eq!(r.mutation_requests(), 1);
+    assert!(exact_runner::agent::state(&r).contains("\"mutationRequests\":1"));
+    r.data_ready().unwrap();
+    assert_eq!(
+        r.mutation_requests(),
+        1,
+        "activation does not resend a settled write"
+    );
+}

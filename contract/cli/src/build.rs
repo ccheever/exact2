@@ -98,7 +98,7 @@ pub(super) fn run(args: &[String]) -> ExitCode {
     // older than the game's Rust they are warnings, never hiding the
     // compile's own refusals (the platformer's diary, R4).
     let surfaces = contract::surface_findings(Path::new(input));
-    let refused = match &surfaces {
+    let mut refused = match &surfaces {
         Ok(s) if s.newer.is_none() => s.findings.clone(),
         Ok(_) => Vec::new(),
         // An unreadable declaration; the compile reports unreadable sources.
@@ -108,6 +108,7 @@ pub(super) fn run(args: &[String]) -> ExitCode {
             .cloned()
             .collect(),
     };
+    refused.extend(crate::ambient::check(Path::new(input)));
     if let Ok(warnings) = contract::resource_clock_warnings(Path::new(input)) {
         for finding in warnings {
             eprintln!("warning: {finding}");
@@ -129,6 +130,22 @@ pub(super) fn run(args: &[String]) -> ExitCode {
             return report_all(&errors, &warnings, json, 1);
         }
     };
+    // Existing declarations are an author's data seam. Refresh them from this
+    // successful compile, including imported source changes, without creating
+    // declarations for builds that never requested TypeScript.
+    let declaration = format!("{input}.d.ts");
+    if Path::new(&declaration).is_file() {
+        let types = match contract::typescript(&plan) {
+            Ok(types) => types,
+            Err(message) => return report(&error("contract-types", message, Some(input)), json, 1),
+        };
+        if std::fs::read(&declaration).ok().as_deref() != Some(types.as_bytes()) {
+            if let Err(error) = write_output(&declaration, types.as_bytes()) {
+                return report(&error, json, 1);
+            }
+            eprintln!("{declaration}: regenerated, since a source's signature changed (the types app.ts imports)");
+        }
+    }
     let bytes = plan.encode();
     if let Some(output) = output {
         if let Some(map) = map.as_ref().filter(|_| want_map) {

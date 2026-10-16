@@ -1135,3 +1135,23 @@ fn a_batch_sets_a_running_builds_rows_without_a_plan() {
     );
     assert_eq!(r.apply_live(&other).unwrap_err(), LiveRefusal::Structure);
 }
+
+/// An empty pin declares nothing, as an empty value on any row does: the
+/// card is in the tuple around it, literal or as a choice's arm.
+#[test]
+fn an_empty_pin_declares_nothing() {
+    let path = app(
+        "empty-pin",
+        &[
+            ("app.tamber", MODES),
+            ("app.contract", "component App\n  state dim = false\n  view\n    column testId=\"page\" background-color=\"page\"\n      column testId=\"card\" -exact-mode=\"\" background-color=\"page\"\n      column testId=\"arm\" -exact-mode=(dim ? \"dark-style=dim\" : \"\") background-color=\"page\"\n"),
+        ],
+    );
+    let plan = contract::compile_path(&path).unwrap();
+    let black = parsed("light-dark(#ffffff, #000000)");
+    assert_eq!(
+        colour(plan.clone(), "card", StyleId::BackgroundColor),
+        black
+    );
+    assert_eq!(colour(plan, "arm", StyleId::BackgroundColor), black);
+}

@@ -4,6 +4,7 @@
 use crate::{edits, err, media, symbols, tags, vocab, FontUse, LowerError};
 use contract_syntax::{Attr, Expr, Span, UnOp};
 use contract_types::{Ref, Scope, Shapes, Ty};
+use exact_kernel::style::sides as box_sides;
 use exact_kernel::{PropId, StyleId, StyleProps, StyleValue, StyleValueError};
 use std::{cell::Cell, rc::Rc};
 /// A literal, as an author wrote it, for a message.
@@ -167,89 +168,76 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
         StyleValueError::BadBackdropFilter { reason, .. } => (*reason).into(),
     }
 }
-/// CSS's one-to-four-value box shorthands, rows in top, right, bottom, left
-/// order — `border-radius`'s corners in top-left, top-right, bottom-right,
-/// bottom-left order, which CSS fills from fewer values the same way
-/// (ledger2 Rough 5).
-const FOUR_SIDED: [[StyleId; 4]; 9] = [
-    [
-        StyleId::PaddingTop,
-        StyleId::PaddingRight,
-        StyleId::PaddingBottom,
-        StyleId::PaddingLeft,
-    ],
-    [
-        StyleId::MarginTop,
-        StyleId::MarginRight,
-        StyleId::MarginBottom,
-        StyleId::MarginLeft,
-    ],
-    [
-        StyleId::BorderWidthTop,
-        StyleId::BorderWidthRight,
-        StyleId::BorderWidthBottom,
-        StyleId::BorderWidthLeft,
-    ],
-    [
-        StyleId::BorderStyleTop,
-        StyleId::BorderStyleRight,
-        StyleId::BorderStyleBottom,
-        StyleId::BorderStyleLeft,
-    ],
-    [
-        StyleId::BorderColorTop,
-        StyleId::BorderColorRight,
-        StyleId::BorderColorBottom,
-        StyleId::BorderColorLeft,
-    ],
-    [StyleId::Top, StyleId::Right, StyleId::Bottom, StyleId::Left],
-    [
-        StyleId::ScrollPaddingTop,
-        StyleId::ScrollPaddingRight,
-        StyleId::ScrollPaddingBottom,
-        StyleId::ScrollPaddingLeft,
-    ],
-    [
-        StyleId::ScrollMarginTop,
-        StyleId::ScrollMarginRight,
-        StyleId::ScrollMarginBottom,
-        StyleId::ScrollMarginLeft,
-    ],
-    [
-        StyleId::BorderRadiusTopLeft,
-        StyleId::BorderRadiusTopRight,
-        StyleId::BorderRadiusBottomRight,
-        StyleId::BorderRadiusBottomLeft,
-    ],
-];
 /// Whether these rows are one of CSS's `<value>{1,4}` box shorthands.
 pub(crate) fn four_sided(rows: &[StyleId]) -> bool {
-    FOUR_SIDED.iter().any(|sides| rows == sides)
+    box_sides::FAMILIES.iter().any(|f| rows == f)
 }
-/// A box shorthand's one to four values, split where CSS splits them: at
-/// white space outside parentheses, so `light-dark(#fff, #000)` and
-/// `calc(50% - 4px)` are one value.
-fn side_values(text: &str) -> Vec<&str> {
-    let (mut values, mut depth, mut start) = (Vec::new(), 0usize, None);
-    for (i, c) in text.char_indices() {
-        match c {
-            '(' => depth += 1,
-            ')' => depth = depth.saturating_sub(1),
-            c if c.is_whitespace() && depth == 0 => {
-                if let Some(s) = start.take() {
-                    values.push(&text[s..i]);
-                }
-                continue;
+/// A computed value that builds a list for a box shorthand (a template
+/// such as `` `${pad}px 0` ``, a concatenation, or a `fn` returning one): no
+/// host splits a list at run time, since an overriding longhand, an
+/// `env()` and the rows' own grammars would each split it differently
+/// (LLP 1001 §1). Refused, naming the longhands. A literal (or a literal
+/// arm) is split here; a computed single value (`padding=pad`) is every
+/// side's, and a computed list that reaches a row is refused there.
+pub(crate) fn computed_list<'e>(
+    name: &str,
+    value: &'e Expr,
+    body: &dyn Fn(&str) -> Option<&'e Expr>,
+) -> Result<(), LowerError> {
+    // The text a computed value spells, a computed part as one word.
+    fn shape<'e>(e: &'e Expr, body: &dyn Fn(&str) -> Option<&'e Expr>, depth: u8) -> String {
+        match e {
+            Expr::Str(s, _) => s.clone(),
+            Expr::Template(parts, _) => parts
+                .iter()
+                .map(|p| match p {
+                    contract_syntax::TemplatePart::Text(t) => t.clone(),
+                    contract_syntax::TemplatePart::Expr(e) => shape(e, body, depth),
+                })
+                .collect(),
+            Expr::Binary(contract_syntax::BinOp::Add, l, r, _) => {
+                shape(l, body, depth) + &shape(r, body, depth)
             }
-            _ => {}
+            Expr::Call(f, _, _) if depth < 8 => {
+                body(f).map_or_else(|| "x".into(), |b| shape(b, body, depth + 1))
+            }
+            _ => "x".into(),
         }
-        start.get_or_insert(i);
     }
-    if let Some(s) = start {
-        values.push(&text[s..]);
+    fn lists<'e>(e: &'e Expr, body: &dyn Fn(&str) -> Option<&'e Expr>) -> Option<Span> {
+        match e {
+            // A literal is split at compile time.
+            Expr::Str(..) => None,
+            Expr::Ternary(_, yes, no, _) => lists(yes, body).or_else(|| lists(no, body)),
+            Expr::Match { some, none, .. } => lists(some, body).or_else(|| lists(none, body)),
+            Expr::Let { body: b, .. } => lists(b, body),
+            e => (box_sides::values(&shape(e, body, 0)).len() > 1).then(|| e.span()),
+        }
     }
-    values
+    let Some(span) = lists(value, body) else {
+        return Ok(());
+    };
+    let sides = ["top", "right", "bottom", "left"];
+    let longhands: Vec<String> = match name {
+        "border-radius" => ["top-left", "top-right", "bottom-right", "bottom-left"]
+            .map(|c| format!("`border-{c}-radius`"))
+            .to_vec(),
+        "inset" => sides.map(|s| format!("`{s}`")).to_vec(),
+        n => match n.strip_prefix("border-") {
+            Some(part) => sides.map(|s| format!("`border-{s}-{part}`")).to_vec(),
+            None => sides.map(|s| format!("`{n}-{s}`")).to_vec(),
+        },
+    };
+    err(
+        "lower-css-shorthand",
+        format!(
+            "`{name}` is computed here as a list of values, which no host splits at run time; write {} (each may be computed), or a literal `{name}`",
+            longhands.join("/")
+        ),
+        span,
+    )
 }
+
 /// A box shorthand (`padding: <length>{1,4}`, `border-color: <color>{1,4}`,
 /// …) as four longhand expressions (top, right, bottom, left): every literal
 /// the value can produce — a string, or an arm of a conditional — is split
@@ -260,7 +248,14 @@ pub(crate) fn sides(name: &str, value: &Expr) -> Result<Option<[Expr; 4]>, Lower
     fn widest(name: &str, e: &Expr) -> Result<usize, LowerError> {
         Ok(match e {
             Expr::Str(s, span) => {
-                let n = side_values(s).len();
+                let n = box_sides::values(s).len();
+                if name == "border-radius" && box_sides::elliptical(s) {
+                    return err(
+                        "lower-attr-value",
+                        format!("`border-radius` takes one to four corners, each one length (top-left, top-right, bottom-right, bottom-left); \"{s}\" is an elliptical radius (`/`), which no host draws"),
+                        *span,
+                    );
+                }
                 if n > 4 {
                     let order = if name == "border-radius" {
                         "top-left, top-right, bottom-right, bottom-left; no `/` elliptical radii"
@@ -284,15 +279,11 @@ pub(crate) fn sides(name: &str, value: &Expr) -> Result<Option<[Expr; 4]>, Lower
     fn side(e: &Expr, i: usize) -> Expr {
         match e {
             Expr::Str(s, span) => {
-                let v = side_values(s);
-                // CSS: top; right = top; bottom = top; left = right.
-                let pick = match (v.len(), i) {
-                    (0, _) => return e.clone(),
-                    (1, _) => 0,
-                    (2, _) => i % 2,
-                    (3, 3) => 1,
-                    (_, i) => i,
-                };
+                let v = box_sides::values(s);
+                if v.is_empty() {
+                    return e.clone();
+                }
+                let pick = box_sides::pick(v.len(), i);
                 // A length in pixels is the number it would be on its own
                 // (`border-width` takes only numbers).
                 let piece = v[pick];
@@ -742,7 +733,9 @@ fn style_value(
             Expr::Str(s, _) => Some(
                 // Enum keywords stay text, including `auto` (as in the runner).
                 // Other codecs retain their existing dimension/keyword handling.
-                if s == "auto"
+                // A keyword is ASCII case-insensitive, as the runner reads it.
+                if s.trim_matches(['\t', '\n', '\u{c}', '\r', ' '])
+                    .eq_ignore_ascii_case("auto")
                     && !rows
                         .iter()
                         .all(|row| row.codec() == exact_kernel::StyleCodec::Enum)
@@ -1137,6 +1130,7 @@ pub(crate) fn check_prop_value(
         // A sheet's grabber, said or left to the platform (LLP 1115 §2).
         PropId::NavigationGrabber => Some((&["visible", "hidden", "auto"], "`navigationGrabber` takes \"visible\", \"hidden\" or \"auto\" (the default: the platform's, a grabber on a sheet with several detents)")),
         PropId::FocusGuide => Some((&["auto"], "`focusGuide` takes \"auto\"")),
+        PropId::Wakelock => Some((&["screen", "none"], "`wakelock` takes \"screen\" (the display stays awake while this element is displayed) or \"none\" (the default)")),
         PropId::AccessibilityLive => Some((&["off", "polite", "assertive"], "`aria-live` takes \"off\", \"polite\" or \"assertive\"")),
         _ => None,
     };

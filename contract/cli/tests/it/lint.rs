@@ -144,17 +144,16 @@ fn an_inset_sized_button_has_area() {
 
 /// The web's JS target bakes nothing; `contract::check` refuses there what
 /// every native bake would, before the page's module answers (files diary
-/// F13: a hidden shortcut button passed the web build and 21 web tests).
+/// F13). Hidden controls and descendants have no pressable layout until shown.
 #[test]
 fn check_refuses_without_data_what_no_answer_could_change() {
     let hidden = "component A\n  state n = 0\n  action go\n    n = 1\n  view\n    column\n      button \"Down\" press=go display=\"none\" aria-keyshortcuts=\"Shift+ArrowDown\" testId=\"down\"\n";
-    match contract::check(&contract::compile(hidden).unwrap()).unwrap_err() {
-        BakeError::Lint { id, message, .. } => {
-            assert_eq!(id, "bake-zero-size");
-            assert!(message.contains("testId=\"down\""), "{message}");
-        }
-        other => panic!("{other:?}"),
-    }
+    contract::check(&contract::compile(hidden).unwrap()).unwrap();
+    let nested = hidden
+        .replace("    column\n", "    column display=\"none\"\n")
+        .replace(" display=\"none\" aria-keyshortcuts", " aria-keyshortcuts");
+    contract::check(&contract::compile(&nested).unwrap()).unwrap();
+    contract::bake(contract::compile(&nested).unwrap(), NoData).unwrap();
     // A label the module answers is empty until it does: not this check's
     // to judge, nor a `scroll` that only its answered rows reach the bound
     // of (unanswered, it is exactly as tall as its header).

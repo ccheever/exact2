@@ -14,6 +14,11 @@ shape Hello
   format: number
   app: string
   files: FileDigest[]
+  // The dev loop's own origin, which the canvas frames; "" with none.
+  page: string
+  // A dev loop serves the wire: a value edit applies in place, and a
+  // scrub previews on the running copies.
+  live: bool
 
 shape Change
   seq: number
@@ -97,6 +102,39 @@ shape Imported
   counted: string
   unmapped: Unmapped[]
 
+// A running build (LLP 1122 D4): its effective scheme, contrast, mode and
+// root font size from its status, its pin, whether its status has caught
+// up with the last pin frame the server sent it (any client's pin, or a
+// hand-back), and the last command it could not apply.
+shape Build
+  id: string
+  host: string
+  // Its status has come (none since it registered or reloaded, else).
+  reported: bool
+  scheme: string
+  contrast: string
+  mode: string
+  rootFontSize: number
+  pin: string
+  caughtUp: bool
+  // Its status names a pin revision older than the last frame it was sent.
+  behind: bool
+  unsupported: string
+
+shape AxisChoice
+  name: string
+  values: string[]
+
+// The app's own design's axes, read while another file is open.
+shape AppAxes
+  axes: AxisChoice[]
+
+// What a pin did.
+shape Pinned
+  ok: bool
+  error: string
+  note: string
+
 shape Changes
   ok: bool
   error: string
@@ -111,6 +149,7 @@ shape Changes
   redo: number
   session: number
   held: Held[]
+  builds: Build[]
 
 // A control drawn from a dial's declared metadata (LLP 1122 D7, LLP 1121
 // D4): `control` is `color`, `slider`, `stepper` or `select`.
@@ -188,6 +227,7 @@ shape Design
   columns: Column[]
   tokenGroups: TokenGroup[]
   names: string[]
+  axes: AxisChoice[]
 
 // A dial an expression names, and where its control is.
 shape DialInput
@@ -218,6 +258,21 @@ shape Branch
   answer: number
 
 // An edit before it is written: `propose`'s answer.
+// The scrub as the data module keeps it (LLP 1122 D6): `live` from Scrub
+// live until Keep, Cancel or an end; `open` its id once the server opened
+// it; `ready` when the server previews the draft as it is now (Keep writes
+// that); `ended`, how the last one ended without a write, said once it is
+// not live.
+shape Scrub
+  ok: bool
+  error: string
+  live: bool
+  open: string
+  ready: bool
+  // A frame is on its way.
+  sending: bool
+  ended: string
+
 shape Proposal
   ok: bool
   error: string
@@ -326,6 +381,17 @@ shape Contrast
 component DesignTool
   // Who this person is, asked once: every write is `design-tool:<person>`.
   state person = "" persist
+  state renaming = false
+  // The canvas's size: a bare frame never sizes to its guest (LLP 1020 D1).
+  state canvasSize = "phone" persist
+  // The pin being composed: which build ("" every build), and the facts
+  // `prefer` pins, each "" when left alone.
+  state pinBuild = ""
+  state pinScheme = ""
+  state pinContrast = ""
+  state pinMode: string[] = []
+  state pinFont = 0
+  mutation pinned as shape Pinned
   state draftName = ""
   // The long poll's place: the last sequence number seen, in which run, and
   // one more ask per answer, so an answer with nothing new asks again.
@@ -333,8 +399,13 @@ component DesignTool
   state epoch = ""
   state asks = 0
   resource hello = loadHello() as shape Hello else empty(ok=true)
-  resource changes = waitChanges(since, epoch, asks) as shape Changes else empty(ok=true)
   derive client = `design-tool:${person}`
+  // A pin's modes are the running app's: its own design's axes, whichever
+  // file is open (the last read of it).
+  resource appAxes = loadAppAxes(file, since, epoch) as shape AppAxes else empty()
+  derive pinAxes = file == "" ? design.axes : appAxes.axes
+  derive pinFontOk = pinFont == 0 or (pinFont >= 4 and pinFont <= 64)
+  resource changes = waitChanges(since, epoch, asks, client) as shape Changes else empty(ok=true)
   // The design file shown ("": the app's own), a group's "more" opened,
   // and the two tokens whose contrast is shown.
   state file = ""
@@ -363,6 +434,19 @@ component DesignTool
   state renameTo = ""
   resource branch = loadBranch(file, selToken, selColumn, design.answer) as shape Branch else empty(ok=true)
   resource proposal = proposeEdit(file, editKind, editTarget, editWhen, editValue, since, epoch) as shape Proposal else empty(ok=true)
+  // Scrubbing, chosen explicitly (D6, never the default): each value the
+  // draft takes is a frame previewed on every running copy, written to no
+  // file; Keep (or a slider let go) writes it once, Cancel puts the
+  // committed value back. `scrubAsk` counts Scrub live presses, `scrubTick`
+  // each Keep or Cancel; the module keeps the session, and the poll's
+  // answers bring an end the server made.
+  state scrubAsk = 0
+  state scrubTick = 0
+  // From Scrub live to Keep or Cancel: the panel shows while the opening
+  // frame is still on its way.
+  state scrubWant = false
+  resource scrub = scrubFrame(scrubAsk, scrubTick, file, editKind, editTarget, editWhen, editValue, client, proposal.review, changes.answer) as shape Scrub else empty(ok=true)
+  derive scrubShown = scrub.live or (scrubWant and pending(scrub))
   // The changeset follows the long poll and each design read (which
   // measures what changed); history is read when shown.
   resource changeset = loadChangeset(file, since, design.answer) as shape Changeset else empty(ok=true)
@@ -425,20 +509,49 @@ component DesignTool
   action saveName
     if draftName.trim() != ""
       person = draftName.trim()
+      renaming = false
   action changeName
+    // The tool stays itself while the name is retyped: its long poll keeps
+    // naming it, so its pins hold. A scrub open is its own: it ends first.
+    if scrubShown
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = cancelScrub(scrubAsk)
     draftName = person
-    person = ""
+    renaming = true
   action dialNumber(name: string, n: number)
+    // A scrub open on another edit ends first.
+    if scrubShown and not (editKind == "set-dial" and editTarget == name)
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = cancelScrub(scrubAsk)
     editKind = "set-dial"
     editTarget = name
     editWhen = ""
     editValue = `${n}`
+  action dialReleased(name: string, n: number)
+    // A slider let go: the scrub on it writes its last value, once that is
+    // previewed.
+    if scrubShown and editKind == "set-dial" and editTarget == name and not pending(written)
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = releaseScrub(file, editKind, editTarget, editWhen, editValue)
   action dialText(name: string, v: string)
+    // A scrub open on another edit ends first.
+    if scrubShown and not (editKind == "set-dial" and editTarget == name)
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = cancelScrub(scrubAsk)
     editKind = "set-dial"
     editTarget = name
     editWhen = ""
     editValue = v.trim()
   action selectCell(token: string, column: string)
+    // A scrub open is of another edit: it ends first.
+    if scrubShown
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = cancelScrub(scrubAsk)
     selToken = token
     selColumn = column
     pinning = false
@@ -469,6 +582,10 @@ component DesignTool
   action editNewValue(v: string)
     newValue = v
   action addToken
+    if scrubShown
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = cancelScrub(scrubAsk)
     editKind = "add-token"
     editTarget = newName.trim()
     editWhen = ""
@@ -476,21 +593,47 @@ component DesignTool
   action editRename(v: string)
     renameTo = v
   action renameToken
+    if scrubShown
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = cancelScrub(scrubAsk)
     editKind = "rename-token"
     editTarget = selToken
     editWhen = ""
     editValue = renameTo.trim()
   action removeToken
+    if scrubShown
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = cancelScrub(scrubAsk)
     editKind = "remove-token"
     editTarget = selToken
     editWhen = ""
     editValue = ""
   action cancelEdit
+    if scrubShown
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = cancelScrub(scrubAsk)
     editKind = ""
     scopeOwn = false
+  action startScrub
+    if not scrub.live and not pending(written)
+      scrubAsk = scrubAsk + 1
+      scrubWant = true
+  action keepScrub
+    // The one write: what the server previews, once it is the draft.
+    if scrub.live and scrub.ready and not pending(scrub) and not pending(written)
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = releaseScrub(file, editKind, editTarget, editWhen, editValue)
+  action cancelScrub
+    scrubTick = scrubTick + 1
+    scrubWant = false
+    send written = cancelScrub(scrubAsk)
   action apply
     // Only the proposal shown, for the edit drafted, is written.
-    if proposal.ok and proposal.active and not pending(proposal) and proposal.key == draftKey and not draftStale and not pending(written)
+    if proposal.ok and proposal.active and not pending(proposal) and proposal.key == draftKey and not draftStale and not pending(written) and not scrubShown
       send written = writeEdit(file, editKind, editTarget, editWhen, editValue, client, proposal.review)
   action afterWrite
     // The draft written is done with; one drafted since stays.
@@ -513,6 +656,31 @@ component DesignTool
       send written = redoLast(client)
   action reloadDesign
     refresh design
+  action chooseCanvasSize(size: string)
+    canvasSize = size
+  action choosePinBuild(id: string)
+    pinBuild = id
+  action choosePinScheme(v: string)
+    pinScheme = v
+  action choosePinContrast(v: string)
+    pinContrast = v
+  action choosePinMode(axis: string, value: string)
+    pinMode = pinMode.filter(m => m.indexOf(`${axis}=`) != 0).concat(value == "" ? [] : [`${axis}=${value}`])
+  action choosePinFont(v: string)
+    pinFont = match parseNumber(v) { case some(n) => n, case none => 0 }
+  action applyPin
+    if not pending(pinned)
+      send pinned = sendPin(client, pinBuild, pinScheme, pinContrast, pinMode.join(" "), pinFont, false, false)
+  action clearPins
+    pinScheme = ""
+    pinContrast = ""
+    pinMode = []
+    pinFont = 0
+    if not pending(pinned)
+      send pinned = sendPin(client, pinBuild, "", "", "", 0, false, true)
+  action previewPin
+    if not pending(pinned) and pinBuild != "" and pinMode.length == 1
+      send pinned = sendPin(client, pinBuild, "", "", pinMode.join(" "), 0, true, false)
   action chooseKind(k: string)
     importKind = k
   action pickImport
@@ -560,6 +728,10 @@ component DesignTool
   action toggleMore(group: string)
     opened = opened.includes(group) ? opened.filter(g => g != group) : opened.concat([group])
   action chooseFile(f: string)
+    if scrubShown
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = cancelScrub(scrubAsk)
     // An edit drafted in one file is not carried to another.
     file = f
     editKind = ""
@@ -577,14 +749,16 @@ component DesignTool
     main testId="root" width="100%" height="100%" display="flex" flex-direction="column"
       header display="flex" align-items="center" gap=12 padding="8px 16px"
         text "Design tool" role="heading" aria-level=1 flex=1
-        if person != ""
+        if person != "" and not renaming
           button press=changeName testId="person"
             text client
       scroll id="content" flex=1 min-height=0 padding=16
-        if person == ""
+        if person == "" or renaming
           column gap=8 max-width=420 testId="ask-name"
             text "Your name" role="heading" aria-level=2
             text "Every edit you make is written as yours, so others reading the history know who made it." color="-exact-secondary-label"
+            if renaming
+              text "A new name is a new client: pins this tool holds are handed back when it changes." color="-exact-secondary-label" font="-exact-footnote" testId="rename-note"
             input value=draftName input=editName submit=saveName placeholder="Ada" aria-label="Your name" testId="name"
             button press=saveName disabled=(draftName.trim() == "") buttonStyle="filled" testId="save-name"
               text "Continue"
@@ -604,6 +778,78 @@ component DesignTool
                 row gap=12
                   text f.path flex=1 testId=`file-${f.path}`
                   text f.digest.slice(0, 12) color="-exact-secondary-label" font="-exact-footnote" testId=`digest-${f.path}`
+            // The canvas (LLP 1122 D3): the running app, at the dev loop's own
+            // URL, in a frame the tool never scripts; every control goes
+            // through the design server. Sandboxed short of navigating the tool.
+            column gap=8 testId="canvas"
+              row gap=8 align-items="center"
+                text "Canvas" role="heading" aria-level=2 flex=1
+                select value=canvasSize change=chooseCanvasSize aria-label="Canvas size" testId="canvas-size"
+                  option "Phone" value="phone"
+                  option "Tablet" value="tablet"
+                  option "Desktop" value="desktop"
+                if hello.page != ""
+                  link href=hello.page target="_blank" testId="canvas-open"
+                    text "Open in a tab"
+              if hello.page != ""
+                iframe src=hello.page width=(canvasSize == "phone" ? 390 : canvasSize == "tablet" ? 820 : 1280) height=(canvasSize == "phone" ? 844 : canvasSize == "tablet" ? 1180 : 800) border="1px solid -exact-separator" border-radius=12 flex-shrink=0 sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads" testId="canvas-frame"
+              else
+                column gap=4 padding=16 border-radius=12 background-color="-exact-secondary-background" testId="no-app"
+                  text "No app running" role="heading" aria-level=3
+                  text "The canvas shows the app from its dev loop. Start one (bun exact.mjs web, in the app's directory), then open the tool through it: bun exact.mjs tamber tool --via <its URL>. Stop this tool first: it holds the design server, and --via refuses while it runs." color="-exact-secondary-label" testId="no-app-how"
+            // The builds (LLP 1122 D4): every running copy, its effective
+            // facts from its own report, and pins, which last while the tool
+            // runs (its long poll names it) and are handed back when it stops.
+            column gap=8 testId="builds"
+              text "Builds" role="heading" aria-level=2
+              if changes.builds.length == 0
+                text "No build is connected. The canvas's page is one once a dev loop runs; a device joins launched at the dev URL: bun exact.mjs ios --run --url <dev url>, or the Mac's likewise." color="-exact-secondary-label" testId="no-builds"
+              for b in changes.builds key=b.id
+                column gap=2 padding=8 border-radius=8 background-color="-exact-secondary-background" testId=`build-${b.id}`
+                  row gap=8 align-items="center"
+                    text `${b.host} · ${b.id}` font="-exact-footnote" flex=1
+                    if b.pin != ""
+                      text (b.caughtUp ? `pinned: ${b.pin}` : `pinning: ${b.pin}`) font="-exact-caption1" color=(b.caughtUp ? "-exact-secondary-label" : "-exact-system-orange") testId=`build-pin-${b.id}`
+                    else if b.behind
+                      text "handing back" font="-exact-caption1" color="-exact-system-orange" testId=`build-pin-${b.id}`
+                  if b.reported
+                    text `${b.scheme}${b.contrast != "" and b.contrast != "no-preference" ? ` · contrast ${b.contrast}` : ""}${b.mode != "" ? ` · ${b.mode}` : ""}${b.rootFontSize > 0 ? ` · ${b.rootFontSize}px` : ""}` testId=`build-status-${b.id}`
+                  else
+                    text "Not reported yet: it has not said what it shows." color="-exact-secondary-label" font="-exact-caption1" testId=`build-status-${b.id}`
+                  if b.unsupported != ""
+                    text `Not applied: ${b.unsupported}` color="-exact-system-orange" font="-exact-caption1" testId=`build-unsupported-${b.id}`
+              row gap=8 align-items="center" flex-wrap="wrap" testId="pin-form"
+                select value=pinBuild change=choosePinBuild aria-label="Pin on" testId="pin-build"
+                  option "Every build" value=""
+                  for b in changes.builds key=b.id
+                    option `${b.host} · ${b.id}` value=b.id
+                select value=pinScheme change=choosePinScheme aria-label="Scheme" testId="pin-scheme"
+                  option "Scheme…" value=""
+                  option "Light" value="light"
+                  option "Dark" value="dark"
+                select value=pinContrast change=choosePinContrast aria-label="Contrast" testId="pin-contrast"
+                  option "Contrast…" value=""
+                  option "More" value="more"
+                  option "Less" value="less"
+                  option "No preference" value="no-preference"
+                for a in pinAxes key=a.name
+                  select value=pinMode.filter(m => m.indexOf(`${a.name}=`) == 0).map(m => m.slice(a.name.length + 1)).join("") change=choosePinMode(a.name) aria-label=a.name testId=`pin-mode-${a.name}`
+                    option `${a.name}…` value=""
+                    for v in a.values key=v
+                      option v value=v
+                input type="number" min=4 max=64 value=(pinFont > 0 ? `${pinFont}` : "") placeholder="px" change=choosePinFont aria-label="Root font size" width=80 testId="pin-font"
+                button press=applyPin disabled=(pending(pinned) or (pinScheme == "" and pinContrast == "" and pinMode.length == 0 and pinFont == 0) or not pinFontOk) buttonStyle="filled" testId="pin-apply"
+                  text "Pin"
+                // One axis on one build, alone: it replaces that build's pin.
+                button press=previewPin disabled=(pending(pinned) or pinBuild == "" or pinMode.length != 1 or pinScheme != "" or pinContrast != "" or pinFont != 0) testId="pin-preview"
+                  text "Preview this mode only"
+                button press=clearPins disabled=pending(pinned) testId="pin-clear"
+                  text "Hand back"
+              match pinned
+                case some(p)
+                  text (p.ok ? p.note : p.error) color=(p.ok ? "-exact-secondary-label" : "-exact-system-red") testId="pin-result"
+                case none
+                  text "" display="none"
             if hello.files.length > 1
               select value=file change=chooseFile aria-label="Design file" testId="file"
                 option "The app's design" value=""
@@ -628,13 +874,13 @@ component DesignTool
                   column gap=8 padding=12 border-radius=10 background-color="-exact-secondary-background" testId=`group-${g.name}`
                     text (g.name == "" ? "Dials" : g.name) role="heading" aria-level=3
                     for c in g.dials key=c.name
-                      DialControl(c=c, focused=(focusDial == c.name), onNumber=dialNumber(c.name), onText=dialText(c.name))
+                      DialControl(c=c, focused=(focusDial == c.name), onNumber=dialNumber(c.name), onText=dialText(c.name), onRelease=dialReleased(c.name))
                     if g.more.length > 0
                       button press=toggleMore(g.name) testId=`more-${g.name}`
                         text (opened.includes(g.name) ? "Fewer" : `More (${g.more.length})`)
                       if opened.includes(g.name)
                         for c in g.more key=c.name
-                          DialControl(c=c, focused=(focusDial == c.name), onNumber=dialNumber(c.name), onText=dialText(c.name))
+                          DialControl(c=c, focused=(focusDial == c.name), onNumber=dialNumber(c.name), onText=dialText(c.name), onRelease=dialReleased(c.name))
               column gap=8 testId="tokens"
                 text "Tokens" role="heading" aria-level=2
                 column overflow-x="auto" align-items="flex-start" testId="grid"
@@ -718,11 +964,30 @@ component DesignTool
                       text (proposal.chip == "live" ? "Live" : "Rebuilds") font="-exact-footnote" padding="2px 8px" border-radius=8 background-color="-exact-tertiary-background" testId="chip"
                       text proposal.tokens.join(", ") color="-exact-secondary-label" font="-exact-footnote" flex=1 testId="proposal-tokens"
                     text proposal.diff font="-exact-caption1" font-family="ui-monospace, monospace" white-space="pre" testId="proposal-diff"
-                  row gap=8
-                    button press=apply disabled=(not proposal.ok or not proposal.active or pending(proposal) or proposal.key != draftKey or draftStale or pending(written)) buttonStyle="filled" testId="apply"
-                      text "Apply"
-                    button press=cancelEdit testId="cancel-edit"
-                      text "Cancel"
+                  if scrubShown
+                    column gap=4 testId="scrub"
+                      if not scrub.ok
+                        text scrub.error color="-exact-system-red" white-space="pre-wrap" testId="scrub-error"
+                      else if scrub.open != ""
+                        text (scrub.ready ? "Previewing: the running copies show this value, and the files are unchanged until Keep." : scrub.sending ? "Previewing: sending this value to the running copies…" : "Previewing the last value sent: this one is not previewed.") color="-exact-system-orange" testId="scrub-previewing"
+                      row gap=8
+                        button press=keepScrub disabled=(not scrub.ok or not scrub.ready or pending(scrub) or pending(written)) buttonStyle="filled" testId="scrub-keep"
+                          text "Keep"
+                        button press=cancelScrub aria-keyshortcuts="Escape" testId="scrub-cancel"
+                          text "Cancel scrub"
+                  else
+                    row gap=8
+                      button press=apply disabled=(not proposal.ok or not proposal.active or pending(proposal) or proposal.key != draftKey or draftStale or pending(written)) buttonStyle="filled" testId="apply"
+                        text "Apply"
+                      if editKind == "set-dial" or editKind == "set-token"
+                        button press=startScrub disabled=(not hello.live or not proposal.ok or not proposal.active or pending(proposal) or proposal.key != draftKey or proposal.chip != "live" or draftStale or pending(written)) testId="scrub-start"
+                          text "Scrub live"
+                      button press=cancelEdit testId="cancel-edit"
+                        text "Cancel"
+                    if (editKind == "set-dial" or editKind == "set-token") and proposal.ok and proposal.active and proposal.chip != "live"
+                      text (hello.live ? "This edit rebuilds the app, so it can't be scrubbed: Apply writes it." : "Scrubbing previews on the running copies: open the tool through a dev loop (tamber tool --via).") color="-exact-secondary-label" font="-exact-footnote" testId="scrub-unavailable"
+              if not scrubShown and scrub.ended != ""
+                text scrub.ended color="-exact-secondary-label" testId="scrub-note"
               row gap=8 align-items="center" testId="undo-bar"
                 button press=undo disabled=(stack.undo == 0 or pending(written)) testId="undo"
                   text `Undo (${stack.undo})`
@@ -913,6 +1178,7 @@ component DialControl
     focused: bool
     onNumber: action
     onText: action
+    onRelease: action
   view
     column gap=4 padding=4 border-radius=6 background-color=(focused ? "-exact-tertiary-background" : "transparent") testId=`dial-${c.name}`
       row gap=8 align-items="center"
@@ -923,7 +1189,8 @@ component DialControl
           view width=28 height=28 border-radius=6 background-color=c.value border="1px solid -exact-separator"
           input value=c.value change=onText aria-label=c.label flex=1 min-width=0 testId=`dial-${c.name}-field`
       else if c.control == "slider"
-        input type="range" min=c.min max=c.max step=c.step value=c.number change=onNumber aria-label=c.label testId=`dial-${c.name}-slider`
+        // Each value while it is dragged; let go, a scrub open on it is kept.
+        input type="range" min=c.min max=c.max step=c.step value=c.number input=onNumber change=onRelease aria-label=c.label testId=`dial-${c.name}-slider`
       else if c.control == "stepper"
         input type="number" min=c.min max=c.max step=c.step value=`${c.number}` input=onText aria-label=c.label testId=`dial-${c.name}-stepper`
       else if c.control == "select"

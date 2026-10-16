@@ -183,8 +183,14 @@ impl Module {
         {
             inst.ring = crate::buffers::Ring::new(gpu, w, h);
         }
+        // The GPU's word on the frames it has finished, before counting them.
+        let _ = gpu.device.poll(wgpu::PollType::Poll);
         let ring = inst.ring.as_mut()?;
         ring.settle();
+        // As many frames on the GPU as it may hold: this one waits a display frame.
+        if !self.seekable && ring.in_flight() >= crate::buffers::IN_FLIGHT {
+            return Some(true);
+        }
         let format = crate::buffers::FORMAT;
         inst.surface.prepare_assets(&gpu.device, &gpu.queue, format);
         let (slot, view) = ring.target();

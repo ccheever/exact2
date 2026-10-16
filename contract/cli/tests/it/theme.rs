@@ -230,8 +230,9 @@ fn an_overridden_role_is_replaced_where_the_kernel_resolves_it() {
 
 /// Each plan's names are its own, bound per parse: two runners on one
 /// thread, each with its own `brand`, each read their own as their rows
-/// are set; and the second's role overrides taking the thread's over is
-/// said in its journal. An unknown name is an invalid colour in the log.
+/// are set; and each keeps its own role overrides (LLP 1121 stage 5),
+/// bound around what is done for it, both ways round, with nothing said.
+/// An unknown name is an invalid colour in the log.
 #[test]
 fn two_plans_each_read_their_own_names() {
     let app = |brand: &str, canvas: &str| {
@@ -251,10 +252,23 @@ fn two_plans_each_read_their_own_names() {
     let mut red = run(&app("#ff0000", "#010101"));
     let mut blue = run(&app("#0000ff", "#020202"));
     assert!(
-        blue.journal().any(|l| l.contains("replace another plan's")),
+        !blue
+            .journal()
+            .chain(red.journal())
+            .any(|l| l.contains("role overrides")),
         "{:?}",
         blue.journal().collect::<Vec<_>>()
     );
+    // Unsaid text is `CanvasText`, each session's own.
+    let unsaid = |r: &Runner<NoData>| {
+        let _roles = r.bind_roles();
+        exact_kernel::ColorValue::Role(exact_kernel::style::roles::role("CanvasText").unwrap())
+            .resolve(false)
+    };
+    for _ in 0..2 {
+        assert_eq!(unsaid(&red), Color::parse("#010101").unwrap());
+        assert_eq!(unsaid(&blue), Color::parse("#020202").unwrap());
+    }
     for _ in 0..2 {
         red.act("pick", vec![Value::str("x")]).unwrap();
         red.act("pick", vec![Value::str("brand")]).unwrap();
@@ -298,10 +312,11 @@ fn names_are_exact_profiles_are_colours_and_the_lint_reads_the_theme() {
     assert_eq!(lint("theme\n  card = \"light-dark(#f1f3f5, #0f1419)\"\n  Canvas = \"light-dark(#fff, #000)\"\n\ncomponent App\n  view\n    column background-color=\"card\"\n      text \"a\"\n"), 0);
 }
 
-/// A plan with no overrides booted after one with them clears them, and
-/// says so: a session still running the first now shows none.
+/// A plan with no overrides booted after one with them leaves the first
+/// its own (LLP 1121 stage 5): each session resolves `CanvasText` from its
+/// own table, and nothing is said.
 #[test]
-fn clearing_another_plans_overrides_is_said() {
+fn a_plan_without_overrides_leaves_another_sessions_its_own() {
     let run = |src: &str| {
         Runner::boot(
             contract::compile(src).unwrap(),
@@ -312,12 +327,22 @@ fn clearing_another_plans_overrides_is_said() {
         )
         .unwrap()
     };
-    let _themed =
+    let themed =
         run("theme\n  CanvasText = \"#010101\"\n\ncomponent App\n  view\n    text \"a\"\n");
     let plain = run("component App\n  view\n    text \"a\"\n");
-    assert!(plain
-        .journal()
-        .any(|l| l.contains("replace another plan's")));
+    assert!(!plain.journal().any(|l| l.contains("role overrides")));
+    let canvas_text = exact_kernel::style::roles::role("CanvasText").unwrap();
+    {
+        let _roles = themed.bind_roles();
+        assert_eq!(
+            exact_kernel::style::roles::overridden(canvas_text),
+            Some(exact_kernel::ColorValue::Fixed(
+                Color::parse("#010101").unwrap()
+            ))
+        );
+    }
+    let _roles = plain.bind_roles();
+    assert_eq!(exact_kernel::style::roles::overridden(canvas_text), None);
 }
 
 /// A boot the runner refuses puts back the overrides it took: a session
@@ -354,4 +379,89 @@ fn a_role_replaced_by_a_tint_role_paints_the_tint() {
         colour(&r, "t", StyleId::TextColor).resolve(false),
         Color::parse("#ff0000").unwrap()
     );
+}
+
+/// A reload with another override set (a new runner for the session)
+/// moves what a host compares to re-present (`roles::generation`), and the
+/// thread resolves the new set; one with the same set as another still
+/// moves it, since what was resolved from the old table is each session's.
+#[test]
+fn a_reload_with_other_overrides_re_presents() {
+    let run = |canvas: &str| {
+        Runner::boot(
+            contract::compile(&format!(
+                "theme\n  CanvasText = \"{canvas}\"\n\ncomponent App\n  view\n    text \"a\"\n"
+            ))
+            .unwrap(),
+            NoData,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap()
+    };
+    let canvas_text = exact_kernel::style::roles::role("CanvasText").unwrap();
+    let first = run("#010101");
+    let before = exact_kernel::style::roles::generation();
+    drop(first);
+    let reloaded = run("#030303");
+    assert_ne!(exact_kernel::style::roles::generation(), before);
+    assert_eq!(
+        exact_kernel::style::roles::overridden(canvas_text),
+        Some(exact_kernel::ColorValue::Fixed(
+            Color::parse("#030303").unwrap()
+        ))
+    );
+    drop(reloaded);
+}
+
+/// A candidate its host refuses (dropped once booted) leaves the live
+/// session's roles resolving on the thread, not none; a session that boots
+/// inside another's scope leaves that scope the other's (LLP 1121 stage 5).
+#[test]
+fn a_refused_candidate_and_a_nested_boot_leave_the_live_sessions_roles() {
+    let run = |canvas: &str| {
+        Runner::boot(
+            contract::compile(&format!(
+                "theme\n  CanvasText = \"{canvas}\"\n\ncomponent App\n  view\n    text \"a\"\n"
+            ))
+            .unwrap(),
+            NoData,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap()
+    };
+    let canvas_text = exact_kernel::style::roles::role("CanvasText").unwrap();
+    let fixed = |text: &str| Some(exact_kernel::ColorValue::Fixed(Color::parse(text).unwrap()));
+    let live = run("#010101");
+    drop(run("#020202"));
+    assert_eq!(
+        exact_kernel::style::roles::overridden(canvas_text),
+        fixed("#010101")
+    );
+    let other = {
+        let _scope = live.bind_roles();
+        let other = run("#030303");
+        assert_eq!(
+            exact_kernel::style::roles::overridden(canvas_text),
+            fixed("#010101")
+        );
+        other
+    };
+    assert_eq!(
+        exact_kernel::style::roles::overridden(canvas_text),
+        fixed("#030303")
+    );
+    drop(other);
+    let now = || exact_kernel::style::roles::overridden(canvas_text);
+    assert_eq!(now(), fixed("#010101"));
+    // Two candidates refused, the first first (Apple's `applyTogether`).
+    let (one, two) = (run("#040404"), run("#050505"));
+    drop(one);
+    assert_eq!(now(), fixed("#050505"));
+    drop(two);
+    assert_eq!(now(), fixed("#010101"));
+    drop(live);
 }

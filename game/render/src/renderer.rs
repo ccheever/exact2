@@ -1,4 +1,4 @@
-mod culling;
+pub(crate) mod culling;
 mod draw;
 mod local;
 mod passes;
@@ -50,6 +50,10 @@ pub struct RendererWithAssets<const ASSETS: bool> {
     attachment_words: Vec<f32>,
     current: usize,
     materials: Buffer,
+    // Each slot's material draws the grid (negative alpha), and how many do: a
+    // frame with none compiles the forward shader without it.
+    grid: Vec<bool>,
+    pub(crate) grids: u32,
     slots: Buffer,
     scene_binds: [wgpu::BindGroup; 2],
     /// The same scene group over the culled lists: binding 4 is a dynamic window.
@@ -83,6 +87,12 @@ pub struct RendererWithAssets<const ASSETS: bool> {
     // This frame's visible environment map is resident.
     pub(crate) sky_ready: bool,
     pub(crate) targets: Targets,
+    // A direct frame's attachments (`encode_hooked`), made at its target's size.
+    pub(crate) direct_targets: Option<crate::buffers::DirectTargets>,
+    // Frames may draw direct: on phones and tablets, whose tiling GPUs it is for.
+    // Elsewhere it would move MSAA edges (each sample is tonemapped before the
+    // resolve), and pinned pixels with them, for little gain.
+    pub(crate) allow_direct: bool,
     counts: Stats,
     shadows: Option<ShadowMaps>,
     bloom: Option<BloomTargets>,
@@ -153,6 +163,12 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     /// Compile effect pipelines for this output format and retain the device/queue.
     /// Draw targets must match this format; RGBA/BGRA unorm and sRGB are supported.
     /// Particle capacity prepares with emitters; asset arenas may compact retired spans.
+    /// Whether a frame that needs nothing of its HDR image after the opaque pass
+    /// draws tonemapped straight into the target: the default on Android and iOS.
+    pub fn set_direct(&mut self, allow: bool) {
+        self.allow_direct = allow;
+    }
+
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, format: wgpu::TextureFormat) -> Self {
         let pipelines = Pipelines::new(device, format);
         let uniform = device.create_buffer(&wgpu::BufferDescriptor {
@@ -262,6 +278,8 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             attachment_words: Vec::new(),
             current: 1,
             materials,
+            grid: Vec::new(),
+            grids: 0,
             slots,
             scene_binds: retained_binds,
             culled_binds,
@@ -287,6 +305,8 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             soft_retained: false,
             sky_ready: false,
             targets,
+            direct_targets: None,
+            allow_direct: cfg!(any(target_os = "android", target_os = "ios")),
             shadows: None,
             bloom: None,
             ssao: None,
@@ -390,6 +410,21 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         self.ensure_slots(end);
         self.materials
             .write(&self.queue, u64::from(first_slot) * 48, bytes(values));
+        let first = first_slot as usize;
+        if self.grid.len() < first + values.len() / 12 {
+            self.grid.resize(first + values.len() / 12, false);
+        }
+        for (k, record) in values.chunks_exact(12).enumerate() {
+            let grid = record[3] < 0.;
+            if grid != self.grid[first + k] {
+                self.grid[first + k] = grid;
+                if grid {
+                    self.grids += 1;
+                } else {
+                    self.grids -= 1;
+                }
+            }
+        }
         Ok(())
     }
 

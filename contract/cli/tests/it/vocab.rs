@@ -927,3 +927,19 @@ fn text_width_vocabulary_names_the_accessibility_warning_and_rem_repair() {
             .contains("lower-text-px-width"));
     }
 }
+
+#[test]
+fn wakelock_says_its_two_words_and_where_it_holds() {
+    let out = vocab(&["wakelock"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    for want in [
+        "prop",
+        "\"screen\"",
+        "\"none\"",
+        "display: none",
+        "state.wakelock",
+    ] {
+        assert!(text.contains(want), "{want}: {text}");
+    }
+}

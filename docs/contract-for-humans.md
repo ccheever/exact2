@@ -179,10 +179,10 @@ subtraction. `x-1` is still subtraction, but spaces make the intention clearer.
 
 Use ordinary decimal numbers, double-quoted strings, and backtick templates.
 Single-quoted strings, exponent notation, digit separators, `null`, and
-`undefined` are not the language's literal forms. Strings accept exactly six
-escapes: `\n`, `\t`, `\"`, `\\`, ``\` `` and `\$`. Template text is kept verbatim:
-a backslash there is not an escape. Templates can contain expressions, quoted
-strings, and nested templates. Keep an individual string or template on one
+`undefined` are not the language's literal forms. Strings and template text
+accept the escapes `\n`, `\t`, `\"`, `\\`, ``\` `` and `\$`, and a Unicode code
+point as JavaScript writes it, `\u{2011}` or `\u2011`. Templates can contain
+expressions, quoted strings, and nested templates. Keep an individual string or template on one
 source line.
 
 Newlines inside parentheses, brackets, and expression braces continue the same

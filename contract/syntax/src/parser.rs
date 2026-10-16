@@ -5,7 +5,7 @@
 //! in the first column, so one run reports each declaration's first error.
 
 use crate::ast::*;
-use crate::lexer::{escaped, template_expr_end, LexError, Lexer, Token, TokenKind};
+use crate::lexer::{escape, template_expr_end, LexError, Lexer, Token, TokenKind};
 use crate::Span;
 
 mod color_profile;
@@ -17,6 +17,7 @@ mod names;
 mod parts;
 #[path = "routes.rs"]
 mod routes;
+mod sequence;
 mod sounds;
 mod steps;
 mod theme;
@@ -774,6 +775,7 @@ impl Parser {
             mutations: Vec::new(),
             actions: Vec::new(),
             tasks: Vec::new(),
+            sequences: Vec::new(),
             view: Vec::new(),
             span,
         };
@@ -890,6 +892,7 @@ impl Parser {
                         "mutation" => c.mutations.push(self.mutation()?),
                         "action" => c.actions.push(self.action()?),
                         "task" => c.tasks.push(self.task()?),
+                        "sequence" => c.sequences.push(self.sequence()?),
                         "view" => {
                             self.next();
                             self.newline()?;

@@ -49,13 +49,14 @@ a `keyframes` or `font` block, and a component need at least one entry.
   a text field's `min`, `max` and `step` take a number of either sign as a
   range's do. Separators, leading-dot numbers, and a trailing dot are not
   supported forms. Units belong in quoted strings.
-- Strings use `"…"`. Escapes accepted by the ordinary string lexer are `\n`,
-  `\t`, `\"`, `\\`, ``\` ``, and `\$`. Single quotes are not delimiters.
+- Strings use `"…"`. Their escapes are `\n`, `\t`, `\"`, `\\`, ``\` ``, `\$`,
+  and a Unicode code point in hex, as JavaScript and Swift write it: `\u{2011}`
+  (one to six digits; `\u{1F600}`, never a surrogate pair) or `\u2011` (four).
+  Any other is refused, naming these. Single quotes are not delimiters.
 - Templates use backticks and `${expression}`. Interpolation scanning balances
   nested braces, strings, and templates. A template is one physical source line.
-  Template text is verbatim: a backslash is never an escape and stays in the
-  text, and `\${` still interpolates. Use an ordinary string when you need an
-  escape.
+  Template text takes a string's escapes (`` `${a}\t${b}` `` is a tab), and
+  `\${` is literal text, not an interpolation.
 - A hex color may be written bare, as CSS writes it: `#` and 3, 4, 6 or 8 hex
   digits (`color=#1f9d62`, a keyframe's `background-color=#1f9d6244`) is the
   string `"#1f9d62"`, and the formatter prints it quoted. Any other `#` is
@@ -211,7 +212,7 @@ section       = "props" block(field)
               | "slot" NL
               | "state" IDENT [ ":" type ] "=" expr [ "persist" ] NL
               | "derive" IDENT "=" expr NL
-              | resource | mutation | action | task
+              | resource | mutation | action | task | sequence
               | "view" block(node) ;
 provider      = FIELD [ "=" expr ] NL ;
 resource      = "resource" IDENT "=" source-call
@@ -227,6 +228,8 @@ task          = "task" IDENT ( "mount" | gate ) block(schedule) ;
 gate          = "when" expr [ "key" "=" expr ] | "key" "=" expr ;
 schedule      = "every" "(" ( expr | "frame" ) "," IDENT ")" NL
               | "after" "(" expr "," IDENT ")" NL ;
+sequence      = "sequence" IDENT ( "mount" | gate ) block(play) ;
+play          = "play" "(" expr { "," IDENT "=" expr } ")" NL ;
 statement     = IDENT "=" expr NL
               | "let" IDENT "=" expr NL
               | "send" IDENT "=" source-call NL
@@ -250,6 +253,39 @@ and `key=` alone is `when true key=…`. The gate is a bool (`type-task-gate`), 
 key a string, number or bool (`type-task-key`), and neither reads `performanceNow()`,
 directly or through a derive or a `fn` (`analyze-task-gate-clock`). The named timer action takes no parameters;
 a millisecond interval is a literal whole number of at least 1.
+
+A `sequence` (LLP 1125 D2) declares what should play, as a value, and the
+runner plays it: the gate is a task's, and its body is exactly one
+`play(tracks, bpm=, from=, countIn=, ended=)` (`contract-sequence-body`).
+`tracks` is a list of a shape whose fields are, in order, `beats: number`
+(the track's length, which it loops at), `loops: number` (0 is forever),
+`offset: number`, `output: string` and `steps: S[]`; a step's shape `S` has,
+in order, `beat: number` (from the track's start, in quarter notes),
+`src: string` (a declared sound, or `""`), `gain: number`, `group: string`,
+`note: number`, `velocity: number`, `channel: number`, `duration: number`,
+`haptic: string` (a `haptic()` kind, or `""`), then optionally
+`playbackRate: number` and `pan: number` (`type-sequence-play`, which also
+types the options and refuses an unknown or repeated one). `bpm=` is
+required; `from=` (default 0) is the beat at the commit that armed it, and
+below 0 it is a count-in: `countIn=`'s steps play once over `[from, 0)`, their
+beats counted from `from`. `ended=` names a parameterless action run when the
+last finite track ends, at that time. The gate, key and arguments read no
+`performanceNow()` (`analyze-task-gate-clock`, `analyze-sequence-clock`), and
+only the root declares one (`type-child-resource`). The arguments are read
+again after every commit that stands: an equal value changes nothing, and a
+different one ends the sequence's voices that have not started (`by edit`)
+and plays the new value from that commit, a new `bpm` without a jump in
+phase. `clock=` and `clockOut=` (MIDI, LLP 1125 stages 3 and 4) are refused
+for now (`lower-sequence-clock`, `lower-sequence-clock-out`), and a step's
+MIDI fields and a track's `offset` and `output` play nothing yet. One
+sequence plays at a time; leaving the foreground on iOS stops it (reason
+`background`) unless `audio_session` is `playback` with `audio` in
+`host.ios.backgroundModes`. `resource t = exactTransport() as shape T` reads
+it: `state` (`stopped`, `countin`, `playing`), `reason` (`gate`, `ended`,
+`background`, `bpm`, or `""`), `bpm`, `anchorAt` and `anchorBeat` (the beat
+now is `anchorBeat + (performanceNow() - anchorAt) * bpm / 60000`) and
+`clock` (`internal`); it is answered by a commit of its own after each
+change, as an answer's `then` runs.
 
 `else if c` is `else` around one nested `if c`, in an action and in a view
 alike: the same tree, so the same plan. A view refuses `when` and `each`
@@ -790,7 +826,13 @@ name, no name for the card (what an app writes, at most 8 KB), `--all` for every
 `padding`, `margin`, `inset`, `border-width`, `border-style` and `border-color` take
 CSS's one to four values (`padding="12px 40px"`: top and bottom 12, sides 40), and
 `border-radius` its one to four corners (`border-radius="18px 18px 0 0"`: top-left,
-top-right, bottom-right, bottom-left; no `/` elliptical radii).
+top-right, bottom-right, bottom-left; no `/` elliptical radii), as a literal or a
+literal arm. A computed list (`` padding=`${pad}px 0` ``, a `fn` that returns
+`` `${r}px ${r}px 0 0` ``) is refused (`lower-css-shorthand`): write the longhands,
+`` padding-top=`${pad}px` padding-right=0 … ``, each of which may be computed. A
+computed single value (`padding=pad`) is every side's.
+An empty string on any style row declares nothing, as CSSOM's `setProperty(p, "")`:
+the row is unset (`background-color=dot` with `dot` `""`).
 `border-style` and each `border-<side>-style` accept `none`, `hidden`, `solid`,
 `inset`, `dotted` and `dashed`. The two patterned styles keep their authored
 border widths in layout. AppKit, UIKit and Linux paint their dots and dashes;
@@ -895,6 +937,19 @@ there, space-separated (most of them, inside a code block). No offsets cross.
 A toolbar reads one format as `` ` ${s.formats} `.includes(" bold ") ``;
 [Markdown Stress](../apps/markdown-stress/app.contract) is a whole toolbar and
 link sheet.
+
+### Keep-awake: `wakelock`
+
+`wakelock` on any element takes `"screen"` or `"none"` (the default), literal
+or bound ([LLP 1125](../llp/1125-a-transport-midi-and-the-small-pieces.rfc.md)
+D11). While an element that is mounted and displayed (no ancestor
+`display: none`, under no unselected tab and no screen a stack keeps under
+its top; the one a sheet covers is shown) says `"screen"`, the display does
+not dim or lock for idleness. Any other literal word is refused (`lower-attr-value`, naming the
+two); a computed one is journaled and holds nothing. `keepScreenOn`,
+`idleTimerDisabled` and `keepAwake` are refused with this name. The agent
+reads `state.wakelock` (`{held, by}`); [the reference](reference.md#keep-the-screen-awake)
+has each host's lock.
 
 ## Events
 

@@ -19,7 +19,10 @@ fn brdf(n: vec3<f32>, v: vec3<f32>, l: vec3<f32>, base: vec3<f32>, metallic: f32
     let gl = nv * sqrt(nl * nl * (1.0 - a2) + a2);
     let visibility = 0.5 / max(gv + gl, 0.00001);
     let f0 = mix(vec3(0.04), base, metallic);
-    let fresnel = f0 + (vec3(1.0) - f0) * pow(1.0 - vh, 5.0);
+    // (1 - vh)^5 by multiplication: pow is two transcendental operations.
+    let f = 1.0 - vh;
+    let f2 = f * f;
+    let fresnel = f0 + (vec3(1.0) - f0) * (f2 * f2 * f);
     let diffuse = (vec3(1.0) - fresnel) * (1.0 - metallic) * base / PI;
     return (diffuse + distribution * visibility * fresnel) * nl;
 }

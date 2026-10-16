@@ -46,7 +46,7 @@ import { acceptsHTML, webRequestURL } from '../../scripts/origin.mjs';
 import { guardFlags } from '../../scripts/help.mjs';
 import { webPortRange } from '../../scripts/agent-launch.mjs';
 import { localInstaller } from './local-install.mjs';
-import { designPath, tamberServer } from '../../scripts/tamber-server.mjs';
+import { designPath, frameOnlyByTool, tamberServer } from '../../scripts/tamber-server.mjs';
 import { relayChannel, serveCommands, serveReport } from '../../scripts/tamber-builds.mjs';
 import { applyShaderTreeChange, sendStaticBody, watchLauncher, applyStaticChange, applyStaticTreeChange, builtAppMatches, developmentOpenPage, readDevGenerationAsync, readStaticFileAsync, readWebRequest, reflectShaderFiles, saveTrace, retainDevGeneration, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope, MODULE_FILES, moduleCards } from './serve.mjs';
 
@@ -354,7 +354,8 @@ const installer = localInstaller({ app: () => app, origins, port: servedAs ?? po
 // Live while a value-only edit has its path here: the resident compiler's or
 // the TypeScript producer's. A Rust-data app's own producer publishes every
 // plan, so its design edits reload.
-const tamber = servedAs == null && designPath(app.dir) ? tamberServer({ appDir: app.dir, live: () => typescript || !portableRust, scrub: { preview: scrubPreview, restore: scrubRestore, released: scrubReleased } }) : null;
+// `page`: this loop's own origin, which the design tool frames (LLP 1122 T2).
+const tamber = servedAs == null && designPath(app.dir) ? tamberServer({ appDir: app.dir, live: () => typescript || !portableRust, page: `http://127.0.0.1:${port}`, scrub: { preview: scrubPreview, restore: scrubRestore, released: scrubReleased } }) : null;
 // A polled stream (Linux) is told the design to run when it opens.
 tamber?.channel.greet(() => designSnapshot && designNotice(designSnapshot));
 const generationCache = resolve(root, 'target/dev-generations', createHash('sha256').update(canonicalBytes({ app: app.id, path: app.dir, dist })).digest('hex'));
@@ -555,7 +556,7 @@ function watchModuleSources(directory, ignore, changed) {
           }
           if (stat.isDirectory()) { walk(path,name+'/',depth+1); continue; }
           // A design (`.tamber`) is a source: a value-only edit goes as a batch (LLP 1121 stage 4).
-          if (!/\.(ts|contract|json|tamber)$/.test(name)) continue;
+          if (!/\.(ts|contract|json|tamber)$/.test(name) && name !== '.exact/backend-origin') continue;
           if (!stat.isFile()) { state.push([name,'not-regular']); continue; }
           bytes += Number(stat.size);
           if (stat.size > 16n*1024n*1024n || bytes > 64*1024*1024 || next.size >= 2048) throw new Error('module watcher source graph exceeds its file/byte budget');
@@ -736,8 +737,9 @@ function startModuleCompiler() {
   const contractSources = new Set(contractGraph().sources);
   // A source, or a directory on the way to one: the scan descends into it.
   const contractInput = path => contractSources.has(path) || [...contractSources].some(s => s.startsWith(path + '/') || s.startsWith(path + '\\'));
+  const backendInput = name => /^\.exact(?:[\\/]backend-origin)?$/.test(name);
   const watches = [watchModuleSources(app.dir, name => name === 'app.contract.d.ts' || (skipped.test(name) && !contractInput(resolve(app.dir, name)))
-    || (/(^|\/)\./.test(name) && !contractInput(resolve(app.dir, name)))
+    || (/(^|\/)\./.test(name) && !contractInput(resolve(app.dir, name)) && !backendInput(name))
     || (assetTrees.some(([tree]) => resolve(app.dir,name) === tree || resolve(app.dir,name).startsWith(tree+'/')) && !contractInput(resolve(app.dir, name))), moduleChanged)];
   // Directories the manifest mounts beside app.ts (typescript.sources) are sources too.
   for (const path of Object.values(app.manifest.typescript?.sources ?? {})) {
@@ -1235,6 +1237,8 @@ async function produceGpuArtifact(files, { stem, kind, module }) {
 }
 
 const server = createServer(async (req, res) => {
+  // Every HTML answer is framed by the design tool only (LLP 1122 T2).
+  frameOnlyByTool(res);
   const access = gate.check(req);
   if (!access.allowed) { res.writeHead(421, { 'cache-control': 'no-store' }); res.end(); return; }
   const url = webRequestURL(req.url);

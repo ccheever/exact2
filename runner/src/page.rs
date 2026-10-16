@@ -54,6 +54,10 @@ pub struct Page {
     /// How the browser loaded the page, for its whole life, as an index
     /// into [`NAVIGATION_TYPES`] (0 where no browser loaded it).
     pub navigation: u8,
+    /// The host is about to suspend the app (iOS and tvOS in the
+    /// background, unless a `playback` session keeps it running): a
+    /// sequence stops (LLP 1125 D4). No `exactPage` field reads it.
+    pub suspended: bool,
 }
 
 impl Default for Page {
@@ -65,6 +69,7 @@ impl Default for Page {
             can_open_files: false,
             has_focus: true,
             navigation: 0,
+            suspended: false,
         }
     }
 }
@@ -72,7 +77,7 @@ impl Default for Page {
 impl Page {
     /// The hosts' wire form: bit 0 hidden, bit 1 offline, bit 2 can share,
     /// bit 3 can open files, bit 4 without focus, bits 5–6 the navigation
-    /// type; other bits are ignored. Zero is visible, online, focused, no
+    /// type, bit 7 about to be suspended; other bits are ignored. Zero is visible, online, focused, no
     /// share sheet, no pickers, no navigation.
     pub fn from_bits(bits: u32) -> Self {
         Self {
@@ -82,6 +87,7 @@ impl Page {
             can_open_files: bits & 8 != 0,
             has_focus: bits & 16 == 0,
             navigation: ((bits >> 5) & 3) as u8,
+            suspended: bits & 128 != 0,
         }
     }
 
@@ -93,6 +99,7 @@ impl Page {
             | (u32::from(self.can_open_files) << 3)
             | (u32::from(!self.has_focus) << 4)
             | (u32::from(self.navigation & 3) << 5)
+            | (u32::from(self.suspended) << 7)
     }
 
     /// How the browser loaded the page, the web's word, or `""` in a
@@ -131,7 +138,7 @@ mod tests {
     #[test]
     fn bits_round_trip_and_zero_is_the_default() {
         assert_eq!(Page::from_bits(0), Page::default());
-        for bits in 0..128 {
+        for bits in 0..256 {
             assert_eq!(Page::from_bits(bits).bits(), bits);
         }
         let page = Page::from_bits(0b1111);

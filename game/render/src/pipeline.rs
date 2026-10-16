@@ -1,5 +1,6 @@
 use crate::Vertex;
 use exact_gpu::wgpu;
+use std::sync::OnceLock;
 
 /// Packed shader pieces (build.rs strips comments, keeping line numbers). Each
 /// assembled module is a list of these, never an edited string.
@@ -16,23 +17,44 @@ const IBL: &str = piece!("ibl");
 const FORWARD: &str = piece!("forward");
 const LIGHTS: &str = piece!("lights");
 const FADE: &str = piece!("fade");
+const TONE: &str = piece!("tone");
 const MODEL: &str = piece!("model");
 /// The environment prefilter, a standalone module (ibl.rs).
 pub(crate) const ENVIRONMENT: &str = piece!("environment");
 
-fn primitive_sources() -> [String; 5] {
+/// `early`: with the forced-early-depth entry points (`forward_early.wgsl`), which
+/// need the device's SHADER_EARLY_DEPTH_TEST.
+fn primitive_sources(early: bool) -> [String; 5] {
+    let forward_early = if early { piece!("forward_early") } else { "" };
     [
-        [FRAME, TRANSFORM, SHADOW_SAMPLE, IBL, FADE, LIGHTS, FORWARD].concat(),
+        [
+            FRAME,
+            TRANSFORM,
+            SHADOW_SAMPLE,
+            IBL,
+            FADE,
+            LIGHTS,
+            TONE,
+            FORWARD,
+            forward_early,
+        ]
+        .concat(),
         [FRAME, TRANSFORM, FADE, piece!("shadow")].concat(),
-        [FRAME, piece!("sky")].concat(),
-        [FRAME, piece!("tonemap")].concat(),
+        [FRAME, TONE, piece!("sky")].concat(),
+        [FRAME, TONE, piece!("tonemap")].concat(),
         [FRAME, piece!("bloom")].concat(),
     ]
 }
 
+/// The PBR module with the forced-early-depth entry points.
+#[cfg(test)]
+pub(crate) fn early_forward_source() -> String {
+    primitive_sources(true)[0].clone()
+}
+
 #[cfg(test)]
 pub(crate) fn shader_sources() -> [String; 9] {
-    let [a, b, c, d, e] = primitive_sources();
+    let [a, b, c, d, e] = primitive_sources(false);
     let models = [model_source(false), model_source(true)];
     let [f, g] = models;
     [a, b, c, d, e, f, g, cull_source(), ENVIRONMENT.into()]
@@ -52,7 +74,7 @@ pub(crate) fn model_source(shadow: bool) -> String {
         (SHADOW_SAMPLE, "")
     };
     [
-        FRAME, TRANSFORM, sample, IBL, FADE, LIGHTS, FORWARD, MODEL, tail,
+        FRAME, TRANSFORM, sample, IBL, FADE, LIGHTS, TONE, FORWARD, MODEL, tail,
     ]
     .concat()
 }
@@ -61,9 +83,23 @@ pub(crate) fn model_source(shadow: bool) -> String {
 /// sky, two tone, three bloom, three culling compute and the environment prefilter.
 pub(crate) const STARTUP_PIPELINES: u64 = 20;
 
+/// Forward variant bits beyond the eight made at construction (shadowed, fogged,
+/// mirrored); [`Pipelines::forward_variant`] makes the rest on first use.
+pub(crate) const LEAN: usize = 8;
+pub(crate) const EARLY: usize = 16;
+pub(crate) const DIRECT: usize = 32;
+pub(crate) const UNIFORM: usize = 64;
+
 pub(crate) struct Pipelines {
     pub models: Option<ModelPipelines>,
     pub forward: [wgpu::RenderPipeline; 8],
+    variants: [OnceLock<wgpu::RenderPipeline>; 128],
+    sky_direct: OnceLock<wgpu::RenderPipeline>,
+    pbr: wgpu::ShaderModule,
+    sky_module: wgpu::ShaderModule,
+    format: wgpu::TextureFormat,
+    /// The device forces early depth tests: the EARLY variants exist.
+    pub early: bool,
     pub shadow: [wgpu::RenderPipeline; 2],
     pub sky: wgpu::RenderPipeline,
     pub tone: [wgpu::RenderPipeline; 2],
@@ -225,7 +261,10 @@ impl Pipelines {
                 sampler(2, wgpu::SamplerBindingType::Filtering),
             ],
         );
-        let sources = primitive_sources();
+        let early = device
+            .features()
+            .contains(wgpu::Features::SHADER_EARLY_DEPTH_TEST);
+        let sources = primitive_sources(early);
         let shaders: [_; 5] = std::array::from_fn(|i| {
             device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some(
@@ -240,21 +279,7 @@ impl Pipelines {
                 source: wgpu::ShaderSource::Wgsl(sources[i].as_str().into()),
             })
         });
-        let vertex_attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x2, 3 => Float32x4];
-        let vertex_layout = [Some(wgpu::VertexBufferLayout {
-            array_stride: size_of::<Vertex>() as u64,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &vertex_attributes,
-        })];
-        let depth = |write, compare, bias| {
-            Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: Some(write),
-                depth_compare: Some(compare),
-                stencil: Default::default(),
-                bias,
-            })
-        };
+        let vertex_layout = vertex_layout();
         let forward = std::array::from_fn(|i| {
             let shadow = i & 1 != 0;
             let layouts = [Some(&scene_layout), Some(&shadow_layout)];
@@ -266,7 +291,7 @@ impl Pipelines {
                 Some(if shadow { "fs_shadow" } else { "fs" }),
                 &layouts,
                 &vertex_layout,
-                depth(true, wgpu::CompareFunction::Less, Default::default()),
+                scene_depth(true, wgpu::CompareFunction::Less, Default::default()),
                 4,
                 wgpu::TextureFormat::Rgba16Float,
                 None,
@@ -306,27 +331,13 @@ impl Pipelines {
                     cull_mode: Some(wgpu::Face::Back),
                     ..Default::default()
                 },
-                depth_stencil: depth(true, wgpu::CompareFunction::Less, Default::default()),
+                depth_stencil: scene_depth(true, wgpu::CompareFunction::Less, Default::default()),
                 multisample: Default::default(),
                 multiview_mask: None,
                 cache: None,
             })
         });
-        let sky = make_pipeline(
-            device,
-            &shaders[2],
-            "game sky",
-            "sky_vs",
-            Some("sky_fs"),
-            &[Some(&scene_layout)],
-            &[],
-            depth(false, wgpu::CompareFunction::LessEqual, Default::default()),
-            4,
-            wgpu::TextureFormat::Rgba16Float,
-            None,
-            &[],
-            false,
-        );
+        let sky = sky_pipeline(device, &shaders[2], &scene_layout, None);
         let tone = std::array::from_fn(|i| {
             let layouts = [Some(&tone_layout), Some(&bloom_layout)];
             make_pipeline(
@@ -397,9 +408,16 @@ impl Pipelines {
             compilation_options: Default::default(),
             cache: None,
         });
+        let [pbr, _, sky_module, _, _] = shaders;
         Self {
             models: None,
             forward,
+            variants: std::array::from_fn(|_| OnceLock::new()),
+            sky_direct: OnceLock::new(),
+            pbr,
+            sky_module,
+            format,
+            early,
             shadow,
             sky,
             tone,
@@ -493,6 +511,125 @@ impl Pipelines {
             }
         }
     }
+}
+
+impl Pipelines {
+    /// Forward variant `key`: shadowed (1), fogged (2), mirrored (4), lean (no
+    /// fill or local lights, no grid material), early (depth tested before shading), direct
+    /// (tonemapped into the target's format) and uniform (a one-colour sky's
+    /// irradiance). The first eight are made at construction; the rest on first use.
+    pub fn forward_variant(&self, device: &wgpu::Device, key: usize) -> &wgpu::RenderPipeline {
+        if key < 8 {
+            return &self.forward[key];
+        }
+        self.variants[key].get_or_init(|| {
+            let early = key & EARLY != 0;
+            assert!(
+                !early || self.early,
+                "early forward variant without the device feature"
+            );
+            let entry = match (key & 1 != 0, early) {
+                (false, false) => "fs",
+                (true, false) => "fs_shadow",
+                (false, true) => "fs_early",
+                (true, true) => "fs_shadow_early",
+            };
+            let flag = |bit| if key & bit != 0 { 1.0 } else { 0.0 };
+            let direct = key & DIRECT != 0;
+            make_pipeline(
+                device,
+                &self.pbr,
+                "game forward",
+                "vs",
+                Some(entry),
+                &[Some(&self.scene_layout), Some(&self.shadow_layout)],
+                &vertex_layout(),
+                scene_depth(true, wgpu::CompareFunction::Less, Default::default()),
+                4,
+                if direct {
+                    self.format
+                } else {
+                    wgpu::TextureFormat::Rgba16Float
+                },
+                None,
+                &[
+                    ("FOG", flag(2)),
+                    ("FADES", 1.0 - flag(EARLY)),
+                    ("LIGHTS", 1.0 - flag(LEAN)),
+                    ("GRID", 1.0 - flag(LEAN)),
+                    ("DIRECT", flag(DIRECT)),
+                    ("UNIFORM_AMBIENT", flag(UNIFORM)),
+                    ("ENCODE_SRGB", if self.format.is_srgb() { 0.0 } else { 1.0 }),
+                ],
+                key & 4 != 0,
+            )
+        })
+    }
+    /// The sky tonemapped into the target, for direct frames.
+    pub fn sky_direct(&self, device: &wgpu::Device) -> &wgpu::RenderPipeline {
+        self.sky_direct.get_or_init(|| {
+            sky_pipeline(
+                device,
+                &self.sky_module,
+                &self.scene_layout,
+                Some(self.format),
+            )
+        })
+    }
+}
+
+fn vertex_layout() -> [Option<wgpu::VertexBufferLayout<'static>>; 1] {
+    const ATTRIBUTES: [wgpu::VertexAttribute; 4] =
+        wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x2, 3 => Float32x4];
+    [Some(wgpu::VertexBufferLayout {
+        array_stride: size_of::<Vertex>() as u64,
+        step_mode: wgpu::VertexStepMode::Vertex,
+        attributes: &ATTRIBUTES,
+    })]
+}
+
+fn scene_depth(
+    write: bool,
+    compare: wgpu::CompareFunction,
+    bias: wgpu::DepthBiasState,
+) -> Option<wgpu::DepthStencilState> {
+    Some(wgpu::DepthStencilState {
+        format: wgpu::TextureFormat::Depth32Float,
+        depth_write_enabled: Some(write),
+        depth_compare: Some(compare),
+        stencil: Default::default(),
+        bias,
+    })
+}
+
+/// The sky into the HDR target, or tonemapped into `direct`'s format.
+fn sky_pipeline(
+    device: &wgpu::Device,
+    module: &wgpu::ShaderModule,
+    layout: &wgpu::BindGroupLayout,
+    direct: Option<wgpu::TextureFormat>,
+) -> wgpu::RenderPipeline {
+    make_pipeline(
+        device,
+        module,
+        "game sky",
+        "sky_vs",
+        Some("sky_fs"),
+        &[Some(layout)],
+        &[],
+        scene_depth(false, wgpu::CompareFunction::LessEqual, Default::default()),
+        4,
+        direct.unwrap_or(wgpu::TextureFormat::Rgba16Float),
+        None,
+        &match direct {
+            Some(format) => vec![
+                ("DIRECT", 1.0),
+                ("ENCODE_SRGB", if format.is_srgb() { 0.0 } else { 1.0 }),
+            ],
+            None => vec![],
+        },
+        false,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]

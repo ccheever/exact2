@@ -945,7 +945,7 @@ fn first_frame<D: DataSource>(
     data: D,
     answered: bool,
 ) -> Result<Runner<D>, BakeError> {
-    use exact_runner::{delivery, page, viewport};
+    use exact_runner::{delivery, page, transport, viewport};
     fact_shape(
         plan,
         delivery::SOURCE,
@@ -959,6 +959,12 @@ fn first_frame<D: DataSource>(
         "bake-viewport-field",
     )?;
     fact_shape(plan, page::SOURCE, page::FIELDS, "bake-page-field")?;
+    fact_shape(
+        plan,
+        transport::SOURCE,
+        transport::FIELDS,
+        "bake-transport-field",
+    )?;
     surface::shape(plan)?;
     let mut runner = Runner::boot(
         plan.clone(),
@@ -1102,6 +1108,9 @@ fn lint<D: DataSource>(runner: &mut Runner<D>, answered: bool) -> Result<(), Bak
                 if node.node_type == NodeType::Pressable
                     || node.props.str(exact_kernel::PropId::Type) == Some("button") =>
             {
+                if hidden(kernel, node) {
+                    continue;
+                }
                 if node.frame.width > 0.0 && node.frame.height > 0.0 {
                     continue;
                 }
@@ -1156,6 +1165,10 @@ fn styled_out(kernel: &Kernel, node: exact_kernel::NodeRef<'_>) -> bool {
     if zero(node.style.width) || zero(node.style.height) {
         return true;
     }
+    hidden(kernel, node)
+}
+
+fn hidden(kernel: &Kernel, node: exact_kernel::NodeRef<'_>) -> bool {
     let mut at = Some(node);
     while let Some(n) = at {
         if matches!(n.style.display, exact_kernel::Display::None) {

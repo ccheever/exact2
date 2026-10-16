@@ -250,6 +250,17 @@ impl<D: DataSource> Bridge<D> {
         Some(self.refuse_preparation(why))
     }
 
+    fn refusal(&self, reason: &str) -> String {
+        self.host.as_ref().map_or_else(
+            || crate::batch::Batch::new().finish(None, false, 0., Some(reason)),
+            |host| host.refused(Some(reason.into())),
+        )
+    }
+
+    fn refuse(&mut self, reason: &str) -> u32 {
+        self.emit(self.refusal(reason))
+    }
+
     fn emit(&mut self, mut s: String) -> u32 {
         // Whatever the last call asked the host to run goes to the executor
         // with the batch (LLP 1016 D2); the presenter never sees a request.
@@ -439,10 +450,7 @@ impl<D: DataSource> Bridge<D> {
         }
         match self.boot_fresh(plan, data, hooks, width, height) {
             Ok(batch) => self.emit(batch),
-            Err(e) => self.emit(format!(
-                "{{\"ops\":[],\"timers\":false,\"motion\":false,\"error\":\"boot: {}\"}}",
-                escape(&e)
-            )),
+            Err(e) => self.refuse(&format!("boot: {e}")),
         }
     }
 
@@ -877,10 +885,7 @@ impl<D: DataSource> Bridge<D> {
                 });
                 self.output.len() as u32
             }
-            Err(e) => self.prepare_error(format!(
-                "{{\"ops\":[],\"timers\":false,\"motion\":false,\"error\":\"boot: {}\"}}",
-                escape(&format!("{e:?}"))
-            )),
+            Err(e) => self.prepare_error(&format!("boot: {e:?}")),
         }
     }
 
@@ -897,11 +902,11 @@ impl<D: DataSource> Bridge<D> {
     /// Refuse an invalid composition context without touching the live host.
     pub fn refuse_preparation(&mut self, reason: &str) -> u32 {
         self.prepared = None;
-        self.prepare_error(format!("{{\"ops\":[],\"error\":\"{}\"}}", escape(reason)))
+        self.prepare_error(reason)
     }
 
-    fn prepare_error(&mut self, error: String) -> u32 {
-        self.output = error.into_bytes();
+    fn prepare_error(&mut self, reason: &str) -> u32 {
+        self.output = self.refusal(reason).into_bytes();
         self.output.len() as u32
     }
 
@@ -923,7 +928,7 @@ impl<D: DataSource> Bridge<D> {
             );
         }
         let Some(mut candidate) = self.prepared.take() else {
-            return self.prepare_error("{\"ops\":[],\"error\":\"no prepared plan\"}".into());
+            return self.prepare_error("no prepared plan");
         };
         candidate.host.commit_boot();
         let executor = self.links.io.map(|io| {
@@ -977,7 +982,7 @@ impl<D: DataSource> Bridge<D> {
             // A press, with the modifiers held as a chord prefix (gallery F20).
             0 => {
                 let Some(event) = Event::press(&payload) else {
-                    return self.emit(r#"{"ops":[],"error":"invalid press modifiers"}"#.into());
+                    return self.refuse("invalid press modifiers");
                 };
                 event
             }
@@ -986,7 +991,7 @@ impl<D: DataSource> Bridge<D> {
             // @ref LLP 1069.002 D3, D2 — 26 is a file input's `change`, one picked file per line; 27 its `cancel`.
             26 => {
                 let Some(files) = exact_runner::Picked::payload(&payload) else {
-                    return self.emit(r#"{"ops":[],"error":"invalid picked files"}"#.into());
+                    return self.refuse("invalid picked files");
                 };
                 Event::Change(exact_runner::ControlValue::Files(files))
             }
@@ -995,7 +1000,7 @@ impl<D: DataSource> Bridge<D> {
             23 => Event::Input(payload.into()),
             24 | 25 => {
                 let Some(on) = Event::checked_payload(&payload) else {
-                    return self.emit(r#"{"ops":[],"error":"invalid checked state"}"#.into());
+                    return self.refuse("invalid checked state");
                 };
                 if kind == 24 {
                     Event::Change(on)
@@ -1025,7 +1030,7 @@ impl<D: DataSource> Bridge<D> {
             6 | 10 | 13 | 19 | 20 | 21 | 28..=38 | 40..=44 | 46..=48 | 50..=54 => {
                 match Event::of_host_kind(kind, &payload) {
                     Ok(event) => event,
-                    Err(error) => return self.emit(format!(r#"{{"ops":[],"error":"{error}"}}"#)),
+                    Err(error) => return self.refuse(error),
                 }
             }
             // @ref LLP 1038 D8 — the next ABI kind after scroll.
@@ -1058,15 +1063,11 @@ impl<D: DataSource> Bridge<D> {
             18 => {
                 let Some(event) = self.input.get(..len).and_then(Event::reorder_drop_payload)
                 else {
-                    return self.emit(r#"{"ops":[],"error":"invalid reorder event"}"#.into());
+                    return self.refuse("invalid reorder event");
                 };
                 event
             }
-            _ => {
-                return self.emit(format!(
-                    r#"{{"ops":[],"error":"unknown event kind {kind}"}}"#
-                ))
-            }
+            _ => return self.refuse(&format!("unknown event kind {kind}")),
         };
         let out = match self.host.as_mut() {
             Some(h) => h.dispatch_at(view, event, now_ms),
@@ -1254,15 +1255,15 @@ impl<D: DataSource> Bridge<D> {
     /// A name alone clears a surface; name NUL JSON publishes it, even if empty.
     pub fn surface_record(&mut self, len: usize) -> u32 {
         let Ok(text) = std::str::from_utf8(&self.input[..len.min(self.input.len())]) else {
-            return self.emit(exact_runner::agent::error("surface record: invalid UTF-8"));
+            return self.refuse("surface record: invalid UTF-8");
         };
         let (name, json) = text
             .split_once('\0')
             .map_or((text, None), |(name, json)| (name, Some(json)));
-        let out = self.host.as_mut().map_or_else(
-            || exact_runner::agent::error("surface record: not booted"),
-            |host| host.surface_record(name, json),
-        );
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |host| host.surface_record(name, json));
         self.emit(out)
     }
 
@@ -1311,9 +1312,7 @@ impl<D: DataSource> Bridge<D> {
         let text = std::str::from_utf8(&self.input[..len.min(self.input.len())]).unwrap_or("");
         let mut fields = text.split('\0');
         let (Some(locale), Some(zone)) = (fields.next(), fields.next()) else {
-            return self.emit(exact_runner::agent::error(
-                "place: expected locale NUL timeZone",
-            ));
+            return self.refuse("place: expected locale NUL timeZone");
         };
         let seed = fields.next().and_then(|s| s.parse::<f64>().ok());
         let (locale, zone) = (locale.to_owned(), zone.to_owned());
@@ -1361,7 +1360,7 @@ impl<D: DataSource> Bridge<D> {
     pub fn intrinsics(&mut self, len: usize) -> u32 {
         let bytes = self.input.get(..len).unwrap_or(&[]);
         let out = if bytes.len() % 12 != 0 {
-            "{\"ops\":[],\"timers\":false,\"motion\":false,\"error\":\"intrinsics: truncated record\"}".to_string()
+            self.refusal("intrinsics: truncated record")
         } else {
             let sizes: Vec<_> = bytes
                 .chunks_exact(12)

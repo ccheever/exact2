@@ -21,6 +21,12 @@
 // timer). An `End` for a held voice only sets its `stopAt`: `stop()` on a
 // node never started throws InvalidStateError in all three engines.
 //
+// A sequence's voices are the same voices, issued a second ahead (LLP 1125
+// D3): an `End` at or before a voice's start that has not started (an edit,
+// a stop) lets its node go at once. A step's haptic is `navigator.vibrate`
+// on a timer at its time, cancelled by `unhaptic`; one more than 10 ms late
+// (a blocked main thread) is counted.
+//
 // A voice before the page's first user activation is dropped and journaled,
 // never queued (a queue would burst on the first tap): a capture-phase
 // `pointerdown`, `keydown` or `touchend` resumes the context, so the press
@@ -45,7 +51,9 @@ function installSound({ files, log, origin, root = document.getElementById('exac
   const ctx = context ?? new AudioContext({ latencyHint: 'interactive' });
   const stamp = timestamp ?? (() => outputTimestamp(ctx));
   let sources = [], buffers = [], decoded = 0, gesture = false;
-  const counts = { blocked: 0, late: 0, dropped: 0 };
+  const counts = { blocked: 0, late: 0, dropped: 0, hapticsLate: 0 };
+  /** A sequence's haptics not yet played: id → timer. */
+  const haptics = new Map();
   /** Every voice not yet over: `{id, sound, at, gain, playbackRate, pan, stopAt, node, held, timer}`. */
   const voices = new Map();
   // `app.json`'s `audio_session`, where the browser has the Audio Session API (WebKit).
@@ -84,6 +92,7 @@ function installSound({ files, log, origin, root = document.getElementById('exac
     if (v.stopAt != null) node.stop(immediately ? Math.max(ctx.currentTime, ctx.currentTime + (origin() + v.stopAt - now()) / 1000) : when(v.stopAt));
     node.onended = () => { voices.delete(v.id); gain.disconnect(); pan?.disconnect(); };
     v.node = node;
+    v.start = start;
   }
   /** Start a voice by the formula, or hold it until the timestamp is live. */
   function schedule(v) {
@@ -126,23 +135,36 @@ function installSound({ files, log, origin, root = document.getElementById('exac
     const v = voices.get(id);
     if (!v) return;
     v.stopAt = at;
-    if (v.node) v.node.stop(live() ? when(at) : Math.max(ctx.currentTime, ctx.currentTime + (origin() + at - now()) / 1000));
+    // Retracted before it sounded: silent now, its nodes let go.
+    if (v.node && at <= v.at && ctx.currentTime < v.start) { const node = v.node; node.onended(); node.onended = null; try { node.stop(); } catch {} }
+    else if (v.node) v.node.stop(live() ? when(at) : Math.max(ctx.currentTime, ctx.currentTime + (origin() + at - now()) / 1000));
     else if (v.held && at <= v.at) { clearTimeout(v.timer); voices.delete(id); }
   }
+  function haptic({ id, kind, at }) {
+    clearTimeout(haptics.get(id));
+    haptics.set(id, setTimeout(() => {
+      haptics.delete(id);
+      if (now() - (origin() + at) > 10) counts.hapticsLate++;
+      navigator.vibrate?.(kind === 'selection' ? 5 : 12); // rt.js `Hosts.haptic`'s (LLP 1077 D14)
+    }, Math.max(0, origin() + at - now())));
+  }
+  function unhaptic({ id }) { clearTimeout(haptics.get(id)); haptics.delete(id); }
   load(files);
   return {
-    /** The runner's ops, in order: `play` and `end`. */
-    ops(list) { for (const op of list) op.op === 'play' ? play(op) : end(op); },
+    /** The runner's ops, in order: `play`, `end`, and a sequence's `haptic` and `unhaptic`. */
+    ops(list) { for (const op of list) ({ play, end, haptic, unhaptic })[op.op]?.(op); },
     /** A new boot's files: every voice of the last one ends now. */
     reset(list) {
       for (const v of voices.values()) { clearTimeout(v.timer); try { v.node?.stop(); } catch {} }
       voices.clear();
+      for (const t of haptics.values()) clearTimeout(t);
+      haptics.clear();
       if (list.length !== sources.length || list.some((s, i) => s !== sources[i])) load(list);
     },
     /** The files this output decodes (a host compares a boot's against them). */
     get files() { return sources; },
     /** `state.sounds.output` outside the agent (D10). */
-    state: () => ({ kind: 'web-audio', state: ctx.state, decoded: `${decoded}/${sources.length}`, ...counts }),
+    state: () => ({ kind: 'web-audio', state: ctx.state, decoded: `${decoded}/${sources.length}`, voices: voices.size, ...counts }),
     context: ctx,
   };
 }

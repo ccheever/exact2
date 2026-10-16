@@ -267,11 +267,12 @@ extension UIColor {
     /// LLP 1115 D2: what an unset background is, the platform's —
     /// `systemBackground` (tvOS has none; white stands in) — or the theme's
     /// where it replaces the page's ground (LLP 1095 D4).
-    package static var platformBackground: UIColor {
+    /// `view`'s presenter's theme (LLP 1121 stage 5).
+    package static func platformBackground(in view: UIView?) -> UIColor {
         #if os(tvOS)
-        return ThemeRoles.color("background") ?? ThemeRoles.color("Canvas", or: .white)
+        return ThemeRoles.color("background", in: view) ?? ThemeRoles.color("Canvas", in: view, or: .white)
         #else
-        return ThemeRoles.color("background") ?? ThemeRoles.color("Canvas", or: .systemBackground)
+        return ThemeRoles.color("background", in: view) ?? ThemeRoles.color("Canvas", in: view, or: .systemBackground)
         #endif
     }
 }

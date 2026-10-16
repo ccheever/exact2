@@ -136,7 +136,7 @@ impl std::fmt::Display for HostError {
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct Mirror {
-    props: BTreeMap<String, String>,
+    props: exact_kernel::SortedMap<String, String>,
     style: String,
     children: Vec<ViewId>,
     frame: Option<(f32, f32, f32, f32)>,
@@ -229,6 +229,8 @@ pub struct Host<D: DataSource> {
     colors_seen: Option<u64>,
     /// The root font size and the window's modes as a batch last said them (`Host::facts_moved`).
     facts_told: Option<(f64, Vec<(String, String)>)>,
+    /// Whether the wake lock was held as a batch last said it (`Host::wakelock_moved`).
+    wakelock_told: Option<bool>,
     unopened: layout::unopened::Unopened,
     /// The top-layer boxes covered while closed (`closed.rs`).
     closed: layout::closed::Closed,
@@ -438,6 +440,9 @@ impl<D: DataSource> Host<D> {
             launch,
         )
         .map_err(HostError::Runner)?;
+        // Its own roles from here, not those of the session it replaces (a
+        // caller's scope is that one's; LLP 1121 stage 5).
+        let _roles = runner.bind_roles();
         runner.set_device_links(links.device);
         // @ref LLP 1079 D1 — a development build measures its work.
         runner.measure_unless_production(compat, true);
@@ -532,6 +537,7 @@ impl<D: DataSource> Host<D> {
             delivery,
             colors_seen: None,
             facts_told: None,
+            wakelock_told: None,
             unopened: Default::default(),
             closed: Default::default(),
         };
@@ -1430,8 +1436,8 @@ pub(super) fn fit_scale(node: &NodeRef<'_>) -> Option<String> {
 }
 
 /// Props by their own names, as strings. An empty `href` is no link: not told.
-fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
-    let mut out = BTreeMap::new();
+fn props_for(node: &NodeRef<'_>) -> exact_kernel::SortedMap<String, String> {
+    let mut out = exact_kernel::SortedMap::default();
     for (id, value) in node.props.iter() {
         let text = match value {
             PropValue::Str(_) if id == PropId::Href && node.props.link().is_none() => continue,

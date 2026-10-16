@@ -339,6 +339,11 @@ fn main() -> ExitCode {
                     );
                 }
             }
+            // `wakelock` (wakelock.js, LLP 1125 D11).
+            let _ = std::fs::remove_file(dir.join("wakelock.flag"));
+            if exact_runner::wakelock::bound(&plan) {
+                let _ = std::fs::write(dir.join("wakelock.flag"), "");
+            }
             // Every portable symbol role, which symbols.js loads when a bound
             // source names one the plan's strings don't (ledger diary F10).
             let roles: Vec<String> = exact_kernel::generated::SYMBOL_ROLES

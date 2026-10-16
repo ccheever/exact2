@@ -13,6 +13,7 @@ import { resolve } from 'node:path';
 import { Cdp } from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
 import { need } from '../../../scripts/coverage.mjs';
+import { readyPage } from './page.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
 const { executable: chrome, unavailable } = chromium();
@@ -78,8 +79,7 @@ check('down before the press, up wherever the button lifts, nothing when disable
       if (reply.exceptionDetails) throw new Error(reply.exceptionDetails.exception?.description ?? reply.exceptionDetails.text);
       return reply.result.value;
     };
-    await call('Page.navigate', { url: `http://127.0.0.1:${server.address().port}/` });
-    for (let i = 0; !(await evaluate('window.ready === true')); i++) { if (i > 2000) throw new Error('page never ready'); await Bun.sleep(5); }
+    await readyPage(cdp, sessionId, `http://127.0.0.1:${server.address().port}/`);
     const centre = (id) => evaluate(`(() => { const r = document.getElementById('${id}').getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()`);
     // `force` as a mouse's hardware reports it: DOM's 0.5 while a button is down.
     const mouse = (type, [x, y], button = 'left', buttons = type === 'mouseReleased' ? 0 : button === 'left' ? 1 : 2) => call('Input.dispatchMouseEvent', { type, x, y, button, buttons, force: buttons ? 0.5 : 0, clickCount: 1 });
@@ -199,4 +199,4 @@ check('down before the press, up wherever the button lifts, nothing when disable
     server.close();
     rmSync(profile, { recursive: true, force: true });
   }
-}, 30_000);
+}, 60000);

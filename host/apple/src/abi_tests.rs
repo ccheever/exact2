@@ -4,6 +4,9 @@ use exact_plan::{TypeKind, Value};
 use exact_runner::{Answer, DataError, Store};
 use std::sync::{Arc, Mutex};
 
+#[path = "abi_refusal_tests.rs"]
+mod refusals;
+
 fn plan(resource: Option<&str>) -> Vec<u8> {
     let mut builder = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
     if let Some(name) = resource {
@@ -1396,3 +1399,6 @@ fn block_axis_records_distinguish_size_maximum_and_route_fitting() {
         assert_eq!(k.host_block_size(id), Some(size));
     }
 }
+
+#[path = "abi_roles_tests.rs"]
+mod roles;

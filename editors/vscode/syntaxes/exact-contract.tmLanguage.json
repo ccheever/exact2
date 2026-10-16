@@ -64,7 +64,7 @@
     "escapes": {
       "patterns": [
         {
-          "match": "\\\\[nt\"\\\\`$]",
+          "match": "\\\\([nt\"\\\\`$]|u\\{[0-9A-Fa-f]{1,6}\\}|u[0-9A-Fa-f]{4})",
           "name": "constant.character.escape.exact-contract"
         },
         {

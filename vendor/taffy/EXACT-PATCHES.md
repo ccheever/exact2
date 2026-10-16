@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32 and 33 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34 and 35 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
@@ -1077,6 +1077,19 @@ textarea's height.
 
 The row-layout memo exposes `forget_memo` so an environment change invalidates
 recordings whose calc handles keep the same identity but resolve differently.
+
+## Patch 35: allocate a node's rounded layout when rounding first writes it
+
+`NodeData::final_layout` is an `Option<Box<Layout>>`, written by
+`set_final_layout` (the rounding pass) and read as `Layout::new()` before it
+was. Exact lays out unrounded (`disable_rounding`), so every node carried a
+92-byte layout nothing wrote or read: 84 bytes a slot now, 91 KB of euxy's
+1,087 slots. Reads under rounding are unchanged.
+
+**Held by** `tree::taffy_tree::tests::make_sure_layout_location_is_top_left`
+(rounded layouts read after a layout; `TaffyTree::new` rounds) and
+`test_layout` (a layout read before any was written), and by the kernel's
+layout tests, which read the unrounded one.
 
 ## Cargo workspace boundary
 

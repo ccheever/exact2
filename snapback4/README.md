@@ -5,7 +5,7 @@ the device (its partition in SQLite, its outbox, local queries and
 predictions) and the client protocol over it (opening, sync rounds, store
 identity and generation adoption, at-most-once sends with receipts, the
 change poll), written once in Rust and performing no I/O. Each HTTP exchange
-is handed to whoever drives it. Pinned to Snapback4 **0.4.28**
+is handed to whoever drives it. Pinned to Snapback4 **0.4.29**
 (engine sources in `snapback4/Cargo.toml`); the npm CLI in the root
 `package.json` matches.
 
@@ -19,7 +19,7 @@ is handed to whoever drives it. Pinned to Snapback4 **0.4.28**
 > **Exact + Snapback checklist.** Each line is a pair that must agree; a
 > mismatch fails late, as data that never loads.
 >
-> - **Directories.** The backend (`snapback/schema.q`, `snapback4@0.4.28`)
+> - **Directories.** The backend (`snapback/schema.q`, `snapback4@0.4.29`)
 >   is the directory above the app (the one holding `app.json`). Run
 >   `snapback4` there and `bun exact.mjs …` (`snapback` among them) in the
 >   app; `assets/snapback4.wasm` is built into the app's `assets/`.
@@ -39,7 +39,7 @@ is handed to whoever drives it. Pinned to Snapback4 **0.4.28**
 >   `bun exact.mjs backend`, and the generated test file's `fail fetch`/`pass fetch`
 >   prefixes. On `test web`, write `fail fetch "backend"` / `pass fetch "backend"`: those
 >   resolve from the built grant at runtime, so `app.ts` has the only origin setting.
->   With several fetch origins, use explicit URL prefixes. `bun exact.mjs snapback --port N` updates them together. The page's port (`EXACT_PORT`,
+>   With several fetch origins, use explicit URL prefixes. `bun exact.mjs snapback --port N` selects a local override. The page's port (`EXACT_PORT`,
 >   `--port` on `bun exact.mjs`) is another, never this one.
 > - **Grants.** `sqlite.open app:/data` for the partition; `fs.read app:/tmp`
 >   to upload a picked file and `fs.write app:/cache` to download one.
@@ -49,7 +49,7 @@ is handed to whoever drives it. Pinned to Snapback4 **0.4.28**
 > - **Tests.** `epoch now` in the test file (the server keeps real time);
 >   `snapback4 dev` listening before `test web`; `clock data` before `fail
 >   fetch`; `fresh` for an empty dev server before each test through
->   0.4.28's `POST /dev/reset`
+>   0.4.29's `POST /dev/reset`
 >   (["Tests share the server"](#tests-share-the-server)).
 
 ## From TypeScript
@@ -57,8 +57,8 @@ is handed to whoever drives it. Pinned to Snapback4 **0.4.28**
 ### Set it up: one command
 
 A new app: from the backend's directory (`snapback/schema.q`, and
-`snapback4@0.4.28` installed there: `bun add snapback4@0.4.28` or `npm i
-snapback4@0.4.28`), `bun /path/to/exact2/scripts/exact.mjs new app --snapback`
+`snapback4@0.4.29` installed there: `bun add snapback4@0.4.29` or `npm i
+snapback4@0.4.29`), `bun /path/to/exact2/scripts/exact.mjs new app --snapback`
 (`--port <n>` for an origin other than 4400). With no backend schema yet, it writes the guestbook below as
 the app (`app.contract`, `app.ts` at that origin with its grants,
 `app.test.contract`) and `snapback/schema.q` when there is none, then wires it. With an existing schema it keeps the greeting app and mounts
@@ -94,9 +94,9 @@ above it): `bun exact.mjs snapback`. Either one:
    the backend first writes `snapback/generated/`.
 4. **Builds the device** the page loads into `assets/snapback4.wasm` (`node
    <exact2>/snapback4/web/build.mjs assets/snapback4.wasm` by hand) and its
-   glue, which every host's bake type-checks. Every default `snapback` run asks Cargo to rebuild when inputs changed, including
-   if the existing stamp is missing or stale. It refuses an edited driver or backend
-   mount with a before/after diff before changing files. The first build compiles the
+   glue, which every host's bake type-checks. A default `snapback` run asks Cargo to rebuild when inputs changed, including
+   when the existing stamp is missing or stale. It refuses an edited driver or backend
+   mount with a before/after diff before changing files. Port-only changes reuse a compatible stamped device. The first build compiles the
    client for a few minutes; later ones take seconds. The web host serves it
    at `/assets/snapback4.wasm`, the driver's default (`Snapback.open`'s
    `wasm` names another). A web build of an app that mounts the driver
@@ -105,8 +105,9 @@ above it): `bun exact.mjs snapback`. Either one:
 It names the `appId` line `app.ts` needs when the two disagree: `app.json`'s
 `"app": { "id" }`, which `exact new` set from the directory's name. Last it
 says the server to start, `bunx snapback4 dev --port <n>` above. The driver is
-pinned to published Snapback4 0.4.28: install that version for the server.
-The reset and generic file cases use the same release and matched device build.
+pinned to Snapback4 0.4.29: install that version for the server. A new app
+made this way and tested as written against 0.4.29 (2026-10-16): both of the
+guestbook's tests pass.
 
 ### Upgrading a wave-10-era app
 
@@ -289,7 +290,7 @@ shape Board
   message: string
   latest: string
   sending: number
-  notes: list<Note>
+  notes: Note[]
 shape Ack
   ok: bool
   message: string
@@ -317,7 +318,7 @@ component Guestbook
   action editDraft(value: string)
     draft = value
   action postNote
-    send posted = post(persona, trim(draft), time.epochAtZero + performanceNow())
+    send posted = post(persona, draft.trim(), time.epochAtZero + performanceNow())
   action afterPost
     match posted
       case some(result)
@@ -340,7 +341,7 @@ component Guestbook
         text `${board.sending} sending` testId="sending"
         row gap=8
           input value=draft input=editDraft testId="draft" placeholder="Say something" aria-label="Note" flex=1
-          button appearance="auto" press=postNote disabled=(trim(draft) == "") testId="post"
+          button appearance="auto" press=postNote disabled=(draft.trim() == "") testId="post"
             text "Post"
         text notice testId="notice"
         text board.latest testId="latest"
@@ -352,7 +353,7 @@ component Guestbook
 
 ```ts
 import type { Answer, Result, Sources } from './app.contract.d.ts';
-import { Snapback, refused } from './snapback4/snapback.ts';
+import { Snapback, refused, pick, type Sent } from './snapback4/snapback.ts';
 import { api } from './backend/api.ts';                 // the backend's generated operations, mounted
 
 export const appId = 'com.example.app';                 // app.json's "app": { "id" }, as `bun exact.mjs snapback` checks it
@@ -369,6 +370,13 @@ const personas = Snapback.switcher((persona: string) => ({ app: appId, name: `gu
 // the type on the callback `use` runs, where the object is returned: there an
 // undeclared field fails the build (TS2353 names it); on the outer arrow, a
 // callback's literal is never checked for extra fields.
+function ack(fate: Sent<{id: string} | null>): Result<'post'> {
+  if (fate.state === 'failed') return {ok: false, message: `Refused: ${fate.why.code}`, id: ''};
+  if (fate.state === 'sent') return {ok: true, message: 'Posted.', id: fate.result?.id ?? ''};
+  return {ok: true, message: 'Saved on this device; it sends when online.', id: ''};
+}
+const note = pick<Result<'notes'>['notes'][number]>();
+
 const sources: Sources = {
   notes: ([persona, now], _store, storage, native) => personas.use(persona, storage, native, async (db): Promise<Result<'notes'>> => {
     const round = await db.sync();                      // offline is fine once synced
@@ -376,7 +384,7 @@ const sources: Sources = {
     if (read.denied) throw refused(read.denied);        // failure(board).code preserves the refusal CODE
     // Project each row onto the shape: an answer's extra fields are refused
     // (a row spread, `{ ...row }`, keeps every field the type check cannot see).
-    const notes = (read.data ?? []).map(row => ({ id: row.id, author: row.author, body: row.body, pending: row.pending === true }));
+    const notes = (read.data ?? []).map(row => note({...row, pending: row.pending === true}, 'id', 'author', 'body', 'pending'));
     return { online: round.ok, message: round.ok ? '' : 'Offline: showing what this device keeps',
       latest: notes.length ? `${notes[0].author}: ${notes[0].body}` : '',
       sending: notes.filter(note => note.pending).length, notes };
@@ -389,10 +397,7 @@ const sources: Sources = {
     // result (here the new row's id), `failed` with the refusal's code, or
     // `pending` when the round did not reach the server (kept; sent later).
     // The handle checks `{ body }` against the mutation's arguments.
-    const fate = await db.send(api.post, { body }, now);
-    if (fate.state === 'failed') return { ok: false, message: `Refused: ${fate.why?.code}`, id: '' };
-    if (fate.state === 'sent') return { ok: true, message: 'Posted.', id: fate.result?.id ?? '' };
-    return { ok: true, message: 'Saved on this device; it sends when online.', id: '' };
+    return ack(await db.send(api.post, { body }, now));
   }),
 };
 export const answer: Answer = (source, args, store, storage, native) =>
@@ -430,25 +435,25 @@ test "a note posts, and another persona sees it"
 
 test "offline, a note is kept, then delivered on reconnect"
   clock data
-  fail fetch "http://127.0.0.1:4400"
+  fail fetch "backend"
   type "draft" "from the tunnel"
   tap "post"
   clock data
   expect text "notice" == "Saved on this device; it sends when online."
   expect text "sending" == "1 sending"
-  pass fetch "http://127.0.0.1:4400"
+  pass fetch "backend"
   clock +5000
   clock data
   expect text "sending" == "0 sending"
 ```
 
 The app is `bun <this checkout>/scripts/exact.mjs new app --snapback`, run in
-the backend’s directory, which writes these files when there is no existing
-schema and wires their mounts and device.
+the backend's directory, which writes these four files and wires them. Built that way and tested as written against 0.4.29
+(2026-10-16): both tests pass, and pass again on the data a first run leaves.
 
 ### A complete online app
 
-For a schema that syncs nothing, install `snapback4@0.4.28` in the backend,
+For a schema that syncs nothing, install `snapback4@0.4.29` in the backend,
 write this `snapback/schema.q`, then run
 `bun <exact2>/scripts/exact.mjs new app --snapback --online --port 30100`.
 It mounts the online adapter and generated operations, and writes a query/mutation
@@ -828,7 +833,7 @@ those from earlier tests in it. Two ways out:
     expect tree missing "note-0"
   ```
 
-  Snapback4 0.4.28 has this door in `dev`; `serve` has no development
+  Snapback4 0.4.29 has this door in `dev`; `serve` has no development
   reset. `fresh` is for tests against `dev`.
 - **Each test owns its rows.** It writes a code or name no other test uses
   and asserts on that: newest first (`note-0` in a `last … by byTime` list),
@@ -838,19 +843,21 @@ those from earlier tests in it. Two ways out:
   leaves.
 ### Ports: the Snapback origin and the page's own
 
-Two ports, set apart. **The Snapback origin** is a constant in `app.ts`
-(`const origin = 'http://127.0.0.1:4400'`) and its `net.fetch` grant; a data
-module reads no environment, so the server must come to it:
-`snapback4 dev --port 4400` (4400 is also `dev`'s default), and the test
-file's `fail fetch`/`pass fetch` prefixes name the same origin. To move it,
-run `bun exact.mjs snapback --port <n>` to update a literal loopback
-`const origin`, matching grant literals and test fetch prefixes; it prints
-the matching `dev --port <n>`. `bun exact.mjs backend` starts it in the backend directory
-and reads that same `const origin`; `backend serve <release>` uses the same port. `${origin}` grants follow automatically.
-An origin it cannot identify or a production origin is refused for this
-port edit: set production origins yourself. `test web` reads
-this origin from the build's `net.fetch` grants (`app.ts`'s `grants`), asks
-whether anything listens there, and refuses the run when nothing does.
+The backend defaults to `const origin` in `app.ts`. Change it without editing
+sources using `EXACT_BACKEND_ORIGIN=https://api.example` at build/run time, or
+`bun exact.mjs test web --backend http://127.0.0.1:30100`. The build injects that
+origin and its matching `net.fetch` grant into its captured module; authored
+files retain their default. Use `net.fetch ${origin}` for the grant. A computed
+origin is refused when overriding it; declare one top-level literal instead.
+`fail fetch "backend"` follows the built grant, including an override.
+
+`bun exact.mjs snapback --port N` stores a local development selection in
+`.exact/backend-origin` (ignored), used by builds and `bun exact.mjs backend`.
+`EXACT_BACKEND_ORIGIN` wins over that selection. Existing sources and literal
+test prefixes are preserved; use the `backend` alias in portable tests.
+A compatible stamped wasm is reused for a port-only change; `--rebuild` forces
+its rebuild. Backend preflight reads the built grant and names a missing server.
+
 **The Exact page's port** is separate: `EXACT_PORT=<n>` (or `--port <n>`)
 serves `web`, `test web` and `agent web` on exactly that port, else a free
 one selected within `PORT_LO`–`PORT_HI` when both are set, else by the OS
@@ -887,6 +894,58 @@ Cannot find module 'snapback4/contract'` (listed after the errors it causes
 in `app.ts`: install the package, not types by hand). Rows still map onto
 the Contract shape field by field: the generated row has fields (`at`,
 `pending`) the shape may not.
+
+Both adapters export a checked projection helper:
+`const note = pick<Result<'notes'>['notes'][number]>();`
+then `note(row, 'id', 'author', 'body', 'pending')`. It emits only those keys;
+missing target keys, misspellings and incompatible row values fail TypeScript.
+Normalize optional fields before projecting, as the guestbook does for `pending`.
+A field projected through a hidden parent join is nullable even when the child's
+column is required: handle `row.parentField ?? fallback` at that boundary.
+The guestbook's shared `ack(sent)` also accepts `Sent<null>`; a void mutation
+needs no invented result object.
+
+### One view across a rollback
+
+Both adapters expose `release(): Promise<ReleaseSnapshot>` and
+`subscribeGeneration(generation => …)` (returns an unsubscribe function).
+`release()` uses authenticated `GET /` with the same credentials as data traffic.
+A subscription reports generations observed by requests; it starts no timer.
+Keep a Contract refresh running even when every operation gate is closed:
+
+```ts
+// Inside a source, using the same db as reads and writes:
+const release = await db.release();
+return {canPost: api.post.available(release)};
+```
+
+```contract
+shape Features
+  canPost: bool
+component App
+  state draft = ""
+  resource features = features() as shape Features else empty()
+  task catalog mount
+    every(1000, refreshFeatures)
+  action refreshFeatures
+    refresh features
+  action edit(value: string)
+    draft = value
+  view
+    column
+      input value=draft input=edit testId="draft"
+      when features.canPost
+        text "Posting available" testId="available"
+      else
+        text "Posting unavailable in this release" testId="unavailable"
+```
+
+Use that same gate on the posting control. Keep draft/selection state above the
+gate: rolling back removes the control without remounting the view or losing the
+draft. A rollback has a new generation; an older in-flight catalog cannot reopen
+its gate. Loading/offline catalogs close it. Availability can race a deployment,
+so still handle `E_OP`/`E_INPUT` from the write. Subscriptions can trigger an
+embedding's refresh; Contract apps normally use the task above.
 
 ### Open, sync, read, write
 
@@ -1029,6 +1088,32 @@ const renewed = await db.refreshSession(now);          // near expiresAt: keep r
 
 ### Photos and video: upload and download
 
+Device-backed apps can keep a picked file and its placing mutation in one durable
+outbox entry, after identifying the backend once online:
+
+```ts
+const intent = await db.uploadAndPlace(api.addPhoto, {}, path, now,
+  {argument: 'photo', id: draftId}); // id is an optional stable intent key
+// Admission has copied bytes into the device. The picked path may now disappear.
+await db.sync();                    // uploads, commits the asset facts, then places
+const fate = await db.outcome(intent.id);
+```
+
+Grant `fs.read` for the picked path and pass the dispatcher's `storage`. Exact
+currently admits nonempty durable files up to **4 MiB**, so their hex custody
+record fits its 16 MiB storage/call boundary. Larger files may use online
+`upload`; Snapback's device quota remains authoritative. Reopening the same
+partition resumes queued bytes without the picked path. Lost upload or placement
+responses retry the same server intent and mutation id. `uploads()` lists kept
+states; a nonretryable refusal stays blocked with its bytes, and
+`retryUpload(id)` requeues it for the next sync. `discardUpload(id)` durably
+requests cancellation; a sync retires the bytes only after server acknowledgement.
+After placement dispatch starts, recover its receipt instead. A blocked upload
+leaves the round unsuccessful but does not hold up independent ordinary writes. A retained terminal receipt
+prevents different bytes or arguments reusing the same key. Keep the same viewer
+and backend store; switching either cannot send the old intent elsewhere.
+
+
 A Snapback `image <=N` or `video <=N` column holds an asset: the bytes are
 uploaded first, and the mutation takes `{ id }`. `db.upload` and
 `db.download` are the two routes (`POST /assets`, `GET /assets/<id>`), sent
@@ -1056,7 +1141,7 @@ if (got.ok) shown = got.path; else why = got.why.code; // E_ASSET_UNKNOWN: missi
   declared content type. Place `{ id: asset.id }` in a `file` column.
   `download` returns the attachment `name` and uses it in the default cache
   filename; pass that name to `saveFile` when exporting it.
-- Both are online only and never retried here (a data module has no
+- `upload` and `download` are online only and never retried here (a data module has no
   timers): offline is `E_OFFLINE` with nothing kept, so keep the picked
   path and ask again. A write naming an uploaded `{ id }` made offline
   queues unpredicted, and the server judges it.
@@ -1136,8 +1221,7 @@ snapback4/ts`, and clippy for `exact-snapback4-web` with `--target
 wasm32-unknown-unknown`.
 
 What the TypeScript client of Snapback itself does that this one does not
-yet: kept media (LLP 1108: upload facts on the device, so an offline write
-naming an upload predicts; a retained, purged cache; `once` assets shown
+yet: retained media caching (LLP 1108: a retained, purged cache and `once` assets shown
 from memory), native jobs on the device, Following
 feeds, ephemeral reads and writes (a write that touches an ephemeral table
 is refused at once with `E_CLIENT_UNSUPPORTED`, never queued), search state, the online fallback fenced by
