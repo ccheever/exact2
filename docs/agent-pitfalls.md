@@ -641,9 +641,11 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   children, naming them with `swipeContent`, `swipeLeading` and `swipeTrailing` ids,
   which the web scrolls and iOS turns into UIKit's own swipe actions: UIKit's shape
   and size (round on iOS 26 and later) with each button's background colour and a
-  snapshot of its content, never the painted box (euxy port's flush rectangles,
-  2026-10-15); a snap row without the three attributes keeps its paint and loses the
-  full swipe and the actions VoiceOver reads. Fix: copy
+  snapshot of its content, not the painted box (euxy port's flush rectangles,
+  2026-10-15). To keep the paint, give every control the row names
+  `appearance="none"`: the row keeps its snap scroll and still has the full swipe,
+  one row open at a time and the actions VoiceOver reads; dropping the three
+  attributes instead keeps the paint and loses all three. Fix: copy
   `apps/shelf/app.contract`'s `BookRow` (`swipe-…`; `apps/messages` paints its own
   circles in hex and is no model for the rest). (Ledger2 DIARY, "Needed:
   swipe gesture", about 15 minutes, 2026-10-04.) iOS refuses a row whose content is
