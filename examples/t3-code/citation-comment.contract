@@ -11,6 +11,7 @@
 // stays 5 pt inside it. The window keeps the draft (app-window.contract `citeDraft`), so an outside press, or the focus
 // leaving the textarea (a press in the composer's text: Base UI's focus-out), can settle it.
 use ChipPopover from "./composer-chip-popover.contract"
+use DialogOpenFocus from "./dialog-trap.contract"
 
 // The popup's height for the flip: its border, py-2, the textarea at its 64 pt, mt-2 and the 24 pt buttons, and the
 // limit's 20 pt line past 8,000 characters (114 pt in the reference's popup with an empty comment).
@@ -52,6 +53,7 @@ component CitationCommentLayer
       // The reference's `field-sizing-content min-h-16 max-h-40` textarea, straight in the popover: since main #496
       // a column's automatic height takes it clamped by its max-height, so an 8,000-character comment keeps the
       // popover at the reference's 114 to 230 pt and scrolls inside the textarea.
+      DialogOpenFocus(target="citation-comment-text")
       textarea id="citation-comment-text" value=draft input=edit key=keys blur=settle autofocus=true rows=2 placeholder="Add an optional comment..." aria-label="Comment on selected text" aria-description="Enter to save the citation comment; Command/Ctrl+Enter to save and send; Shift+Enter for a new line." aria-invalid=tooLong field-sizing="content" outline="none" width="100%" min-height="4rem" max-height="10rem" padding-left="0.25rem" padding-right="0.25rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off" testId="citation-comment-text"
         // AssistantCitationCommentEditor's placeholder:text-muted-foreground.
         ::placeholder

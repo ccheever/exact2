@@ -1470,7 +1470,7 @@ component T3Code
       confirmDestructive = destructive
       confirmOp = value
       confirmTarget = target
-      confirmValue = ""
+      confirmValue = value == "remove-snapshot" ? op.slice(11) : "" // a focused Remove's next element, focused once the removal lands (`focus:`)
     if op.startsWith("shelllocal:")
       send localChanged = command(op, target, value, 0)
     if (op == "ui:new-thread" or not op.startsWith("ui:")) and not op.startsWith("shelllocal:") and not commandPending
