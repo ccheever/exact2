@@ -714,7 +714,16 @@ export function receiptChanges(receipt, app) {
   // walk above skips are no input here either (a backend app.ts never imports); one gone still counts.
   const skipped = path => { const at = resolve(ROOT, path); return at.startsWith(app.dir + '/') && existsSync(at) && skip(at); };
   const tools = info ? depInfoNewer(since, null, info).filter(path => !skipped(path)) : [];
-  return [...new Set([...(build?.binary ? pendingBuildInputs(build) : []), ...own, ...tools])];
+  // The build signs its GPU modules after it starts, and a build script names them, as the bake binds their digests:
+  // such a product is unchanged while the bytes it packaged and its bytes now are the ones its baked card binds
+  const cards = [build?.compat?.embedded?.gpu, ...Object.values(build?.compat?.embedded?.gpuModules ?? {})].filter(Boolean);
+  const products = new Map((build?.products ?? []).map(({ path, sha256 }) => [path, sha256]));
+  const bound = path => {
+    const at = resolve(ROOT, path), card = cards.find(({ name }) => name === basename(at));
+    if (!card || products.get(at) !== card.sha256) return false;
+    try { return createHash('sha256').update(readFileSync(at)).digest('hex') === card.sha256; } catch { return false; }
+  };
+  return [...new Set([...(build?.binary ? pendingBuildInputs(build) : []), ...own, ...tools])].filter(path => !bound(path));
 }
 
 /** A web `dist/`: app and shared runtime sources newer than its build marker.
