@@ -6,6 +6,7 @@
 //! which it learns at boot (`appRoots`).
 
 use exact_runner::DataError;
+use ibex2::stdlib::app_fs::AppDirectories;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -138,11 +139,14 @@ pub fn know_roots(app_id: &str) {
     }
 }
 
-/// Record the app's directories and empty `app:/tmp/picked/`: the last
-/// launch's picks are gone (D4).
+/// Record the app's directories, as storage is configured, and empty
+/// `app:/tmp/picked/`: the last launch's picks are gone (D4). Their handles
+/// are pinned here for a share's reads ([`PINNED`]).
 pub fn set_roots(data: PathBuf, cache: PathBuf, temporary: PathBuf) {
     let _ = std::fs::remove_dir_all(temporary.join("picked"));
-    *ROOTS.lock().unwrap_or_else(|e| e.into_inner()) = Some([data, cache, temporary]);
+    let roots = [data, cache, temporary];
+    *PINNED.lock().unwrap_or_else(|e| e.into_inner()) = Some(open_pinned(&roots));
+    *ROOTS.lock().unwrap_or_else(|e| e.into_inner()) = Some(roots);
 }
 
 fn roots() -> [PathBuf; 3] {
@@ -228,6 +232,14 @@ pub fn documents(op: &str, request: &str, grants: &str) -> String {
     }
 }
 
+/// The agent's `appFile` ([`app_file`]) and `shareFile` ([`share_copy`]).
+pub fn file_op(op: &str, request: &str, grants: &str) -> String {
+    match op {
+        "appFile" => app_file(&exact_runner::agent::field_str(request, "path").unwrap_or_default()),
+        _ => share_copy(request, grants),
+    }
+}
+
 /// `{"file":"/…"}`: the file behind an `app:/data|cache|tmp/…` path, which
 /// an export copies out (LLP 1069.010 D3); an error for anything else.
 pub fn app_file(path: &str) -> String {
@@ -260,17 +272,58 @@ pub fn app_file(path: &str) -> String {
     }
 }
 
+/// The app's directories as storage opened them, pinned by their handles
+/// from then on (LLP 1125 D12): a share reads through these and never
+/// reopens a root by name, so a root or an ancestor of it renamed or
+/// replaced later (a link to another tree) changes nothing a share reads.
+/// `None` until storage is configured ([`set_roots`]), and on a host or
+/// drive with none.
+static PINNED: Mutex<Option<Result<AppDirectories, String>>> = Mutex::new(None);
+
+/// The largest app file a share copies (LLP 1125 D12): the copy runs on the
+/// thread that asked, the main one, so a larger file is refused by name
+/// rather than holding the interface while it copies.
+pub const SHARE_COPY_MAX: u64 = 64 << 20;
+
+/// The roots' handles, opened as the request executor opens them
+/// (`executor_body::open`): made if missing, a root that is itself a link
+/// refused.
+fn open_pinned(roots: &[PathBuf; 3]) -> Result<AppDirectories, String> {
+    if roots
+        .iter()
+        .any(|r| std::fs::symlink_metadata(r).is_ok_and(|m| m.is_symlink()))
+    {
+        return Err("an app root is a symbolic link".into());
+    }
+    for root in roots {
+        std::fs::create_dir_all(root).map_err(|e| e.to_string())?;
+    }
+    AppDirectories::new(&roots[0], &roots[1], &roots[2]).map_err(|e| e.to_string())
+}
+
 /// `{"file":to}`: a copy at `to` of the app file `path` (LLP 1125 D12), read
 /// as `readFile` reads it: admitted by the app's `fs.read` grants and opened
-/// relative to the roots' descriptors without following a symbolic link at
-/// any component, so a link in the app's tree cannot put a file outside the
-/// grant on the share sheet. Only a regular file is copied; `to` must not
-/// exist. An error for anything else.
-/// `request` is `{"op":"shareFile","path":…,"to":…}`.
+/// relative to the pinned roots' handles without following a symbolic link
+/// at any component, so a link in the app's tree cannot put a file outside
+/// the grant on the share sheet. Only a regular file of at most
+/// [`SHARE_COPY_MAX`] bytes is copied; `to` must not exist. An error for
+/// anything else. `request` is `{"op":"shareFile","path":…,"to":…}`.
 pub fn share_copy(request: &str, grants: &str) -> String {
     let field = |k| exact_runner::agent::field_str(request, k).unwrap_or_default();
     let (path, to) = (field("path"), field("to"));
-    match copy_confined(&roots(), &path, std::path::Path::new(&to), grants) {
+    let pinned = PINNED.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let copied = match pinned {
+        Some(Ok(directories)) => copy_confined(
+            &directories,
+            &path,
+            std::path::Path::new(&to),
+            grants,
+            SHARE_COPY_MAX,
+        ),
+        Some(Err(e)) => Err(format!("the app's files would not open: {e}")),
+        None => Err("this host has no app files".into()),
+    };
+    match copied {
         Ok(()) => {
             let mut s = String::from("{\"file\":");
             exact_runner::agent::quote(&to, &mut s);
@@ -282,36 +335,38 @@ pub fn share_copy(request: &str, grants: &str) -> String {
 }
 
 fn copy_confined(
-    roots: &[PathBuf; 3],
+    directories: &AppDirectories,
     path: &str,
     to: &std::path::Path,
     grants: &str,
+    max: u64,
 ) -> Result<(), String> {
-    use ibex2::stdlib::app_fs::AppDirectories;
-    // A root that is itself a link is refused, as the request executor
-    // refuses it (`executor_body::open`).
-    if roots
-        .iter()
-        .any(|r| std::fs::symlink_metadata(r).is_ok_and(|m| m.is_symlink()))
-    {
-        return Err("an app root is a symbolic link".into());
-    }
-    let directories =
-        AppDirectories::new(&roots[0], &roots[1], &roots[2]).map_err(|e| e.to_string())?;
+    use std::io::Read;
     let grants = ibex2::grant::GrantSet::parse(&exact_runner::io_grants(grants))
         .map_err(|e| format!("the app's grants did not parse: {e}"))?;
-    let mut from = directories
+    let from = directories
         .open_file(&grants, path)
         .map_err(|e| e.to_string())?;
+    let too_large = || format!("larger than the {} MB a share copies", max >> 20);
+    if from.metadata().map_err(|e| e.to_string())?.len() > max {
+        return Err(too_large());
+    }
     let mut copy = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(to)
         .map_err(|e| e.to_string())?;
-    if let Err(e) = std::io::copy(&mut from, &mut copy) {
+    // A file that grows while it is copied stops one byte past the bound.
+    let copied = std::io::copy(&mut from.take(max + 1), &mut copy).map_err(|e| e.to_string());
+    let failed = match copied {
+        Ok(n) if n > max => Some(too_large()),
+        Ok(_) => None,
+        Err(e) => Some(e),
+    };
+    if let Some(e) = failed {
         drop(copy);
         let _ = std::fs::remove_file(to);
-        return Err(e.to_string());
+        return Err(e);
     }
     Ok(())
 }
@@ -332,44 +387,102 @@ mod tests {
         }
         std::fs::create_dir_all(roots[0].join("backups")).unwrap();
         std::fs::write(roots[0].join("backups/notes.json"), b"{}").unwrap();
-        std::fs::create_dir_all(base.join("outside")).unwrap();
+        std::fs::create_dir_all(base.join("outside/backups")).unwrap();
         std::fs::write(base.join("outside/secret"), b"secret").unwrap();
+        std::fs::write(base.join("outside/backups/notes.json"), b"other").unwrap();
         (base, roots)
     }
+
+    const GRANTS: &str = "fs.read app:/data\n";
 
     #[test]
     fn a_share_copies_only_a_granted_regular_file_and_follows_no_link() {
         let (base, roots) = tree("links");
-        let grants = "fs.read app:/data\n";
+        let dirs = open_pinned(&roots).unwrap();
         let to = |n: &str| base.join(n);
-        assert_eq!(
-            copy_confined(&roots, "app:/data/backups/notes.json", &to("a"), grants),
-            Ok(())
-        );
+        let copy = |path: &str, n: &str| copy_confined(&dirs, path, &to(n), GRANTS, 1 << 20);
+        assert_eq!(copy("app:/data/backups/notes.json", "a"), Ok(()));
         assert_eq!(std::fs::read(to("a")).unwrap(), b"{}");
         // A leaf link to a file outside the grant.
         symlink(base.join("outside/secret"), roots[0].join("backups/leaf")).unwrap();
-        assert!(copy_confined(&roots, "app:/data/backups/leaf", &to("b"), grants).is_err());
+        assert!(copy("app:/data/backups/leaf", "b").is_err());
         // An ancestor link to a folder outside it.
         symlink(base.join("outside"), roots[0].join("folder")).unwrap();
-        assert!(copy_confined(&roots, "app:/data/folder/secret", &to("c"), grants).is_err());
+        assert!(copy("app:/data/folder/secret", "c").is_err());
         // A folder, a file no grant covers, and a copy that would overwrite.
-        assert!(copy_confined(&roots, "app:/data/backups", &to("d"), grants).is_err());
+        assert!(copy("app:/data/backups", "d").is_err());
         std::fs::write(roots[1].join("x"), b"x").unwrap();
-        assert!(copy_confined(&roots, "app:/cache/x", &to("e"), grants).is_err());
-        assert!(copy_confined(&roots, "app:/data/backups/notes.json", &to("a"), grants).is_err());
-        for n in ["b", "c", "d", "e"] {
-            assert!(!to(n).exists(), "{n} was written");
-        }
-        // The link replaces the file the path named: still refused, since the
+        assert!(copy("app:/cache/x", "e").is_err());
+        assert!(copy("app:/data/backups/notes.json", "a").is_err());
+        // The file the path named replaced by a link: still refused, since the
         // leaf is opened without following it at the moment of the read.
-        std::fs::remove_file(roots[0].join("backups/notes.json")).unwrap();
+        std::fs::rename(roots[0].join("backups/notes.json"), base.join("kept")).unwrap();
         symlink(
             base.join("outside/secret"),
             roots[0].join("backups/notes.json"),
         )
         .unwrap();
-        assert!(copy_confined(&roots, "app:/data/backups/notes.json", &to("f"), grants).is_err());
+        assert!(copy("app:/data/backups/notes.json", "f").is_err());
+        for n in ["b", "c", "d", "e", "f"] {
+            assert!(!to(n).exists(), "{n} was written");
+        }
+        // Grants that do not parse admit nothing, whatever else they say.
+        let broken = "fs.read app:/data\nfs.write relative";
+        std::fs::write(roots[0].join("backups/plain.json"), b"{}").unwrap();
+        assert!(copy_confined(
+            &dirs,
+            "app:/data/backups/plain.json",
+            &to("g"),
+            broken,
+            1 << 20
+        )
+        .is_err());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// The roots are the handles storage pinned: a data root swapped later
+    /// for a link to another tree (or any directory) changes nothing a share
+    /// reads, and a root that is a link when pinned is refused.
+    #[test]
+    fn a_root_swapped_after_pinning_is_not_followed() {
+        let (base, roots) = tree("swap");
+        let dirs = open_pinned(&roots).unwrap();
+        std::fs::rename(&roots[0], base.join("moved")).unwrap();
+        symlink(base.join("outside"), &roots[0]).unwrap();
+        assert_eq!(
+            copy_confined(
+                &dirs,
+                "app:/data/backups/notes.json",
+                &base.join("a"),
+                GRANTS,
+                1 << 20
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            std::fs::read(base.join("a")).unwrap(),
+            b"{}",
+            "the pinned tree's file"
+        );
+        assert!(open_pinned(&roots).is_err(), "a root that is a link");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// A file larger than the bound is refused by name and nothing is left.
+    #[test]
+    fn a_file_past_the_bound_is_refused() {
+        let (base, roots) = tree("bound");
+        let dirs = open_pinned(&roots).unwrap();
+        std::fs::write(roots[0].join("big"), vec![7u8; (1 << 20) + 1]).unwrap();
+        let e =
+            copy_confined(&dirs, "app:/data/big", &base.join("a"), GRANTS, 1 << 20).unwrap_err();
+        assert_eq!(e, "larger than the 1 MB a share copies");
+        assert!(!base.join("a").exists());
+        std::fs::write(roots[0].join("big"), vec![7u8; 1 << 20]).unwrap();
+        assert_eq!(
+            copy_confined(&dirs, "app:/data/big", &base.join("a"), GRANTS, 1 << 20),
+            Ok(())
+        );
         let _ = std::fs::remove_dir_all(&base);
     }
 }

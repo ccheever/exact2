@@ -890,3 +890,13 @@ D12 as written, except where this says otherwise.
   `coversPath` over it). Two pictures whose ids sanitise alike
   (`#card.one`, `#card-one`) wrote one file; each entry now has its own
   folder.
+- **After review round 2.** The share's copy reopened the roots by name,
+  following a link at or above a root; the roots' handles are now pinned
+  when storage is configured (`set_roots`) and a share reads only through
+  them (test: a data root swapped for a link after pinning still yields
+  the pinned tree's file). A grant declaration with any line the parser
+  refuses now admits nothing, in the runner as in the browser (parity
+  pinned on both sides). The copy runs on the main thread, so it is
+  bounded: a file over 64 MB (`SHARE_COPY_MAX`) is refused by name
+  (`larger than the 64 MB a share copies`), and one that grows past the
+  bound while copied is refused and its copy removed.

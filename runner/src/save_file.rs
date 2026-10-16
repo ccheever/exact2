@@ -135,8 +135,8 @@ pub(crate) fn plain_app_path(path: &str) -> bool {
 /// the grant parser reads it (a quoted target such as `fs.read
 /// "app:/data/a b"` included) and `PathPrefix::covers` matches it, a
 /// component at a time (`app:/data` covers `app:/data/x`, never
-/// `app:/database`). A line the parser refuses admits nothing; the
-/// browser's `coversPath` reads the same parsed form.
+/// `app:/database`). A declaration with any line the parser refuses
+/// admits nothing, as the browser's grant set, the same parsed form, does.
 pub fn covered(grants: &str, capability: &str, path: &str) -> bool {
     use exact_grants::{GrantSet, Operation};
     let operation = match capability {
@@ -144,9 +144,7 @@ pub fn covered(grants: &str, capability: &str, path: &str) -> bool {
         "fs.write" => Operation::FsWrite { path: path.into() },
         _ => return false,
     };
-    crate::io_grants(grants)
-        .lines()
-        .any(|line| GrantSet::parse(line).is_ok_and(|set| set.permits(&operation)))
+    GrantSet::parse(&crate::io_grants(grants)).is_ok_and(|set| set.permits(&operation))
 }
 
 /// A host's `saveFile`: refuse bad data or an unknown element into the
@@ -265,6 +263,13 @@ mod tests {
         assert!(covered(quoted, "fs.read", "app:/data/a b/file.txt"));
         assert!(!covered(quoted, "fs.read", "app:/data/a/file.txt"));
         assert!(!covered(quoted, "fs.read", "app:/data/a bc/file.txt"));
+        // One malformed line refuses the whole declaration, in the browser too.
+        let broken = "fs.read \"app:/data/a b\"\nfs.write relative";
+        assert!(!covered(broken, "fs.read", "app:/data/a b/file.txt"));
+        assert_eq!(
+            crate::grants::normalized_json(broken),
+            r#"{"version":1,"entries":[[1,"fs.read \"app:/data/a b\"",["fs-read","app:","data","a b"],null],[2,"fs.write relative",null,"`relative` must be an absolute, resolved path"]],"error":"the app's grants did not parse: line 2: `relative` must be an absolute, resolved path","seal":"3f46888c301bd92e"}"#
+        );
         assert_eq!(
             crate::grants::normalized_json(quoted),
             r#"{"version":1,"entries":[[1,"fs.read \"app:/data/a b\"",["fs-read","app:","data","a b"],null]],"error":null,"seal":"ed67c8ab1966767e"}"#

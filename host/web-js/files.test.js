@@ -63,6 +63,15 @@ test('a share holds its files under the agent and refuses what the web cannot sh
   ]);
 });
 
+// One malformed line refuses the whole declaration here as in the runner
+// (save_file.rs pins this JSON as `normalized_json` writes it).
+test('a grant declaration with a malformed line admits no path', () => {
+  const broken = createGrantSet(JSON.parse('{"version":1,"entries":[[1,"fs.read \\"app:/data/a b\\"",["fs-read","app:","data","a b"],null],[2,"fs.write relative",null,"`relative` must be an absolute, resolved path"]],"error":"the app\'s grants did not parse: line 2: `relative` must be an absolute, resolved path","seal":"3f46888c301bd92e"}'));
+  expect(grantError(broken)).toBeTruthy();
+  expect(coversPath(broken, 'fs.read', 'app:/data/a b/n.txt')).toBe(false);
+  expect(coversPath(GRANTS, 'fs.read', 'app:/data/a b/n.txt')).toBe(true);
+});
+
 // The web glue (picker-glue.js) reads each app file into a File named by
 // its last segment and typed by its extension, and shares where
 // `navigator.canShare` takes them; a fake navigator stands in.

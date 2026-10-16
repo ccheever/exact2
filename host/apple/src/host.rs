@@ -640,13 +640,9 @@ impl<D: DataSource> Host<D> {
     /// D7); `shareFile` a share's confined copy (LLP 1125 D12). `None` else.
     pub fn answer_hold(&mut self, request: &str) -> Option<String> {
         let op = exact_runner::agent::field_str(request, "op");
-        if op.as_deref() == Some("appFile") {
-            let path = exact_runner::agent::field_str(request, "path").unwrap_or_default();
-            return Some(crate::picker::app_file(&path));
-        }
-        if op.as_deref() == Some("shareFile") {
+        if let Some(op @ ("appFile" | "shareFile")) = op.as_deref() {
             let grants = self.runner.data_ref().grants();
-            return Some(crate::picker::share_copy(request, grants));
+            return Some(crate::picker::file_op(op, request, grants));
         }
         if op.as_deref() == Some("appRoots") {
             return Some(crate::picker::roots_reply());
