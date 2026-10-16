@@ -160,7 +160,10 @@ struct HeaderShape: Equatable {
         let segments = rule.segments.flatMap { projects($0) ? $0 : nil }
         let tap = rule.tap.flatMap { projects($0) ? $0 : nil }
         header = rule.header
-        title = titleProjects ? heading.accessibleText : ""
+        // A heading of only white space names nothing (accname trims it);
+        // UIKit would take it as a title and show a pair of quotes
+        let text = titleProjects ? heading.accessibleText : ""
+        title = text.unicodeScalars.allSatisfy(\.properties.isWhitespace) ? "" : text
         level = titleProjects ? rule.level : 0
         leading = rule.leading.filter(projects).map { Item($0) }
         trailing = rule.trailing.filter(projects).map { Item($0) }
