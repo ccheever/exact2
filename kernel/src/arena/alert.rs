@@ -97,6 +97,9 @@ impl NodeArena {
             && self.props(slot).str(PropId::SemanticTag) == Some("dialog")
             && self.props(slot).str(PropId::AccessibilityRole) == Some("alertdialog")
     }
+    fn is_alert_button(&self, slot: u32) -> bool {
+        self.is_button(slot) || self.is_native_button(slot)
+    }
     pub(crate) fn alert_context(&self, slot: u32) -> u8 {
         if self.neutral_alert(slot) {
             return 1;
@@ -104,13 +107,13 @@ impl NodeArena {
         let Some(parent) = self.parent(slot).filter(|p| self.neutral_alert(*p)) else {
             return 0;
         };
-        if self.is_button(slot) {
+        if self.is_alert_button(slot) {
             return 2;
         }
         let next_button = self
             .children(parent)
             .windows(2)
-            .any(|pair| pair[0] == slot && self.is_button(pair[1]));
+            .any(|pair| pair[0] == slot && self.is_alert_button(pair[1]));
         if next_button {
             4
         } else {

@@ -227,15 +227,13 @@ impl<D: DataSource> Presenter<D> {
             (self.viewport.1 - f.height) / 2.,
         );
         let offset = (f.x - origin.0, f.y - origin.1);
-        // The pre-cover top is the title's start. Subsequent paints subtract
-        // the previous cover from resolved padding, rather than accumulating it.
+        // Resolved CSS padding excludes the title cover.
         let own_top = self
             .host
             .kernel()
             .resolved_padding(key)
             .unwrap_or_default()
-            .1
-            - covered;
+            .1;
         let dark = self.host.presented(id).dark.unwrap_or(self.dark());
         let title = title.map(|(label, p)| {
             let rect = (origin.0 + left, origin.1 + own_top, p.width, p.height);
