@@ -119,8 +119,7 @@ impl Dimension {
         }
     }
 
-    /// A math function as the dimension it simplifies to ([`calc`]), or
-    /// `None`.
+    /// A math function as the dimension it simplifies to ([`calc`]), or `None`.
     pub fn parse_calc(text: &str) -> Option<Dimension> {
         calc::parse(text).ok().flatten()
     }

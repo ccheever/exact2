@@ -1111,8 +1111,7 @@ impl<D: DataSource> Presenter<D> {
         false
     }
 
-    /// The deepest painted box under a point (viewport points), through
-    /// every clip.
+    /// The deepest painted box under a point (viewport points), through every clip.
     pub fn hit(&mut self, x: f32, y: f32) -> Option<ViewId> {
         // Under an open surface of the top layer the page is inert.
         if !self.display.contains(x, y) || (self.top_open() && self.alert.is_none()) {
