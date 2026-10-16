@@ -84,20 +84,22 @@ test('a boundary takes its tuple and the inherited token text, in document order
 test('a live batch sets each tuple rule on its base, and a stale one asks for the snapshot', async () => {
   const document = createDocument();
   const rule = (selectorText) => ({ selectorText, style: { map: new Map(), setProperty(p, v) { this.map.set(p, v); } } });
-  const black = rule(':root,[data-x-modes="dark-style=black"]'), dim = rule('[data-x-modes="dark-style=dim"]'), accent = rule('[data-x-modes="dark-style=dim"][data-x-accent="--x-a"]');
+  const black = rule(':root,[data-x-modes="dark-style=black"]'), dim = rule('[data-x-modes="dark-style=dim"]'), accent = rule('[data-x-modes="dark-style=dim"][data-x-accent="--x-ink"]');
   document.styleSheets = [{ cssRules: [black, dim, accent] }];
   Object.assign(globalThis, { document, __exactRender: true });
   const { modes } = await import('./modes.js');
-  modes([['dark-style', ['black', 'dim']]], {}, [], {}, [], { '--x-ink': 'ink' }, 'd0');
+  modes([['dark-style', ['black', 'dim']]], {}, [], {}, ['--x-ink'], { '--x-ink': 'ink' }, 'd0', 's0');
   const design = globalThis.exact.design;
-  expect(design({ kind: 'tamber-batch', base: 'other', design: 'd1', tokens: [] }).live).toBe('stale');
-  // A notice of the design it runs applies nothing.
-  expect(design({ kind: 'tamber-batch', base: 'd0', design: 'd0', tokens: [] }).live).toBe('applied');
-  const batch = { kind: 'tamber-batch', base: 'd0', design: 'd1', tokens: [{ name: 'ink', value: '#ff0000ff', slices: [], prop: '--x-ink', css: ['#ff0000ff', '#00ff00ff'] }] };
+  expect(design({ kind: 'tamber-batch', structure: 's0', base: 'other', design: 'd1', tokens: [] }).live).toBe('stale');
+  // A notice of the design it runs applies nothing; another structure's is refused.
+  expect(design({ kind: 'tamber-batch', structure: 's0', base: 'd0', design: 'd0', tokens: [] }).live).toBe('applied');
+  expect(design({ kind: 'tamber-snapshot', structure: 's1', base: null, design: 'd9', tokens: [{ name: 'ink', prop: '--x-ink', css: ['#000', '#000'] }] }).live).toBe('structure');
+  const batch = { kind: 'tamber-batch', structure: 's0', base: 'd0', design: 'd1', tokens: [{ name: 'ink', value: '#ff0000ff', slices: [], prop: '--x-ink', css: ['#ff0000ff', '#00ff00ff'] }] };
   expect(design(batch).live).toBe('applied');
   expect(black.style.map.get('--x-ink')).toBe('#ff0000ff');
   expect(dim.style.map.get('--x-ink')).toBe('#00ff00ff');
-  expect(accent.style.map.size).toBe(0);
+  // Its accent companion follows, where the token is a colour of its own.
+  expect(accent.style.map.get('--exact-accent')).toBe('#00ff00ff');
   // Its base is past now; a snapshot applies whatever this page ran.
   expect(design(batch).live).toBe('stale');
   expect(design({ ...batch, kind: 'tamber-snapshot', base: null, design: 'd2', tokens: [{ ...batch.tokens[0], css: ['#000000ff', '#111111ff'] }] }).live).toBe('applied');

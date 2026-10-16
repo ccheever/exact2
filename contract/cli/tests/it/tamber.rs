@@ -1028,6 +1028,31 @@ fn a_value_only_edit_keeps_the_plans_structure() {
         structure("structure-together", &together, &view_edge),
         base_edge
     );
+    // Code that pushes a value's text keeps that string: the literal and the
+    // token changed together is no value-only edit.
+    let literal = |text: &str| {
+        format!("component App\n  state lit = \"{text}\"\n  view\n    column background-color=\"page\"\n      text lit color=\"ink\"\n")
+    };
+    let with = |ink: &str| {
+        design
+            .replace(
+                "ink = light-dark(#111111, #eeeeee)",
+                &format!("ink = {ink}"),
+            )
+            .replace(
+                "    when dark-style=dim: light-dark(#111111, #cccccc)\n",
+                "",
+            )
+    };
+    let shared_code = structure("structure-code-a", &with("#111111"), &literal("#111111ff"));
+    assert_ne!(
+        structure("structure-code-b", &with("#222222"), &literal("#222222ff")),
+        shared_code
+    );
+    assert_eq!(
+        structure("structure-code-c", &with("#222222"), &literal("#111111ff")),
+        shared_code
+    );
     // A role override's value: the hosts take role tables at boot.
     let role = design.replace("Canvas = #fafafa", "Canvas = #f0f0f0");
     assert_ne!(structure("structure-role", &role, view), base);
@@ -1056,8 +1081,10 @@ fn a_batch_sets_a_running_builds_rows_without_a_plan() {
         let path = app(name, &[("app.tamber", design), ("app.contract", view)]);
         contract::compile_path(&path).unwrap()
     };
-    let a = plan("live-a", MODES);
-    let b = plan("live-b", &MODES.replace("#111111", "#ff0000"));
+    // With a role override, which a snapshot carries and does not set.
+    let modes = format!("{MODES}  Canvas = #fafafa\n");
+    let a = plan("live-a", &modes);
+    let b = plan("live-b", &modes.replace("#111111", "#ff0000"));
     let structure = design::structure(&a);
     assert_eq!(design::structure(&b), structure);
     let batch = design::batch(&structure, &design::tokens(&a), &design::tokens(&b)).unwrap();

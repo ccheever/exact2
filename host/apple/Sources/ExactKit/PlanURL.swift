@@ -415,6 +415,10 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
         pending = nil
         Array(fetches.values).forEach { $0.cancel() }
         fetches.removeAll()
+        // A snapshot fetch cancelled with the rest: the generation this
+        // resolves syncs its design once applied.
+        syncing = false
+        waitingFrames.removeAll()
         return resolution
     }
 
@@ -843,24 +847,39 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
     // MARK: the live table (LLP 1121 D13, stage 4)
 
     /// A batch (a notice is one with no tokens) applied on its base; a build
-    /// on another design fetches the snapshot.
+    /// on another design fetches the snapshot. One at a time, in the stream's
+    /// order: a frame that arrives while a snapshot is fetched waits for it,
+    /// so a snapshot never lands over a newer batch.
     private func design(_ frame: [String: Any]) {
         guard let data = try? JSONSerialization.data(withJSONObject: frame),
               let text = String(data: data, encoding: .utf8) else { return }
+        if syncing { waitingFrames.append(text); return }
         let answer = applyDesign(text)
         if answer == "stale" { syncDesign() } else if answer.hasPrefix("refused") { status("live: \(answer)") }
     }
 
+    private var syncing = false
+    private var waitingFrames: [String] = []
+
     /// The design the server's builds run, when it is not the plan's own.
-    private func syncDesign() {
-        guard let url = URL(string: "/__dev/design", relativeTo: page)?.absoluteURL else { return }
+    func syncDesign() {
+        guard !syncing, let url = URL(string: "/__dev/design", relativeTo: page)?.absoluteURL else { return }
+        syncing = true
         var request = URLRequest(url: url)
         request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
         fetch(request, limit: PlanURL.planLimit, generation: resolution) { [weak self] result in
-            guard let self, case let .success((data, response)) = result, response.statusCode == 200,
-                  let text = String(data: data, encoding: .utf8) else { return }
-            let answer = self.applyDesign(text)
-            if answer != "applied" { self.status("live: the snapshot was \(answer)") }
+            guard let self else { return }
+            self.syncing = false
+            if case let .success((data, response)) = result, response.statusCode == 200, let text = String(data: data, encoding: .utf8) {
+                let answer = self.applyDesign(text)
+                if answer != "applied" { self.status("live: the snapshot was \(answer)") }
+            }
+            let frames = self.waitingFrames
+            self.waitingFrames.removeAll()
+            for text in frames {
+                if self.syncing { self.waitingFrames.append(text); continue }
+                if self.applyDesign(text) == "stale" { self.syncDesign() }
+            }
         }
     }
 

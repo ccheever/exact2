@@ -344,13 +344,15 @@ impl Modes {
                 ));
             }
         }
-        // A development build's design digest, for the live table's base.
+        // A development build's design and structure digests, for the live
+        // table's base and the batches its page takes.
         let design = match every_token() {
             true => format!(
-                ",{}",
+                ",{},{}",
                 json(&exact_runner::design::digest(
                     &exact_runner::design::tokens(plan)
-                ))
+                )),
+                json(&exact_runner::design::structure(plan))
             ),
             false => String::new(),
         };
@@ -441,6 +443,12 @@ fn css_of(value: &str) -> String {
 /// [`rules`] writes them. The dev loop sends the changed ones as a batch.
 pub fn design(plan: &Plan) -> serde_json::Value {
     use exact_runner::design;
+    // The app's profiles, as `rules` reads a profile colour.
+    let _profiles = exact_kernel::style::profiled::declarations(
+        plan.profiles
+            .iter()
+            .map(|row| (plan.str(row.name), plan.str(row.src), plan.str(row.intent))),
+    );
     let tokens = design::tokens(plan);
     let props = properties(plan);
     let tables: Vec<_> = (0..bridge::tuples(plan))

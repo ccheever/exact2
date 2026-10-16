@@ -67,13 +67,20 @@ impl<D: DataSource> Runner<D> {
             });
         }
         let refusals = exact_kernel::style::wide::refusals();
-        let slices: Vec<Vec<&str>> = edit
-            .tokens
+        // A role override's value is in the structure, so a snapshot's is
+        // this plan's own: it is not set (an edit does not reach roles).
+        let role = |name: &str| {
+            self.plan
+                .theme
+                .iter()
+                .any(|t| self.plan.str(t.name) == name && !self.plan.str(t.role).is_empty())
+        };
+        let tokens: Vec<_> = edit.tokens.iter().filter(|t| !role(&t.name)).collect();
+        let slices: Vec<Vec<&str>> = tokens
             .iter()
             .map(|t| t.slices.iter().map(String::as_str).collect())
             .collect();
-        let edits: Vec<(&str, &str, &[&str])> = edit
-            .tokens
+        let edits: Vec<(&str, &str, &[&str])> = tokens
             .iter()
             .zip(&slices)
             .map(|(t, s)| (t.name.as_str(), t.value.as_str(), s.as_slice()))

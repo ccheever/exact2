@@ -522,7 +522,9 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       // Some of a revert's items: on the files it was planned on, or that
       // selection planned again.
       if (reverted) review.revert = { ...review.revert, only: ops.map(revertKey) };
-      try { fresh = await hold(p.client, ops, reverted ? { ...p.base, ...p.guards } : undefined, id, review); } catch (e) { restore(id, p); throw e; }
+      // Its guards stay its guards: a part, or one planned again on files
+      // moved since, checks what the whole was planned on.
+      try { fresh = await hold(p.client, ops, reverted ? { ...p.base, ...p.guards } : undefined, id, review, reverted ? undefined : p.guards); } catch (e) { restore(id, p); throw e; }
       if (reverted && fresh.error?.conflict) return replan(review.revert.only);
       return replaced(fresh);
     };

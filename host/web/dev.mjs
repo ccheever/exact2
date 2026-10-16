@@ -587,7 +587,8 @@ function startModuleCompiler() {
         const candidate = new Map(['app.plan', 'app.plan.map.json', ...Object.values(MODULE_FILES)].map(name => [name, readFileSync(resolve(request.output, name))]));
         // A value-only design edit (LLP 1121 stage 4): the same structure and
         // the same module, so no generation; its tokens go out as a batch.
-        const sameModule = currentModule && Object.values(MODULE_FILES).every(name => currentModule.get(name)?.equals(candidate.get(name)));
+        // The executables, not the receipt, which names the plan's digest.
+        const sameModule = currentModule && [MODULE_FILES.native, MODULE_FILES.web].every(name => currentModule.get(name)?.equals(candidate.get(name)));
         const live = sameModule && moduleDesign && reply.design && designBatch(moduleDesign, reply.design);
         if (reply.design) moduleDesign = reply.design;
         if (live) {

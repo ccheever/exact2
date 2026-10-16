@@ -14,7 +14,7 @@
 import { spawn } from 'node:child_process';
 import { createServer, request } from 'node:http';
 import { existsSync, lstatSync, readFileSync, rmSync, statSync, watch, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { acceptsHTML, appDocumentPath, webRequestURL } from '../../scripts/origin.mjs';
 import { compilerWarnings, INPUT_TREE, OUTPUT } from '../../scripts/agent-launch.mjs';
 import { appManifestDigest, buildFileCards, buildTreeFile, replaceBuild, saveTrace, sendStaticBody, watchLauncher, webContentType } from '../web/serve.mjs';
@@ -110,8 +110,10 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   const rebuild = async () => {
     if (building) { again = true; return; }
     const at = saved, t = since = Date.now();
-    // A name gone by now (an editor's or sed's temporary file) edited nothing.
-    const designOnly = edited.size > 0 && [...edited].every((path) => path.endsWith('.tamber') || !existsSync(path));
+    // A name gone by now beside an edited design file (an editor's or sed's
+    // temporary file) edited nothing; a deleted asset is an edit.
+    const designs = [...edited].filter((path) => path.endsWith('.tamber'));
+    const designOnly = designs.length > 0 && [...edited].every((path) => path.endsWith('.tamber') || (!existsSync(path) && designs.some((d) => dirname(d) === dirname(path))));
     edited.clear();
     const keep = (next, logic) => designOnly && design && next && logic === logicRevision
       && next.structure === design.structure && next.tokens.length === design.tokens.length
@@ -202,8 +204,8 @@ const capture=logic=>{const x=globalThis.exact,active=document.activeElement?.cl
 const restored=document.querySelector('script[type="application/vnd.exact.dev-checkpoint"]'),q=new URLSearchParams(location.search),devKeys=new Set(['agent','seed','locale','timeZone','epoch','storage']),admission=q.has('agent')?[...q].filter(([k])=>devKeys.has(k)):null;
 if(restored){const restoredSeq=Number(restored.dataset.seq);console.info('exact dev reload: restored',restoredSeq);const t=setInterval(()=>{const b=document.getElementById('exact-root')?.dataset.bootMs;if(b!=null){clearInterval(t);Promise.resolve(globalThis.exact?.ready).then(()=>{console.info('exact dev reload: runtime up',restoredSeq);fetch('/__dev/reloaded?seq='+restoredSeq+'&boot='+b+'&at='+Date.now(),{method:'POST'})})}},2)}
 const ready=()=>globalThis.exact?Promise.resolve(globalThis.exact.ready):new Promise(ok=>{const t=setInterval(()=>{if(globalThis.exact){clearInterval(t);Promise.resolve(globalThis.exact.ready).then(ok)}},2)});
-const live=async m=>{const x=await ready().then(()=>globalThis.exact);const out=x?.design?.(m);if(out?.live==='stale'){const r=await fetch('/__dev/design',{cache:'no-store'});if(r.status===200)x.design(await r.json())}};
-es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==='tamber-snapshot'){live(m).catch(e=>console.error('exact dev:',e));return}if(m.error!==undefined)show(m.error);if(m.reload>seq&&!reloading){reloading=true;if(!globalThis.exact){location.reload();return}ready().then(async()=>{const checkpoint=capture(m.revision!==logicRevision),id=crypto.getRandomValues(new Uint32Array(4)).join('-');console.info('exact dev reload: checkpoint',m.reload);const saved=await fetch('/__dev/checkpoint?id='+id+'&seq='+m.reload+'&revision='+encodeURIComponent(m.revision??''),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(checkpoint)});if(!saved.ok)throw new Error('checkpoint handoff answered '+saved.status);const next=new URL(location.href);next.searchParams.set('__exactDev',id);if(admission)for(const [k,v]of admission)if(!next.searchParams.has(k))next.searchParams.set(k,v);location.replace(next.href)}).catch(e=>{reloading=false;console.error('exact dev reload: current page retained; checkpoint handoff failed',e)})}}})()</script>`;
+let liveQ=Promise.resolve();const live=m=>{liveQ=liveQ.then(async()=>{const x=await ready().then(()=>globalThis.exact);const out=x?.design?.(m);if(out?.live==='stale'){const r=await fetch('/__dev/design',{cache:'no-store'});if(r.status===200)x.design(await r.json())}}).catch(e=>console.error('exact dev:',e))};
+es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==='tamber-snapshot'){live(m);return}if(m.error!==undefined)show(m.error);if(m.reload>seq&&!reloading){reloading=true;if(!globalThis.exact){location.reload();return}ready().then(async()=>{const checkpoint=capture(m.revision!==logicRevision),id=crypto.getRandomValues(new Uint32Array(4)).join('-');console.info('exact dev reload: checkpoint',m.reload);const saved=await fetch('/__dev/checkpoint?id='+id+'&seq='+m.reload+'&revision='+encodeURIComponent(m.revision??''),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(checkpoint)});if(!saved.ok)throw new Error('checkpoint handoff answered '+saved.status);const next=new URL(location.href);next.searchParams.set('__exactDev',id);if(admission)for(const [k,v]of admission)if(!next.searchParams.has(k))next.searchParams.set(k,v);location.replace(next.href)}).catch(e=>{reloading=false;console.error('exact dev reload: current page retained; checkpoint handoff failed',e)})}}})()</script>`;
   const checkpoints = new Map();
   // The install pages (LLP 1030.003 D6a) and, from a loopback page on a Mac,
   // the local iOS build (D6b): this server's, since only it sees the real

@@ -746,6 +746,17 @@ fn main() {
         }
     }
     let _ = writeln!(w, "        for r in &self.theme {{ if !design(r) {{ values[r.value.0 as usize] = false; }} }}");
+    // And every string the bytecode names: code that pushes a design value's
+    // text keeps it. Code that does not walk whole keeps every string.
+    let _ = writeln!(
+        w,
+        "        let mut r = Reader::new(&self.code); let mut whole = true;"
+    );
+    let _ = writeln!(w, "        'code: while !r.is_empty() {{ let Some(op) = r.u8().ok().and_then(Opcode::from_wire) else {{ whole = false; break; }}; for operand in op.operands() {{ let ok = match operand {{ Operand::U8 | Operand::Enum(_) => r.u8().is_ok(), Operand::U16 => r.u16().is_ok(), Operand::U32 | Operand::Idx(_) => r.u32().is_ok(), Operand::F64 => r.f64().is_ok(), Operand::Str => match r.u32() {{ Ok(v) => {{ if let Some(x) = values.get_mut(v as usize) {{ *x = false; }} true }} Err(_) => false }} }}; if !ok {{ whole = false; break 'code; }} }} }}");
+    let _ = writeln!(
+        w,
+        "        if !whole {{ values.iter_mut().for_each(|v| *v = false); }}"
+    );
     let _ = writeln!(w, "        let mut w = Writer::default();");
     let _ = writeln!(w, "        w.bytes(MAGIC); w.u32(FORMAT_VERSION); w.u64(FORMAT_DIGEST); w.u64(self.kernel_schema_digest); w.u64(self.compiler_identity);");
     for f in &schema.header {

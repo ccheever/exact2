@@ -17,4 +17,8 @@ extension ExactApp {
         }
         return answer
     }
+
+    /// A session booted from the published plan, which carries that plan's
+    /// own design: the one the server's builds run is fetched again.
+    func liveBooted() { connection?.syncDesign() }
 }

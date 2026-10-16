@@ -226,7 +226,8 @@ if (es) {
       }
       return accepted;
     },
-    applied: () => { clearTimeout(retry); show(null); },
+    // A new generation runs its plan's own design: the live one since, if any, comes after.
+    applied: () => { clearTimeout(retry); show(null); syncDesign(); },
     failed: (error, current) => {
       show(String(error)); console.error("exact dev:", String(error));
       clearTimeout(retry);
@@ -271,13 +272,20 @@ if (es) {
     if (out.live === "applied") x.send(n);
     return out;
   };
+  // One at a time, in the stream's order: a snapshot fetched is never older
+  // than a batch applied before it.
+  const snapshot = async () => {
+    const response = await fetch("/__dev/design", { cache: "no-store" });
+    if (response.status === 200) await apply(await response.json());
+  };
+  const syncDesign = () => { designing = designing.then(snapshot).catch((error) => console.error("exact dev:", String(error))); };
   const design = (frame) => {
     designing = designing.then(async () => {
       const out = await apply(frame);
-      if (out.live === "stale") {
-        const response = await fetch("/__dev/design", { cache: "no-store" });
-        if (response.status === 200) await apply(await response.json());
-      } else if (out.live.startsWith("refused")) console.error("exact dev:", out.live);
+      // A batch for another structure: a generation is on its way, which
+      // syncs when applied.
+      if (out.live === "stale") await snapshot();
+      else if (out.live.startsWith("refused")) console.error("exact dev:", out.live);
     }).catch((error) => console.error("exact dev:", String(error)));
   };
   es.onmessage = (event) => {

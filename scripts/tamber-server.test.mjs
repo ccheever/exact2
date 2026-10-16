@@ -408,9 +408,19 @@ test('a held proposal is accepted, and one gone stale or taken in part is recomp
   expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).not.toContain('#1c1c1c');
   expect((await post({ method: 'accept', client: 'person', proposal: stale.ok.proposal })).status).toBe(200);
   expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).toContain('edge = #1c1c1c');
-  // A held proposal checks the files its client requires, as a transaction does.
+  // A held proposal checks the files its client requires, as a transaction
+  // does, and so does a part of it accepted later.
   const guarded = await post({ method: 'propose', hold: true, client: 'agent', requires: { 'brand.tamber': 'f'.repeat(64) }, ops: [{ op: 'set-token', name: 'ink', value: '#1e1e1e' }] });
   expect(guarded.status).toBe(409);
+  const brand = disk('brand.tamber');
+  const kept = await post({ method: 'propose', hold: true, client: 'agent', requires: { 'brand.tamber': brand }, ops: [{ op: 'set-token', name: 'ink', value: '#1e1e1e' }, { op: 'set-token', name: 'edge', value: '#1f1f1f' }] });
+  expect(kept.status).toBe(200);
+  const before = readFileSync(join(dir, 'brand.tamber'), 'utf8');
+  writeFileSync(join(dir, 'brand.tamber'), `${before}// moved\n`);
+  await stream.until(e => e.some(x => x.client === null && x.edited?.includes('brand.tamber') && x.files['brand.tamber'] !== brand));
+  expect((await post({ method: 'accept', client: 'person', proposal: kept.ok.proposal, items: [1] })).status).toBe(409);
+  writeFileSync(join(dir, 'brand.tamber'), before);
+  await stream.until(e => e.at(-1)?.files?.['brand.tamber'] === brand);
   // In part: the one item kept is a new proposal.
   const two = await post({ method: 'propose', hold: true, client: 'agent', ops: [{ op: 'set-token', name: 'ink', value: '#1e1e1e' }, { op: 'set-token', name: 'edge', value: '#1f1f1f' }] });
   const part = await post({ method: 'accept', client: 'person', proposal: two.ok.proposal, items: [1] });

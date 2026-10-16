@@ -17,7 +17,7 @@ const UNSETS = /^\s*(unset|inherit)\s*$/i;
 let Axes = [], Classes = {}, Texts = [], Vars = {}, Accent = [], Names = {}, Win = [], Pending = false;
 // A development build's design digest (LLP 1121 stage 4): the base a live
 // batch applies to. Null in a release build, which takes none.
-let Design = null, Rules = null;
+let Design = null, Structure = null, Rules = null, AccentRules = null;
 const key = d => Axes.map(([a, values], i) => `${a}=${values[d[i]]}`).join(",");
 const rendering = () => typeof document === "undefined" || !!globalThis.__exactRender;
 
@@ -162,16 +162,19 @@ const refused = pins => {
   return null;
 };
 
-/** The page's rule for each full tuple, by its key. */
+/** The page's rule for each full tuple, by its key, and its accent
+ * companions (`[data-x-accent]`, modes.rs `rules`), by key and property. */
 function tupleRules() {
   if (Rules) return Rules;
-  Rules = new Map();
+  Rules = new Map(); AccentRules = new Map();
   for (const sheet of document.styleSheets ?? []) {
     let rules;
     try { rules = sheet.cssRules; } catch { continue; }
     for (const r of rules) {
       const m = /\[data-x-modes="([^"]*)"\]/.exec(r.selectorText ?? "");
-      if (m && !r.selectorText.includes("data-x-accent")) Rules.set(m[1], r);
+      if (!m) continue;
+      const a = /\[data-x-accent="([^"]*)"\]/.exec(r.selectorText);
+      if (a) AccentRules.set(`${m[1]}|${a[1]}`, r); else Rules.set(m[1], r);
     }
   }
   return Rules;
@@ -187,12 +190,19 @@ const tupleKey = t => {
  * property set again in every tuple's rule, in one style update. Stale when
  * its base is not this page's design. */
 function design(frame) {
+  if (frame.structure !== Structure) return { live: "structure" };
   if (frame.base != null && frame.base !== Design) return { live: "stale" };
   if (frame.design === Design || !frame.tokens?.length) return { live: "applied" };
   const rules = tupleRules();
   for (const t of frame.tokens) {
     if (!t.prop || !Array.isArray(t.css)) continue;
-    t.css.forEach((css, i) => rules.get(tupleKey(i))?.style.setProperty(t.prop, css));
+    t.css.forEach((css, i) => {
+      rules.get(tupleKey(i))?.style.setProperty(t.prop, css);
+      // Its accent companion: the token's colour where it is one, else the
+      // accent around (no companion, as the build writes none).
+      const companion = AccentRules.get(`${tupleKey(i)}|${t.prop}`)?.style;
+      if (companion) { if (css.includes("--exact-accent")) companion.removeProperty("--exact-accent"); else companion.setProperty("--exact-accent", css); }
+    });
   }
   Design = frame.design;
   return { live: "applied" };
@@ -202,11 +212,12 @@ function design(frame) {
  * `classes`: each class's rows by bit, the text's index or -1; `texts`,
  * each `property:value`; `vars`: each class's properties that name a
  * varying token; `accent`: the properties of those that name the accent;
- * `names`: each varying token's name by its property; `devDesign`: a
- * development build's design digest, which installs `exact.design`. */
-export function modes(axes, classes, texts, vars, accent, names, devDesign) {
+ * `names`: each varying token's name by its property; `devDesign` and
+ * `devStructure`: a development build's design and structure digests, which
+ * install `exact.design`. */
+export function modes(axes, classes, texts, vars, accent, names, devDesign, devStructure) {
   Axes = axes; Classes = classes; Texts = texts; Vars = vars; Accent = accent; Names = names ?? {}; Win = axes.map(() => 0);
-  if (devDesign != null && typeof document !== "undefined") { Design = devDesign; Rules = null; (globalThis.exact ??= {}).design = design; }
+  if (devDesign != null && typeof document !== "undefined") { Design = devDesign; Structure = devStructure; Rules = null; (globalThis.exact ??= {}).design = design; }
   After.push(() => rendering() ? typeof document !== "undefined" && apply() : schedule());
   PropHooks["data-x-pin"] = (e, v) => { if (v == null) e.removeAttribute("data-x-pin"); else e.setAttribute("data-x-pin", v); schedule(); return true; };
   (globalThis.exact ??= {}).modes = {

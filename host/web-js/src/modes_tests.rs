@@ -336,7 +336,12 @@ fn a_development_build_makes_every_token_a_property() {
     );
     // The page knows the design it was built with: a batch's base.
     let digest = exact_runner::design::digest(&exact_runner::design::tokens(&plan));
-    assert!(dev.js.contains(&format!(",\"{digest}\");")), "{}", dev.js);
+    let structure = exact_runner::design::structure(&plan);
+    assert!(
+        dev.js.contains(&format!(",\"{digest}\",\"{structure}\");")),
+        "{}",
+        dev.js
+    );
     assert!(!release.js.contains(&digest));
     let design = {
         let _every = crate::modes::every(true);
