@@ -33,6 +33,25 @@ package enum AudioSession {
         try hold(ObjectIdentifier(forever))
     }
 
+    /// The sound arm's want, taken on the main thread: the app's category,
+    /// and a test's injected failure. The arm's queue then activates it with
+    /// `activate(_:)`; an output that does not come up gives it back
+    /// (`release`), one that does keeps it.
+    package static func want(_ holder: ObjectIdentifier) -> (AVAudioSession.Category, Error?) {
+        holders.insert(holder)
+        observeInterruptions()
+        defer { nextHoldFailure = nil }
+        return (category, nextHoldFailure)
+    }
+
+    /// Sets `category` and activates the session from any thread: only
+    /// AVAudioSession's own calls, which can block (the sound arm's queue).
+    package static func activate(_ category: AVAudioSession.Category) throws {
+        let session = AVAudioSession.sharedInstance()
+        if session.category != category { try session.setCategory(category) }
+        try session.setActive(true)
+    }
+
     /// `holder` plays sound: the session takes the app's category and is
     /// active while anything wants it. A failure to activate throws, and the
     /// want stays for the interruption's end to activate.

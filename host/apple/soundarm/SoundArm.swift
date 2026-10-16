@@ -1,5 +1,5 @@
 // @ref LLP 1096 D6, D8. The sound arm: one AVAudioEngine holding one
-// AVAudioSourceNode whose render callback is the C mixer (sound_render.c),
+// AVAudioSourceNode whose render block is the C mixer (sound_render.c),
 // connected to `mainMixerNode` in the output's own format, so nothing converts
 // downstream of it (a sample time downstream of a converter is not valid).
 // Every declared sound is read once and converted to that format: a mono file
@@ -7,16 +7,19 @@
 // averaged. Loaded on demand (SoundModule.swift), never linked into ExactKit;
 // the session is ExactKit's (AudioSession.swift), not the arm's.
 //
-// An output that cannot open is a reason, never a crash: AVAudioEngine throws
-// from `start` and raises Objective-C exceptions for a graph it cannot make,
-// and both come back from `exact_sound_open` and `exact_sound_engine` as
-// text. A process abort inside CoreAudio (AURemoteIO's RPC timeout) cannot be
-// caught; SoundModule.swift never opens the output at boot, and on iOS and
-// tvOS not before the first voice, which keeps it from an app that plays nothing.
+// An output that cannot open is a reason, never a crash: every AVAudioEngine
+// call that can raise is made inside sound_engine.m's @try, so no exception
+// unwinds through Swift, and comes back from `exact_sound_open` and
+// `exact_sound_engine` as text. A process abort inside CoreAudio
+// (AURemoteIO's RPC timeout) cannot be caught; SoundModule.swift never opens
+// the output at boot, and on iOS and tvOS not before the first voice.
 import AVFoundation
 import Foundation
 
 public typealias SoundLog = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, Int) -> Void
+
+/// A failure's text from a C reason buffer.
+private func text(_ reason: [CChar]) -> String { String(cString: reason) }
 
 private final class SoundArm {
     let engine: AVAudioEngine
@@ -30,6 +33,8 @@ private final class SoundArm {
     var checking = false
     var silentFor = 1.0
     var changed: NSObjectProtocol?
+    /// The media services were reset: the engine is invalid and is not messaged again.
+    var orphaned = false
 
     private init(engine: AVAudioEngine, format: AVAudioFormat, mixer: OpaquePointer, context: UnsafeMutableRawPointer?, log: SoundLog?) {
         self.engine = engine
@@ -42,21 +47,15 @@ private final class SoundArm {
     /// The arm with every sound read and its graph prepared, its engine
     /// running when `start`, or why not.
     static func open(_ paths: [String], start: Bool, context: UnsafeMutableRawPointer?, log: SoundLog?) -> (SoundArm?, String?) {
-        var arm: SoundArm?, failure: String?
         let began = CACurrentMediaTime()
-        let raised = attempt {
-            let engine = AVAudioEngine()
-            let output = engine.outputNode.outputFormat(forBus: 0)
-            guard output.sampleRate > 0, output.channelCount > 0 else { failure = "the output has no channels (no audio device)"; return }
-            guard let format = AVAudioFormat(standardFormatWithSampleRate: output.sampleRate, channels: output.channelCount),
-                  let mixer = exact_sound_mixer(format.channelCount, format.sampleRate) else { failure = "the output's format (\(output)) is not one the mixer takes"; return }
-            // Held before the graph is made, so a raise part way still frees what was made.
-            arm = SoundArm(engine: engine, format: format, mixer: mixer, context: context, log: log)
-            failure = arm?.build(paths, began: began)
-            if failure == nil, start { failure = arm?.start() }
-        }
-        if let raised { failure = "AVAudioEngine raised \(raised)" }
-        return failure == nil ? (arm, nil) : (nil, failure)
+        var reason = [CChar](repeating: 0, count: 512), rate = 0.0, channels: UInt32 = 0
+        guard let engine = exact_sound_engine_new(&rate, &channels, &reason, reason.count) else { return (nil, text(reason)) }
+        guard rate > 0, channels > 0 else { return (nil, "the output has no channels (no audio device)") }
+        guard let format = AVAudioFormat(standardFormatWithSampleRate: rate, channels: channels),
+              let mixer = exact_sound_mixer(channels, rate) else { return (nil, "the output's format (\(rate) Hz, \(channels) channels) is not one the mixer takes") }
+        let arm = SoundArm(engine: engine, format: format, mixer: mixer, context: context, log: log)
+        if let failure = arm.build(paths, began: began) ?? (start ? arm.start() : nil) { return (nil, failure) }
+        return (arm, nil)
     }
 
     /// Reads the sounds, connects the source and prepares the engine: nil, or why not.
@@ -71,16 +70,9 @@ private final class SoundArm {
             }
         }
         let read = CACurrentMediaTime()
-        // The C callback does the work: no Swift runs per frame, nothing allocates.
-        let m = mixer
-        let source = AVAudioSourceNode(format: format) { isSilence, timestamp, frames, buffers in
-            isSilence.pointee = ObjCBool(!exact_sound_render(m, timestamp, frames, buffers))
-            return noErr
-        }
+        var reason = [CChar](repeating: 0, count: 512)
+        guard let source = exact_sound_engine_connect(engine, mixer, format.sampleRate, format.channelCount, &reason, reason.count) else { return text(reason) }
         self.source = source
-        engine.attach(source)
-        engine.connect(source, to: engine.mainMixerNode, format: format)
-        engine.prepare()
         // A route or format change stops the engine (AVAudioEngineConfigurationChangeNotification);
         // the session's next voice finds it stopped and opens a new one in the new format.
         changed = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
@@ -92,28 +84,32 @@ private final class SoundArm {
 
     deinit {
         if let changed { NotificationCenter.default.removeObserver(changed) }
-        let engine = engine
-        // An engine that raised even on stop may still render from the mixer: it is left allocated.
-        guard SoundArm.attempt({ engine.stop() }) == nil else { return }
+        // An orphan is never messaged again, deallocation included (Apple's
+        // reset guidance: its objects are invalid); it, and the mixer its
+        // render block reads, are left as they are. An engine that raised even
+        // on stop may still render from the mixer, which is left allocated too.
+        // Both are rare enough that the kit left behind costs less than a crash.
+        if orphaned { _ = Unmanaged.passRetained(engine); return }
+        guard exact_sound_engine_stop(engine) else { return }
         exact_sound_mixer_free(mixer)
         planes.forEach { $0.deallocate() }
-    }
-
-    /// Runs `body`: nil, or the Objective-C exception it raised.
-    static func attempt(_ body: @escaping () -> Void) -> String? {
-        var reason = [CChar](repeating: 0, count: 512)
-        return exact_sound_try(body, &reason, reason.count) ? nil : String(cString: reason)
     }
 
     /// Starts the engine: nil, or why it did not.
     func start() -> String? {
         let began = CACurrentMediaTime()
-        do { try engine.start() } catch { return "the engine did not start: \(error.localizedDescription)" }
+        var reason = [CChar](repeating: 0, count: 512)
+        guard exact_sound_engine_start(engine, &reason, reason.count) else { return text(reason) }
         // The source node's delay to the speaker: the mixer, the output's
         // processing and the device (AVAudioNode.outputPresentationLatency).
         exact_sound_latency(mixer, source?.outputPresentationLatency ?? 0)
         say(String(format: "sound: the output started in %.0f ms", (CACurrentMediaTime() - began) * 1000))
         return nil
+    }
+
+    func pause() -> String? {
+        var reason = [CChar](repeating: 0, count: 512)
+        return exact_sound_engine_pause(engine, &reason, reason.count) ? nil : text(reason)
     }
 
     func say(_ line: String) {
@@ -165,14 +161,15 @@ private final class SoundArm {
     /// onset after a silence and journals its speaker time — the tap
     /// buffer's host time, plus its frame's offset, plus the latency still
     /// downstream of the tap — against the time its voice was aimed at.
-    func check() {
-        guard !checking else { return }
+    func check() -> String? {
+        guard !checking else { return nil }
         checking = true
         let node = engine.mainMixerNode
         say(String(format: "sound check: presentation latency %.3f ms from the source, %.3f ms from the mixer, at %.0f Hz", (source?.outputPresentationLatency ?? 0) * 1000, node.outputPresentationLatency * 1000, format.sampleRate))
         let rate = node.outputFormat(forBus: 0).sampleRate
-        node.installTap(onBus: 0, bufferSize: 256, format: nil) { [weak self] buffer, when in
-            guard let self, let data = buffer.floatChannelData, when.isHostTimeValid else { return }
+        var reason = [CChar](repeating: 0, count: 512)
+        let tapped = exact_sound_engine_tap(engine, { [weak self] buffer, when in
+            guard let self, let buffer, let when, let data = buffer.floatChannelData, when.isHostTimeValid else { return }
             let host = exact_sound_seconds(when.hostTime)
             let downstream = node.outputPresentationLatency
             for f in 0..<Int(buffer.frameLength) {
@@ -186,7 +183,8 @@ private final class SoundArm {
                     self.silentFor += 1 / rate
                 }
             }
-        }
+        }, &reason, reason.count)
+        return tapped ? nil : text(reason)
     }
 
     func report(_ onset: Double) {
@@ -196,10 +194,12 @@ private final class SoundArm {
     }
 }
 
-@_cdecl("exact_sound_open")
 /// The output, its engine started when `start` (else by `exact_sound_engine`
-/// 1), or nil with why not in `reason` (`size` bytes, NUL-terminated). Any
-/// thread; every other call is the main thread's.
+/// 1), or nil with why not in `reason` (`size` bytes, NUL-terminated).
+/// `exact_sound_open`, `exact_sound_engine` and `exact_sound_close` are
+/// called on one serial queue; `exact_sound_op` and `exact_sound_counts` on
+/// the main thread, the mixer ring's one producer.
+@_cdecl("exact_sound_open")
 public func exact_sound_open(_ paths: UnsafePointer<UnsafePointer<CChar>?>?, _ count: Int, _ context: UnsafeMutableRawPointer?, _ log: SoundLog?, _ start: Bool, _ reason: UnsafeMutablePointer<CChar>?, _ size: Int) -> UnsafeMutableRawPointer? {
     let list = (0..<count).compactMap { paths?[$0].map { String(cString: $0) } }
     let (arm, failure) = SoundArm.open(list, start: start, context: context, log: log)
@@ -227,21 +227,15 @@ public func exact_sound_counts(_ handle: UnsafeMutableRawPointer?, _ out: Unsafe
     out[3] = arm.engine.isRunning ? 1 : 0
 }
 
-/// 0 stops the engine (an interruption began), 1 starts it, 2 starts the
-/// device check: false, with why in `reason`, when it failed.
+/// 0 pauses the engine (an interruption began), 1 starts it, 2 starts the
+/// device check, 3 marks it orphaned (the media services were reset), so its
+/// close never messages it: false, with why in `reason`, when it failed.
 @_cdecl("exact_sound_engine")
 public func exact_sound_engine(_ handle: UnsafeMutableRawPointer?, _ what: UInt32, _ reason: UnsafeMutablePointer<CChar>?, _ size: Int) -> Bool {
     guard let handle else { return false }
     let arm = Unmanaged<SoundArm>.fromOpaque(handle).takeUnretainedValue()
-    var failure: String?
-    if let raised = SoundArm.attempt({
-        switch what {
-        case 0: arm.engine.pause()
-        case 1: failure = arm.start()
-        default: arm.check()
-        }
-    }) { failure = "AVAudioEngine raised \(raised)" }
-    guard let failure else { return true }
+    if what == 3 { arm.orphaned = true; return true }
+    guard let failure = what == 0 ? arm.pause() : what == 1 ? arm.start() : arm.check() else { return true }
     if let reason, size > 0 { _ = strlcpy(reason, failure, size) }
     return false
 }

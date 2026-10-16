@@ -76,9 +76,9 @@ let executables: [Target] = [
 // loop, and no clock (LLP 1033 D4a).
 let tests: [Target] = [
     // The sound arm's C mixer (LLP 1096 D8), rendered offline by the tests,
-    // and its exception catch; the arm itself is a dylib build.mjs makes,
-    // never a package product.
-    .target(name: "ExactSoundRender", path: "soundarm", exclude: ["SoundArm.swift"], sources: ["sound_render.c", "sound_try.m"], publicHeadersPath: "."),
+    // and its AVAudioEngine calls; the arm itself is a dylib build.mjs makes,
+    // never a package product. Its Objective-C is ARC, as the arm's build.
+    .target(name: "ExactSoundRender", path: "soundarm", exclude: ["SoundArm.swift"], sources: ["sound_render.c", "sound_engine.m"], publicHeadersPath: "."),
     // The video arm's media session coordinator (LLP 1098 D7), driven by the
     // tests over stand-in players; the arm itself is build.mjs's dylib.
     .target(name: "ExactNowPlaying", path: "videoarm", exclude: ["VideoArm.swift"], sources: ["NowPlaying.swift"]),

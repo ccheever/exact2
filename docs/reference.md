@@ -871,29 +871,39 @@ engine's main mixer and journals (and prints) how far each onset after a
 silence reached the speaker from its time.
 
 **When the Apple output opens.** Never at boot, so declaring a `sound` costs a
-launch nothing:
+launch nothing, and never on the main thread: activating the session, making
+and starting the engine run on a queue of their own while the app goes on.
 
 - **iOS and tvOS:** at the app's first voice, which activates the audio
   session, opens the output, reads every declared sound and starts the
-  engine. That voice starts as late as the open took (from its first frame,
-  never cut). An app that never plays never touches the audio session.
-- **macOS:** made off the main thread after first pixel (reading the sounds
-  and the cold output, about 100 to 200 ms) and started by the first voice
-  (tens of milliseconds).
+  engine. An app that never plays never touches the audio session.
+- **macOS:** made after first pixel (reading the sounds and the cold output,
+  about 100 to 200 ms) and started by the first voice (tens of milliseconds).
+
+Voices that come while the output opens are held and play once it runs,
+moved later together by the earliest one's lateness, so a held window keeps
+its spacing and each hit its length; one more than 500 ms past its time by
+then is skipped (`sound skipped: N held, …`), so a sequencer's older hits do
+not sound at once.
 
 **When it cannot open** (no output device, a session that does not activate,
 an engine that does not start or raises), the app keeps running silent: the
 line `sound: the output did not open: <why>` is journaled (and printed),
 `state.sounds.output` is `{state: "failed", error, skipped}`, the voices
-are skipped, and the first voice a second or more later tries again. An
-engine the system stopped (a route or format change, a media services reset)
-is opened again by the next voice. Outside the driver `state.sounds.output.state`
-is `closed` before the first open, `preparing` and `ready` while the Mac
-makes and holds it, then `running` or `stopped`. One failure is beyond any
-app's catch: when CoreAudio's own RPC to the audio server times out
-(`_ReportRPCTimeout`, seen on iOS simulators whose audio is wedged), it aborts the process
-inside `AVAudioEngine`; opening at the first voice keeps that from launch and
-from an app that plays nothing.
+are skipped, and the first voice a second or more later tries again. A
+restart that fails after an interruption fails the same way; one ended
+without `shouldResume` (the person started other audio) is left to the next
+voice. A failed output gives the audio session back, so a `"playback"` app
+does not leave other apps' audio paused. An engine the system stopped (a
+route or format change, a media services reset) is opened again by the next
+voice, at most once a second. Outside the driver `state.sounds.output.state` is
+`closed` before the first open, `opening` (with `held`) while one is under
+way, `ready` while the Mac holds a made output, then `running` or
+`stopped`. One failure is beyond any app's catch: when CoreAudio's own RPC
+to the audio server times out (`_ReportRPCTimeout`, seen on iOS simulators
+whose audio is wedged), it aborts the process inside `AVAudioEngine`;
+opening at the first voice keeps that from launch and from an app that
+plays nothing.
 
 ### Media session
 

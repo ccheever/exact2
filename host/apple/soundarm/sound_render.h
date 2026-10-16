@@ -46,12 +46,24 @@ double exact_sound_seconds(uint64_t host);
 bool exact_sound_render(ExactMixer *mixer, const AudioTimeStamp *timestamp, uint32_t frames, AudioBufferList *out);
 
 #ifdef __OBJC__
+// The arm's AVAudioEngine calls (sound_engine.m). AVAudioEngine raises
+// Objective-C exceptions, rather than throwing, for a graph it cannot make;
+// an exception must not unwind through a Swift frame, so each call that can
+// raise sits directly inside its own @try here, and a failure comes back as
+// nil or false with why in `reason` (`size` bytes, NUL-terminated).
+#import <AVFAudio/AVFAudio.h>
 #include <stddef.h>
-/// Run `body`; false, with the exception's name and reason in `reason`, when
-/// it raises an Objective-C exception. AVAudioEngine raises, rather than
-/// throws, for a graph it cannot make, and Swift cannot catch that
-/// (sound_try.m).
-bool exact_sound_try(void (^body)(void), char *reason, size_t size);
+/// A new engine, and its output's rate and channel count.
+AVAudioEngine *exact_sound_engine_new(double *rate, uint32_t *channels, char *reason, size_t size);
+/// A source node rendering `mixer`, attached and connected to the main mixer
+/// in the output's format, and the engine prepared.
+AVAudioSourceNode *exact_sound_engine_connect(AVAudioEngine *engine, ExactMixer *mixer, double rate, uint32_t channels, char *reason, size_t size);
+bool exact_sound_engine_start(AVAudioEngine *engine, char *reason, size_t size);
+bool exact_sound_engine_pause(AVAudioEngine *engine, char *reason, size_t size);
+/// False when even stopping raised.
+bool exact_sound_engine_stop(AVAudioEngine *engine);
+/// A tap on the main mixer's output (the device check).
+bool exact_sound_engine_tap(AVAudioEngine *engine, void (^block)(AVAudioPCMBuffer *, AVAudioTime *), char *reason, size_t size);
 #endif
 
 #endif

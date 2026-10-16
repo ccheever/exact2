@@ -1016,21 +1016,21 @@ async function main(args) {
   const video = ['VideoArm.swift', 'NowPlaying.swift'].map(f => resolve(root, 'host/apple/videoarm', f));
   const videoArgs = webArgs.flatMap(value => value === 'ExactWebArm' ? ['ExactVideoArm'] : value === resolve(root, 'host/apple/webarm/WebArm.swift') ? video : value === webBuilt ? [videoBuilt] : value === 'WebKit' ? ['AVKit', '-framework', 'MediaPlayer'] : [value]);
   if (hasVideo) arms.push(arm(videoArgs, video, videoBuilt));
-  // The sound arm (LLP 1096 D8): Swift over a C mixer, so the render thread runs no Swift, and an
-  // Objective-C exception catch, each compiled first to an object named by its content.
+  // The sound arm (LLP 1096 D8): Swift over a C mixer, so the render thread runs no Swift, and
+  // AVAudioEngine's raising calls in Objective-C (sound_engine.m), each first an object named by its content.
   const hasSound = carries('sound'), soundBuilt = resolve(webBuildDir, soundLoadName);
   if (hasSound) {
     const sound = (f) => resolve(root, 'host/apple/soundarm', f), triple = webArgs[webArgs.indexOf('-target') + 1];
-    const objects = ['sound_render.c', 'sound_try.m'].map((file) => {
+    const objects = ['sound_render.c', 'sound_engine.m'].map((file) => {
       const object = resolve(swiftBuildRoot, 'arms', `${file.replace('.', '-')}-${createHash('sha256').update(readFileSync(sound(file))).update(readFileSync(sound('sound_render.h'))).update(`${triple} ${sdk}`).digest('hex').slice(0, 16)}.o`);
       if (existsSync(object)) return object;
       mkdirSync(dirname(object), { recursive: true });
-      run('xcrun', ['--sdk', sdkName, 'clang', '-c', '-O2', '-target', triple, sound(file), '-o', `${object}.${process.pid}.tmp`]);
+      run('xcrun', ['--sdk', sdkName, 'clang', '-c', '-O2', '-fobjc-arc', '-target', triple, sound(file), '-o', `${object}.${process.pid}.tmp`]);
       renameSync(`${object}.${process.pid}.tmp`, object);
       return object;
     });
     const soundArgs = [...webArgs.map(value => value === 'ExactWebArm' ? 'ExactSoundArm' : value === resolve(root, 'host/apple/webarm/WebArm.swift') ? sound('SoundArm.swift') : value === webBuilt ? soundBuilt : value === 'WebKit' ? 'AVFoundation' : value), '-import-objc-header', sound('sound_render.h'), ...objects];
-    arms.push(arm(soundArgs, [sound('SoundArm.swift'), sound('sound_render.c'), sound('sound_try.m'), sound('sound_render.h')], soundBuilt));
+    arms.push(arm(soundArgs, [sound('SoundArm.swift'), sound('sound_render.c'), sound('sound_engine.m'), sound('sound_render.h')], soundBuilt));
   }
   // @ref LLP 1024 D3/D8.4 — the app's one module artifact, only when the app
   // has modules (the GPU gate): the host's table glue and the app's own
