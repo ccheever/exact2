@@ -160,7 +160,7 @@ export const answer: Answer = (source, args, store, storage, native) => sources[
 
 `app.test.contract`:
 
-```contract
+```contract-test
 fresh
 epoch now
 
