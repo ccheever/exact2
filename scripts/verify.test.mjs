@@ -683,3 +683,14 @@ test('accepted findings: matched by kind and testId, said once as accepted, neve
   ]);
   assert.equal(r.lines.at(-1), 'verify: clean in 1.0 s');
 });
+
+test('a finding on a view only one scheme shows is accepted by the testId that scheme\'s tree gives it', async () => {
+  const { settle } = await import('./agent-check.mjs');
+  const finding = { kind: 'contrast', id: 7, text: 'Night', box: [0, 0, 40, 18], detail: { got: 1.2, need: 4.5, fg: '#222222', bg: '#000000' } };
+  const runs = [{ scheme: 'light', target: 44, findings: [] }, { scheme: 'dark', target: 44, findings: [finding] }];
+  const trees = [new Map(), new Map([[7, { id: 7, type: 'Text', props: { testId: 'night-badge', text: 'Night' } }]])];
+  const r = settle(runs, trees, [{ finding: 'contrast', node: 'night-badge', why: 'the dark badge' }], 'ios');
+  assert.deepEqual(r.check.map((run) => [run.findings.length, run.accepted.length]), [[0, 0], [0, 1]]);
+  assert.equal(r.check[1].accepted[0].node, 'night-badge');
+  assert.match(r.text, /check ios · dark \(1 accepted\): no findings/);
+});

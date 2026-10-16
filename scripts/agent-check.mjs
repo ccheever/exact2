@@ -194,9 +194,10 @@ function advise(a, width, nodes) {
 }
 
 /** The text a check prints: per scheme, its findings (at most SHOWN, then a count), or one line saying there are none; then its advice. */
-export function report(runs, nodes, host) {
+export function report(runs, trees, host) {
   const out = [];
-  for (const run of runs) {
+  for (const [i, run] of runs.entries()) {
+    const nodes = trees[i];
     const head = `check ${host} · ${run.scheme}${run.asked && run.asked !== run.scheme ? ` (asked ${run.asked}: the app keeps its own scheme)` : ''}${run.accepted?.length ? ` (${run.accepted.length} accepted)` : ''}`;
     if (!run.findings.length) out.push(`${head}: no findings (text fits, nothing covered or overlapping, targets ≥ ${run.target}, no horizontal overflow, contrast ≥ 4.5:1 or 3:1 large, cards show)`);
     else {
@@ -219,7 +220,7 @@ export async function checkOp(s, args = [], { shots, accept = [] } = {}) {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-check-'));
   const first = await s.op({ op: 'check' });
   const asked = word === 'both' ? ['light', 'dark'] : word === 'current' ? [first.scheme] : [word];
-  const runs = [];
+  const runs = [], trees = [];
   let preferred = null;
   try {
     for (const scheme of asked) {
@@ -229,6 +230,8 @@ export async function checkOp(s, args = [], { shots, accept = [] } = {}) {
       const taken = await s.carrier.screenshot(path, obs.capture?.window === true); // iOS observes in the window's points: a sheet is not in the viewport's picture
       const png = decodePng(readFileSync(path));
       runs.push({ scheme: obs.scheme, asked: scheme, target: obs.target, viewport: obs.viewport, findings: judge(obs, png, { host: s.host === 'web' ? 'web' : 'ios' }), ...(obs.advice ? { advice: obs.advice } : {}) });
+      // The tree as this scheme shows it: a view only one scheme shows is named, and accepted, by its own testId.
+      trees.push(new Map(((await s.op({ op: 'tree' })).nodes ?? []).map((n) => [n.id, n])));
       // A capture kept for a person or an agent to look at is a pixel a point once judged, as `agent`'s are: a third of an iPhone's pixels each way.
       if (shots && taken?.scale > 1) writeFileSync(path, encodePng(shrink(png, Math.round(png.width / taken.scale), Math.round(png.height / taken.scale))));
     }
@@ -236,12 +239,17 @@ export async function checkOp(s, args = [], { shots, accept = [] } = {}) {
     if (preferred && preferred !== first.scheme) await s.prefer({ 'prefers-color-scheme': first.scheme }).catch(() => {});
     rmSync(dir, { recursive: true, force: true });
   }
-  const nodes = new Map(((await s.op({ op: 'tree' })).nodes ?? []).map((n) => [n.id, n]));
-  for (const r of runs) {
-    const taken = r.findings.map((f) => accepts(accept, f, nodes));
+  return s.tagged(settle(runs, trees, accept, s.host));
+}
+
+/** The runs judged, each against the tree its own scheme showed (`trees[i]`): what `accept` takes is the run's `accepted`, each
+ *  with its line and the entry; every finding is named. `{check, text}`, as `check` replies. */
+export function settle(runs, trees, accept, host) {
+  for (const [n, r] of runs.entries()) {
+    const nodes = trees[n], taken = r.findings.map((f) => accepts(accept, f, nodes));
     r.accepted = r.findings.flatMap((f, i) => (taken[i] ? [{ ...f, line: `${line({ ...f, hint: undefined }, nodes)}; accepted: ${taken[i].why}`, accept: taken[i] }] : []));
     r.findings = r.findings.filter((_, i) => !taken[i]);
   }
-  const runsOut = runs.map((r) => ({ ...r, findings: r.findings.map((f) => ({ ...f, node: who(f, nodes) })), accepted: r.accepted.map((f) => ({ ...f, node: who(f, nodes) })) }));
-  return s.tagged({ check: runsOut, text: report(runs, nodes, s.host) });
+  const named = (fs, nodes) => fs.map((f) => ({ ...f, node: who(f, nodes) }));
+  return { check: runs.map((r, i) => ({ ...r, findings: named(r.findings, trees[i]), accepted: named(r.accepted, trees[i]) })), text: report(runs, trees, host) };
 }
