@@ -27,7 +27,7 @@ impl<D: DataSource> Bridge<D> {
             })
             .collect();
         let Some(pins) = pins else {
-            return self.emit(exact_runner::agent::error("mode: expected axis=value pins"));
+            return self.refuse("mode: expected axis=value pins");
         };
         let pins: Vec<(&str, &str)> = pins.iter().map(|(a, v)| (a.as_str(), v.as_str())).collect();
         let out = self.host.as_mut().map_or_else(not_booted, |h| match check {

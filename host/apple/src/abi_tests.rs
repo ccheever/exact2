@@ -4,6 +4,9 @@ use exact_plan::{TypeKind, Value};
 use exact_runner::{Answer, DataError, Store};
 use std::sync::{Arc, Mutex};
 
+#[path = "abi_refusal_tests.rs"]
+mod refusals;
+
 fn plan(resource: Option<&str>) -> Vec<u8> {
     let mut builder = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
     if let Some(name) = resource {

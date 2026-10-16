@@ -30,8 +30,7 @@ impl<D: DataSource> Bridge<D> {
             rest = after;
         }
         let out = if !rest.is_empty() {
-            "{\"ops\":[],\"timers\":false,\"motion\":false,\"error\":\"covers: truncated record\"}"
-                .to_string()
+            self.refusal("covers: truncated record")
         } else {
             let (mut covers, mut blocks, mut placements) = (Vec::new(), Vec::new(), Vec::new());
             for r in records {

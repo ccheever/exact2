@@ -33,7 +33,7 @@ impl<D: DataSource> Host<D> {
     }
 
     /// An empty batch, which has no geometry to hold: a refusal's.
-    pub(super) fn refused(&self, error: Option<String>) -> String {
+    pub(crate) fn refused(&self, error: Option<String>) -> String {
         let mut batch = Batch::new();
         self.state_onto(&mut batch);
         let (timers, motion) = (self.runner.timer_due_ms(), !self.engine.quiescent());
