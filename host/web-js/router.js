@@ -189,6 +189,9 @@ export function router(slot, history) {
     Shown = r;
     history.apply({ top: top[0], url: top[2], removed, visits: r[1].flatMap(t => t[1].map(e => [e[0], e[2]])) });
   });
+  // `effect` runs once synchronously. Its first apply follows
+  // `projectRoots`' projection, so publish those initial visits now.
+  history.project(document.getElementById("exact-root"), say);
 }
 export const navigateTo = f => { Navigate = f; }, navigateRoot = location => Navigate ? (Navigate(location), true) : false; // the agent's `type <root> <location>` (LLP 1038 D11)
 export const routeAt = location => matchRoute(canonical(location))?.[0] ?? -1;

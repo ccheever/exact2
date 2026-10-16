@@ -55,3 +55,48 @@ test('a second navigation root keeps its split list live while its detail suppli
     await browser?.close(); server?.stop(true); rmSync(dir, { recursive: true, force: true });
   }
 }, 30000);
+
+test('a JavaScript-rendered direct detail selects its retained href at boot', async () => {
+  if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
+  const root = resolve(import.meta.dir, '../..'), dir = mkdtempSync(resolve(root, 'target/split-document-agent-test-'));
+  let browser, server;
+  try {
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Split Document Agent Test', app: { id: 'test.split-document', name: 'Split Document Agent Test' }, host: { web: {} } }));
+    writeFileSync(resolve(dir, 'app.contract'), `routes nav
+  home "/" render=build
+    alpha "/a" render=build
+
+component SplitDocumentAgent
+  view
+    main navigationKey=\`\${top(nav).id}\` navigationBack="back" width="100%" height="100%" position="relative" testId="navigation"
+      for e in stack(nav) key=e.id
+        column navigationKey=\`\${e.id}\` position="absolute" inset=0 testId=\`route-\${e.name}\`
+          if e.name == "home"
+            list
+              link href="/a" testId="row-alpha"
+                text "Alpha"
+          if e.name == "alpha"
+            text "Alpha detail"
+`);
+    const dist = resolve(dir, 'dist');
+    const build = Bun.spawn([process.execPath, 'host/web-js/build.mjs', 'split-document-agent-test', '--out', dist, '--render', 'js'], {
+      cwd: root, env: { ...process.env, EXACT_APP_DIR: dir }, stdout: 'pipe', stderr: 'pipe',
+    });
+    const [status, stdout, stderr] = await Promise.all([build.exited, new Response(build.stdout).text(), new Response(build.stderr).text()]);
+    expect({ status, error: status ? stdout + stderr : '' }).toEqual({ status: 0, error: '' });
+    server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
+      const path = new URL(req.url).pathname;
+      return new Response(Bun.file(resolve(dist, path === '/' ? 'index.html' : path === '/a' ? 'a/index.html' : path.slice(1))));
+    } });
+    browser = await open({ host: 'web', url: new URL('a', server.url).href, size: [1280, 844] });
+    const state = await browser.state();
+    expect(state.navigation).toMatchObject({ url: '/a', route: '1', stack: ['0', '1'] });
+    expect(await browser.carrier.evaluate(`(() => ({
+      list: document.querySelector('[data-testid="route-home"]').getAttribute('data-exact-split'),
+      detail: document.querySelector('[data-testid="route-alpha"]').getAttribute('data-exact-split'),
+      selected: document.querySelector('[data-testid="row-alpha"]').hasAttribute('data-exact-split-row'),
+    }))()`)).toEqual({ list: 'list', detail: 'detail', selected: true });
+  } finally {
+    await browser?.close(); server?.stop(true); rmSync(dir, { recursive: true, force: true });
+  }
+}, 30000);
