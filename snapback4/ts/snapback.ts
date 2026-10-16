@@ -193,7 +193,7 @@ export interface Options {
   headers?: () => Record<string, string | undefined>;
   /** The dispatcher's `storage`, Exact's own (the web persists the partition
    * there); its `sqlite`, and its `fs` for `download`. */
-  storage: { readonly sqlite: { open(path: string): Promise<unknown> }; readonly fs?: { readFile?(path: string): Promise<Uint8Array>; writeFile(path: string, data: Uint8Array): Promise<void> } };
+  storage: { readonly sqlite: { open(path: string): Promise<unknown> }; readonly fs?: { readFile?(path: string): Promise<ArrayBuffer | Uint8Array>; writeFile(path: string, data: Uint8Array): Promise<void> } };
   /** The dispatcher's `native`; absent on the web. */
   native?: NativeModule | null;
   /** Choose the web device when the dispatcher supplies an unrelated native
