@@ -375,7 +375,10 @@ mod tests {
         assert!(exact_runner::uses(&date).has(exact_runner::Capability::Dates));
         assert!(Host::boot(&date.encode(), (), Default::default(), "/").is_ok());
         // So are rolling numerals: the runtime's own text.
-        let rolls = contract::compile("component A\n  view\n    text \"1,234\" -exact-content-transition=\"numeric\"\n").unwrap();
+        let rolls = contract::compile(
+            "component A\n  view\n    text \"1,234\" -exact-content-transition=\"numeric\"\n",
+        )
+        .unwrap();
         assert!(exact_runner::uses(&rolls).has(exact_runner::Capability::Numerals));
         assert!(Host::boot(&rolls.encode(), (), Default::default(), "/").is_ok());
         // LLP 1078 D3: a segment length is linked by use; the fold's fields are the core's.
