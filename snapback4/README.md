@@ -5,7 +5,7 @@ the device (its partition in SQLite, its outbox, local queries and
 predictions) and the client protocol over it (opening, sync rounds, store
 identity and generation adoption, at-most-once sends with receipts, the
 change poll), written once in Rust and performing no I/O. Each HTTP exchange
-is handed to whoever drives it. Pinned to Snapback4 **0.4.28**
+is handed to whoever drives it. Pinned to Snapback4 **0.4.29**
 (engine sources in `snapback4/Cargo.toml`); the npm CLI in the root
 `package.json` matches.
 
@@ -19,7 +19,7 @@ is handed to whoever drives it. Pinned to Snapback4 **0.4.28**
 > **Exact + Snapback checklist.** Each line is a pair that must agree; a
 > mismatch fails late, as data that never loads.
 >
-> - **Directories.** The backend (`snapback/schema.q`, `snapback4@0.4.28`)
+> - **Directories.** The backend (`snapback/schema.q`, `snapback4@0.4.29`)
 >   is the directory above the app (the one holding `app.json`). Run
 >   `snapback4` there and `bun exact.mjs …` (`snapback` among them) in the
 >   app; `assets/snapback4.wasm` is built into the app's `assets/`.
@@ -49,7 +49,7 @@ is handed to whoever drives it. Pinned to Snapback4 **0.4.28**
 > - **Tests.** `epoch now` in the test file (the server keeps real time);
 >   `snapback4 dev` listening before `test web`; `clock data` before `fail
 >   fetch`; `fresh` for an empty dev server before each test through
->   0.4.28's `POST /dev/reset`
+>   0.4.29's `POST /dev/reset`
 >   (["Tests share the server"](#tests-share-the-server)).
 
 ## From TypeScript
@@ -57,8 +57,8 @@ is handed to whoever drives it. Pinned to Snapback4 **0.4.28**
 ### Set it up: one command
 
 A new app: from the backend's directory (`snapback/schema.q`, and
-`snapback4@0.4.28` installed there: `bun add snapback4@0.4.28` or `npm i
-snapback4@0.4.28`), `bun /path/to/exact2/scripts/exact.mjs new app --snapback`
+`snapback4@0.4.29` installed there: `bun add snapback4@0.4.29` or `npm i
+snapback4@0.4.29`), `bun /path/to/exact2/scripts/exact.mjs new app --snapback`
 (`--port <n>` for an origin other than 4400). With no backend schema yet, it writes the guestbook below as
 the app (`app.contract`, `app.ts` at that origin with its grants,
 `app.test.contract`) and `snapback/schema.q` when there is none, then wires it. With an existing schema it keeps the greeting app and mounts
@@ -453,7 +453,7 @@ the backend's directory, which writes these four files and wires them. Built tha
 
 ### A complete online app
 
-For a schema that syncs nothing, install `snapback4@0.4.28` in the backend,
+For a schema that syncs nothing, install `snapback4@0.4.29` in the backend,
 write this `snapback/schema.q`, then run
 `bun <exact2>/scripts/exact.mjs new app --snapback --online --port 30100`.
 It mounts the online adapter and generated operations, and writes a query/mutation
@@ -833,7 +833,7 @@ those from earlier tests in it. Two ways out:
     expect tree missing "note-0"
   ```
 
-  Snapback4 0.4.28 has this door in `dev`; `serve` has no development
+  Snapback4 0.4.29 has this door in `dev`; `serve` has no development
   reset. `fresh` is for tests against `dev`.
 - **Each test owns its rows.** It writes a code or name no other test uses
   and asserts on that: newest first (`note-0` in a `last … by byTime` list),

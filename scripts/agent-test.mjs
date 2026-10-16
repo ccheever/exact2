@@ -7,6 +7,7 @@ import { connect } from 'node:net';
 import { homedir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { faultRequest as rawFaultRequest } from './agent-prefer.mjs';
 import { open } from './agent.mjs';
 import { duringOp } from './agent-drag.mjs';
 import { driveStore, faultSpecOf, launchFacts } from './agent-launch.mjs';
@@ -655,14 +656,8 @@ export function resolveFaultPrefix(prefix, origins, say=console.warn) {
 }
 
 export function faultRequest(op, args, origins = [], say = console.warn) {
-  if (args[0] !== 'fetch' || !args[1]) throw new Error(`${op} fetch <url-prefix>${op === 'fail' ? ' [times <n>]' : ''}: what a matching fetch's URL starts with`);
-  args = [...args];
-  args[1] = resolveFaultPrefix(args[1], origins, say);
-  if (op === 'pass') { if (args.length > 2) throw new Error('pass fetch <url-prefix> takes nothing after the prefix'); return { op: 'prefer', faults: { pass: args[1] } }; }
-  if (args.length === 2) return { op: 'prefer', faults: { fail: args[1] } };
-  const times = Number(args[3]);
-  if (args[2] !== 'times' || args.length !== 4 || !Number.isInteger(times) || times < 1) throw new Error('fail fetch <url-prefix> times <n>: n a positive integer');
-  return { op: 'prefer', faults: { fail: args[1], times } };
+  if (args[0] !== 'fetch' || !args[1]) return rawFaultRequest(op, args);
+  return rawFaultRequest(op, [args[0], resolveFaultPrefix(args[1], origins, say), ...args.slice(2)]);
 }
 
 /** The same persistence/fault behavior as an authored test's web reload. */
@@ -679,20 +674,7 @@ export async function reloadWeb(s) {
   return {reloaded:true};
 }
 
-/** One capability table, printed by --help and linked from the author guide. */
-export function driverCapabilities() {
-  return `Operation                      web   macOS  iOS   Linux Android
- tree/layout/state/logs          yes   yes    yes   yes   yes
- tap/type/clock/prefer/faults    yes   yes    yes   yes   yes
- pick (held picker answer)      yes   yes    yes   yes   yes
- reload (interactive)           yes   no     no    no    no
- reload (authored tests)        yes   yes    yes   yes   yes
- resize                         yes   yes    no    yes   no
- close window                   yes   yes    no    no    no
- screenshot                     yes   yes    yes   yes   yes
- platform touch                 yes   yes    yes*  yes   yes
- * iOS platform touch requires --touch platform; unsupported forms refuse.`;
-}
+export { driverCapabilities } from './help.mjs';
 
 /** One millisecond per source mutation request, counted once across data continuations.
  * Action arguments retain their atomic snapshot; the next action sees the advanced clock. */

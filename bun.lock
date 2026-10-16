@@ -11,7 +11,7 @@
         "@sqlite.org/sqlite-wasm": "3.53.4-build1",
         "playwright-core": "1.63.0",
         "rolldown": "1.2.9",
-        "snapback4": "0.4.28",
+        "snapback4": "0.4.29",
         "typescript": "7.0.2",
       },
     },
@@ -109,16 +109,14 @@
 
     "rolldown": ["rolldown@1.2.9", "", { "dependencies": { "@oxc-project/types": "=0.150.0", "@rolldown/pluginutils": "^1.0.0" }, "optionalDependencies": { "@rolldown/binding-android-arm-eabi": "1.2.9", "@rolldown/binding-android-arm64": "1.2.9", "@rolldown/binding-darwin-arm64": "1.2.9", "@rolldown/binding-darwin-x64": "1.2.9", "@rolldown/binding-freebsd-x64": "1.2.9", "@rolldown/binding-linux-arm-gnueabihf": "1.2.9", "@rolldown/binding-linux-arm64-gnu": "1.2.9", "@rolldown/binding-linux-arm64-musl": "1.2.9", "@rolldown/binding-linux-ppc64-gnu": "1.2.9", "@rolldown/binding-linux-s390x-gnu": "1.2.9", "@rolldown/binding-linux-x64-gnu": "1.2.9", "@rolldown/binding-linux-x64-musl": "1.2.9", "@rolldown/binding-openharmony-arm64": "1.2.9", "@rolldown/binding-win32-arm64-msvc": "1.2.9", "@rolldown/binding-win32-x64-msvc": "1.2.9" }, "bin": { "rolldown": "./bin/cli.mjs" } }, "sha512-hx/Pv0N1haXRb11qkfnK5MXB/iqr7i0yjWQqmO9uHqZpBgQSqzc8UsSnEpalsh+j1I8qQ2CkXAkJC8Br3dKSlg=="],
 
-    "snapback4": ["snapback4@0.4.28", "", { "dependencies": { "openid-client": "6.8.8", "playwright-core": "1.55.1", "undici": "8.11.2" }, "optionalDependencies": { "snapback4-darwin-arm64": "0.4.28", "snapback4-linux-x64": "0.4.28" }, "peerDependencies": { "react": "^19.0.0" }, "optionalPeers": ["react"], "bin": { "snapback4": "bin/snapback4.js" } }, "sha512-jYtgDRhJ5cY8NlzWiDP7R0nhAV6gzWIiqQhaKnPueI5OiP7/ZMH1xDMRQpbHJJ+0pwuOoaR6N6R7rtIRG17Mkw=="],
+    "snapback4": ["snapback4@0.4.29", "", { "dependencies": { "openid-client": "6.8.8", "undici": "8.11.2" }, "optionalDependencies": { "snapback4-darwin-arm64": "0.4.29", "snapback4-linux-x64": "0.4.29" }, "peerDependencies": { "playwright-core": ">=1.55.1 <2", "react": "^19.0.0" }, "optionalPeers": ["playwright-core", "react"], "bin": { "snapback4": "bin/snapback4.js" } }, "sha512-2tfDLDnpuMzENef+nAR2VQ5kkUCfhxjmxNvtjDCfLNim9mqblA5joZtVzPBbudFTQ7sIiMYftCFStjVEKUHISQ=="],
 
-    "snapback4-darwin-arm64": ["snapback4-darwin-arm64@0.4.28", "", { "os": "darwin", "cpu": "arm64" }, "sha512-RiIekl+ApZNpfyIAq1ZHOMkbMkLohaDws0nTlyExJ44iFCGIIVSqHMA4AfBjBsxKdcvefG48ZSCuEXVjmbh3EA=="],
+    "snapback4-darwin-arm64": ["snapback4-darwin-arm64@0.4.29", "", { "os": "darwin", "cpu": "arm64" }, "sha512-Zj962ikgpZxyu7MzqO5LvvV+Rr/+yXL1A/zO2NjZi3ySDMtdwJY/0eyvjVJEvlWk11nGeF1BpvZbHrLrV/kkVg=="],
 
-    "snapback4-linux-x64": ["snapback4-linux-x64@0.4.28", "", { "os": "linux", "cpu": "x64" }, "sha512-Zj9UCQh1d+4XX0GceI5KUAZYLAjhLjeMPHb6+ieYws3gdAV2lAhfWaNJS4EAl4dor5w/00uQfbH9gMx+ayEzZA=="],
+    "snapback4-linux-x64": ["snapback4-linux-x64@0.4.29", "", { "os": "linux", "cpu": "x64" }, "sha512-S9aoo0/zOpyasdIEv8Gux+MffquIzov4fXaB6WezYu5R+tozgF38tNxZkcGOxiDBFQ1ojrYGInQMmz5dhk+lzA=="],
 
     "typescript": ["typescript@7.0.2", "", { "optionalDependencies": { "@typescript/typescript-aix-ppc64": "7.0.2", "@typescript/typescript-darwin-arm64": "7.0.2", "@typescript/typescript-darwin-x64": "7.0.2", "@typescript/typescript-freebsd-arm64": "7.0.2", "@typescript/typescript-freebsd-x64": "7.0.2", "@typescript/typescript-linux-arm": "7.0.2", "@typescript/typescript-linux-arm64": "7.0.2", "@typescript/typescript-linux-loong64": "7.0.2", "@typescript/typescript-linux-mips64el": "7.0.2", "@typescript/typescript-linux-ppc64": "7.0.2", "@typescript/typescript-linux-riscv64": "7.0.2", "@typescript/typescript-linux-s390x": "7.0.2", "@typescript/typescript-linux-x64": "7.0.2", "@typescript/typescript-netbsd-arm64": "7.0.2", "@typescript/typescript-netbsd-x64": "7.0.2", "@typescript/typescript-openbsd-arm64": "7.0.2", "@typescript/typescript-openbsd-x64": "7.0.2", "@typescript/typescript-sunos-x64": "7.0.2", "@typescript/typescript-win32-arm64": "7.0.2", "@typescript/typescript-win32-x64": "7.0.2" }, "bin": { "tsc": "bin/tsc" } }, "sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA=="],
 
     "undici": ["undici@8.11.2", "", {}, "sha512-u4UB2/IrKdU6lFxumHmmo1a3fCQO5tzQllRorfoRS63txhrB7xTpSn1PftwC4qEHkOaqP95fCWW4lJzwErwzhQ=="],
-
-    "snapback4/playwright-core": ["playwright-core@1.55.1", "", { "bin": { "playwright-core": "cli.js" } }, "sha512-Z6Mh9mkwX+zxSlHqdr5AOcJnfp+xUWLCt9uKV18fhzA8eyxUd8NUWzAjxUh55RZKSYwDGX0cfaySdhZJGMoJ+w=="],
   }
 }

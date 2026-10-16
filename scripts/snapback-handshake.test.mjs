@@ -366,7 +366,7 @@ for (const online of [false,true]) test(`README ${online ? 'online' : 'synced'} 
   };
   try {
     writeFileSync(join(project,'package.json'),JSON.stringify({private:true,type:'module',dependencies:{snapback4:pinnedVersion}}));
-    run(['install','--registry',process.env.SNAPBACK4_REGISTRY ?? 'http://127.0.0.1:4873/']);
+    run(['install','--registry',process.env.SNAPBACK4_REGISTRY ?? 'https://registry.npmjs.org/']);
     const binary=join(project,`node_modules/snapback4-${process.platform}-${process.arch}/snapback4`);
     env.SNAPBACK4_BIN=binary;
     assert.equal(JSON.parse(readFileSync(join(project,'node_modules/snapback4/package.json'),'utf8')).version,pinnedVersion);

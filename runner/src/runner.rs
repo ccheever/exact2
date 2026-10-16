@@ -95,11 +95,8 @@ use crate::instance::{Ids, InstanceError, InstanceStep, SurfaceUpdate, Tree, Upd
 use crate::request::{Answer, Dispatch, Outcome, Request, RequestOut};
 use crate::store::{Store, StoreWrite};
 use crate::vm::{self, Env, Frame, RowSlots, Trap};
-pub use carry::Carried;
-pub use checkpoint::Checkpoint;
 use exact_kernel::{CommitReceipt, Kernel, KernelError, ViewId};
 use exact_plan::{ActionsId, Code, EventKind, MutationsId, NodesId, Plan, PlanError, Value};
-pub use router::{routing, RouterChange, Routing};
 
 /// A host-facing effect an action asked for; executed after commit, in order.
 #[derive(Debug, Clone, PartialEq)]
@@ -1405,7 +1402,6 @@ impl<D: DataSource> Runner<D> {
     pub fn is_poisoned(&self) -> bool {
         self.poisoned
     }
-
     fn apply(&mut self, mut ops: Vec<exact_kernel::Op>) -> Result<CommitReceipt, RunnerError> {
         // The queued patches' colours stay kept until this commit marks them.
         let (mut prefix, _queued) = self.take_reorder_ops();
@@ -1468,7 +1464,6 @@ impl<D: DataSource> Runner<D> {
         self.retire_holds();
         Ok(receipt)
     }
-
     fn env<'a>(&'a self, params: &'a [Value], frames: &'a [Frame]) -> Env<'a> {
         Env {
             plan: &self.plan,
@@ -1492,12 +1487,10 @@ impl<D: DataSource> Runner<D> {
             store_dependent_resources: &[],
         }
     }
-
     fn eval(&self, code: Code, params: &[Value], frames: &[Frame]) -> Result<Value, RunnerError> {
         let env = self.env(params, frames);
         Ok(vm::eval(self.plan.code(code), &env, &[])?.value)
     }
 }
-
 #[cfg(test)]
 mod stream_tests;
