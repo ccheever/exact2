@@ -679,6 +679,63 @@ fn zero_quaternion_cpu_pose_is_finite_identity() {
 }
 
 #[test]
+fn prepared_pose_preserves_offsets_and_rejects_invalid_or_recycled_rows() {
+    let mut w = World::new(60, 0);
+    let root = w.spawn(Transform {
+        rotation: Quat::from_rotation_y(0.7),
+        scale: Vec3::new(2., 3., 4.),
+        ..Transform::at(2., 3., 4.)
+    });
+    let child = w.spawn((
+        Transform {
+            scale: Vec3::new(-1., 2., 3.),
+            ..Transform::at(1., 2., 3.)
+        },
+        Parent(root),
+        exact_game::Offset(Transform::at(0.5, 0.25, -0.75)),
+    ));
+    w.propagate();
+    let mut feed = Feed::default();
+    let mut recorder = Recording::default();
+    feed.feed_to(&w, &mut recorder).unwrap();
+    let expected = scene::pose(&w, child).unwrap();
+    assert_eq!(prepared_pose(&w, child, &feed.overrides), Some(expected));
+    let stale = [PreparedPose::new(child, expected)];
+    w.insert(child, exact_game::Offset(Transform::at(3., -2., 1.)));
+    feed.feed_to(&w, &mut recorder).unwrap();
+    assert_ne!(scene::pose(&w, child), Some(expected));
+    assert_eq!(
+        prepared_pose(&w, child, &feed.overrides),
+        scene::pose(&w, child)
+    );
+    w.remove::<Transform>(child);
+    w.propagate();
+    feed.feed_to(&w, &mut recorder).unwrap();
+    assert!(feed.overrides.iter().all(|p| p.entity != child));
+    assert_eq!(
+        prepared_pose(&w, child, &feed.overrides),
+        scene::pose(&w, child)
+    );
+    w.despawn(child);
+    let replacement = w.spawn(Transform::at(37., 5., -2.));
+    assert_eq!(replacement.index(), child.index());
+    assert_ne!(replacement, child);
+    assert_eq!(
+        prepared_pose(&w, replacement, &stale),
+        scene::pose(&w, replacement)
+    );
+    let invalid = [PreparedPose {
+        entity: replacement,
+        values: stale[0].values,
+        valid: false,
+    }];
+    assert_eq!(
+        prepared_pose(&w, replacement, &invalid),
+        scene::pose(&w, replacement)
+    );
+}
+
+#[test]
 fn light_selection_matches_restored_current_state_with_twenty_lights() {
     let mut sim = Sim::<Stop>::new(()).unwrap();
     let w = sim.world_mut();

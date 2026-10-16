@@ -48,6 +48,7 @@ pub(crate) trait Writes {
         _: &[exact_game::Entity],
         _: bool,
         _: crate::models::Moved<'_>,
+        _: &[PreparedPose],
     ) {
     }
     fn quads(&mut self, _: &World, _: bool, _: bool, _: bool) -> Result<(), RenderError> {
@@ -145,9 +146,10 @@ impl<const ASSETS: bool> Writes for crate::renderer::RendererWithAssets<ASSETS> 
         entities: &[exact_game::Entity],
         initial: bool,
         moved: crate::models::Moved<'_>,
+        poses: &[PreparedPose],
     ) {
         if ASSETS {
-            self.model_poses(w, entities, initial, moved);
+            self.model_poses(w, entities, initial, moved, poses);
         }
     }
     fn quads(
@@ -411,7 +413,7 @@ pub struct Feed {
     current: usize,
     generation: u64,
     parents: Vec<exact_game::Entity>,
-    overrides: Vec<(exact_game::Entity, [f32; 10])>,
+    overrides: Vec<PreparedPose>,
     // Each Transform page's range in `overrides`, rebuilt with them.
     override_pages: Vec<std::ops::Range<usize>>,
     // Each slot's occupant generation + 1 at the last history swap (0: none).
@@ -629,7 +631,7 @@ impl Feed {
                 self.overrides.clear();
                 for (e, _) in w.query::<(&Parent, &Transform)>().iter() {
                     if let Some(t) = scene::pose(w, e) {
-                        self.overrides.push((e, floats(t)));
+                        self.overrides.push(PreparedPose::new(e, t));
                     }
                 }
                 // Unparented entities drawn at an offset are patched the same way.
@@ -640,15 +642,15 @@ impl Feed {
                     .iter()
                 {
                     if let Some(t) = scene::pose(w, e) {
-                        self.overrides.push((e, floats(t)));
+                        self.overrides.push(PreparedPose::new(e, t));
                     }
                 }
                 if self.overrides.len() > parented {
-                    self.overrides.sort_by_key(|(e, _)| e.index());
+                    self.overrides.sort_by_key(|p| p.entity.index());
                 }
                 self.override_pages.clear();
-                for (i, (e, _)) in self.overrides.iter().enumerate() {
-                    let page = e.index() as usize / PAGE;
+                for (i, pose) in self.overrides.iter().enumerate() {
+                    let page = pose.entity.index() as usize / PAGE;
                     if self.override_pages.len() <= page {
                         self.override_pages.resize(page + 1, i..i);
                     }
@@ -662,10 +664,13 @@ impl Feed {
                         .get(block as usize / PAGE)
                         .cloned()
                         .unwrap_or_default();
-                    for (e, pose) in &mut self.overrides[range] {
-                        if let Some(t) = scene::pose(w, *e) {
-                            *pose = floats(t);
-                        }
+                    for pose in &mut self.overrides[range] {
+                        pose.valid = if let Some(t) = scene::pose(w, pose.entity) {
+                            pose.values = floats(t);
+                            true
+                        } else {
+                            false
+                        };
                     }
                 }
             }
@@ -682,7 +687,7 @@ impl Feed {
                 for e in self
                     .parents
                     .iter()
-                    .chain(self.overrides.iter().map(|(e, _)| e))
+                    .chain(self.overrides.iter().map(|p| &p.entity))
                 {
                     self.transforms[self.current].invalidate(e.index() as usize / PAGE);
                 }
@@ -702,9 +707,9 @@ impl Feed {
                 let mut values = &page.floats()[..len];
                 if parented {
                     self.page_scratch[..len].copy_from_slice(values);
-                    for (e, pose) in &self.overrides[range] {
-                        let at = (e.index() - page.first) as usize * 10;
-                        self.page_scratch[at..at + 10].copy_from_slice(pose);
+                    for pose in &self.overrides[range] {
+                        let at = (pose.entity.index() - page.first) as usize * 10;
+                        self.page_scratch[at..at + 10].copy_from_slice(&pose.values);
                     }
                     values = &self.page_scratch[..len];
                 }
@@ -764,15 +769,16 @@ impl Feed {
                         self.transforms[1 - self.current].invalidate(e.index() as usize / PAGE);
                     }
                 }
-                for &(e, t) in
-                    self.overrides
-                        .iter()
-                        .take(if parent_changed || !w.fresh().is_empty() {
-                            usize::MAX
-                        } else {
-                            0
-                        })
+                for pose in self
+                    .overrides
+                    .iter()
+                    .take(if parent_changed || !w.fresh().is_empty() {
+                        usize::MAX
+                    } else {
+                        0
+                    })
                 {
+                    let (e, t) = (pose.entity, pose.values);
                     if !w.is_fresh(e) && scene::snap(w, e, parent_changed) {
                         self.previous.push((e.index(), t));
                         self.transforms[1 - self.current].invalidate(e.index() as usize / PAGE);
@@ -792,7 +798,7 @@ impl Feed {
             }
             if rebuilt {
                 self.parents.clear();
-                self.parents.extend(self.overrides.iter().map(|(e, _)| *e));
+                self.parents.extend(self.overrides.iter().map(|p| p.entity));
             }
             // A hierarchy edit can snap thousands of children. Coalesce their
             // history resets just like current-pose pages; one GPU write per
@@ -979,7 +985,13 @@ impl Feed {
                     pages: &self.changed_pages,
                 }
             };
-            r.model_poses(w, &self.assets.entities, initial || parent_changed, moved);
+            r.model_poses(
+                w,
+                &self.assets.entities,
+                initial || parent_changed,
+                moved,
+                &self.overrides,
+            );
         }
         if initial || next.opacity != old.opacity || next.live != old.live || parent_changed {
             effective_opacity(w, &mut self.fades_next);
@@ -1065,6 +1077,38 @@ fn check_page(
         }
     }
     Ok(())
+}
+pub(crate) struct PreparedPose {
+    entity: exact_game::Entity,
+    values: [f32; 10],
+    valid: bool,
+}
+impl PreparedPose {
+    fn new(entity: exact_game::Entity, pose: Transform) -> Self {
+        Self {
+            entity,
+            values: floats(pose),
+            valid: true,
+        }
+    }
+}
+/// Reuse the exact uploaded pose; absent or invalid rows keep the world lookup.
+pub(crate) fn prepared_pose(
+    w: &World,
+    e: exact_game::Entity,
+    poses: &[PreparedPose],
+) -> Option<Transform> {
+    poses
+        .binary_search_by_key(&e.index(), |p| p.entity.index())
+        .ok()
+        .map(|i| &poses[i])
+        .filter(|p| p.entity == e && p.valid)
+        .map(|p| Transform {
+            position: glam::Vec3::from_slice(&p.values[..3]),
+            rotation: glam::Quat::from_array(p.values[3..7].try_into().unwrap()),
+            scale: glam::Vec3::from_slice(&p.values[7..]),
+        })
+        .or_else(|| scene::pose(w, e))
 }
 pub(crate) fn floats(t: Transform) -> [f32; 10] {
     [

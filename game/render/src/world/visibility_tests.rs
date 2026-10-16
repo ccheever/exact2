@@ -17,6 +17,18 @@ fn primitive_changes_preserve_model_records_but_model_changes_rebuild_them() {
     assert_eq!(r.instance_writes, 1);
     assert!(r.slots.contains(&effect.index()));
     assert!(r.batches.iter().any(|b| b.mesh == MeshId(99)));
+    let (mut model_batches, mut model_slots) = (Vec::new(), Vec::new());
+    f.assets
+        .batches(&w, &mut r, &mut model_batches, &mut model_slots)
+        .unwrap();
+    model_batches.clear();
+    model_slots.clear();
+    let count = allocations::count(|| {
+        f.assets
+            .batches(&w, &mut r, &mut model_batches, &mut model_slots)
+            .unwrap();
+    });
+    assert_eq!(count, 0, "unchanged models need no copied names or records");
     w.insert(effect, Mesh::cube(2.));
     f.feed_to(&w, &mut r).unwrap();
     w.despawn(effect);

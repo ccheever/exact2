@@ -18,7 +18,6 @@ pub(super) struct Assets {
     digests: BTreeMap<u32, u64>,
     structure: Option<Structure>,
 }
-#[derive(PartialEq)]
 struct Structure {
     models: Vec<(exact_game::Entity, String)>,
     revisions: [u64; 3],
@@ -44,6 +43,27 @@ impl Assets {
         batches: &mut Vec<Batch>,
         slots: &mut Vec<u32>,
     ) -> Result<(), RenderError> {
+        let revisions = [
+            r.assets_revision(),
+            w.revision::<ViewModel>(),
+            w.revision::<exact_game::ModelLod>(),
+        ];
+        // Compare borrowed names before building a replacement. Primitive
+        // effects can change batches while thousands of model names stay put.
+        let unchanged = self.structure.as_ref().is_some_and(|saved| {
+            saved.revisions == revisions
+                && w.query::<(&Mesh, &Transform)>()
+                    .iter()
+                    .filter_map(|(entity, (mesh, _))| match mesh {
+                        Mesh::Asset(name) if w.is_visible(entity) => Some((entity, name.as_str())),
+                        _ => None,
+                    })
+                    .eq(saved.models.iter().map(|(e, name)| (*e, name.as_str())))
+        });
+        if unchanged && self.patch_looks(w, r)? {
+            self.append_batches(batches, slots);
+            return Ok(());
+        }
         let structure = Structure {
             models: w
                 .query::<(&Mesh, &Transform)>()
@@ -53,19 +73,8 @@ impl Assets {
                     _ => None,
                 })
                 .collect(),
-            revisions: [
-                r.assets_revision(),
-                w.revision::<ViewModel>(),
-                w.revision::<exact_game::ModelLod>(),
-            ],
+            revisions,
         };
-        // Primitive effects can change the combined draw list every tick.
-        // Keep the model records, skinning bindings and part looks when their
-        // own inputs are unchanged; only append their existing batch ranges.
-        if self.structure.as_ref() == Some(&structure) && self.patch_looks(w, r)? {
-            self.append_batches(batches, slots);
-            return Ok(());
-        }
         self.records.clear();
         self.entities.clear();
         self.part_bases.clear();

@@ -764,6 +764,7 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
         entities: &[exact_game::Entity],
         initial: bool,
         moved: Moved<'_>,
+        poses: &[crate::world::PreparedPose],
     ) {
         if let Some(skinning) = &mut self.models.skinning {
             skinning.feed(&self.queue, world, entities, initial);
@@ -786,7 +787,7 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
                 touched.sort_unstable();
                 touched.dedup();
                 for &i in &touched {
-                    models.update_pose(world, i, None);
+                    models.update_pose(world, i, None, poses);
                 }
             }
             _ => {
@@ -801,7 +802,7 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
                             _ => None,
                         })
                         .unwrap_or(0);
-                    models.update_pose(world, i, Some((digest, initial)));
+                    models.update_pose(world, i, Some((digest, initial)), poses);
                 }
             }
         }
@@ -825,11 +826,17 @@ impl Models {
     }
     // One instance's history step. A full pass supplies its asset digest and
     // whether the feed is initial; an incremental one keeps the saved digest.
-    fn update_pose(&mut self, world: &exact_game::World, i: usize, full: Option<(u64, bool)>) {
+    fn update_pose(
+        &mut self,
+        world: &exact_game::World,
+        i: usize,
+        full: Option<(u64, bool)>,
+        poses: &[crate::world::PreparedPose],
+    ) {
         #[cfg(test)]
         POSE_STEPS.with(|n| n.set(n.get() + 1));
         let history = &mut self.pose_history[i];
-        let Some(pose) = crate::world::scene::pose(world, history.entity) else {
+        let Some(pose) = crate::world::prepared_pose(world, history.entity, poses) else {
             return;
         };
         let digest = full.map_or_else(|| history.saved.map_or(0, |s| s.0), |(d, _)| d);
@@ -1188,6 +1195,30 @@ mod retirement_regressions {
             "{}",
             steps() - before
         );
+        let cached = renderer.models.poses.clone();
+        let entities: Vec<_> = renderer
+            .models
+            .pose_history
+            .iter()
+            .map(|h| h.entity)
+            .collect();
+        renderer.model_poses(sim.world(), &entities, false, Moved::All, &[]);
+        assert_eq!(
+            renderer.models.poses, cached,
+            "cached and recomputed poses agree"
+        );
+        let cached = renderer.models.poses.clone();
+        let entities: Vec<_> = renderer
+            .models
+            .pose_history
+            .iter()
+            .map(|h| h.entity)
+            .collect();
+        renderer.model_poses(sim.world(), &entities, false, Moved::All, &[]);
+        assert_eq!(
+            renderer.models.poses, cached,
+            "parented cached poses match recomputation"
+        );
     }
 
     #[test]
@@ -1238,7 +1269,7 @@ mod retirement_regressions {
             renderer.models.poses,
             vec![[exact_game::Transform::default(); 2]]
         );
-        renderer.model_poses(sim.world(), &[hero], false, Moved::All);
+        renderer.model_poses(sim.world(), &[hero], false, Moved::All, &[]);
         assert_eq!(renderer.models.poses, expected);
     }
 
@@ -1278,7 +1309,7 @@ mod retirement_regressions {
         renderer
             .set_draw_instances(std::slice::from_ref(&record))
             .unwrap();
-        renderer.model_poses(&world, &[missing], false, Moved::All);
+        renderer.model_poses(&world, &[missing], false, Moved::All, &[]);
         assert_eq!(
             renderer.models.poses[0],
             [exact_game::Transform::default(); 2]
@@ -1289,7 +1320,7 @@ mod retirement_regressions {
         let missing = world.resolve("model").unwrap();
         assert!(!world.is_fresh(missing));
         let propagated = crate::world::scene::pose(&world, missing).unwrap();
-        renderer.model_poses(&world, &[missing], false, Moved::All);
+        renderer.model_poses(&world, &[missing], false, Moved::All, &[]);
         assert_eq!(renderer.models.poses[0], [propagated; 2]);
 
         assert!(world.despawn(missing));
@@ -1312,7 +1343,7 @@ mod retirement_regressions {
             .set_draw_instances(std::slice::from_ref(&record))
             .unwrap();
         assert_eq!(renderer.models.poses[0], [propagated; 2]);
-        renderer.model_poses(&world, &[replacement], false, Moved::All);
+        renderer.model_poses(&world, &[replacement], false, Moved::All, &[]);
         assert_eq!(renderer.models.poses[0], [replacement_pose; 2]);
     }
 
