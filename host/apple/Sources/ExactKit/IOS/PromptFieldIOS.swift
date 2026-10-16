@@ -101,6 +101,8 @@ final class PromptField: NSObject, UITextFieldDelegate {
     private func typed() {
         guard let node = live(), let field else { return }
         node.typedText(field.text ?? "")
+        // The page's value written while text was marked waited (`writeValue`).
+        if field.markedTextRange == nil, let held = node.pendingValue { node.writeValue(held, into: field) }
     }
 
     /// The alert is going: the edit commits, and the authored field is its

@@ -20,6 +20,8 @@ extension NodeView {
             return true
         }
         guard selector == #selector(NSResponder.insertNewline(_:)) else { return false }
+        // A prompt's field (AlertsMac.swift): its alert's Return rule.
+        if presenter?.alerts.fieldReturned(self) == true { return true }
         presenter?.commitEdit(id, textView.string, change: handlers.contains("change"))
         if handlers.contains("submit") { presenter?.submit(id) }
         if presenter?.views[id] === self, let field, field.currentEditor() === textView, window?.firstResponder === textView {

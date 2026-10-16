@@ -288,25 +288,49 @@ final class AlertHost {
         owner.alert.accessoryView = stack
         owner.alert.window.initialFirstResponder = owner.fields.first?.field
     }
-    /// The default button of a prompt. Return, one rule on every host
-    /// (docs/contract-for-agents.md): the input's `key` handlers first
-    /// (prevented, nothing more); its `change`; then its `submit` if it has
-    /// one, and that is all; else the button. A click presses it alone.
+    /// Return in a prompt, one rule on every host (docs/contract-for-agents.md):
+    /// the input's `key` handlers first (prevented, nothing more); its
+    /// `change`; then its `submit` if it has one, and that is all; else the
+    /// default button, as it is once the `change` has run. Whether that
+    /// button may then be pressed.
+    private func returnThroughField(_ owner: Presented, _ node: NodeView) -> Bool {
+        guard let presenter, presenter.views[node.id] === node else { return false }
+        if presenter.keyDown(at: node, "Enter") { return false }
+        presenter.commitEdit(node.id, node.fieldText, change: node.handlers.contains("change"))
+        if node.handlers.contains("submit") { presenter.submit(node.id); return false }
+        // What the `change` did may have ended the alert or changed its button.
+        return presented === owner && valid(owner)
+    }
+    private func pressDefault(_ owner: Presented) {
+        guard let index = owner.defaultRow, owner.alert.buttons.indices.contains(index), owner.alert.buttons[index].isEnabled,
+              let action = owner.press.action else { return }
+        NSApp.sendAction(action, to: owner.press.target, from: owner.alert.buttons[index])
+    }
+    /// The default button of a prompt, enabled: AppKit gives it Return before
+    /// the field, so Return goes through the field here. A click presses it alone.
     @objc private func promptDefault(_ sender: NSButton) {
         guard let owner = presented else { return }
         let event = NSApp.currentEvent
-        let returned = returning || event?.type == .keyDown && event?.charactersIgnoringModifiers == "\r"
-        if returned, let presenter, let node = owner.fields.first, presenter.views[node.id] === node {
-            if presenter.keyDown(at: node, "Enter") { return }
-            presenter.commitEdit(node.id, node.fieldText, change: node.handlers.contains("change"))
-            if node.handlers.contains("submit") { presenter.submit(node.id); return }
-            // What the `change` did may have ended the alert or disabled the action.
-            guard presented === owner, sender.isEnabled, valid(owner) else { return }
+        if event?.type == .keyDown && event?.charactersIgnoringModifiers == "\r", let node = owner.fields.first {
+            if returnThroughField(owner, node) { pressDefault(owner) }
+            return
         }
-        if let action = owner.press.action { NSApp.sendAction(action, to: owner.press.target, from: sender) }
+        pressDefault(owner)
     }
-    /// The driver's key is Return (`key`), not an event AppKit sent.
-    private var returning = false
+    /// Return in the prompt's field when no enabled button took it first (its
+    /// default disabled, or none): through the field, then the default button
+    /// if the `change` enabled it (`FieldEditingMac`). False when `node` is no
+    /// field of an alert that is up.
+    func fieldReturned(_ node: NodeView) -> Bool {
+        guard let owner = presented, owner.fields.contains(where: { $0 === node }) else { return false }
+        if returnThroughField(owner, node) { pressDefault(owner) }
+        return true
+    }
+    /// `focus(id)` of a prompt's input: its field in the alert takes the keyboard.
+    func focus(_ node: NodeView) -> Bool {
+        guard let owner = presented, owner.fields.contains(where: { $0 === node }), let field = node.field, let window = field.window else { return false }
+        return window.makeFirstResponder(field)
+    }
     /// The driver's typing into an authored field the prompt shows: the
     /// field its node lent the alert takes the text, and the input hears it
     /// as a keystroke. nil when `node` is no field of an alert that is up.
@@ -364,11 +388,11 @@ final class AlertHost {
     /// keys come here. False when the key is no button's.
     func key(_ name: String) -> Bool {
         guard let owner = presented, valid(owner) else { return false }
+        // A prompt's Return goes through its field, as a person's does.
+        if name == "Enter", let node = owner.fields.first { return fieldReturned(node) }
         let escapes = owner.node?.props["closedby"] != "none"
         let index = name == "Enter" ? owner.defaultRow : name == "Escape" && escapes ? owner.rows.firstIndex(where: \.cancel) : nil
         guard let index, owner.alert.buttons.indices.contains(index), owner.alert.buttons[index].isEnabled else { return false }
-        returning = name == "Enter"
-        defer { returning = false }
         owner.alert.buttons[index].performClick(nil)
         return true
     }

@@ -15,6 +15,8 @@ addEventListener("keydown", ev => {
   if (!dialog) return;
   ev.preventDefault();
   field.blur();
+  // The `change` may have closed the prompt: then nothing is pressed.
+  if (!dialog.isConnected || !(dialog.open || dialog.matches(":popover-open")) || !dialog.contains(field)) return;
   const action = [...dialog.querySelectorAll("button")].find(b => b.matches('[data-exact-on~="press"]:not([data-destructive="true"])'));
   if (action && !action.disabled) action.click();
   else field.focus();

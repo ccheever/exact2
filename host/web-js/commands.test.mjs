@@ -77,6 +77,16 @@ test("a prompt's Return commits its field, then presses its action", async () =>
     });
     await page.locator('#name').press('Enter');
     expect(await page.locator('#log').textContent()).toBe('submitted');
+    // A `change` that closes the prompt: its Save, still mounted, is not pressed.
+    await page.evaluate(() => {
+      const dialog = document.querySelector('dialog'), name = document.querySelector('#name');
+      name.replaceWith(name.cloneNode());
+      document.querySelector('#log').textContent = '';
+      document.querySelector('#name').addEventListener('change', () => dialog.close());
+    });
+    await page.locator('#name').fill('Snare');
+    await page.locator('#name').press('Enter');
+    expect(await page.locator('#log').textContent()).toBe('');
   } finally {
     await browser?.close();
     server.stop(true);

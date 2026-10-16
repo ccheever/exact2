@@ -394,6 +394,23 @@ final class ConfirmationAlertIOSTests: XCTestCase {
         XCTAssertNil(p.menus.observation(), "the field shown is no longer the input's: withdrawn")
     }
 
+    /// A value the page wrote while text was marked waits (`pendingValue`)
+    /// and lands in the prompt's field once the composition has ended.
+    func testAPromptsHeldValueLandsWhenTheCompositionEnds() throws {
+        let (p, controller, _) = confirmation(label: "Rename", texts: [], actions: ["Delete", "Save"], cancel: true)
+        defer { dismiss(p, controller) }
+        p.apply(wireBatch([["op": "create", "id": 20, "kind": "input", "handlers": ["input"], "props": ["value": ""], "style": ["text_color": [0, 0, 0, 255]]],
+                           ["op": "frame", "id": 20, "x": 0.0, "y": 0.0, "w": 200.0, "h": 30.0],
+                           ["op": "children", "id": 2, "ids": [20, 3, 4, 9]]]))
+        XCTAssertEqual(p.menus.activate(try XCTUnwrap(p.views[1])), true)
+        let alert = try XCTUnwrap(controller.presentedViewController as? UIAlertController)
+        let field = try XCTUnwrap(alert.textFields?.first)
+        try XCTUnwrap(p.views[20]).pendingValue = "かな"
+        field.text = "か"
+        field.sendActions(for: .editingChanged)
+        XCTAssertEqual(field.text, "かな", "held while marked, written once nothing is")
+    }
+
     /// Without a label, the first line titles the alert and the rest is
     /// its message; an alert always has a title.
     func testAnUnlabelledConfirmationIsTitledByItsFirstLine() throws {

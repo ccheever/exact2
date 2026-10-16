@@ -373,6 +373,34 @@ final class AlertMacTests: XCTestCase {
         window.close()
     }
 
+    /// The lent field edits in the session's editor (`beforeinput`); `focus`
+    /// reaches it in the alert; and Return with Save disabled still goes
+    /// through the field, its `change` enabling Save, which is then pressed.
+    func testAPromptsReturnGoesThroughTheFieldWhileSaveIsDisabled() throws {
+        let p = fixture(label: "Rename", lines: [], actions: ["Save"], props: [10: ["disabled": "true"]], field: true)
+        let node = try XCTUnwrap(p.views[51])
+        node.handlers.remove("submit")
+        node.props["id"] = "name"
+        var events: [String] = []
+        p.onPress = { events.append("press \($0)") }
+        p.onChange = { id, value in
+            events.append("change \(id) \(value)")
+            p.apply(wireBatch([["op": "props", "id": 10, "clear": ["disabled"]]]))
+        }
+        p.press(2)
+        XCTAssertNotNil(p.alerts.presented)
+        let field = try XCTUnwrap(node.field)
+        XCTAssertTrue(field.cell?.fieldEditor(for: field) === p.fieldEditor, "the session's editor, as in the page")
+        p.focusElement(["name"])
+        XCTAssertNotNil(field.currentEditor(), "focus(id) reaches the field in the alert")
+        XCTAssertEqual(p.alerts.type(node, "Kick"), "Kick")
+        XCTAssertTrue(p.alerts.key("Enter"), "Return is taken while Save is disabled")
+        turn(); turn()
+        XCTAssertEqual(events.first, "change 51 Kick")
+        XCTAssertTrue(events.contains("press 10"), "the change enabled Save, which Return then pressed: \(events)")
+        window.close()
+    }
+
     func testAPromptOpensWithSaveDisabledAndItsFieldFollowsTheInput() throws {
         let p = fixture(label: "Rename", lines: [], actions: ["Save"], props: [10: ["disabled": "true"]], field: true)
         p.press(2)
