@@ -900,3 +900,9 @@ D12 as written, except where this says otherwise.
   bounded: a file over 64 MB (`SHARE_COPY_MAX`) is refused by name
   (`larger than the 64 MB a share copies`), and one that grows past the
   bound while copied is refused and its copy removed.
+- **After review round 3.** The pinned handles were one per process, so
+  in the sample host's two sessions (LLP 1031) the second's storage
+  replaced the first's and a share in the first read the second's tree.
+  They are now kept per app, by the roots' paths, and a share looks up the
+  roots of its own session's app (test: two pinned trees, each share reads
+  its own; roots never pinned have no files).

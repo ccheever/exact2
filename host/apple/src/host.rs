@@ -641,8 +641,7 @@ impl<D: DataSource> Host<D> {
     pub fn answer_hold(&mut self, request: &str) -> Option<String> {
         let op = exact_runner::agent::field_str(request, "op");
         if let Some(op @ ("appFile" | "shareFile")) = op.as_deref() {
-            let grants = self.runner.data_ref().grants();
-            return Some(crate::picker::file_op(op, request, grants));
+            return Some(crate::picker::file_op(op, request, self.runner.data_ref()));
         }
         if op.as_deref() == Some("appRoots") {
             return Some(crate::picker::roots_reply());

@@ -7,6 +7,7 @@
 
 use exact_runner::DataError;
 use ibex2::stdlib::app_fs::AppDirectories;
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -141,11 +142,11 @@ pub fn know_roots(app_id: &str) {
 
 /// Record the app's directories, as storage is configured, and empty
 /// `app:/tmp/picked/`: the last launch's picks are gone (D4). Their handles
-/// are pinned here for a share's reads ([`PINNED`]).
+/// are pinned here for a share's reads ([`pin`]).
 pub fn set_roots(data: PathBuf, cache: PathBuf, temporary: PathBuf) {
     let _ = std::fs::remove_dir_all(temporary.join("picked"));
     let roots = [data, cache, temporary];
-    *PINNED.lock().unwrap_or_else(|e| e.into_inner()) = Some(open_pinned(&roots));
+    pin(&roots);
     *ROOTS.lock().unwrap_or_else(|e| e.into_inner()) = Some(roots);
 }
 
@@ -232,11 +233,18 @@ pub fn documents(op: &str, request: &str, grants: &str) -> String {
     }
 }
 
-/// The agent's `appFile` ([`app_file`]) and `shareFile` ([`share_copy`]).
-pub fn file_op(op: &str, request: &str, grants: &str) -> String {
+/// The agent's `appFile` ([`app_file`]) and `shareFile` ([`share_copy`],
+/// through the roots of the asking session's own app, `data`'s).
+pub fn file_op<D: exact_runner::DataSource>(op: &str, request: &str, data: &D) -> String {
     match op {
         "appFile" => app_file(&exact_runner::agent::field_str(request, "path").unwrap_or_default()),
-        _ => share_copy(request, grants),
+        _ => {
+            let roots = app_dirs(data.app_id())
+                .ok()
+                .flatten()
+                .map(|(roots, _)| roots);
+            share_copy(request, data.grants(), roots.as_ref())
+        }
     }
 }
 
@@ -272,13 +280,24 @@ pub fn app_file(path: &str) -> String {
     }
 }
 
-/// The app's directories as storage opened them, pinned by their handles
-/// from then on (LLP 1125 D12): a share reads through these and never
-/// reopens a root by name, so a root or an ancestor of it renamed or
-/// replaced later (a link to another tree) changes nothing a share reads.
-/// `None` until storage is configured ([`set_roots`]), and on a host or
-/// drive with none.
-static PINNED: Mutex<Option<Result<AppDirectories, String>>> = Mutex::new(None);
+/// Each app's directories as its storage opened them, by their paths, pinned
+/// by their handles from then on (LLP 1125 D12): a share reads through its
+/// own session's and never reopens a root by name, so a root or an ancestor
+/// of it renamed or replaced later (a link to another tree) changes nothing
+/// a share reads, and another session's storage (LLP 1031: two sessions in
+/// one process, perhaps two apps) is not this one's. An app's entry is set
+/// when its storage is configured ([`set_roots`]), as storage reopens its own.
+static PINNED: Mutex<BTreeMap<[PathBuf; 3], Result<AppDirectories, String>>> =
+    Mutex::new(BTreeMap::new());
+
+/// Pin `roots`' handles for a share's reads ([`PINNED`]).
+fn pin(roots: &[PathBuf; 3]) {
+    let opened = open_pinned(roots);
+    PINNED
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(roots.clone(), opened);
+}
 
 /// The largest app file a share copies (LLP 1125 D12): the copy runs on the
 /// thread that asked, the main one, so a larger file is refused by name
@@ -307,11 +326,18 @@ fn open_pinned(roots: &[PathBuf; 3]) -> Result<AppDirectories, String> {
 /// at any component, so a link in the app's tree cannot put a file outside
 /// the grant on the share sheet. Only a regular file of at most
 /// [`SHARE_COPY_MAX`] bytes is copied; `to` must not exist. An error for
-/// anything else. `request` is `{"op":"shareFile","path":…,"to":…}`.
-pub fn share_copy(request: &str, grants: &str) -> String {
+/// anything else. `request` is `{"op":"shareFile","path":…,"to":…}`;
+/// `roots` the asking session's app's, `None` where it has no storage.
+pub fn share_copy(request: &str, grants: &str, roots: Option<&[PathBuf; 3]>) -> String {
     let field = |k| exact_runner::agent::field_str(request, k).unwrap_or_default();
     let (path, to) = (field("path"), field("to"));
-    let pinned = PINNED.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let pinned = roots.and_then(|r| {
+        PINNED
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(r)
+            .cloned()
+    });
     let copied = match pinned {
         Some(Ok(directories)) => copy_confined(
             &directories,
@@ -466,6 +492,32 @@ mod tests {
         );
         assert!(open_pinned(&roots).is_err(), "a root that is a link");
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// Two sessions' apps pinned in one process (LLP 1031): each share reads
+    /// its own app's tree, and roots never pinned have no files.
+    #[test]
+    fn each_session_shares_through_its_own_pinned_roots() {
+        let (a, roots_a) = tree("session-a");
+        let (b, roots_b) = tree("session-b");
+        std::fs::write(roots_b[0].join("backups/notes.json"), b"b's").unwrap();
+        pin(&roots_a);
+        pin(&roots_b);
+        let ask = |to: &PathBuf| {
+            format!(
+                r#"{{"op":"shareFile","path":"app:/data/backups/notes.json","to":"{}"}}"#,
+                to.display()
+            )
+        };
+        assert!(share_copy(&ask(&a.join("a")), GRANTS, Some(&roots_a)).contains("\"file\""));
+        assert!(share_copy(&ask(&b.join("b")), GRANTS, Some(&roots_b)).contains("\"file\""));
+        assert_eq!(std::fs::read(a.join("a")).unwrap(), b"{}");
+        assert_eq!(std::fs::read(b.join("b")).unwrap(), b"b's");
+        let unpinned = [a.join("x"), a.join("y"), a.join("z")];
+        assert!(share_copy(&ask(&a.join("c")), GRANTS, Some(&unpinned)).contains("no app files"));
+        assert!(share_copy(&ask(&a.join("d")), GRANTS, None).contains("no app files"));
+        let _ = std::fs::remove_dir_all(&a);
+        let _ = std::fs::remove_dir_all(&b);
     }
 
     /// A file larger than the bound is refused by name and nothing is left.
