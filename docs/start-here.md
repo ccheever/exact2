@@ -77,8 +77,9 @@ want checked or captured is a test's end; a drive takes any others (`resize`, `p
 Create seam types once with `bun exact.mjs contract types app.contract -o app.contract.d.ts`.
 `contract build` refreshes that declaration after a successful compile and reports
 the change on stderr. `contract types --check app.contract` checks freshness without writing.
-Keep scratch files in `.exact/`. Files there and a test-only `seed.json` do not
-make the build stale; a JSON file imported by `app.ts` remains a build input.
+Keep scratch files in `.exact/`. Scratch files there and a test-only `seed.json`
+do not make the build stale. The backend selection `.exact/backend-origin` and
+any JSON file imported by `app.ts` remain build inputs.
 
 `agent ios` is the app as a person sees it, UIKit's bars included, with screenshots a pixel a
 point (`--scale 3`: the device's): no other simulator tool is needed. `--touch platform` makes
