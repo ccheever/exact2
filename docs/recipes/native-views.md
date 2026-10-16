@@ -26,14 +26,21 @@ let exactModule: ExactModule.Type = Pad.self
 
 final class Strip: ExactNativeInstance {
     private let strip = StripView() // a UIView that draws and has a tap recognizer
+    private let pad: Pad
     private var ticket: ExactTicket?
     init(_ pad: Pad, _ props: [String: String], _ events: ExactNativeEvents) {
+        self.pad = pad
         super.init(events: events)
         try? setProps(props)
-        strip.tapped = { events.message(String($0)) }
+        strip.tapped = { [weak self] step in events.message(String(step)); self?.start() }
         events.intrinsicSize(CGSize(width: 320, height: 48))
+    }
+    // A live ticket costs CPU; stopped, it's gone
+    func start() {
+        guard ticket == nil else { return }
         ticket = pad.context.frames { [weak self] f in
-            if self?.strip.advance(to: f.now) == false { self?.ticket?.stop() }
+            guard let self, !self.strip.advance(to: f.now) else { return }
+            self.ticket?.stop(); self.ticket = nil
         }
     }
     override var view: ExactNativeView { strip }
@@ -54,10 +61,6 @@ final class Strip: ExactNativeInstance {
   box blocks nothing; the box keeps it with `press=` or `isUserInteractionEnabled = false`.
   The agent's plain `tap` runs no recognizer: drive with `agent ios --touch platform`.
 - **Size:** `intrinsicSize` is the natural size; an authored `width`, `height` wins.
-- **Accessibility:** `aria-label` makes the box one element when the view says nothing to
-  VoiceOver, and a `role` of `button`, `link`, `img`, `switch` or `checkbox` (`aria-checked`)
-  or `slider` (`aria-valuenow`) its traits. A view with parts sets `accessibilityElements`
-  (`UIAccessibilityElement`s with a label, `.button` and `accessibilityActivate`); the box is
-  then a group under the label.
+- **Accessibility:** [native views](../contract-for-agents.md#native-views-accessibility).
 - **First frame:** a view attaches after first paint, so a slow one never delays it. A cheap
   one that must be in the first frame (a boot splash) says `ExactNativeFactory(firstFrame: true)`.

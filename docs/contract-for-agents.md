@@ -1604,6 +1604,14 @@ including the storage drain; it works with the development menu off. A
 iOS/tvOS, Linux and native agent sessions journal a refusal; for a scripted
 restart, start another drive on the same `--storage`. See [host commands](contract-grammar.md#host-commands).
 
+### Native views: accessibility
+
+A native view ([recipe](recipes/native-views.md)) that says nothing to VoiceOver is one
+element under its box's `aria-label`, with the traits of its `role`: `button`, `link`,
+`img`, `switch` or `checkbox` (`aria-checked`), or `slider` (`aria-valuenow`). A view with
+parts sets `accessibilityElements` (`UIAccessibilityElement`s with a label, `.button` and
+`accessibilityActivate`); the box is then a group under the label.
+
 ## Routes and web documents
 
 Declare at most one `routes <slot>` in the app's root file. Each row names an
