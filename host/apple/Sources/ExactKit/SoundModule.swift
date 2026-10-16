@@ -132,7 +132,9 @@ final class SoundOutput {
         if let files = payload["files"] as? [String] {
             // New files let the output and its session claim go; the next voice takes both again.
             if files != self.files { shutdown(); self.files = files; failure = nil }
-            else if let arm { backlog = []; _ = library()?.op(arm.handle, 3, 0, 0, 0, 0, 1, 0) }
+            // The last boot's ops still waiting are let go; the stop of its
+            // voices waits its turn like any op, so a full ring never skips it.
+            else if let arm, let library = library() { backlog = []; send(arm, library, (3, 0, 0, 0, 0, 1, 0)) }
         }
         for op in payload["ops"] as? [[String: Any]] ?? [] {
             let id = UInt64((op["id"] as? NSNumber)?.int64Value ?? 0), at = (op["at"] as? NSNumber)?.doubleValue ?? 0

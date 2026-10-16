@@ -191,7 +191,6 @@ impl<D: DataSource> Runner<D> {
         self.refused_unsent.clear();
         // What a refused commit's gate step read is let go (LLP 1125 D2).
         self.transport.pending = None;
-        self.transport.suspend = false;
         // After any restore: the source hears what is really in flight.
         if std::mem::take(&mut self.forgot) {
             let in_flight: Vec<InFlight<'_>> = self

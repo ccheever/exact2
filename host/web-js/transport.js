@@ -15,7 +15,7 @@
 import { journal, clock, Sounds, Mutations, Resources, R, data, drive, untracked, Refusal } from './rt.js';
 import { plain } from './format.js';
 
-const LOOKAHEAD = 1000, REFILL = 500, SEGMENTS = 1024, LOOPS_PER_SECOND = 1000, FROM_LIMIT = 2147483648, SHORTEST = 1 / 1048576;
+const LOOKAHEAD = 1000, REFILL = 500, SEGMENTS = 1024, LOOPS_PER_SECOND = 1000, FROM_LIMIT = 2147483648, SHORTEST = 1 / 1048576, EXACT = 4503599627370496;
 const KINDS = ['selection', 'impact', 'impact-light', 'impact-medium', 'impact-heavy', 'impact-soft', 'impact-rigid', 'success', 'warning', 'error'];
 const say = line => journal.push(`t=${clock.now} ${line}`);
 const num = n => !Number.isFinite(n) ? 'null' : n < 0 ? `-${plain(-n)}` : plain(n); // the runner's `num`
@@ -31,8 +31,8 @@ const Seqs = []; // each declared sequence, in plan order: its code, `ended`, na
 let Readers = {}, Owner = null, Last = null, Raw = [], Play = null, Segments = [], Recorded = 0, State = 'stopped', Reason = '';
 let IssuedTo = 0, Skip = 0, RefillDue = Infinity, PhaseDue = Infinity, EndedDue = Infinity, Pending = null;
 const T = () => Sounds.seq;
-const Answer = { name: 'transport', due: Infinity, next: Infinity, then: () => { for (const r of Resources) if (r.source === 'exactTransport') R(r); } };
-const End = { due: Infinity, once: true, hatch: true, i: Infinity, name: '', action: () => end() };
+const Answer = { name: 'transport', requests: 0, due: Infinity, next: Infinity, then: () => { for (const r of Resources) if (r.source === 'exactTransport') R(r); } };
+let End = null; // the armed end's `clock.timers` entry: a new one per arming, so one being fired keeps the kind it was chosen as
 const Wake = { due: Infinity, hatch: true, i: Infinity, name: '', action: () => (wake(clock.now), true) };
 
 // A step read from its record, or null (journaled when it is not played for a reason).
@@ -97,6 +97,9 @@ function timing(t) {
 // Issue the hits in [IssuedTo, at + LOOKAHEAD); off the agent a hit already past is skipped and said once.
 function fill(at) {
   if (!Play || Owner == null) return;
+  // A loop index past 2^52 (a beat kept across an edit can reach it) stops the sequence: past 2^53 it no longer steps by 1.
+  const end = beatAt(seg(), at + LOOKAHEAD);
+  if (Play.tracks.some(t => !(Math.abs(end / t.length) < EXACT))) { say(`sequence ${Seqs[Owner].name}: beat ${num(end)} is past exact loop counting`); return stop(at, 'bpm'); }
   const from = IssuedTo, to = at + LOOKAHEAD, list = hits(Play, seg(), from, to), live = !clock.agent;
   let skipped = 0; while (skipped < Skip && skipped < list.length && list[skipped].at === from) skipped++;
   list.splice(0, skipped); Skip = 0;
@@ -104,7 +107,7 @@ function fill(at) {
   const full = T().batch(() => {
     for (let k = 0; k < list.length; k++) {
       const h = list[k];
-      if (live && h.at < at) { late++; continue; }
+      if (live && h.at < at - REFILL) { late++; continue; } // a stall's, not a wake's own lateness
       const s = stepOf(Play, h);
       if (s.src && T().issue(at, [s.src, h.at, s.gain, s.group, s.rate, s.pan]) === 'full') return k;
       if (s.haptic) T().haptic(s.haptic, h.at, at);
@@ -153,10 +156,10 @@ function stop(t, reason) {
 // A change's aftermath: the output hears it, the clock's entries follow it, and `exactTransport` is answered again.
 function after(before) {
   T().flush();
-  for (const e of [End, Wake]) { const k = clock.timers.indexOf(e); if (k >= 0) clock.timers.splice(k, 1); }
-  // The end's kind is set only as it is armed: an end being fired keeps the kind it was chosen as (a timer, counted).
-  End.due = EndedDue; Wake.due = Math.min(RefillDue, PhaseDue);
-  if (End.due < Infinity) { End.hatch = !(Owner != null && Seqs[Owner].ended); clock.timers.push(End); }
+  for (const e of [End, Wake]) { const k = e ? clock.timers.indexOf(e) : -1; if (k >= 0) clock.timers.splice(k, 1); }
+  Wake.due = Math.min(RefillDue, PhaseDue);
+  End = EndedDue < Infinity ? { due: EndedDue, once: true, hatch: !(Owner != null && Seqs[Owner].ended), i: Infinity, name: '', action: () => end() } : null;
+  if (End) clock.timers.push(End);
   if (Wake.due < Infinity) clock.timers.push(Wake);
   if (Object.keys(Readers).length && answerKey() !== before) {
     Answer.due = Math.min(Answer.due, clock.now);

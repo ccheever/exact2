@@ -4,8 +4,9 @@
 // at its end; an End for a freed slot is ignored; a full ring counts its drop.
 // A voice's playback rate reads its sound by linear interpolation and moves
 // its end; its pan places it by Web Audio's equal-power law (LLP 1125 D10).
-// A second's lookahead fits: 288 slots and a ring of 1024 ops, and a voice
-// retracted before it starts frees its slot at once (LLP 1125 D3).
+// A second's lookahead fits: 320 slots (32 sounding, 256 waiting, and 32
+// for the voices a stop ends partway into a buffer) and a ring of 1024 ops,
+// and a voice retracted before it starts frees its slot at once (LLP 1125 D3).
 import AudioToolbox
 import ExactSoundRender
 import XCTest
@@ -244,18 +245,47 @@ final class SoundMixerTests: XCTestCase {
         let m = mixer()
         defer { exact_sound_mixer_free(m) }
         let t = exact_sound_seconds(ticks(50))
-        // 288 voices waiting a second ahead, in slots; a 289th finds none.
-        for i in 0..<288 { XCTAssertTrue(exact_sound_push(m, 1, UInt64(i + 1), 0, t + 0.5 + Double(i) / 1000, 0.1, 1, 0)) }
-        XCTAssertTrue(exact_sound_push(m, 1, 289, 0, t + 0.9, 0.1, 1, 0))
+        // 320 voices waiting ahead, in slots; a 321st finds none.
+        for i in 0..<320 { XCTAssertTrue(exact_sound_push(m, 1, UInt64(i + 1), 0, t + 0.5 + Double(i) / 1000, 0.1, 1, 0)) }
+        XCTAssertTrue(exact_sound_push(m, 1, 321, 0, t + 0.9, 0.1, 1, 0))
         _ = render(m, at: t)
-        XCTAssertEqual(exact_sound_live(m), 288)
+        XCTAssertEqual(exact_sound_live(m), 320)
         XCTAssertEqual(exact_sound_dropped(m), 1)
         // An edit retracts one before it starts: its slot is free in the same render, and a new voice takes it.
-        XCTAssertTrue(exact_sound_push(m, 2, 288, 0, t + 0.5 + 287.0 / 1000, 0, 1, 0))
-        XCTAssertTrue(exact_sound_push(m, 1, 290, 1, t + 0.95, 0.1, 1, 0))
+        XCTAssertTrue(exact_sound_push(m, 2, 320, 0, t + 0.5 + 319.0 / 1000, 0, 1, 0))
+        XCTAssertTrue(exact_sound_push(m, 1, 322, 1, t + 0.95, 0.1, 1, 0))
         _ = render(m, at: t + 512 / rate)
-        XCTAssertEqual(exact_sound_live(m), 288)
+        XCTAssertEqual(exact_sound_live(m), 320)
         XCTAssertEqual(exact_sound_dropped(m), 1, "the new voice took the freed slot")
+    }
+
+    func testAVoiceStoppedBeforeItsFirstRenderFreesItsSlot() {
+        let m = mixer(frames: 48_000)
+        defer { exact_sound_mixer_free(m) }
+        let t = exact_sound_seconds(ticks(80))
+        // Every slot taken by voices due now, none rendered yet; a stop ends them all before this buffer.
+        for i in 0..<320 { XCTAssertTrue(exact_sound_push(m, 1, UInt64(i + 1), 0, t + latency - 0.001, 0.001, 1, 0)) }
+        for i in 0..<32 { XCTAssertTrue(exact_sound_push(m, 2, UInt64(i + 1), 0, t + latency - 0.0005, 0, 1, 0)) }
+        for i in 0..<32 { XCTAssertTrue(exact_sound_push(m, 1, UInt64(i + 400), 1, t + latency, 0.001, 1, 0)) }
+        _ = render(m, at: t)
+        XCTAssertEqual(exact_sound_dropped(m), 0, "the stopped voices, never started, gave their slots up")
+    }
+
+    func testAStopPartwayIntoABufferLeavesRoomForItsReplacements() {
+        let m = mixer(frames: 48_000)
+        defer { exact_sound_mixer_free(m) }
+        let t = exact_sound_seconds(ticks(90))
+        // 32 sounding and 256 waiting, as the runner's bounds allow.
+        for i in 0..<32 { XCTAssertTrue(exact_sound_push(m, 1, UInt64(i + 1), 0, t + latency, 0.01, 1, 0)) }
+        for i in 0..<256 { XCTAssertTrue(exact_sound_push(m, 1, UInt64(i + 33), 0, t + 0.5 + Double(i) / 1000, 0.01, 1, 0)) }
+        _ = render(m, at: t)
+        // The 32 stop 5 ms into the next buffer, and 32 replacements start there: the stopped keep their slots
+        // through that buffer, and the spare 32 take the replacements.
+        let next = t + 512 / rate
+        for i in 0..<32 { XCTAssertTrue(exact_sound_push(m, 2, UInt64(i + 1), 0, next + latency + 0.005, 0, 1, 0)) }
+        for i in 0..<32 { XCTAssertTrue(exact_sound_push(m, 1, UInt64(i + 289), 1, next + latency + 0.005, 0.01, 1, 0)) }
+        _ = render(m, at: next)
+        XCTAssertEqual(exact_sound_dropped(m), 0)
     }
 
     func testAStopFreesItsSlotsForTheVoicesBehindItInOneRender() {

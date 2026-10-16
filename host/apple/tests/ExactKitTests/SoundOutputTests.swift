@@ -123,6 +123,19 @@ final class SoundOutputTests: XCTestCase {
         XCTAssertEqual(Arm.plays, [1, 2, 3, 4, 5, 6, 7])
     }
 
+    /// A boot with the same files stops the last boot's voices: the stop
+    /// waits its turn when the ring is full, never skipped.
+    func testABootsStopWaitsForRoom() {
+        let output = output()
+        play(output, 1)
+        Arm.room = 0
+        output.apply(["files": ["assets/kick.wav"], "ops": []])
+        XCTAssertFalse(Arm.taken.contains([3, 0]))
+        Arm.room = nil
+        output.drain()
+        XCTAssertEqual(Arm.taken.last, [3, 0])
+    }
+
     func testAPlayCarriesItsPlaybackRateAndPanToTheMixer() {
         let output = output()
         play(output, 1)

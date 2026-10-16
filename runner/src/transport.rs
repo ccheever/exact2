@@ -68,6 +68,11 @@ pub const LOOPS_PER_SECOND: f64 = 1000.0;
 pub const FROM_LIMIT: f64 = 2147483648.0;
 /// See [`FROM_LIMIT`]: 2^-20 of a beat.
 pub const SHORTEST: f64 = 1.0 / 1048576.0;
+/// A loop index past which a fill stops the sequence (2^52): a beat kept
+/// across an edit (a long track at a high tempo, then a short one) can
+/// reach it where `from` and the length alone cannot, and past 2^53 a loop
+/// index no longer steps by 1.
+pub const EXACT: f64 = 4503599627370496.0;
 /// A step's `haptic` kinds: `haptic()`'s (LLP 1077 D14).
 pub const HAPTIC_KINDS: [&str; 10] = [
     "selection",
@@ -490,7 +495,8 @@ pub struct Transport {
     pub(crate) readers: Vec<usize>,
     /// The gate step's reading, applied once its commit stands.
     pub(crate) pending: Option<Vec<Seen>>,
-    /// A background stop its commit applies once it stands (`set_page`).
+    /// A background stop the commit of `set_page`'s call that stands
+    /// applies; the call clears it if none does.
     pub(crate) suspend: bool,
 }
 
@@ -808,8 +814,8 @@ impl Transport {
     }
 
     /// Issue the hits in `[issued_to, at + LOOKAHEAD)`. On a live clock a
-    /// hit already past (a stall longer than [`REFILL`]) is skipped, and
-    /// said once; never on a seek.
+    /// hit more than [`REFILL`] past (a stall's) is skipped, and said once;
+    /// one less past starts now. Never on a seek.
     fn fill(
         &mut self,
         plan: &Plan,
@@ -821,6 +827,21 @@ impl Transport {
         let (Some(seg), Some(i)) = (self.segments.back().copied(), self.owner) else {
             return;
         };
+        let end = seg.beat_at(at + LOOKAHEAD);
+        let far = self.play.as_ref().is_some_and(|p| {
+            p.tracks.iter().any(|t| {
+                let k = (end / t.length).abs();
+                k.is_nan() || k >= EXACT
+            })
+        });
+        if far {
+            let name = plan.str(plan.sequences[i].name);
+            log.push(format!(
+                "sequence {name}: beat {} is past exact loop counting",
+                num(end)
+            ));
+            return self.stop(plan, sounds, at, "bpm", log);
+        }
         let Some(play) = self.play.take() else {
             return;
         };
@@ -833,7 +854,9 @@ impl Transport {
         let mut late = 0;
         let full = sounds.batch(|s| {
             for (k, hit) in hits.iter().enumerate() {
-                if live && hit.at < at {
+                // Only a stall's: a wake's own lateness (the blocked hit's
+                // wake runs just after its time) is no reason to skip.
+                if live && hit.at < at - REFILL {
                     late += 1;
                     continue;
                 }
@@ -884,4 +907,4 @@ impl Transport {
     }
 }
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

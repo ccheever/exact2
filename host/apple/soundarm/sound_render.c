@@ -84,10 +84,11 @@ uint32_t exact_sound_room(const ExactMixer *m) {
 uint32_t exact_sound_live(const ExactMixer *m) { return atomic_load_explicit(&m->live, memory_order_relaxed); }
 
 /// Whether a slot's voice is over by `speaker`, the buffer's speaker time:
-/// ended before this buffer, or cut before it sounded (an End this apply
-/// took counts), so a Play behind it can take its slot now.
+/// it ends before this buffer (started or not), or was cut before it
+/// sounded (an End this apply took counts), so a Play behind it can take
+/// its slot now.
 static bool over(const Voice *v, double speaker) {
-    return !v->live || (v->started ? v->end <= speaker : v->end <= v->start);
+    return !v->live || v->end <= speaker || (!v->started && v->end <= v->start);
 }
 
 /// Every op in the ring, in order: a Play and an End for the same buffer both take effect in it.

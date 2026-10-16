@@ -1,6 +1,7 @@
 # A sequence (LLP 1125): the count-in, polymeter, an edit, a tempo change,
 # stopSounds, a key restart, the gate's stop, a finite take's ended=, a from past
-# exact counting, and an end already past at the arming.
+# exact counting, an end already past at the arming, and an ended= that starts
+# a second sequence.
 tap start
 clock +700
 clock +1600
@@ -24,3 +25,7 @@ clock +100
 tap stop
 tap late
 clock +100
+tap stop
+tap handoff
+clock +3500
+clock +2000

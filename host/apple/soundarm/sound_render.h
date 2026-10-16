@@ -16,9 +16,11 @@
 #include <stdbool.h>
 #include <CoreAudioTypes/CoreAudioTypes.h>
 
-/// Voices in slots at once: 32 sounding (LLP 1125 D3's bound) and the 256
-/// a sequence may have issued that have not started.
-#define EXACT_SOUND_SLOTS 288
+/// Voices in slots at once. The runner bounds the voices sounding at any
+/// start to 32 and those waiting to 256 (LLP 1125 D3); a voice stopped
+/// partway into a buffer keeps its slot until that buffer renders, so the
+/// 32 it replaces need 32 more: 32 + 256 + 32.
+#define EXACT_SOUND_SLOTS 320
 /// Ops the ring holds: a second's lookahead of plays, and their ends.
 #define EXACT_SOUND_RING 1024
 

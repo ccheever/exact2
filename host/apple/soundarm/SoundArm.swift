@@ -176,9 +176,8 @@ private final class SoundArm {
     /// False, the op not taken, while the ring has no room: the caller
     /// keeps it for the next render (SoundOutput's backlog).
     func push(_ kind: UInt32, _ id: UInt64, _ sound: UInt32, _ at: Double, _ gain: Float, _ rate: Float, _ pan: Float) -> Bool {
-        guard exact_sound_room(mixer) > 0 else { return false }
+        guard exact_sound_room(mixer) > 0, exact_sound_push(mixer, kind, id, sound, at, gain, rate, pan) else { return false }
         if kind == 1 { started[id] = at }
-        if !exact_sound_push(mixer, kind, id, sound, at, gain, rate, pan) { say("sound dropped: the mixer's queue is full") }
         return true
     }
 

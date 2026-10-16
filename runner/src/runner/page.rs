@@ -34,7 +34,10 @@ impl<D: DataSource> Runner<D> {
         } else {
             self.recommit(which, "page")
         };
+        // The stop is the standing commit's (a recovery commit after
+        // owed reads included); a call that failed as a whole made none.
         if result.is_err() {
+            self.transport.suspend = false;
             self.page = previous;
         }
         result

@@ -700,7 +700,7 @@ otherwise.
   answer a pseudo-mutation kept last in `Mutations`. `rt.js` changed three
   lines and gained none. The module is imported only by a plan that
   declares a sequence or reads `exactTransport`.
-- **Hosts.** Apple's mixer has 288 slots and a 1,024-op ring and frees a
+- **Hosts.** Apple's mixer has 320 slots and a 1,024-op ring and frees a
   voice retracted before it starts at once; `SoundOutput` plays a haptic on
   the main queue at its time without opening the output, and counts those
   more than 10 ms late (`hapticsLate`). The web glue lets a retracted node go
@@ -722,7 +722,7 @@ otherwise.
   the waiting cap; the 33rd voice; `ended=` at its exact time; the answer
   commit; a refused commit; a second sequence; `stopSounds`; the wake; the
   background latch. A Linux agent test: `clock settle` does not wait for a
-  fill. `SoundMixerTests` (288 slots, a retraction frees its slot, a
+  fill. `SoundMixerTests` (320 slots, a retraction frees its slot, a
   1,024-op ring); `sound-glue.test.mjs` (a retraction is silent and lets
   its node go; haptics timed, cancelled and counted late).
 - **Measured.** Conformance `transport` (a count-in, polymeter, a haptic,
@@ -746,6 +746,18 @@ otherwise.
   (`exact_sound_room`), so an advance across several fills drops none.
   Conformance `transport` gained a `from` past exact counting and an end
   already past: 34 of 34 equal.
+- **After review round 2:** a fill stops the sequence (reason `bpm`, the
+  beat journaled) when a track's loop index would pass 2^52, which a beat
+  kept across an edit can reach where `from` and a length cannot; on a
+  live clock only a hit more than 500 ms past is skipped, so a held hit's
+  wake, just after its time, still plays it; the background stop rides
+  whichever commit of the `set_page` call stands (a recovery commit after
+  owed reads included); the JS twin gives each arming its own end entry,
+  so an `ended=` that starts another sequence is still counted as a timer.
+  On Apple the mixer has 320 slots, the 32 beyond the runner's bounds for
+  the voices a stop ends partway into a buffer; a voice stopped before its
+  first render gives its slot up; a boot's stop-all waits its turn in the
+  backlog.
 - **Not done here.** The device check (onsets on the grid with the main
   thread blocked for 300 ms) was not run; nothing in this lane played to a
   speaker. MIDI steps, `offset` and clock out are stage 3; `waiting` and

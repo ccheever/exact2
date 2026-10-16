@@ -13,7 +13,7 @@ use exact_kernel::Kernel;
 use exact_plan::{Plan, Value};
 use std::path::PathBuf;
 
-const SOURCE: &str = r#"sound "assets/kick.wav"
+pub(crate) const SOURCE: &str = r#"sound "assets/kick.wav"
 sound "assets/hat.wav"
 sound "assets/click.wav"
 
@@ -121,8 +121,12 @@ component Seq
 /// and a frame task, each its own task.
 const TIMELINE: &str = "  task faster mount\n    after(30000, faster)\n  task again mount\n    after(40000, again)\n  task halt mount\n    after(50000, halt)\n  task draw when playing\n    every(frame, noop)\n";
 
-/// `crowd(n)`: 33 kicks at beat 0, or `n` clicks spread over 2 beats.
-struct NoData;
+/// `crowd(n)`: 33 kicks at beat 0, or `n` clicks spread over 2 beats; 7
+/// steps once `poisoned`.
+#[derive(Default)]
+pub(crate) struct NoData {
+    pub(crate) poisoned: bool,
+}
 
 impl DataSource for NoData {
     fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
@@ -143,6 +147,7 @@ impl DataSource for NoData {
             return Ok(Value::list((0..n).map(hit).collect()));
         }
         assert_eq!(source, "crowd");
+        let n = if self.poisoned { 7 } else { n };
         let step = |beat: f64, src: &str| {
             let f = [beat, 0.0, 1.0, 0.0, -1.0, 100.0, 0.0, 0.25, 0.0];
             let mut v: Vec<Value> = f.iter().map(|n| Value::Number(*n)).collect();
@@ -220,10 +225,10 @@ fn compiled(source: &str) -> Plan {
     plan
 }
 
-fn boot_with(source: &str) -> Runner<NoData> {
+pub(crate) fn boot_with(source: &str) -> Runner<NoData> {
     Runner::boot(
         compiled(source),
-        NoData,
+        NoData::default(),
         Kernel::with_monospace(),
         Default::default(),
         "/",
@@ -239,12 +244,12 @@ fn timeline() -> String {
     SOURCE.replace("  sequence groove", &format!("{TIMELINE}  sequence groove"))
 }
 
-fn voices(r: &Runner<NoData>) -> Vec<Voice> {
+pub(crate) fn voices(r: &Runner<NoData>) -> Vec<Voice> {
     r.sounds().voices().cloned().collect()
 }
 
 /// The journal's lines the transport and the voice table wrote, unstamped.
-fn said(r: &Runner<NoData>) -> Vec<String> {
+pub(crate) fn said(r: &Runner<NoData>) -> Vec<String> {
     r.journal()
         .map(|l| l.split_once(' ').map_or(l, |(_, rest)| rest))
         .filter(|l| {
@@ -271,7 +276,7 @@ fn slot(r: &Runner<NoData>, name: &str) -> f64 {
     }
 }
 
-fn answered(r: &Runner<NoData>) -> Vec<Value> {
+pub(crate) fn answered(r: &Runner<NoData>) -> Vec<Value> {
     match r.resource("transport") {
         Some(Value::Record(f)) => f.to_vec(),
         other => panic!("transport: {other:?}"),
@@ -688,4 +693,66 @@ fn a_stop_retracts_every_haptic_still_to_come() {
     r.act("halt", vec![]).unwrap();
     assert!(said(&r).contains(&"haptics retracted: 2000 (cancelled)".to_string()));
     assert!(r.sounds().haptics().all(|h| h.by == Some("cancelled")));
+}
+
+/// Review round 2, A2: a beat kept across an edit (a long track at a high
+/// tempo, then a short one) past exact loop counting stops the sequence
+/// rather than hang a fill.
+#[test]
+fn a_beat_past_exact_counting_stops_the_sequence() {
+    let source = SOURCE
+        .replace("  state stray = 0\n", "  state stray = 0\n  state huge = false\n")
+        .replace(
+            "  derive tracks = dense > 0 ?",
+            "  derive tracks = huge ? [Track(beats=100000000000000, loops=0, offset=0, output=\"\", steps=[hit(0, \"assets/kick.wav\")])] : dense > 0 ?",
+        )
+        .replace("  action noop\n", "  action goHuge\n    huge = true\n    bpm = 6000000000000000000\n  action small\n    huge = false\n    bpm = 60\n  action noop\n");
+    let mut r = boot_with(&source);
+    r.act("noCountIn", vec![]).unwrap();
+    r.act("goHuge", vec![]).unwrap();
+    r.act("start", vec![]).unwrap();
+    r.advance(1000.0).unwrap();
+    r.act("small", vec![]).unwrap();
+    assert!(!r.transport().playing());
+    assert!(
+        said(&r)
+            .iter()
+            .any(|l| l.ends_with("is past exact loop counting")),
+        "{:?}",
+        said(&r)
+    );
+}
+
+/// Review round 2, A3 on a live clock: a hit the waiting cap held is
+/// issued at its wake even when the wake runs just after its time; only a
+/// stall's hits, more than 500 ms past, are skipped.
+#[test]
+fn a_held_hit_plays_at_a_late_wake_on_a_live_clock() {
+    use std::{cell::Cell, rc::Rc};
+    let mut r = boot();
+    let now = Rc::new(Cell::new(0.0));
+    let clock = now.clone();
+    r.set_live_clock(Some(Box::new(move || clock.get())));
+    r.act("farOn", vec![]).unwrap();
+    r.act("tapFar", vec![]).unwrap();
+    r.act("noCountIn", vec![]).unwrap();
+    r.act("start", vec![]).unwrap();
+    for t in [500.01, 1000.01, 1500.01, 2000.01] {
+        now.set(t);
+        r.advance(t).unwrap();
+    }
+    let hats: Vec<f64> = voices(&r)
+        .iter()
+        .filter(|v| v.src == "assets/hat.wav")
+        .map(|v| v.at)
+        .collect();
+    assert!(
+        hats.iter().any(|t| (1000.0..1001.0).contains(t)),
+        "{hats:?}"
+    );
+    assert!(
+        said(&r).iter().all(|l| !l.contains("late, skipped")),
+        "{:?}",
+        said(&r)
+    );
 }
