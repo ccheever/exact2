@@ -163,6 +163,9 @@ impl PropList {
         match self.position(id) {
             Ok(i) => Some(std::mem::replace(&mut self.entries[i].1, value)),
             Err(i) => {
+                // A node sets a few props, once: room for exactly them, not
+                // the four a growing vector starts with.
+                self.entries.reserve_exact(1);
                 self.entries.insert(i, (id, value));
                 None
             }
