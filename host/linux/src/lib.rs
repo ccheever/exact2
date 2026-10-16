@@ -53,6 +53,7 @@ pub mod content_region;
 pub mod delivery;
 #[cfg(target_os = "linux")]
 pub mod display;
+mod doc_watch;
 pub mod executor;
 pub mod fetch;
 pub mod fields;

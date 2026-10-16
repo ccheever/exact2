@@ -45,12 +45,11 @@ pub use selection::event_record;
 pub mod strings;
 mod uses;
 
+use checks::check_shape_cycles;
 use contract_syntax::{BinOp, Component, Expr, File, Span, TemplatePart, TypeExpr, UnOp};
 use exact_plan::Stdlib;
-use std::{collections::BTreeMap, sync::Arc};
-
-use checks::check_shape_cycles;
 use injects::check_injects;
+use std::{collections::BTreeMap, sync::Arc};
 
 /// A closed type.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -115,12 +114,10 @@ impl Ty {
     pub fn contains_enum(&self) -> bool {
         enums::contains(self)
     }
-
     /// An ordinary string, including a finite string vocabulary.
     pub fn is_string(&self) -> bool {
         matches!(self, Ty::String | Ty::Enum(_))
     }
-
     /// Whether any `?` remains.
     pub fn is_complete(&self) -> bool {
         match self {
@@ -130,7 +127,6 @@ impl Ty {
             _ => true,
         }
     }
-
     /// The most specific type both agree on, or `None` when they conflict.
     pub fn unify(&self, other: &Ty) -> Option<Ty> {
         match (self, other) {
@@ -160,7 +156,6 @@ impl Ty {
             _ => None,
         }
     }
-
     /// Whether a value of this type may be passed where the roster spells `spec`.
     pub fn matches_roster(&self, spec: &str) -> bool {
         match spec {
@@ -174,7 +169,6 @@ impl Ty {
             _ => *self == Self::from_roster(spec) && *self != Ty::Unknown,
         }
     }
-
     /// The roster's return spelling as a type.
     pub fn from_roster(spec: &str) -> Ty {
         match spec {
@@ -941,10 +935,16 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
                     let t = infer(arg, scope, shapes)?;
                     given.push(t.clone());
                     if !roster_accepts(f, spec, &t) {
+                        // @ref LLP 1116.016 D5 — the web's `String.prototype.at`.
+                        let text = if f == Stdlib::At && i == 0 && t.is_string() {
+                            ": for text, `s.slice(i, i + 1)`, `\"\"` past the end"
+                        } else {
+                            ""
+                        };
                         return err(
                             "type-argument",
                             format!(
-                                "{} expects `{}`, given `{t}`",
+                                "{} expects `{}`, given `{t}`{text}",
                                 contract_syntax::idioms::argument(name, i),
                                 roster_spelling(f, spec)
                             ),
@@ -999,6 +999,17 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
                 BinOp::Add => match (&ta, &tb) {
                     (Ty::Number, Ty::Number) => Ty::Number,
                     (a, b) if a.is_string() && b.is_string() => Ty::String,
+                    // @ref LLP 1116.016 D5 — `"Total: " + n` is a template.
+                    (a, b)
+                        if (a.is_string() && matches!(b, Ty::Number | Ty::Bool))
+                            || (b.is_string() && matches!(a, Ty::Number | Ty::Bool)) =>
+                    {
+                        return err(
+                            "type-operand",
+                            format!("`+` joins two strings, given `{ta}` and `{tb}`: write a template, `` `Total: ${{n}}` `` for `\"Total: \" + n`"),
+                            *span,
+                        )
+                    }
                     _ => {
                         return err(
                             "type-operand",

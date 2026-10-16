@@ -356,12 +356,22 @@ bun my-game/proof.mjs linux --paranoid
 bun game/prove.mjs ./my-game --repin --reason "describe the intended state change"
 ```
 
-Repinning runs Off, Save and FreshGame, requires matching source inputs and host
+Repinning runs Off, Save and FreshGame, requires matching execution inputs and host
 observations, and includes a Linux release check. It refuses failures or a missing
 requested browser, leaving the pins unchanged. Existing pins may be updated with
 `--hosts linux` explicitly; the first baseline always requires Linux and web.
-Every update records the matching source-input digest; a Git commit is recorded
-when one exists. A game without commits can repin under the same agreement checks.
+Summaries and every pin update record two digests: `inputs` identifies the exact
+execution-input tree, including baked assets and `.baked-assets.json`;
+`sourceInputs` identifies portable authored sources. The latter omits the bake's
+manifest-owned outputs and the manifest itself, and names app and SDK files
+relative to their own roots. Rust crate `tests/` and `examples/` directories are
+excluded only when their parent contains `Cargo.toml`, inside or outside the SDK.
+Art and asset directories with those names remain inputs. Unowned assets remain authored,
+whatever their names or extensions. Machine-specific texture encodings and sound PCM can therefore
+share source provenance while retaining distinct execution identities. Repinning
+still refuses mixed execution trees within one transaction, even when their
+`sourceInputs` agree. A Git commit is recorded in `at` when one exists; a game
+without commits records `at: inputs:<sourceInputs>` under the same agreement checks.
 `CHROME` selects the headless browser.
 
 Paranoid runs check simulation and saves. Save and FreshGame modes rebuild the
@@ -389,6 +399,25 @@ cleanup. Each game's proof owns its assertions. `check` records failures while
 independent assertions continue. The terminal shows checks and failure details;
 `replies.json` retains complete operation replies. Browser runs provide canvas pixels; the GPU-less
 Linux host exercises simulation, input, Contract UI, CPU picks and saves.
+
+Proof receipts bind the completed build's inputs. Editing authored inputs during
+a build rejects the proof and removes its receipt. Directory tracking includes
+the app root, shared sources and every admitted source subtree, including empty
+directories, so creating and removing a source
+during compilation also rejects the proof. Changes to entries in a tracked
+directory require a rerun, even when the changed entry is excluded from inputs.
+Asset directory entry changes also require a rerun, including generated file
+creation, pruning and atomic replacement. The baker uses atomic replacement for
+changed assets. Rerun after the tree settles; the proof rebuilds before caching
+the result. In-place rewrites of manifest-owned generated files can complete in
+the same invocation. The app root is tracked whether or not `assets/` exists,
+so temporary files and source trees there cannot go unnoticed.
+
+Direct web proofs build into `artifacts/web-dist/`. The web builder replaces
+that directory on every build, so an `EXACT_WEB_DIST` override must also live
+inside an excluded output tree, such as `artifacts/` or `target/`, or outside
+the source trees. Otherwise each build changes a monitored parent directory
+and the proof cannot accept its receipt.
 
 ### Compare captured world state
 
@@ -428,7 +457,7 @@ Use Exact2's same eight operations: `tree`, `screenshot`, `tap`, `type`, `state`
 `layout`, `logs` and `clock`. An entity is addressed as `world:player`.
 
 ```sh
-EXACT_APP_DIR=./my-game EXACT_WEB_DIST=./my-game/dist bun scripts/agent.mjs web \
+EXACT_APP_DIR=./my-game EXACT_WEB_DIST=./my-game/artifacts/web-dist bun scripts/agent.mjs web \
   "tap play" "type world key KeyW for 1500" "layout world:player" \
   "state world:* busy" logs "screenshot run.world world save"
 ```
@@ -625,7 +654,7 @@ cargo build --workspace
 cargo test --workspace --no-fail-fast
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all -- --check
-bun test ./proof.test.mjs
+bun test ./proof*.test.mjs
 bun app/shells.mjs --test
 ```
 

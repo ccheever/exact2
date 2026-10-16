@@ -187,6 +187,14 @@ impl SvgState {
         }
     }
 
+    /// Forgets the scene sent for `id`, an `svg` whose view is made now: it
+    /// is sent again, though unchanged.
+    pub(crate) fn unsend(&mut self, id: ViewId) {
+        if self.sent.remove(&id).is_some() {
+            self.dirty.insert(id);
+        }
+    }
+
     /// A presented value moved on an element: its scene is rebuilt.
     pub(crate) fn presented(&mut self, id: ViewId) -> bool {
         match self.elements.get(&id) {

@@ -111,7 +111,8 @@ role on a box (`lower-dialog-role`), an `aria-level` with no `role="heading"`
 (`lower-level-without-heading`), a content-box `width="100%"` with padding, wider than
 its parent by the padding (`lower-width-padding`), screens swapped by an `if` in an app with no
 `routes` (`lower-screen-by-state`), a count before a plural noun, `${n} cards`
-(`lower-count-plural`), a
+(`lower-count-plural`), a row of the app's records that searches another table of them,
+`users.filter(u => u.id == p.userId)` in `for p in posts` (`lower-row-lookup`), a
 symbol by an alias, not its role (`lower-symbol-alias`), a
 `performanceNow()` time sent to a source (`type-performance-now-persisted`), a
 state read after its own action assigned it (`analyze-read-after-assign`), a
@@ -270,6 +271,25 @@ an example too: `contract vocab formatDate`), or says what to write instead
 (`contract vocab sort`). Check there before guessing at CSS or a function.
 
 ## Values, expressions, and functions
+
+An expression Contract accepts means what the same TypeScript means, except as
+this table says (LLP 1116.016 D1; `semantics/corpus/typescript/` checks each
+against JavaScript), and a TypeScript form Contract refuses is refused with
+what to write. Nothing runs because a value changed (no `useEffect` or watch).
+
+| Contract | Because |
+| --- | --- |
+| No truthiness: a condition is a `bool` (`if name != ""`) | every condition says what it tests |
+| Absence is an option (`none`, `some(x)`, `match`), not `undefined` or `null`; no `??` or `?.` | a value whose type has no absence is never absent |
+| A value never changes: no `push`, `sort`, `xs[i] = …`; `concat`, a record copy | an action is one transaction |
+| `==` compares lists and records by value; no `===` | values have no identity |
+| A string is well-formed: a lone surrogate becomes U+FFFD (`"😀".slice(0, 1)`) | every host holds Unicode scalar values |
+| A stored number is finite: a commit that would put `NaN` or `Infinity` in a state or derive is refused, and the write that caused it does not land | every host can carry it |
+| `toFixed` and the format functions print `""` for a non-finite number | one rule for every format |
+| `min`/`max` drop a `NaN` operand (`max(NaN, 1)` is `1`) | today's roster; a debt |
+| Names hold hyphens, so subtraction takes spaces (`a - b`) | CSS's names |
+| A binding's list work is bounded (65,536 steps); a row's own binding has its own bound, so a row that searches another table costs rows × items (`lower-row-lookup`) | determinism on every host |
+| Sorting, grouping, joining and aggregates are the data module's | a view computes what it shows |
 
 - Types are `number`, `string`, `bool`, declared shapes, `option<T>`, `T[]`,
   and `action` for behavior interfaces. Do not emit authored `any` or object types.
@@ -2506,6 +2526,7 @@ that restates a constant is weaker evidence than the user's actual sequence.
 | `text "Results" aria-level=2`, a level with no role, which is no heading to a screen reader on any platform, gets no heading style and is not the iOS bar's title (`lower-level-without-heading`) | `text "Results" role="heading" aria-level=2`; `role="heading"` alone is level 2 |
 | `column role="dialog" aria-modal=true` for a modal you lay out (`lower-dialog-role`) | A sheet, a route with `navigationPresentation="modal"` ([navigation-stack](recipes/navigation-stack.md)); a confirmation is `dialog role="alertdialog"`, opened with `showModal(id)` |
 | `` `${n} cards` ``, which reads "1 cards" (`lower-count-plural`) | The noun chosen by the number: `` `${n} ${n == 1 ? "card" : "cards"}` `` (`contract vocab plural`) |
+| `for p in posts` with `users.filter(u => u.id == p.userId)` in the row: every update walks posts × users, about 100 ms at 1,000 × 1,000 on a Mac (`lower-row-lookup`) | Join it in the data module: the source gives each post the field it reads (`userName`). A `derive` of the join is one evaluation and passes the list bound |
 | `RoundButton(label="Start quiz", …)`, cut to "Start q…" in its 80-point circle (`lower-round-button-label`) | The circle is for a word (Start, Stop, Lap); a screen's main action of more words is `button buttonStyle="filled"` with its `text` (`recipes/content-design.md`) |
 | `now = performanceNow()`, then `now` read in the same action (`analyze-read-after-assign`) | Bind it and read the local: `let stamp = performanceNow()`, `now = stamp`, then `stamp` |
 | Child `resource`, `mutation`, or `task` | Root-owned declaration and props/injections |

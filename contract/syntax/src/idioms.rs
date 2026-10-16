@@ -138,7 +138,16 @@ pub fn refusal(name: &str) -> Option<String> {
         // @ref LLP 1088 D7.4 — the web's string and list spellings an agent
         // reaches for first, each with what to write today.
         "push" | "append" | "unshift" => format!(
-            "a list is a value in Contract, not changed in place: `{name}` is `concat`, as in `xs = xs.concat([x])` (LLP 1088 §9.1)"
+            "a list is a value in Contract, not changed in place: `{name}` is `concat`, as in `xs = xs.concat([x])` (LLP 1088 §9.1); a router's is `push(nav, location)`"
+        ),
+        // @ref LLP 1116.016 D5 — each edit means what the refused form did, or says what differs.
+        "localeCompare" => "Contract has no locale order (it would differ by device): `a < b` compares by UTF-16 code unit, as TypeScript's `<` does; an order for people to read is the data source's".into(),
+        "floor" | "ceil" | "round" => format!(
+            "write `{name}(n)`: `Math.{name}(n)`, written as a function"
+        ),
+        "String" => "write `x.toString()`, or a template, `` `${x}` ``".into(),
+        "useEffect" | "useState" | "useMemo" | "watch" | "effect" | "onChange" => format!(
+            "Contract has no `{name}`, nor code that runs because a value changed (LLP 1116.016 D0): an action runs on an event and assigns what changes, a `derive` is a value computed from others, and a timer is a gated `task` (`task t when cond` with `after(ms, action)`)"
         ),
         "substring" | "substr" => format!(
             "`{name}` is not in Contract: write `s.slice(start, end)`, the web's `String.prototype.slice` (LLP 1088 D2)"

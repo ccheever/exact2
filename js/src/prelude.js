@@ -17,7 +17,6 @@
   // 12 the carrier's auth callback ("callback") or a web worker realm's placement.
   var host = global.__exact_host;
   delete global.__exact_host;
-
   // LLP 1027.000: time and seeds are source arguments, so bake and cache
   // see them. This VM belongs to one module; no page/guest globals change.
   // Install before the app can capture an alias, including Date's prototype
@@ -47,7 +46,6 @@
   fixed(global.Math, "random", function () {
     throw new Error("Math.random() is unavailable in data sources; seed from crypto.getRandomValues in a source (docs/recipes/random-and-shuffle.md), or pass a seed as an argument");
   });
-
   // No timers and no clock to read (LLP 1027.000): refused by name, as the
   // web's module bindings refuse them (host/web-js/ts-fetch.js), rather than
   // a bare "doesn't exist". Clearing what was never set is harmless.
@@ -1000,6 +998,23 @@
   ["readFile", "writeFile", "atomicWriteFile", "appendFile", "readdir", "mkdir", "rm", "stat", "rename", "copyFile", "realpath"].forEach(function (method) {
     files[method] = function () { return storageCall(nativeStorage && nativeStorage.fs, method, arguments); };
   });
+  // LLP 1069.010.000 D2a: `{expect: stat}` refuses a doc:/ write `ECHANGED` if the file changed since; the stat runs just before it.
+  ["writeFile", "atomicWriteFile", "appendFile"].forEach(function (method) {
+    var write = files[method], api = "storage.fs." + method + "()";
+    files[method] = function (path, data, options) {
+      var expect = options && options.expect;
+      if (!expect) return write.apply(null, arguments);
+      if (typeof path !== "string" || path.indexOf("doc:/") !== 0 || typeof expect.modifiedMs !== "number" || typeof expect.size !== "number") return Promise.reject(new TypeError(api + ": expect is a stat (modifiedMs and size) of a doc:/ path"));
+      return files.stat(path).then(function (now) { if (now.modifiedMs !== expect.modifiedMs || now.size !== expect.size) throw storageError("document ECHANGED: " + path + " changed on disk since it was read", "ECHANGED"); return write(path, data); });
+    };
+  });
+  // LLP 1069.010.000 D1: the answer is asked again when the doc:/ path (a folder's own entries, or `recursive` its subtree) changes on disk.
+  files.watch = function (path, options) {
+    if (overlaying) throw inOverlay("storage.fs.watch()");
+    if (!currentCall || currentCall.status !== "pending") throw new Error("storage.fs.watch() outside an answer");
+    if (typeof path !== "string" || path.indexOf("doc:/") !== 0) throw new TypeError("storage.fs.watch(): path must be a doc:/ path");
+    host(6, "watch", (options && options.recursive ? "doc-watch-recursive:" : "doc-watch:") + path);
+  };
   // `fs.compressImage(from, to, {maxDimension, maxBytes})` (LLP 1069.002
   // A1): its options are checked here, before anything is queued, and travel
   // to the host as two numbers; natively the reply is `width\theight\tsize`,
