@@ -202,9 +202,13 @@ final class ModalDetentIOSTests: XCTestCase {
         route.props["navigationDetent"] = "medium large"
         session.presenter.modals.updatePermissions()
         XCTAssertTrue(controller.prefersGrabberVisible, "several detents, auto: the platform's grabber")
+        // Dragged to large (a drag sets the selection): a grabber change
+        // leaves the sheet where the person put it.
+        controller.selectedDetentIdentifier = .large
         route.props["navigationGrabber"] = "hidden"
         session.presenter.modals.updatePermissions()
         XCTAssertFalse(controller.prefersGrabberVisible, "several detents, hidden")
+        XCTAssertEqual(controller.selectedDetentIdentifier, .large, "still large")
     }
 
     /// Mounted, its route in its block (LLP 1123 D2), the sheet still

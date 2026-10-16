@@ -43,6 +43,9 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
         guard modalPresentationStyle == .pageSheet,
               let sheet = sheetPresentationController,
               detentValue != value || cornerRadius != radius || grabberValue != grabber || sheet.detents.isEmpty else { return }
+        // A grabber or radius alone changes only itself: the detents and the
+        // one the person dragged the sheet to stay.
+        let newDetents = detentValue != value || sheet.detents.isEmpty
         detentValue = value
         cornerRadius = radius
         grabberValue = grabber
@@ -61,12 +64,14 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
             // One resting height leaves overscroll and dismissal with UIKit;
             // several (`"300 large"`, LLP 1075.003 from James's review) make
             // the sheet resizable among them, from the first, with its grabber.
-            let detents = ModalHost.detents(value, content: content)
-            sheet.detents = detents.isEmpty ? [.large()] : detents
-            sheet.selectedDetentIdentifier = sheet.detents.first?.identifier
+            if newDetents {
+                let detents = ModalHost.detents(value, content: content)
+                sheet.detents = detents.isEmpty ? [.large()] : detents
+                sheet.selectedDetentIdentifier = sheet.detents.first?.identifier
+            }
             // `navigationGrabber` says; unsaid, a sheet that resizes has
             // one, as the HIG puts it on a resizable sheet.
-            sheet.prefersGrabberVisible = grabber == "visible" || grabber != "hidden" && detents.count > 1
+            sheet.prefersGrabberVisible = grabber == "visible" || grabber != "hidden" && sheet.detents.count > 1
             sheet.preferredCornerRadius = radius
             // Several: scrolling at the content's top grows the sheet, as
             // UIKit's own sheets do (LLP 1115 wave 1).
