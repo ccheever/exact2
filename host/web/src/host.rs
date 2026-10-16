@@ -1485,8 +1485,7 @@ impl<D: DataSource> Host<D> {
         roots
     }
 
-    /// The page's `<head>`, when a commit may have moved it (LLP 1048.003
-    /// D1): the runner's active head, sent only when it changed.
+    /// Sends the runner's active `<head>` only when it changes (LLP 1048.003 D1).
     fn emit_head(&mut self, batch: &mut Batch) {
         if !std::mem::take(&mut self.head_dirty) {
             return;

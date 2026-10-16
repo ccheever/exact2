@@ -408,8 +408,7 @@ impl<D: DataSource> Host<D> {
         if let Some(names) = crate::link::missing(&plan, crate::link::linked()) {
             return Err(HostError::Unlinked(names));
         }
-        // The grammars this archive links (LLP 1047.001 D3; every one for a
-        // public boot, LLP 1053.000 §2).
+        // This archive links its grammars; every public boot links all (LLP 1047.001 D3; 1053.000 §2).
         links.grammars.link();
         let kernel = scale::kernel(measurer);
         let facts = candidate_delivery.unwrap_or_else(|| {
@@ -1166,9 +1165,8 @@ impl<D: DataSource> Host<D> {
         self.engine.trim();
     }
 
-    /// The active head's title and edited mark, when a plan with a head may
-    /// have moved them (LLP 1048.003 D1, LLP 1069.010 D6). The app owning
-    /// the window or scene shows them.
+    /// The active head's title and edited mark after it moves; the app owning
+    /// the window or scene shows them (LLP 1048.003 D1, LLP 1069.010 D6).
     fn emit_title(&mut self, batch: &mut Batch) {
         if !self.has_heads {
             return;
@@ -1419,8 +1417,7 @@ fn kind_for(node: &NodeRef<'_>) -> &'static str {
     }
 }
 
-/// @ref LLP 1116.001 D1.4 — the scale the kernel draws a fitted paragraph
-/// at, which Swift multiplies its runs' sizes by: none at full size.
+/// @ref LLP 1116.001 D1.4 — Swift's run-size multiplier for a fitted paragraph; none at full size.
 pub(super) fn fit_scale(node: &NodeRef<'_>) -> Option<String> {
     let scale = node.fit_scale();
     (node.node_type == NodeType::Text && scale != 1.0).then(|| style::num(scale))
