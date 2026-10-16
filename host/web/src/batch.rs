@@ -790,6 +790,15 @@ impl Batch {
                     id,
                     Shortest(*at)
                 ),
+                // A sequence step's haptic, at its time (LLP 1125 D3).
+                SoundOp::Haptic { id, kind, at } => {
+                    push_text!(&mut s, "{{\"op\":\"haptic\",\"id\":{},\"kind\":", id);
+                    quote(kind, &mut s);
+                    push_text!(&mut s, ",\"at\":{}}}", Shortest(*at));
+                }
+                SoundOp::Unhaptic { id } => {
+                    push_text!(&mut s, "{{\"op\":\"unhaptic\",\"id\":{}}}", id)
+                }
             }
         }
         s.push_str("]}");

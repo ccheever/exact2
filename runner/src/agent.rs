@@ -23,6 +23,7 @@ use std::fmt::Write as _;
 mod row;
 mod schedule;
 mod sound;
+mod transport;
 mod tree;
 
 /// Answer one request: `{"op":"tree"}`, `{"op":"state"}`,
@@ -906,6 +907,7 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     s.push(']');
     sound::state(runner, request, &mut s);
     crate::wakelock::state(runner.kernel(), &mut s);
+    transport::state(runner, &mut s);
     // The store's names, never its values (LLP 1018 D5).
     s.push_str(",\"store\":[");
     for (i, name) in runner.store_names().iter().enumerate() {

@@ -945,7 +945,7 @@ fn first_frame<D: DataSource>(
     data: D,
     answered: bool,
 ) -> Result<Runner<D>, BakeError> {
-    use exact_runner::{delivery, page, viewport};
+    use exact_runner::{delivery, page, transport, viewport};
     fact_shape(
         plan,
         delivery::SOURCE,
@@ -959,6 +959,12 @@ fn first_frame<D: DataSource>(
         "bake-viewport-field",
     )?;
     fact_shape(plan, page::SOURCE, page::FIELDS, "bake-page-field")?;
+    fact_shape(
+        plan,
+        transport::SOURCE,
+        transport::FIELDS,
+        "bake-transport-field",
+    )?;
     surface::shape(plan)?;
     let mut runner = Runner::boot(
         plan.clone(),

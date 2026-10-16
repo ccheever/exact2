@@ -127,7 +127,8 @@ impl<D: DataSource> Runner<D> {
             Ok(_) => {
                 self.persist_slots();
                 self.journal_refused();
-                self.log_store_writes(c.store.writes)
+                self.log_store_writes(c.store.writes);
+                self.transport_stood();
             }
             Err(_) if self.poisoned && !was_poisoned => {
                 self.store.restore(c.store);
@@ -190,6 +191,8 @@ impl<D: DataSource> Runner<D> {
             }
         }
         self.refused_unsent.clear();
+        // What a refused commit's gate step read is let go (LLP 1125 D2).
+        self.transport.pending = None;
         // After any restore: the source hears what is really in flight.
         if std::mem::take(&mut self.forgot) {
             let in_flight: Vec<InFlight<'_>> = self

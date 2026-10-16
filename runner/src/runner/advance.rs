@@ -78,6 +78,11 @@ impl<D: DataSource> Runner<D> {
         self.clock.sample = sample;
     }
 
+    /// Whether a host's live clock owns the runner's (none is a seek clock).
+    pub(super) fn clock_live(&self) -> bool {
+        self.clock.sample.is_some()
+    }
+
     /// On a live clock, move the clock to a fresh sample; a sample that is no
     /// clock time (not finite, or past [`MAX_CLOCK_MS`]) moves nothing.
     pub(super) fn sample(&mut self) {
@@ -245,9 +250,21 @@ impl<D: DataSource> Runner<D> {
                     a.next_ms.partial_cmp(&b.next_ms).unwrap().then(ia.cmp(ib))
                 })
                 .map(|(i, t)| (i, t.next_ms));
+            // A sequence's end is a timer after every task (LLP 1125 D2): its
+            // index is the last; its own wake (a fill, the count-in's end)
+            // comes after everything due at the same time (D3).
+            let wake = Some(self.transport.wake_due()).filter(|at| timers && *at <= now_ms);
+            let before_wake = |at: f64| wake.is_none_or(|w| at <= w);
+            let ended = Some(self.transport.ended_due())
+                .filter(|at| timers && *at <= now_ms && before_wake(*at))
+                .filter(|at| due.is_none_or(|(_, timer)| *at < timer));
+            let due = due.filter(|(_, at)| ended.is_none() && before_wake(*at));
+            let timer_at = due.map(|(_, at)| at).or(ended);
+            let ready = |at: f64| timer_at.is_none_or(|timer| at <= timer) && before_wake(at);
             // An answer's `then` goes before a timer due at the same time: the
             // answer landed first. A queue's `next` goes after the `then`s and
-            // before the timers (LLP 1092 D3).
+            // before the timers (LLP 1092 D3). `exactTransport`'s answer is a
+            // `then` after every mutation's (LLP 1125 D3).
             let then = self
                 .then_due
                 .iter()
@@ -255,12 +272,48 @@ impl<D: DataSource> Runner<D> {
                 .filter(|(_, at)| **at <= now_ms)
                 .min_by(|(ia, a), (ib, b)| a.partial_cmp(b).unwrap().then(ia.cmp(ib)))
                 .map(|(m, at)| (m, *at));
+            let answer = Some(self.transport.answer_due)
+                .filter(|at| *at <= now_ms && then.is_none_or(|(_, then)| *at < then));
+            let then_at = answer.or(then.map(|(_, at)| at));
             let next = self
                 .due_next(now_ms)
-                .filter(|(_, at)| due.is_none_or(|(_, timer)| *at <= timer))
-                .filter(|(_, at)| then.is_none_or(|(_, then)| *at < then));
-            let then = then.filter(|(_, at)| due.is_none_or(|(_, timer)| *at <= timer));
-            let then = then.filter(|_| next.is_none());
+                .filter(|(_, at)| ready(*at))
+                .filter(|(_, at)| then_at.is_none_or(|then| *at < then));
+            let answer = answer.filter(|at| ready(*at) && next.is_none());
+            let then = then.filter(|(_, at)| ready(*at) && next.is_none() && answer.is_none());
+            if let Some(at) = answer {
+                if receipts.len() == TIMER_FIRE_LIMIT {
+                    return Advanced {
+                        receipts,
+                        now_ms: self.now_ms,
+                        error: Some(RunnerError::TimerFireLimit {
+                            limit: TIMER_FIRE_LIMIT,
+                        }),
+                    };
+                }
+                self.now_ms = self.now_ms.max(at);
+                self.transport.answer_due = f64::INFINITY;
+                let readers = self.transport.readers.clone();
+                let ticket = self.next_ticket;
+                match self.scheduled(at, |r| r.commit_again(readers, "transport")) {
+                    Ok(receipt) => receipts.push(Timed {
+                        at_ms: self.now_ms,
+                        receipt,
+                    }),
+                    Err(e) => {
+                        return Advanced {
+                            receipts,
+                            now_ms: self.now_ms,
+                            error: Some(e),
+                        }
+                    }
+                }
+                if until_request && self.next_ticket != ticket {
+                    landed = self.now_ms;
+                    break;
+                }
+                continue;
+            }
             if let Some((m, at)) = next {
                 if receipts.len() == TIMER_FIRE_LIMIT {
                     return Advanced {
@@ -340,7 +393,7 @@ impl<D: DataSource> Runner<D> {
             // timer due at the same time: the drop came first.
             if let Some(at) = self
                 .reorder_deadline()
-                .filter(|at| timers && *at <= now_ms && due.is_none_or(|(_, t)| *at <= t))
+                .filter(|at| timers && *at <= now_ms && ready(*at))
             {
                 self.now_ms = self.now_ms.max(at);
                 // Its commit takes no checkpoint, so it samples for itself
@@ -362,7 +415,56 @@ impl<D: DataSource> Runner<D> {
                 }
                 continue;
             }
-            let Some((i, at)) = due else { break };
+            if let Some(at) = ended {
+                self.now_ms = if live { self.now_ms.max(at) } else { at };
+                let Some(action) = self.transport_end() else {
+                    continue;
+                };
+                if receipts.len() == TIMER_FIRE_LIMIT {
+                    return Advanced {
+                        receipts,
+                        now_ms: self.now_ms,
+                        error: Some(RunnerError::TimerFireLimit {
+                            limit: TIMER_FIRE_LIMIT,
+                        }),
+                    };
+                }
+                let was_poisoned = self.poisoned;
+                let ticket = self.next_ticket;
+                match self.scheduled(at, |r| r.run_action(action, Vec::new(), &[])) {
+                    Ok(receipt) => receipts.push(Timed {
+                        at_ms: self.now_ms,
+                        receipt,
+                    }),
+                    Err(e) => {
+                        let what =
+                            format!("ended ({})", self.plan.str(self.plan.action(action).name));
+                        let failed = Err(e);
+                        self.log_outcome(&what, &failed, was_poisoned);
+                        return Advanced {
+                            receipts,
+                            now_ms: self.now_ms,
+                            error: failed.err(),
+                        };
+                    }
+                }
+                if until_request && self.next_ticket != ticket {
+                    landed = self.now_ms;
+                    break;
+                }
+                continue;
+            }
+            let Some((i, at)) = due else {
+                // Nothing else is due by the transport's own wake: no action,
+                // no commit, no receipt.
+                if let Some(at) = wake {
+                    self.now_ms = if live { self.now_ms.max(at) } else { at };
+                    self.sample();
+                    self.transport_wake(self.now_ms);
+                    continue;
+                }
+                break;
+            };
             if receipts.len() == TIMER_FIRE_LIMIT {
                 return Advanced {
                     receipts,

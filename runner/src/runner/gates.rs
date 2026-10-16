@@ -19,6 +19,8 @@ impl<D: DataSource> Runner<D> {
     /// now; a changed key re-arms it from now; anything else leaves it as
     /// it was (an `every` keeps its phase, a spent `after` stays spent).
     pub(super) fn gate_step(&mut self) -> Result<(), RunnerError> {
+        // A sequence's gate, key and arguments (LLP 1125 D2).
+        self.sequence_step()?;
         let mut seen = Vec::new();
         for (i, row) in self.plan.timers.iter().enumerate() {
             if !row.gated && !row.keyed {
@@ -70,6 +72,7 @@ impl<D: DataSource> Runner<D> {
     /// `then`, or a queue's `next` (LLP 1092 D3).
     pub fn has_timers(&self) -> bool {
         !self.plan.timers.is_empty()
+            || !self.plan.sequences.is_empty()
             || self
                 .plan
                 .mutations
@@ -102,6 +105,12 @@ impl<D: DataSource> Runner<D> {
             // A drop's hold waits a second for its move (LLP 1094 D8).
             .chain(self.reorder_deadline())
             .chain(self.queues.next_due.iter().copied())
+            // A sequence's fill, count-in's end, end and answer (LLP 1125 D3).
+            .chain([
+                self.transport.wake_due(),
+                self.transport.ended_due(),
+                self.transport.answer_due,
+            ])
             .filter(|ms| ms.is_finite())
             .reduce(f64::min)
     }

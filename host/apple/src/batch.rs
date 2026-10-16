@@ -575,6 +575,13 @@ impl Batch {
                     "{{\"op\":\"end\",\"id\":{id},\"at\":{}}}",
                     exact_runner::agent::num(*at)
                 ),
+                // A sequence step's haptic, at its time (LLP 1125 D3).
+                SoundOp::Haptic { id, kind, at } => {
+                    let _ = write!(s, "{{\"op\":\"haptic\",\"id\":{id},\"kind\":");
+                    quote(kind, &mut s);
+                    write!(s, ",\"at\":{}}}", exact_runner::agent::num(*at))
+                }
+                SoundOp::Unhaptic { id } => write!(s, "{{\"op\":\"unhaptic\",\"id\":{id}}}"),
             };
         }
         s.push_str("]}");

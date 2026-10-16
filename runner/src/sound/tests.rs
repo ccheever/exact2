@@ -309,8 +309,9 @@ fn the_thirty_third_live_voice_is_dropped_and_an_ended_one_frees_its_place() {
     assert_eq!(r.sounds().live(0.0), 32);
     r.act("past", vec![]).unwrap();
     assert_eq!(voices(&r).len(), 32);
-    assert!(journal(&r)
-        .contains(&"sound dropped: 32 voices sound or wait (assets/kick.wav at 0)".to_string()));
+    assert!(journal(&r).contains(
+        &"sound dropped: 32 voices sound at its start (assets/kick.wav at 0)".to_string()
+    ));
     r.advance(250.0).unwrap();
     r.act("past", vec![]).unwrap();
     assert_eq!(voices(&r).last().unwrap().id, 33);

@@ -528,10 +528,13 @@ fn stdlib_calls(plan: &Plan) -> (bool, bool, bool) {
 }
 
 /// Whether any code range runs a host command named one of `names`.
-/// Whether `plan` declares a sound or runs one of the voice table's
-/// commands (LLP 1096): what links the JS target's table and its output.
+/// Whether `plan` declares a sound or a sequence, or runs one of the voice
+/// table's commands (LLP 1096; LLP 1125 D3): what links the JS target's
+/// table and its output.
 pub fn runs_sounds(plan: &Plan) -> bool {
-    !plan.sounds.is_empty() || runs_command(plan, &["playSound", "playSounds", "stopSounds"])
+    !plan.sounds.is_empty()
+        || !plan.sequences.is_empty()
+        || runs_command(plan, &["playSound", "playSounds", "stopSounds"])
 }
 
 fn runs_command(plan: &Plan, names: &[&str]) -> bool {

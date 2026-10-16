@@ -693,6 +693,7 @@ fn the_runner_answers_exactly_the_plan_s_own_sources() {
         crate::page::SOURCE,
         crate::surface_record::SOURCE,
         crate::time::SOURCE,
+        crate::transport::SOURCE,
     ];
     let mut listed = exact_plan::RUNNER_OWNED_SOURCES.to_vec();
     answered.sort_unstable();

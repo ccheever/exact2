@@ -1214,3 +1214,37 @@ fn prefer_mode_sets_the_apps_modes() {
         ),
     );
 }
+
+/// LLP 1125 D3: a sequence's fill is a wake of the runner's own, which
+/// `clock settle` does not wait for; a jump passes through each fill, and
+/// `state.transport` says how far the hits are issued.
+#[test]
+fn clock_settle_does_not_wait_for_a_sequence_s_fill() {
+    let plan = contract::compile(
+        "shape Step\n  beat: number\n  src: string\n  gain: number\n  group: string\n  note: number\n  velocity: number\n  channel: number\n  duration: number\n  haptic: string\nshape Track\n  beats: number\n  loops: number\n  offset: number\n  output: string\n  steps: Step[]\ncomponent App\n  sequence beat mount\n    play([Track(beats=1, loops=0, offset=0, output=\"\", steps=[Step(beat=0, src=\"\", gain=1, group=\"\", note=-1, velocity=100, channel=0, duration=0.5, haptic=\"selection\")])], bpm=120)\n  view\n    text \"x\" height=20\n",
+    )
+    .unwrap();
+    let (mut p, boot_error) = Presenter::boot_with(
+        &plan.encode(),
+        (),
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(boot_error.is_none(), "{boot_error:?}");
+    let json = |s: String| -> serde_json::Value { serde_json::from_str(&s).unwrap() };
+    let reply = json(handle(&mut p, r#"{"op":"clock","settle":true}"#));
+    assert_eq!(reply["settled"], serde_json::json!(true), "{reply}");
+    assert_eq!(reply["clock"], serde_json::json!(0), "{reply}");
+    let s = json(handle(&mut p, r#"{"op":"state"}"#));
+    assert_eq!(s["transport"]["issuedTo"], serde_json::json!(1000), "{s}");
+    handle(&mut p, r#"{"op":"clock","to":2000}"#);
+    let s = json(handle(&mut p, r#"{"op":"state"}"#));
+    assert_eq!(s["transport"]["issuedTo"], serde_json::json!(3000), "{s}");
+    assert_eq!(s["transport"]["state"], serde_json::json!("playing"));
+    let haptics = s["transport"]["haptics"].as_array().unwrap();
+    assert_eq!(haptics.len(), 6, "a beat every 500 ms to 3000: {s}");
+    assert_eq!(haptics[4]["state"], serde_json::json!("played"));
+}
