@@ -545,7 +545,7 @@ fn prop_type(p: PropId) -> String {
 const CONTEXTMENU: &str = "a long press on iOS, a right click elsewhere: `contextmenu=aim(id)` notes which item it was and `contextPopover=\"<menu id>\"` names the `popover=\"auto\" role=\"menu\"` column it opens (iOS: a UIMenu over the item). See `contract vocab menu`; a test opens it with `tap \"<testId>\" contextmenu`";
 
 /// HTML's capitalization hint, said for the fields that want other than sentences.
-const AUTOCAPITALIZE: &str = "`words` for a person's name or a title, `none` for a username or a code; unsaid is sentences (an email, URL or password field is never capitalized)";
+const AUTOCAPITALIZE: &str = "`words` for a person's name, `none` for a username or a code; unsaid is sentences (an email, URL or password field is never capitalized)";
 
 /// What `metadata=` takes (LLP 1098 D1): the Media Session's record.
 const METADATA: &str = "MediaMetadata(title=, artist=, album=, artwork=), each a string";

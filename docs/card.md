@@ -146,7 +146,7 @@ a timer: `every(ms, action)` repeats, `after(ms, action)` fires once, `when cond
   text `${now}`
 keeping a value: Root `state` only: a number, string or bool (or an option or list of one) up to 16 KB, read before the first frame. Records belong in a source (`files-and-grants`).
   state units = "C" persist
-colour: Leave the accent unsaid (system blue; a brand's is accent-color once, on the root) and controls unpainted; elsewhere a role, which follows the scheme: text `label`, `secondary-label`; a card `secondary-background`; a fill `secondary-fill`; a hue `system-red`…. No hex.
+colour: Leave the accent unsaid (the platform's blue; a brand is an app.tamber) and controls unpainted; elsewhere a role, which follows the scheme: text `label`, `secondary-label`; a card `secondary-background`; a fill `secondary-fill`; a hue `system-red`…. No hex.
   main
     text "Total" color="-exact-secondary-label"
     view padding=12 background-color="-exact-secondary-background"

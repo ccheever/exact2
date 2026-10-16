@@ -142,7 +142,7 @@ Root `state` only: a number, string or bool (or an option or list of one) up to 
 state units = "C" persist
 ```
 ### colour
-Leave the accent unsaid (system blue; a brand's is accent-color once, on the root) and controls unpainted; elsewhere a role, which follows the scheme: text `label`, `secondary-label`; a card `secondary-background`; a fill `secondary-fill`; a hue `system-red`…. No hex.
+Leave the accent unsaid (the platform's blue; a brand is an app.tamber) and controls unpainted; elsewhere a role, which follows the scheme: text `label`, `secondary-label`; a card `secondary-background`; a fill `secondary-fill`; a hue `system-red`…. No hex.
 ```contract
 main
   text "Total" color="-exact-secondary-label"
