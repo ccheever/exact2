@@ -320,7 +320,7 @@ describe('the reference\'s order of stops', () => {
 
   test('the dialogs that drew no X have DialogPopup\'s (showCloseButton is left on in the reference): last, at the top right', () => {
     for (const [file, anchor, close] of [['providers-wizard.contract', 'testId="usage-hub-dialog"', 'testId="usage-hub-close"'],
-      ['timeline-plan.contract', 'testId="plan-save-dialog"', 'testId="plan-save-close"'], ['legacy-sidebar.contract', 'role="dialog" aria-modal=true aria-label=title testId=label', 'testId=`${label}-close`']] as const) {
+      ['timeline-plan.contract', 'testId="plan-save-dialog"', 'testId="plan-save-close"'], ['legacy-sidebar.contract', 'role="dialog" aria-modal=dialogSeated.includes(label) aria-label=title testId=label', 'testId=`${label}-close`']] as const) {
       const lines = source(file).split('\n');
       const at = lines.findIndex(line => line.includes(anchor));
       expect(lines[at]).toContain('position="relative"');

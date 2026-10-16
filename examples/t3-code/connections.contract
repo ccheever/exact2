@@ -444,6 +444,7 @@ component PvGroupOpen
 // requestConfirmDialog for "Remove from this device…" (AlertDialog).
 component EnvironmentRemoveDialog
   inject
+    dialogSeated: string[]
     dialogEntered: action
     dialogFallback: action
   props
@@ -454,7 +455,7 @@ component EnvironmentRemoveDialog
   derive dialogTargets = ["environment-remove-cancel", "environment-remove-confirm"]
   view
     column class=CnOverlay testId="environment-remove-overlay"
-      column width="100%" max-width="28rem" box-sizing="border-box" padding="1.5rem" gap="1rem" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow="0 24px 64px -24px #000000a6" role="alertdialog" aria-describedby="environment-remove-description" aria-modal=true aria-label=`Remove ${environment.label} from this device?` testId="environment-remove-dialog" id="environment-remove-dialog" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("environment-remove-dialog") key=dialogFallback("environment-remove-dialog", dialogTargets)
+      column width="100%" max-width="28rem" box-sizing="border-box" padding="1.5rem" gap="1rem" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow="0 24px 64px -24px #000000a6" role="alertdialog" aria-describedby="environment-remove-description" aria-modal=dialogSeated.includes("environment-remove-dialog") aria-label=`Remove ${environment.label} from this device?` testId="environment-remove-dialog" id="environment-remove-dialog" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("environment-remove-dialog") key=dialogFallback("environment-remove-dialog", dialogTargets)
         // The focus trap (dialog-trap.contract).
         FocusGuard(guardId="environment-remove-guard-start", targets=dialogTargets, popup="environment-remove-dialog")
         DialogOpenFocus(target="environment-remove-cancel")

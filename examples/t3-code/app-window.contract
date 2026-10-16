@@ -366,6 +366,8 @@ component T3Window
     citeScrolled
     outsidePressDown
     outsidePressUp
+    // The dialogs the focus has entered since they opened: each is `aria-modal` only from then (dialog-trap.contract).
+    dialogSeated
   // Dialogs snapshot the actual focus before their first focusin. A pointer-opened Mac button does not take focus.
   // The frames outlive popup subtrees; a nested confirm returns into its parent, and a replacement inherits its return.
   state dialogFocusId = ""
@@ -373,6 +375,7 @@ component T3Window
   state dialogFocusPopup = ""
   state dialogFocusInvoker = ""
   state dialogFrames: DialogFocusFrame[] = []
+  state dialogSeated: string[] = []
   action windowFocused(e: FocusEvent)
     dialogFocusId = e.target
     dialogFocusOwner = ""
@@ -408,8 +411,10 @@ component T3Window
     dialogFocusOwner = owner
     dialogFocusPopup = ""
     dialogFocusInvoker = ""
+    dialogSeated = dialogSeated.filter((item) => item != owner and not frame(item).unavailable and frame(item).width > 0 and frame(item).height > 0).concat([owner])
   action dialogClosed(owner: string)
     let live = querySelectorAll("[data-dialog-focus~=\"open\"]")
+    dialogSeated = dialogSeated.filter((item) => item != owner)
     // A frame carries its entire lineage, so child/parent removal order cannot discard the outside return.
     let current = dialogLineage(dialogFrames, dialogFocusOwner)
     let owns = dialogFocusOwner == owner or ((frame(dialogFocusOwner).unavailable or frame(dialogFocusOwner).width == 0 or frame(dialogFocusOwner).height == 0) and current.filter(item => item.owner == owner).length > 0)
