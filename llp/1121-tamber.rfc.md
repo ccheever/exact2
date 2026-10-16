@@ -2606,3 +2606,24 @@ D12's runtime side, under every language's generated names.
   One changed `$value` gives exactly one `set-token`.
 - **`export {kind: "dtcg"}`** (*1.4*) returns `{kind, text, baseline}`, and `hello` reports
   `tamber/1.4`.
+
+### Stage 5, commit 5: Swift and Kotlin bindings, and the sample host (`b134894b5`..`fb2fd04fc`; Kotlin `650416fc0`)
+
+- **Swift** (`host/apple/Sources/ExactKit/Tamber.swift`): `ExactTamber(view)` and
+  `ExactTamber(session:)`.
+  - `.color(token, fallback:)` is a dynamic provider over scheme, contrast and elevation, and
+    `observe` notifies.
+  - Answers are kept per place under a lock. After each batch, places whose inputs moved ask again,
+    and their views redraw (on UIKit through a trait that affects colour appearance). So do views
+    moved to another node, and observers follow their view.
+  - The tint is resolved per side on the main thread.
+- **The native-module library** (`host/apple/modules/ExactTamber.swift`) reaches the same core
+  through the hatch host table and a module entry `tamber`, with one place per module view.
+  Colours are extended sRGB.
+- **Kotlin** (`host/android/canvas/.../Tamber.kt`) goes through JNI `Native.tamber` to the Linux
+  host's `Host::tamber_json`. It is compiled with Android's toolchain (the APK builds and the
+  `.so` exports the entry), but not yet run: no emulator.
+- **The sample host,** `apps/tamber-host` with `scripts/smoke-tamber.mjs`, passes on the Mac and the
+  iOS simulator.
+- **Observe** doesn't follow Bold Text yet: colours don't depend on it. It comes with stage 6's
+  `font` accessor.

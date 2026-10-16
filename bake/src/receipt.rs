@@ -430,6 +430,18 @@ fn shape(plan: &exact_plan::Plan, ty: exact_plan::TypesId, depth: usize) -> Resu
     })
 }
 
+/// The plan's requirement graph against a cohort's compatibility inputs
+/// (`exact-bake graph`): what a publisher that starts from a signed stream
+/// head, not a native bake, checks a new plan against.
+pub fn plan_graph(plan_bytes: &[u8], inputs: &Value, target: &str) -> Result<Value, String> {
+    let plan = exact_plan::Plan::decode(plan_bytes).map_err(|e| format!("the plan: {e:?}"))?;
+    let mut graph = artifact_graph(&plan, inputs, &[], target)?;
+    let node = &mut graph["artifacts"][0];
+    node["sha256"] = json!(hash(plan_bytes));
+    node["bytes"] = json!(plan_bytes.len());
+    Ok(graph)
+}
+
 fn artifact_graph(
     plan: &exact_plan::Plan,
     inputs: &Value,

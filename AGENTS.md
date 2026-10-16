@@ -194,6 +194,11 @@ For all prose: comments, commit messages, guides, LLPs, issues and PR text.
   opens its update store at launch and checks after first pixel
   (`EXACT_UPDATE_ORIGIN=<url>` points a dev build at a directory `serve.mjs` serves;
   `state.delivery` shows what it did).
+  `bun scripts/push.mjs <app> [--watch]` publishes an edit to installed release binaries
+  as a signed update in about a second, from the stream a deploy or a production build
+  started; `deploy.activate: "immediate"` applies it while the app is open. A channel's
+  origin `"appdrop"` is AppDrop's, named after the signing key: no account, no server.
+  Moving a stream to a new origin, pass `--seq-above` the old origin's seq.
 - `QUEUE.md` is what would make sense to do next. Add a line when you find something
   worth doing; delete it when it lands. It decides nothing.
 - Each worktree builds into its own `target/`: never symlink or share another

@@ -86,6 +86,8 @@ export function judge(obs, png, { host = 'web' } = {}) {
   const add = (kind, it, detail, hint) => found.push({ kind, id: it.id ?? null, ...(it.of != null ? { of: it.of } : {}), name: it.name, text: it.text, box: [r0(it.x), r0(it.y), r0(it.w), r0(it.h)], detail, ...(hint ? { hint } : {}) });
   const unit = host === 'web' ? 'px' : 'pt';
   for (const it of items) {
+    // Text squeezed to no width (iOS reports it): nothing of it shows, and nothing else of it can be judged.
+    if (it.squeezed) { add('squeezed', it, {}, 'let it keep its words (drop `min-width: 0` or a fixed width beside it), or let the row wrap (`flex-wrap="wrap"`)'); continue; }
     // Covered: something else is over its middle at rest, and no scroller moves it clear.
     if (it.cover && !it.disabled) {
       const what = it.cover.kind === 'keyboard' ? 'the software keyboard' : it.cover.kind === 'sheet' ? 'a sheet' : it.cover.by != null ? { ref: it.cover.by } : it.cover.name;
@@ -98,7 +100,7 @@ export function judge(obs, png, { host = 'web' } = {}) {
     } else if (it.text && it.cut) add('clipped', it, { cut: [r0(it.cut.dx), r0(it.cut.dy)], by: it.cut.by, edge: it.cut.edge, unit }, it.cut.edge ? OFFSCREEN : 'the clipping box is smaller than its content: let it grow, or scroll');
     // LLP 1116.009 D5: a written percentage width and the padding it does not include, past what its parent gives it: the cause, named.
     if (it.padded) add('overflow', it, { past: r0(it.padded.dx), of: it.padded.by, pad: r0(it.padded.pad), written: it.padded.width, unit }, 'drop the width (a block or a stretched flex item fills its parent) or say `box-sizing="border-box"`');
-    else if (it.outX) add('overflow', it, { past: r0(it.outX), width: vp.w, unit }, 'let it wrap or shrink (`min-width: 0`, `flex-wrap: wrap`, `max-width: 100%`), or scroll it inside its own box');
+    else if (it.outX) add('overflow', it, { past: r0(it.outX), width: vp.w, unit }, 'let it wrap (`flex-wrap: wrap` with a `flex-basis` in rem, `min-width: 0`, `max-width: 100%`), or scroll it inside its own box');
     else if (it.spill) add('overflow', it, { past: r0(it.spill.dx), of: it.spill.by, unit }, 'a flex item\'s width stops at its content: let it shrink (`min-width: 0`, a smaller `padding`), or let the row wrap (`flex-wrap: wrap`) or scroll');
     // A target the author sized under the platform's minimum (WCAG 2.5.8's 24 px, with its spacing exception, on the web; 44 pt on iOS).
     if (it.control && it.sized === 'author' && !it.inline && !it.disabled && !covers(it, obs.keyboard) && (it.w < obs.target - 0.5 || it.h < obs.target - 0.5)) {
@@ -146,7 +148,7 @@ export function judge(obs, png, { host = 'web' } = {}) {
   // A control's own text covered with it is one finding: the control's.
   const coveredControls = found.filter((f) => f.kind === 'covered' && items.find((it) => it.id === f.id)?.control);
   const kept = found.filter((f) => !(f.kind === 'covered' && f.text != null && coveredControls.some((c) => c !== f && holds({ x: c.box[0], y: c.box[1], w: c.box[2], h: c.box[3] }, { x: f.box[0], y: f.box[1], w: f.box[2], h: f.box[3] }))));
-  const order = ['covered', 'clipped', 'overflow', 'overlap', 'contrast', 'card', 'target'];
+  const order = ['covered', 'squeezed', 'clipped', 'overflow', 'overlap', 'contrast', 'card', 'target'];
   return kept.sort((p, q) => order.indexOf(p.kind) - order.indexOf(q.kind) || p.box[1] - q.box[1] || p.box[0] - q.box[0]);
 }
 function parseHex(h) { const n = parseInt(String(h).slice(1, 7), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; }
@@ -173,7 +175,7 @@ export function accepts(entries, f, nodes) {
 }
 
 /** One line a finding. */
-function line(f, nodes) {
+export function line(f, nodes) {
   const box = `[${f.box[0]},${f.box[1]} ${f.box[2]}×${f.box[3]}]`, d = f.detail;
   const under = (u) => typeof u === 'object' && u ? named(u.ref, nodes) : u;
   const what = {
@@ -184,6 +186,7 @@ function line(f, nodes) {
     contrast: () => `${d.got}:1 (${d.fg} on ${d.bg}${d.on == null ? '' : d.on === 'own' ? ', its own fill' : d.on === 'page' ? ', the page' : `, ${named(d.on, nodes)}'s fill`}), needs ${d.need}:1`,
     card: () => `its fill ${d.fill} is what lies behind it (${d.behind}): it does not show`,
     overlap: () => `overlaps ${named(d.with, nodes)} by ${d.by[0]}×${d.by[1]}`,
+    squeezed: () => 'its box is squeezed to no width, so none of its text shows',
   }[f.kind]();
   return `  ${f.kind.padEnd(8)} ${who(f, nodes)} ${box}: ${what}${f.hint ? `; ${f.hint}` : ''}`;
 }

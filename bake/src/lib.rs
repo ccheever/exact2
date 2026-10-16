@@ -16,7 +16,7 @@ mod receipt;
 
 pub use compat::{compatibility_id, compatibility_id_sources, Compat};
 pub use link::{ahead, apple_link};
-pub use receipt::write_development_artifacts;
+pub use receipt::{plan_graph, write_development_artifacts};
 
 /// The Bun a bake spawns: an explicit `BUN`, the versioned home install,
 /// then PATH. Refuse an older executable before it can compile the app.

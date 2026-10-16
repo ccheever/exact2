@@ -1,0 +1,33 @@
+// The Tamber binding's sample (LLP 1121 D12, stage 5): `apps/tamber-host`'s
+// native module fills itself through `ExactTamber(view).color(…)` and says
+// each colour it applies, which the app shows with a count. The window's
+// swatch follows `setMode`; the pinned one keeps its pin's (`tone=cool`); both
+// follow the scheme; a root font size (what Dynamic Type sets) fires their
+// observations. A live edit is the dev loop's (the stage 5 gate drives it).
+const said = async (s, id) => (await s.tree()).nodes.find(n => n.props?.testId === id)?.props?.text ?? '';
+const colour = (text) => text.match(/#[0-9a-f]{8}/)?.[0] ?? null;
+const times = (text) => Number(text.match(/×(\d+)/)?.[1] ?? 0);
+
+export async function tamberSmoke({ host, open, check }) {
+  const s = await open({ host });
+  try {
+    const at = async () => ({ window: await said(s, 'window-said'), pinned: await said(s, 'pinned-said') });
+    const settle = () => new Promise(r => setTimeout(r, 600));
+    await settle();
+    const boot = await at();
+    check(colour(boot.window) === '#c8102eff', `${host} tamber: the window's swatch is the warm tone: ${boot.window}`);
+    check(colour(boot.pinned) === '#0a7affff', `${host} tamber: the pinned swatch is its pin's tone: ${boot.pinned}`);
+    await s.tap('flip'); await settle();
+    const moded = await at();
+    check(colour(moded.window) === '#0a7affff', `${host} tamber: setMode moves the window's swatch: ${moded.window}`);
+    check(times(moded.pinned) === times(boot.pinned), `${host} tamber: the pinned swatch's inputs did not move: ${moded.pinned}`);
+    await s.prefer({ 'prefers-color-scheme': 'dark' }); await settle();
+    const dark = await at();
+    check(colour(dark.window) === '#64b5f6ff' && colour(dark.pinned) === '#64b5f6ff', `${host} tamber: both follow the scheme: ${dark.window} | ${dark.pinned}`);
+    await s.prefer({ 'root-font-size': '22' }); await settle();
+    const font = await at();
+    check(times(font.window) > times(dark.window) && times(font.pinned) > times(dark.pinned), `${host} tamber: a root font size fires both observations: ${font.window} | ${font.pinned}`);
+  } finally {
+    await s.close?.();
+  }
+}

@@ -733,7 +733,7 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
     let canvasContact = false;
     return {
       host: hostFixture ? 'host-ios' : 'ios', boot: ready.boot, hostLines, gpuMs: () => null, sessions: ready.sessions ?? null, state, plan,
-      touches, touch, crashes,
+      touches, touch, crashes, udid: dev.udid,
       ask, reveal: (id) => ask({ op: 'reveal', id }),
       async input(id, kind, opts) {
         if (kind === 'key') {

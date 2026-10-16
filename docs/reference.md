@@ -1168,8 +1168,11 @@ and does not accept signed-delivery generation tokens.
 For a module client's `build.rs`, depend on `exact-js-bake` and call
 `exact_js_bake::build(Path::new(".."), "web")` (or `"macos"` / `"ios"`). This writes the
 paired artifacts, `compat.json`, and `module.rs` constants (`APP`, `GRANTS`,
-`REVISION`) into `OUT_DIR`. Set the participating platforms' `deploy.store` entries to
-`"0"` in `app.json`: signed module delivery is not implemented.
+`REVISION`) into `OUT_DIR`, and on Apple `host.rs`, the host entry its `deploy.store`
+names. With a store (`"A"`), a signed update carries the module pair under
+`typescript/` (`app.module.json`, `app.hbc`); it needs the binary's TypeScript runtime
+and exactly its grants. An app with both a TypeScript and a Rust module still sets its
+`deploy.store` entries to `"0"`: signed delivery of both is not implemented.
 
 The web crate links `exact-js-web`, not Hermes. Include the generated constants
 and artifacts, then use the host macro's factory and paired-artifact arguments:
@@ -1325,6 +1328,20 @@ behaviour, not for measuring the display. A view animated on the wall clock
 (`UIView.animate`, a display link) is not on the agent's: `clock +N` leaves it
 where it was, and only `clock +N real` lets it run, so a splash drawn from
 `frames` or `after` is the one a drive can step past.
+
+**The design's tokens** (LLP 1121 D12). A native view draws in the design's
+colours by name: `ExactTamber(view).color(.surfaceCard)` on Apple (the view a
+module made, or one inside it; in the process, a view under any node, or
+`ExactTamber(session:)` for a screen of the host's own), a `UIColor` or
+`NSColor` that resolves the scheme, contrast and elevation it is drawn in
+(Android's `ExactTamber` is not here yet). Each reads its place's app tuple: a view under an
+`-exact-mode` pin answers that mode. `observe { … }` runs after each batch that
+moved what the place reads (a `setMode`, a pin above it, a live edit, the
+scheme, the root font size), so re-apply a colour kept in a layer there. A
+name the design lacks answers the fallback (`color(_:fallback:)`) and is
+logged once. `bun exact.mjs tamber gen swift .` writes the names
+(`.exact/tamber/tamber.swift`, never committed), which a module's build
+compiles in. `apps/tamber-host` is the sample.
 
 **Whose window.** `window.window` is nil unless the embedder set
 `session.hatchesOwnWindow`, and `app.application` unless it set

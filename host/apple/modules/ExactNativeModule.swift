@@ -498,6 +498,9 @@ final class ExactHatches {
     typealias OwnsFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UInt32, UInt32, UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UInt32) -> Int32
     typealias PartsFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafePointer<UInt8>?, UInt32, UnsafePointer<UnsafeMutableRawPointer?>?, UInt32) -> Int32
     let ownsFn: OwnsFn?, partsFn: PartsFn?
+    /// One of 104 or more: the bindings' answer (LLP 1121 D12; ExactTamber.swift).
+    typealias TamberFn = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UnsafeMutablePointer<UInt8>?, UInt32) -> UInt32
+    let tamberFn: TamberFn?
     #if os(iOS) || os(tvOS)
     var navigations: [ObjectIdentifier: ExactNavigation] = [:]
     var routes: [String: ExactRoute] = [:]
@@ -531,6 +534,8 @@ final class ExactHatches {
         let regions = table.load(as: UInt32.self) >= 96
         ownsFn = regions ? table.load(fromByteOffset: 80, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: OwnsFn.self) } : nil
         partsFn = regions ? table.load(fromByteOffset: 88, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: PartsFn.self) } : nil
+        tamberFn = table.load(as: UInt32.self) >= 104
+            ? table.load(fromByteOffset: 96, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: TamberFn.self) } : nil
     }
 
     func log(_ line: String) {
@@ -1015,6 +1020,7 @@ private let create: @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt
     guard let event else { write("no event callback", out, capacity); return nil }
     do {
         let instance = try factory.make(owner, try props(json, jsonLength), ExactNativeEvents(fn: event, ctx: ctx, nonce: nonce))
+        Tambers.made(instance.view, by: owner)
         return Unmanaged.passRetained(Handle(instance, reply: reply, ctx: ctx, nonce: nonce)).toOpaque()
     } catch {
         write(String(describing: error), out, capacity)
@@ -1160,6 +1166,13 @@ private let moduleConnect: @convention(c) (UnsafeMutableRawPointer?, UnsafeRawPo
     m.context.afterFn = m.hatches?.afterFn
 }
 
+/// `tamber(module)`: a batch moved what a binding reads (LLP 1121 D12); each
+/// place is asked again, and each that moved redrawn (ExactTamber.swift).
+private let moduleTamber: @convention(c) (UnsafeMutableRawPointer?) -> Void = { raw in
+    guard module(raw) != nil else { return }
+    Tambers.moved()
+}
+
 /// `tick(module, kind, token, now, seq)`: a frame ticket's tick (0) or an
 /// `after` that came due (1). A token the module no longer holds is one it
 /// stopped inside an earlier callback of this instant: nothing runs.
@@ -1300,6 +1313,8 @@ private let moduleElement: @convention(c) (UnsafeMutableRawPointer?, UInt32, Uns
     }
     element.data = ExactData(object["data"] as? [String: String] ?? [:])
     element.view = view.map { Unmanaged<ExactNativeView>.fromOpaque($0).takeUnretainedValue() }
+    // A hatched node's view is a place a binding finds, as a module view is (LLP 1121 D12).
+    if let view = element.view { Tambers.made(view, by: m) }
     element.platform = platform.map { Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() }
     m.element(element)
     return element.reusable ? 1 : 0
@@ -1391,7 +1406,7 @@ private let table: UnsafeMutableRawPointer = {
     let text = "{" + (roster.keys.sorted().map { tag in
         "\"\(tag)\":{\"snapshot\":\(roster[tag]!.snapshot),\"reuse\":\(roster[tag]!.reuse),\"firstFrame\":\(roster[tag]!.firstFrame)}"
     } + [words]).joined(separator: ",") + "}"
-    let size = 216
+    let size = 224
     let t = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 8)
     t.initializeMemory(as: UInt8.self, repeating: 0, count: size)
     t.storeBytes(of: major, as: UInt32.self)
@@ -1421,6 +1436,7 @@ private let table: UnsafeMutableRawPointer = {
     t.storeBytes(of: unsafeBitCast(moduleWindow, to: UnsafeRawPointer.self), toByteOffset: 192, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(moduleTick, to: UnsafeRawPointer.self), toByteOffset: 200, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(moduleWillQuit, to: UnsafeRawPointer.self), toByteOffset: 208, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(moduleTamber, to: UnsafeRawPointer.self), toByteOffset: 216, as: UnsafeRawPointer.self)
     return t
 }()
 

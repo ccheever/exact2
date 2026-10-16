@@ -250,46 +250,56 @@ pub fn selected_plan() -> Option<(String, Vec<u8>)> {
     Some((p.selection.generation.entry?, p.selection.plan.to_vec()))
 }
 
-/// A selected direct C boot admits the same signed Rust pair as the Swift composition.
+/// A selected direct C boot admits the same signed module pair as the Swift
+/// composition: a Rust pair under `rust/`, or a TypeScript pair under
+/// `typescript/` (its receipt and Hermes bytecode), never both.
 pub fn selected_module() -> Result<Option<(String, Vec<u8>)>, String> {
     let Some(pinned) = initial_selection() else {
         return Ok(None);
     };
     let assets = &pinned.selection.assets;
     let names = assets.names();
-    let rust: Vec<_> = names
-        .iter()
-        .filter(|name| name.starts_with("rust/"))
-        .collect();
-    if rust.is_empty() {
+    let in_dir = |dir: &str| names.iter().filter(|n| n.starts_with(dir)).count();
+    let (rust, typescript) = (in_dir("rust/"), in_dir("typescript/"));
+    if rust == 0 && typescript == 0 {
         return Ok(None);
     }
+    if rust > 0 && typescript > 0 {
+        return Err("a generation carries one module pair, not two".into());
+    }
+    let dir = if rust > 0 { "rust" } else { "typescript" };
     let receipt = assets
-        .resolve("rust/app.module.json")?
-        .ok_or("missing Rust pairing receipt")?;
+        .resolve(&format!("{dir}/app.module.json"))?
+        .ok_or("missing module pairing receipt")?;
     if receipt.len() > 1 << 20 {
-        return Err("Rust receipt exceeds 1 MiB".into());
+        return Err("module receipt exceeds 1 MiB".into());
     }
     let receipt = String::from_utf8(receipt.to_vec()).map_err(|e| e.to_string())?;
     let json: serde_json::Value = serde_json::from_str(&receipt).map_err(|e| e.to_string())?;
-    let file = json["module"]["file"].as_str().unwrap_or("");
-    if rust.len() != 2
-        || ![
+    let file = if dir == "typescript" {
+        "app.hbc"
+    } else {
+        json["module"]["file"].as_str().unwrap_or("")
+    };
+    let files: &[&str] = if dir == "typescript" {
+        &["app.hbc"]
+    } else {
+        &[
             "app.module.wasm",
             "app.module.dylib",
             "app.module.so",
             "app.module.dll",
             "app.module.bin",
         ]
-        .contains(&file)
-    {
-        return Err("invalid signed Rust replacement pair".into());
+    };
+    if rust + typescript != 2 || !files.contains(&file) {
+        return Err(format!("invalid signed {dir} module pair"));
     }
     let bytes = assets
-        .resolve(&format!("rust/{file}"))?
-        .ok_or("missing Rust module")?;
+        .resolve(&format!("{dir}/{file}"))?
+        .ok_or("missing module bytes")?;
     if bytes.len() > 32 << 20 {
-        return Err("Rust replacement exceeds 32 MiB".into());
+        return Err("module exceeds 32 MiB".into());
     }
     Ok(Some((receipt, bytes.to_vec())))
 }

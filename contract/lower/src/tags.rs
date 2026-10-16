@@ -1247,6 +1247,44 @@ pub(crate) fn host_transform_recipients(
     recipients
 }
 
+/// @ref LLP 1116.019 D6 — a `color` the author wrote on a symbol `image`
+/// (or its class) is the symbol's colour, as an inline SVG icon drawn in
+/// `currentcolor` follows `color` on the web: the row this returns,
+/// `-exact-tint-color: currentcolor`, said as the `color` was. `None` where
+/// the image names its `-exact-tint-color`, writes no `color`, or is no
+/// symbol (a raster given a tint paints as a silhouette). `rows` are the
+/// author's, its classes' included, without the sheet's.
+pub(crate) fn symbol_ink(
+    tag: &str,
+    positional: &[contract_syntax::Expr],
+    rows: &[contract_syntax::Attr],
+) -> Option<contract_syntax::Attr> {
+    use contract_syntax::{Expr, TemplatePart};
+    fn symbol(source: &Expr) -> bool {
+        match source {
+            Expr::Str(s, _) => s.starts_with("symbol:"),
+            Expr::Template(parts, _) => {
+                matches!(parts.first(), Some(TemplatePart::Text(t)) if t.starts_with("symbol:"))
+            }
+            Expr::Ternary(_, a, b, _) => symbol(a) && symbol(b),
+            _ => false,
+        }
+    }
+    if tag != "image" || !positional.first().is_some_and(symbol) {
+        return None;
+    }
+    if rows.iter().any(|a| a.name == "-exact-tint-color") {
+        return None;
+    }
+    let color = rows.iter().rev().find(|a| a.name == "color")?;
+    Some(contract_syntax::Attr {
+        name: "-exact-tint-color".into(),
+        value: Expr::Str("currentcolor".into(), color.span),
+        span: color.span,
+        written: color.written,
+    })
+}
+
 /// How an element is a flex or grid container, if it is: its tag, or a
 /// literal `display` (LLP 1093 §1).
 pub(crate) fn flex_container<'a>(tag: &'a str, attrs: &[contract_syntax::Attr]) -> Option<&'a str> {

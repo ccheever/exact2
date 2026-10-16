@@ -408,7 +408,7 @@ export const infoPlist = (app, device = false, { executable = executableName(app
     const exported = exportedTypes(app);
     if (exported.length) dict.UTExportedTypeDeclarations = exported;
   }
-  Object.assign(dict, openingLinks(app, 'ios', development));
+  Object.assign(dict, openingLinks(app, 'ios', development), updateActivation(app));
   Object.assign(dict, usageKeys(reach));
   Object.assign(dict, icon);
   Object.assign(dict, distribution, orientationKeys(app.manifest.orientation));
@@ -575,9 +575,11 @@ export const macInfoPlist = (app, { development = null, icon = {}, reach = null 
   // without `file_handlers`: File ▸ New Window needs no document type. Always written, so
   // absence, `auto` and an explicit `navigate-existing` are one plist.
   ExactLaunchMode: launchMode(app),
+  ...updateActivation(app),
   ...openingLinks(app, 'macos', development),
 });
 
+const updateActivation = (app) => app.manifest.deploy?.activate ? { ExactUpdateActivate: app.manifest.deploy.activate } : {}; // `deploy.activate`, for ExactUpdates
 /** The build receipt (LLP 1030 D2): what this binary was actually built from and with — the toolchain, the SDK, the identity and profile, the entitlements as signed — written beside it, never committed, so "what did this binary contain" is answered by a file. */
 export function receipt(app, fields) {
   const version = (cmd, args) => (read(cmd, args).stdout ?? '').trim().split('\n')[0];
@@ -1043,7 +1045,9 @@ async function main(args) {
   // from app.json `data` beside the glue (built, never committed).
   const dataKeys = resolve(linkRoot, `ExactDataKeys-${app.id}.swift`);
   if (modules.apple.length) writeDataKeys(app, dataKeys, ios ? 'ios' : 'macos');
-  const moduleSources = modules.apple.length ? [resolve(root, 'host/apple/modules/ExactNativeModule.swift'), dataKeys, ...snapshot.copies] : [];
+  // @ref LLP 1121 D12 — the token names `bun exact.mjs tamber gen swift` wrote (never committed).
+  const tamberNames = resolve(app.dir, '.exact/tamber/tamber.swift');
+  const moduleSources = modules.apple.length ? [resolve(root, 'host/apple/modules/ExactNativeModule.swift'), resolve(root, 'host/apple/modules/ExactTamber.swift'), ...(existsSync(tamberNames) ? [tamberNames] : []), dataKeys, ...snapshot.copies] : [];
   const modulesBuilt = moduleSources.length ? resolve(webBuildDir, modulesLoadName) : null;
   // The slice of each `modules/apple/*.xcframework` for this build, read
   // from the xcframework's own Info.plist (`AvailableLibraries`: platform,
@@ -1471,7 +1475,7 @@ async function test(args) {
       'build', resolve(source, 'app.contract'), '-o', env.TEST_RUNNER_EXACT_FIXTURE_PLAN]);
     env.TEST_RUNNER_EXACT_FIXTURE_MODULE = resolve(fixtureDir, 'libexact_modules.dylib');
     runApple('xcrun', ['--sdk', 'iphonesimulator', 'swiftc', '-parse-as-library', '-emit-library', '-O', '-swift-version', '5', '-module-name', 'ExactAppModules',
-      '-module-cache-path', resolve(fixtureDir, 'cache'), resolve(root, 'host/apple/modules/ExactNativeModule.swift'), resolve(fixtureDir, 'ExactDataKeys.swift'),
+      '-module-cache-path', resolve(fixtureDir, 'cache'), resolve(root, 'host/apple/modules/ExactNativeModule.swift'), resolve(root, 'host/apple/modules/ExactTamber.swift'), resolve(fixtureDir, 'ExactDataKeys.swift'),
       ...fixture.modules.apple, '-target', iosTriple, '-o', env.TEST_RUNNER_EXACT_FIXTURE_MODULE]);
     compileFixtures(env, fixtureDir, 'TEST_RUNNER_EXACT');
     if (process.env.EXACT_REQUIRED) env.TEST_RUNNER_EXACT_REQUIRED = process.env.EXACT_REQUIRED;

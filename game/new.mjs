@@ -814,6 +814,7 @@ crate-type = ["rlib"]
 [dependencies]
 exact-logic = ${dep('apple', 'logic')}
 exact-apple = ${dep('apple', 'host/apple')}
+exact-apple-update = ${dep('apple', 'host/apple-update')}
 exact-js = ${dep('apple', 'js')}
 
 [build-dependencies]
@@ -846,7 +847,8 @@ fn embedded_data() -> ExactEmbeddedData {
 }
 include!(concat!(env!("OUT_DIR"), "/logic.rs"));
 include!(concat!(env!("OUT_DIR"), "/linked.rs"));
-exact_apple::host!(AppData, PLAN, COMPAT, None, std::ptr::null(), app_data; linked = EXACT_LINKED);
+// The host app.json's deploy.store names: with an update store, signed updates.
+include!(concat!(env!("OUT_DIR"), "/host.rs"));
 `,
     ...linuxCrate(dir, name, title),
     'web/Cargo.toml': `[package]
