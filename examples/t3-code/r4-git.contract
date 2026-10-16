@@ -265,9 +265,15 @@ component R4GitMenuRow
     over = value
   action focused(on: bool)
     lit = on
+  // Base UI's Menu gives the focus back to its trigger as a chosen item closes it, so a dialog the item opens gives the
+  // focus back to the chevron as it closes (DialogFinalFocus). Left to the popover's own restore, the focus went to
+  // whatever held it before the menu opened (the prompt, or nothing after a pointer press), and the dialog returned there.
+  action choose()
+    focus("details-git-menu")
+    act("shell:git-menu", cwd, item.id)
   view
     box position="relative" width="100%" hover=hover
-      button id=`details-git-menu-${item.id}` press=act("shell:git-menu", cwd, item.id) popovertarget="details-git-options" popovertargetaction="hide" focus=focused(true) blur=focused(false) disabled=item.disabled role="menuitem" testId=`details-git-menu-${item.id}` width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-width=0 border-radius="0.375rem" opacity=(item.disabled ? 0.64 : 1) background-color=(lit and not item.disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" data-focus-stop=(item.disabled ? "" : "enabled")
+      button id=`details-git-menu-${item.id}` press=choose popovertarget="details-git-options" popovertargetaction="hide" focus=focused(true) blur=focused(false) disabled=item.disabled role="menuitem" testId=`details-git-menu-${item.id}` width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-width=0 border-radius="0.375rem" opacity=(item.disabled ? 0.64 : 1) background-color=(lit and not item.disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" data-focus-stop=(item.disabled ? "" : "enabled")
         box margin-left="-0.125rem" margin-right="-0.125rem" display="flex" flex-shrink=0 opacity=0.8
           R4Glyph(name=item.icon, size=16, color="light-dark(#71717b, #818181)")
         text item.label flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
