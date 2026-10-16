@@ -317,7 +317,8 @@ final class Paragraph {
             + ParagraphInkIndex.storageBytes(lineCount: lines.count)
     }
     private(set) var cachedInk: ParagraphInkIndex?
-    var firstBaseline: CGFloat { baselines.first ?? 0 }
+    /// The C seam uses -1 when no line supplies a baseline.
+    var firstBaseline: CGFloat { baselines.first ?? -1 }
     private var truncated: (width: CGFloat, lines: [Int: CTLine])?
 
     /// CSS `text-overflow: ellipsis`: a line wider than the box ends in "…",
