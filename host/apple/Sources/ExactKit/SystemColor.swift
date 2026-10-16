@@ -270,6 +270,7 @@ extension NodeView {
     /// A window or ancestor tint changed: the rows naming it apply again.
     package override func tintColorDidChange() {
         super.tintColorDidChange()
+        tintPadBar()
         // An `svg`'s paints are resolved into its scene's layers.
         if kind == "svg" { presenter?.svg.reappear(id, dark: drawsDark, clock: presenter?.session?.clock, tint: viewTint) }
         // A symbol counts: hierarchical and palette glyphs bake the tint in.

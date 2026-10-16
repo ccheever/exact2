@@ -151,6 +151,27 @@ final class PadBarIOSTests: XCTestCase {
         XCTAssertEqual(view.backgroundColor?.resolvedColor(with: view.traitCollection), canvas.resolvedColor(with: view.traitCollection))
     }
 
+    func testAOneTimeCodeGetsNoBarAndABarTakesTheFieldsTint() throws {
+        // Lexy's verification code: the code's suggestion sits over the pad
+        // and the screen has its own Verify button.
+        let (_, code, window) = field(["inputMode": "numeric", "autocomplete": "one-time-code", "enterKeyHint": "done"], handlers: ["input", "submit"])
+        defer { window.isHidden = true }
+        XCTAssertEqual(code.field?.keyboardType, .numberPad)
+        XCTAssertEqual(code.field?.textContentType, .oneTimeCode)
+        XCTAssertNil(code.field?.inputAccessoryView, "no Done bar over a one-time code's pad")
+        // Another pad's bar shows in the keyboard's window, whose tint is
+        // the system's: it takes the field's, here the window's red.
+        let (_, amount, other) = field(["inputMode": "decimal"])
+        defer { other.isHidden = true }
+        other.tintColor = .systemRed
+        XCTAssertTrue(amount.textFieldShouldBeginEditing(try XCTUnwrap(amount.field)))
+        let bar = try XCTUnwrap(amount.field?.inputAccessoryView as? UIToolbar)
+        XCTAssertEqual(bar.tintColor, .systemRed, "the bar takes the field's tint")
+        // A tint that changes once the bar is made follows into it
+        other.tintColor = .systemGreen
+        XCTAssertEqual(bar.tintColor, .systemGreen, "the bar follows the tint")
+    }
+
     func testDoneIsOnEveryPadAndDoesWhatReturnDoes() throws {
         // number-field's converter: a negative min and enterkeyhint="done", ± and Done.
         let (p, node, window) = field(["inputMode": "decimal", "min": "-273.15", "enterKeyHint": "done", "value": "-40"], handlers: ["input", "change"])
