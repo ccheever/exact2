@@ -1,7 +1,6 @@
 //! The runner: boot, actions, events, resources, timers, the clock.
 //!
 //! @ref LLP 1004 D3 (the refusal tuple) / D4 (the data seam) / D5 (restart)
-//!
 //! Each event settles derives and changed resource arguments, evaluates all
 //! sites, and applies one atomic kernel batch; hosts then lay out and paint.
 //! Kernel validation precedes every write; a refusal leaves the kernel untouched.
