@@ -124,11 +124,15 @@ extension NodeView {
     #if os(macOS)
     /// The ARIA roles WebKit serves as AppKit's group with the role as its
     /// subrole (Core-AAM): the live regions and the dialogs, a `dialog`
-    /// element's implicit role among them (HTML-AAM).
+    /// element's implicit role among them (HTML-AAM), and a `region`, a
+    /// landmark only with a name (without one it is generic).
     static let groupSubroles = ["status": "AXApplicationStatus", "alert": "AXApplicationAlert",
-                                "dialog": "AXApplicationDialog", "alertdialog": "AXApplicationAlertDialog"]
+                                "dialog": "AXApplicationDialog", "alertdialog": "AXApplicationAlertDialog",
+                                "region": "AXLandmarkRegion"]
     var groupSubrole: String? {
-        (props["accessibilityRole"] ?? (props["semanticTag"] == "dialog" ? "dialog" : nil)).flatMap { Self.groupSubroles[$0] }
+        let role = props["accessibilityRole"] ?? (props["semanticTag"] == "dialog" ? "dialog" : nil)
+        if role == "region", authoredLabel == nil { return nil }
+        return role.flatMap { Self.groupSubroles[$0] }
     }
     /// The ARIA roles that make a box an AppKit container of its own
     /// (Core-AAM): a `menu` is `AXMenu`, as WebKit serves one, so VoiceOver
@@ -339,7 +343,7 @@ extension NodeView {
             if accessibilityRole() != container { setAccessibilityRole(container) }
             if accessibilitySubrole() != nil { setAccessibilitySubrole(nil) }
         } else if let subrole = groupSubrole.map(NSAccessibility.Subrole.init(rawValue:)) {
-            // A live-region or dialog role as WebKit serves it (Core-AAM): a
+            // A live-region, dialog or region role as WebKit serves it (Core-AAM): a
             // group whose subrole is the role, named only by its author, a
             // paragraph's words its children (`textAccessibilityChildren`).
             setAccessibilityElement(true)
@@ -383,8 +387,13 @@ extension NodeView {
     /// another process (VoiceOver) was served no role description for a
     /// group or a menu (measured), so a labelled group read without "group".
     package override func accessibilityRoleDescription() -> String? {
-        guard let subrole = groupSubrole, ["AXApplicationDialog", "AXApplicationAlertDialog"].contains(subrole) else { return super.accessibilityRoleDescription() }
-        return NSAccessibility.Role.window.description(with: .dialog)
+        switch groupSubrole {
+        case "AXApplicationDialog", "AXApplicationAlertDialog": return NSAccessibility.Role.window.description(with: .dialog)
+        // Chromium's and WebKit's word for a named region (Core-AAM), which
+        // AppKit has none of: it would say "group".
+        case "AXLandmarkRegion": return "region"
+        default: return super.accessibilityRoleDescription()
+        }
     }
     /// VoiceOver's show menu (AXShowMenu, VO-⇧-M) is the ContextMenu key's
     /// request at this node (X84), as Chrome sends both through Blink's
@@ -429,6 +438,16 @@ extension NodeView {
 }
 
 extension NSView {
+    /// `children` without the nodes the host hid from accessibility
+    /// (`setAccessibilityHidden`: inert, behind a modal dialog, `aria-hidden`
+    /// above). AppKit serves such a view to another process all the same
+    /// (measured: an `inert` page's button was VoiceOver's to land on), where
+    /// a browser leaves an inert subtree out of its accessibility tree. A
+    /// hidden view that is no element hoists nothing: its own children are
+    /// none (`NodeView.accessibilityChildren`).
+    func exposed(_ children: [Any]?) -> [Any]? {
+        children?.filter { ($0 as? NodeView)?.accessibilityHiddenWritten != true }
+    }
     /// VoiceOver's order, `AXChildrenInNavigationOrder`, as the children
     /// `AXChildren` serves: the order the author wrote, as a browser serves
     /// the DOM's. AppKit's own sorts them by frame, so a chip laid over a
@@ -581,6 +600,18 @@ extension Presenter {
                 #endif
             }
         }
+        #if os(macOS)
+        // The modal is said before the focus moves into it (autofocus,
+        // below), as AppKit tells a sheet before the focus in it (measured:
+        // AXSheetCreated, AXFocusedWindowChanged, then the field's
+        // AXFocusedUIElementChanged); VoiceOver is sent to the focus after.
+        let modal = macAccessibilityModal
+        let modalChanged = modal.map(ObjectIdentifier.init) != announcedModal
+        if modalChanged {
+            announcedModal = modal.map(ObjectIdentifier.init)
+            announceDialog(modal)
+        }
+        #endif
         for node in nodes {
             node.applyFormAccessibility()
             // A native button's control is its accessibility element (LLP 1069.011 D4).
@@ -645,38 +676,22 @@ extension Presenter {
             NSAccessibility.post(element: menu.window != nil ? menu : viewport, notification: .init(rawValue: "AXMenuClosed"))
         }
         shownMenus = shown
-        // The focus moved out of the menu before it went (the app focused
-        // the invoker, then removed the menu): told again after AXMenuClosed,
-        // VoiceOver follows it. A popover's menu gives the focus back only
-        // after this pass, so `MenuHost.close` tells it then.
-        if !closed.isEmpty, let focused = focusedNode {
-            NSAccessibility.post(element: keyView(of: focused), notification: .focusedUIElementChanged)
+        // Once the modal and the menus are said, VoiceOver is sent where the
+        // keyboard focus is, last: a changed modal's one layout change
+        // (LLP 1080.003 D3) names the modal, or the focus in it, or, as the
+        // modal goes, the focus given back; the focus itself is told after
+        // it, as a sheet's arrival ends. A menu that went without the modal
+        // changing tells only the focus (the app focused the invoker, then
+        // removed the menu). `MenuHost.close` gives the focus back before
+        // this pass, so it is the trigger's here.
+        let focus = focusedNode.map { keyView(of: $0) }
+        var landing: NSView?
+        if modalChanged {
+            landing = modal.map(modalLanding) ?? focus
+            NSAccessibility.post(element: viewport, notification: .layoutChanged, userInfo: landing.map { [.uiElements: [$0]] })
         }
-        let modal = macAccessibilityModal
-        if modal.map(ObjectIdentifier.init) != announcedModal {
-            announcedModal = modal.map(ObjectIdentifier.init)
-            NSAccessibility.post(element: viewport, notification: .layoutChanged, userInfo: modal.map { [.uiElements: [modalLanding($0)]] })
-            // A dialog is announced once while it stays up: one handed the
-            // modal back by a dialog closed over it is not read again, as an
-            // AppKit sheet is not when its child sheet ends.
-            announcedDialogs.removeAll { dialog in
-                dialog.window == nil || dialog.isHiddenOrHasHiddenAncestor || leaving[dialog.id] != nil
-                    || (dialog.props["accessibilityModal"] != "true" && dialogs.active !== dialog)
-            }
-            if let modal, ["AXApplicationDialog", "AXApplicationAlertDialog"].contains(modal.groupSubrole ?? ""),
-               modal.window?.isSheet != true, !modal.inPopover, !announcedDialogs.contains(where: { $0 === modal }),
-               let words = modal.dialogWords {
-                announcedDialogs.append(modal)
-                // VoiceOver reads a dialog window's title (a sheet's, a
-                // panel's) and an `NSAlert`'s message as it appears, whatever
-                // the focus does next, and WAI-ARIA's alertdialog fires the
-                // alert event as it opens. A dialog drawn in the page has no
-                // window to be read by, so it is announced as an `alert` is,
-                // assertively. A sheet is AppKit's to read; a dialog in a
-                // popover is not read, as `NSPopover` is not.
-                NSAccessibility.post(element: modal, notification: .announcementRequested,
-                    userInfo: [.announcement: words, .priority: NSAccessibilityPriorityLevel.high.rawValue])
-            }
+        if let focus, landing === focus || (!modalChanged && !closed.isEmpty) {
+            NSAccessibility.post(element: focus, notification: .focusedUIElementChanged)
         }
         #else
         syncModal()
@@ -690,6 +705,27 @@ extension Presenter {
     func modalLanding(_ modal: NodeView) -> NSView {
         guard let focused = focusedNode, menus.contains(modal, focused) else { return modal }
         return keyView(of: focused)
+    }
+    /// A dialog drawn in the page that became the modal is said as it opens:
+    /// VoiceOver reads a dialog window's title (a sheet's, a panel's) and an
+    /// `NSAlert`'s message as it appears, and WAI-ARIA's alertdialog fires
+    /// the alert event as it opens. With no window to be read by, it is
+    /// announced as an `alert` is, assertively. A sheet is AppKit's to read;
+    /// a dialog in a popover is not read, as `NSPopover` is not. It is said
+    /// once while it stays up: one handed the modal back by a dialog closed
+    /// over it is not read again, as an AppKit sheet is not when its child
+    /// sheet ends.
+    private func announceDialog(_ modal: NodeView?) {
+        announcedDialogs.removeAll { dialog in
+            dialog.window == nil || dialog.isHiddenOrHasHiddenAncestor || leaving[dialog.id] != nil
+                || (dialog.props["accessibilityModal"] != "true" && dialogs.active !== dialog)
+        }
+        guard let modal, ["AXApplicationDialog", "AXApplicationAlertDialog"].contains(modal.groupSubrole ?? ""),
+              modal.window?.isSheet != true, !modal.inPopover, !announcedDialogs.contains(where: { $0 === modal }),
+              let words = modal.dialogWords else { return }
+        announcedDialogs.append(modal)
+        NSAccessibility.post(element: modal, notification: .announcementRequested,
+            userInfo: [.announcement: words, .priority: NSAccessibilityPriorityLevel.high.rawValue])
     }
     var macModalAccessibilityChildren: [NodeView]? {
         guard let modal = macAccessibilityModal else { return nil }
