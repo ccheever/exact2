@@ -5,7 +5,8 @@
 // scheduled from the press and then each tick, from a list a `fn` makes of
 // Caltrain's three nearest stations; a choke by start time, a tie included;
 // a stop that ends what sounds and cancels what waits; the bound of 32 live
-// voices; and the drops a computed call can make. The journal's `sound`
+// voices; the drops a computed call can make; and a voice's playback rate
+// and pan, literal, clamped and non-finite (LLP 1125 D10). The journal's `sound`
 // lines and `state.sounds` compare on every target, and the JS target
 // never refuses one of the three commands. (No slot shares a name with
 // Caltrain's: the wasm page carries its first world into this plan by slot
@@ -92,6 +93,11 @@ component Sounds
     playSound("assets/kick.wav")
   action odd(src: string, at: number, gain: number)
     playSound(src, at=at == -1 ? 0 / 0 : at, gain=gain)
+  action tape
+    playSound("assets/hat.wav", at=performanceNow() + 10, gain=0.5, group="tape", playbackRate=2, pan=-0.5)
+    playSound("assets/kick.wav", playbackRate=0.5, group="tape")
+  action warp(rate: number, pan: number)
+    playSound("assets/hat.wav", playbackRate=rate == -1 ? 0 / 0 : rate, pan=pan)
   task clock mount
     every(25, tick)
   view
@@ -105,3 +111,6 @@ component Sounds
       button "nan" press=odd("assets/hat.wav", -1, 1) testId="nan"
       button "loud" press=odd("assets/hat.wav", 0, 4) testId="loud"
       button "past" press=odd("assets/hat.wav", 5, 1) testId="past"
+      button "tape" press=tape testId="tape"
+      button "clamped" press=warp(9, -4) testId="clamped"
+      button "nan rate" press=warp(-1, 0) testId="nanrate"

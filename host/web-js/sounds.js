@@ -16,7 +16,8 @@ const live = (v, t) => sounds(v.by) && v.ends > t;
 const given = v => v ?? null;
 const finite = (v, d) => v == null ? d : typeof v === 'number' && Number.isFinite(v) ? v : null;
 
-function play(t, [src, asked0, gain0, group0]) {
+// A hit's `playbackRate` and `pan` (LLP 1125 D10): clamped as `gain` is; the rate divides the file's length.
+function play(t, [src, asked0, gain0, group0, rate0, pan0]) {
   if (typeof src !== 'string') return say('sound dropped: the sound is not a string');
   const sound = Table.findIndex(r => r[0] === src);
   if (sound < 0) return say(`sound dropped: ${JSON.stringify(src)} is not a declared sound`);
@@ -24,9 +25,15 @@ function play(t, [src, asked0, gain0, group0]) {
   if (asked == null) return say(`sound dropped: at is not a number (${src})`);
   const gain = finite(given(gain0), 1);
   if (gain == null) return say(`sound dropped: gain is not a number (${src})`);
-  const group = given(group0) ?? '', at = Math.max(asked, t), [, frames, rate] = Table[sound];
-  const length = 1000 * frames / Math.max(rate, 1), saved = Voices.map(v => [v.ends, v.by]);
-  const id = ++Next, voice = { id, sound, src, at, gain: Math.min(Math.max(gain, 0), 1), group, ends: at + length, by: 'end', natural: at + length };
+  const group = given(group0) ?? '';
+  let playbackRate = finite(given(rate0), 1);
+  if (playbackRate == null) return say(`sound dropped: playbackRate is not a number (${src})`);
+  let pan = finite(given(pan0), 0);
+  if (pan == null) return say(`sound dropped: pan is not a number (${src})`);
+  playbackRate = Math.min(Math.max(playbackRate, 0.25), 4); pan = Math.min(Math.max(pan, -1), 1);
+  const at = Math.max(asked, t), [, frames, rate] = Table[sound];
+  const length = 1000 * frames / Math.max(rate, 1) / playbackRate, saved = Voices.map(v => [v.ends, v.by]);
+  const id = ++Next, voice = { id, sound, src, at, gain: Math.min(Math.max(gain, 0), 1), group, playbackRate, pan, ends: at + length, by: 'end', natural: at + length };
   const cuts = [];
   if (group) {
     // The next voice in the group that sounds ends this one; this one ends
@@ -40,7 +47,7 @@ function play(t, [src, asked0, gain0, group0]) {
     Next--;
     return say(`sound dropped: ${LIVE} voices sound or wait (${src} at ${at})`);
   }
-  say(`sound ${id} ${src} at ${at} gain ${voice.gain}${group ? ` group ${group}` : ''}${asked < t ? ` (asked ${asked})` : ''}`);
+  say(`sound ${id} ${src} at ${at} gain ${voice.gain}${group ? ` group ${group}` : ''}${playbackRate !== 1 ? ` playbackRate ${playbackRate}` : ''}${pan !== 0 ? ` pan ${pan}` : ''}${asked < t ? ` (asked ${asked})` : ''}`);
   Voices.push(voice);
   for (const [cut, ends] of cuts.sort((a, b) => a[0] - b[0])) say(`sound ${cut} ends at ${ends} (group ${group})`);
   // Keep the last RECORD voices, the oldest no longer live first.
@@ -57,7 +64,7 @@ function endLive(t, group) {
 }
 function queue(before, firstNew) {
   for (const v of Voices) {
-    if (v.id >= firstNew) { Ops.push({ op: 'play', id: v.id, sound: v.sound, at: v.at, gain: v.gain }); if (v.ends < v.natural) Ops.push({ op: 'end', id: v.id, at: v.ends }); }
+    if (v.id >= firstNew) { Ops.push({ op: 'play', id: v.id, sound: v.sound, at: v.at, gain: v.gain, playbackRate: v.playbackRate, pan: v.pan }); if (v.ends < v.natural) Ops.push({ op: 'end', id: v.id, at: v.ends }); }
     else if (before.has(v.id) && v.ends < before.get(v.id)) Ops.push({ op: 'end', id: v.id, at: v.ends });
   }
 }
@@ -94,7 +101,7 @@ export function install(table) {
   (globalThis.exact ??= {}).sounds = {
     // `state.sounds`, as the runner's (runner/src/agent/sound.rs).
     state: all => ({
-      voices: Voices.slice(all ? 0 : Math.max(0, Voices.length - SHOWN)).map(v => ({ id: v.id, src: v.src, at: v.at, gain: v.gain, group: v.group || null, ends: v.ends, by: v.by, state: !sounds(v.by) || clock.now >= v.ends ? 'ended' : clock.now < v.at ? 'waiting' : 'sounding' })),
+      voices: Voices.slice(all ? 0 : Math.max(0, Voices.length - SHOWN)).map(v => ({ id: v.id, src: v.src, at: v.at, gain: v.gain, group: v.group || null, ...(v.playbackRate !== 1 && { playbackRate: v.playbackRate }), ...(v.pan !== 0 && { pan: v.pan }), ends: v.ends, by: v.by, state: !sounds(v.by) || clock.now >= v.ends ? 'ended' : clock.now < v.at ? 'waiting' : 'sounding' })),
       live: Voices.filter(v => live(v, clock.now)).length, recorded: Voices.length, evicted: Evicted, evictedThrough: EvictedThrough,
       output: clock.agent ? 'agent' : Output?.state() ?? { kind: 'web-audio', state: 'loading' },
     }),

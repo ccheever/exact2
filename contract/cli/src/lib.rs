@@ -1032,13 +1032,21 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                     at,
                     gain,
                     ends,
+                    playback_rate,
+                    pan,
                     by,
                     ..
                 } => {
                     s.push_str("{\"op\":\"expect-sound\",\"src\":");
                     q(src, &mut s);
                     s.push_str(&format!(",\"present\":{present}"));
-                    for (key, n) in [("at", at), ("gain", gain), ("ends", ends)] {
+                    for (key, n) in [
+                        ("at", at),
+                        ("gain", gain),
+                        ("ends", ends),
+                        ("playbackRate", playback_rate),
+                        ("pan", pan),
+                    ] {
                         if let Some(n) = n {
                             s.push_str(&format!(",\"{key}\":{n}"));
                         }

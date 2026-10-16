@@ -4,6 +4,10 @@
 // virtual: nothing plays, D10). Web Audio's model in its smallest form: one
 // decoded `AudioBuffer` per declared sound, a one-shot `AudioBufferSourceNode`
 // and a `GainNode` per voice, started at `start(when)` on the context's clock.
+// A voice's `playbackRate` is its source node's (LLP 1125 D10), and a voice
+// with a `pan` other than 0 goes through a `StereoPannerNode`; one centred
+// takes none, so a mono sound keeps the level it had (the panner's
+// equal-power law puts a centred mono input 3 dB down, cos(π/4) a side).
 //
 // Runner time is `performance.now()` minus the host's origin (the wasm
 // glue's `t0`, the JS target's `clock.start`). While the context's output
@@ -42,7 +46,7 @@ function installSound({ files, log, origin, root = document.getElementById('exac
   const stamp = timestamp ?? (() => outputTimestamp(ctx));
   let sources = [], buffers = [], decoded = 0, gesture = false;
   const counts = { blocked: 0, late: 0, dropped: 0 };
-  /** Every voice not yet over: `{id, sound, at, gain, stopAt, node, held, timer}`. */
+  /** Every voice not yet over: `{id, sound, at, gain, playbackRate, pan, stopAt, node, held, timer}`. */
   const voices = new Map();
   // `app.json`'s `audio_session`, where the browser has the Audio Session API (WebKit).
   const session = root?.dataset.audioSession;
@@ -70,13 +74,15 @@ function installSound({ files, log, origin, root = document.getElementById('exac
     v.held = false; clearTimeout(v.timer);
     const buffer = buffers[v.sound];
     if (v.stopAt != null && v.stopAt <= v.at) return voices.delete(v.id);
-    const node = new AudioBufferSourceNode(ctx, { buffer }), gain = new GainNode(ctx, { gain: v.gain });
-    node.connect(gain).connect(ctx.destination);
+    const node = new AudioBufferSourceNode(ctx, { buffer, playbackRate: v.playbackRate }), gain = new GainNode(ctx, { gain: v.gain });
+    const pan = v.pan !== 0 ? new StereoPannerNode(ctx, { pan: v.pan }) : null;
+    node.connect(gain);
+    (pan ? gain.connect(pan) : gain).connect(ctx.destination);
     const start = immediately ? 0 : at;
     if (!immediately && start <= ctx.currentTime) counts.late++;
     node.start(start);
     if (v.stopAt != null) node.stop(immediately ? Math.max(ctx.currentTime, ctx.currentTime + (origin() + v.stopAt - now()) / 1000) : when(v.stopAt));
-    node.onended = () => { voices.delete(v.id); gain.disconnect(); };
+    node.onended = () => { voices.delete(v.id); gain.disconnect(); pan?.disconnect(); };
     v.node = node;
   }
   /** Start a voice by the formula, or hold it until the timestamp is live. */
@@ -101,17 +107,17 @@ function installSound({ files, log, origin, root = document.getElementById('exac
     };
     requestAnimationFrame(look);
   }
-  function play({ id, sound, at, gain }) {
+  function play({ id, sound, at, gain, playbackRate = 1, pan = 0 }) {
     const src = sources[sound];
     if (!userActivated()) { counts.blocked++; return log(`sound blocked: the page has had no user activation (${src})`); }
-    const v = { id, sound, at, gain, stopAt: null, node: null, held: false, timer: 0 };
+    const v = { id, sound, at, gain, playbackRate, pan, stopAt: null, node: null, held: false, timer: 0 };
     voices.set(id, v);
     const buffer = buffers[sound];
     if (buffer && !(buffer instanceof Promise)) return schedule(v);
     // Still decoding: it starts when it is decoded, from its first frame, unless its end has passed.
     Promise.resolve(buffer).then(b => {
       if (!voices.has(id) || sources[sound] !== src) return;
-      const length = b ? 1000 * b.duration : 0, ends = Math.min(at + length, v.stopAt ?? Infinity);
+      const length = b ? 1000 * b.duration / playbackRate : 0, ends = Math.min(at + length, v.stopAt ?? Infinity);
       if (!b || origin() + ends <= now()) { voices.delete(id); counts.dropped++; return log(`sound dropped: ${src} was still decoding at its end`); }
       schedule(v);
     });

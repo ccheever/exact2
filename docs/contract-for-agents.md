@@ -1416,11 +1416,15 @@ real`; `clock settle` can return just before them.
 A sound effect is a declared WAV that an action plays ([LLP
 1096](../llp/1096-sounds-an-app-can-schedule.rfc.md)): `sound "assets/…wav"` at the
 top level (16-bit or float PCM, one or two channels, at most 10 s; the compiler
-reads it), then `playSound(src, at=, gain=, group=)` from any action. Every call is
-a new voice, so a retrigger is another call. `at=` is the runner's clock (`performanceNow()`'s
-milliseconds; the past means now), `gain=` a linear 0–1, and a `group=` is
-monophonic by start time: a voice ends where the next one in its group starts, as a
-drum machine's choke does. `stopSounds()` (or `stopSounds(group=…)`) ends what
+reads it), then `playSound(src, at=, gain=, group=, playbackRate=, pan=)` from any
+action. Every call is a new voice, so a retrigger is another call. `at=` is the runner's
+clock (`performanceNow()`'s milliseconds; the past means now), `gain=` a linear 0–1,
+and a `group=` is monophonic by start time: a voice ends where the next one in its
+group starts, as a drum machine's choke does. `playbackRate=` (0.25–4, Web Audio's
+name) moves pitch and length together, as tape does: at 2 a voice is an octave up and
+lasts half as long. `pan=` places it from −1 (left) to 1 (right) by Web Audio's
+equal-power law ([LLP 1125](../llp/1125-a-transport-midi-and-the-small-pieces.rfc.md)
+D10). `stopSounds()` (or `stopSounds(group=…)`) ends what
 sounds and cancels what waits. The web plays the first sound after the page's first
 tap or key; Linux and Windows keep the record and play nothing.
 
@@ -1438,7 +1442,8 @@ To keep time (a sequencer, a metronome), schedule ahead on the audio clock rathe
 than starting each hit when a timer's commit lands: the press schedules the first
 window, `[performanceNow(), performanceNow() + 100)`, and each tick of a coarse timer schedules the next,
 `[scheduledTo, performanceNow() + 100)`, as a list a `fn` computes (`playSounds(hits)` takes a
-list of a shape whose fields are, in order, `src`, `at`, `gain` and `group`). A
+list of a shape whose fields are, in order, `src`, `at`, `gain` and `group`, then
+optionally `playbackRate` and then `pan`). A
 timer's commit is at its due time, so a hit planned at `t` lands on the grid:
 
 ```text
@@ -1456,7 +1461,8 @@ action stop
 ```
 
 Tests read the runner's record: `expect sound has "assets/ding.wav" at 0`, with any
-of `gain`, `ends` and `by end|group|cut|stop|cancelled`, or `expect sound missing …`;
+of `gain`, `ends`, `playbackRate`, `pan` and `by end|group|cut|stop|cancelled`, or
+`expect sound missing …`;
 `state sounds` lists the last 64 voices. `audio` stays HTML's player for long media
 (a song, a podcast: `video`'s props and events with no picture, LLP 1042 §8).
 

@@ -45,12 +45,13 @@ pub fn command_args<'e>(name: &str, args: &'e [Expr]) -> Vec<Option<&'e Expr>> {
     if name == "saveFile" && args.iter().any(|a| matches!(a, Expr::NamedArg(..))) {
         return vec![args.first(), None, named("suggestedName"), named("text")];
     }
-    // @ref LLP 1096 D2 — the sound first, then `at`, `gain` and `group`,
-    // `none` where the author left the default (now, 1, no group).
+    // @ref LLP 1096 D2, LLP 1125 D10 — the sound first, then `at`, `gain`,
+    // `group`, `playbackRate` and `pan`, `none` where the author left the
+    // default (now, 1, no group, 1, centred).
     if name == "playSound" {
         let src = args.iter().find(|a| !matches!(a, Expr::NamedArg(..)));
         return std::iter::once(src)
-            .chain(["at", "gain", "group"].map(named))
+            .chain(["at", "gain", "group", "playbackRate", "pan"].map(named))
             .collect();
     }
     // The Web Share API's members, the Notification API's title and

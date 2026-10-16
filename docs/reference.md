@@ -845,15 +845,15 @@ or both, each with its own strings key (LLP 1069.008.000):
 ### Sounds
 
 A declared WAV (`sound "assets/…wav"`) is played by `playSound(src, at=,
-gain=, group=)`, `playSounds(hits)` and ended by `stopSounds(group=)` (LLP
-1096). The runner keeps the voice table, so what was scheduled, when, and how
+gain=, group=, playbackRate=, pan=)`, `playSounds(hits)` and ended by
+`stopSounds(group=)` (LLP 1096; the rate and pan, LLP 1125 D10). The runner keeps the voice table, so what was scheduled, when, and how
 each voice ended is the same on every host and under the driver's clock
 (`state.sounds`, `expect sound`).
 
 | host | output |
 | --- | --- |
-| web (both targets) | Web Audio: a one-shot `AudioBufferSourceNode` per voice at `start(when)`, aimed at the speaker through the context's output timestamp; the first sound after the page's first tap or key (one before it is dropped and journaled `sound blocked`) |
-| macOS, iOS, tvOS | one `AVAudioEngine` with a C mixer behind an `AVAudioSourceNode`, sample-accurate, in an arm loaded on demand (`libexact_sound.dylib`; `ExactSound.framework` in an `.ipa`) |
+| web (both targets) | Web Audio: a one-shot `AudioBufferSourceNode` per voice at `start(when)` with its `playbackRate`, through a `StereoPannerNode` when its `pan` is not 0, aimed at the speaker through the context's output timestamp; the first sound after the page's first tap or key (one before it is dropped and journaled `sound blocked`) |
+| macOS, iOS, tvOS | one `AVAudioEngine` with a C mixer behind an `AVAudioSourceNode`, sample-accurate (a playback rate reads between frames by linear interpolation; a pan follows the `StereoPannerNode`'s equal-power algorithm), in an arm loaded on demand (`libexact_sound.dylib`; `ExactSound.framework` in an `.ipa`) |
 | Linux, Windows | none: the record only (`state.sounds.output` is `"none"` outside the driver) |
 
 Under the driver nothing plays on any host (`output: "agent"`). `app.json`'s

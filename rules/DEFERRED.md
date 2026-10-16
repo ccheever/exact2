@@ -568,10 +568,10 @@ reading. Nothing that isn't HTML is added by it.
   §8's sound-effect paragraph are deleted. Round-1 review A held that neither
   is doing-list work; to the extent it is not, the admission stands on the
   orchestrator's waiver under the same delegation. Still out: synthesis,
-  pitch and rate, pan, loops, fades and gain automation, effects, a handle to
-  one voice, a stop at a future time, compressed formats, sound produced by a
-  data module, microphone input, and output on Linux and Windows (LLP 1096
-  §7). No tag is added.
+  loops, fades and gain automation, effects, a handle to one voice, a stop
+  at a future time, compressed formats, sound produced by a data module,
+  microphone input, and output on Linux and Windows (LLP 1096 §7; rate and
+  pan came in with LLP 1125 D10). No tag is added.
 - **Expanded (LLP 1125; Charlie, 2026-10-16: "once happy with it, go ahead
   and implement"):** a sequence (`sequence NAME when COND`, `play(tracks,
   bpm=, from=, countIn=, clock=, clockOut=, ended=)`) that the runner expands

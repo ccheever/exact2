@@ -11,3 +11,8 @@ tap past
 tap flood
 clock +300
 tap flood
+clock +2000
+tap tape
+tap clamped
+tap nanrate
+clock +100
