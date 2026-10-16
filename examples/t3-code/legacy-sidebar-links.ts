@@ -36,6 +36,12 @@ export function rowThread(client: T3Client, id: string, source: EnvironmentFleet
   return entry && thread ? { thread, ref: fleetRef, focused: false, reads: { config: entry.config, shell: entry.shell } } : null;
 }
 
+/** The id a row has now: a `fleet:` id naming the focused environment (a row whose open moved the window there) is its own. */
+export function rowIdNow(client: T3Client, id: string): string {
+  const fleetRef = parseFleetThreadId(id);
+  return fleetRef && fleetRef.environmentId === client.environmentId ? fleetRef.threadId : id;
+}
+
 /** rightPanelStore for a thread that may not be the shown one (its panel, by the thread's key). */
 function panelOf(client: T3Client, ref: ScopedThreadRef): PanelState {
   const store = surfaceStore(client), key = scopedThreadKey(ref);
