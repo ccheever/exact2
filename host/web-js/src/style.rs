@@ -651,7 +651,7 @@ static TINT_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
             .tint_color
             .expect("schema initial tint color"),
     );
-    format!(r#"v=>v==null?v:/^\s*unset\s*$/i.test(v)?{initial:?}:v"#)
+    format!(r#"v=>v==null?v:/^\s*(unset)?\s*$/i.test(v)?{initial:?}:v"#)
 });
 
 fn one(name: impl Into<String>, unit: impl Into<String>) -> Vec<Write> {
@@ -685,7 +685,7 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
         }],
         StyleId::ControlSize => vec![with("--exact-control-font-size", "v=>v==null?v:({mini:'x-small',small:'small',medium:'medium',large:'large',unset:'medium'})[v]??'medium'")],
         StyleId::TintColor => vec![with("--exact-tint", &TINT_MAP)],
-        StyleId::PlaceholderColor => vec![with("--exact-placeholder-color", "v=>v==null?v:/^\\s*unset\\s*$/i.test(v)?'initial':v")],
+        StyleId::PlaceholderColor => vec![with("--exact-placeholder-color", "v=>v==null?v:/^\\s*(unset)?\\s*$/i.test(v)?'initial':v")],
         StyleId::ControlCornerStyle => vec![with("--exact-control-radius", "v=>v==null?v:v==='capsule'?'calc(infinity * 1px)':'revert'")],
         StyleId::ColumnGap | StyleId::RowGap => {
             let column = row == StyleId::ColumnGap;
@@ -828,7 +828,7 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
         StyleId::TextColor if exact_kernel::style::roles::overridden_canvas_text() => {
             let (name, unit) = style_row(id)?;
             let mut writes = one(name, unit);
-            writes.push(with("--exact-scheme-color", r"v=>v==null||/^\s*(unset|inherit|currentcolor)\s*$/i.test(v)?null:'initial'"));
+            writes.push(with("--exact-scheme-color", r"v=>v==null||/^\s*(unset|inherit|currentcolor)?\s*$/i.test(v)?null:'initial'"));
             writes
         }
         _ => {

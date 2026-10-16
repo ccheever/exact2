@@ -13,7 +13,7 @@ import { After, PropHooks, inflight, say } from "./rt.js";
 // The rows by bit (`modes.rs` `CHANNELS`).
 const CH = ["color", "caret-color", "fill", "stroke", "accent-color", "text-shadow", "-webkit-text-stroke-color"];
 // A value that sets no row: the row is the one around (`StyleValue::text_unsets`).
-const UNSETS = /^\s*(unset|inherit)\s*$/i;
+const UNSETS = /^\s*(unset|inherit)?\s*$/i;
 let Axes = [], Classes = {}, Texts = [], Vars = {}, Accent = [], Names = {}, Win = [], Pending = false;
 // A development build's design digest (LLP 1121 stage 4): the base a live
 // batch applies to. Null in a release build, which takes none.

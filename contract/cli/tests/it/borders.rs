@@ -374,3 +374,31 @@ fn a_computed_box_shorthand_sets_each_side_as_the_literal_does() {
     );
     assert_eq!(computed.border_color_left, Some(fixed("#0000ff")));
 }
+
+/// An empty value declares nothing, as CSSOM's `setProperty(p, "")`: the
+/// row is unset with no journal line, and a component's prop of `""` under
+/// `if dot != ""` compiles (the euxy port passed `"transparent"` instead).
+#[test]
+fn an_empty_colour_declares_nothing() {
+    let mut r = boot(
+        "component A\n  state c = \"#ff0000\"\n  action clear\n    c = \"\"\n  view\n    column\n      button testId=\"clear\" press=clear width=10 height=10\n      box testId=\"bound\" background-color=c border-color=c\n      Dot(dot=\"\")\n      Dot(dot=\"#00ff00\")\n\ncomponent Dot\n  props\n    dot: string\n  view\n    row\n      if dot != \"\"\n        box testId=\"dot\" background-color=dot\n",
+    );
+    assert_eq!(
+        style_of(&r, "bound").border_color_top,
+        Some(fixed("#ff0000"))
+    );
+    let clear = {
+        let k = r.kernel();
+        k.node_by_key(k.find_by_test_id("clear")[0]).unwrap().id
+    };
+    r.dispatch(clear, Event::Press).unwrap();
+    let bound = style_of(&r, "bound");
+    assert!(!bound.mask.has(StyleId::BackgroundColor));
+    assert_eq!(sides(&bound), [None; 4]);
+    assert!(
+        !r.journal().any(|l| l.contains("invalid")),
+        "{:?}",
+        r.journal().collect::<Vec<_>>()
+    );
+    assert!(contract::compile("component A\n  view\n    box background-color=\"\"\n").is_ok());
+}

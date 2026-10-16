@@ -407,7 +407,11 @@ so a value its prop or style row refuses (a colour that is not one,
 §3.1): the row is unset — `ClearProp`/`ClearStyle`, so inherited or initial
 — and one journal line names it. It is not CSSOM's `setProperty`, which
 keeps the earlier declaration: the view would then depend on history rather
-than state. A repeated key in an `each` or a virtualized list is the
+than state. An empty string declares nothing, as CSSOM's
+`setProperty(p, "")` removes the declaration: on any style row it unsets
+the row with no journal line, bound or literal, so a component's prop of
+`""` is a colour its `if dot != ""` need not replace with `"transparent"`
+(`StyleValue::text_unsets`; 2026-10-16, the euxy port). A repeated key in an `each` or a virtualized list is the
 data's error too (Charlie, 2026-09-22, a separate decision): the later
 rows take the identities `d1:<key>`, `d2:<key>` in order — no canonical key
 text starts with `d` — and each such row's creation writes one journal

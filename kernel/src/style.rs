@@ -320,11 +320,11 @@ pub enum StyleValue<'a> {
 }
 
 impl StyleValue<'_> {
-    /// Whether this value is a CSS-wide keyword that leaves row `style`
-    /// unset — inherited, else initial — which is what clearing the row
-    /// does: `unset`, and `inherit` on an inherited row (`color:
-    /// currentcolor` is `inherit`). `inherit` on any other row needs its
-    /// parent's value, which no row holds, so it stays refused (feed F1).
+    /// Whether this value leaves row `style` unset — inherited, else
+    /// initial — which is what clearing the row does: an empty string, which
+    /// declares nothing (CSSOM's `setProperty(p, "")`), `unset`, and `inherit`
+    /// on an inherited row (`color: currentcolor` is `inherit`). `inherit` on
+    /// any other row needs its parent's value, which no row holds, so it stays refused (feed F1).
     pub fn unsets(&self, style: StyleId) -> bool {
         let StyleValue::Text(t) = self else {
             return false;
@@ -332,12 +332,12 @@ impl StyleValue<'_> {
         Self::text_unsets(t, style)
     }
 
-    /// [`Self::unsets`] for borrowed text, before a producer allocates a
-    /// style value. Dynamic bindings use this on every changed row.
+    /// [`Self::unsets`] for borrowed text; dynamic bindings ask it of every changed row.
     pub fn text_unsets(t: &str, style: StyleId) -> bool {
         // A metric with no row on this platform (LLP 1115.002 D6).
         let t = metrics::text(t).unwrap_or(t).trim();
-        t.eq_ignore_ascii_case("unset")
+        t.is_empty()
+            || t.eq_ignore_ascii_case("unset")
             || (t.eq_ignore_ascii_case("inherit") && StyleMask::INHERITED.has(style))
             || (t.eq_ignore_ascii_case("currentcolor") && style == StyleId::TextColor)
             // @ref LLP 1034 §8: a bound `normal` follows the surrounding
