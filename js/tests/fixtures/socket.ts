@@ -44,6 +44,12 @@ function say(id: string, what: string): unknown {
         return "sent";
       }
       case "close": socket.close(4001, "finished"); return "closed";
+      case "probe": { const before = socket.bufferedAmount; socket.send("abc"); return `${before}:${socket.bufferedAmount}`; }
+      case "read": return String(socket.bufferedAmount);
+      case "big": socket.send("x".repeat(200000)); return "sent";
+      case "send then fetch": socket.send("a"); fetch("https://echo.test/x").catch(() => {}); return "sent";
+      case "send then fetch later": socket.send("a"); Promise.resolve().then(() => fetch("https://echo.test/x").catch(() => {})); return "sent";
+      case "fetch then send": fetch("https://echo.test/x").catch(() => {}); try { socket.send("a"); } catch {} return "sent";
       case "abort": controllers.get(id)!.abort(); socket.send("x"); return "sent";
       case "after close": socket.close(); socket.send("x"); return "sent";
       case "bad code": socket.close(1001); return "closed";

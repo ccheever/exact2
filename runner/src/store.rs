@@ -48,6 +48,9 @@ pub struct Store {
     /// the runner after each mutation's answer, which publishes them only
     /// if the answer stands.
     sockets: Vec<(usize, crate::SocketOp)>,
+    /// Each open socket's buffered bytes at the start of the turn, by its
+    /// resource's index: what its handle's `bufferedAmount` starts from.
+    socket_buffered: Vec<(usize, u64)>,
     /// Each entry's value before its first write since the open checkpoint:
     /// what a refused transaction puts back. A checkpoint costs what the
     /// transaction writes, not the store's size. Checkpoints do not nest.
@@ -210,6 +213,7 @@ impl Store {
             entropy: std::cell::Cell::new(0),
             topics: Default::default(),
             sockets: Vec::new(),
+            socket_buffered: Vec::new(),
             undo: Vec::new(),
             copied: 0,
         }
@@ -453,6 +457,17 @@ impl Store {
     /// being answered (LLP 1016.000 D7).
     pub fn stage_socket(&mut self, resource: usize, op: crate::SocketOp) {
         self.sockets.push((resource, op));
+    }
+
+    /// Set the turn's socket snapshot (see `socket_buffered`).
+    pub fn set_socket_buffered(&mut self, snapshot: Vec<(usize, u64)>) {
+        self.socket_buffered = snapshot;
+    }
+
+    /// Each open socket's buffered bytes at the start of this turn, by the
+    /// index of the resource that owns it.
+    pub fn socket_buffered(&self) -> &[(usize, u64)] {
+        &self.socket_buffered
     }
 
     /// The socket operations staged since the last take.

@@ -163,6 +163,68 @@ fn what_the_handle_refuses_sends_nothing_it_refused() {
     );
 }
 
+/// `bufferedAmount` is the transport's count as the turn began plus what
+/// the turn stages; a turn that sends nothing still reads a drained buffer.
+#[test]
+fn buffered_amount_is_the_turn_s_snapshot_plus_what_it_stages() {
+    let (mut r, ticket) = boot();
+    open(&mut r, ticket);
+    use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
+    let transport = std::sync::Arc::new(AtomicU64::new(0));
+    let reads = transport.clone();
+    r.set_socket_reader(std::sync::Arc::new(move |t| {
+        (t == ticket).then(|| reads.load(Relaxed))
+    }));
+    let (said, ops) = say(&mut r, "probe");
+    assert_eq!(said, "0:3");
+    assert_eq!(ops, vec![SocketOp::Text("abc".into())]);
+    // The transport is backed up: this turn reads it, and its frame would
+    // pass 1 MiB with it.
+    transport.store(900_000, Relaxed);
+    assert_eq!(say(&mut r, "read").0, "900000");
+    let (said, ops) = say(&mut r, "big");
+    assert_eq!(said, "QuotaExceededError: socket buffer exceeds 1 MiB");
+    assert!(ops.is_empty());
+    // It drains while the module sends nothing; the next turn sees it.
+    transport.store(0, Relaxed);
+    assert_eq!(say(&mut r, "read").0, "0");
+    assert_eq!(
+        say(&mut r, "big"),
+        ("sent".into(), vec![SocketOp::Text("x".repeat(200_000))])
+    );
+    let state = exact_runner::agent::state(&r);
+    assert!(
+        state.contains(r#""readyState":1,"bufferedAmount":0"#),
+        "{state}"
+    );
+}
+
+/// A mutation that sends and fetches is refused before either effect,
+/// whichever it does first: no frame is staged and no request handed out.
+#[test]
+fn a_mutation_cannot_both_send_and_fetch() {
+    let (mut r, ticket) = boot();
+    open(&mut r, ticket);
+    for what in [
+        "send then fetch",
+        "fetch then send",
+        "send then fetch later",
+    ] {
+        let (said, ops) = say(&mut r, what);
+        assert_eq!((said.as_str(), ops), ("", vec![]), "{what}");
+        assert!(r.take_requests().is_empty(), "{what}: no fetch goes out");
+    }
+    let journal = journal(&r);
+    assert_eq!(
+        journal
+            .matches("send said failed: a mutation cannot both send on a socket and fetch")
+            .count(),
+        3,
+        "{journal}"
+    );
+    assert_eq!(say(&mut r, "x").1.len(), 2, "the module goes on");
+}
+
 #[test]
 fn the_caller_s_abort_makes_the_handle_stale() {
     let (mut r, ticket) = boot();

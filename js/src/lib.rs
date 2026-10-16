@@ -168,6 +168,9 @@ struct HostState {
     /// The socket operations the answer being made handed over (op 14),
     /// by the prelude's ticket for each socket's stream (LLP 1016.000 D7).
     socket_ops: Vec<(u64, exact_runner::SocketOp)>,
+    /// Each open socket's buffered bytes at the start of this turn, by the
+    /// prelude's ticket for its stream (op 15).
+    socket_buffered: Vec<(u64, u64)>,
     native: Option<Box<dyn NativeModule>>,
     /// The native module takes long calls off this thread (`native.later`).
     later: bool,
@@ -808,6 +811,9 @@ impl Module {
         let mut store = store;
         self.host.store = store.as_mut().map(|s| &mut **s as *mut Store);
         self.host.socket_ops.clear();
+        if let Some(store) = store.as_deref() {
+            self.host.socket_buffered = socket::snapshot(&self.streams, store);
+        }
         // A mutation's synchronous source may send on a socket (D7).
         let mutation = match target {
             Some(Target::Mutation(_)) if session => "mutation",
@@ -1182,6 +1188,7 @@ impl Module {
         let ended = !matches!(outcome, Outcome::Message(_));
         self.progress += 1;
         let outcome_text = outcome_to_json(&outcome).to_string();
+        self.host.socket_buffered = socket::snapshot(&self.streams, store);
         self.host.store = Some(store as *mut Store);
         let started = Instant::now();
         let result: Result<Step, DataError> = (|| {

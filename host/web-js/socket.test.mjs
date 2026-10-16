@@ -10,8 +10,11 @@ test('JS target socket mutations echo ordered frames and obey commits and resour
   if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
   const root = resolve(import.meta.dir, '../..'), dir = mkdtempSync(resolve(root, 'target/socket-test-'));
   const received = [], connections = new Set();
+  let counted = 0;
   const peer = Bun.serve({ hostname: '127.0.0.1', port: 0,
     fetch(req, server) {
+      if (new URL(req.url).pathname === '/count') { counted++; return new Response('counted', { headers: { 'access-control-allow-origin': '*' } }); }
+      if (new URL(req.url).pathname === '/body') return req.text().then(body => new Response('body:' + body, { headers: { 'access-control-allow-origin': '*' } }));
       if (new URL(req.url).pathname === '/events') return new Response(new ReadableStream({
         start(controller) { controller.enqueue(new TextEncoder().encode('data: initial\n\n')); },
       }), { headers: { 'content-type': 'text/event-stream', 'access-control-allow-origin': '*' } });
@@ -19,7 +22,11 @@ test('JS target socket mutations echo ordered frames and obey commits and resour
     },
     websocket: {
       open(ws) { connections.add(ws); },
-      message(ws, data) { received.push(typeof data === 'string' ? data : [...data]); ws.send(data); },
+      message(ws, data) {
+        // A large frame fills the browser's buffer; it is counted, not echoed.
+        if (typeof data === 'string' && data.startsWith('xx')) { received.push(`x${data.length}`); return; }
+        received.push(typeof data === 'string' ? data : [...data]); ws.send(data);
+      },
       close(ws) { connections.delete(ws); },
     },
   });
@@ -71,6 +78,18 @@ test('JS target socket mutations echo ordered frames and obey commits and resour
         text "stale"
       button press=write("close") testId="close"
         text "close"
+      button press=write("probe") testId="probe"
+        text "probe"
+      button press=write("read") testId="read"
+        text "read"
+      button press=write("big") testId="big"
+        text "big"
+      button press=write("sendfetch") testId="sendfetch"
+        text "send then fetch"
+      button press=write("fetchsend") testId="fetchsend"
+        text "fetch then send"
+      button press=write("captured") testId="captured"
+        text "captured"
 `);
   writeFileSync(resolve(dir, 'app.ts'), `export const appId = 'test.socket';
 export const grants = ${JSON.stringify(`net.websocket ${url}\nnet.fetch http://127.0.0.1:${peer.port}`)};
@@ -101,7 +120,18 @@ export function answer(name: string, args: any): any {
   }
   if (name === 'denied') return fetch('ws://localhost:' + ${peer.port}, { exactStream: (e: any) => e.kind });
   if (name === 'refuse') throw Object.assign(new Error('deliberate commit refusal'), { refuse: true });
-  const mode = args[0], s = mode === 'stale' ? previous : sockets.get(1);
+  const mode = args[0], s = mode === 'stale' ? previous : sockets.get(1), t = sockets.get(2);
+  const counter = ${JSON.stringify(`http://127.0.0.1:${peer.port}/count`)};
+  if (mode === 'probe') { const before = t.bufferedAmount; t.send('abc'); return before + ':' + t.bufferedAmount; }
+  if (mode === 'read') return 'read:' + t.bufferedAmount;
+  if (mode === 'big') { t.send('x'.repeat(900000)); return 'big'; }
+  if (mode === 'sendfetch') { t.send('a'); fetch(counter).catch(() => {}); return 'x'; }
+  if (mode === 'captured') {
+    const init = { method: 'POST', body: 'original' }, sent = fetch(${JSON.stringify(`http://127.0.0.1:${peer.port}/body`)}, init);
+    init.body = 'changed';
+    return sent.then(r => r.text());
+  }
+  if (mode === 'fetchsend') { fetch(counter).catch(() => {}); try { t.send('a'); } catch {} return 'x'; }
   if (mode === 'cancel') { for (const c of controllers.values()) c.abort(); return 'cancelled'; }
   if (mode === 'close') { s.close(4001, 'finished'); return 'closed'; }
   if (mode === 'burst') {
@@ -186,6 +216,33 @@ export function answer(name: string, args: any): any {
     expect(logs).toContain('socket close: 4001 finished');
     expect(logs).toContain('socket mutation exceeds 256');
     expect(logs).toContain('the socket is not open');
+    // bufferedAmount counts what the mutation has staged.
+    await browser.tap('probe');
+    await until(s => JSON.stringify(s.slots.sent).includes('0:3') && s.resources.other === 'abc|');
+    // A full buffer drains while the module sends nothing; a later turn
+    // reads the lower count.
+    await browser.tap('big');
+    await until(s => received.includes('x900000'));
+    let read;
+    for (let i = 0; i < 40 && read !== 'read:0'; i++) {
+      await browser.tap('read');
+      read = (await until(s => JSON.stringify(s.slots.sent).includes('read:'))).slots.sent;
+      read = String(read?.value ?? read);
+    }
+    expect(read).toBe('read:0');
+    // A mutation cannot both send and fetch, in either order: no frame, no request.
+    const before = received.length;
+    await browser.tap('sendfetch');
+    await browser.tap('fetchsend');
+    await browser.clock('settle');
+    await new Promise(r => setTimeout(r, 300));
+    expect(received.length).toBe(before);
+    expect(counted).toBe(0);
+    const refused = (await browser.logs()).lines.join('\n');
+    expect(refused.match(/a mutation cannot both send on a socket and fetch/g)?.length).toBe(2);
+    // A mutation's fetch sends the request as it was when fetch was called.
+    await browser.tap('captured');
+    await until(s => JSON.stringify(s.slots.sent).includes('body:original'));
   } finally {
     await browser?.close(); server?.stop(true); peer.stop(true); rmSync(dir, { recursive: true, force: true });
   }

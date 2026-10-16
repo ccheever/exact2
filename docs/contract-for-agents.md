@@ -827,7 +827,8 @@ Keep the handle in module state by resource identity; after its `open` event,
 a mutation source can call `socket.send(textOrBytes)` or `socket.close(code,
 reason)`. The mapper only reads frames and returns snapshots. Sends run after
 the mutation's commit stands, in order, and have bounded admission. The
-source must send and answer synchronously. Refreshing or removing the
+source must send and answer synchronously, and a mutation that sends cannot
+also `fetch` (whichever comes second refuses it). Refreshing or removing the
 resource invalidates the old handle. **TypeScript on the web JS target,
 macOS, iOS and Linux**; the wasm target and Rust sources remain
 receive-only. See

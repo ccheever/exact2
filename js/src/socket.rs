@@ -4,7 +4,7 @@
 //! given now. Each is addressed by the prelude's ticket for the stream's
 //! `fetch`; here it becomes the resource that owns the stream, staged on
 //! the runner's store for the commit to publish.
-use super::Module;
+use super::{Key, Module, Parked};
 use exact_runner::{SocketOp, Store, Target};
 use serde_json::Value as Json;
 
@@ -32,6 +32,20 @@ pub(crate) fn op_from_json(text: &str) -> Result<SocketOp, String> {
         }),
         _ => Err("socket: an operation that is not text, binary or close".into()),
     }
+}
+
+/// The turn's socket snapshot, from the runner's by resource to the
+/// prelude's by stream ticket: what each handle's `bufferedAmount` starts
+/// from (op 15).
+pub(crate) fn snapshot(streams: &[(Key, Parked)], store: &Store) -> Vec<(u64, u64)> {
+    (store.socket_buffered().iter())
+        .filter_map(|&(resource, buffered)| {
+            let ticket = streams.iter().find_map(|(key, parked)| {
+                (key.0 == Some(Target::Resource(resource))).then_some(parked.ticket)
+            })?;
+            Some((ticket, buffered))
+        })
+        .collect()
 }
 
 impl Module {

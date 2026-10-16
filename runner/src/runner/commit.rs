@@ -1058,6 +1058,7 @@ impl<D: DataSource> Runner<D> {
             Target::Mutation(m) => self.plan.mutations[m].ty,
         };
         self.store.take_topics();
+        self.snapshot_sockets();
         let parsed = self
             .data
             .parse_for(p.target, &mut self.store, &p.source, &p.args, outcome);

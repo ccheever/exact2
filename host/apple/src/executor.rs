@@ -91,6 +91,10 @@ impl Executor {
     pub fn socket(&self, batch: &exact_runner::SocketSend) -> Result<Vec<(u64, u64, u64)>, String> {
         self.core.socket(batch)
     }
+    /// Each open socket's buffered bytes, by its stream ticket, live.
+    pub fn socket_reader(&self) -> exact_runner::SocketReader {
+        self.core.socket_reader()
+    }
 }
 
 /// What the bridge asks of the I/O executor (LLP 1047.001): the executor's
@@ -119,6 +123,8 @@ pub trait Io {
     fn waker(&self) -> std::sync::Arc<dyn Fn() + Send + Sync>;
     /// [`Executor::socket`].
     fn socket(&self, batch: &exact_runner::SocketSend) -> Result<Vec<(u64, u64, u64)>, String>;
+    /// [`Executor::socket_reader`].
+    fn socket_reader(&self) -> exact_runner::SocketReader;
 }
 
 impl Io for Executor {
@@ -154,6 +160,9 @@ impl Io for Executor {
     }
     fn socket(&self, batch: &exact_runner::SocketSend) -> Result<Vec<(u64, u64, u64)>, String> {
         Executor::socket(self, batch)
+    }
+    fn socket_reader(&self) -> exact_runner::SocketReader {
+        Executor::socket_reader(self)
     }
 }
 

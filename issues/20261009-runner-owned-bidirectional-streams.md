@@ -50,9 +50,15 @@ then aborts 250 ms later. The frame count comes from a local ibex2 patch,
 for expo/ibex. `state.streams` shows `readyState`, `bufferedAmount` and `sent`;
 `logs` show `socket send: N bytes (feed)`, `socket close`, and refusals.
 LLP 1016.000 D7 "As built" declares where the native hosts differ from the
-web JS target (the handle's `bufferedAmount` reads 0; the buffer check is at
-publication; a sending mutation may not also `fetch`; a process exit reads
-1006 at the server).
+web JS target (`readyState` follows the mapper's events; a 256-frame bound
+at publication; a process exit reads 1006 at the server).
+
+Decided under Charlie's delegation, 2026-10-15, after Astra's review (D7):
+`bufferedAmount` on both hosts is the transport's count at the start of each
+turn plus what the mutation has staged (the web getter had left staged bytes
+out), and a mutation cannot both send and fetch, refused before either
+effect in either order (the native module had still issued the fetch).
+Both are tested on both hosts, the drained-buffer case included.
 
 Verified: `runner/tests/it/sockets.rs` (staging, refused commits, open and
 release), `js/tests/it/socket.rs` (the prelude's handle, its refusals, a

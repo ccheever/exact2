@@ -754,6 +754,7 @@ impl<D: DataSource> Host<D> {
         }
         self.preload_wake.set(executor.waker());
         self.runner.listen(executor.waker());
+        self.runner.set_socket_reader(executor.socket_reader());
         executor
     }
 

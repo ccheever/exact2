@@ -4,8 +4,41 @@ import { FetchError, fetchWith, inOverlay, overlaying, ownWithout, redirectOf } 
 import { tsGrantSet } from './admission-data.js';
 // A stream or an upload takes the redirect mode as `fetch` is called, as Hermes
 // does: a bad one rejects before a file is read or a stream registered.
+// A mutation does one kind of effect (LLP 1016.000 D7): socket operations
+// or a fetch. Whichever comes second refuses, and so does the mutation
+// (ts-data.js); its fetch starts after the source returns, so a refused one
+// never starts.
+export const SOCKET_AND_FETCH = 'a mutation cannot both send on a socket and fetch';
 export function fetch(input, options) {
   if (overlaying.on) return Promise.reject(inOverlay('fetch()'));
+  const call = answering.call;
+  if (call?.mutation) {
+    if (call.socketOps?.length) { call.socketConflict = true; return Promise.reject(new Error(SOCKET_AND_FETCH)); }
+    call.fetched = true;
+    // A stream only registers with its answer, which ts-data.js then refuses;
+    // a body from a file is read after its source returns, and checks then.
+    if (options?.exactStream !== undefined || options?.exactBodyFrom !== undefined) return fetchOf(input, options, call);
+    // The request as it is now (a later change to the caller's options,
+    // headers or bytes is not sent); only its start waits.
+    let init;
+    try { init = captured(options); } catch (e) { return Promise.reject(e); }
+    return Promise.resolve().then(() => {
+      if (call.socketConflict) throw new Error(SOCKET_AND_FETCH);
+      return fetchWith(tsGrantSet, input, init);
+    });
+  }
+  return fetchOf(input, options);
+}
+// A fetch's own options, copied: its headers, and a byte body's bytes.
+function captured(options) {
+  if (options == null) return options;
+  const init = { ...options }, body = options.body;
+  if (options.headers !== undefined) init.headers = new Headers(options.headers);
+  if (body instanceof ArrayBuffer) init.body = body.slice(0);
+  else if (ArrayBuffer.isView(body)) init.body = new Uint8Array(body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength));
+  return init;
+}
+function fetchOf(input, options, call) {
   if (options?.exactStream === undefined && options?.exactBodyFrom === undefined) return fetchWith(tsGrantSet, input, options);
   let redirect;
   try { redirect = redirectOf(input, options); } catch (e) { return Promise.reject(e); }
@@ -33,7 +66,10 @@ export function fetch(input, options) {
       deadline?.addEventListener('abort', timedOut, { once: true });
       stop = () => { signal?.removeEventListener?.('abort', aborted); deadline?.removeEventListener('abort', timedOut); };
     });
-    return Promise.race([import('./ts-body-from.js'), ended]).finally(stop).then(m => m.fromFile(input, init, redirect, started));
+    return Promise.race([import('./ts-body-from.js'), ended]).finally(stop).then(m => {
+      if (call?.socketConflict) throw new Error(SOCKET_AND_FETCH);
+      return m.fromFile(input, init, redirect, started);
+    });
   }
   return options.exactTimeout !== undefined ? Promise.reject(new TypeError('exactTimeout: a stream has no timeout')) : stream(input, options, redirect);
 }

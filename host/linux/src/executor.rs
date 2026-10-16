@@ -140,4 +140,8 @@ impl Executor {
     pub fn socket(&self, batch: &exact_runner::SocketSend) -> Result<Vec<(u64, u64, u64)>, String> {
         self.core.socket(batch)
     }
+    /// Each open socket's buffered bytes, by its stream ticket, live.
+    pub fn socket_reader(&self) -> exact_runner::SocketReader {
+        self.core.socket_reader()
+    }
 }

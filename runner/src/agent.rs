@@ -851,7 +851,9 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
             let _ = write!(
                 s,
                 ",\"readyState\":{},\"bufferedAmount\":{},\"sent\":{}",
-                socket.ready_state, socket.buffered, socket.sent
+                socket.ready_state,
+                runner.socket_buffered(*ticket, socket.buffered),
+                socket.sent
             );
         }
         s.push('}');

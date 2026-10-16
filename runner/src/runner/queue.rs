@@ -348,6 +348,7 @@ impl<D: DataSource> Runner<D> {
     ) -> Result<Asked, RunnerError> {
         let ty = self.plan.mutations[m].ty;
         let name = |plan: &Plan| plan.str(plan.mutations[m].name).to_string();
+        self.snapshot_sockets();
         let answer = self
             .data
             .answer_for(Target::Mutation(m), &mut self.store, source, args);

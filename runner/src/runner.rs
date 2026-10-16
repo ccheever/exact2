@@ -80,7 +80,7 @@ pub mod router;
 pub use lists::{ListTextPolicy, ListTextPosition};
 mod settlement;
 mod sockets;
-pub use sockets::SocketState;
+pub use sockets::{SocketReader, SocketState};
 mod split;
 mod surface_record;
 mod time;
@@ -421,6 +421,8 @@ pub struct Runner<D: DataSource> {
     requests: Vec<RequestOut>,
     /// Socket operations of commits that stood, since the last take (D7).
     sockets: Vec<crate::SocketSend>,
+    /// The host's live count of a socket's buffered bytes (D7), if it has one.
+    socket_reader: Option<sockets::SocketReader>,
     /// Resources an action asked to re-request; consumed by the next settle
     /// that can ask them (LLP 1054.000.000 D2).
     refresh_next: Vec<usize>,
@@ -854,6 +856,7 @@ impl<D: DataSource> Runner<D> {
             held_edges: Vec::new(),
             requests: Vec::new(),
             sockets: Vec::new(),
+            socket_reader: None,
             refresh_next: Vec::new(),
             writes: writes::Writes::default(),
             overlays: Vec::new(),

@@ -212,6 +212,8 @@ fn a_two_way_socket_opens_sends_in_order_and_ends_with_its_close() {
         SocketOp::Text("bye".into()),
     ];
     peer.buffered.store(7, Ordering::Relaxed);
+    let read = core.socket_reader();
+    assert_eq!(read(1), Some(7), "the transport's bytes, live");
     assert_eq!(core.socket(&batch(ops)), Ok(vec![(1, 3, 7)]));
     assert_eq!(
         *peer.sent.lock().unwrap(),
@@ -244,6 +246,7 @@ fn a_two_way_socket_opens_sends_in_order_and_ends_with_its_close() {
         }
     );
     assert!(settled(&core));
+    assert_eq!(read(1), None, "an ended socket has no count");
     let late = batch(vec![SocketOp::Text("late".into())]);
     assert_eq!(
         core.socket(&late),

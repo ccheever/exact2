@@ -233,6 +233,16 @@ fn frame(shared: &Shared, ticket: u64, message: Message) -> Frame {
 }
 
 impl Core {
+    /// Each open socket's buffered bytes, by its stream ticket, read live
+    /// from its transport: the runner's snapshot at each turn's start.
+    pub(crate) fn socket_reader(&self) -> exact_runner::SocketReader {
+        let shared = self.shared.clone();
+        std::sync::Arc::new(move |ticket| {
+            let sockets = shared.sockets.lock().unwrap();
+            (sockets.get(&ticket)).map(|socket| socket.sender.buffered_amount() as u64)
+        })
+    }
+
     /// Send one mutation's socket batch, whose commit stood: every socket
     /// it names must still be open and wanted, and each must take its
     /// share without its buffer passing 1 MiB or 256 frames, or nothing is

@@ -727,9 +727,16 @@ Call `sendFrame` through a Contract `mutation`, after the feed reports `open`.
 the call. `close(code = 1000, reason = "")` accepts 1000 or 3000–4999 and a
 reason of at most 123 UTF-8 bytes. Both methods are allowed only during the
 mutation source's synchronous call. A source that stages socket operations
-must answer synchronously. A thrown source, wrong-shaped answer or refused
+must answer now with a value: not a promise, not a stream answer, and with
+no `fetch` in the same mutation. Whichever of a socket operation and a
+`fetch` comes second throws `a mutation cannot both send on a socket and
+fetch`, and the mutation is refused before either takes effect: no frame is
+sent and no request starts. A thrown source, wrong-shaped answer or refused
 commit sends none of them. The handle exposes read-only `readyState` (0–3)
-and `bufferedAmount`. It cannot extend the resource's lifetime.
+and `bufferedAmount`: the transport's buffered bytes as this turn of the
+module began, plus what this mutation has staged on the socket, so a turn
+that sends nothing still sees a buffer that has drained. It cannot extend
+the resource's lifetime.
 
 A mutation stages at most 256 operations and 1 MiB, including bytes already
 buffered by the browser. Overflow throws `QuotaExceededError`; a stale or
@@ -741,10 +748,9 @@ server acknowledgement. The receive queue is bounded by 256 frames and
 frames in order before ending with a `Refused` error.
 `state.streams` adds `readyState`, `bufferedAmount` and `sent` for these sockets.
 
-Natively the handle's `bufferedAmount` reads 0 and the 1 MiB buffer check
-happens when the batch is published (`state.streams` shows the transport's
-bytes), and a mutation that sends must not also `fetch`; LLP 1016.000 D7
-lists the differences. **Remaining host gap:** the web wasm target, Rust
+Natively `readyState` follows the events the mapper has seen, and
+publication also bounds the transport's buffer at 256 frames; LLP 1016.000
+D7 lists the differences. **Remaining host gap:** the web wasm target, Rust
 sources and worker-placed TypeScript do not provide the send path (on wasm
 the handle never opens). No ambient `WebSocket` constructor is admitted. SSE
 remains unchanged.

@@ -597,26 +597,42 @@
   // only when its answer is given now (`settle`). The runner publishes it
   // once the mutation's commit stands; the host checks the transport then.
   var SOCKET_OPS = 256, SOCKET_BYTES = 1048576;
+  // A mutation does one kind of effect: socket operations or a fetch, never
+  // both. Whichever comes second refuses, and so does the mutation, before
+  // either leaves: no frame is handed over and no fetch is.
+  var SOCKET_AND_FETCH = "a mutation cannot both send on a socket and fetch";
   function socketOwner(ticket) {
     var owner = { ticket: ticket, state: 0 };
+    // The transport's bytes as this turn began (the runner's snapshot,
+    // door op 15), as WHATWG's `bufferedAmount` counts them at a task's
+    // start; the bytes this turn stages on the socket add to them.
+    // (The web's wasm realm has no such door; its handle never opens.)
+    function buffered() { try { return Number(host(15, String(ticket), "")) || 0; } catch (e) { return 0; } }
     function stage(op) {
       var call = currentCall;
       if (!call || !call.mutation || !call.sync) throw new Error("socket." + (op.op === "close" ? "close" : "send") + " is only available in a mutation's synchronous source");
       if (owner.state !== 1) throw new DOMException("the socket is not open", "InvalidStateError");
-      var ops = call.socketOps || (call.socketOps = []), bytes = op.size;
+      if (call.tickets.length) { call.socketConflict = true; throw new Error(SOCKET_AND_FETCH); }
+      var ops = call.socketOps || (call.socketOps = []), bytes = op.size, mine = op.size;
       if (ops.length >= SOCKET_OPS) throw new DOMException("socket mutation exceeds 256 operations", "QuotaExceededError");
       for (var i = 0; i < ops.length; i++) {
         if (ops[i].owner === owner && ops[i].op === "close") throw new DOMException("the socket is not open", "InvalidStateError");
         bytes += ops[i].size;
+        if (ops[i].owner === owner) mine += ops[i].size;
       }
+      // The mutation's payload as a whole; this socket's buffer with what it stages on it.
       if (bytes > SOCKET_BYTES) throw new DOMException("socket mutation exceeds 1 MiB", "QuotaExceededError");
+      if (buffered() + mine > SOCKET_BYTES) throw new DOMException("socket buffer exceeds 1 MiB", "QuotaExceededError");
       op.owner = owner;
       ops.push(op);
     }
     owner.handle = Object.freeze({
       get readyState() { return owner.state; },
-      // What the transport holds is the host's (`state.streams`).
-      get bufferedAmount() { return 0; },
+      get bufferedAmount() {
+        var n = buffered(), ops = currentCall && currentCall.socketOps;
+        for (var i = 0; ops && i < ops.length; i++) if (ops[i].owner === owner) n += ops[i].size;
+        return n;
+      },
       send: function (data) {
         if (typeof data === "string") return stage({ op: "text", data: data, size: utf8Length(data) });
         if (!(data instanceof ArrayBuffer) && !ArrayBuffer.isView(data)) throw new TypeError("socket.send expects a string, ArrayBuffer or ArrayBufferView");
@@ -632,6 +648,12 @@
       },
     });
     return owner;
+  }
+  // A refused mutation's fetches, withdrawn before any was handed out.
+  function withdrawFetches(call) {
+    for (var i = 0; i < call.tickets.length; i++) { settled(call.tickets[i]); host(16, String(call.tickets[i]), ""); }
+    call.tickets = [];
+    call.socketOps = null;
   }
   // A mutation's staged operations to the host, as its answer is given.
   function handSocketOps(call) {
@@ -662,6 +684,7 @@
       return Promise.reject(orphan);
     }
     if (call.letGo) return Promise.reject(new FetchError({ kind: "Aborted", message: "the answer was let go before this fetch" }));
+    if (call.socketOps && call.socketOps.length) { call.socketConflict = true; return Promise.reject(new Error(SOCKET_AND_FETCH)); }
     var method = init && init.method ? String(init.method).toUpperCase() : "GET";
     var headers = Array.from(new global.Headers(init && init.headers).entries());
     // A BufferSource body goes as its bytes, in base64 beside the text body
@@ -1104,6 +1127,12 @@
     return text;
   }
   function settle(call, final) {
+    // A fetch its continuation tried after it staged socket operations
+    // (refused at the fetch) refuses the mutation too, before any frame.
+    if (call.socketConflict && call.status === "done") {
+      withdrawFetches(call);
+      call.status = "failed"; call.error = new Error(SOCKET_AND_FETCH);
+    }
     // Its own work first: a fetch it made that no settle has handed out,
     // then its storage steps, which move to the background once its value
     // is ready. A fetch made while it was in
@@ -1224,14 +1253,17 @@
       call.sync = true;
       try { result = global.exact.answer(source, JSON.parse(argsJson), store, storage, native); }
       finally { call.sync = false; }
-      // Staged socket operations go out only with an answer given now (D7).
-      if (call.socketOps && ((result && typeof result.then === "function") || call.tickets.length)) {
+      // Staged socket operations go out only with a value given now (D7):
+      // not with a promise, a stream answer or any other fetch.
+      if (call.socketOps && call.tickets.length) call.socketConflict = true;
+      if (call.socketConflict || (call.socketOps && result && typeof result.then === "function")) {
         if (result && typeof result.then === "function") result.then(undefined, function () {});
-        throw new Error("a socket mutation must answer synchronously");
+        throw new Error(call.socketConflict ? SOCKET_AND_FETCH : "a socket mutation must answer synchronously");
       }
     }
     catch (e) {
       calls.set(call.id, call);
+      if (call.socketConflict) { withdrawFetches(call); e = new Error(SOCKET_AND_FETCH); }
       call.socketOps = null;
       call.status = "failed"; call.error = e;
       return JSON.stringify({ tag: 3, call: call.id });

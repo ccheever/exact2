@@ -7,6 +7,10 @@
 use super::*;
 use crate::request::{SocketOp, SocketSend};
 
+/// The host's live count of the bytes a socket's transport buffers, by the
+/// socket's stream ticket; `None` for a ticket it holds no socket for.
+pub type SocketReader = std::sync::Arc<dyn Fn(u64) -> Option<u64> + Send + Sync>;
+
 /// What `state.streams` shows of a resource's socket.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SocketState {
@@ -15,11 +19,47 @@ pub struct SocketState {
     pub ready_state: u8,
     /// Frames the host has accepted for sending.
     pub sent: u64,
-    /// The transport's buffered bytes after the last publication.
+    /// The transport's buffered bytes as of the last turn or publication.
     pub buffered: u64,
 }
 
 impl<D: DataSource> Runner<D> {
+    /// Read each socket's buffered bytes from the host's transport with
+    /// `reader`, at the start of every turn that may read a handle.
+    pub fn set_socket_reader(&mut self, reader: SocketReader) {
+        self.socket_reader = Some(reader);
+    }
+
+    /// Before a mutation's or a mapper's turn: each open socket's buffered
+    /// bytes, fresh from the transport, as its handle's `bufferedAmount`
+    /// reads them for the whole turn (WHATWG's count at the task's start,
+    /// plus what the turn itself stages). Without a reader, the count the
+    /// last publication left.
+    pub(super) fn snapshot_sockets(&mut self) {
+        let mut snapshot = Vec::new();
+        for p in &mut self.pending {
+            let (Target::Resource(i), Some(socket)) =
+                (p.target, p.stream.as_mut().and_then(|s| s.socket.as_mut()))
+            else {
+                continue;
+            };
+            if socket.ready_state == 1 {
+                if let Some(buffered) = self.socket_reader.as_ref().and_then(|r| r(p.ticket)) {
+                    socket.buffered = buffered;
+                }
+                snapshot.push((i, socket.buffered));
+            }
+        }
+        self.store.set_socket_buffered(snapshot);
+    }
+
+    /// Socket `ticket`'s buffered bytes now: the host's count, else `last`.
+    pub fn socket_buffered(&self, ticket: u64, last: u64) -> u64 {
+        (self.socket_reader.as_ref())
+            .and_then(|read| read(ticket))
+            .unwrap_or(last)
+    }
+
     /// Address the operations mutation `m`'s answer staged to the open
     /// sockets of the resources they name, for publication once the commit
     /// stands. A resource whose socket is not open now refuses the whole

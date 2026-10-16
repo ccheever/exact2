@@ -2,7 +2,7 @@
 // shared web reader owns admission and lifetime; the mapper produces a
 // snapshot for every protocol frame. Loaded only for a streaming source.
 import { streamed } from './http-body.js';
-import { answering } from './ts-fetch.js';
+import { answering, SOCKET_AND_FETCH } from './ts-fetch.js';
 import { clock, journal } from './rt.js';
 import { failureCode } from './shape.js';
 import { bodyFromRefusal, methodOf, readBodyFile } from './ts-body-from.js';
@@ -30,11 +30,14 @@ function handle(transport, owner) {
     const call = answering.call;
     if (!call?.mutation) throw new Error(`socket.${op} is only available in a mutation's synchronous source`);
     if (owner.signal.aborted || owner.active?.() === false) throw new DOMException('the socket is not open', 'InvalidStateError');
+    if (call.fetched) { call.socketConflict = true; throw new Error(SOCKET_AND_FETCH); }
     const operations = call.socketOps ??= [];
     if (operations.length >= 256) throw new DOMException('socket mutation exceeds 256 operations', 'QuotaExceededError');
     if (operations.some(x => x.transport === transport && x.op === 'close')) throw new DOMException('the socket is not open', 'InvalidStateError');
-    const bytes = operations.reduce((n, x) => n + x.size, 0) + size;
-    transport.check(bytes);
+    // The mutation's payload is bounded as a whole; each socket's buffer
+    // with what the mutation stages on it.
+    if (operations.reduce((n, x) => n + x.size, 0) + size > 1048576) throw new DOMException('socket mutation exceeds 1 MiB', 'QuotaExceededError');
+    transport.check(operations.reduce((n, x) => x.transport === transport ? n + x.size : n, 0) + size);
     if (!operations.length) (call.effects ??= []).push(() => {
       // Recheck the whole batch before sending any frame: a previous mutation
       // in the same commit may have filled the browser's buffer or closed it.
@@ -53,7 +56,12 @@ function handle(transport, owner) {
   };
   return Object.freeze({
     get readyState() { return owner.signal.aborted ? 3 : transport.readyState; },
-    get bufferedAmount() { return transport.bufferedAmount; },
+    // The browser's count (WHATWG: as of the task's start, plus its sends)
+    // and what this mutation has staged on the socket.
+    get bufferedAmount() {
+      const staged = answering.call?.socketOps ?? [];
+      return transport.bufferedAmount + staged.reduce((n, x) => x.transport === transport ? n + x.size : n, 0);
+    },
     send(data) {
       let copy, size;
       if (typeof data === 'string') { copy = data; size = encoder.encode(data).length; }
