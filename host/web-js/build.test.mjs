@@ -46,3 +46,22 @@ test('production lazy host modules ignore agent storage and entropy parameters',
     rmSync(dir, { recursive: true, force: true });
   }
 }, 30000);
+
+
+test('Snapback mutation failure literals name the refused rewrite, while resource status records remain data', async () => {
+  const {ambientRefusals} = await import('../../js/bake/src/typescript.mjs');
+  const {parseAst} = await import('rolldown/parseAst');
+  const dir = mkdtempSync(resolve(import.meta.dir, '../../target/snapback-refusals-'));
+  try {
+    writeFileSync(resolve(dir, 'app.contract'), 'component App\n  mutation posted as bool\n  action post\n    send posted = post()\n  view\n    text "Hello"\n');
+    const check = code => ambientRefusals(dir, resolve(dir, 'app.ts'), code, parseAst);
+    const imports = "import { Snapback, refused } from './snapback4/snapback.ts';\n";
+    const source = "function ack() { return {ok:false, message:'No room'}; }\nconst sources = {post: () => ack(), status: () => ({ok:false})};";
+    const why = check(imports + source);
+    expect(why).toHaveLength(1);
+    expect(why[0]).toContain('app.ts:2:25: a Snapback mutation returning {ok:false} leaves failure(slot) empty; throw refused(');
+    expect(check(imports + source.replace("return {ok:false, message:'No room'}", "throw refused({code:'FULL', message:'No room'})"))).toEqual([]);
+    expect(check(source)).toEqual([]);
+    expect(check(imports + "const sources = {post: () => ({ok:false}), status: () => ({ok:false})};")).toHaveLength(1);
+  } finally {rmSync(dir, {recursive: true, force: true});}
+});

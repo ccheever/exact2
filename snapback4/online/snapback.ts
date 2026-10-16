@@ -28,6 +28,7 @@ export type Rows<T> = T[] & { complete: boolean; cut: ReadCut; server: true };
 export interface Session { principal: string; kind: string; token: string; expiresAt: number }
 export interface SessionStore { get(key: string): string | null; set(key: string, value: string): void; forget(key: string): void }
 export interface AuthOptions { store: SessionStore; key: string; now: number }
+export interface AuthConfig { guests: boolean; password: boolean; development: boolean }
 export type SignedIn = { ok: true; session: Session } | { ok: false; why: Refusal };
 export type Refreshed = { ok: true; session: Session } | { ok: false; denied: Refusal; offline?: boolean };
 // Exact creates a new secret facade per source answer; facade identity is not store identity.
@@ -156,19 +157,33 @@ export class Snapback {
       return {ok: response.ok, body: reply};
     } catch (error) { return {ok: false, body: {denied: unreached(error)}}; }
   }
-  private async signIn(path: string, email: string, password: string): Promise<SignedIn> {
+  private async signIn(path: string, credentials: { email: string; password: string } | Record<string, never>): Promise<SignedIn> {
     const auth = this.auth();
     if (this.session) throw refused({code: 'E_AUTH', message: 'Logout before signing in as another account.'});
     const raw = auth.store.get(auth.key);
-    const reply = await this.authRequest(path, {email, password});
+    const reply = await this.authRequest(path, credentials);
     this.unchanged(raw);
     const session = sessionFrom(JSON.stringify(reply.body.session ?? null), auth.now);
     if (!reply.ok || !session) return {ok: false, why: reply.body.denied ?? {code: 'E_SERVER', message: 'Invalid sign-in reply.'}};
     auth.store.set(auth.key, JSON.stringify(session));
     return {ok: true, session};
   }
-  signup(email: string, password: string): Promise<SignedIn> { return this.authWork(() => this.signIn('/auth/signup', email, password)); }
-  login(email: string, password: string): Promise<SignedIn> { return this.authWork(() => this.signIn('/auth/login', email, password)); }
+  signup(email: string, password: string): Promise<SignedIn> { return this.authWork(() => this.signIn('/auth/signup', { email, password })); }
+  login(email: string, password: string): Promise<SignedIn> { return this.authWork(() => this.signIn('/auth/login', { email, password })); }
+  /** Bare `use identity` enables guest sessions; keep one before reading or writing. */
+  guest(): Promise<SignedIn> { return this.authWork(() => this.signIn('/auth/guest', {})); }
+  /** Public discovery, available before sign-in. Never changes the stored session. */
+  async authConfig(): Promise<AuthConfig> {
+    const auth = this.options.auth, raw = auth?.store.get(auth.key);
+    let response: Response;
+    try { response = await fetch(this.options.origin.replace(/\/+$/, '') + '/auth/config', {headers: this.headers()}); }
+    catch (error) { throw refused(unreached(error)); }
+    const body = await response.json().catch(() => null);
+    if (auth) this.unchanged(raw ?? null);
+    if (!response.ok || !body || typeof body.guests !== 'boolean' || typeof body.password !== 'boolean' || typeof body.development !== 'boolean')
+      throw refused(isRefusal(body?.denied) ? body.denied : {code: 'E_SERVER', message: 'Invalid auth configuration reply.'});
+    return {guests: body.guests, password: body.password, development: body.development};
+  }
   /** Restore on mount with Contract time; refresh near expiry, keeping a still-valid session offline. */
   restore(now: number): Promise<Session | null> {
     return this.authWork(async () => {
@@ -323,7 +338,7 @@ export class Snapback {
 }
 
 export function refused(why: Refusal): Error {
-  const error = Object.assign(new Error(`${why.code}: ${why.message}`), { code: why.code, reason: why.code, refusal: why });
+  const error = Object.assign(new Error(why.message), { code: why.code, reason: why.code, refusal: why });
   if (why.code === 'E_OFFLINE') Object.defineProperties(error, {name: {value: 'FetchError', configurable: true}, kind: {value: 'Network', configurable: true, enumerable: true}});
   return error;
 }

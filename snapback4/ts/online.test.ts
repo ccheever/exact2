@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { Snapback, type Cursor } from '../online/snapback.ts';
+import { Snapback, refused, type Cursor } from '../online/snapback.ts';
 
 test('online operations use the generated args and result envelopes without a device', async () => {
   const requests: { path: string; body: unknown; persona: string | null; device: string | null }[] = [];
@@ -276,5 +276,41 @@ test('a later poll crossing expiry cannot erase a pending session replacement', 
     release();
     expect(await restoring).toMatchObject({session: {token: 'new'}});
     expect(db(14_000).session?.token).toBe('new');
+  } finally {release(); server.stop(true);}
+});
+
+
+test('online guest discovery is public, sessions persist, and auth replies cannot overwrite a changed account', async () => {
+  const store = secretStore(), requests: {path: string; method: string; body: string}[] = [];
+  let block = false, entered!: () => void, release!: () => void;
+  const started = new Promise<void>(done => {entered = done;}), held = new Promise<void>(done => {release = done;});
+  const guest = {principal: 'guest:one', kind: 'guest', token: 'guest-one', expiresAt: 100_000};
+  const server = Bun.serve({hostname: '127.0.0.1', port: 0, async fetch(request) {
+    const path = new URL(request.url).pathname;
+    requests.push({path, method: request.method, body: await request.text()});
+    if (block) {entered(); await held;}
+    if (path === '/auth/config') return Response.json({guests: true, password: true, development: false});
+    if (path === '/auth/guest') return Response.json({session: guest});
+    if (path === '/auth/logout') return Response.json({ok: true});
+    return Response.json({data: ['guest data'], complete: true});
+  }});
+  const options = {origin: `http://127.0.0.1:${server.port}`, auth: {store, key: 'session', now: 1}};
+  try {
+    const db = new Snapback(options);
+    expect(await db.authConfig()).toEqual({guests: true, password: true, development: false});
+    expect(db.session).toBeNull();
+    expect(await db.guest()).toEqual({ok: true, session: guest});
+    expect(requests[1]).toEqual({path: '/auth/guest', method: 'POST', body: '{}'});
+    expect(new Snapback(options).session).toEqual(guest);
+    expect(await db.read('private', {})).toMatchObject({data: ['guest data']});
+    await expect(db.guest()).rejects.toMatchObject({code: 'E_AUTH'});
+    await db.logout();
+    block = true;
+    const pending = db.guest(); await started;
+    store.set('session', JSON.stringify({...guest, principal: 'user:other', token: 'other'})); release();
+    await expect(pending).rejects.toMatchObject({code: 'E_STALE'});
+    expect(db.session?.token).toBe('other');
+    const error = refused({code: 'FULL', message: 'No room'});
+    expect(error).toMatchObject({code: 'FULL', reason: 'FULL', message: 'No room', refusal: {code: 'FULL', message: 'No room'}});
   } finally {release(); server.stop(true);}
 });

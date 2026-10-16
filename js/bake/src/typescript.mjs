@@ -307,6 +307,44 @@ function bound(ast) {
   walk(ast,false);
   return names;
 }
+// A Snapback mutation's returned failure is still a successful source answer.
+// Refuse the literal at build and name the throw that populates failure(slot).
+function snapbackMutationRefusals(stage, file, ast) {
+  if (relative(stage,file)!=='app.ts' || !ast.body.some(n=>n.type==='ImportDeclaration' && /(?:^|\/)snapback4\//.test(n.source.value))) return [];
+  const app=capturedOrigins(stage).at(-1)[1], contract=resolve(app,'app.contract');
+  if (!existsSync(contract)) return [];
+  const names=new Set([...readFileSync(contract,'utf8').matchAll(/\bsend\s+[\w$]+\s*=\s*([\w$]+)\s*\(/g)].map(m=>m[1]));
+  const functions=new Map(), roots=[], failed=[];
+  const key=n=>n?.type==='Identifier' ? n.name : n?.type==='Literal' ? n.value : null;
+  const scan=node=>{
+    if (!node || typeof node!=='object') return;
+    if (Array.isArray(node)) {node.forEach(scan);return;}
+    if (node.type==='FunctionDeclaration' && node.id) functions.set(node.id.name,node);
+    if (node.type==='VariableDeclarator' && ['ArrowFunctionExpression','FunctionExpression'].includes(node.init?.type)) functions.set(key(node.id),node.init);
+    if (node.type==='Property' && ['ArrowFunctionExpression','FunctionExpression'].includes(node.value?.type) && names.has(key(node.key))) roots.push(node.value);
+    for (const child of Object.values(node)) scan(child);
+  };
+  scan(ast);
+  for (const name of names) if(functions.has(name)) roots.push(functions.get(name));
+  const seen=new Set();
+  const returned=node=>{
+    node=bare(node);
+    if(node?.type==='ObjectExpression' && node.properties.some(p=>p.type==='Property' && key(p.key)==='ok' && bare(p.value)?.type==='Literal' && bare(p.value).value===false)) failed.push(node);
+    if(node?.type==='ConditionalExpression') {returned(node.consequent);returned(node.alternate);}
+  };
+  const visit=node=>{
+    if (!node || typeof node!=='object' || seen.has(node)) return;
+    seen.add(node);
+    if (Array.isArray(node)) {node.forEach(visit);return;}
+    if(node.type==='ReturnStatement') returned(node.argument);
+    if(node.type==='ArrowFunctionExpression' && node.body.type!=='BlockStatement') returned(node.body);
+    if(node.type==='CallExpression' && node.callee.type==='Identifier' && functions.has(node.callee.name)) visit(functions.get(node.callee.name));
+    for(const child of Object.values(node)) visit(child);
+  };
+  roots.forEach(visit);
+  return failed;
+}
+
 /** The direct uses of the clock, randomness and timers in the captured
  * module `file`, as `path:line:col: why` with its path in the app: `parse`
  * is Rolldown's (a plugin's `this.parse`, or `parseAst`), given TypeScript.
@@ -330,6 +368,7 @@ export function ambientRefusals(stage, file, code, parse) {
     for (const key in node) if (key!=='parent') walk(node[key]);
   };
   walk(ast);
+  for(const node of snapbackMutationRefusals(stage,file,ast)) found.push(label+':'+at(node.start)+': a Snapback mutation returning {ok:false} leaves failure(slot) empty; throw refused({code: \'YOUR_CODE\', message: \'Explain the refusal\'}) instead');
   return found;
 }
 

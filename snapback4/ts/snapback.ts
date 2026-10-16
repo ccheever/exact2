@@ -111,6 +111,7 @@ export interface Session { principal: string; kind: string; token: string; expir
 /** Exact's app-scoped secret store, under `secret.keep <key>`. */
 export interface SessionStore { get(key: string): string | null; set(key: string, value: string): void; forget(key: string): void }
 export interface AuthOptions { store: SessionStore; key: string; now: number }
+export interface AuthConfig { guests: boolean; password: boolean; development: boolean }
 export type SignedIn = { ok: true; session: Session } | { ok: false; why: Refusal };
 
 function sessionFrom(raw: string | null, now: number): Session | null {
@@ -209,9 +210,9 @@ export interface Options {
  * `reason`, so Contract's `failure(resourceOrMutation).code` preserves it
  * (`SLOT_FULL`, `NOT_MANAGER`, `E_OFFLINE`), as does `.reason`.
  * Infrastructure errors without a domain reason use Exact's six classes.
- * `message` is `CODE: message`; `refusal` retains the complete envelope. */
+ * `message` is the human-readable text; `refusal` retains the complete envelope. */
 export function refused(why: Refusal): Error {
-  const error = Object.assign(new Error(`${why.code}: ${why.message}`), { refusal: why, code: why.code, reason: why.code });
+  const error = Object.assign(new Error(why.message), { refusal: why, code: why.code, reason: why.code });
   // What `failure(x)` reads as `offline` on every host (host/web-js/shape.js
   // and js/src/prelude.js `failureCode`): a fetch's `Network` rejection.
   // Defined, not assigned: natively Error.prototype's `name` is read-only
@@ -483,13 +484,15 @@ export class Snapback {
     this.options.viewer = session.principal;
   }
 
-  private async signIn(path: string, email: string, password: string): Promise<SignedIn> {
+  private async signIn(path: string, credentials: { email: string; password: string } | Record<string, never>): Promise<SignedIn> {
     if (this.closed) throw new Error('Snapback4: this client is closed');
     const auth = this.options.auth;
-    if (!auth) throw refusal('E_CLIENT', 'signup/login needs Snapback.open auth: { store, key, now }');
+    if (!auth) throw refusal('E_CLIENT', 'guest/signup/login needs Snapback.open auth: { store, key, now }');
     // Change identity only after logout, so outstanding work cannot cross users.
     if (this.session) throw refusal('E_AUTH', 'logout before signing in as another account');
-    const reply = await this.exchange({ method: 'POST', path, body: { email, password } });
+    const raw = auth.store.get(auth.key);
+    const reply = await this.exchange({ method: 'POST', path, body: credentials });
+    if (auth.store.get(auth.key) !== raw) throw refusal('E_STALE', 'the session changed while authentication was in flight');
     if (reply.error) return { ok: false, why: { code: 'E_OFFLINE', message: String(reply.error), retryable: true } };
     const body = reply.body as { session?: Session; denied?: Refusal } | null;
     const session = sessionFrom(body?.session ? JSON.stringify(body.session) : null, 0);
@@ -500,8 +503,23 @@ export class Snapback {
     }
     return { ok: false, why: body?.denied ?? { code: 'E_AUTH', message: 'the server refused sign-in' } };
   }
-  signup(email: string, password: string): Promise<SignedIn> { return this.authWork(() => this.signIn('/auth/signup', email, password)); }
-  login(email: string, password: string): Promise<SignedIn> { return this.authWork(() => this.signIn('/auth/login', email, password)); }
+  signup(email: string, password: string): Promise<SignedIn> { return this.authWork(() => this.signIn('/auth/signup', { email, password })); }
+  login(email: string, password: string): Promise<SignedIn> { return this.authWork(() => this.signIn('/auth/login', { email, password })); }
+
+  /** Bare `use identity` enables guest sessions; keep one before reading or writing. */
+  guest(): Promise<SignedIn> { return this.authWork(() => this.signIn('/auth/guest', {})); }
+  /** Public discovery, available before sign-in. Never changes the stored session. */
+  async authConfig(): Promise<AuthConfig> {
+    if (this.closed) throw new Error('Snapback4: this client is closed');
+    const auth = this.options.auth, raw = auth?.store.get(auth.key);
+    const reply = await this.exchange({ method: 'GET', path: '/auth/config' });
+    if (this.closed || (auth && auth.store.get(auth.key) !== raw)) throw refusal('E_STALE', 'the session changed while authentication was in flight');
+    if (reply.error) throw refusal('E_OFFLINE', String(reply.error), {retryable: true});
+    const body = reply.body as Partial<AuthConfig> & {denied?: Refusal} | null;
+    if (typeof reply.status !== 'number' || reply.status < 200 || reply.status >= 300 || !body || typeof body.guests !== 'boolean' || typeof body.password !== 'boolean' || typeof body.development !== 'boolean')
+      throw refused(body?.denied ?? {code: 'E_SERVER', message: 'Invalid auth configuration reply.'});
+    return {guests: body.guests, password: body.password, development: body.development};
+  }
 
   /** Local sign-out always happens, including offline. `ok` confirms revocation. */
   async logout(): Promise<{ ok: boolean; denied?: Refusal; offline?: boolean }> {
